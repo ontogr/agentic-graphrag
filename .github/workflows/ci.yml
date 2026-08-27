@@ -27,6 +27,8 @@ jobs:
     name: Lint & Format Check
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      UV_PYTHON: "3.12"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,8 +41,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: make sync
-        env:
-          UV_PYTHON: "3.12"
       - name: Run lint checks
         run: make lint-check
       - name: Typos check
@@ -54,6 +54,8 @@ jobs:
     name: Type Checking
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      UV_PYTHON: "3.12"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,8 +68,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: make sync
-        env:
-          UV_PYTHON: "3.12"
       - name: Run type check
         run: make lint-typing
 
@@ -79,6 +79,8 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -92,8 +94,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: make sync
-        env:
-          UV_PYTHON: ${{ matrix.python-version }}
       - name: Run tests with coverage
         run: make test
       - name: Upload coverage to Codecov
@@ -118,6 +118,8 @@ jobs:
     name: Test Packaging - wheel build & install
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      UV_PYTHON: "3.12"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -131,8 +133,6 @@ jobs:
           python-version: "3.12"
       - name: Build distributions
         run: uv build
-        env:
-          UV_PYTHON: "3.12"
       - name: Install the wheel into a clean environment
         run: |
           uv venv "$RUNNER_TEMP/wheelenv"
@@ -149,6 +149,8 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      UV_PYTHON: "3.12"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -161,8 +163,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: make sync
-        env:
-          UV_PYTHON: "3.12"
       - name: Run Bandit security scan
         run: make security-bandit
         continue-on-error: true
