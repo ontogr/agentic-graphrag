@@ -56,7 +56,7 @@ repository.
 
 ## Project-specific constraints
 
-- This repository uses a flat layout with `am_diag/` at the root. Do not add a
+- This repository uses a flat layout with `agrag/` at the root. Do not add a
   `src/` package layout.
 - All public API is async unless an existing interface requires otherwise.
 - Use `pydantic-settings` for environment-backed settings classes.
