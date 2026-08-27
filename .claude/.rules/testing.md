@@ -5,7 +5,7 @@ Use these rules for tests in this repository.
 ## Organization
 
 - Use `pytest` and `pytest-asyncio` for tests, including async tests.
-- Tests mirror the `am_diag/` package structure under `tests/unit/` and
+- Tests mirror the `agrag/` package structure under `tests/unit/` and
   `tests/integration/`.
 - Use one `Test<Feature>` class per `test_<feature>.py` file.
 - `pytest-asyncio` runs in auto mode. Do not add `@pytest.mark.asyncio` to async
@@ -38,7 +38,7 @@ Use these rules for tests in this repository.
   `flaky(reruns=3, reruns_delay=30, rerun_except=[AssertionError])` markers from
   `tests/conftest.py` based on directory. Do not add these markers manually.
 - Patch external drivers at the driver boundary used by production code.
-- For Neo4j unit tests, patch `am_diag.db.graph.neo4j.AsyncGraphDatabase.driver`.
+- For Neo4j unit tests, patch `agrag.db.graph.neo4j.AsyncGraphDatabase.driver`.
 - Avoid shared mutable state between test classes because tests run in parallel.
 
 ## Maintenance

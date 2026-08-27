@@ -26,7 +26,7 @@ description: Fixes broken typing checks detected by ty or make lint-typing. Use 
    ```bash
    uv run ty check <target>
    ```
-   Use `uv run ty check am_diag/` when no narrower target is known.
+   Use `uv run ty check agrag/` when no narrower target is known.
 
 3. **Triage errors by category** before fixing anything:
    - Wrong/missing type annotations on signatures
@@ -116,7 +116,7 @@ description: Fixes broken typing checks detected by ty or make lint-typing. Use 
       transformation (e.g. lists → tensors after `.to()`), make the class
       generic so methods can return narrowed types:
       ```python
-      from typing import Generic, overload
+      from typing import Any, Generic, overload
       from typing_extensions import TypeVar
 
       _V = TypeVar("_V", default=Any)  # default=Any keeps existing code working

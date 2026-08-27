@@ -118,7 +118,7 @@ or examples only when they help the caller use the API correctly.
 
 ## Project examples
 
-Use these local patterns when documenting common am_diag component types.
+Use these local patterns when documenting common agrag component types.
 
 ### Pydantic data model
 

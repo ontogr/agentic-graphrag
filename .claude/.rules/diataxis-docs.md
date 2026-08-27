@@ -6,7 +6,7 @@ globs: *.mdx
 
 ## What binds this repo
 
-The rest of this file is generic Diátaxis reference. For `am_diag` docs, apply
+The rest of this file is generic Diátaxis reference. For `agrag` docs, apply
 these points:
 
 - Keep tutorials, how-to guides, reference, and explanation content separated

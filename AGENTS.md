@@ -95,7 +95,7 @@ make lint-fmt              # format and auto-fix with Ruff
 make lint-check            # check formatting and lint, no modifications
 make lint-typing           # type check with ty
 make lint-all              # format + lint + type check + typos
-make baml-gen              # regenerate BAML client from am_diag/llm/baml_src/
+make baml-gen              # regenerate BAML client from agrag/llm/baml_src/
 make clean                 # remove build artifacts and caches
 ```
 
@@ -166,14 +166,14 @@ Ask: would this break code that used the package last week?
 
 ## Architecture and component boundaries
 
-- All domain models belong under `am_diag/common/data_models/`; do not define
+- All domain models belong under `agrag/common/data_models/`; do not define
   feature-local domain models when a shared model is appropriate.
 - Keep graph-construction and retrieval components storage-agnostic unless they
   are explicitly in a database adapter package.
 - Validate interpolated Neo4j labels and relationship types before formatting
   Cypher.
 - Do not put multi-line Cypher string literals in Python. Queries live in
-  `.cypher` files under `am_diag/common/cypher/` and are loaded by the thin
+  `.cypher` files under `agrag/common/cypher/` and are loaded by the thin
   loader.
 - Settings classes subclass `pydantic_settings.BaseSettings`, load from the
   repo-root `.env`, and use clear environment prefixes such as `NEO4J_`,
@@ -201,8 +201,8 @@ for the full conventions.
 
 ### BAML functions
 
-- Edit BAML sources under `am_diag/llm/baml_src/`.
-- Never manually edit `am_diag/llm/baml_client/`.
+- Edit BAML sources under `agrag/llm/baml_src/`.
+- Never manually edit `agrag/llm/baml_client/`.
 - After any `.baml` change, run `make baml-gen`.
 - Read @.claude/.rules/BAML.md before editing BAML syntax, tests, clients, or
   generated output configuration.
@@ -213,7 +213,7 @@ Read @.claude/.rules/testing.md before adding or changing tests.
 
 - Use `pytest` and `pytest-asyncio`; async tests do not need
   `@pytest.mark.asyncio`.
-- Tests mirror the `am_diag/` package under `tests/unit/` and
+- Tests mirror the `agrag/` package under `tests/unit/` and
   `tests/integration/`.
 - Use one `Test<ClassName>` class per `test_<class>.py` file when practical.
 - Use descriptive behavior names such as `test_returns_empty_when_no_results`.

@@ -74,6 +74,7 @@ work.
 
 ## Project commands
 
-- Prefer Makefile targets for standard checks: `make test`, `make lint-check`,
-  `make lint-typing`, and `make lint-all`.
+- Prefer non-mutating Makefile targets for standard checks: `make test`,
+  `make lint-check`, and `make lint-typing`. Reserve `make lint-all` for explicit
+  autofix runs; it formats and applies unsafe Ruff fixes that change the checkout.
 - Use focused `uv run pytest ...` commands while developing.
