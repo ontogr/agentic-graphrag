@@ -94,7 +94,8 @@ clean:
 docs-api:
 	mkdir -p docs/docs/api
 	{ printf '%s\n' '---' 'title: API Reference' 'sidebar_position: 2' '---' ''; \
-	  uv run griffe2md agrag -f; } > docs/docs/api/index.md
+	  uv run --group docs griffe2md agrag -f; } > docs/docs/api/index.md.tmp
+	mv docs/docs/api/index.md.tmp docs/docs/api/index.md
 
 docs-install:
 	cd docs && npm ci
