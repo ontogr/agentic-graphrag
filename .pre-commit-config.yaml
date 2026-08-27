@@ -1,5 +1,10 @@
 fail_fast: true
 
+# Test fixtures under any tests/**/fixtures/ directory hold deliberately
+# non-UTF-8 bytes (latin-1, UTF-16 with BOM, CRLF line endings) that exercise
+# decode edge cases. Every hook here, including typos, must leave them alone.
+exclude: '^tests/.*/fixtures/'
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
