@@ -1,0 +1,91 @@
+/**
+ * Custom brand palette, type, radius, and shadows.
+ * Overrides Infima, the CSS framework the classic theme bundles.
+ */
+
+@font-face {
+  font-family: "General Sans";
+  src: url("/fonts/GeneralSans-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "General Sans";
+  src: url("/fonts/GeneralSans-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "General Sans";
+  src: url("/fonts/GeneralSans-Semibold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --ifm-color-primary: #1260f7;
+  --ifm-color-primary-dark: #074bcf;
+  --ifm-color-primary-darker: #0642b6;
+  --ifm-color-primary-darkest: #05399e;
+  --ifm-color-primary-light: #4381f9;
+  --ifm-color-primary-lighter: #5c92f9;
+  --ifm-color-primary-lightest: #75a2fa;
+
+  --ifm-background-color: #ffffff;
+  --ifm-background-surface-color: #ffffff;
+  --ifm-font-color-base: #102038;
+  --ifm-heading-color: #102038;
+  --ifm-color-content-secondary: #56657d;
+  --ifm-toc-border-color: #e4eaf2;
+  --ifm-table-border-color: #e4eaf2;
+  --ifm-hr-border-color: #e4eaf2;
+  --ifm-navbar-shadow: 0 1px 2px rgba(16, 32, 56, 0.04);
+
+  --ifm-font-family-base: "General Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Arial, sans-serif;
+  --ifm-heading-font-family: var(--ifm-font-family-base);
+  --ifm-heading-font-weight: 500;
+  --ifm-code-font-size: 95%;
+  --ifm-global-radius: 7px;
+  --ifm-global-shadow-lw: 0 1px 2px rgba(16, 32, 56, 0.04), 0 8px 24px rgba(16, 32, 56, 0.06);
+  --ifm-global-shadow-md: 0 2px 4px rgba(16, 32, 56, 0.05), 0 24px 60px rgba(16, 32, 56, 0.12);
+  --ifm-global-shadow-tl: var(--ifm-global-shadow-md);
+  --docusaurus-highlighted-code-line-bg: rgba(18, 96, 247, 0.08);
+}
+
+/* headings carry the same tight tracking as the marketing site */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.03em;
+}
+
+/* the marketing site's signature edge: cyan -> blue, top of the navbar */
+.navbar {
+  border-top: 4px solid transparent;
+  border-image: linear-gradient(90deg, #19dbf5 0%, #3ba0f0 42%, #1260f7 100%) 1;
+}
+
+[data-theme="dark"] {
+  --ifm-color-primary: #5aa4ff;
+  --ifm-color-primary-dark: #2788ff;
+  --ifm-color-primary-darker: #0e7aff;
+  --ifm-color-primary-darkest: #006df3;
+  --ifm-color-primary-light: #8dc0ff;
+  --ifm-color-primary-lighter: #a7ceff;
+  --ifm-color-primary-lightest: #c0dcff;
+
+  --ifm-background-color: #0a1626;
+  --ifm-background-surface-color: #13263e;
+  --ifm-font-color-base: #e9f2fd;
+  --ifm-heading-color: #e9f2fd;
+  --ifm-color-content-secondary: #a3b8d0;
+  --ifm-toc-border-color: #223d5e;
+  --ifm-table-border-color: #223d5e;
+  --ifm-hr-border-color: #223d5e;
+
+  --docusaurus-highlighted-code-line-bg: rgba(90, 164, 255, 0.15);
+}

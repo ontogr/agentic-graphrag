@@ -1,4 +1,4 @@
-.PHONY: sync lint-actions test test-integration cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help
+.PHONY: sync lint-actions test test-integration cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
 help:
 	@echo "Available make targets:"
@@ -20,6 +20,10 @@ help:
 	@echo "  make build            - Build sdist and wheel into dist/"
 	@echo "  make wheel-test       - Install the built wheel in a clean env and import it"
 	@echo "  make clean            - Clean build artifacts and cache"
+	@echo "  make docs-api         - Regenerate docs/docs/api/index.md from docstrings"
+	@echo "  make docs-install     - Install the Docusaurus site's npm dependencies"
+	@echo "  make docs-dev         - Run the Docusaurus dev server"
+	@echo "  make docs-build       - Regenerate the API reference and build the docs site"
 
 sync:
 	uv sync --all-groups --all-extras
@@ -86,3 +90,17 @@ clean:
 	find . -type d -name .pytest_cache -exec rm -rf {} +
 	find . -type d -name .ruff_cache -exec rm -rf {} +
 	find . -type d -name .ty_cache -exec rm -rf {} +
+
+docs-api:
+	mkdir -p docs/docs/api
+	{ printf '%s\n' '---' 'title: API Reference' 'sidebar_position: 2' '---' ''; \
+	  uv run griffe2md agrag -f; } > docs/docs/api/index.md
+
+docs-install:
+	cd docs && npm ci
+
+docs-dev: docs-api
+	cd docs && npm start
+
+docs-build: docs-api
+	cd docs && npm run build
