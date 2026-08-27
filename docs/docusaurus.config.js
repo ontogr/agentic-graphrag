@@ -19,8 +19,10 @@ const config = {
   },
 
   // Served at https://ontogr.github.io/agentic-graphrag/
+  // baseUrl defaults to /agentic-graphrag/ for production (GitHub Pages);
+  // preview deploys override it with the BASE_URL env var (e.g. BASE_URL=/).
   url: 'https://ontogr.github.io',
-  baseUrl: '/agentic-graphrag/',
+  baseUrl: process.env.BASE_URL ?? '/agentic-graphrag/',
 
   organizationName: 'ontogr',
   projectName: 'agentic-graphrag',
