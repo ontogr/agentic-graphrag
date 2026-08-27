@@ -26,7 +26,7 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Documentation = "https://github.com/ontogr/agentic-graphrag#readme"
+Documentation = "https://ontogr.github.io/agentic-graphrag/"
 Issues = "https://github.com/ontogr/agentic-graphrag/issues"
 Source = "https://github.com/ontogr/agentic-graphrag"
 
@@ -53,6 +53,10 @@ dev = [
   "ruff>=0.14.14",
   "ty>=0.0.32",
   "typos>=1.42.3",
+]
+
+docs = [
+  "griffe2md>=1.5.0",
 ]
 
 [tool.ruff]
@@ -150,3 +154,8 @@ unresolved-attribute = "ignore"
 [tool.bandit]
 exclude_dirs = ["/tests", "/.venv", "/build", "/dist"]
 skips = ["B101"]
+
+[tool.griffe2md]
+docstring_style = "google"
+show_signature_annotations = true
+signature_crossrefs = true

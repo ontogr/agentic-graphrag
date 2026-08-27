@@ -39,6 +39,26 @@ uv run pre-commit install
 - Google-style docstrings on public functions and classes.
 - Type annotations on public signatures.
 
+## Docs
+
+- The docs website is at `docs/`, served at `ontogr.github.io/agentic-graphrag`. Guides live as Markdown/MDX under `docs/docs/`.
+- `docs/docs/api/index.md` is generated from `agrag`'s docstrings via `griffe2md`,
+
+```bash
+make docs-install  # once, or after docs/package.json changes
+make docs-dev      # dev server with live reload, http://localhost:3000/agentic-graphrag/
+make docs-build    # regenerate the API reference and build the static site into docs/build/
+```
+
+To check the production build itself rather than the dev server:
+
+```bash
+make docs-build
+cd docs && npm run serve   # serves docs/build/ at http://localhost:3000/agentic-graphrag/
+```
+
+Pushing to `main` with changes under `docs/`, `agrag/`, or `pyproject.toml` builds and deploys automatically via `.github/workflows/docs.yml`.
+
 ## Setup Commands
 
 | Command | Description |
@@ -49,6 +69,8 @@ uv run pre-commit install
 | `make lint-check` | Check formatting and lint without modifying files |
 | `make security` | Run Bandit and pip-audit |
 | `make wheel-test` | Build the wheel and import it from a clean environment |
+| `make docs-dev` | Run the docs site locally with live reload |
+| `make docs-build` | Regenerate the API reference and build the docs site |
 | `make help` | List all targets |
 
 Run `uv run pre-commit install` once to enable the commit hooks.

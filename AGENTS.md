@@ -97,6 +97,8 @@ make lint-typing           # type check with ty
 make lint-all              # format + lint + type check + typos
 make baml-gen              # regenerate BAML client from agrag/llm/baml_src/
 make clean                 # remove build artifacts and caches
+make docs-dev               # regenerate the API reference and run the docs dev server
+make docs-build             # regenerate the API reference and build the docs site
 ```
 
 Run focused tests while iterating:
@@ -308,7 +310,14 @@ Read @.claude/.rules/diataxis-docs.md before writing user-facing docs. Read
 @.claude/.rules/workflow.md for when docs should be updated.
 
 - Update relevant docs when code behavior changes.
-- User-facing documentation belongs under `docs/`.
+- User-facing documentation is a Docusaurus site at `docs/`, served at
+  `ontogr.github.io/agentic-graphrag`. Guides live as Markdown/MDX under
+  `docs/docs/`.
+- `docs/docs/api/index.md` is generated from `agrag` docstrings via
+  `griffe2md`; run `make docs-api` to regenerate it, never edit it by hand.
+  `make docs-dev` and `make docs-build` regenerate it automatically.
+- Pushing to `main` with changes under `docs/`, `agrag/`, or `pyproject.toml`
+  builds and deploys the site via `.github/workflows/docs.yml`.
 - Keep tutorials, how-to guides, reference, and explanation content separated
   where practical.
 - Link between documentation modes instead of mixing them into one page.
@@ -343,6 +352,8 @@ Generated/excluded paths:
 
 - Do not edit `agrag/llm/baml_client/` manually.
 - Do not include generated BAML files in manual cleanup or formatting work.
+- Do not edit `docs/docs/api/index.md` manually; regenerate it with
+  `make docs-api`.
 
 ## Workflow expectations
 
