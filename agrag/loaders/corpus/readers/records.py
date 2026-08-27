@@ -13,6 +13,7 @@ from agrag.loaders.corpus.errors import MalformedRecordError
 from agrag.loaders.corpus.readers._common import (
     build_prose_document,
     build_record_document,
+    read_within_limit,
     record_source_hash,
     source_title,
 )
@@ -50,7 +51,7 @@ class CsvLoader(RecordLoader):
         Raises:
             MalformedRecordError: A row fails to parse.
         """
-        raw = stream.read()
+        raw = read_within_limit(stream, source, opts)
         decoded = decode_text(raw, opts)
         if opts.csv_mode == CsvMode.TABLE:
             yield build_prose_document(
@@ -67,7 +68,9 @@ class CsvLoader(RecordLoader):
         delimiter = opts.csv_delimiter or ("\t" if source.extension == ".tsv" else ",")
         source_hash = record_source_hash(raw)
         try:
-            reader = csv.DictReader(io.StringIO(decoded.text), delimiter=delimiter)
+            reader = csv.DictReader(
+                io.StringIO(decoded.text), delimiter=delimiter, strict=True
+            )
             for index, row in enumerate(reader):
                 if index < start_at:
                     continue
@@ -119,7 +122,7 @@ class JsonlLoader(RecordLoader):
         Raises:
             MalformedRecordError: A line is not valid JSON.
         """
-        raw = stream.read()
+        raw = read_within_limit(stream, source, opts)
         decoded = decode_text(raw, opts)
         if opts.json_mode == JsonMode.DOCUMENT:
             yield build_prose_document(
@@ -134,19 +137,23 @@ class JsonlLoader(RecordLoader):
             return
 
         source_hash = record_source_hash(raw)
-        for index, raw in enumerate(decoded.text.split("\n")):
-            if index < start_at:
-                continue
-            line = raw.strip()
+        record_index = -1
+        for line_no, raw_line in enumerate(decoded.text.split("\n")):
+            line = raw_line.strip()
             if not line:
+                continue
+            record_index += 1
+            if record_index < start_at:
                 continue
             try:
                 record = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise MalformedRecordError(
-                    f"Failed to parse line {index} of {source.uri}: {exc}"
+                    f"Failed to parse line {line_no} of {source.uri}: {exc}"
                 ) from exc
-            yield self._document(source, decoded, opts, index, record, source_hash)
+            yield self._document(
+                source, decoded, opts, record_index, record, source_hash
+            )
 
     @staticmethod
     def _document(source, decoded, opts, index, record, source_hash) -> Document:  # noqa: PLR0917
@@ -223,7 +230,7 @@ class JsonLoader(RecordLoader):
         Raises:
             MalformedRecordError: The source is not valid JSON.
         """
-        raw = stream.read()
+        raw = read_within_limit(stream, source, opts)
         decoded = decode_text(raw, opts)
         try:
             data = json.loads(decoded.text)

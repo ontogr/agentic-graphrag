@@ -8,8 +8,11 @@ from selectolax.parser import HTMLParser
 from agrag.common.data_models.document import SourceFormat
 from agrag.loaders.corpus.base import ProseLoader
 from agrag.loaders.corpus.decode import decode_text
-from agrag.loaders.corpus.errors import DocumentTooLargeError
-from agrag.loaders.corpus.readers._common import build_prose_document, source_title
+from agrag.loaders.corpus.readers._common import (
+    build_prose_document,
+    read_within_limit,
+    source_title,
+)
 from agrag.loaders.corpus.types import ReadOptions, SourceRef
 
 
@@ -44,12 +47,7 @@ class HtmlLoader(ProseLoader):
         Yields:
             One Document holding the main content text.
         """
-        raw = stream.read()
-        if source.byte_size is not None and source.byte_size > opts.max_document_bytes:
-            raise DocumentTooLargeError(
-                f"{source.uri} is {source.byte_size} bytes, over the "
-                f"{opts.max_document_bytes} limit"
-            )
+        raw = read_within_limit(stream, source, opts)
         decoded = decode_text(raw, opts)
         selector = opts.html_selector or _DEFAULT_SELECTOR
         tree = HTMLParser(decoded.text)

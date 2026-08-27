@@ -1,8 +1,7 @@
 """Splits a text Document into Chunks with the chonkie chunker."""
 
+import bisect
 from collections.abc import Iterator
-from typing import cast
-from uuid import UUID
 
 from chonkie import RecursiveChunker
 
@@ -11,17 +10,30 @@ from agrag.common.data_models.document import Document, HeadingRef
 from agrag.common.data_models.provenance import TextProvenance
 
 
-def _line_for_offset(text: str, char_offset: int) -> int:
-    """Return the 1-based line number at char_offset in normalized text.
+def _line_start_offsets(text: str) -> list[int]:
+    """Return the character offset where each line begins in normalized text.
 
     Args:
         text: The document text, with LF line endings.
+
+    Returns:
+        The offsets, in document order. The first entry is always ``0``.
+    """
+    return [0] + [index + 1 for index, char in enumerate(text) if char == "\n"]
+
+
+def _line_for_offset(line_starts: list[int], char_offset: int) -> int:
+    """Return the 1-based line number at char_offset, given precomputed line starts.
+
+    Args:
+        line_starts: The character offsets where each line begins, from
+            ``_line_start_offsets``.
         char_offset: The character offset to locate.
 
     Returns:
         The line number that contains the offset.
     """
-    return text.count("\n", 0, char_offset) + 1
+    return bisect.bisect_right(line_starts, char_offset)
 
 
 def _heading_path_for(char_start: int, outline: list[HeadingRef]) -> list[str]:
@@ -36,10 +48,11 @@ def _heading_path_for(char_start: int, outline: list[HeadingRef]) -> list[str]:
     """
     active: dict[int, str] = {}
     for heading in outline:
-        if heading.char_start <= char_start:
-            active[heading.level] = heading.text
-        else:
+        if heading.char_start > char_start:
             break
+        for level in [level for level in active if level >= heading.level]:
+            del active[level]
+        active[heading.level] = heading.text
     return [active[level] for level in sorted(active)]
 
 
@@ -61,18 +74,19 @@ def chunk_document(document: Document, chunker: RecursiveChunker) -> list[Chunk]
         The chunks, in document order.
     """
     chunks: list[Chunk] = []
+    line_starts = _line_start_offsets(document.text)
     for index, piece in enumerate(chunker.chunk(document.text)):
         char_start = piece.start_index
         char_end = piece.end_index
         provenance = TextProvenance(
             char_start=char_start,
             char_end=char_end,
-            line_start=_line_for_offset(document.text, char_start),
-            line_end=_line_for_offset(document.text, char_end),
+            line_start=_line_for_offset(line_starts, char_start),
+            line_end=_line_for_offset(line_starts, char_end),
         )
         chunks.append(
             Chunk(
-                document_id=cast(UUID, document.id),
+                document_id=document.resolved_id,
                 index=index,
                 text=piece.text,
                 provenance=provenance,

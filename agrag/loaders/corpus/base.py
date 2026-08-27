@@ -56,7 +56,8 @@ class Loader(ABC):
 class ProseLoader(Loader):
     """A loader that makes one Document per source.
 
-    This class rejects a source larger than the configured byte limit.
+    Concrete readers reject a source larger than the configured byte limit when the
+    source's byte size is known upfront (``SourceRef.byte_size`` is not ``None``).
     """
 
     family = DocumentFamily.PROSE
@@ -65,8 +66,9 @@ class ProseLoader(Loader):
 class RecordLoader(Loader):
     """A loader that makes one Document per record in a source.
 
-    This class reads one record at a time and never holds more than one record in
-    memory.
+    Concrete readers should stream records incrementally rather than materializing
+    the whole source, so a worker never holds more than the batch's worth of records
+    in memory. See each reader module for its actual memory behavior.
     """
 
     family = DocumentFamily.RECORD

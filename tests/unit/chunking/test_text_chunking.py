@@ -67,6 +67,25 @@ class TestChunkDocument:
         body_chunk = [c for c in chunks if "body" in c.text][0]
         assert "Title" in body_chunk.heading_path
 
+    def test_heading_path_drops_stale_deeper_heading(self) -> None:
+        """A shallower heading clears any deeper heading still active from before.
+
+        This exercises the private ``_heading_path_for`` helper directly. Routing
+        it through the real chunker would couple the test to exactly where
+        chonkie's tokenizer places chunk boundaries, which has nothing to do with
+        this outline-tracking bug.
+        """
+        from agrag.chunking.text import _heading_path_for  # noqa: PLC0415
+        from agrag.common.data_models.document import HeadingRef  # noqa: PLC0415
+
+        outline = [
+            HeadingRef(text="Title", level=1, char_start=0),
+            HeadingRef(text="Section One", level=2, char_start=10),
+            HeadingRef(text="Detail", level=3, char_start=20),
+            HeadingRef(text="Section Two", level=2, char_start=30),
+        ]
+        assert _heading_path_for(35, outline) == ["Title", "Section Two"]
+
 
 class TestDefaultChunker:
     """The default chunker is character-based and recursive."""

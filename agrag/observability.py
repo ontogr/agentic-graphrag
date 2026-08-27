@@ -1,10 +1,9 @@
 """OpenTelemetry wiring for the ingestion layer.
 
-This module imports only ``opentelemetry-api``. The SDK and exporters stay in the
-optional
-``observability`` extra and are never imported here; a caller wires them before opening
-a
-graph. The tracer is constructor-injected, never ambient.
+This module imports only ``opentelemetry-api``. The SDK and exporters stay in
+the optional ``observability`` extra and are never imported here; a caller
+wires them before opening a graph. The tracer is constructor-injected, never
+ambient.
 """
 
 import asyncio
@@ -20,12 +19,12 @@ def get_tracer(tracer: Tracer | None) -> Tracer:
     """Return a usable tracer.
 
     Args:
-        tracer: A caller-supplied tracer, or ``None`` to use OpenTelemetry's global
-        no-op
-            tracer.
+        tracer: A caller-supplied tracer, or ``None`` to use OpenTelemetry's
+            global no-op tracer.
 
     Returns:
-        The supplied tracer, or the global no-op tracer when the caller passed ``None``.
+        The supplied tracer, or the global no-op tracer when the caller
+        passed ``None``.
     """
     if tracer is None:
         return trace.get_tracer("agrag")
@@ -35,9 +34,9 @@ def get_tracer(tracer: Tracer | None) -> Tracer:
 def traced(tracer: Tracer | None) -> Callable[[Callable], Callable]:
     """Wrap a call in a span on the given tracer.
 
-    Use this at each pipeline call site (loader, chunker). It works on both sync and
-    async
-    functions; the span name is the wrapped callable's qualified name.
+    Use this at each pipeline call site (loader, chunker). It works on both
+    sync and async functions; the span name is the wrapped callable's
+    qualified name.
 
     Args:
         tracer: The tracer to record on, or ``None`` for a no-op span.
@@ -61,8 +60,8 @@ def traced(tracer: Tracer | None) -> Callable[[Callable], Callable]:
 
         @wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-            result = func(*args, **kwargs)
-            if inspect.isgenerator(result):
+            if inspect.isgeneratorfunction(func):
+                result = func(*args, **kwargs)
 
                 def _gen() -> Any:
                     with use_tracer.start_as_current_span(name):
@@ -70,7 +69,7 @@ def traced(tracer: Tracer | None) -> Callable[[Callable], Callable]:
 
                 return _gen()
             with use_tracer.start_as_current_span(name):
-                return result
+                return func(*args, **kwargs)
 
         return sync_wrapper
 

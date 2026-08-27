@@ -14,6 +14,7 @@ from uuid import uuid4
 
 import pytest
 
+from agrag.loaders.corpus.errors import DocumentConversionError, DocumentTooLargeError
 from agrag.loaders.corpus.types import ReadOptions, SourceRef
 
 
@@ -69,6 +70,36 @@ class TestDoclingLoader:
             docs = list(DoclingLoader().load(ref, BytesIO(raw), ReadOptions()))
 
         assert docs[0].content_hash == hashlib.sha256(raw).hexdigest()
+
+    def test_oversized_source_raises_before_conversion(self) -> None:
+        """A source over the byte limit is rejected without calling docling."""
+        from agrag.loaders.docling.loader import DoclingLoader  # noqa: PLC0415
+
+        raw = b"%PDF-1.4 fake content"
+        _docling_converter = importlib.import_module("docling.document_converter")
+
+        with patch.object(_docling_converter, "DocumentConverter") as mock_converter:
+            ref = SourceRef(uri="doc.pdf", extension=".pdf", byte_size=len(raw))
+            opts = ReadOptions(max_document_bytes=len(raw) - 1)
+            with pytest.raises(DocumentTooLargeError):
+                list(DoclingLoader().load(ref, BytesIO(raw), opts))
+
+        mock_converter.assert_not_called()
+
+    def test_conversion_failure_raises_document_conversion_error(self) -> None:
+        """A docling conversion failure is reported as an ingestion error."""
+        from docling.exceptions import ConversionError  # noqa: PLC0415
+
+        from agrag.loaders.docling.loader import DoclingLoader  # noqa: PLC0415
+
+        raw = b"%PDF-1.4 fake content"
+        _docling_converter = importlib.import_module("docling.document_converter")
+
+        with patch.object(_docling_converter, "DocumentConverter") as mock_converter:
+            mock_converter.return_value.convert.side_effect = ConversionError("bad pdf")
+            ref = SourceRef(uri="doc.pdf", extension=".pdf", byte_size=len(raw))
+            with pytest.raises(DocumentConversionError):
+                list(DoclingLoader().load(ref, BytesIO(raw), ReadOptions()))
 
 
 @pytest.mark.skipif(docling_missing, reason="docling extra not installed")
@@ -127,11 +158,14 @@ class TestDoclingChunking:
         )
 
     def test_chunk_flips_y_axis_for_bottom_left_origin(self) -> None:
-        """A bottom-left docling origin flips the vertical axis to agrag's top-left.
+        """A bottom-left docling origin converts to agrag's top-left by page height.
 
-        In a bottom-left system ``t`` is the higher edge (near the bottom of the
-        page) and ``b`` is the lower edge (near the top), so they swap roles when
-        converted to agrag's top-left ``BoundingBox``.
+        In a bottom-left system, ``t``/``b`` measure from the page's bottom edge, so
+        the box near the top of the page has large ``t``/``b`` values close to the
+        page height. Converting to agrag's top-left ``BoundingBox`` requires
+        subtracting each value from the page height, not just relabeling ``t`` and
+        ``b`` — a label-only swap would produce values near the page's bottom
+        instead.
         """
 
         class _Bbox:
@@ -160,6 +194,9 @@ class TestDoclingChunking:
         )
 
         fake_doc = MagicMock()
+        fake_page = MagicMock()
+        fake_page.size.height = 792.0
+        fake_doc.pages = {2: fake_page}
 
         _docling_chunking = importlib.import_module("docling.chunking")
 
@@ -171,7 +208,7 @@ class TestDoclingChunking:
         assert span.page_no == 2
         assert (span.bbox.x0, span.bbox.y0, span.bbox.x1, span.bbox.y1) == (
             0.0,
-            715.19,
+            792.0 - 738.984,
             497.52,
-            738.984,
+            792.0 - 715.19,
         )

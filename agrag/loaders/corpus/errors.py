@@ -53,3 +53,7 @@ class MalformedRecordError(IngestionError):
 
 class DocumentTooLargeError(IngestionError):
     """A prose source is larger than the configured byte limit."""
+
+
+class DocumentConversionError(IngestionError):
+    """A loader could not parse or convert a source's content."""

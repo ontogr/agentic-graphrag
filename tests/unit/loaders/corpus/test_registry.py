@@ -78,6 +78,28 @@ class TestLoaderRegistry:
             return
         raise AssertionError("expected MissingExtraError")
 
+    def test_falls_back_to_non_preferred_loader_when_preferred_extra_missing(
+        self,
+    ) -> None:
+        """A missing extra on the preferred loader falls back to a plain loader."""
+        registry = LoaderRegistry()
+
+        class _ExtraLoader(Loader):
+            extensions = frozenset({".mixed"})
+            extra = "this_extra_does_not_exist"
+            family = DocumentFamily.PROSE
+
+            def load(self, source, stream, opts, *, start_at=0):  # type: ignore[no-untyped-def]
+                yield from ()
+
+        fallback = _StubLoader()
+        registry.register(fallback, extensions={".mixed"})
+        registry.register(_ExtraLoader(), prefer=True, extensions={".mixed"})
+        assert (
+            registry.for_source(SourceRef(uri="x.mixed", extension=".mixed"))
+            is fallback
+        )
+
     def test_extensions_allow_list_limits_scope(self) -> None:
         """A loader registered for a subset of its extensions claims only those."""
         registry = LoaderRegistry()

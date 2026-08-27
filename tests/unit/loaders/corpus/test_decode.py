@@ -77,3 +77,33 @@ class TestDecodeText:
         """A plain stream reports no BOM."""
         assert _had_bom(b"plain") is False
         assert _had_bom(b"\xef\xbb\xbfx") is True
+
+    def test_uses_detected_text_directly_for_non_utf_encodings(
+        self, monkeypatch
+    ) -> None:
+        """A detected non-UTF match uses its own decoded text, not a re-decode.
+
+        ``CharsetMatch.output()`` re-encodes the detected text to UTF-8 bytes
+        regardless of the detected encoding, so decoding those bytes again with
+        ``match.encoding`` corrupts the text. ``str(match)`` must be used instead.
+        """
+
+        class _FakeMatch:
+            encoding = "cp1252"
+
+            def output(self):
+                return "café".encode()
+
+            def __str__(self) -> str:
+                return "café"
+
+        class _FakeCharsetMatches:
+            def best(self):
+                return _FakeMatch()
+
+        monkeypatch.setattr(
+            "agrag.loaders.corpus.decode.from_bytes", lambda raw: _FakeCharsetMatches()
+        )
+        decoded = decode_text(b"irrelevant", ReadOptions())
+        assert decoded.text == "café"
+        assert decoded.encoding == "cp1252"

@@ -71,11 +71,16 @@ class LoaderRegistry:
             The registered loader with the highest precedence for the source's
             extension.
 
+        When the top-precedence loader needs a package extra that is not installed,
+        the first non-preferred loader for the extension whose extra (if any) is
+        installed is used instead, so an optional loader's absence falls back to the
+        core reader rather than always failing the source.
+
         Raises:
             UnsupportedFormatError: No loader claims the source's extension.
             MissingExtraError: A loader is mapped to the extension, but its package
             extra
-                failed to import.
+                failed to import, and no fallback loader is available either.
         """
         entries = self._by_extension.get(source.extension)
         if not entries:
@@ -84,7 +89,16 @@ class LoaderRegistry:
         preferred = [entry for entry in entries if entry.prefer]
         chosen = preferred[-1].loader if preferred else entries[0].loader
 
-        if chosen.extra is not None and importlib.util.find_spec(chosen.extra) is None:
-            raise MissingExtraError(source.extension, chosen.extra)
+        if chosen.extra is None or importlib.util.find_spec(chosen.extra) is not None:
+            return chosen
 
-        return chosen
+        for entry in entries:
+            if entry.prefer or entry.loader is chosen:
+                continue
+            if (
+                entry.loader.extra is None
+                or importlib.util.find_spec(entry.loader.extra) is not None
+            ):
+                return entry.loader
+
+        raise MissingExtraError(source.extension, chosen.extra)

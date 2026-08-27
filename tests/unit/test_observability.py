@@ -2,6 +2,8 @@
 
 from contextlib import contextmanager
 
+import pytest
+
 from agrag.observability import get_tracer, traced
 
 
@@ -70,6 +72,19 @@ class TestTraced:
         assert await go() == 7
         assert len(tracer.spans) == 1
         assert "go" in tracer.spans[0]
+
+    def test_sync_function_exception_is_recorded_on_a_span(self) -> None:
+        """Sync function exception is recorded on a span."""
+        tracer = _RecordingTracer()
+
+        @traced(tracer)
+        def boom() -> None:
+            raise ValueError("boom")
+
+        with pytest.raises(ValueError, match="boom"):
+            boom()
+        assert len(tracer.spans) == 1
+        assert "boom" in tracer.spans[0]
 
     def test_noop_tracer_runs_without_sdk(self) -> None:
         """Noop tracer runs without sdk."""

@@ -1,5 +1,6 @@
 """The public Graph API for ingestion."""
 
+import asyncio
 import glob
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -49,7 +50,13 @@ def _resolve_paths(source: SourcesType) -> tuple[list[Path], bool]:
             paths.extend(sorted(p for p in path.rglob("*") if p.is_file()))
         elif any(ch in text for ch in "*?["):
             single_file = False
-            paths.extend(sorted(Path(m) for m in glob.glob(text, recursive=True)))
+            paths.extend(
+                sorted(
+                    Path(m)
+                    for m in glob.glob(text, recursive=True)
+                    if Path(m).is_file()
+                )
+            )
         else:
             paths.append(path)
     return paths, single_file
@@ -107,12 +114,13 @@ class Graph:
             on_progress: A callback the call runs after each batch.
 
         Returns:
-            A summary of what the call added, skipped, and quarantined.
+            A summary of what the call added, skipped, and quarantined, plus the
+            chunks it produced.
 
         Raises:
             ValueError: The call got zero, or more than one, of ``source``, ``text``,
-                and ``documents``. Also raised when ``loader`` is set with a source
-                that can match more than one file.
+                and ``documents``. Also raised when ``loader`` is set without
+                ``source``, or with a source that can match more than one file.
             UnsupportedFormatError: No loader is registered for a source's format.
             MissingExtraError: A loader is registered for a source's format, but its
                 package extra is not installed. This error follows ``error_policy``
@@ -123,6 +131,11 @@ class Graph:
             raise ValueError(
                 f"Provide exactly one of 'source', 'text', or 'documents'; got {given}."
             )
+        if loader is not None and source is None:
+            raise ValueError(
+                "A loader override requires 'source'; it has no effect on 'text' or "
+                "'documents'."
+            )
 
         chunks: list[Chunk] = []
 
@@ -131,7 +144,9 @@ class Graph:
             batches = walk.iter_batches()
         elif documents is not None:
             stats = LoadStats(documents=len(documents), sources=0)
-            chunks.extend(self._chunk_documents(list(documents)))
+            chunks.extend(
+                await asyncio.to_thread(self._chunk_documents, list(documents))
+            )
             if on_progress is not None:
                 on_progress(stats)
             return IngestResult(
@@ -140,6 +155,7 @@ class Graph:
                 skipped=stats.skipped,
                 quarantined=stats.quarantined,
                 quarantined_items=list(stats.quarantined_items),
+                chunks=chunks,
             )
         else:
             assert source is not None
@@ -161,7 +177,7 @@ class Graph:
 
         final_stats = LoadStats()
         async for batch, _cursor, stats in batches:
-            chunks.extend(self._chunk_documents(batch))
+            chunks.extend(await asyncio.to_thread(self._chunk_documents, batch))
             final_stats.documents = stats.documents
             final_stats.sources = stats.sources
             final_stats.skipped = stats.skipped
@@ -176,6 +192,7 @@ class Graph:
             skipped=final_stats.skipped,
             quarantined=final_stats.quarantined,
             quarantined_items=list(final_stats.quarantined_items),
+            chunks=chunks,
         )
 
     def _chunk_documents(self, documents: list[Document]) -> list[Chunk]:
@@ -194,7 +211,7 @@ class Graph:
                 if docling_doc is not None:
                     chunks.extend(
                         traced(self._tracer)(chunk_docling_document)(
-                            docling_doc, document.id
+                            docling_doc, document.resolved_id
                         )
                     )
                     continue

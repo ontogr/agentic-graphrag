@@ -143,22 +143,60 @@ class Document(DataPoint):
         """Compute ``id`` from the content hash unless the caller passed one."""
         if self.id is None:
             self.id = self.id_for(
-                content_hash=self.content_hash, record_id=self.record_id
+                content_hash=self.content_hash,
+                record_id=self.record_id,
+                record_index=self.record_index,
+                source_hash=self.source_hash,
             )
         return self
 
+    @property
+    def resolved_id(self) -> UUID:
+        """The document id, guaranteed non-``None`` once construction succeeds.
+
+        ``id`` is typed as optional because callers may omit it and let
+        ``_resolve_id`` derive it, but every constructed ``Document`` has a
+        non-``None`` id by the time callers see it. Use this property instead of
+        ``id`` where a non-optional value is required, such as building a ``Chunk``.
+
+        Raises:
+            RuntimeError: ``id`` is still ``None``, which means a validator was
+                bypassed, for example via ``model_construct``.
+        """
+        if self.id is None:
+            raise RuntimeError("Document.id was not resolved by its validator")
+        return self.id
+
     @classmethod
-    def id_for(cls, *, content_hash: str, record_id: str | None = None) -> UUID:
+    def id_for(
+        cls,
+        *,
+        content_hash: str,
+        record_id: str | None = None,
+        record_index: int | None = None,
+        source_hash: str | None = None,
+    ) -> UUID:
         """Compute the document id.
 
-        A record id, when given, wins over the content hash.
+        A record id, when given, wins over the content hash. Without a record id,
+        a record-family document (``record_index`` is not ``None``) mixes in its
+        source hash and row index, so two rows with identical text but no
+        configured id column still get distinct ids.
 
         Args:
             content_hash: The document's content hash.
             record_id: The value from the configured id column, when the source has one.
+            record_index: The 0-based row number, for a record-family document.
+            source_hash: The hash of the whole source file, for a record-family
+                document.
 
         Returns:
             The document id.
         """
-        key = record_id if record_id is not None else content_hash
+        if record_id is not None:
+            key = record_id
+        elif record_index is not None:
+            key = f"{source_hash}:{record_index}:{content_hash}"
+        else:
+            key = content_hash
         return uuid5(NAMESPACE_OID, f"Document:{key}")

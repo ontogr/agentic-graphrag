@@ -14,6 +14,7 @@ from typing import BinaryIO
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.loaders.corpus.base import ProseLoader
+from agrag.loaders.corpus.errors import DocumentConversionError, DocumentTooLargeError
 from agrag.loaders.corpus.types import ReadOptions, SourceRef
 
 
@@ -77,6 +78,9 @@ class DoclingLoader(ProseLoader):
 
         Raises:
             MissingExtraError: The docling extra is not installed.
+            DocumentTooLargeError: The source is larger than the configured byte
+                limit.
+            DocumentConversionError: Docling could not parse or convert the source.
         """
         from docling.datamodel.document import (  # noqa: PLC0415
             DocumentStream,
@@ -84,13 +88,25 @@ class DoclingLoader(ProseLoader):
         from docling.document_converter import (  # noqa: PLC0415
             DocumentConverter,
         )
+        from docling.exceptions import BaseError as DoclingBaseError  # noqa: PLC0415
+
+        if source.byte_size is not None and source.byte_size > opts.max_document_bytes:
+            raise DocumentTooLargeError(
+                f"{source.uri} is {source.byte_size} bytes, over the "
+                f"{opts.max_document_bytes} limit"
+            )
 
         raw = stream.read()
         content_hash = hashlib.sha256(raw).hexdigest()
         converter = DocumentConverter()
-        result = converter.convert(
-            DocumentStream(name=source.uri, stream=io.BytesIO(raw))
-        )
+        try:
+            result = converter.convert(
+                DocumentStream(name=source.uri, stream=io.BytesIO(raw))
+            )
+        except DoclingBaseError as exc:
+            raise DocumentConversionError(
+                f"docling could not convert {source.uri}: {exc}"
+            ) from exc
         text = result.document.export_to_markdown()
 
         loader_version = None

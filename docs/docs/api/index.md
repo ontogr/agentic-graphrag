@@ -355,13 +355,14 @@ Give exactly one of `source`, `text`, and `documents`.
 
 **Returns:**
 
-- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – A summary of what the call added, skipped, and quarantined.
+- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – A summary of what the call added, skipped, and quarantined, plus the
+- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – chunks it produced.
 
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – The call got zero, or more than one, of `source`, `text`,
-  and `documents`. The call also raises this error when `loader` is set
-  with a source that can match more than one file.
+  and `documents`. Also raised when `loader` is set without
+  `source`, or with a source that can match more than one file.
 - <code>[UnsupportedFormatError](#UnsupportedFormatError)</code> – No loader is registered for a source's format.
 - <code>[MissingExtraError](#MissingExtraError)</code> – A loader is registered for a source's format, but its
   package extra is not installed. This error follows `error_policy`
@@ -438,13 +439,14 @@ Give exactly one of `source`, `text`, and `documents`.
 
 **Returns:**
 
-- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – A summary of what the call added, skipped, and quarantined.
+- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – A summary of what the call added, skipped, and quarantined, plus the
+- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – chunks it produced.
 
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – The call got zero, or more than one, of `source`, `text`,
-  and `documents`. The call also raises this error when `loader` is set
-  with a source that can match more than one file.
+  and `documents`. Also raised when `loader` is set without
+  `source`, or with a source that can match more than one file.
 - <code>[UnsupportedFormatError](#UnsupportedFormatError)</code> – No loader is registered for a source's format.
 - <code>[MissingExtraError](#MissingExtraError)</code> – A loader is registered for a source's format, but its
   package extra is not installed. This error follows `error_policy`
@@ -483,11 +485,10 @@ SourcesType = Union[SourceType, Sequence[SourceType]]
 
 OpenTelemetry wiring for the ingestion layer.
 
-This module imports only `opentelemetry-api`. The SDK and exporters stay in the
-optional
-`observability` extra and are never imported here; a caller wires them before opening
-a
-graph. The tracer is constructor-injected, never ambient.
+This module imports only `opentelemetry-api`. The SDK and exporters stay in
+the optional `observability` extra and are never imported here; a caller
+wires them before opening a graph. The tracer is constructor-injected, never
+ambient.
 
 **Functions:**
 
@@ -504,11 +505,13 @@ Return a usable tracer.
 
 **Parameters:**
 
-- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A caller-supplied tracer, or `None` to use OpenTelemetry's global
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A caller-supplied tracer, or `None` to use OpenTelemetry's
+  global no-op tracer.
 
 **Returns:**
 
-- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – The supplied tracer, or the global no-op tracer when the caller passed `None`.
+- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – The supplied tracer, or the global no-op tracer when the caller
+- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – passed `None`.
 
 #### `agrag.observability.traced`
 
@@ -518,9 +521,9 @@ traced(tracer:Tracer | None) -> Callable[[Callable], Callable]
 
 Wrap a call in a span on the given tracer.
 
-Use this at each pipeline call site (loader, chunker). It works on both sync and
-async
-functions; the span name is the wrapped callable's qualified name.
+Use this at each pipeline call site (loader, chunker). It works on both
+sync and async functions; the span name is the wrapped callable's
+qualified name.
 
 **Parameters:**
 

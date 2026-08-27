@@ -15,7 +15,7 @@ from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.loaders.corpus.base import Loader
-from agrag.loaders.corpus.errors import UnsupportedFormatError
+from agrag.loaders.corpus.errors import IngestionError, UnsupportedFormatError
 from agrag.loaders.corpus.registry import LoaderRegistry
 from agrag.loaders.corpus.types import (
     ErrorPolicy,
@@ -96,6 +96,7 @@ class _CorpusWalk:
         """
         stats = LoadStats()
         batch: list[Document] = []
+        cursor = start if start is not None else LoaderCursor()
         started = start is None
 
         for path in self._paths:
@@ -119,33 +120,33 @@ class _CorpusWalk:
             if resume_index is None:
                 continue
 
+            stats.sources += 1
+            stats.bytes_read += path.stat().st_size
+            last_record_index: int | None = None
             try:
-                docs = list(
-                    traced(self._tracer)(loader.load)(
-                        source, self._open(path), self._opts, start_at=resume_index
-                    )
-                )
-            except UnsupportedFormatError as exc:
+                with self._open(path) as stream:
+                    for doc in traced(self._tracer)(loader.load)(
+                        source, stream, self._opts, start_at=resume_index
+                    ):
+                        stats.documents += 1
+                        batch.append(doc)
+                        if doc.record_index is not None:
+                            last_record_index = doc.record_index
+                        record_index = (
+                            last_record_index + 1
+                            if loader.family == DocumentFamily.RECORD
+                            and last_record_index is not None
+                            else None
+                        )
+                        cursor = LoaderCursor(uri=uri, record_index=record_index)
+                        if len(batch) >= self._batch_size:
+                            yield batch, cursor, stats
+                            batch = []
+            except IngestionError as exc:
                 self._handle_error(uri, exc, stats)
                 continue
 
-            stats.sources += 1
-            stats.bytes_read += path.stat().st_size
-            for doc in docs:
-                stats.documents += 1
-                batch.append(doc)
-
-            record_index = (
-                len(docs) if docs and loader.family == DocumentFamily.RECORD else None
-            )
-            cursor = LoaderCursor(uri=uri, record_index=record_index)
-
-            if len(batch) >= self._batch_size:
-                yield batch, cursor, stats
-                batch = []
-
-        last_uri = str(self._paths[-1]) if self._paths else ""
-        yield batch, LoaderCursor(uri=last_uri), stats
+        yield batch, cursor, stats
 
     @staticmethod
     def _open(path: Path) -> BinaryIO:
@@ -159,9 +160,7 @@ class _CorpusWalk:
         """
         return path.open("rb")
 
-    def _handle_error(
-        self, uri: str, exc: UnsupportedFormatError, stats: LoadStats
-    ) -> None:
+    def _handle_error(self, uri: str, exc: IngestionError, stats: LoadStats) -> None:
         """Apply the error policy to one source failure.
 
         Args:
@@ -170,7 +169,7 @@ class _CorpusWalk:
             stats: The running stats to update in place.
 
         Raises:
-            UnsupportedFormatError: The error policy is RAISE.
+            IngestionError: The error policy is RAISE.
         """
         if self._error_policy == ErrorPolicy.RAISE:
             raise exc

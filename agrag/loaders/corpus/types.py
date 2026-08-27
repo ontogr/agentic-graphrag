@@ -8,6 +8,11 @@ These types support the loader, decode, and walk machinery. They are feature-loc
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from agrag.chunking.text import Chunk
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +178,7 @@ class IngestResult:
         skipped: The number of sources the call skipped.
         quarantined: The number of sources the call moved to quarantine.
         quarantined_items: The uri and reason for each quarantined source.
+        chunks: The chunks the call produced, in document then chunk order.
     """
 
     documents: int = 0
@@ -180,3 +186,4 @@ class IngestResult:
     skipped: int = 0
     quarantined: int = 0
     quarantined_items: list[tuple[str, str]] = field(default_factory=list)
+    chunks: list["Chunk"] = field(default_factory=list)

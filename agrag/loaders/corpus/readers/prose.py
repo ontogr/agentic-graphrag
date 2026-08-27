@@ -9,29 +9,31 @@ from markdown_it import MarkdownIt
 from agrag.common.data_models.document import HeadingRef, SourceFormat
 from agrag.loaders.corpus.base import ProseLoader
 from agrag.loaders.corpus.decode import decode_text
-from agrag.loaders.corpus.errors import DocumentTooLargeError
 from agrag.loaders.corpus.readers._common import (
     EXTENSION_FORMAT,
     build_prose_document,
+    read_within_limit,
     source_title,
 )
 from agrag.loaders.corpus.types import DecodedText, ReadOptions, SourceRef
 
 
-def _char_offset_for_line(text: str, line_no: int) -> int:
-    """Return the character offset at the start of a 0-based line.
+def _line_start_offsets(text: str) -> list[int]:
+    """Return the character offset of the first character of each line.
+
+    Computed once per document so a caller with many headings can look up any line's
+    offset in constant time instead of rescanning the text's prefix for each one.
 
     Args:
         text: The document text, with LF line endings.
-        line_no: The 0-based line number.
 
     Returns:
-        The character offset of the line's first character.
+        The offset of line ``i``'s first character, indexed by 0-based line number.
     """
-    offset = 0
-    for line in text.split("\n")[:line_no]:
-        offset += len(line) + 1
-    return offset
+    offsets = [0]
+    for line in text.split("\n")[:-1]:
+        offsets.append(offsets[-1] + len(line) + 1)
+    return offsets
 
 
 class TextLoader(ProseLoader):
@@ -62,12 +64,7 @@ class TextLoader(ProseLoader):
         Yields:
             One Document holding the decoded text.
         """
-        raw = stream.read()
-        if source.byte_size is not None and source.byte_size > opts.max_document_bytes:
-            raise DocumentTooLargeError(
-                f"{source.uri} is {source.byte_size} bytes, over the "
-                f"{opts.max_document_bytes} limit"
-            )
+        raw = read_within_limit(stream, source, opts)
         decoded = decode_text(raw, opts)
         source_format = EXTENSION_FORMAT.get(source.extension, SourceFormat.TXT)
         yield build_prose_document(
@@ -109,12 +106,7 @@ class MarkdownLoader(ProseLoader):
         Yields:
             One Document holding the decoded text and its headings.
         """
-        raw = stream.read()
-        if source.byte_size is not None and source.byte_size > opts.max_document_bytes:
-            raise DocumentTooLargeError(
-                f"{source.uri} is {source.byte_size} bytes, over the "
-                f"{opts.max_document_bytes} limit"
-            )
+        raw = read_within_limit(stream, source, opts)
         decoded = decode_text(raw, opts)
         heading_outline, title = self._headings(decoded)
         yield build_prose_document(
@@ -141,6 +133,7 @@ class MarkdownLoader(ProseLoader):
         """
         md = MarkdownIt()
         tokens = md.parse(decoded.text)
+        line_offsets = _line_start_offsets(decoded.text)
         outline: list[HeadingRef] = []
         title: str | None = None
         pending_text: str | None = None
@@ -154,7 +147,7 @@ class MarkdownLoader(ProseLoader):
             elif token.type == "inline" and pending_level is not None:
                 pending_text = token.content
             elif token.type == "heading_close" and pending_level is not None:
-                char_start = _char_offset_for_line(decoded.text, pending_line)
+                char_start = line_offsets[pending_line]
                 text = pending_text or ""
                 if pending_level == 1 and title is None:
                     title = text
@@ -198,13 +191,9 @@ class AsciiDocLoader(ProseLoader):
         Yields:
             One Document holding the decoded text and its headings.
         """
-        raw = stream.read()
-        if source.byte_size is not None and source.byte_size > opts.max_document_bytes:
-            raise DocumentTooLargeError(
-                f"{source.uri} is {source.byte_size} bytes, over the "
-                f"{opts.max_document_bytes} limit"
-            )
+        raw = read_within_limit(stream, source, opts)
         decoded = decode_text(raw, opts)
+        line_offsets = _line_start_offsets(decoded.text)
         heading_outline: list[HeadingRef] = []
         title: str | None = None
         for line_no, line in enumerate(decoded.text.split("\n")):
@@ -213,7 +202,7 @@ class AsciiDocLoader(ProseLoader):
                 continue
             level = len(match.group(1))
             text = match.group(2).strip()
-            char_start = _char_offset_for_line(decoded.text, line_no)
+            char_start = line_offsets[line_no]
             if level == 1 and title is None:
                 title = text
             heading_outline.append(

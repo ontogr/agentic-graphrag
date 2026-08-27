@@ -3,7 +3,7 @@
 from io import BytesIO
 
 from agrag.common.data_models.document import DocumentFamily, SourceFormat
-from agrag.loaders.corpus.errors import MalformedRecordError
+from agrag.loaders.corpus.errors import DocumentTooLargeError, MalformedRecordError
 from agrag.loaders.corpus.readers.records import CsvLoader, JsonlLoader, JsonLoader
 from agrag.loaders.corpus.types import CsvMode, JsonMode, ReadOptions, SourceRef
 
@@ -95,6 +95,51 @@ class TestCsvLoader:
         )
         assert docs[0].raw_record == {"id": "1", "body": "First row body text."}
 
+    def test_store_text_false_hides_text(self) -> None:
+        """Store text false hides text."""
+        docs = _docs(CsvLoader(), "sample.csv", ".csv", ReadOptions(store_text=False))
+        assert docs[0].text == ""
+        assert docs[0].char_count == len("First row body text.")
+
+    def test_title_column_sets_title(self) -> None:
+        """Title column sets title."""
+        docs = _docs(CsvLoader(), "sample.csv", ".csv", ReadOptions(title_column="id"))
+        assert [d.title for d in docs] == ["1", "2", "3"]
+
+    def test_missing_id_column_value_raises(self) -> None:
+        """Missing id column value raises."""
+        ref = SourceRef(uri="x.csv", extension=".csv", byte_size=None)
+        source = b"id,body\n,first\n"
+        try:
+            list(CsvLoader().load(ref, BytesIO(source), ReadOptions(id_column="id")))
+        except MalformedRecordError:
+            return
+        raise AssertionError("expected MalformedRecordError")
+
+    def test_oversized_source_with_unknown_byte_size_raises(self) -> None:
+        """A record source with no reported byte size is still capped."""
+        ref = SourceRef(uri="x.csv", extension=".csv", byte_size=None)
+        source = b"id,body\n" + b"1,x\n" * 20
+        try:
+            list(
+                CsvLoader().load(
+                    ref, BytesIO(source), ReadOptions(max_document_bytes=10)
+                )
+            )
+        except DocumentTooLargeError:
+            return
+        raise AssertionError("expected DocumentTooLargeError")
+
+    def test_malformed_quoting_raises(self) -> None:
+        """An unterminated quoted field raises instead of ingesting garbled data."""
+        ref = SourceRef(uri="x.csv", extension=".csv", byte_size=None)
+        source = b'id,body\n1,"unterminated\n2,ok\n'
+        try:
+            list(CsvLoader().load(ref, BytesIO(source), ReadOptions()))
+        except MalformedRecordError:
+            return
+        raise AssertionError("expected MalformedRecordError")
+
 
 class TestJsonlLoader:
     """JSON Lines files yield one document per line."""
@@ -122,6 +167,21 @@ class TestJsonlLoader:
         except MalformedRecordError:
             return
         raise AssertionError("expected MalformedRecordError")
+
+    def test_blank_lines_do_not_shift_record_index(self) -> None:
+        """Record index counts emitted records, skipping blank physical lines."""
+        ref = SourceRef(uri="x.jsonl", extension=".jsonl", byte_size=None)
+        source = b'{"body": "one"}\n\n{"body": "two"}\n\n{"body": "three"}\n'
+        docs = list(JsonlLoader().load(ref, BytesIO(source), ReadOptions()))
+        assert [d.record_index for d in docs] == [0, 1, 2]
+
+    def test_resume_after_blank_line_uses_record_count_not_line_number(self) -> None:
+        """Resuming with start_at counts logical records, not physical lines."""
+        ref = SourceRef(uri="x.jsonl", extension=".jsonl", byte_size=None)
+        source = b'{"body": "one"}\n\n{"body": "two"}\n\n{"body": "three"}\n'
+        docs = list(JsonlLoader().load(ref, BytesIO(source), ReadOptions(), start_at=1))
+        assert [d.record_index for d in docs] == [1, 2]
+        assert docs[0].text == "two"
 
 
 class TestJsonLoader:

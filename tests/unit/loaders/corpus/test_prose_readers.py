@@ -66,6 +66,21 @@ class TestTextLoader:
             return
         raise AssertionError("expected DocumentTooLargeError")
 
+    def test_oversized_source_with_unknown_byte_size_raises(self) -> None:
+        """A source with no reported byte size is still capped, not fully buffered."""
+        ref = SourceRef(uri="x.txt", extension=".txt", byte_size=None)
+        try:
+            list(
+                TextLoader().load(
+                    ref,
+                    BytesIO(b"a" * 100),
+                    ReadOptions(max_document_bytes=10),
+                )
+            )
+        except DocumentTooLargeError:
+            return
+        raise AssertionError("expected DocumentTooLargeError")
+
 
 class TestMarkdownLoader:
     """Markdown files record a heading outline and a title."""
@@ -79,6 +94,9 @@ class TestMarkdownLoader:
         levels = [h.level for h in doc.heading_outline]
         assert levels == [1, 2, 3, 2, 2]
         assert doc.title == "Sample Document"
+        for heading in doc.heading_outline:
+            marker = "#" * heading.level
+            assert doc.text[heading.char_start :].startswith(marker)
 
 
 class TestAsciiDocLoader:
@@ -95,3 +113,6 @@ class TestAsciiDocLoader:
         assert doc.source_format == SourceFormat.ASCIIDOC
         assert doc.title == "Title"
         assert [h.level for h in doc.heading_outline] == [1, 2]
+        for heading in doc.heading_outline:
+            marker = "=" * heading.level
+            assert doc.text[heading.char_start :].startswith(marker)

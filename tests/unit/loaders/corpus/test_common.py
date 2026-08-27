@@ -63,6 +63,24 @@ class TestDocumentId:
         by_record = Document(**base, record_id="R1")
         assert by_hash.id != by_record.id
 
+    def test_duplicate_record_text_gets_distinct_ids_without_a_record_id(self) -> None:
+        """Two rows with identical text still get distinct ids by row position."""
+        base = {
+            "text": "same text",
+            "title": "t",
+            "uri": "u",
+            "source_format": SourceFormat.CSV,
+            "family": DocumentFamily.RECORD,
+            "content_hash": "dup",
+            "loader_name": "csv",
+            "char_count": 9,
+            "line_count": 1,
+            "source_hash": "s",
+        }
+        first = Document(**base, record_index=0)
+        second = Document(**base, record_index=1)
+        assert first.id != second.id
+
 
 class TestResolveTextColumn:
     """The text column resolves by name or by a known default."""
@@ -86,6 +104,14 @@ class TestResolveTextColumn:
     def test_falls_back_to_last_column(self) -> None:
         """Falls back to last column."""
         assert resolve_text_column(["id", "col"], None) == "col"
+
+    def test_empty_headers_raises(self) -> None:
+        """An empty header list raises instead of an IndexError."""
+        try:
+            resolve_text_column([], None)
+        except MalformedRecordError:
+            return
+        raise AssertionError("expected MalformedRecordError")
 
 
 class TestBuildHelpers:
@@ -127,3 +153,106 @@ class TestBuildHelpers:
     def test_record_source_hash_is_stable(self) -> None:
         """Record source hash is stable."""
         assert record_source_hash(b"abc") == record_source_hash(b"abc")
+
+    def test_build_record_document_normalizes_null_text_to_empty_string(self) -> None:
+        """A null field value becomes an empty string, not the literal ``"None"``."""
+        opts = ReadOptions()
+        doc = build_record_document(
+            source=_ref(".csv"),
+            decoded=_decoded("row"),
+            source_format=SourceFormat.CSV,
+            loader_name="csv",
+            opts=opts,
+            record_index=0,
+            record={"body": None},
+            source_hash="s",
+            title="0",
+        )
+        assert doc.text == ""
+
+    def test_build_record_document_strips_text_when_store_text_false(self) -> None:
+        """Store text false hides text but keeps char_count from the real value."""
+        opts = ReadOptions(store_text=False)
+        doc = build_record_document(
+            source=_ref(".csv"),
+            decoded=_decoded("row"),
+            source_format=SourceFormat.CSV,
+            loader_name="csv",
+            opts=opts,
+            record_index=0,
+            record={"body": "alpha"},
+            source_hash="s",
+            title="0",
+        )
+        assert doc.text == ""
+        assert doc.char_count == len("alpha")
+
+    def test_build_record_document_uses_title_column(self) -> None:
+        """The configured title column overrides the caller's fallback title."""
+        opts = ReadOptions(title_column="name")
+        doc = build_record_document(
+            source=_ref(".csv"),
+            decoded=_decoded("row"),
+            source_format=SourceFormat.CSV,
+            loader_name="csv",
+            opts=opts,
+            record_index=0,
+            record={"name": "Alpha", "body": "text"},
+            source_hash="s",
+            title="0",
+        )
+        assert doc.title == "Alpha"
+
+    def test_build_record_document_falls_back_when_title_column_missing(self) -> None:
+        """A missing title column value falls back to the caller's title."""
+        opts = ReadOptions(title_column="name")
+        doc = build_record_document(
+            source=_ref(".csv"),
+            decoded=_decoded("row"),
+            source_format=SourceFormat.CSV,
+            loader_name="csv",
+            opts=opts,
+            record_index=0,
+            record={"body": "text"},
+            source_hash="s",
+            title="0",
+        )
+        assert doc.title == "0"
+
+    def test_build_record_document_rejects_missing_id_column_value(self) -> None:
+        """A configured id column that is absent from the record raises."""
+        opts = ReadOptions(id_column="id")
+        try:
+            build_record_document(
+                source=_ref(".csv"),
+                decoded=_decoded("row"),
+                source_format=SourceFormat.CSV,
+                loader_name="csv",
+                opts=opts,
+                record_index=0,
+                record={"body": "text"},
+                source_hash="s",
+                title="0",
+            )
+        except MalformedRecordError:
+            return
+        raise AssertionError("expected MalformedRecordError")
+
+    def test_build_record_document_rejects_null_id_column_value(self) -> None:
+        """A configured id column with a null value raises, instead of colliding IDs."""
+        opts = ReadOptions(id_column="id")
+        try:
+            build_record_document(
+                source=_ref(".csv"),
+                decoded=_decoded("row"),
+                source_format=SourceFormat.CSV,
+                loader_name="csv",
+                opts=opts,
+                record_index=0,
+                record={"id": None, "body": "text"},
+                source_hash="s",
+                title="0",
+            )
+        except MalformedRecordError:
+            return
+        raise AssertionError("expected MalformedRecordError")

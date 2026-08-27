@@ -35,10 +35,14 @@ from agrag.ingestion import Graph
 async def main():
     graph = await Graph.open()
     result = await graph.add(source="path/to/file.pdf")
-    print(result.documents)
+    print(result.documents)  # number of documents ingested
 
 asyncio.run(main())
 ```
+
+Every later snippet on this page continues inside that same `async def
+main(): ...` body, using the `graph` opened above, and still runs through
+`asyncio.run(main())`.
 
 Add a directory, a glob, or a list of paths the same way:
 
@@ -109,8 +113,8 @@ print(result.skipped, result.quarantined)
 Read the outcome from the returned `IngestResult`:
 
 ```python
-print(result.documents)          # documents that were ingested
-print(result.sources)            # sources that were processed
+print(result.documents)          # count of documents ingested
+print(result.sources)            # count of sources processed
 print(result.skipped)            # count of skipped sources
 print(result.quarantined)        # count of quarantined sources
 print(result.quarantined_items)   # list of (uri, reason) tuples
@@ -145,7 +149,7 @@ loaders require the docling extra.
 | --- | --- | --- |
 | Plain text | `.txt`, `.log` | core |
 | Markdown | `.md`, `.markdown` | core |
-| AsciiDoc | `.adoc`, `.asciidoc` | core (regex) |
+| AsciiDoc | `.adoc`, `.asciidoc` | docling, falls back to core (regex) |
 | HTML | `.html`, `.htm` | core |
 | CSV / TSV | `.csv`, `.tsv` | core |
 | JSON Lines | `.jsonl`, `.ndjson` | core |
@@ -156,10 +160,13 @@ loaders require the docling extra.
 | Images | `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp` | docling |
 | XML | `.xml` | docling |
 
-For `.md`, `.html`, `.csv`, and `.asciidoc`, docling registers a loader but the
-core loader wins by default. To customize per-source reading (encoding, size
-limits, column mapping, and more), build `Document` objects through the
-lower-level loaders with `ReadOptions` from `agrag.loaders.corpus.types`.
+For `.md`, `.html`, and `.csv`, docling registers a loader but the core loader
+wins by default. For `.adoc` and `.asciidoc`, it is the other way around:
+docling's structural parser wins when the docling extra is installed, and the
+core regex-based reader is the fallback when it is not. To customize
+per-source reading (encoding, size limits, column mapping, and more), build
+`Document` objects through the lower-level loaders with `ReadOptions` from
+`agrag.loaders.corpus.types`.
 
 ## Next steps
 

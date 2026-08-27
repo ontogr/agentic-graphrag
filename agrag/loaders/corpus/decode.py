@@ -60,10 +60,10 @@ def decode_text(raw: bytes, opts: ReadOptions) -> DecodedText:
             text = raw.decode("latin-1")
             encoding = "latin-1"
         else:
-            output = match.output()
-            text = (
-                output.decode(match.encoding) if isinstance(output, bytes) else output
-            )
+            # CharsetMatch.output() re-encodes the detected text to UTF-8 bytes
+            # regardless of the detected encoding; str(match) yields that text
+            # directly without a second, mismatched decode.
+            text = str(match)
             encoding = match.encoding
 
     if text and text[0] == "\ufeff":

@@ -7,6 +7,7 @@ import pytest
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.ingestion import Graph
 from agrag.loaders.corpus.errors import UnsupportedFormatError
+from agrag.loaders.corpus.readers.prose import TextLoader
 from agrag.loaders.corpus.types import ErrorPolicy
 
 
@@ -52,6 +53,13 @@ class TestGraphAdd:
         result = await graph.add(documents=[doc])
         assert result.documents == 1
 
+    async def test_add_exposes_the_chunks_it_produced(self) -> None:
+        """Add returns the chunks it computed, not just counts."""
+        graph = await Graph.open()
+        result = await graph.add(text="a short note")
+        assert result.chunks
+        assert result.chunks[0].text
+
     async def test_add_requires_exactly_one_input(self) -> None:
         """Add requires exactly one input."""
         graph = await Graph.open()
@@ -94,3 +102,35 @@ class TestGraphAdd:
         result = await graph.add(bad, error_policy=ErrorPolicy.QUARANTINE)
         assert result.quarantined == 1
         assert result.quarantined_items
+
+    async def test_loader_override_with_text_raises(self) -> None:
+        """A loader override has no effect on ``text`` and must be rejected."""
+        graph = await Graph.open()
+        with pytest.raises(ValueError):
+            await graph.add(text="x", loader=TextLoader())
+
+    async def test_loader_override_with_documents_raises(self) -> None:
+        """A loader override has no effect on ``documents`` and must be rejected."""
+        graph = await Graph.open()
+        doc = Document(
+            text="prebuilt",
+            title="t",
+            uri="u",
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash="h",
+            loader_name="text",
+            char_count=8,
+            line_count=1,
+        )
+        with pytest.raises(ValueError):
+            await graph.add(documents=[doc], loader=TextLoader())
+
+    async def test_glob_pattern_skips_directory_matches(self, tmp_path: Path) -> None:
+        """A glob pattern that also matches a directory does not choke on it."""
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "a.txt").write_text("hello")
+        graph = await Graph.open()
+        result = await graph.add(str(tmp_path / "*"))
+        assert result.documents == 1
+        assert result.sources == 1

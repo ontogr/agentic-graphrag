@@ -34,7 +34,7 @@ def chunk_docling_document(docling_doc: object, document_id: UUID) -> list[Chunk
     chunks: list[Chunk] = []
     for index, item in enumerate(chunker.chunk(docling_doc)):  # ty: ignore[invalid-argument-type]
         text = getattr(item, "text", "")
-        page_spans = _page_spans_for(item)
+        page_spans = _page_spans_for(item, docling_doc)
         chunks.append(
             Chunk(
                 document_id=document_id,
@@ -47,33 +47,57 @@ def chunk_docling_document(docling_doc: object, document_id: UUID) -> list[Chunk
     return chunks
 
 
-def _to_agrag_bbox(bbox: Any) -> BoundingBox:
+def _page_height(docling_doc: object, page_no: int) -> float:
+    """Look up a docling page's height, in document coordinate units.
+
+    Args:
+        docling_doc: The parsed docling document.
+        page_no: The page number to look up.
+
+    Returns:
+        The page height, or ``0.0`` when the document has no matching page.
+    """
+    pages = getattr(docling_doc, "pages", None) or {}
+    page = pages.get(page_no)
+    size = getattr(page, "size", None)
+    return float(getattr(size, "height", 0.0))
+
+
+def _to_agrag_bbox(bbox: Any, docling_doc: object, page_no: int) -> BoundingBox:
     """Map a docling ``BoundingBox`` to agrag's ``BoundingBox``.
 
     docling exposes boxes as ``l/t/r/b`` and marks whether the origin is top-left
-    or bottom-left. agrag uses a top-left origin (``y0`` is the top edge), so a
-    bottom-left origin must have its vertical axis flipped.
+    or bottom-left. agrag uses a top-left origin (``y0`` is the top edge). A
+    bottom-left box measures ``t``/``b`` from the page's bottom edge, so converting
+    it needs the page height, not just relabeling ``t`` and ``b``: the new top is
+    ``page_height - old_t`` and the new bottom is ``page_height - old_b``.
 
     Args:
         bbox: The docling bounding box to convert.
+        docling_doc: The parsed docling document, used to look up the page height
+            for a bottom-left box.
+        page_no: The page the box is on.
 
     Returns:
         The equivalent agrag bounding box.
     """
     left = float(bbox.l)
-    top = float(bbox.t)
     right = float(bbox.r)
-    bottom = float(bbox.b)
     if "BOTTOMLEFT" in str(getattr(bbox, "coord_origin", "")):
-        return BoundingBox(x0=left, y0=bottom, x1=right, y1=top)
-    return BoundingBox(x0=left, y0=top, x1=right, y1=bottom)
+        page_height = _page_height(docling_doc, page_no)
+        top = page_height - float(bbox.t)
+        bottom = page_height - float(bbox.b)
+        return BoundingBox(x0=left, y0=top, x1=right, y1=bottom)
+    return BoundingBox(x0=left, y0=float(bbox.t), x1=right, y1=float(bbox.b))
 
 
-def _page_spans_for(item: object) -> list[PageSpan]:
+def _page_spans_for(item: object, docling_doc: object) -> list[PageSpan]:
     """Build the page spans for one docling chunk.
 
     Args:
         item: A docling chunk with ``meta.doc_items`` provenance.
+        docling_doc: The parsed docling document the chunk came from, used to look
+            up page heights for bottom-left boxes.
 
     Returns:
         One ``PageSpan`` per (page, bounding box) the chunk covers, in page order.
@@ -85,10 +109,11 @@ def _page_spans_for(item: object) -> list[PageSpan]:
             bbox = getattr(prov, "bbox", None)
             if bbox is None:
                 continue
+            page_no = int(getattr(prov, "page_no", 0))
             spans.append(
                 PageSpan(
-                    page_no=int(getattr(prov, "page_no", 0)),
-                    bbox=_to_agrag_bbox(bbox),
+                    page_no=page_no,
+                    bbox=_to_agrag_bbox(bbox, docling_doc, page_no),
                 )
             )
     spans.sort(key=lambda span: span.page_no)
