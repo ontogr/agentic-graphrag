@@ -3,7 +3,7 @@
 ## Project
 
 **`agrag`** — graph-based retrieval-augmented generation with agentic reasoning.
-Published to PyPI as `agentic-graphrag`; imported as `agrag`. 
+Published to PyPI as `agentic-graphrag`; imported as `agrag`.
 The repo is hosted at `ontogr/agentic-graphrag`.
 
 **Layout**: flat. The package is `agrag/` at the repo root and everything outside `agrag/`
