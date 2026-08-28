@@ -73,8 +73,8 @@ class TestTraced:
         assert len(tracer.spans) == 1
         assert "go" in tracer.spans[0]
 
-    def test_sync_function_exception_is_recorded_on_a_span(self) -> None:
-        """Sync function exception is recorded on a span."""
+    def test_span_still_opens_when_the_wrapped_function_raises(self) -> None:
+        """A span opens for the call even when the wrapped function raises."""
         tracer = _RecordingTracer()
 
         @traced(tracer)
@@ -85,6 +85,25 @@ class TestTraced:
             boom()
         assert len(tracer.spans) == 1
         assert "boom" in tracer.spans[0]
+
+    def test_keeps_span_open_for_a_generator_returned_by_a_plain_function(
+        self,
+    ) -> None:
+        """A span stays open while a manually returned generator iterates."""
+        tracer = _RecordingTracer()
+
+        def _inner():
+            yield 1
+            yield 2
+
+        @traced(tracer)
+        def wrapper():
+            return _inner()
+
+        result = list(wrapper())
+        assert result == [1, 2]
+        assert len(tracer.spans) == 1
+        assert "wrapper" in tracer.spans[0]
 
     def test_noop_tracer_runs_without_sdk(self) -> None:
         """Noop tracer runs without sdk."""

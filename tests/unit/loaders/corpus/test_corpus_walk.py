@@ -6,11 +6,11 @@ from typing import BinaryIO
 
 import pytest
 
-from agrag.common.data_models.document import Document, DocumentFamily
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.loaders.corpus import registry
 from agrag.loaders.corpus._walk import _CorpusWalk, _InMemoryWalk
 from agrag.loaders.corpus.base import Loader
-from agrag.loaders.corpus.errors import DecodeError
+from agrag.loaders.corpus.errors import DecodeError, MalformedRecordError
 from agrag.loaders.corpus.types import ErrorPolicy, LoaderCursor, ReadOptions, SourceRef
 
 
@@ -147,6 +147,63 @@ class TestCorpusWalkErrorPolicy:
             skipped = stats.skipped
         assert docs == []
         assert skipped == 1
+
+
+class _PartiallyRaisingLoader(Loader):
+    """A stub record loader that yields two rows, then fails."""
+
+    extensions = frozenset({".txt"})
+    family = DocumentFamily.RECORD
+
+    def load(
+        self,
+        source: SourceRef,
+        stream: BinaryIO,
+        opts: ReadOptions,
+        *,
+        start_at: int = 0,
+    ) -> Iterator[Document]:
+        """Yield two rows, then raise a malformed-record error."""
+        for index in range(2):
+            yield Document(
+                text=f"row {index}",
+                title=str(index),
+                uri=source.uri,
+                source_format=SourceFormat.TXT,
+                family=DocumentFamily.RECORD,
+                content_hash=f"stub-{index}",
+                loader_name="stub",
+                char_count=5,
+                record_index=index,
+            )
+        raise MalformedRecordError("stub malformed row")
+
+
+class TestCorpusWalkPartialSourceFailure:
+    """A source that fails partway through leaks neither documents nor counts."""
+
+    async def test_skip_policy_discards_documents_from_a_failed_source(
+        self, tmp_path: Path
+    ) -> None:
+        """Rows already yielded by a failing source never reach a batch."""
+        bad = tmp_path / "bad.txt"
+        bad.write_text("x")
+        walk = _CorpusWalk(
+            [bad],
+            registry=registry,
+            opts=ReadOptions(),
+            error_policy=ErrorPolicy.SKIP,
+            loader=_PartiallyRaisingLoader(),
+        )
+        docs = []
+        final_stats = None
+        async for batch, _cursor, stats in walk.iter_batches():
+            docs.extend(batch)
+            final_stats = stats
+        assert docs == []
+        assert final_stats is not None
+        assert final_stats.skipped == 1
+        assert final_stats.sources == 0
 
 
 class TestInMemoryWalk:

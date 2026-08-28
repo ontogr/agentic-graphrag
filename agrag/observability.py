@@ -8,6 +8,7 @@ ambient.
 
 import asyncio
 import inspect
+from contextlib import ExitStack
 from functools import wraps
 from typing import Any, Callable
 
@@ -23,8 +24,7 @@ def get_tracer(tracer: Tracer | None) -> Tracer:
             global no-op tracer.
 
     Returns:
-        The supplied tracer, or the global no-op tracer when the caller
-        passed ``None``.
+        The supplied tracer, or the global no-op tracer when the caller passed ``None``.
     """
     if tracer is None:
         return trace.get_tracer("agrag")
@@ -68,8 +68,27 @@ def traced(tracer: Tracer | None) -> Callable[[Callable], Callable]:
                         yield from result
 
                 return _gen()
-            with use_tracer.start_as_current_span(name):
-                return func(*args, **kwargs)
+
+            # A plain function can also return a generator it built internally
+            # (e.g. ``return self._inner_gen(x)``). Keep the span open through
+            # its iteration too, instead of closing it the instant the call
+            # returns the still-unconsumed generator.
+            stack = ExitStack()
+            stack.enter_context(use_tracer.start_as_current_span(name))
+            try:
+                result = func(*args, **kwargs)
+            except BaseException:
+                stack.close()
+                raise
+            if not inspect.isgenerator(result):
+                stack.close()
+                return result
+
+            def _gen() -> Any:
+                with stack:
+                    yield from result
+
+            return _gen()
 
         return sync_wrapper
 

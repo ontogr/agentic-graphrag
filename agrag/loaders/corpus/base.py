@@ -66,9 +66,10 @@ class ProseLoader(Loader):
 class RecordLoader(Loader):
     """A loader that makes one Document per record in a source.
 
-    Concrete readers should stream records incrementally rather than materializing
-    the whole source, so a worker never holds more than the batch's worth of records
-    in memory. See each reader module for its actual memory behavior.
+    Concrete readers read the whole source into memory, up to
+    ``opts.max_document_bytes``, then decode and parse it before yielding any
+    records. The byte limit bounds memory use; readers do not stream records
+    incrementally from disk.
     """
 
     family = DocumentFamily.RECORD

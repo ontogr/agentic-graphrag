@@ -88,7 +88,6 @@ class DoclingLoader(ProseLoader):
         from docling.document_converter import (  # noqa: PLC0415
             DocumentConverter,
         )
-        from docling.exceptions import BaseError as DoclingBaseError  # noqa: PLC0415
 
         if source.byte_size is not None and source.byte_size > opts.max_document_bytes:
             raise DocumentTooLargeError(
@@ -96,14 +95,21 @@ class DoclingLoader(ProseLoader):
                 f"{opts.max_document_bytes} limit"
             )
 
-        raw = stream.read()
+        # A stream with no reported (or a stale) byte_size still must not be read
+        # past the limit, so cap the read itself rather than trusting the size
+        # check above alone.
+        raw = stream.read(opts.max_document_bytes + 1)
+        if len(raw) > opts.max_document_bytes:
+            raise DocumentTooLargeError(
+                f"{source.uri} is over the {opts.max_document_bytes} byte limit"
+            )
         content_hash = hashlib.sha256(raw).hexdigest()
         converter = DocumentConverter()
         try:
             result = converter.convert(
                 DocumentStream(name=source.uri, stream=io.BytesIO(raw))
             )
-        except DoclingBaseError as exc:
+        except Exception as exc:
             raise DocumentConversionError(
                 f"docling could not convert {source.uri}: {exc}"
             ) from exc

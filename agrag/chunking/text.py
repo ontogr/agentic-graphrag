@@ -1,6 +1,7 @@
 """Splits a text Document into Chunks with the chonkie chunker."""
 
 import bisect
+from array import array
 from collections.abc import Iterator
 
 from chonkie import RecursiveChunker
@@ -10,8 +11,12 @@ from agrag.common.data_models.document import Document, HeadingRef
 from agrag.common.data_models.provenance import TextProvenance
 
 
-def _line_start_offsets(text: str) -> list[int]:
+def _line_start_offsets(text: str) -> array:
     """Return the character offset where each line begins in normalized text.
+
+    Uses a compact ``array`` of 64-bit ints rather than a list of Python ints,
+    since a large, densely-lined document would otherwise hold one boxed int
+    object per line just to support the bisect lookup below.
 
     Args:
         text: The document text, with LF line endings.
@@ -19,10 +24,12 @@ def _line_start_offsets(text: str) -> list[int]:
     Returns:
         The offsets, in document order. The first entry is always ``0``.
     """
-    return [0] + [index + 1 for index, char in enumerate(text) if char == "\n"]
+    offsets = array("q", (0,))
+    offsets.extend(index + 1 for index, char in enumerate(text) if char == "\n")
+    return offsets
 
 
-def _line_for_offset(line_starts: list[int], char_offset: int) -> int:
+def _line_for_offset(line_starts: array, char_offset: int) -> int:
     """Return the 1-based line number at char_offset, given precomputed line starts.
 
     Args:

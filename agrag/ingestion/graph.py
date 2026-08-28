@@ -114,8 +114,7 @@ class Graph:
             on_progress: A callback the call runs after each batch.
 
         Returns:
-            A summary of what the call added, skipped, and quarantined, plus the
-            chunks it produced.
+            A summary of what was added, skipped, and quarantined, plus its chunks.
 
         Raises:
             ValueError: The call got zero, or more than one, of ``source``, ``text``,

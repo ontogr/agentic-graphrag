@@ -46,7 +46,10 @@ def read_within_limit(stream: BinaryIO, source: SourceRef, opts: ReadOptions) ->
 
     Raises:
         DocumentTooLargeError: The source is, or would be, over the limit.
+        ValueError: ``opts.max_document_bytes`` is not a positive integer.
     """
+    if opts.max_document_bytes <= 0:
+        raise ValueError("max_document_bytes must be a positive integer")
     if source.byte_size is not None and source.byte_size > opts.max_document_bytes:
         raise DocumentTooLargeError(
             f"{source.uri} is {source.byte_size} bytes, over the "

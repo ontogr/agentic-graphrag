@@ -120,31 +120,40 @@ class _CorpusWalk:
             if resume_index is None:
                 continue
 
-            stats.sources += 1
-            stats.bytes_read += path.stat().st_size
-            last_record_index: int | None = None
+            # A source is staged in its own buffer and only merged into the
+            # yielded batch once its loader finishes without raising, so a
+            # source that fails partway through never leaks the documents it
+            # already produced into the batch stream.
+            source_batch: list[Document] = []
+            source_bytes = path.stat().st_size
+            resume_position = resume_index
+            source_cursor = cursor
             try:
                 with self._open(path) as stream:
                     for doc in traced(self._tracer)(loader.load)(
                         source, stream, self._opts, start_at=resume_index
                     ):
                         stats.documents += 1
-                        batch.append(doc)
-                        if doc.record_index is not None:
-                            last_record_index = doc.record_index
-                        record_index = (
-                            last_record_index + 1
-                            if loader.family == DocumentFamily.RECORD
-                            and last_record_index is not None
-                            else None
-                        )
-                        cursor = LoaderCursor(uri=uri, record_index=record_index)
-                        if len(batch) >= self._batch_size:
+                        source_batch.append(doc)
+                        record_index = None
+                        if loader.family == DocumentFamily.RECORD:
+                            resume_position += 1
+                            record_index = resume_position
+                        source_cursor = LoaderCursor(uri=uri, record_index=record_index)
+                        if len(batch) + len(source_batch) >= self._batch_size:
+                            batch.extend(source_batch)
+                            source_batch = []
+                            cursor = source_cursor
                             yield batch, cursor, stats
                             batch = []
             except IngestionError as exc:
                 self._handle_error(uri, exc, stats)
                 continue
+
+            stats.sources += 1
+            stats.bytes_read += source_bytes
+            batch.extend(source_batch)
+            cursor = source_cursor
 
         yield batch, cursor, stats
 

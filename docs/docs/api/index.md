@@ -355,8 +355,7 @@ Give exactly one of `source`, `text`, and `documents`.
 
 **Returns:**
 
-- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – A summary of what the call added, skipped, and quarantined, plus the
-- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – chunks it produced.
+- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – A summary of what was added, skipped, and quarantined, plus its chunks.
 
 **Raises:**
 
@@ -439,8 +438,7 @@ Give exactly one of `source`, `text`, and `documents`.
 
 **Returns:**
 
-- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – A summary of what the call added, skipped, and quarantined, plus the
-- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – chunks it produced.
+- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – A summary of what was added, skipped, and quarantined, plus its chunks.
 
 **Raises:**
 
@@ -510,8 +508,7 @@ Return a usable tracer.
 
 **Returns:**
 
-- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – The supplied tracer, or the global no-op tracer when the caller
-- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – passed `None`.
+- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – The supplied tracer, or the global no-op tracer when the caller passed `None`.
 
 #### `agrag.observability.traced`
 

@@ -63,7 +63,7 @@ def _page_height(docling_doc: object, page_no: int) -> float:
     return float(getattr(size, "height", 0.0))
 
 
-def _to_agrag_bbox(bbox: Any, docling_doc: object, page_no: int) -> BoundingBox:
+def _to_agrag_bbox(bbox: Any, docling_doc: object, page_no: int) -> BoundingBox | None:
     """Map a docling ``BoundingBox`` to agrag's ``BoundingBox``.
 
     docling exposes boxes as ``l/t/r/b`` and marks whether the origin is top-left
@@ -79,12 +79,16 @@ def _to_agrag_bbox(bbox: Any, docling_doc: object, page_no: int) -> BoundingBox:
         page_no: The page the box is on.
 
     Returns:
-        The equivalent agrag bounding box.
+        The equivalent agrag bounding box, or ``None`` when the box is bottom-left
+        and the page height cannot be determined, since the flip cannot be
+        computed and returning an unflipped or zero-based box would be wrong.
     """
     left = float(bbox.l)
     right = float(bbox.r)
     if "BOTTOMLEFT" in str(getattr(bbox, "coord_origin", "")):
         page_height = _page_height(docling_doc, page_no)
+        if page_height <= 0.0:
+            return None
         top = page_height - float(bbox.t)
         bottom = page_height - float(bbox.b)
         return BoundingBox(x0=left, y0=top, x1=right, y1=bottom)
@@ -101,6 +105,8 @@ def _page_spans_for(item: object, docling_doc: object) -> list[PageSpan]:
 
     Returns:
         One ``PageSpan`` per (page, bounding box) the chunk covers, in page order.
+        A bottom-left box on a page whose height cannot be determined is omitted,
+        since its coordinates cannot be converted.
     """
     spans: list[PageSpan] = []
     doc_items: list[Any] = getattr(getattr(item, "meta", None), "doc_items", []) or []
@@ -110,11 +116,9 @@ def _page_spans_for(item: object, docling_doc: object) -> list[PageSpan]:
             if bbox is None:
                 continue
             page_no = int(getattr(prov, "page_no", 0))
-            spans.append(
-                PageSpan(
-                    page_no=page_no,
-                    bbox=_to_agrag_bbox(bbox, docling_doc, page_no),
-                )
-            )
+            converted = _to_agrag_bbox(bbox, docling_doc, page_no)
+            if converted is None:
+                continue
+            spans.append(PageSpan(page_no=page_no, bbox=converted))
     spans.sort(key=lambda span: span.page_no)
     return spans

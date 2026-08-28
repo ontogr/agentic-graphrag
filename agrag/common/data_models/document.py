@@ -77,8 +77,9 @@ class Document(DataPoint):
     runs on different hardware.
 
     The system computes ``id`` from ``content_hash`` and ``record_id`` unless the caller
-    passes ``id`` directly. Pass ``id`` only when rebuilding a document from stored
-    data.
+    passes ``id`` directly. A record-family document without ``record_id`` also mixes
+    in ``source_hash`` and ``record_index``, so it must set ``source_hash`` or the
+    validator rejects it. Pass ``id`` only when rebuilding a document from stored data.
 
     Attributes:
         text: The document text. For a docling source, this holds docling's Markdown
@@ -147,6 +148,7 @@ class Document(DataPoint):
                 record_id=self.record_id,
                 record_index=self.record_index,
                 source_hash=self.source_hash,
+                uri=self.uri,
             )
         return self
 
@@ -175,13 +177,16 @@ class Document(DataPoint):
         record_id: str | None = None,
         record_index: int | None = None,
         source_hash: str | None = None,
+        uri: str | None = None,
     ) -> UUID:
         """Compute the document id.
 
         A record id, when given, wins over the content hash. Without a record id,
         a record-family document (``record_index`` is not ``None``) mixes in its
         source hash and row index, so two rows with identical text but no
-        configured id column still get distinct ids.
+        configured id column still get distinct ids. When the source hash is not
+        available, this falls back to ``uri`` so that two different sources still
+        do not collide.
 
         Args:
             content_hash: The document's content hash.
@@ -189,6 +194,8 @@ class Document(DataPoint):
             record_index: The 0-based row number, for a record-family document.
             source_hash: The hash of the whole source file, for a record-family
                 document.
+            uri: The document's source location, used in place of ``source_hash``
+                when the caller does not supply one.
 
         Returns:
             The document id.
@@ -196,7 +203,7 @@ class Document(DataPoint):
         if record_id is not None:
             key = record_id
         elif record_index is not None:
-            key = f"{source_hash}:{record_index}:{content_hash}"
+            key = f"{source_hash or uri}:{record_index}:{content_hash}"
         else:
             key = content_hash
         return uuid5(NAMESPACE_OID, f"Document:{key}")

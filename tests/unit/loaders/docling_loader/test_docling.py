@@ -101,6 +101,39 @@ class TestDoclingLoader:
             with pytest.raises(DocumentConversionError):
                 list(DoclingLoader().load(ref, BytesIO(raw), ReadOptions()))
 
+    def test_non_docling_conversion_failure_is_wrapped_too(self) -> None:
+        """A non-docling exception from convert() is still a conversion error.
+
+        A model-download failure or a malformed-input bug in docling itself can
+        raise a plain ``RuntimeError`` instead of a docling exception. It must
+        still be wrapped so the walker's SKIP/QUARANTINE policies can catch it.
+        """
+        from agrag.loaders.docling.loader import DoclingLoader  # noqa: PLC0415
+
+        raw = b"%PDF-1.4 fake content"
+        _docling_converter = importlib.import_module("docling.document_converter")
+
+        with patch.object(_docling_converter, "DocumentConverter") as mock_converter:
+            mock_converter.return_value.convert.side_effect = RuntimeError("no model")
+            ref = SourceRef(uri="doc.pdf", extension=".pdf", byte_size=len(raw))
+            with pytest.raises(DocumentConversionError):
+                list(DoclingLoader().load(ref, BytesIO(raw), ReadOptions()))
+
+    def test_unknown_byte_size_is_still_capped_at_the_limit(self) -> None:
+        """A source with no reported byte_size cannot be read past the limit."""
+        from agrag.loaders.docling.loader import DoclingLoader  # noqa: PLC0415
+
+        raw = b"%PDF-1.4 fake content over the limit"
+        _docling_converter = importlib.import_module("docling.document_converter")
+
+        with patch.object(_docling_converter, "DocumentConverter") as mock_converter:
+            ref = SourceRef(uri="doc.pdf", extension=".pdf", byte_size=None)
+            opts = ReadOptions(max_document_bytes=len(raw) - 1)
+            with pytest.raises(DocumentTooLargeError):
+                list(DoclingLoader().load(ref, BytesIO(raw), opts))
+
+        mock_converter.assert_not_called()
+
 
 @pytest.mark.skipif(docling_missing, reason="docling extra not installed")
 class TestDoclingChunking:
@@ -212,3 +245,48 @@ class TestDoclingChunking:
             497.52,
             792.0 - 715.19,
         )
+
+    def test_chunk_skips_bottom_left_span_when_page_height_is_unknown(self) -> None:
+        """A bottom-left box on an unresolvable page is dropped, not inverted.
+
+        Without a real page height the flip cannot be computed, and subtracting
+        from the ``0.0`` sentinel would silently produce negative coordinates.
+        """
+
+        class _Bbox:
+            l = 0.0  # noqa: E741
+            t = 738.984
+            r = 497.52
+            b = 715.19
+            coord_origin = "BOTTOMLEFT"
+
+        class _Prov:
+            page_no = 9
+            bbox = _Bbox()
+
+        class _DocItem:
+            prov = [_Prov()]
+
+        class _Meta:
+            doc_items = [_DocItem()]
+
+        class _Item:
+            text = "chunk three"
+            meta = _Meta()
+
+        from agrag.loaders.docling.chunking import (  # noqa: PLC0415
+            chunk_docling_document,
+        )
+
+        fake_doc = MagicMock()
+        fake_doc.pages = {}
+
+        _docling_chunking = importlib.import_module("docling.chunking")
+
+        with patch.object(_docling_chunking, "HybridChunker") as mock_chunker:
+            mock_chunker.return_value.chunk.return_value = [_Item()]
+            chunks = chunk_docling_document(fake_doc, uuid4())
+
+        assert len(chunks) == 1
+        assert chunks[0].text == "chunk three"
+        assert chunks[0].provenance.page_spans == []

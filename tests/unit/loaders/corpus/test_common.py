@@ -1,10 +1,15 @@
 """Tests for the shared corpus reader helpers and Document id rules."""
 
+from io import BytesIO
+
+import pytest
+
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.loaders.corpus.errors import MalformedRecordError
 from agrag.loaders.corpus.readers._common import (
     build_prose_document,
     build_record_document,
+    read_within_limit,
     record_source_hash,
     resolve_text_column,
     source_title,
@@ -80,6 +85,41 @@ class TestDocumentId:
         first = Document(**base, record_index=0)
         second = Document(**base, record_index=1)
         assert first.id != second.id
+
+    def test_identical_rows_from_different_sources_get_distinct_ids(self) -> None:
+        """Two sources without source_hash still get distinct ids, via uri."""
+        base = {
+            "text": "same text",
+            "title": "t",
+            "source_format": SourceFormat.CSV,
+            "family": DocumentFamily.RECORD,
+            "content_hash": "dup",
+            "loader_name": "csv",
+            "char_count": 9,
+            "line_count": 1,
+            "record_index": 0,
+        }
+        first = Document(**base, uri="a.csv")
+        second = Document(**base, uri="b.csv")
+        assert first.id != second.id
+
+
+class TestReadWithinLimit:
+    """The shared read helper enforces a usable, positive byte limit."""
+
+    def test_rejects_a_negative_limit_instead_of_reading_unbounded(self) -> None:
+        """A negative limit must not fall through to an unbounded stream read."""
+        opts = ReadOptions(max_document_bytes=-2)
+        stream = BytesIO(b"x" * 10)
+        with pytest.raises(ValueError, match="max_document_bytes"):
+            read_within_limit(stream, _ref(".txt"), opts)
+
+    def test_rejects_a_zero_limit(self) -> None:
+        """A limit of zero is degenerate and must not silently pass through."""
+        opts = ReadOptions(max_document_bytes=0)
+        stream = BytesIO(b"x")
+        with pytest.raises(ValueError, match="max_document_bytes"):
+            read_within_limit(stream, _ref(".txt"), opts)
 
 
 class TestResolveTextColumn:
