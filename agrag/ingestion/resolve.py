@@ -189,7 +189,7 @@ class LLMVerify(Comparator):
             )
             baml_options = {"client_registry": registry}
         try:
-            is_match = await client.VerifyEntityMatch(
+            is_match = await client.VerifyEntityMatch(  # ty: ignore[unresolved-attribute]
                 a.text,
                 self._context_for(a),
                 b.text,

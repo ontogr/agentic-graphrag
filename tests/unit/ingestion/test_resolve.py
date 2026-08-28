@@ -1,6 +1,6 @@
 """Tests for the entity resolution pipeline."""
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -26,7 +26,7 @@ _DOC_ID = uuid4()
 
 
 def _entity(
-    text: str, label: str = "Person", chunk_id: uuid4 = None
+    text: str, label: str = "Person", chunk_id: UUID | None = None
 ) -> ExtractedEntity:  # noqa: B008
     """Build a minimal ExtractedEntity."""
     if chunk_id is None:

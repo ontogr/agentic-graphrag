@@ -131,9 +131,13 @@ class GlinerExtractor(Extractor):
             ExtractorMissingExtraError: The ``extract`` package extra is not
                 installed.
         """
+        if chunk.id is None:
+            raise ValueError("Chunk must have an id for extraction.")
         model = await asyncio.to_thread(self._ensure_model)
         gliner_schema = self._build_schema(model, schema)
-        raw = await asyncio.to_thread(model.extract, chunk.text, gliner_schema)
+        raw = await asyncio.to_thread(
+            model.extract, chunk.text, gliner_schema  # ty: ignore[unresolved-attribute]
+        )
         return self._to_result(raw, chunk)
 
     def _ensure_model(self) -> object:
@@ -149,7 +153,7 @@ class GlinerExtractor(Extractor):
 
     def _build_schema(self, model: object, schema: GraphSchema) -> object:
         """Return a GLiNER2.5 schema object built from schema's declared labels."""
-        builder = model.create_schema()
+        builder = model.create_schema()  # ty: ignore[unresolved-attribute]
         builder = builder.entities([entity.label for entity in schema.entities])
         return builder.relations([relation.label for relation in schema.relations])
 
@@ -161,7 +165,9 @@ class GlinerExtractor(Extractor):
         dict mapping relation labels to lists of (source_text, target_text)
         tuples).
         """
-        raw_dict: dict = raw  # type: ignore[assignment]
+        if chunk.id is None:
+            raise ValueError("Chunk must have an id for extraction.")
+        raw_dict: dict = raw  # ty: ignore[invalid-assignment]
         raw_entities: dict[str, list[str]] = raw_dict.get("entities", {})
         raw_relations: dict[str, list[tuple[str, str]]] = raw_dict.get(
             "relation_extraction", {}
@@ -170,6 +176,7 @@ class GlinerExtractor(Extractor):
         # Build entities list and a text→index map for relation resolution.
         entities: list[ExtractedEntity] = []
         text_index: dict[str, int] = {}
+        chunk_id = chunk.id
         for label, texts in raw_entities.items():
             for text in texts:
                 text_index[text] = len(entities)
@@ -178,7 +185,7 @@ class GlinerExtractor(Extractor):
                 char_end = char_start + len(text) if char_start >= 0 else 0
                 entities.append(
                     ExtractedEntity(
-                        chunk_id=chunk.id,
+                        chunk_id=chunk_id,
                         label=label,
                         text=text,
                         char_start=char_start,
@@ -193,7 +200,7 @@ class GlinerExtractor(Extractor):
                 if source_text in text_index and target_text in text_index:
                     relations.append(
                         ExtractedRelation(
-                            chunk_id=chunk.id,
+                            chunk_id=chunk_id,
                             label=label,
                             source_index=text_index[source_text],
                             target_index=text_index[target_text],
@@ -236,7 +243,7 @@ class BAMLExtractor(Extractor):
             self.settings.clients, strategy=self.settings.strategy
         )
         type_builder = self._type_builder_for(schema)
-        raw = await client.ExtractEntitiesAndRelations(
+        raw = await client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
             chunk.text, {"client_registry": registry, "tb": type_builder}
         )
         return self._to_result(raw, chunk)
@@ -268,25 +275,31 @@ class BAMLExtractor(Extractor):
         first match wins. A chunk with the same surface text for two different
         entities is a known, minor ambiguity this introduces.
         """
+        if chunk.id is None:
+            raise ValueError("Chunk must have an id for extraction.")
+        chunk_id = chunk.id
         entities = [
             ExtractedEntity(
-                chunk_id=chunk.id,
+                chunk_id=chunk_id,
                 label=entity.label,
                 text=entity.text,
                 char_start=entity.char_start,
                 char_end=entity.char_end,
             )
-            for entity in raw.entities
+            for entity in raw.entities  # ty: ignore[unresolved-attribute]
         ]
-        text_index = {entity.text: index for index, entity in enumerate(raw.entities)}
+        text_index = {
+            entity.text: index
+            for index, entity in enumerate(raw.entities)  # ty: ignore[unresolved-attribute]
+        }
         relations = [
             ExtractedRelation(
-                chunk_id=chunk.id,
+                chunk_id=chunk_id,
                 label=relation.label,
                 source_index=text_index[relation.source_text],
                 target_index=text_index[relation.target_text],
             )
-            for relation in raw.relations
+            for relation in raw.relations  # ty: ignore[unresolved-attribute]
             if relation.source_text in text_index and relation.target_text in text_index
         ]
         return ExtractionResult(

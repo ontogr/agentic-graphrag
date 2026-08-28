@@ -201,4 +201,4 @@ signature_crossrefs = true
 # UTF-16 with BOM) and intentional odd words that exercise decode edge cases.
 # thoughts/ holds vendored reference repos and research notes, not this project's
 # own prose (see the matching [tool.ruff] extend-exclude).
-extend-exclude = ["tests/**/fixtures/**", "thoughts/**"]
+extend-exclude = ["tests/**/fixtures/**", "thoughts/**", "agrag/llm/baml_client/**"]

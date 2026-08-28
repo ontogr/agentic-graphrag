@@ -5,7 +5,7 @@ The full Resolver flow chains ExactMatch → FuzzyMatch → LLMVerify end-to-end
 """
 
 import os
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -38,7 +38,7 @@ def _chunk(text: str = "context") -> Chunk:
 def _entity(
     text: str,
     label: str = "Person",
-    chunk_id: uuid4 = None,  # noqa: B008
+    chunk_id: UUID | None = None,
 ) -> ExtractedEntity:
     """Build a minimal ExtractedEntity."""
     if chunk_id is None:
