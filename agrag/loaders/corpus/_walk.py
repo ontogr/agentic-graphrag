@@ -133,7 +133,6 @@ class _CorpusWalk:
                     for doc in traced(self._tracer)(loader.load)(
                         source, stream, self._opts, start_at=resume_index
                     ):
-                        stats.documents += 1
                         source_batch.append(doc)
                         record_index = None
                         if loader.family == DocumentFamily.RECORD:
@@ -141,6 +140,13 @@ class _CorpusWalk:
                             record_index = resume_position
                         source_cursor = LoaderCursor(uri=uri, record_index=record_index)
                         if len(batch) + len(source_batch) >= self._batch_size:
+                            # Only count documents once they are actually
+                            # flushed into a batch. A document counted here but
+                            # never flushed (the source later raises, and this
+                            # source_batch's *next* run is discarded below)
+                            # would make stats.documents overstate what the
+                            # caller ever received.
+                            stats.documents += len(source_batch)
                             batch.extend(source_batch)
                             source_batch = []
                             cursor = source_cursor
@@ -150,6 +156,7 @@ class _CorpusWalk:
                 self._handle_error(uri, exc, stats)
                 continue
 
+            stats.documents += len(source_batch)
             stats.sources += 1
             stats.bytes_read += source_bytes
             batch.extend(source_batch)

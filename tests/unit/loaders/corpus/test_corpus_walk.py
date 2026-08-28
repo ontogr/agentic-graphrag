@@ -179,6 +179,36 @@ class _PartiallyRaisingLoader(Loader):
         raise MalformedRecordError("stub malformed row")
 
 
+class _OverflowsBatchThenFailsLoader(Loader):
+    """A stub record loader that fills a batch, then fails in the next one."""
+
+    extensions = frozenset({".txt"})
+    family = DocumentFamily.RECORD
+
+    def load(
+        self,
+        source: SourceRef,
+        stream: BinaryIO,
+        opts: ReadOptions,
+        *,
+        start_at: int = 0,
+    ) -> Iterator[Document]:
+        """Yield three rows (enough to flush a batch_size=2 batch), then raise."""
+        for index in range(3):
+            yield Document(
+                text=f"row {index}",
+                title=str(index),
+                uri=source.uri,
+                source_format=SourceFormat.TXT,
+                family=DocumentFamily.RECORD,
+                content_hash=f"stub-{index}",
+                loader_name="stub",
+                char_count=5,
+                record_index=index,
+            )
+        raise MalformedRecordError("stub malformed row")
+
+
 class TestCorpusWalkPartialSourceFailure:
     """A source that fails partway through leaks neither documents nor counts."""
 
@@ -202,6 +232,32 @@ class TestCorpusWalkPartialSourceFailure:
             final_stats = stats
         assert docs == []
         assert final_stats is not None
+        assert final_stats.skipped == 1
+        assert final_stats.sources == 0
+        assert final_stats.documents == 0
+
+    async def test_document_count_matches_flushed_batches_when_a_source_fails_mid_batch(
+        self, tmp_path: Path
+    ) -> None:
+        """A source that fails after a flush still reports only what was flushed."""
+        bad = tmp_path / "bad.txt"
+        bad.write_text("x")
+        walk = _CorpusWalk(
+            [bad],
+            registry=registry,
+            opts=ReadOptions(),
+            error_policy=ErrorPolicy.SKIP,
+            loader=_OverflowsBatchThenFailsLoader(),
+            batch_size=2,
+        )
+        docs = []
+        final_stats = None
+        async for batch, _cursor, stats in walk.iter_batches():
+            docs.extend(batch)
+            final_stats = stats
+        assert len(docs) == 2
+        assert final_stats is not None
+        assert final_stats.documents == len(docs)
         assert final_stats.skipped == 1
         assert final_stats.sources == 0
 

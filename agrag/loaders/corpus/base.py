@@ -66,10 +66,14 @@ class ProseLoader(Loader):
 class RecordLoader(Loader):
     """A loader that makes one Document per record in a source.
 
-    Concrete readers read the whole source into memory, up to
-    ``opts.max_document_bytes``, then decode and parse it before yielding any
-    records. The byte limit bounds memory use; readers do not stream records
-    incrementally from disk.
+    Concrete readers read and decode the whole source into memory up front, up
+    to ``opts.max_document_bytes``; that byte limit is what bounds memory use,
+    not incremental reads from disk. Whether records are parsed incrementally
+    from there is format-dependent: the CSV and JSONL readers parse and yield
+    one record at a time, so a malformed record later in the source surfaces
+    only after earlier records have already been yielded. The JSON reader
+    parses the whole source up front, so a malformed source fails before any
+    record is yielded.
     """
 
     family = DocumentFamily.RECORD

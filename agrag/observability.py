@@ -8,7 +8,6 @@ ambient.
 
 import asyncio
 import inspect
-from contextlib import ExitStack
 from functools import wraps
 from typing import Any, Callable
 
@@ -70,22 +69,26 @@ def traced(tracer: Tracer | None) -> Callable[[Callable], Callable]:
                 return _gen()
 
             # A plain function can also return a generator it built internally
-            # (e.g. ``return self._inner_gen(x)``). Keep the span open through
-            # its iteration too, instead of closing it the instant the call
-            # returns the still-unconsumed generator.
-            stack = ExitStack()
-            stack.enter_context(use_tracer.start_as_current_span(name))
+            # (e.g. ``return self._inner_gen(x)``). Use start_span rather than
+            # start_as_current_span here: it creates the span without attaching
+            # it as the ambient current span, so trace.use_span can attach it
+            # only for the bounded window of this call, then reattach it later
+            # only once the returned generator actually iterates. Attaching it
+            # for as long as the caller holds an unconsumed generator would
+            # leak this span under unrelated work run in the same context.
+            span = use_tracer.start_span(name)
             try:
-                result = func(*args, **kwargs)
+                with trace.use_span(span, end_on_exit=False):
+                    result = func(*args, **kwargs)
             except BaseException:
-                stack.close()
+                span.end()
                 raise
             if not inspect.isgenerator(result):
-                stack.close()
+                span.end()
                 return result
 
             def _gen() -> Any:
-                with stack:
+                with trace.use_span(span, end_on_exit=True):
                     yield from result
 
             return _gen()

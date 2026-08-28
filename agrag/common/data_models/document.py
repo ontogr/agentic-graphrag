@@ -78,8 +78,8 @@ class Document(DataPoint):
 
     The system computes ``id`` from ``content_hash`` and ``record_id`` unless the caller
     passes ``id`` directly. A record-family document without ``record_id`` also mixes
-    in ``source_hash`` and ``record_index``, so it must set ``source_hash`` or the
-    validator rejects it. Pass ``id`` only when rebuilding a document from stored data.
+    in ``record_index`` plus ``source_hash``, or ``uri`` when ``source_hash`` is not
+    set. Pass ``id`` only when rebuilding a document from stored data.
 
     Attributes:
         text: The document text. For a docling source, this holds docling's Markdown

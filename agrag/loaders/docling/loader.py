@@ -81,6 +81,7 @@ class DoclingLoader(ProseLoader):
             DocumentTooLargeError: The source is larger than the configured byte
                 limit.
             DocumentConversionError: Docling could not parse or convert the source.
+            ValueError: ``opts.max_document_bytes`` is not a positive integer.
         """
         from docling.datamodel.document import (  # noqa: PLC0415
             DocumentStream,
@@ -89,20 +90,21 @@ class DoclingLoader(ProseLoader):
             DocumentConverter,
         )
 
-        if source.byte_size is not None and source.byte_size > opts.max_document_bytes:
+        limit = opts.max_document_bytes
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+            raise ValueError("max_document_bytes must be a positive integer")
+
+        if source.byte_size is not None and source.byte_size > limit:
             raise DocumentTooLargeError(
-                f"{source.uri} is {source.byte_size} bytes, over the "
-                f"{opts.max_document_bytes} limit"
+                f"{source.uri} is {source.byte_size} bytes, over the {limit} limit"
             )
 
         # A stream with no reported (or a stale) byte_size still must not be read
         # past the limit, so cap the read itself rather than trusting the size
         # check above alone.
-        raw = stream.read(opts.max_document_bytes + 1)
-        if len(raw) > opts.max_document_bytes:
-            raise DocumentTooLargeError(
-                f"{source.uri} is over the {opts.max_document_bytes} byte limit"
-            )
+        raw = stream.read(limit + 1)
+        if len(raw) > limit:
+            raise DocumentTooLargeError(f"{source.uri} is over the {limit} byte limit")
         content_hash = hashlib.sha256(raw).hexdigest()
         converter = DocumentConverter()
         try:
