@@ -96,9 +96,9 @@ make lint-check            # check formatting and lint, no modifications
 make lint-typing           # type check with ty
 make lint-all              # format + lint + type check + typos
 make baml-gen              # regenerate BAML client from agrag/llm/baml_src/
-make clean                 # remove build artifacts and caches
 make docs-dev               # regenerate the API reference and run the docs dev server
 make docs-build             # regenerate the API reference and build the docs site
+make clean                 # remove build artifacts and caches
 ```
 
 Run focused tests while iterating:
@@ -316,6 +316,10 @@ Read @.claude/.rules/diataxis-docs.md before writing user-facing docs. Read
 - `docs/docs/api/index.md` is generated from `agrag` docstrings via
   `griffe2md`; run `make docs-api` to regenerate it, never edit it by hand.
   `make docs-dev` and `make docs-build` regenerate it automatically.
+- The 88-character line limit is a Python rule (Ruff line length, docstrings,
+  and comments). Do not hard-wrap prose in Markdown/MDX docs pages, `AGENTS.md`,
+  `CLAUDE.md`, `CONTRIBUTING.md`, or PR/issue descriptions to 88 characters; write
+  normal, unwrapped prose lines and let the renderer or editor soft-wrap.
 - Pushing to `main` with changes under `docs/`, `agrag/`, or `pyproject.toml`
   builds and deploys the site via `.github/workflows/docs.yml`.
 - Keep tutorials, how-to guides, reference, and explanation content separated

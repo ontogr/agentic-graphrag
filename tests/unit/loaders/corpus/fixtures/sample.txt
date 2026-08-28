@@ -1,0 +1,3 @@
+First line of plain text.
+Second line follows.
+Third line ends the file.

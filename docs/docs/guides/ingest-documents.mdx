@@ -1,0 +1,173 @@
+---
+sidebar_position: 1
+title: Ingest documents
+---
+
+# Ingest documents
+
+Add files, directories, raw text, or prebuilt `Document` objects to a `Graph`
+with `Graph.add`. This guide covers the ingestion entrypoint only. See the
+[API Reference](/api) for every parameter.
+
+## Install
+
+Install the core package:
+
+```bash
+uv pip install agentic-graphrag
+```
+
+For PDF, DOCX, PPTX, image, and XML support, install the docling extra:
+
+```bash
+uv pip install "agentic-graphrag[docling]"
+```
+
+## Add a single file
+
+Open a graph and add one file by path. `Graph.open` is async and needs no
+external service.
+
+```python
+import asyncio
+from agrag.ingestion import Graph
+
+async def main():
+    graph = await Graph.open()
+    result = await graph.add(source="path/to/file.pdf")
+    print(result.documents)  # number of documents ingested
+
+asyncio.run(main())
+```
+
+Every later snippet on this page continues inside that same `async def
+main(): ...` body, using the `graph` opened above, and still runs through
+`asyncio.run(main())`.
+
+Add a directory, a glob, or a list of paths the same way:
+
+```python
+result = await graph.add(source="./corpus")            # every supported file
+result = await graph.add(source="./corpus/**/*.md")     # glob pattern
+result = await graph.add(source=["a.txt", "b.pdf"])     # explicit list
+```
+
+`Graph.add` accepts exactly one of `source`, `text`, or `documents`.
+
+## Add raw text
+
+Pass a string to ingest prose as a single document:
+
+```python
+result = await graph.add(text="Raw prose to index as one document.")
+```
+
+## Add prebuilt documents
+
+Pass `Document` objects you already built (for example, documents returned by a
+loader or reconstructed from storage) to `documents`. A `Document` carries its
+source metadata, so every field is required:
+
+```python
+from agrag.ingestion import Graph
+from agrag.common.data_models.document import (
+    Document,
+    DocumentFamily,
+    SourceFormat,
+)
+
+text = "Prebuilt document text."
+doc = Document(
+    text=text,
+    title="Prebuilt",
+    uri="memory://prebuilt",
+    source_format=SourceFormat.TXT,
+    family=DocumentFamily.PROSE,
+    content_hash="replace-with-a-real-sha256",
+    loader_name="text",
+    char_count=len(text),
+)
+result = await graph.add(documents=[doc])
+```
+
+For most callers, `source=` or `text=` is simpler; reach for `documents=` when
+you already hold `Document` objects.
+
+## Handle errors per source
+
+Use `error_policy` to control what happens when a source fails to load. The
+policy applies per source, not per run, so one bad file does not stop the rest.
+
+```python
+from agrag.ingestion import Graph
+from agrag.loaders.corpus.types import ErrorPolicy
+
+result = await graph.add(source="./corpus", error_policy=ErrorPolicy.SKIP)
+print(result.skipped, result.quarantined)
+```
+
+- `ErrorPolicy.RAISE` — stop and raise on the first failure (default).
+- `ErrorPolicy.SKIP` — drop the failing source and continue.
+- `ErrorPolicy.QUARANTINE` — isolate the failing source and continue.
+
+Read the outcome from the returned `IngestResult`:
+
+```python
+print(result.documents)          # count of documents ingested
+print(result.sources)            # count of sources processed
+print(result.skipped)            # count of skipped sources
+print(result.quarantined)        # count of quarantined sources
+print(result.quarantined_items)   # list of (uri, reason) tuples
+```
+
+An unknown format raises `UnsupportedFormatError`; a format that needs docling
+without the extra installed raises `MissingExtraError`. With `SKIP` or
+`QUARANTINE`, those sources are handled by the policy instead of stopping the
+run.
+
+## Track progress
+
+Pass `on_progress` to receive a `LoadStats` callback after each batch. Use it
+to log or stream status without blocking ingestion:
+
+```python
+from agrag.ingestion import Graph
+from agrag.loaders.corpus.types import LoadStats
+
+def report(stats: LoadStats) -> None:
+    print(f"loaded {stats.documents} documents from {stats.sources} sources so far")
+
+result = await graph.add(source="./corpus", on_progress=report)
+```
+
+## Supported formats
+
+Loaders are chosen by file extension. Core loaders are always available; docling
+loaders require the docling extra.
+
+| Format | Extension(s) | Loader |
+| --- | --- | --- |
+| Plain text | `.txt`, `.log` | core |
+| Markdown | `.md`, `.markdown` | core |
+| AsciiDoc | `.adoc`, `.asciidoc` | docling, falls back to core (regex) |
+| HTML | `.html`, `.htm` | core |
+| CSV / TSV | `.csv`, `.tsv` | core |
+| JSON Lines | `.jsonl`, `.ndjson` | core |
+| JSON | `.json` | core |
+| PDF | `.pdf` | docling |
+| Word | `.docx` | docling |
+| PowerPoint | `.pptx` | docling |
+| Images | `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp` | docling |
+| XML | `.xml` | docling |
+
+For `.md`, `.html`, and `.csv`, docling registers a loader but the core loader
+wins by default. For `.adoc` and `.asciidoc`, it is the other way around:
+docling's structural parser wins when the docling extra is installed, and the
+core regex-based reader is the fallback when it is not. To customize
+per-source reading (encoding, size limits, column mapping, and more), build
+`Document` objects through the lower-level loaders with `ReadOptions` from
+`agrag.loaders.corpus.types`.
+
+## Next steps
+
+See the [API Reference](/api) for every parameter.
