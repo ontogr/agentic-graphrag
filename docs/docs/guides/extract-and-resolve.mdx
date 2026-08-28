@@ -1,0 +1,97 @@
+---
+sidebar_position: 2
+---
+
+# Extract and resolve entities
+
+This guide shows how to extract entities and relations from chunks, and how to
+resolve duplicate mentions into groups.
+
+## Extract with the default schema
+
+```python
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.ingestion.extract import BAMLExtractor
+
+extractor = BAMLExtractor()
+result = await extractor.extract(chunk, GENERIC)
+print(result.entities)
+```
+
+`BAMLExtractor` needs the `llm` extra:
+
+```bash
+pip install "agentic-graphrag[llm]"
+```
+
+## Run locally first, escalating to an LLM
+
+```python
+from agrag.ingestion.extract import BAMLExtractor, EscalatingExtractor, GlinerExtractor
+
+extractor = EscalatingExtractor(primary=GlinerExtractor(), escalate_to=BAMLExtractor())
+result = await extractor.extract(chunk, GENERIC)
+```
+
+`GlinerExtractor` needs the `extract` extra:
+
+```bash
+pip install "agentic-graphrag[extract]"
+```
+
+## Configure the LLM provider
+
+Set `EXTRACTION_LLM_CLIENTS` (or a `.env` file) to point at any supported
+provider — Anthropic, OpenAI, Azure OpenAI, AWS Bedrock, Google AI, Vertex AI,
+or a self-hosted OpenAI-compatible endpoint via `openai-generic`.
+
+Alternatively, use `ExtractionLLMSettings.from_openai_compatible_env()` to
+read from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` environment
+variables.
+
+## Resolve duplicate mentions
+
+```python
+from agrag.ingestion.resolve import (
+    ExactMatch,
+    FuzzyMatch,
+    InBatchCandidateSource,
+    LLMVerify,
+    Resolver,
+)
+
+resolver = Resolver(
+    comparators=[
+        ExactMatch(),
+        FuzzyMatch(),
+        LLMVerify(chunks_by_id=chunks_by_id),
+    ],
+    candidate_source=InBatchCandidateSource(),
+)
+groups = await resolver.resolve(entities)
+```
+
+Each group lists the indices of entities resolution decided are the same
+thing. A group of one means resolution found no match for that entity.
+
+## Define your own schema
+
+```python
+from agrag.common.data_models.graph_schema import (
+    EntityType,
+    GraphSchema,
+    RelationType,
+)
+
+schema = GraphSchema(
+    name="clinical",
+    version="1",
+    entities=[EntityType(label="Drug", description="A medication.")],
+    relations=[],
+)
+```
+
+## Next steps
+
+- See the [API reference](/api) for every `Extractor`, `Comparator`, and
+  schema field.

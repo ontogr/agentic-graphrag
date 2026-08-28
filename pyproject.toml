@@ -25,11 +25,14 @@ classifiers = [
 ]
 dependencies = [
   "pydantic>=2.0",
+  "pydantic-settings>=2.0",
+  "python-dotenv>=1.0",
   "chonkie>=1.7",            # bare install, no chonkie extras
   "opentelemetry-api>=1.20", # API only; the SDK stays optional
   "charset-normalizer>=3.4",
   "markdown-it-py>=3.0",
   "selectolax>=0.3.21",
+  "rapidfuzz>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +42,14 @@ observability = [
   "opentelemetry-exporter-otlp>=1.20",
   "opentelemetry-instrumentation-asyncio",
   "openinference-semantic-conventions",
+]
+llm = [
+    "baml-py>=0.226.1",
+]
+extract = [
+    "gliner2[local]",
+    "transformers<4.56",
+    "protobuf",
 ]
 
 [project.urls]
@@ -78,7 +89,7 @@ docs = [
 target-version = "py311"
 line-length = 88
 include = ["*.py", "pyproject.toml", "*.ipynb"]
-extend-exclude = ["thoughts"]
+extend-exclude = ["thoughts", "agrag/llm/baml_client"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -166,6 +177,15 @@ include = ["tests/**"]
 invalid-assignment = "ignore"
 invalid-argument-type = "ignore"
 unresolved-attribute = "ignore"
+
+# The BAML codegen output is generated, never hand-edited; silence the few
+# diagnostics ty reports inside it.
+[[tool.ty.overrides]]
+include = ["agrag/llm/baml_client/**"]
+[tool.ty.overrides.rules]
+too-many-positional-arguments = "ignore"
+unresolved-attribute = "ignore"
+unused-type-ignore-comment = "ignore"
 
 [tool.bandit]
 exclude_dirs = ["/tests", "/.venv", "/build", "/dist"]

@@ -308,7 +308,9 @@ The ingestion package.
 
 **Modules:**
 
+- [**extract**](#agrag.ingestion.extract) – The Extractor interface: reads one Chunk and produces an ExtractionResult.
 - [**graph**](#agrag.ingestion.graph) – The public Graph API for ingestion.
+- [**resolve**](#agrag.ingestion.resolve) – Entity resolution: deciding which ExtractedEntity mentions are the same thing.
 
 **Classes:**
 
@@ -383,6 +385,288 @@ Open a graph with no setup.
 **Returns:**
 
 - <code>[Graph](#agrag.ingestion.graph.Graph)</code> – A ready-to-use graph. This call needs no external service.
+
+#### `agrag.ingestion.extract`
+
+The Extractor interface: reads one Chunk and produces an ExtractionResult.
+
+**Classes:**
+
+- [**BAMLExtractor**](#agrag.ingestion.extract.BAMLExtractor) – Extracts with an LLM, via a BAML function and a runtime ClientRegistry.
+- [**EscalatingExtractor**](#agrag.ingestion.extract.EscalatingExtractor) – Runs a cheap primary extractor first, escalating per chunk when it's weak.
+- [**ExtractionLLMSettings**](#agrag.ingestion.extract.ExtractionLLMSettings) – Env-backed LLM client config for the extraction role.
+- [**Extractor**](#agrag.ingestion.extract.Extractor) – Reads one Chunk and produces the entities and relations it contains.
+- [**ExtractorMissingExtraError**](#agrag.ingestion.extract.ExtractorMissingExtraError) – An Extractor needs a package extra that is not installed.
+- [**GlinerExtractor**](#agrag.ingestion.extract.GlinerExtractor) – Extracts locally with a GLiNER2.5 model. No network call.
+
+##### `agrag.ingestion.extract.BAMLExtractor`
+
+```python
+BAMLExtractor(*, settings:ExtractionLLMSettings | None = None, client:object | None = None) -> None
+```
+
+Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
+
+Extracts with an LLM, via a BAML function and a runtime ClientRegistry.
+
+**Functions:**
+
+- [**extract**](#agrag.ingestion.extract.BAMLExtractor.extract) – Extract with an LLM call through the configured ClientRegistry.
+
+**Attributes:**
+
+- [**settings**](#agrag.ingestion.extract.BAMLExtractor.settings) –
+
+**Parameters:**
+
+- **settings** (<code>[ExtractionLLMSettings](#agrag.ingestion.extract.ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`,
+  loaded from the environment/`.env`.
+- **client** (<code>[object](#object) | None</code>) – An already-built BAML client object exposing
+  `ExtractEntitiesAndRelations`. Tests inject a fake here.
+
+###### `agrag.ingestion.extract.BAMLExtractor.extract`
+
+```python
+extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+```
+
+Extract with an LLM call through the configured ClientRegistry.
+
+**Raises:**
+
+- <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `llm` package extra is not
+  installed.
+
+###### `agrag.ingestion.extract.BAMLExtractor.settings`
+
+```python
+settings = settings or ExtractionLLMSettings()
+```
+
+##### `agrag.ingestion.extract.EscalatingExtractor`
+
+```python
+EscalatingExtractor(primary:Extractor, escalate_to:Extractor, *, min_confidence:float = 0.5, min_chunk_words:int = 8) -> None
+```
+
+Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
+
+Runs a cheap primary extractor first, escalating per chunk when it's weak.
+
+**Functions:**
+
+- [**extract**](#agrag.ingestion.extract.EscalatingExtractor.extract) – Extract with the primary extractor, escalating when it's weak.
+
+**Attributes:**
+
+- [**escalate_to**](#agrag.ingestion.extract.EscalatingExtractor.escalate_to) –
+- [**min_chunk_words**](#agrag.ingestion.extract.EscalatingExtractor.min_chunk_words) –
+- [**min_confidence**](#agrag.ingestion.extract.EscalatingExtractor.min_confidence) –
+- [**primary**](#agrag.ingestion.extract.EscalatingExtractor.primary) –
+
+**Parameters:**
+
+- **primary** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs first, for every chunk.
+- **escalate_to** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs instead of, never in addition to, the primary's
+  result, when escalation triggers. Merging both extractors'
+  output would mean reconciling overlapping spans between them,
+  which is what entity resolution is for, not extraction.
+- **min_confidence** (<code>[float](#float)</code>) – Escalate when the primary's mean entity confidence
+  falls below this, among entities that report a confidence.
+- **min_chunk_words** (<code>[int](#int)</code>) – Below this word count, a zero-entity result from
+  the primary is treated as plausibly correct, not a miss.
+
+###### `agrag.ingestion.extract.EscalatingExtractor.escalate_to`
+
+```python
+escalate_to = escalate_to
+```
+
+###### `agrag.ingestion.extract.EscalatingExtractor.extract`
+
+```python
+extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+```
+
+Extract with the primary extractor, escalating when it's weak.
+
+Returns escalate_to's result outright when escalation triggers, never
+a combination of both extractors' results.
+
+###### `agrag.ingestion.extract.EscalatingExtractor.min_chunk_words`
+
+```python
+min_chunk_words = min_chunk_words
+```
+
+###### `agrag.ingestion.extract.EscalatingExtractor.min_confidence`
+
+```python
+min_confidence = min_confidence
+```
+
+###### `agrag.ingestion.extract.EscalatingExtractor.primary`
+
+```python
+primary = primary
+```
+
+##### `agrag.ingestion.extract.ExtractionLLMSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+Env-backed LLM client config for the extraction role.
+
+**Attributes:**
+
+- [**clients**](#agrag.ingestion.extract.ExtractionLLMSettings.clients) (<code>[list](#list)\[[LLMClientConfig](#agrag.llm.client_config.LLMClientConfig)\]</code>) – The LLM client(s) to use. One element for a single provider;
+  more than one composed per `strategy`.
+- [**strategy**](#agrag.ingestion.extract.ExtractionLLMSettings.strategy) (<code>[Literal](#typing.Literal)['single', 'fallback', 'round_robin']</code>) – How to compose multiple clients. Ignored with one client.
+- [**retry**](#agrag.ingestion.extract.ExtractionLLMSettings.retry) (<code>[RetryConfig](#agrag.llm.client_config.RetryConfig)</code>) – Retry settings applied to the extraction LLM call.
+
+Env prefix: `EXTRACTION_LLM_`.
+
+**Functions:**
+
+- [**from_openai_compatible_env**](#agrag.ingestion.extract.ExtractionLLMSettings.from_openai_compatible_env) – Build settings from a generic OpenAI-compatible endpoint.
+
+###### `agrag.ingestion.extract.ExtractionLLMSettings.clients`
+
+```python
+clients: list[LLMClientConfig]
+```
+
+###### `agrag.ingestion.extract.ExtractionLLMSettings.from_openai_compatible_env`
+
+```python
+from_openai_compatible_env() -> ExtractionLLMSettings
+```
+
+Build settings from a generic OpenAI-compatible endpoint.
+
+Reads `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` from the
+environment or `.env`, so the model name is never hardcoded. Raises
+`RuntimeError` when the required variables are not all set.
+
+**Returns:**
+
+- <code>[ExtractionLLMSettings](#agrag.ingestion.extract.ExtractionLLMSettings)</code> – Settings pointing at one `openai-generic` client.
+
+###### `agrag.ingestion.extract.ExtractionLLMSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='EXTRACTION_LLM_', env_file='.env', extra='ignore')
+```
+
+###### `agrag.ingestion.extract.ExtractionLLMSettings.retry`
+
+```python
+retry: RetryConfig = Field(default_factory=RetryConfig)
+```
+
+###### `agrag.ingestion.extract.ExtractionLLMSettings.strategy`
+
+```python
+strategy: Literal['single', 'fallback', 'round_robin'] = 'single'
+```
+
+##### `agrag.ingestion.extract.Extractor`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+Reads one Chunk and produces the entities and relations it contains.
+
+**Functions:**
+
+- [**extract**](#agrag.ingestion.extract.Extractor.extract) – Extract entities and relations from one chunk.
+
+###### `agrag.ingestion.extract.Extractor.extract`
+
+```python
+extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+```
+
+Extract entities and relations from one chunk.
+
+**Parameters:**
+
+- **chunk** (<code>[Chunk](#agrag.common.data_models.chunk.Chunk)</code>) – The chunk to read. Only `chunk.text` and `chunk.id` are used.
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The entity/relation types to extract. Every returned entity's
+  `label` and relation's `label` must be declared in this schema.
+
+**Returns:**
+
+- <code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code> – The entities and relations this call found, in extraction order.
+
+##### `agrag.ingestion.extract.ExtractorMissingExtraError`
+
+```python
+ExtractorMissingExtraError(component:str, extra:str) -> None
+```
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+An Extractor needs a package extra that is not installed.
+
+**Attributes:**
+
+- [**component**](#agrag.ingestion.extract.ExtractorMissingExtraError.component) – The class name that needs the extra.
+- [**extra**](#agrag.ingestion.extract.ExtractorMissingExtraError.extra) – The package extra to install.
+
+###### `agrag.ingestion.extract.ExtractorMissingExtraError.component`
+
+```python
+component = component
+```
+
+###### `agrag.ingestion.extract.ExtractorMissingExtraError.extra`
+
+```python
+extra = extra
+```
+
+##### `agrag.ingestion.extract.GlinerExtractor`
+
+```python
+GlinerExtractor(*, model_name:str = 'fastino/gliner2.5-small-v1', model:object | None = None) -> None
+```
+
+Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
+
+Extracts locally with a GLiNER2.5 model. No network call.
+
+**Functions:**
+
+- [**extract**](#agrag.ingestion.extract.GlinerExtractor.extract) – Extract with the local GLiNER2.5 model.
+
+**Attributes:**
+
+- [**model_name**](#agrag.ingestion.extract.GlinerExtractor.model_name) –
+
+**Parameters:**
+
+- **model_name** (<code>[str](#str)</code>) – The checkpoint to load if `model` is not given.
+- **model** (<code>[object](#object) | None</code>) – An already-built GLiNER2.5 model. Tests inject a fake here
+  to avoid a real model download.
+
+###### `agrag.ingestion.extract.GlinerExtractor.extract`
+
+```python
+extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+```
+
+Extract with the local GLiNER2.5 model.
+
+**Raises:**
+
+- <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `extract` package extra is not
+  installed.
+
+###### `agrag.ingestion.extract.GlinerExtractor.model_name`
+
+```python
+model_name = model_name
+```
 
 #### `agrag.ingestion.graph`
 
@@ -478,6 +762,319 @@ SourceType = Union[str, Path]
 ```python
 SourcesType = Union[SourceType, Sequence[SourceType]]
 ```
+
+#### `agrag.ingestion.resolve`
+
+Entity resolution: deciding which ExtractedEntity mentions are the same thing.
+
+**Classes:**
+
+- [**CandidateSource**](#agrag.ingestion.resolve.CandidateSource) – Narrows which entity pairs resolution compares — the blocking step.
+- [**Comparator**](#agrag.ingestion.resolve.Comparator) – One matching strategy a Resolver runs against a candidate pair.
+- [**ComparisonVerdict**](#agrag.ingestion.resolve.ComparisonVerdict) – A Comparator's verdict on one entity pair.
+- [**ExactMatch**](#agrag.ingestion.resolve.ExactMatch) – Matches when normalized text is identical. Never returns NO_MATCH.
+- [**FuzzyMatch**](#agrag.ingestion.resolve.FuzzyMatch) – Matches by string similarity, within a confident-match/distinct band.
+- [**InBatchCandidateSource**](#agrag.ingestion.resolve.InBatchCandidateSource) – Blocks by label: only entities sharing a label are ever compared.
+- [**LLMVerify**](#agrag.ingestion.resolve.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
+- [**ResolutionGroup**](#agrag.ingestion.resolve.ResolutionGroup) – One set of ExtractedEntity indices resolution decided are the same entity.
+- [**Resolver**](#agrag.ingestion.resolve.Resolver) – Runs an ordered comparator sequence over blocked candidate pairs.
+
+##### `agrag.ingestion.resolve.CandidateSource`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+Narrows which entity pairs resolution compares — the blocking step.
+
+**Functions:**
+
+- [**candidates_for**](#agrag.ingestion.resolve.CandidateSource.candidates_for) – Return indices worth comparing against entities[index].
+
+###### `agrag.ingestion.resolve.CandidateSource.candidates_for`
+
+```python
+candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
+```
+
+Return indices worth comparing against entities[index].
+
+**Parameters:**
+
+- **index** (<code>[int](#int)</code>) – The entity to find candidates for.
+- **entities** (<code>[list](#list)\[[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]</code>) – The full entity list this call is scoped to.
+
+**Returns:**
+
+- <code>[list](#list)\[[int](#int)\]</code> – Indices into `entities`, excluding `index` itself. Order does
+- <code>[list](#list)\[[int](#int)\]</code> – not matter; duplicates are harmless but wasteful.
+
+##### `agrag.ingestion.resolve.Comparator`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+One matching strategy a Resolver runs against a candidate pair.
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.Comparator.compare) – Compare two entities.
+
+###### `agrag.ingestion.resolve.Comparator.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Compare two entities.
+
+**Parameters:**
+
+- **a** (<code>[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)</code>) – The first entity.
+- **b** (<code>[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)</code>) – The second entity.
+
+**Returns:**
+
+- <code>[ComparisonVerdict](#agrag.ingestion.resolve.ComparisonVerdict)</code> – This comparator's verdict. UNCERTAIN defers to the next comparator.
+
+##### `agrag.ingestion.resolve.ComparisonVerdict`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+A Comparator's verdict on one entity pair.
+
+**Attributes:**
+
+- [**MATCH**](#agrag.ingestion.resolve.ComparisonVerdict.MATCH) – The comparator is confident these are the same entity.
+- [**NO_MATCH**](#agrag.ingestion.resolve.ComparisonVerdict.NO_MATCH) – The comparator is confident these are different entities.
+- [**UNCERTAIN**](#agrag.ingestion.resolve.ComparisonVerdict.UNCERTAIN) – This comparator can't decide; the next one gets a turn.
+
+###### `agrag.ingestion.resolve.ComparisonVerdict.MATCH`
+
+```python
+MATCH = 'match'
+```
+
+###### `agrag.ingestion.resolve.ComparisonVerdict.NO_MATCH`
+
+```python
+NO_MATCH = 'no_match'
+```
+
+###### `agrag.ingestion.resolve.ComparisonVerdict.UNCERTAIN`
+
+```python
+UNCERTAIN = 'uncertain'
+```
+
+##### `agrag.ingestion.resolve.ExactMatch`
+
+Bases: <code>[Comparator](#agrag.ingestion.resolve.Comparator)</code>
+
+Matches when normalized text is identical. Never returns NO_MATCH.
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.ExactMatch.compare) – Return MATCH on identical normalized text, else UNCERTAIN.
+
+###### `agrag.ingestion.resolve.ExactMatch.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Return MATCH on identical normalized text, else UNCERTAIN.
+
+##### `agrag.ingestion.resolve.FuzzyMatch`
+
+```python
+FuzzyMatch(*, match_above:float = 0.92, no_match_below:float = 0.7) -> None
+```
+
+Bases: <code>[Comparator](#agrag.ingestion.resolve.Comparator)</code>
+
+Matches by string similarity, within a confident-match/distinct band.
+
+**Attributes:**
+
+- [**match_above**](#agrag.ingestion.resolve.FuzzyMatch.match_above) – A similarity score at or above this is a confident match.
+- [**no_match_below**](#agrag.ingestion.resolve.FuzzyMatch.no_match_below) – A similarity score below this is a confident non-match.
+  A score in between is UNCERTAIN and defers to the next comparator.
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.FuzzyMatch.compare) – Return a verdict from token-sort-ratio similarity.
+
+###### `agrag.ingestion.resolve.FuzzyMatch.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Return a verdict from token-sort-ratio similarity.
+
+###### `agrag.ingestion.resolve.FuzzyMatch.match_above`
+
+```python
+match_above = match_above
+```
+
+###### `agrag.ingestion.resolve.FuzzyMatch.no_match_below`
+
+```python
+no_match_below = no_match_below
+```
+
+##### `agrag.ingestion.resolve.InBatchCandidateSource`
+
+Bases: <code>[CandidateSource](#agrag.ingestion.resolve.CandidateSource)</code>
+
+Blocks by label: only entities sharing a label are ever compared.
+
+Scoped to whatever entity list a caller passes to candidates_for — today,
+always the current extraction batch. A future graph-backed candidate source
+can replace this without changing any Comparator, since comparators only
+ever see the pairs a CandidateSource proposes.
+
+**Functions:**
+
+- [**candidates_for**](#agrag.ingestion.resolve.InBatchCandidateSource.candidates_for) – Return every other entity sharing entities[index]'s label.
+
+###### `agrag.ingestion.resolve.InBatchCandidateSource.candidates_for`
+
+```python
+candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
+```
+
+Return every other entity sharing entities[index]'s label.
+
+##### `agrag.ingestion.resolve.LLMVerify`
+
+```python
+LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None) -> None
+```
+
+Bases: <code>[Comparator](#agrag.ingestion.resolve.Comparator)</code>
+
+Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
+
+Never raises from an LLM-call failure: it resolves to NO_MATCH instead, by
+the same fail-safe design as every comparator a Resolver runs — an
+ambiguous or failed comparison never merges two entities. A missing package
+extra is a configuration error, not an ambiguous judgment call, and is
+raised outright instead (see compare's Raises section).
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.LLMVerify.compare) – Return the LLM's verdict, or NO_MATCH if the call itself fails.
+
+**Attributes:**
+
+- [**chunks_by_id**](#agrag.ingestion.resolve.LLMVerify.chunks_by_id) –
+- [**settings**](#agrag.ingestion.resolve.LLMVerify.settings) –
+
+**Parameters:**
+
+- **chunks_by_id** (<code>[dict](#dict)\[[UUID](#uuid.UUID), [Chunk](#agrag.common.data_models.chunk.Chunk)\]</code>) – Maps a Chunk id to the Chunk, for prompt context.
+- **settings** (<code>[ExtractionLLMSettings](#agrag.ingestion.extract.ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`.
+- **client** (<code>[object](#object) | None</code>) – An already-built BAML client. Tests inject a fake here.
+
+###### `agrag.ingestion.resolve.LLMVerify.chunks_by_id`
+
+```python
+chunks_by_id = chunks_by_id
+```
+
+###### `agrag.ingestion.resolve.LLMVerify.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Return the LLM's verdict, or NO_MATCH if the call itself fails.
+
+**Raises:**
+
+- <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `llm` package extra is not
+  installed.
+
+###### `agrag.ingestion.resolve.LLMVerify.settings`
+
+```python
+settings = settings or ExtractionLLMSettings()
+```
+
+##### `agrag.ingestion.resolve.ResolutionGroup`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One set of ExtractedEntity indices resolution decided are the same entity.
+
+**Attributes:**
+
+- [**entity_indices**](#agrag.ingestion.resolve.ResolutionGroup.entity_indices) (<code>[list](#list)\[[int](#int)\]</code>) – Indices into the entity list passed to Resolver.resolve.
+  A group of one means resolution found no match for that entity.
+
+###### `agrag.ingestion.resolve.ResolutionGroup.entity_indices`
+
+```python
+entity_indices: list[int]
+```
+
+##### `agrag.ingestion.resolve.Resolver`
+
+```python
+Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource) -> None
+```
+
+Runs an ordered comparator sequence over blocked candidate pairs.
+
+Groups every pair a comparator confirms as a match into a ResolutionGroup.
+
+**Functions:**
+
+- [**resolve**](#agrag.ingestion.resolve.Resolver.resolve) – Group entities that resolution decided are the same thing.
+
+**Attributes:**
+
+- [**candidate_source**](#agrag.ingestion.resolve.Resolver.candidate_source) –
+- [**comparators**](#agrag.ingestion.resolve.Resolver.comparators) –
+
+**Parameters:**
+
+- **comparators** (<code>[list](#list)\[[Comparator](#agrag.ingestion.resolve.Comparator)\]</code>) – Tried in order per candidate pair. The first
+  non-UNCERTAIN verdict wins; if every comparator is UNCERTAIN,
+  the pair does not merge.
+- **candidate_source** (<code>[CandidateSource](#agrag.ingestion.resolve.CandidateSource)</code>) – Narrows which pairs get compared at all.
+
+###### `agrag.ingestion.resolve.Resolver.candidate_source`
+
+```python
+candidate_source = candidate_source
+```
+
+###### `agrag.ingestion.resolve.Resolver.comparators`
+
+```python
+comparators = comparators
+```
+
+###### `agrag.ingestion.resolve.Resolver.resolve`
+
+```python
+resolve(entities:list[ExtractedEntity]) -> list[ResolutionGroup]
+```
+
+Group entities that resolution decided are the same thing.
+
+**Parameters:**
+
+- **entities** (<code>[list](#list)\[[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]</code>) – The entities to resolve. Only entities passed in the
+  same call are ever compared against each other — resolving
+  against previously-resolved entities from an earlier call is
+  not supported by this Resolver.
+
+**Returns:**
+
+- <code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.ResolutionGroup)\]</code> – One ResolutionGroup per distinct entity found. Every input index
+- <code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.ResolutionGroup)\]</code> – appears in exactly one group.
 
 ### `agrag.observability`
 

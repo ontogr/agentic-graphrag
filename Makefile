@@ -1,10 +1,12 @@
-.PHONY: sync lint-actions test test-integration cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
+.PHONY: sync baml-gen lint-actions test test-integration dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
 help:
 	@echo "Available make targets:"
 	@echo "  make sync             - Sync project and install dependencies"
 	@echo "  make test             - Run unit tests with coverage"
 	@echo "  make test-integration - Run integration tests (requires network)"
+	@echo "  make dev-services-up  - Start local Neo4j/Qdrant/Weaviate/Milvus for integration tests"
+	@echo "  make dev-services-down - Stop and remove local backend services and their data"
 	@echo "  make cov-report       - Generate coverage reports (xml, html)"
 	@echo "  make cov              - Run tests and generate coverage reports"
 	@echo "  make lint-typing      - Type check with ty"
@@ -19,11 +21,14 @@ help:
 	@echo "  make security         - Run all security scans"
 	@echo "  make build            - Build sdist and wheel into dist/"
 	@echo "  make wheel-test       - Install the built wheel in a clean env and import it"
-	@echo "  make clean            - Clean build artifacts and cache"
 	@echo "  make docs-api         - Regenerate docs/docs/api/index.md from docstrings"
 	@echo "  make docs-install     - Install the Docusaurus site's npm dependencies"
 	@echo "  make docs-dev         - Run the Docusaurus dev server"
 	@echo "  make docs-build       - Regenerate the API reference and build the docs site"
+	@echo "  make clean            - Clean build artifacts and cache"
+
+baml-gen:
+	uv run baml-cli generate --from agrag/llm/baml_src
 
 sync:
 	uv sync --all-groups --all-extras
@@ -37,7 +42,14 @@ test:
 
 test-integration:
 	uv run pytest tests/integration -v -n auto --dist loadscope \
+		--junitxml=pytest-integration-results.xml \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+
+dev-services-up:
+	docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 240
+
+dev-services-down:
+	docker compose -f docker/docker-compose.ci.yml down -v
 
 cov-report:
 	uv run coverage html
@@ -85,7 +97,7 @@ wheel-test: build
 	cd /tmp && "$(CURDIR)/.wheelenv/bin/python" -c "import agrag; print(agrag.__version__)"
 
 clean:
-	rm -rf .coverage coverage.xml htmlcov dist build .wheelenv *.egg-info pytest-results.xml
+	rm -rf .coverage coverage.xml htmlcov dist build .wheelenv *.egg-info pytest-results.xml pytest-integration-results.xml
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type d -name .pytest_cache -exec rm -rf {} +
 	find . -type d -name .ruff_cache -exec rm -rf {} +
