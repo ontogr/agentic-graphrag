@@ -43,7 +43,7 @@ test-integration:
 		--junitxml=pytest-integration-results.xml
 
 dev-services-up:
-	docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 240
+	docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420
 
 dev-services-down:
 	docker compose -f docker/docker-compose.ci.yml down -v
