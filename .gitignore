@@ -224,3 +224,4 @@ __marimo__/
 
 # pytest JUnit output
 pytest-results.xml
+pytest-integration-results.xml
