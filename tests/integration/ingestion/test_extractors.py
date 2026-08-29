@@ -157,20 +157,27 @@ class TestEscalatingExtractorIntegration:
         reason="Both LLM endpoint and gliner2 required",
     )
     async def test_escalates_when_gliner_returns_few_entities(self) -> None:
-        """EscalatingExtractor falls back to the LLM when GLiNER is weak."""
+        """EscalatingExtractor falls back to the LLM when GLiNER is weak.
+
+        Uses a sentence with no named entities so GLiNER returns zero results,
+        triggering the zero-entity escalation path.
+        """
         settings = ExtractionLLMSettings.from_openai_compatible_env()
+        # This sentence has no Person/Organization/Location entities for GLiNER.
+        no_entity_chunk = _chunk(
+            "Data processing transforms raw input into structured "
+            "output formats for downstream consumption."
+        )
         extractor = EscalatingExtractor(
             primary=GlinerExtractor(),
             escalate_to=BAMLExtractor(settings=settings),
-            min_confidence=0.9,  # Aggressive threshold to force escalation
-            min_chunk_words=2,  # Low floor so zero-entity triggers escalation
+            min_chunk_words=2,
         )
-        result = await extractor.extract(_chunk(), GENERIC)
+        result = await extractor.extract(no_entity_chunk, GENERIC)
 
         assert isinstance(result, ExtractionResult)
         assert len(result.entities) > 0
-        # Verify escalation actually happened — BAMLExtractor produces
-        # extractor_name="baml", GlinerExtractor produces "gliner".
+        # Verify escalation happened — BAMLExtractor produces "baml".
         assert result.extractor_name == "baml", (
             f"Expected escalation to BAMLExtractor, got {result.extractor_name}"
         )

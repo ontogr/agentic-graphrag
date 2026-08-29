@@ -143,14 +143,17 @@ class TestBAMLExtractor:
         assert len(result.entities) == 1
         assert len(result.relations) == 0
 
-
     async def test_extract_with_injected_client_skips_settings(self) -> None:
         """An injected client works without EXTRACTION_LLM_CLIENTS env vars."""
 
         class FakeClient:
             async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
                 return SimpleNamespace(
-                    entities=[SimpleNamespace(label="Person", text="Ada", char_start=0, char_end=3)],
+                    entities=[
+                        SimpleNamespace(
+                            label="Person", text="Ada", char_start=0, char_end=3
+                        )
+                    ],
                     relations=[],
                 )
 

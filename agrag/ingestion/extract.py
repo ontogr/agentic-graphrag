@@ -136,9 +136,9 @@ class GlinerExtractor(Extractor):
         model = await asyncio.to_thread(self._ensure_model)
         gliner_schema = self._build_schema(model, schema)
         raw = await asyncio.to_thread(
-            model.extract,
+            model.extract,  # ty: ignore[unresolved-attribute]
             chunk.text,
-            gliner_schema,  # ty: ignore[unresolved-attribute]
+            gliner_schema,
         )
         return self._to_result(raw, chunk)
 
