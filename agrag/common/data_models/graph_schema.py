@@ -1,6 +1,6 @@
 """The GraphSchema contract: entity and relation types extraction validates against."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class EntityType(BaseModel):
@@ -53,6 +53,26 @@ class GraphSchema(BaseModel):
     entities: list[EntityType]
     relations: list[RelationType]
 
+    @model_validator(mode="after")
+    def _validate_patterns(self) -> "GraphSchema":
+        """Reject relation patterns whose endpoints are not declared entities."""
+        entity_labels = {e.label for e in self.entities}
+        for rel in self.relations:
+            for source, target in rel.patterns:
+                if source not in entity_labels:
+                    raise ValueError(
+                        f"Relation '{rel.label}' pattern source '{source}' "
+                        f"is not a declared entity"
+                    )
+                if target not in entity_labels:
+                    raise ValueError(
+                        f"Relation '{rel.label}' pattern target '{target}' "
+                        f"is not a declared entity"
+                    )
+        return self
+
+
+_GENERIC_LABELS = ["Person", "Organization", "Location", "Event", "Product"]
 
 GENERIC = GraphSchema(
     name="generic",
@@ -68,17 +88,7 @@ GENERIC = GraphSchema(
         RelationType(
             label="RELATED_TO",
             description="A generic relationship between two entities.",
-            patterns=[
-                ("Person", "Person"),
-                ("Person", "Organization"),
-                ("Organization", "Organization"),
-                ("Person", "Location"),
-                ("Organization", "Location"),
-                ("Person", "Event"),
-                ("Organization", "Event"),
-                ("Person", "Product"),
-                ("Organization", "Product"),
-            ],
+            patterns=[(src, tgt) for src in _GENERIC_LABELS for tgt in _GENERIC_LABELS],
         ),
     ],
 )

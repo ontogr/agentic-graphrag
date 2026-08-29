@@ -144,6 +144,25 @@ class TestBAMLExtractor:
         assert len(result.relations) == 0
 
 
+    async def test_extract_with_injected_client_skips_settings(self) -> None:
+        """An injected client works without EXTRACTION_LLM_CLIENTS env vars."""
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                return SimpleNamespace(
+                    entities=[SimpleNamespace(label="Person", text="Ada", char_start=0, char_end=3)],
+                    relations=[],
+                )
+
+        chunk = _chunk()
+        extractor = BAMLExtractor(client=FakeClient())
+        # No settings set — should not raise
+        assert extractor.settings is None
+        result = await extractor.extract(chunk, GENERIC)
+        assert len(result.entities) == 1
+        assert result.entities[0].text == "Ada"
+
+
 class TestEscalatingExtractor:
     """EscalatingExtractor escalates on weak results, not on strong ones."""
 

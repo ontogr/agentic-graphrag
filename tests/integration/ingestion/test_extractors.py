@@ -82,13 +82,13 @@ class TestBAMLExtractorIntegration:
         result = await extractor.extract(_chunk(), GENERIC)
 
         assert isinstance(result, ExtractionResult)
-        # The paragraph describes Ada working at a company, so a relation
-        # should be extracted
-        if result.relations:
-            rel = result.relations[0]
-            assert rel.label in {r.label for r in GENERIC.relations}
-            assert 0 <= rel.source_index < len(result.entities)
-            assert 0 <= rel.target_index < len(result.entities)
+        # The paragraph describes Ada working at a company, so at least one
+        # relation should be extracted.
+        assert len(result.relations) > 0, "Expected at least one relation"
+        rel = result.relations[0]
+        assert rel.label in {r.label for r in GENERIC.relations}
+        assert 0 <= rel.source_index < len(result.entities)
+        assert 0 <= rel.target_index < len(result.entities)
 
     @pytest.mark.skipif(not _has_llm_endpoint(), reason="LLM endpoint not configured")
     async def test_relation_indices_reference_valid_entities(self) -> None:
@@ -163,11 +163,17 @@ class TestEscalatingExtractorIntegration:
             primary=GlinerExtractor(),
             escalate_to=BAMLExtractor(settings=settings),
             min_confidence=0.9,  # Aggressive threshold to force escalation
+            min_chunk_words=2,  # Low floor so zero-entity triggers escalation
         )
         result = await extractor.extract(_chunk(), GENERIC)
 
         assert isinstance(result, ExtractionResult)
         assert len(result.entities) > 0
+        # Verify escalation actually happened — BAMLExtractor produces
+        # extractor_name="baml", GlinerExtractor produces "gliner".
+        assert result.extractor_name == "baml", (
+            f"Expected escalation to BAMLExtractor, got {result.extractor_name}"
+        )
 
     @pytest.mark.skipif(
         not (_has_llm_endpoint() and _has_gliner2()),

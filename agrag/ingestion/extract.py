@@ -17,7 +17,6 @@ from agrag.common.data_models.extraction import (
 )
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
-from agrag.llm.client_registry import build_client_registry
 from agrag.loaders.corpus.errors import IngestionError
 
 
@@ -87,7 +86,7 @@ class ExtractionLLMSettings(BaseSettings):
         Returns:
             Settings pointing at one ``openai-generic`` client.
         """
-        load_dotenv(override=True)
+        load_dotenv()
         base_url = os.environ.get("LLM_BASE_URL")
         api_key = os.environ.get("LLM_API_KEY")
         model = os.environ.get("LLM_MODEL_ID")
@@ -130,13 +129,16 @@ class GlinerExtractor(Extractor):
         Raises:
             ExtractorMissingExtraError: The ``extract`` package extra is not
                 installed.
+            ValueError: ``chunk.id`` is ``None``.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
         model = await asyncio.to_thread(self._ensure_model)
         gliner_schema = self._build_schema(model, schema)
         raw = await asyncio.to_thread(
-            model.extract, chunk.text, gliner_schema  # ty: ignore[unresolved-attribute]
+            model.extract,
+            chunk.text,
+            gliner_schema,  # ty: ignore[unresolved-attribute]
         )
         return self._to_result(raw, chunk)
 
@@ -228,7 +230,7 @@ class BAMLExtractor(Extractor):
             client: An already-built BAML client object exposing
                 ``ExtractEntitiesAndRelations``. Tests inject a fake here.
         """
-        self.settings = settings or ExtractionLLMSettings()
+        self.settings = settings
         self._client = client
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
@@ -237,14 +239,25 @@ class BAMLExtractor(Extractor):
         Raises:
             ExtractorMissingExtraError: The ``llm`` package extra is not
                 installed.
+            ValueError: ``chunk.id`` is ``None``.
         """
-        client = self._client or self._default_client()
-        registry = build_client_registry(
-            self.settings.clients, strategy=self.settings.strategy
-        )
+        if chunk.id is None:
+            raise ValueError("Chunk must have an id for extraction.")
+        if self._client is not None:
+            client = self._client
+            baml_options: dict = {}
+        else:
+            from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
+
+            client = self._default_client()
+            settings = self.settings or ExtractionLLMSettings()
+            registry = build_client_registry(
+                settings.clients, strategy=settings.strategy
+            )
+            baml_options = {"client_registry": registry}
         type_builder = self._type_builder_for(schema)
         raw = await client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
-            chunk.text, {"client_registry": registry, "tb": type_builder}
+            chunk.text, {"tb": type_builder, **baml_options}
         )
         return self._to_result(raw, chunk)
 

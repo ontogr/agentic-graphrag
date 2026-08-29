@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class ExtractedEntity(BaseModel):
@@ -27,6 +27,17 @@ class ExtractedEntity(BaseModel):
     char_end: int
     confidence: float | None = None
 
+    @model_validator(mode="after")
+    def _validate_span(self) -> "ExtractedEntity":
+        """Reject negative offsets and reversed or zero-length spans."""
+        if self.char_start < 0:
+            raise ValueError(f"char_start must be >= 0, got {self.char_start}")
+        if self.char_end < self.char_start:
+            raise ValueError(
+                f"char_end ({self.char_end}) must be >= char_start ({self.char_start})"
+            )
+        return self
+
 
 class ExtractedRelation(BaseModel):
     """One relation mention between two ExtractedEntity mentions in one Chunk.
@@ -45,6 +56,17 @@ class ExtractedRelation(BaseModel):
     target_index: int
     confidence: float | None = None
 
+    @model_validator(mode="after")
+    def _validate_indices(self) -> "ExtractedRelation":
+        """Reject negative indices. Bounds checking is deferred to ExtractionResult."""
+        if self.source_index < 0:
+            raise ValueError(f"source_index must be >= 0, got {self.source_index}")
+        if self.target_index < 0:
+            raise ValueError(f"target_index must be >= 0, got {self.target_index}")
+        if self.source_index == self.target_index:
+            raise ValueError("source_index and target_index must differ")
+        return self
+
 
 class ExtractionResult(BaseModel):
     """The entities and relations one Extractor call found in one Chunk.
@@ -59,3 +81,18 @@ class ExtractionResult(BaseModel):
     entities: list[ExtractedEntity]
     relations: list[ExtractedRelation]
     extractor_name: str
+
+    @model_validator(mode="after")
+    def _validate_relation_bounds(self) -> "ExtractionResult":
+        """Reject relations whose endpoints index outside the entity list."""
+        entity_count = len(self.entities)
+        for rel in self.relations:
+            if rel.source_index >= entity_count:
+                raise ValueError(
+                    f"source_index {rel.source_index} >= entity count {entity_count}"
+                )
+            if rel.target_index >= entity_count:
+                raise ValueError(
+                    f"target_index {rel.target_index} >= entity count {entity_count}"
+                )
+        return self

@@ -10,12 +10,21 @@ resolve duplicate mentions into groups.
 ## Extract with the default schema
 
 ```python
+import asyncio
 from agrag.common.data_models.graph_schema import GENERIC
-from agrag.ingestion.extract import BAMLExtractor
+from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
 
-extractor = BAMLExtractor()
-result = await extractor.extract(chunk, GENERIC)
-print(result.entities)
+
+async def main():
+    # Point at your OpenAI-compatible endpoint via environment variables:
+    #   LLM_BASE_URL, LLM_MODEL_ID, and optionally LLM_API_KEY
+    settings = ExtractionLLMSettings.from_openai_compatible_env()
+    extractor = BAMLExtractor(settings=settings)
+    result = await extractor.extract(chunk, GENERIC)
+    print(result.entities)
+
+
+asyncio.run(main())
 ```
 
 `BAMLExtractor` needs the `llm` extra:
@@ -27,10 +36,27 @@ pip install "agentic-graphrag[llm]"
 ## Run locally first, escalating to an LLM
 
 ```python
-from agrag.ingestion.extract import BAMLExtractor, EscalatingExtractor, GlinerExtractor
+import asyncio
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.ingestion.extract import (
+    BAMLExtractor,
+    EscalatingExtractor,
+    ExtractionLLMSettings,
+    GlinerExtractor,
+)
 
-extractor = EscalatingExtractor(primary=GlinerExtractor(), escalate_to=BAMLExtractor())
-result = await extractor.extract(chunk, GENERIC)
+
+async def main():
+    settings = ExtractionLLMSettings.from_openai_compatible_env()
+    extractor = EscalatingExtractor(
+        primary=GlinerExtractor(),
+        escalate_to=BAMLExtractor(settings=settings),
+    )
+    result = await extractor.extract(chunk, GENERIC)
+    print(result.entities)
+
+
+asyncio.run(main())
 ```
 
 `GlinerExtractor` needs the `extract` extra:
@@ -52,6 +78,7 @@ variables.
 ## Resolve duplicate mentions
 
 ```python
+import asyncio
 from agrag.ingestion.resolve import (
     ExactMatch,
     FuzzyMatch,
@@ -60,15 +87,27 @@ from agrag.ingestion.resolve import (
     Resolver,
 )
 
-resolver = Resolver(
-    comparators=[
-        ExactMatch(),
-        FuzzyMatch(),
-        LLMVerify(chunks_by_id=chunks_by_id),
-    ],
-    candidate_source=InBatchCandidateSource(),
-)
-groups = await resolver.resolve(entities)
+
+async def main():
+    # entities come from an extraction call, e.g. result.entities
+    # chunks_by_id maps each chunk ID to its Chunk for LLM context
+    resolver = Resolver(
+        comparators=[
+            ExactMatch(),
+            FuzzyMatch(),
+            LLMVerify(
+                chunks_by_id=chunks_by_id,
+                settings=ExtractionLLMSettings.from_openai_compatible_env(),
+            ),
+        ],
+        candidate_source=InBatchCandidateSource(),
+    )
+    groups = await resolver.resolve(entities)
+    for group in groups:
+        print(group.entity_indices)
+
+
+asyncio.run(main())
 ```
 
 Each group lists the indices of entities resolution decided are the same

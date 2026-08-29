@@ -80,6 +80,9 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+        # Override the global exclude so pytest runs even when only
+        # BAML-client files changed, to catch regressions elsewhere.
+        exclude: '(^tests/.*/fixtures/)'
 
 ci:
   autofix_prs: true

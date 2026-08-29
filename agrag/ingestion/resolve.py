@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.ingestion.extract import ExtractionLLMSettings, ExtractorMissingExtraError
-from agrag.llm.client_registry import build_client_registry
 
 
 class ResolutionGroup(BaseModel):
@@ -167,7 +166,7 @@ class LLMVerify(Comparator):
             client: An already-built BAML client. Tests inject a fake here.
         """
         self.chunks_by_id = chunks_by_id
-        self.settings = settings or ExtractionLLMSettings()
+        self.settings = settings
         self._client = client
 
     async def compare(
@@ -183,9 +182,12 @@ class LLMVerify(Comparator):
             client = self._client
             baml_options: dict = {}
         else:
+            from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
+
             client = self._default_client()
+            settings = self.settings or ExtractionLLMSettings()
             registry = build_client_registry(
-                self.settings.clients, strategy=self.settings.strategy
+                settings.clients, strategy=settings.strategy
             )
             baml_options = {"client_registry": registry}
         try:
@@ -282,16 +284,19 @@ class Resolver:
             appears in exactly one group.
         """
         edges: list[tuple[int, int]] = []
+        compared: set[tuple[int, int]] = set()
         for index in range(len(entities)):
             candidates = await self.candidate_source.candidates_for(index, entities)
             for candidate_index in candidates:
-                if candidate_index <= index:
+                pair = (min(index, candidate_index), max(index, candidate_index))
+                if pair in compared:
                     continue
+                compared.add(pair)
                 verdict = await self._first_verdict(
                     entities[index], entities[candidate_index]
                 )
                 if verdict is ComparisonVerdict.MATCH:
-                    edges.append((index, candidate_index))
+                    edges.append(pair)
         groups = _group_matches(len(entities), edges)
         return [ResolutionGroup(entity_indices=group) for group in groups]
 

@@ -161,6 +161,25 @@ class TestLLMVerify:
         verdict = await verifier.compare(a, b)
         assert verdict is ComparisonVerdict.NO_MATCH
 
+    async def test_injected_client_works_without_settings(self) -> None:
+        """An injected client works without EXTRACTION_LLM_CLIENTS env vars."""
+
+        class FakeClient:
+            async def VerifyEntityMatch(self, *args):  # noqa: N802
+                return True
+
+        chunk = _chunk("context text")
+        chunk_id = uuid4()
+        a = _entity("Ada", chunk_id=chunk_id)
+        b = _entity("Ada", chunk_id=chunk_id)
+        verifier = LLMVerify(
+            chunks_by_id={chunk_id: chunk},
+            client=FakeClient(),
+        )
+        assert verifier.settings is None
+        verdict = await verifier.compare(a, b)
+        assert verdict is ComparisonVerdict.MATCH
+
     async def test_raises_when_no_client(self) -> None:
         """Missing llm extra raises ExtractorMissingExtraError."""
         from unittest.mock import patch  # noqa: PLC0415

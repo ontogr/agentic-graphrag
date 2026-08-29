@@ -35,7 +35,7 @@ class TestBuildClientRegistry:
     def test_single_sets_the_one_client_primary(self, monkeypatch) -> None:
         """With one client, it becomes the primary and no composite is made."""
         fake = FakeClientRegistry()
-        monkeypatch.setattr("agrag.llm.client_registry.ClientRegistry", lambda: fake)
+        monkeypatch.setattr("baml_py.ClientRegistry", lambda: fake)
         registry = build_client_registry([_client("only")], strategy="single")
         assert registry is fake
         assert [name for name, _, _ in fake.added] == ["only"]
@@ -44,7 +44,7 @@ class TestBuildClientRegistry:
     def test_fallback_registers_a_composite_over_all_names(self, monkeypatch) -> None:
         """Fallback adds one composite client and makes it primary."""
         fake = FakeClientRegistry()
-        monkeypatch.setattr("agrag.llm.client_registry.ClientRegistry", lambda: fake)
+        monkeypatch.setattr("baml_py.ClientRegistry", lambda: fake)
         build_client_registry([_client("a"), _client("b")], strategy="fallback")
         names = [name for name, _, _ in fake.added]
         assert names == ["a", "b", "_agrag_composite"]
@@ -55,7 +55,7 @@ class TestBuildClientRegistry:
     ) -> None:
         """Round-robin adds one composite client and makes it primary."""
         fake = FakeClientRegistry()
-        monkeypatch.setattr("agrag.llm.client_registry.ClientRegistry", lambda: fake)
+        monkeypatch.setattr("baml_py.ClientRegistry", lambda: fake)
         build_client_registry([_client("a"), _client("b")], strategy="round_robin")
         names = [name for name, _, _ in fake.added]
         assert names == ["a", "b", "_agrag_composite"]
@@ -63,16 +63,14 @@ class TestBuildClientRegistry:
 
     def test_empty_clients_raises_value_error(self, monkeypatch) -> None:
         """An empty client list is rejected."""
-        monkeypatch.setattr(
-            "agrag.llm.client_registry.ClientRegistry", FakeClientRegistry
-        )
+        monkeypatch.setattr("baml_py.ClientRegistry", FakeClientRegistry)
         with pytest.raises(ValueError):
             build_client_registry([])
 
     def test_openai_generic_passes_base_url_and_key(self, monkeypatch) -> None:
         """An openai-generic client forwards base_url and api_key to options."""
         fake = FakeClientRegistry()
-        monkeypatch.setattr("agrag.llm.client_registry.ClientRegistry", lambda: fake)
+        monkeypatch.setattr("baml_py.ClientRegistry", lambda: fake)
         client = LLMClientConfig(
             name="g",
             provider="openai-generic",

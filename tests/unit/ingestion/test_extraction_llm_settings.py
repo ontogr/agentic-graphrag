@@ -62,3 +62,12 @@ class TestFromOpenAICompatibleEnv:
         monkeypatch.setattr("agrag.ingestion.extract.load_dotenv", lambda **kw: None)
         with pytest.raises(RuntimeError):
             ExtractionLLMSettings.from_openai_compatible_env()
+
+    def test_load_dotenv_does_not_override_existing_env(self, monkeypatch) -> None:
+        """load_dotenv() respects existing env vars instead of overriding them."""
+        monkeypatch.setenv("LLM_BASE_URL", "https://deploy.example.com/v1")
+        monkeypatch.setenv("LLM_MODEL_ID", "production-model")
+        monkeypatch.setattr("agrag.ingestion.extract.load_dotenv", lambda **kw: None)
+        settings = ExtractionLLMSettings.from_openai_compatible_env()
+        assert settings.clients[0].base_url == "https://deploy.example.com/v1"
+        assert settings.clients[0].model == "production-model"

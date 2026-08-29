@@ -1,17 +1,19 @@
 """Builds a BAML ClientRegistry from LLMClientConfig, at call time."""
 
-from typing import Literal
+from __future__ import annotations
 
-from baml_py import ClientRegistry
+from typing import TYPE_CHECKING, Literal
 
-from agrag.llm.client_config import LLMClientConfig
+
+if TYPE_CHECKING:
+    from agrag.llm.client_config import LLMClientConfig
 
 
 def build_client_registry(
     clients: list[LLMClientConfig],
     *,
     strategy: Literal["single", "fallback", "round_robin"] = "single",
-) -> ClientRegistry:
+) -> object:
     """Build a ClientRegistry with the given clients, composed per strategy.
 
     Args:
@@ -21,12 +23,20 @@ def build_client_registry(
             in order, and make it primary.
 
     Returns:
-        A registry ready to pass as ``{"client_registry": registry}`` to a BAML
-        function call.
+        A ClientRegistry instance. The return type is ``object`` because
+        ``baml-py`` is an optional dependency (the ``llm`` extra).
 
     Raises:
         ValueError: ``clients`` is empty.
+        ExtractorMissingExtraError: The ``llm`` package extra is not installed.
     """
+    try:
+        from baml_py import ClientRegistry  # noqa: PLC0415
+    except ImportError as exc:
+        from agrag.ingestion.extract import ExtractorMissingExtraError  # noqa: PLC0415
+
+        raise ExtractorMissingExtraError("build_client_registry", "llm") from exc
+
     if not clients:
         raise ValueError("build_client_registry needs at least one client.")
 
@@ -46,6 +56,9 @@ def build_client_registry(
         return registry
 
     composite_name = "_agrag_composite"
+    existing_names = {client.name for client in clients}
+    while composite_name in existing_names:
+        composite_name = f"{composite_name}_"
     composite_provider = "fallback" if strategy == "fallback" else "round-robin"
     registry.add_llm_client(
         name=composite_name,

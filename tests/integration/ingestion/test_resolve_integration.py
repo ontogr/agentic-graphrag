@@ -189,12 +189,15 @@ class TestResolverIntegration:
         settings = ExtractionLLMSettings.from_openai_compatible_env()
         chunk = _chunk(
             "Ada Lovelace was a pioneer of computing. "
-            "Lovelace, Ada worked on the engine."
+            "Lady Lovelace wrote notes on the engine."
         )
         chunk_id = chunk.id
+        # "Ada Lovelace" vs "Lady Lovelace" — similarity ~0.80, between
+        # FuzzyMatch's no_match_below (0.70) and match_above (0.92), so
+        # FuzzyMatch returns UNCERTAIN and LLMVerify is reached.
         entities = [
             _entity("Ada Lovelace", chunk_id=chunk_id),
-            _entity("Lovelace, Ada", chunk_id=chunk_id),
+            _entity("Lady Lovelace", chunk_id=chunk_id),
         ]
 
         resolver = Resolver(
