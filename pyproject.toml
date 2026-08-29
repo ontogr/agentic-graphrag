@@ -154,7 +154,7 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 source_pkgs = ["agrag"]
-omit = ["tests/*", "*/__init__.py"]
+omit = ["tests/*", "*/__init__.py", "agrag/llm/baml_client/*"]
 branch = true
 parallel = false
 
