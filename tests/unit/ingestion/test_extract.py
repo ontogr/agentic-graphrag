@@ -60,6 +60,57 @@ class TestExtractorMissingExtraError:
 class TestGlinerExtractor:
     """GlinerExtractor raises when gliner2 is not installed."""
 
+    async def test_extract_maps_model_output_and_schema(self) -> None:
+        """Injected model output becomes indexed entities and relations."""
+
+        class FakeSchemaBuilder:
+            def __init__(self) -> None:
+                self.entity_labels: list[str] = []
+                self.relation_labels: list[str] = []
+
+            def entities(self, labels: list[str]) -> "FakeSchemaBuilder":
+                self.entity_labels = labels
+                return self
+
+            def relations(self, labels: list[str]) -> "FakeSchemaBuilder":
+                self.relation_labels = labels
+                return self
+
+        class FakeModel:
+            def __init__(self) -> None:
+                self.schema = FakeSchemaBuilder()
+
+            def create_schema(self) -> FakeSchemaBuilder:
+                return self.schema
+
+            def extract(self, text: str, schema: FakeSchemaBuilder) -> dict:
+                assert text.startswith("Ada Lovelace")
+                assert schema is self.schema
+                return {
+                    "entities": {
+                        "Person": ["Ada Lovelace"],
+                        "Organization": ["Analytical Engine Company"],
+                    },
+                    "relation_extraction": {
+                        "RELATED_TO": [("Ada Lovelace", "Analytical Engine Company")]
+                    },
+                }
+
+        model = FakeModel()
+        result = await GlinerExtractor(model=model).extract(_chunk(), GENERIC)
+
+        assert model.schema.entity_labels == [item.label for item in GENERIC.entities]
+        assert model.schema.relation_labels == [
+            item.label for item in GENERIC.relations
+        ]
+        assert [(entity.text, entity.char_start) for entity in result.entities] == [
+            ("Ada Lovelace", 0),
+            ("Analytical Engine Company", 27),
+        ]
+        assert result.relations[0].source_index == 0
+        assert result.relations[0].target_index == 1
+        assert result.extractor_name == "gliner"
+
     def test_raises_when_gliner2_not_importable(self) -> None:
         """ExtractorMissingExtraError is raised if gliner2 can't be imported."""
         extractor = GlinerExtractor()
