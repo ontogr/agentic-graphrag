@@ -256,8 +256,11 @@ class BAMLExtractor(Extractor):
             )
             baml_options = {"client_registry": registry}
         type_builder = self._type_builder_for(schema)
+        call_options: dict = {**baml_options}
+        if type_builder is not None:
+            call_options["tb"] = type_builder
         raw = await client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
-            chunk.text, {"tb": type_builder, **baml_options}
+            chunk.text, call_options
         )
         return self._to_result(raw, chunk)
 
@@ -269,9 +272,18 @@ class BAMLExtractor(Extractor):
             raise ExtractorMissingExtraError("BAMLExtractor", "llm") from exc
         return b
 
-    def _type_builder_for(self, schema: GraphSchema) -> object:
-        """Return a TypeBuilder populated with schema's entity/relation labels."""
-        from agrag.llm.baml_client.type_builder import TypeBuilder  # noqa: PLC0415
+    def _type_builder_for(self, schema: GraphSchema) -> object | None:
+        """Return a TypeBuilder populated with schema's entity/relation labels.
+
+        Returns ``None`` when the ``llm`` extra is not installed and an
+        injected client is being used, so callers can skip the ``tb`` option.
+        """
+        try:
+            from agrag.llm.baml_client.type_builder import TypeBuilder  # noqa: PLC0415
+        except ImportError:
+            if self._client is not None:
+                return None
+            raise
 
         builder = TypeBuilder()
         for entity_type in schema.entities:
