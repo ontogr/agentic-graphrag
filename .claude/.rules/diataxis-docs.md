@@ -18,6 +18,22 @@ these points:
 
 Use the sections below to identify which of the four modes a page belongs to.
 
+## Prose style: ASD-STE100
+
+User-facing prose (headings, paragraphs, list items, table cells — not code samples) follows
+Simplified Technical English:
+
+- One approved meaning per word on a given page.
+- About 20 words or fewer per instruction sentence, about 25 for a description.
+- Active voice; name the actor.
+- One instruction per sentence; use a numbered list instead of "and."
+- "Must" for a required action, "can" for an optional one.
+- No stacked nouns: split "the vector store connection timeout setting" into
+  "the timeout for the connection to the vector store."
+- No vague verbs such as "handle" or "leverage"; name the real action.
+- No slashes or ampersands in prose; write "or" and "and" in full.
+- One idea per paragraph.
+
 ## Core Concept
 
 The fundamental idea behind Diátaxis is that documentation needs fall into four distinct categories. Each category serves a different purpose and requires a different approach to writing. The framework is not just a list of types, but a systematic way to think about documentation.

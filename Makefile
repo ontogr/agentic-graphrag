@@ -1,10 +1,12 @@
-.PHONY: sync lint-actions test test-integration cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
+.PHONY: sync lint-actions test test-integration dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
 help:
 	@echo "Available make targets:"
 	@echo "  make sync             - Sync project and install dependencies"
 	@echo "  make test             - Run unit tests with coverage"
 	@echo "  make test-integration - Run integration tests (requires network)"
+	@echo "  make dev-services-up  - Start local Neo4j/Qdrant/Weaviate/Milvus for integration tests"
+	@echo "  make dev-services-down - Stop and remove local backend services and their data"
 	@echo "  make cov-report       - Generate coverage reports (xml, html)"
 	@echo "  make cov              - Run tests and generate coverage reports"
 	@echo "  make lint-typing      - Type check with ty"
@@ -37,7 +39,14 @@ test:
 
 test-integration:
 	uv run pytest tests/integration -v -n auto --dist loadscope \
-		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
+		--junitxml=pytest-integration-results.xml
+
+dev-services-up:
+	docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 240
+
+dev-services-down:
+	docker compose -f docker/docker-compose.ci.yml down -v
 
 cov-report:
 	uv run coverage html
@@ -85,7 +94,7 @@ wheel-test: build
 	cd /tmp && "$(CURDIR)/.wheelenv/bin/python" -c "import agrag; print(agrag.__version__)"
 
 clean:
-	rm -rf .coverage coverage.xml htmlcov dist build .wheelenv *.egg-info pytest-results.xml
+	rm -rf .coverage coverage.xml htmlcov dist build .wheelenv *.egg-info pytest-results.xml pytest-integration-results.xml
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type d -name .pytest_cache -exec rm -rf {} +
 	find . -type d -name .ruff_cache -exec rm -rf {} +
