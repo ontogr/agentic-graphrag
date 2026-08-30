@@ -1,5 +1,6 @@
 """Neo4j graph-store backend."""
 
+import asyncio
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
@@ -69,6 +70,8 @@ class Neo4jGraphStore(GraphStore):
         self._driver: Any = driver
         self._known_labels: set[str] = set()
         self._known_relation_types: set[str] = set()
+        self._identity_constraint_ready = False
+        self._identity_constraint_lock = asyncio.Lock()
 
     async def _ensure_driver(self) -> "AsyncDriver":
         """Build the Neo4j driver once and cache it.
@@ -147,11 +150,30 @@ class Neo4jGraphStore(GraphStore):
         the stale-relationship cleanup ``upsert_relation_query`` performs on
         endpoint changes.
         """
-        await self.execute_write(node_id_constraint_query(NODE_IDENTITY_LABEL))
+        await self._ensure_identity_constraint()
         for label in await self._all_labels():
             await self.execute_write(node_id_constraint_query(label))
         for rel_type in await self._all_relation_types():
             await self.execute_write(relation_id_constraint_query(rel_type))
+
+    async def _ensure_identity_constraint(self) -> None:
+        """Create the ``NODE_IDENTITY_LABEL`` uniqueness constraint once.
+
+        Neo4j only makes ``MERGE`` atomic under concurrent writers once a
+        uniqueness constraint backs the merged property; without it, two
+        concurrent ``upsert_nodes`` calls for the same id can each find no
+        match and create separate nodes. Creating the constraint here, not
+        only in ``setup_constraints``, closes that window for callers that
+        upsert before running setup, and the lock serializes concurrent first
+        calls so only one of them issues the ``CREATE CONSTRAINT``.
+        """
+        if self._identity_constraint_ready:
+            return
+        async with self._identity_constraint_lock:
+            if self._identity_constraint_ready:
+                return
+            await self.execute_write(node_id_constraint_query(NODE_IDENTITY_LABEL))
+            self._identity_constraint_ready = True
 
     async def setup_indexes(self) -> None:
         """Create a range index on ``id`` for every known label.
@@ -231,6 +253,7 @@ class Neo4jGraphStore(GraphStore):
         """
         require_positive_batch_size(batch_size)
         validate_identifier(label)
+        await self._ensure_identity_constraint()
         self._known_labels.add(label)
         groups: dict[tuple[str, ...], list[NodeRecord]] = defaultdict(list)
         for node in nodes:

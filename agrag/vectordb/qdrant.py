@@ -87,6 +87,7 @@ class QdrantVectorStore(VectorStore):
         self._models: Any = None
         self._hybrid_collections: set[str] = set()
         self._checked_collections: set[str] = set()
+        self._collection_distances: dict[str, Any] = {}
 
     async def _ensure_client(self) -> Any:
         """Build the Qdrant client once and cache it.
@@ -186,18 +187,40 @@ class QdrantVectorStore(VectorStore):
             return None
         return getattr(vectors, "size", None)
 
-    def _to_hit(self, point: Any) -> VectorHit:
+    @staticmethod
+    def _distance_of(vectors: Any) -> Any:
+        """Read the dense vector distance metric from a collection's vector config.
+
+        Args:
+            vectors: The ``vectors`` field of a Qdrant ``CollectionInfo``.
+
+        Returns:
+            The Qdrant distance value, or ``None`` when it cannot be read.
+        """
+        if isinstance(vectors, dict):
+            for vector in vectors.values():
+                if vector is not None:
+                    return getattr(vector, "distance", None)
+            return None
+        return getattr(vectors, "distance", None)
+
+    def _to_hit(self, point: Any, *, invert_score: bool = False) -> VectorHit:
         """Convert a Qdrant scored point to a ``VectorHit``.
 
         Args:
             point: A Qdrant ``ScoredPoint``.
+            invert_score: Negate the raw score so that higher always means
+                closer. Qdrant reports literal Euclidean distance for
+                ``EUCLID`` collections (lower is closer), unlike ``COSINE``
+                and ``DOT``, where the field is already a similarity.
 
         Returns:
             The equivalent hit.
         """
+        raw = float(point.score)
         return VectorHit(
             id=UUID(str(point.id)),
-            score=float(point.score),
+            score=-raw if invert_score else raw,
             payload=point.payload or {},
         )
 
@@ -253,6 +276,9 @@ class QdrantVectorStore(VectorStore):
                 raise CollectionDimensionMismatchError(
                     expected=existing, actual=dimensions
                 )
+            existing_distance = self._distance_of(info.config.params.vectors)
+            if existing_distance is not None:
+                self._collection_distances[name] = existing_distance
             if _SPARSE_VECTOR_NAME in (info.config.params.sparse_vectors or {}):
                 self._hybrid_collections.add(name)
             elif hybrid:
@@ -271,6 +297,7 @@ class QdrantVectorStore(VectorStore):
         vectors_config = self._models.VectorParams(
             size=dimensions, distance=self._qdrant_distance(distance)
         )
+        self._collection_distances[name] = vectors_config.distance
         sparse_config: dict[str, Any] | None = None
         if hybrid:
             sparse_config = {
@@ -309,6 +336,30 @@ class QdrantVectorStore(VectorStore):
         await client.delete_collection(name)
         self._hybrid_collections.discard(name)
         self._checked_collections.discard(name)
+        self._collection_distances.pop(name, None)
+
+    async def _distance_for(self, client: Any, collection: str) -> Any:
+        """Return the cached distance metric for ``collection``, resolving it lazily.
+
+        A fresh store instance has no process-local record of a collection it
+        did not itself create through ``ensure_collection``, so a
+        collection's distance metric is resolved from the backend on first
+        use and cached from then on.
+
+        Args:
+            client: The connected Qdrant client.
+            collection: The collection name.
+
+        Returns:
+            The Qdrant distance value the collection's dense vector uses, or
+            ``None`` when it cannot be determined.
+        """
+        if collection not in self._collection_distances:
+            info = await client.get_collection(collection)
+            distance = self._distance_of(info.config.params.vectors)
+            if distance is not None:
+                self._collection_distances[collection] = distance
+        return self._collection_distances.get(collection)
 
     async def _is_hybrid(self, client: Any, collection: str) -> bool:
         """Report whether ``collection`` has sparse-vector support, resolving lazily.
@@ -433,7 +484,9 @@ class QdrantVectorStore(VectorStore):
             query_filter=self._compile_filter(filters),
             with_payload=True,
         )
-        return [self._to_hit(point) for point in response.points]
+        distance = await self._distance_for(client, collection)
+        invert = distance == self._models.Distance.EUCLID
+        return [self._to_hit(point, invert_score=invert) for point in response.points]
 
     async def hybrid_search(
         self,
@@ -491,7 +544,11 @@ class QdrantVectorStore(VectorStore):
                 with_payload=True,
             ),
         )
-        dense_hits = [self._to_hit(point) for point in dense_response.points]
+        distance = await self._distance_for(client, collection)
+        invert = distance == self._models.Distance.EUCLID
+        dense_hits = [
+            self._to_hit(point, invert_score=invert) for point in dense_response.points
+        ]
         sparse_hits = [self._to_hit(point) for point in sparse_response.points]
         return self._fuse_by_alpha(dense_hits, sparse_hits, alpha=alpha, limit=limit)
 
@@ -523,10 +580,22 @@ class QdrantVectorStore(VectorStore):
         sparse_norm = _min_max_normalize(
             {point_id: hit.score for point_id, hit in sparse_by_id.items()}
         )
+        # A candidate absent from one side's pool defaults to a 0.0
+        # contribution from that side, same as its own worst-ranked member
+        # after min-max normalization. At alpha's extremes that tie would let
+        # candidates the excluded side never matched at all fill result slots
+        # a pure dense or pure keyword search should reserve for real
+        # matches, so those candidate sets narrow to the side alpha keeps.
+        if alpha <= 0.0:
+            candidate_ids = set(sparse_by_id)
+        elif alpha >= 1.0:
+            candidate_ids = set(dense_by_id)
+        else:
+            candidate_ids = {*dense_by_id, *sparse_by_id}
         combined_scores = {
             point_id: alpha * dense_norm.get(point_id, 0.0)
             + (1 - alpha) * sparse_norm.get(point_id, 0.0)
-            for point_id in {*dense_by_id, *sparse_by_id}
+            for point_id in candidate_ids
         }
         ranked_ids = sorted(
             combined_scores,

@@ -1,5 +1,6 @@
 """Unit tests for the Weaviate vector-store backend, with a mocked client."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest import mock
 from uuid import UUID, uuid4
@@ -235,6 +236,20 @@ class TestWritesAndReads:
         assert records[0].vector == [0.1]
         assert offset == obj_id
 
+    async def test_scroll_zero_limit_returns_empty_page(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """limit=0 returns an empty page instead of crashing on an empty index.
+
+        Regression guard: ``len(objects) == limit`` was true for an empty
+        result at ``limit=0``, so indexing ``objects[-1]`` raised
+        ``IndexError`` instead of signaling there is no next page.
+        """
+        client._collection.query.fetch_objects.return_value = make_response([])
+        records, offset = await store.scroll("c", limit=0)
+        assert records == []
+        assert offset is None
+
     async def test_retrieve_returns_records(
         self, store: WeaviateVectorStore, client
     ) -> None:
@@ -308,6 +323,57 @@ class TestEnsureClientMode:
         assert build.call_args.kwargs["http_secure"] is False
         fake_client.connect.assert_called_once()
         assert client is fake_client
+
+    async def test_concurrent_first_calls_connect_once(self) -> None:
+        """Concurrent first calls share one connect, not a disconnected client.
+
+        Regression guard: assigning ``self._client`` before awaiting
+        ``connect()`` let a second concurrent caller observe and use a
+        still-disconnected client.
+        """
+        fake_client = mock.AsyncMock()
+
+        async def slow_connect() -> None:
+            await asyncio.sleep(0)
+
+        fake_client.connect.side_effect = slow_connect
+        with mock.patch.object(
+            weaviate, "use_async_with_weaviate_cloud", return_value=fake_client
+        ) as build:
+            store = WeaviateVectorStore(
+                settings=WeaviateSettings(
+                    mode="cloud", url="https://xyz.cloud.weaviate.io"
+                )
+            )
+            first, second = await asyncio.gather(
+                store._ensure_client(), store._ensure_client()
+            )
+        build.assert_called_once()
+        fake_client.connect.assert_called_once()
+        assert first is fake_client
+        assert second is fake_client
+
+    async def test_failed_connect_is_retried_on_next_call(self) -> None:
+        """A failed connect leaves ``self._client`` unset so the next call retries."""
+        failing_client = mock.AsyncMock()
+        failing_client.connect.side_effect = RuntimeError("boom")
+        working_client = mock.AsyncMock()
+        with mock.patch.object(
+            weaviate,
+            "use_async_with_weaviate_cloud",
+            side_effect=[failing_client, working_client],
+        ):
+            store = WeaviateVectorStore(
+                settings=WeaviateSettings(
+                    mode="cloud", url="https://xyz.cloud.weaviate.io"
+                )
+            )
+            with pytest.raises(RuntimeError):
+                await store._ensure_client()
+            assert store._client is None
+            client = await store._ensure_client()
+        assert client is working_client
+        working_client.connect.assert_called_once()
 
 
 class TestMissingExtra:

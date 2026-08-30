@@ -3,6 +3,7 @@
 The driver is injected as a fake, per ADR 0027, so no real Neo4j is required.
 """
 
+import asyncio
 from unittest import mock
 from uuid import uuid4
 
@@ -143,7 +144,11 @@ class TestUpsertNodes:
             id=uuid4(), labels=["Chunk", "Entity"], properties={"n": 2}
         )
         await store.upsert_nodes("Chunk", [single, compound])
-        writes = store._driver.last_session.execute_write.call_args_list
+        writes = [
+            c
+            for c in store._driver.last_session.execute_write.call_args_list
+            if "MERGE" in c.args[1]
+        ]
         assert len(writes) == 2
         queries = {call.args[1] for call in writes}
         assert any("SET n:Chunk " in q and "SET n:Chunk:" not in q for q in queries)
@@ -164,6 +169,50 @@ class TestUpsertNodes:
         with pytest.raises(ValueError):
             await store.upsert_nodes("Chunk", [node], batch_size=0)
         store._driver.last_session.execute_write.assert_not_called()
+
+    async def test_creates_identity_constraint_before_first_write(self) -> None:
+        """The identity uniqueness constraint is created before any node MERGE.
+
+        Neo4j only makes MERGE atomic under concurrent writers once a
+        uniqueness constraint backs the merged property, so the constraint
+        must land before the first node write, not only via a separate
+        setup_constraints call.
+        """
+        store = _store()
+        node = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
+        await store.upsert_nodes("Chunk", [node])
+        writes = store._driver.last_session.execute_write.call_args_list
+        assert f"{NODE_IDENTITY_LABEL}_id_unique" in writes[0].args[1]
+        assert "MERGE" in writes[-1].args[1]
+
+    async def test_concurrent_upserts_create_identity_constraint_once(self) -> None:
+        """Concurrent first upserts issue the identity constraint exactly once.
+
+        Regression guard: without serializing on a lock, two concurrent
+        upsert_nodes calls could each observe the constraint as not yet
+        created and both proceed to MERGE before it exists, letting Neo4j
+        create two separate nodes for the same id.
+        """
+        store = _store()
+
+        async def slow_write(
+            _run: object, _query: str, _params: object
+        ) -> list[dict[str, object]]:
+            await asyncio.sleep(0)
+            return []
+
+        store._driver.last_session.execute_write.side_effect = slow_write
+        first = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
+        second = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
+        await asyncio.gather(
+            store.upsert_nodes("Chunk", [first]),
+            store.upsert_nodes("Chunk", [second]),
+        )
+        writes = store._driver.last_session.execute_write.call_args_list
+        constraint_calls = [
+            c for c in writes if f"{NODE_IDENTITY_LABEL}_id_unique" in c.args[1]
+        ]
+        assert len(constraint_calls) == 1
 
 
 class TestUpsertRelations:

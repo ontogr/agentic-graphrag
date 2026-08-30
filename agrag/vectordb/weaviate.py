@@ -1,5 +1,6 @@
 """Weaviate vector-store backend."""
 
+import asyncio
 import urllib.parse
 from collections.abc import Sequence
 from typing import Any
@@ -44,9 +45,16 @@ class WeaviateVectorStore(VectorStore):
         """
         self._settings = settings or WeaviateSettings()
         self._client: Any = client
+        self._connect_lock = asyncio.Lock()
 
     async def _ensure_client(self) -> Any:
         """Build the Weaviate client once and cache it.
+
+        Concurrent first calls are serialized on ``_connect_lock`` so a second
+        caller cannot observe a client before ``connect()`` has finished, and
+        ``self._client`` is only published once ``connect()`` succeeds, so a
+        failed connection attempt is retried on the next call rather than
+        cached in a disconnected state.
 
         Returns:
             The connected client object.
@@ -54,7 +62,11 @@ class WeaviateVectorStore(VectorStore):
         Raises:
             VectorStoreMissingExtraError: weaviate-client is not installed.
         """
-        if self._client is None:
+        if self._client is not None:
+            return self._client
+        async with self._connect_lock:
+            if self._client is not None:
+                return self._client
             try:
                 # Lazy import: a clean install must raise
                 # VectorStoreMissingExtraError, not ImportError, when
@@ -67,12 +79,12 @@ class WeaviateVectorStore(VectorStore):
                 Auth.api_key(self._settings.api_key) if self._settings.api_key else None
             )
             if self._settings.mode == "cloud":
-                self._client = weaviate.use_async_with_weaviate_cloud(
+                client = weaviate.use_async_with_weaviate_cloud(
                     cluster_url=self._settings.url, auth_credentials=auth
                 )
             else:
                 parsed = urllib.parse.urlparse(self._settings.url)
-                self._client = weaviate.use_async_with_custom(
+                client = weaviate.use_async_with_custom(
                     http_host=parsed.hostname or "localhost",
                     http_port=parsed.port or 8080,
                     http_secure=parsed.scheme == "https",
@@ -82,8 +94,10 @@ class WeaviateVectorStore(VectorStore):
                     auth_credentials=auth,
                 )
             # use_async_with_custom / use_async_with_weaviate_cloud build a
-            # disconnected client; we must connect it before any call.
-            await self._client.connect()
+            # disconnected client; we must connect it before any call, and
+            # only cache it in self._client once that succeeds.
+            await client.connect()
+            self._client = client
         return self._client
 
     def _weaviate_distance(self, distance: Distance) -> Any:
@@ -425,7 +439,8 @@ class WeaviateVectorStore(VectorStore):
         )
         objects = response.objects if hasattr(response, "objects") else response
         records = [self._to_record(obj) for obj in objects]
-        next_offset = str(objects[-1].uuid) if len(objects) == limit else None
+        has_more_page = bool(objects) and len(objects) == limit
+        next_offset = str(objects[-1].uuid) if has_more_page else None
         return records, next_offset
 
     async def retrieve(

@@ -2,10 +2,12 @@
 
 import sys
 from types import SimpleNamespace
+from typing import Any
 from unittest import mock
 from uuid import UUID, uuid4
 
 import pytest
+from qdrant_client import models as qdrant_models
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
 from agrag.embedding.sparse_base import SparseVector
@@ -57,7 +59,11 @@ def make_response(points: list) -> SimpleNamespace:
 
 
 def make_collection_info(
-    size: int, *, sparse: bool = False, sparse_name: str = _SPARSE_VECTOR_NAME
+    size: int,
+    *,
+    sparse: bool = False,
+    sparse_name: str = _SPARSE_VECTOR_NAME,
+    distance: Any = None,
 ) -> SimpleNamespace:
     """Build a fake CollectionInfo exposing a dense vector of the given size.
 
@@ -65,7 +71,7 @@ def make_collection_info(
     application's sparse vector under a different name, which must not be
     mistaken for this store's own named ``bm25`` vector.
     """
-    vectors = SimpleNamespace(size=size)
+    vectors = SimpleNamespace(size=size, distance=distance)
     sparse_vectors = {sparse_name: SimpleNamespace()} if sparse else None
     config = SimpleNamespace(
         params=SimpleNamespace(vectors=vectors, sparse_vectors=sparse_vectors)
@@ -342,6 +348,25 @@ class TestWritesAndReads:
         assert hits[0].id == UUID(point_id)
         assert hits[0].score == 0.9
 
+    async def test_search_inverts_score_for_euclidean_collection(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """A Euclidean collection's raw distance is negated to higher-is-closer.
+
+        Regression guard: Qdrant reports literal Euclidean distance (lower is
+        closer) for EUCLID collections, unlike COSINE/DOT where the score is
+        already a similarity. VectorHit.score must stay higher-is-closer
+        regardless of the collection's distance metric.
+        """
+        client.get_collection.return_value = make_collection_info(
+            4, distance=qdrant_models.Distance.EUCLID
+        )
+        point_id = str(uuid4())
+        point = make_point(point_id, 0.4, {})
+        client.query_points.return_value = make_response([point])
+        hits = await store.search("c", [0.1, 0.2], limit=5)
+        assert hits[0].score == -0.4
+
     async def test_hybrid_search_uses_sparse_embedder(
         self, store: QdrantVectorStore, client
     ) -> None:
@@ -371,6 +396,36 @@ class TestWritesAndReads:
         )
         assert sparse_call.kwargs["query"].indices == [0]
         assert sparse_call.kwargs["query"].values == [1.0]
+
+    async def test_hybrid_search_inverts_dense_score_for_euclidean_collection(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """Pure-dense fusion ranks by distance, not raw score, for EUCLID collections.
+
+        Regression guard: without inverting the dense arm's raw Euclidean
+        distance before fusion, the farthest (worst) dense match would
+        normalize to the highest blended score and win pure-dense ranking.
+        """
+        client.get_collection.return_value = make_collection_info(
+            4, distance=qdrant_models.Distance.EUCLID
+        )
+        sparse = mock.AsyncMock()
+        sparse.embed = mock.AsyncMock(
+            return_value=[SparseVector(indices=[0], values=[1.0])]
+        )
+        store._sparse_embedder = sparse
+        near = str(uuid4())
+        far = str(uuid4())
+
+        def fake_query_points(**kwargs):
+            if kwargs.get("using") == _SPARSE_VECTOR_NAME:
+                return make_response([])
+            # Euclidean distance: smaller is a closer match.
+            return make_response([make_point(near, 0.1, {}), make_point(far, 5.0, {})])
+
+        client.query_points = mock.AsyncMock(side_effect=fake_query_points)
+        hits = await store.hybrid_search("c", [0.1, 0.2], "query text", alpha=1.0)
+        assert hits[0].id == UUID(near)
 
     async def test_hybrid_search_alpha_changes_ranking(
         self, store: QdrantVectorStore, client
@@ -541,6 +596,35 @@ class TestFuseByAlpha:
             dense_hits, sparse_hits, alpha=0.0, limit=2
         )
         assert fused[0].id == sparse_winner
+
+    def test_pure_keyword_excludes_dense_only_candidates(self) -> None:
+        """A dense-only hit with no keyword match is excluded at alpha=0.0.
+
+        Regression guard: a candidate absent from the sparse pool defaults to
+        a 0.0 contribution, the same normalized score the worst real sparse
+        hit can get, so before this fix a dense-only hit could tie into and
+        fill a result slot a pure keyword search should reserve for real
+        keyword matches.
+        """
+        dense_only = uuid4()
+        sparse_winner = uuid4()
+        dense_hits = [VectorHit(id=dense_only, score=0.9, payload={})]
+        sparse_hits = [VectorHit(id=sparse_winner, score=10.0, payload={})]
+        fused = QdrantVectorStore._fuse_by_alpha(
+            dense_hits, sparse_hits, alpha=0.0, limit=5
+        )
+        assert [hit.id for hit in fused] == [sparse_winner]
+
+    def test_pure_dense_excludes_sparse_only_candidates(self) -> None:
+        """A sparse-only hit with no dense match is excluded at alpha=1.0."""
+        sparse_only = uuid4()
+        dense_winner = uuid4()
+        dense_hits = [VectorHit(id=dense_winner, score=0.9, payload={})]
+        sparse_hits = [VectorHit(id=sparse_only, score=10.0, payload={})]
+        fused = QdrantVectorStore._fuse_by_alpha(
+            dense_hits, sparse_hits, alpha=1.0, limit=5
+        )
+        assert [hit.id for hit in fused] == [dense_winner]
 
     def test_missing_side_defaults_to_zero(self) -> None:
         """A hit present on only one side still ranks, weighted by alpha."""
