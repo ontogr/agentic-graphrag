@@ -48,6 +48,24 @@ _ONE_PAIR_SCHEMA = GraphSchema(
     ],
 )
 
+# Schema where the same text can have two valid labels (e.g. "Apple" as both
+# Product and Organization), with a relation valid only for the second label.
+_MULTI_LABEL_SCHEMA = GraphSchema(
+    name="multi-label",
+    version="1",
+    entities=[
+        EntityType(label="Product", description="A product."),
+        EntityType(label="Organization", description="A company."),
+    ],
+    relations=[
+        RelationType(
+            label="SELLS",
+            description="An org sells a product.",
+            patterns=[("Organization", "Product")],
+        ),
+    ],
+)
+
 
 def _chunk(
     text: str = "Ada Lovelace worked at the Analytical Engine Company.",
@@ -631,10 +649,12 @@ class TestBAMLExtractor:
         extractor = BAMLExtractor.__new__(BAMLExtractor)
         result = extractor._to_result(raw, chunk)
 
-        assert len(result.relations) == 1
-        relation = result.relations[0]
-        assert relation.source_index != relation.target_index
-        assert {relation.source_index, relation.target_index} == {0, 1}
+        # Both directions survive: (0→1) and (1→0). Normalization filters
+        # only by schema pattern, so symmetric KNOWS keeps both.
+        assert len(result.relations) == 2
+        for relation in result.relations:
+            assert relation.source_index != relation.target_index
+            assert {relation.source_index, relation.target_index} == {0, 1}
 
     async def test_to_result_drops_self_referencing_relation_with_one_candidate(
         self,
@@ -760,6 +780,100 @@ class TestBAMLExtractor:
         result = await extractor.extract(_chunk(), GENERIC)
 
         assert [entity.text for entity in result.entities] == ["Ada"]
+
+    async def test_to_result_keeps_distinct_labels_on_same_span(self) -> None:
+        """Two valid labels on one span are both kept, preserving the second's relations.
+
+        When the LLM extracts "Apple" as both Product and Organization at the
+        same character span, the old dedup (keyed only on span) would drop the
+        second entity. A SELLS relation (Organization -> Product) that needs
+        the Organization entity then had no target and disappeared.
+        """
+        chunk = _chunk("Apple released the iPhone.")
+        apple_start = chunk.text.index("Apple")
+        entities_raw = [
+            SimpleNamespace(
+                label="Product",
+                text="Apple",
+                char_start=apple_start,
+                char_end=apple_start + 5,
+            ),
+            SimpleNamespace(
+                label="Organization",
+                text="Apple",
+                char_start=apple_start,
+                char_end=apple_start + 5,
+            ),
+        ]
+        relations_raw = [
+            SimpleNamespace(
+                label="SELLS",
+                source_text="Apple",
+                target_text="iPhone",
+            ),
+        ]
+        raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
+
+        extractor = BAMLExtractor.__new__(BAMLExtractor)
+        result = extractor._to_result(raw, chunk)
+
+        # Both labels survive despite sharing a span.
+        assert len(result.entities) == 2
+        labels = {entity.label for entity in result.entities}
+        assert labels == {"Product", "Organization"}
+
+    async def test_extract_preserves_relation_needing_second_label(self) -> None:
+        """A relation valid only for the second label survives extraction.
+
+        Regression test for the dedup bug: seen_spans was keyed on
+        (start, end) only, so "Apple" as Organization was dropped when
+        "Apple" as Product appeared first. SELLS (Organization -> Product)
+        then had no Organization endpoint and was silently dropped.
+        """
+        chunk = _chunk("Apple released the iPhone.")
+        apple_start = chunk.text.index("Apple")
+        iphone_start = chunk.text.index("iPhone")
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                return SimpleNamespace(
+                    entities=[
+                        SimpleNamespace(
+                            label="Product",
+                            text="Apple",
+                            char_start=apple_start,
+                            char_end=apple_start + 5,
+                        ),
+                        SimpleNamespace(
+                            label="Organization",
+                            text="Apple",
+                            char_start=apple_start,
+                            char_end=apple_start + 5,
+                        ),
+                        SimpleNamespace(
+                            label="Product",
+                            text="iPhone",
+                            char_start=iphone_start,
+                            char_end=iphone_start + 6,
+                        ),
+                    ],
+                    relations=[
+                        SimpleNamespace(
+                            label="SELLS",
+                            source_text="Apple",
+                            target_text="iPhone",
+                        ),
+                    ],
+                )
+
+        extractor = BAMLExtractor(client=FakeClient())
+        result = await extractor.extract(chunk, _MULTI_LABEL_SCHEMA)
+
+        assert len(result.entities) == 3
+        labels = {entity.label for entity in result.entities}
+        assert labels == {"Product", "Organization"}
+        assert len(result.relations) == 1
+        assert result.relations[0].label == "SELLS"
 
     async def test_extract_drops_relation_referencing_a_hallucinated_entity(
         self,

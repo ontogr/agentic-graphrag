@@ -530,27 +530,29 @@ class BAMLExtractor(Extractor):
         BAML returns each relation's endpoints as text, not an index into
         ``raw.entities``, so duplicate surface text is inherently ambiguous:
         every entity sharing an endpoint's text is a candidate for that
-        endpoint. ``_pick_relation_endpoints`` picks the first candidate
-        pairing whose two indices differ, so a relation between two distinct
-        mentions of the same text still resolves instead of colliding on one
-        entity. A relation is dropped, not raised, when either endpoint's text
-        matches no entity or every candidate pairing collapses to a single
-        entity — one unresolvable relation should not fail the whole chunk.
+        endpoint. All distinct (source, target) pairings where the two
+        indices differ are produced, so a relation between two distinct
+        mentions of the same text resolves to multiple candidates, and a
+        relation whose source text matches entities with different labels
+        (e.g. "Apple" as both Product and Organization) keeps the pairing
+        that a later schema check may accept. Unresolvable relations —
+        either endpoint's text matches no entity, or every pairing collapses
+        to a single entity — are dropped, not raised, so one bad relation
+        does not fail the whole chunk.
 
         Every entity's span is verified against chunk.text via
         ``_resolve_span``: an LLM-invented span (its text doesn't occur in
         chunk.text at all) is dropped, along with any relation referencing it
-        by text; a merely miscounted span is corrected instead of dropped. A
-        second entity that corrects onto a span another entity already claimed
-        is dropped too — otherwise two entities with identical text and span
-        would both survive as separate candidates, letting a same-text
-        relation "resolve" to two indices that are really one entity.
+        by text; a merely miscounted span is corrected instead of dropped.        A second entity with the same label, text, and resolved span is
+        dropped as a true duplicate. Two entities with different labels on
+        the same span (e.g. "Apple" as both Product and Organization) are
+        both kept, so relations that need the second label survive.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
         chunk_id = chunk.id
         occurrences_by_text: dict[str, list[int]] = {}
-        seen_spans: set[tuple[int, int]] = set()
+        seen_spans: set[tuple[str, str, int, int]] = set()
         valid_raw_entities: list[tuple[Any, int, int]] = []
         for entity in raw.entities:  # ty: ignore[unresolved-attribute]
             span = _resolve_span(
@@ -560,8 +562,11 @@ class BAMLExtractor(Extractor):
                 entity.char_end,
                 occurrences_by_text,
             )
-            if span is not None and span not in seen_spans:
-                seen_spans.add(span)
+            if span is None:
+                continue
+            dedup_key = (entity.label, entity.text, span[0], span[1])
+            if dedup_key not in seen_spans:
+                seen_spans.add(dedup_key)
                 valid_raw_entities.append((entity, *span))
         entities = [
             ExtractedEntity(
@@ -579,21 +584,25 @@ class BAMLExtractor(Extractor):
 
         relations: list[ExtractedRelation] = []
         for relation in raw.relations:  # ty: ignore[unresolved-attribute]
-            endpoints = _pick_relation_endpoints(
-                text_index.get(relation.source_text, []),
-                text_index.get(relation.target_text, []),
-            )
-            if endpoints is None:
-                continue
-            source_index, target_index = endpoints
-            relations.append(
-                ExtractedRelation(
-                    chunk_id=chunk_id,
-                    label=relation.label,
-                    source_index=source_index,
-                    target_index=target_index,
-                )
-            )
+            source_candidates = text_index.get(relation.source_text, [])
+            target_candidates = text_index.get(relation.target_text, [])
+            seen_pairs: set[tuple[int, int]] = set()
+            for source_index in source_candidates:
+                for target_index in target_candidates:
+                    if source_index == target_index:
+                        continue
+                    pair = (source_index, target_index)
+                    if pair in seen_pairs:
+                        continue
+                    seen_pairs.add(pair)
+                    relations.append(
+                        ExtractedRelation(
+                            chunk_id=chunk_id,
+                            label=relation.label,
+                            source_index=source_index,
+                            target_index=target_index,
+                        )
+                    )
         return ExtractionResult(
             entities=entities, relations=relations, extractor_name="baml"
         )
