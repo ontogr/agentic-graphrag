@@ -34,10 +34,14 @@ def _resolve_span(
     occurrence of text. Extractors — GLiNER's own boundary predictions and,
     especially, an LLM counting characters by hand — can report an
     approximately right but off-by-a-few span. Rather than drop a real mention
-    over that, this searches chunk_text for every occurrence of text and
-    returns the one closest to hint_start, so a near-miss offset gets
-    corrected instead of discarding real provenance, while a duplicate mention
-    still resolves to the intended occurrence rather than always the first one.
+    over that, this searches chunk_text for every occurrence of text and,
+    when text is unique in the chunk, returns the one closest to hint_start
+    so a near-miss offset gets corrected instead of discarding real
+    provenance. When text repeats in the chunk, an off-by-few hint nearer
+    the wrong duplicate would be relocated there and text-only relation
+    resolution could bind the relation to that wrong occurrence before the
+    genuine schema-compatible one, so repeated text requires an exact span;
+    a malformed hint is treated as unrecoverable.
 
     Args:
         text: The mention text to locate.
@@ -50,8 +54,10 @@ def _resolve_span(
             repeated text is scanned once instead of once per mention.
 
     Returns:
-        None when text is empty or does not occur in chunk_text at all — the
-        caller should treat that as a fabricated or unrecoverable mention.
+        None when text is empty, does not occur in chunk_text at all, or
+        occurs more than once but hint does not exactly match one occurrence
+        — the caller should treat that as a fabricated or unrecoverable
+        mention.
     """
     if not text:
         return None
@@ -71,6 +77,13 @@ def _resolve_span(
         if occurrences_by_text is not None:
             occurrences_by_text[text] = occurrences
     if not occurrences:
+        return None
+    if len(occurrences) > 1:
+        # ponytail: repeated surface text is ambiguous — an off-by-few hint
+        # nearer the wrong duplicate would be relocated there and text-only
+        # relation resolution can then bind the relation to that fabricated
+        # occurrence before the genuine one. Require an exact span for
+        # repeats; a malformed hint is dropped as unrecoverable.
         return None
     start = min(occurrences, key=lambda candidate: abs(candidate - hint_start))
     return start, start + len(text)
@@ -299,7 +312,7 @@ class GlinerExtractor(Extractor):
             gliner_schema,
             include_spans=True,
         )
-        return _normalize_extraction_result(self._to_result(raw, chunk), schema)
+        return _normalize_extraction_result(self._to_result(raw, chunk, schema), schema)
 
     async def _load_model(self) -> object:
         """Return the cached model, loading it once even under concurrent calls.
@@ -361,7 +374,9 @@ class GlinerExtractor(Extractor):
             {relation.label: relation.description for relation in schema.relations}
         )
 
-    def _to_result(self, raw: object, chunk: Chunk) -> ExtractionResult:
+    def _to_result(
+        self, raw: object, chunk: Chunk, schema: GraphSchema
+    ) -> ExtractionResult:
         """Return an ExtractionResult built from gliner2's raw output.
 
         Called with ``include_spans=True``, GLiNER2.5's extract() returns a dict
@@ -372,9 +387,12 @@ class GlinerExtractor(Extractor):
         does not occur in chunk.text at all is dropped, an off-by-a-few span is
         corrected. Relation endpoints are matched back to entities by their
         resolved (text, start, end), not by text alone, so two mentions with
-        identical surface text still resolve to their own entity. A relation
-        whose endpoints both resolve to the same entity is dropped, not
-        raised, so one malformed relation does not abort the whole chunk.
+        identical surface text still resolve to their own entity. When the same
+        span appears under multiple labels, all candidate indices are preserved
+        and each relation is resolved to a distinct candidate pair compatible
+        with its declared endpoint patterns. A relation whose endpoints both
+        resolve to the same entity is dropped, not raised, so one malformed
+        relation does not abort the whole chunk.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
@@ -383,7 +401,7 @@ class GlinerExtractor(Extractor):
         raw_relations: dict[str, list[dict]] = raw_dict.get("relation_extraction", {})
 
         entities: list[ExtractedEntity] = []
-        span_index: dict[tuple[str, int, int], int] = {}
+        span_index: dict[tuple[str, int, int], list[int]] = {}
         chunk_id = chunk.id
         occurrences_by_text: dict[str, list[int]] = {}
         for label, mentions in raw_entities.items():
@@ -398,7 +416,8 @@ class GlinerExtractor(Extractor):
                 if span is None:
                     continue
                 start, end = span
-                span_index[(mention["text"], start, end)] = len(entities)
+                key = (mention["text"], start, end)
+                span_index.setdefault(key, []).append(len(entities))
                 entities.append(
                     ExtractedEntity(
                         chunk_id=chunk_id,
@@ -409,8 +428,12 @@ class GlinerExtractor(Extractor):
                     )
                 )
 
+        allowed_pairs = _relation_patterns(schema)
         relations: list[ExtractedRelation] = []
         for label, pairs in raw_relations.items():
+            patterns = allowed_pairs.get(label)
+            if patterns is None:
+                continue
             for pair in pairs:
                 head, tail = pair["head"], pair["tail"]
                 source_span = _resolve_span(
@@ -431,17 +454,26 @@ class GlinerExtractor(Extractor):
                     continue
                 source_key = (head["text"], *source_span)
                 target_key = (tail["text"], *target_span)
-                if source_key in span_index and target_key in span_index:
-                    source_index = span_index[source_key]
-                    target_index = span_index[target_key]
-                    if source_index == target_index:
-                        continue
+                source_candidates = span_index.get(source_key, [])
+                target_candidates = span_index.get(target_key, [])
+                match = next(
+                    (
+                        (si, ti)
+                        for si in source_candidates
+                        for ti in target_candidates
+                        if si != ti
+                        and (entities[si].label, entities[ti].label) in patterns
+                    ),
+                    None,
+                )
+                if match is not None:
+                    si, ti = match
                     relations.append(
                         ExtractedRelation(
                             chunk_id=chunk_id,
                             label=label,
-                            source_index=source_index,
-                            target_index=target_index,
+                            source_index=si,
+                            target_index=ti,
                         )
                     )
         return ExtractionResult(
@@ -611,14 +643,14 @@ class BAMLExtractor(Extractor):
 
         allowed_pairs = _relation_patterns(schema)
         relations: list[ExtractedRelation] = []
-        seen_pairs: set[tuple[int, int]] = set()
+        seen_pairs: set[tuple[int, int, str]] = set()
         for relation in raw.relations:  # ty: ignore[unresolved-attribute]
             chosen = _resolve_relation_pair(
                 relation, text_index, valid_raw_entities, allowed_pairs
             )
-            if chosen is None or chosen in seen_pairs:
+            if chosen is None or (chosen[0], chosen[1], relation.label) in seen_pairs:
                 continue
-            seen_pairs.add(chosen)
+            seen_pairs.add((chosen[0], chosen[1], relation.label))
             relations.append(
                 ExtractedRelation(
                     chunk_id=chunk_id,

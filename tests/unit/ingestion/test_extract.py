@@ -83,6 +83,48 @@ _KNOWS_SCHEMA = GraphSchema(
     ],
 )
 
+# Schema with two relation labels on the same (Person, Organization) pattern,
+# used to test that distinct labels between the same entity pair survive dedup.
+_TWO_LABELS_SCHEMA = GraphSchema(
+    name="two-labels",
+    version="1",
+    entities=[
+        EntityType(label="Person", description="A named individual."),
+        EntityType(label="Organization", description="A company or institution."),
+    ],
+    relations=[
+        RelationType(
+            label="WORKS_AT",
+            description="A person works at an organization.",
+            patterns=[("Person", "Organization")],
+        ),
+        RelationType(
+            label="CONSULTS_FOR",
+            description="A person consults for an organization.",
+            patterns=[("Person", "Organization")],
+        ),
+    ],
+)
+
+# Schema where the same span has two entity labels (Product and Organization),
+# with a relation (SIMILAR_TO) whose pattern requires the *first/overwritten*
+# label (Product). Used to test that candidate resolution picks the right label.
+_OVERWRITE_LABEL_SCHEMA = GraphSchema(
+    name="overwrite-label",
+    version="1",
+    entities=[
+        EntityType(label="Product", description="A product."),
+        EntityType(label="Organization", description="A company."),
+    ],
+    relations=[
+        RelationType(
+            label="SIMILAR_TO",
+            description="Two products are similar.",
+            patterns=[("Product", "Product")],
+        ),
+    ],
+)
+
 
 def _chunk(
     text: str = "Ada Lovelace worked at the Analytical Engine Company.",
@@ -564,6 +606,95 @@ class TestGlinerExtractor:
         assert load_calls == [1]
         assert result_two.extractor_name == "gliner"
 
+    async def test_extract_preserves_relation_needing_overwritten_label(self) -> None:
+        """A relation valid only for the first (overwritten) label survives.
+
+        GLiNER can return the same mention span under multiple schema labels.
+        The old span_index overwrote earlier labels with later ones, so a relation
+        whose pattern required the first label would resolve to the wrong entity
+        label and be dropped by normalization. With candidate preservation and
+        pattern-aware resolution, the correct label is found.
+        """
+        chunk = _chunk("Apple released the iPhone.")
+        apple_start = chunk.text.index("Apple")
+        iphone_start = chunk.text.index("iPhone")
+
+        class FakeModel:
+            def create_schema(self) -> "FakeModel":
+                return self
+
+            def entities(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def relations(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+                return {
+                    "entities": {
+                        # Product first: Apple gets index 0, iPhone gets index 1
+                        "Product": [
+                            {
+                                "text": "Apple",
+                                "start": apple_start,
+                                "end": apple_start + 5,
+                            },
+                            {
+                                "text": "iPhone",
+                                "start": iphone_start,
+                                "end": iphone_start + 6,
+                            },
+                        ],
+                        # Organization second: same Apple span gets index 2
+                        # (overwrites in old code)
+                        "Organization": [
+                            {
+                                "text": "Apple",
+                                "start": apple_start,
+                                "end": apple_start + 5,
+                            },
+                        ],
+                    },
+                    "relation_extraction": {
+                        # SIMILAR_TO pattern is (Product, Product) — needs
+                        # the overwritten label
+                        "SIMILAR_TO": [
+                            {
+                                "head": {
+                                    "text": "Apple",
+                                    "start": apple_start,
+                                    "end": apple_start + 5,
+                                },
+                                "tail": {
+                                    "text": "iPhone",
+                                    "start": iphone_start,
+                                    "end": iphone_start + 6,
+                                },
+                            }
+                        ],
+                    },
+                }
+
+        result = await GlinerExtractor(model=FakeModel()).extract(
+            chunk, _OVERWRITE_LABEL_SCHEMA
+        )
+
+        # Both entities survive (Apple as Product, Apple as Organization,
+        # iPhone as Product)
+        assert len(result.entities) == 3
+        labels = {entity.label for entity in result.entities}
+        assert labels == {"Product", "Organization"}
+
+        # The relation resolves to the Product Apple (index 0),
+        # not the Organization Apple
+        assert len(result.relations) == 1
+        relation = result.relations[0]
+        assert relation.label == "SIMILAR_TO"
+        assert relation.source_index == 0  # Apple as Product
+        assert relation.target_index == 1  # iPhone as Product
+        assert result.entities[relation.source_index].label == "Product"
+        assert result.entities[relation.target_index].label == "Product"
+
 
 class TestBAMLExtractor:
     """BAMLExtractor raises when the llm extra is not installed."""
@@ -838,6 +969,49 @@ class TestBAMLExtractor:
         assert len(result.entities) == 2
         labels = {entity.label for entity in result.entities}
         assert labels == {"Product", "Organization"}
+
+    async def test_to_result_keeps_distinct_labels_between_same_pair(self) -> None:
+        """Two schema-valid labels on the same entity pair both survive dedup.
+
+        Regression test for the seen_pairs bug: the dedup key was only
+        (source_index, target_index), so a second relation label (e.g.
+        CONSULTS_FOR) between the same Person and Organization as a first
+        label (WORKS_AT) was collapsed into the first and lost.
+        """
+        chunk = _chunk("Ada worked at and consulted for Acme.")
+        ada_start = chunk.text.index("Ada")
+        acme_start = chunk.text.index("Acme")
+        entities_raw = [
+            SimpleNamespace(
+                label="Person", text="Ada", char_start=ada_start, char_end=ada_start + 3
+            ),
+            SimpleNamespace(
+                label="Organization",
+                text="Acme",
+                char_start=acme_start,
+                char_end=acme_start + 4,
+            ),
+        ]
+        relations_raw = [
+            SimpleNamespace(
+                label="WORKS_AT", source_text="Ada", target_text="Acme"
+            ),
+            SimpleNamespace(
+                label="CONSULTS_FOR", source_text="Ada", target_text="Acme"
+            ),
+        ]
+        raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
+
+        extractor = BAMLExtractor.__new__(BAMLExtractor)
+        result = extractor._to_result(raw, chunk, _TWO_LABELS_SCHEMA)
+
+        assert len(result.entities) == 2
+        assert len(result.relations) == 2
+        labels = {relation.label for relation in result.relations}
+        assert labels == {"WORKS_AT", "CONSULTS_FOR"}
+        for relation in result.relations:
+            assert relation.source_index == 0
+            assert relation.target_index == 1
 
     async def test_extract_preserves_relation_needing_second_label(self) -> None:
         """A relation valid only for the second label survives extraction.
