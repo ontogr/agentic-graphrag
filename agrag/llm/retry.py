@@ -19,6 +19,30 @@ _T = TypeVar("_T")
 NO_RETRY = RetryConfig(max_retries=0)
 
 
+def _is_permanently_unretryable(exc: BaseException) -> bool:
+    """Return whether exc would fail identically on every retry.
+
+    An invalid function argument or an HTTP 4xx other than 429 (rate
+    limiting) reflects the request itself, not a transient provider hiccup —
+    retrying it spends the whole retry budget on an error retrying cannot
+    fix. Returns False, never raising, when ``baml_py`` is not installed or
+    exc is not one of its typed errors, so a caller with no BAML dependency
+    keeps retrying every exception exactly as before.
+    """
+    try:
+        from baml_py.errors import (  # noqa: PLC0415
+            BamlClientHttpError,
+            BamlInvalidArgumentError,
+        )
+    except ImportError:
+        return False
+    if isinstance(exc, BamlInvalidArgumentError):
+        return True
+    if isinstance(exc, BamlClientHttpError):
+        return exc.status_code != 429 and 400 <= exc.status_code < 500
+    return False
+
+
 async def call_with_retry(call: Callable[[], Awaitable[_T]], retry: RetryConfig) -> _T:
     """Retry an async call with exponential backoff.
 
@@ -31,7 +55,9 @@ async def call_with_retry(call: Callable[[], Awaitable[_T]], retry: RetryConfig)
         The first successful call's result.
 
     Raises:
-        Exception: The last attempt's exception, if every attempt fails.
+        Exception: The last attempt's exception, if every attempt fails, or
+            immediately for a BAML error that would fail identically on
+            retry (an invalid argument, or an HTTP 4xx other than 429).
     """
     attempts = retry.max_retries + 1
     delay_seconds = retry.delay_ms / 1000
@@ -39,8 +65,8 @@ async def call_with_retry(call: Callable[[], Awaitable[_T]], retry: RetryConfig)
     for attempt in range(attempts):
         try:
             return await call()
-        except Exception:  # noqa: BLE001
-            if attempt == attempts - 1:
+        except Exception as exc:  # noqa: BLE001
+            if attempt == attempts - 1 or _is_permanently_unretryable(exc):
                 raise
             await sleep(min(delay_seconds, max_delay_seconds))
             delay_seconds = min(delay_seconds * retry.multiplier, max_delay_seconds)

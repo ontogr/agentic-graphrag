@@ -125,10 +125,11 @@ def _normalize_extraction_result(
         index_remap[old_index] = len(valid_entities)
         valid_entities.append(entity)
 
-    allowed_pairs = {
-        relation_type.label: set(relation_type.patterns)
-        for relation_type in schema.relations
-    }
+    allowed_pairs: dict[str, set[tuple[str, str]]] = {}
+    for relation_type in schema.relations:
+        allowed_pairs.setdefault(relation_type.label, set()).update(
+            relation_type.patterns
+        )
     valid_relations: list[ExtractedRelation] = []
     for relation in result.relations:
         if (
@@ -349,7 +350,9 @@ class GlinerExtractor(Extractor):
         does not occur in chunk.text at all is dropped, an off-by-a-few span is
         corrected. Relation endpoints are matched back to entities by their
         resolved (text, start, end), not by text alone, so two mentions with
-        identical surface text still resolve to their own entity.
+        identical surface text still resolve to their own entity. A relation
+        whose endpoints both resolve to the same entity is dropped, not
+        raised, so one malformed relation does not abort the whole chunk.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
@@ -407,12 +410,16 @@ class GlinerExtractor(Extractor):
                 source_key = (head["text"], *source_span)
                 target_key = (tail["text"], *target_span)
                 if source_key in span_index and target_key in span_index:
+                    source_index = span_index[source_key]
+                    target_index = span_index[target_key]
+                    if source_index == target_index:
+                        continue
                     relations.append(
                         ExtractedRelation(
                             chunk_id=chunk_id,
                             label=label,
-                            source_index=span_index[source_key],
-                            target_index=span_index[target_key],
+                            source_index=source_index,
+                            target_index=target_index,
                         )
                     )
         return ExtractionResult(
@@ -433,7 +440,10 @@ class BAMLExtractor(Extractor):
 
         Args:
             settings: LLM client config. Defaults to ``ExtractionLLMSettings()``,
-                loaded from the environment/``.env``.
+                loaded from the environment/``.env``. Ignored when ``client``
+                is given: an injected client also disables ``settings.retry``,
+                since a caller building its own client is assumed to own its
+                own retry behavior too.
             client: An already-built BAML client object exposing
                 ``ExtractEntitiesAndRelations``. Tests inject a fake here.
         """
@@ -468,9 +478,9 @@ class BAMLExtractor(Extractor):
         call_options: dict = {**baml_options}
         if type_builder is not None:
             call_options["tb"] = type_builder
-        # ponytail: retries on every exception, not just transient provider
-        # errors (a bad prompt or auth failure gets retried too); narrow to
-        # specific BAML/HTTP error types if that proves noisy in practice.
+        # ponytail: retries every exception except the BAML error types
+        # call_with_retry recognizes as permanently unretryable (an invalid
+        # argument or a non-429 4xx); narrow further if that proves noisy.
         raw = await call_with_retry(
             lambda: client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
                 chunk.text, call_options
@@ -530,12 +540,17 @@ class BAMLExtractor(Extractor):
         Every entity's span is verified against chunk.text via
         ``_resolve_span``: an LLM-invented span (its text doesn't occur in
         chunk.text at all) is dropped, along with any relation referencing it
-        by text; a merely miscounted span is corrected instead of dropped.
+        by text; a merely miscounted span is corrected instead of dropped. A
+        second entity that corrects onto a span another entity already claimed
+        is dropped too — otherwise two entities with identical text and span
+        would both survive as separate candidates, letting a same-text
+        relation "resolve" to two indices that are really one entity.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
         chunk_id = chunk.id
         occurrences_by_text: dict[str, list[int]] = {}
+        seen_spans: set[tuple[int, int]] = set()
         valid_raw_entities: list[tuple[Any, int, int]] = []
         for entity in raw.entities:  # ty: ignore[unresolved-attribute]
             span = _resolve_span(
@@ -545,7 +560,8 @@ class BAMLExtractor(Extractor):
                 entity.char_end,
                 occurrences_by_text,
             )
-            if span is not None:
+            if span is not None and span not in seen_spans:
+                seen_spans.add(span)
                 valid_raw_entities.append((entity, *span))
         entities = [
             ExtractedEntity(

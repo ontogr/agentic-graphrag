@@ -420,7 +420,10 @@ Extracts with an LLM, via a BAML function and a runtime ClientRegistry.
 **Parameters:**
 
 - **settings** (<code>[ExtractionLLMSettings](#agrag.ingestion.extract.ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`,
-  loaded from the environment/`.env`.
+  loaded from the environment/`.env`. Ignored when `client`
+  is given: an injected client also disables `settings.retry`,
+  since a caller building its own client is assumed to own its
+  own retry behavior too.
 - **client** (<code>[object](#object) | None</code>) – An already-built BAML client object exposing
   `ExtractEntitiesAndRelations`. Tests inject a fake here.
 
@@ -436,11 +439,12 @@ Extract with an LLM call through the configured ClientRegistry.
 
 - <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `llm` package extra is not
   installed.
+- <code>[ValueError](#ValueError)</code> – `chunk.id` is `None`.
 
 ###### `agrag.ingestion.extract.BAMLExtractor.settings`
 
 ```python
-settings = settings or ExtractionLLMSettings()
+settings = settings
 ```
 
 ##### `agrag.ingestion.extract.EscalatingExtractor`
@@ -661,6 +665,7 @@ Extract with the local GLiNER2.5 model.
 
 - <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `extract` package extra is not
   installed.
+- <code>[ValueError](#ValueError)</code> – `chunk.id` is `None`.
 
 ###### `agrag.ingestion.extract.GlinerExtractor.model_name`
 
@@ -974,6 +979,9 @@ raised outright instead (see compare's Raises section).
 
 - **chunks_by_id** (<code>[dict](#dict)\[[UUID](#uuid.UUID), [Chunk](#agrag.common.data_models.chunk.Chunk)\]</code>) – Maps a Chunk id to the Chunk, for prompt context.
 - **settings** (<code>[ExtractionLLMSettings](#agrag.ingestion.extract.ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`.
+  Ignored when `client` is given: an injected client also
+  disables `settings.retry`, since a caller building its own
+  client is assumed to own its own retry behavior too.
 - **client** (<code>[object](#object) | None</code>) – An already-built BAML client. Tests inject a fake here.
 
 ###### `agrag.ingestion.resolve.LLMVerify.chunks_by_id`
@@ -998,7 +1006,7 @@ Return the LLM's verdict, or NO_MATCH if the call itself fails.
 ###### `agrag.ingestion.resolve.LLMVerify.settings`
 
 ```python
-settings = settings or ExtractionLLMSettings()
+settings = settings
 ```
 
 ##### `agrag.ingestion.resolve.ResolutionGroup`

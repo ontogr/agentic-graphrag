@@ -240,6 +240,44 @@ class TestGlinerExtractor:
         assert len(result.entities) == 2
         assert result.relations == []
 
+    async def test_extract_drops_self_referencing_relation(self) -> None:
+        """A relation whose head and tail resolve to the same entity is dropped.
+
+        A malformed relation naming the same mention as both endpoints must
+        not abort the whole chunk: ExtractedRelation rejects a self-reference
+        outright, so _to_result has to catch it first.
+        """
+
+        class FakeModel:
+            def create_schema(self) -> "FakeModel":
+                return self
+
+            def entities(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def relations(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+                return {
+                    "entities": {
+                        "Person": [{"text": "Ada", "start": 0, "end": 3}],
+                    },
+                    "relation_extraction": {
+                        "RELATED_TO": [
+                            {
+                                "head": {"text": "Ada", "start": 0, "end": 3},
+                                "tail": {"text": "Ada", "start": 0, "end": 3},
+                            }
+                        ]
+                    },
+                }
+
+        result = await GlinerExtractor(model=FakeModel()).extract(_chunk(), GENERIC)
+
+        assert len(result.entities) == 1
+        assert result.relations == []
+
     async def test_extract_drops_relation_with_undeclared_label(self) -> None:
         """A relation label the schema never declares is dropped."""
 
@@ -276,6 +314,70 @@ class TestGlinerExtractor:
         )
         assert len(result.entities) == 2
         assert result.relations == []
+
+    async def test_extract_unions_patterns_for_a_relation_label_declared_twice(
+        self,
+    ) -> None:
+        """A relation label declared twice keeps patterns from every declaration.
+
+        Nothing stops a GraphSchema from repeating a relation label with a
+        different pattern each time. Normalization must union the patterns
+        across every declaration, not keep only the last one.
+        """
+        schema = GraphSchema(
+            name="repeated-label",
+            version="1",
+            entities=[
+                EntityType(label="Person", description="A named individual."),
+                EntityType(
+                    label="Organization", description="A company or institution."
+                ),
+                EntityType(label="Product", description="A thing an org makes."),
+            ],
+            relations=[
+                RelationType(
+                    label="WORKS_AT",
+                    description="A person works at an organization.",
+                    patterns=[("Person", "Organization")],
+                ),
+                RelationType(
+                    label="WORKS_AT",
+                    description="A person works on a product.",
+                    patterns=[("Person", "Product")],
+                ),
+            ],
+        )
+
+        class FakeModel:
+            def create_schema(self) -> "FakeModel":
+                return self
+
+            def entities(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def relations(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+                return {
+                    "entities": {
+                        "Person": [{"text": "Ada", "start": 0, "end": 3}],
+                        "Organization": [{"text": "Acme", "start": 13, "end": 17}],
+                    },
+                    "relation_extraction": {
+                        "WORKS_AT": [
+                            {
+                                "head": {"text": "Ada", "start": 0, "end": 3},
+                                "tail": {"text": "Acme", "start": 13, "end": 17},
+                            }
+                        ]
+                    },
+                }
+
+        result = await GlinerExtractor(model=FakeModel()).extract(
+            _chunk("Ada works at Acme."), schema
+        )
+        assert len(result.relations) == 1
 
     async def test_extract_drops_undeclared_entity_and_remaps_relation_indices(
         self,
@@ -546,6 +648,34 @@ class TestBAMLExtractor:
         chunk = _chunk()
         entities_raw = [
             SimpleNamespace(label="Person", text="Ada", char_start=0, char_end=3),
+        ]
+        relations_raw = [
+            SimpleNamespace(label="KNOWS", source_text="Ada", target_text="Ada"),
+        ]
+        raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
+
+        extractor = BAMLExtractor.__new__(BAMLExtractor)
+        result = extractor._to_result(raw, chunk)
+
+        assert len(result.entities) == 1
+        assert result.relations == []
+
+    async def test_to_result_drops_duplicate_entity_resolving_to_a_claimed_span(
+        self,
+    ) -> None:
+        """A malformed duplicate that resolves onto an already-claimed span is dropped.
+
+        Two raw entities can share text with only one real occurrence in the
+        chunk: a correct one, and a malformed one whose hint offsets are
+        wrong but whose text still exists exactly once. Without deduping,
+        both would resolve to the same (text, span) and survive as separate
+        entities, and a same-text relation could then be fabricated between
+        what is really one entity.
+        """
+        chunk = _chunk()
+        entities_raw = [
+            SimpleNamespace(label="Person", text="Ada", char_start=0, char_end=3),
+            SimpleNamespace(label="Person", text="Ada", char_start=500, char_end=503),
         ]
         relations_raw = [
             SimpleNamespace(label="KNOWS", source_text="Ada", target_text="Ada"),

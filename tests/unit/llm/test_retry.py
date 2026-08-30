@@ -115,6 +115,84 @@ class TestCallWithRetry:
         assert sleeps == [1.0, 1.5, 1.5]
 
 
+class TestPermanentBamlFailures:
+    """A BAML error that would fail identically on retry is not retried."""
+
+    async def test_invalid_argument_error_is_not_retried(self) -> None:
+        """A malformed call argument fails once, not four times."""
+        from baml_py.errors import BamlInvalidArgumentError  # noqa: PLC0415
+
+        calls = 0
+
+        async def call() -> str:
+            nonlocal calls
+            calls += 1
+            raise BamlInvalidArgumentError("bad argument")
+
+        with pytest.raises(BamlInvalidArgumentError):
+            await call_with_retry(call, RetryConfig(max_retries=3))
+        assert calls == 1
+
+    async def test_http_401_is_not_retried(self) -> None:
+        """An auth failure fails once, not four times."""
+        from baml_py.errors import BamlClientHttpError  # noqa: PLC0415
+
+        calls = 0
+
+        async def call() -> str:
+            nonlocal calls
+            calls += 1
+            raise BamlClientHttpError("client", "unauthorized", 401, "detail")
+
+        with pytest.raises(BamlClientHttpError):
+            await call_with_retry(call, RetryConfig(max_retries=3))
+        assert calls == 1
+
+    async def test_http_429_is_still_retried(self, monkeypatch) -> None:
+        """A rate-limit response is retried, since it can succeed later."""
+        from baml_py.errors import BamlClientHttpError  # noqa: PLC0415
+
+        async def fake_sleep(seconds: float) -> None:
+            return None
+
+        monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
+
+        calls = 0
+
+        async def call() -> str:
+            nonlocal calls
+            calls += 1
+            if calls < 2:
+                raise BamlClientHttpError("client", "rate limited", 429, "detail")
+            return "ok"
+
+        result = await call_with_retry(call, RetryConfig(max_retries=3))
+        assert result == "ok"
+        assert calls == 2
+
+    async def test_http_500_is_still_retried(self, monkeypatch) -> None:
+        """A server error is retried, since it may be a transient provider hiccup."""
+        from baml_py.errors import BamlClientHttpError  # noqa: PLC0415
+
+        async def fake_sleep(seconds: float) -> None:
+            return None
+
+        monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
+
+        calls = 0
+
+        async def call() -> str:
+            nonlocal calls
+            calls += 1
+            if calls < 2:
+                raise BamlClientHttpError("client", "server error", 500, "detail")
+            return "ok"
+
+        result = await call_with_retry(call, RetryConfig(max_retries=3))
+        assert result == "ok"
+        assert calls == 2
+
+
 class TestNoRetry:
     """NO_RETRY is a RetryConfig that makes exactly one attempt."""
 

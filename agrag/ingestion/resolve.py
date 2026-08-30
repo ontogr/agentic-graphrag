@@ -164,6 +164,9 @@ class LLMVerify(Comparator):
         Args:
             chunks_by_id: Maps a Chunk id to the Chunk, for prompt context.
             settings: LLM client config. Defaults to ``ExtractionLLMSettings()``.
+                Ignored when ``client`` is given: an injected client also
+                disables ``settings.retry``, since a caller building its own
+                client is assumed to own its own retry behavior too.
             client: An already-built BAML client. Tests inject a fake here.
         """
         self.chunks_by_id = chunks_by_id
@@ -194,9 +197,9 @@ class LLMVerify(Comparator):
             baml_options = {"client_registry": registry}
             retry = settings.retry
         try:
-            # ponytail: retries on every exception, not just transient
-            # provider errors; narrow to specific BAML/HTTP error types if
-            # that proves noisy in practice.
+            # ponytail: retries every exception except the BAML error types
+            # call_with_retry recognizes as permanently unretryable (an
+            # invalid argument or a non-429 4xx); narrow further if noisy.
             is_match = await call_with_retry(
                 lambda: client.VerifyEntityMatch(  # ty: ignore[unresolved-attribute]
                     a.text,
