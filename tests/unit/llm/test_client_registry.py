@@ -14,9 +14,7 @@ class FakeClientRegistry:
         self.added: list[tuple[str, str, dict]] = []
         self.primary: str | None = None
 
-    def add_llm_client(
-        self, *, name: str, provider: str, options: dict, retry_policy=None
-    ) -> None:
+    def add_llm_client(self, *, name: str, provider: str, options: dict) -> None:
         """Record a registered client."""
         self.added.append((name, provider, options))
 

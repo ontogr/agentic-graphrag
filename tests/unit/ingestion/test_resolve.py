@@ -20,6 +20,7 @@ from agrag.ingestion.resolve import (
     Resolver,
     _group_matches,
 )
+from agrag.llm.client_config import LLMClientConfig, RetryConfig
 
 
 _DOC_ID = uuid4()
@@ -36,7 +37,7 @@ def _entity(
         label=label,
         text=text,
         char_start=0,
-        char_end=len(text),
+        char_end=max(len(text), 1),
     )
 
 
@@ -192,6 +193,80 @@ class TestLLMVerify:
             b = _entity("Charles")
             with pytest.raises(ExtractorMissingExtraError):
                 await verifier.compare(a, b)
+
+    async def test_compare_retries_a_transient_failure_per_settings_retry(
+        self, monkeypatch
+    ) -> None:
+        """settings.retry drives real retry-with-backoff around the LLM call."""
+        sleeps: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+
+        monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
+        monkeypatch.setattr(
+            "agrag.llm.client_registry.build_client_registry",
+            lambda clients, *, strategy: object(),
+        )
+
+        call_count = 0
+
+        class FlakyClient:
+            async def VerifyEntityMatch(self, *args):  # noqa: N802
+                nonlocal call_count
+                call_count += 1
+                if call_count < 3:
+                    raise RuntimeError("transient provider error")
+                return True
+
+        chunk = _chunk("context text")
+        chunk_id = uuid4()
+        settings = ExtractionLLMSettings(
+            clients=[LLMClientConfig(name="c", provider="openai", model="gpt-4o-mini")],
+            retry=RetryConfig(max_retries=3, delay_ms=50, multiplier=2),
+        )
+        verifier = LLMVerify(chunks_by_id={chunk_id: chunk}, settings=settings)
+        monkeypatch.setattr(verifier, "_default_client", FlakyClient)
+        a = _entity("Ada", chunk_id=chunk_id)
+        b = _entity("Charles", chunk_id=chunk_id)
+
+        verdict = await verifier.compare(a, b)
+
+        assert call_count == 3
+        assert sleeps == [0.05, 0.1]
+        assert verdict is ComparisonVerdict.MATCH
+
+    async def test_compare_with_non_default_env_retry_does_not_abort(
+        self, monkeypatch
+    ) -> None:
+        """A non-default, env-backed RetryConfig no longer aborts resolution.
+
+        Exercises the real (unmocked) build_client_registry — this used to
+        raise for any non-default RetryConfig before BAML's static
+        retry_policy syntax was replaced with Python-level retry.
+        """
+        monkeypatch.setenv(
+            "EXTRACTION_LLM_CLIENTS",
+            '[{"name": "c", "provider": "openai", "model": "gpt-4o-mini"}]',
+        )
+        monkeypatch.setenv("EXTRACTION_LLM_RETRY", '{"max_retries": 7}')
+        settings = ExtractionLLMSettings()
+        assert settings.retry.max_retries == 7
+
+        class FakeClient:
+            async def VerifyEntityMatch(self, *args):  # noqa: N802
+                return True
+
+        chunk = _chunk("context text")
+        chunk_id = uuid4()
+        verifier = LLMVerify(chunks_by_id={chunk_id: chunk}, settings=settings)
+        monkeypatch.setattr(verifier, "_default_client", FakeClient)
+        a = _entity("Ada", chunk_id=chunk_id)
+        b = _entity("Charles", chunk_id=chunk_id)
+
+        verdict = await verifier.compare(a, b)
+
+        assert verdict is ComparisonVerdict.MATCH
 
 
 # ── InBatchCandidateSource ─────────────────────────────────────────────

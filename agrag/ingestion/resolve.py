@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.ingestion.extract import ExtractionLLMSettings, ExtractorMissingExtraError
+from agrag.llm.retry import NO_RETRY, call_with_retry
 
 
 class ResolutionGroup(BaseModel):
@@ -163,6 +164,9 @@ class LLMVerify(Comparator):
         Args:
             chunks_by_id: Maps a Chunk id to the Chunk, for prompt context.
             settings: LLM client config. Defaults to ``ExtractionLLMSettings()``.
+                Ignored when ``client`` is given: an injected client also
+                disables ``settings.retry``, since a caller building its own
+                client is assumed to own its own retry behavior too.
             client: An already-built BAML client. Tests inject a fake here.
         """
         self.chunks_by_id = chunks_by_id
@@ -181,6 +185,7 @@ class LLMVerify(Comparator):
         if self._client is not None:
             client = self._client
             baml_options: dict = {}
+            retry = NO_RETRY
         else:
             from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
 
@@ -190,13 +195,20 @@ class LLMVerify(Comparator):
                 settings.clients, strategy=settings.strategy
             )
             baml_options = {"client_registry": registry}
+            retry = settings.retry
         try:
-            is_match = await client.VerifyEntityMatch(  # ty: ignore[unresolved-attribute]
-                a.text,
-                self._context_for(a),
-                b.text,
-                self._context_for(b),
-                baml_options,
+            # ponytail: retries every exception except the BAML error types
+            # call_with_retry recognizes as permanently unretryable (an
+            # invalid argument or a non-429 4xx); narrow further if noisy.
+            is_match = await call_with_retry(
+                lambda: client.VerifyEntityMatch(  # ty: ignore[unresolved-attribute]
+                    a.text,
+                    self._context_for(a),
+                    b.text,
+                    self._context_for(b),
+                    baml_options,
+                ),
+                retry,
             )
         except Exception:  # noqa: BLE001
             return ComparisonVerdict.NO_MATCH

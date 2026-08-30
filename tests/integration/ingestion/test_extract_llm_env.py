@@ -13,7 +13,6 @@ import pytest
 from agrag.ingestion.extract import ExtractionLLMSettings
 
 
-@pytest.mark.integration
 async def test_extraction_reaches_openai_compatible_endpoint() -> None:
     """A real endpoint returns a structured extraction result."""
     if not os.environ.get("LLM_BASE_URL") or not os.environ.get("LLM_MODEL_ID"):
