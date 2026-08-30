@@ -32,9 +32,9 @@ class ExtractedEntity(BaseModel):
         """Reject negative offsets and reversed or zero-length spans."""
         if self.char_start < 0:
             raise ValueError(f"char_start must be >= 0, got {self.char_start}")
-        if self.char_end < self.char_start:
+        if self.char_end <= self.char_start:
             raise ValueError(
-                f"char_end ({self.char_end}) must be >= char_start ({self.char_start})"
+                f"char_end ({self.char_end}) must be > char_start ({self.char_start})"
             )
         return self
 

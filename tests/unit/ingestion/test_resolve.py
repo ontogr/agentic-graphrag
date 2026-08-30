@@ -20,6 +20,7 @@ from agrag.ingestion.resolve import (
     Resolver,
     _group_matches,
 )
+from agrag.llm.client_config import LLMClientConfig, RetryConfig
 
 
 _DOC_ID = uuid4()
@@ -36,7 +37,7 @@ def _entity(
         label=label,
         text=text,
         char_start=0,
-        char_end=len(text),
+        char_end=max(len(text), 1),
     )
 
 
@@ -192,6 +193,41 @@ class TestLLMVerify:
             b = _entity("Charles")
             with pytest.raises(ExtractorMissingExtraError):
                 await verifier.compare(a, b)
+
+    async def test_compare_forwards_settings_retry_to_client_registry(
+        self, monkeypatch
+    ) -> None:
+        """settings.retry reaches build_client_registry's retry kwarg."""
+        captured: dict = {}
+
+        def fake_build_client_registry(clients, *, strategy, retry=None):
+            captured["retry"] = retry
+            return object()
+
+        monkeypatch.setattr(
+            "agrag.llm.client_registry.build_client_registry",
+            fake_build_client_registry,
+        )
+
+        class FakeClient:
+            async def VerifyEntityMatch(self, *args):  # noqa: N802
+                return True
+
+        chunk = _chunk("context text")
+        chunk_id = uuid4()
+        non_default_retry = RetryConfig(max_retries=5)
+        settings = ExtractionLLMSettings(
+            clients=[LLMClientConfig(name="c", provider="openai", model="gpt-4o-mini")],
+            retry=non_default_retry,
+        )
+        verifier = LLMVerify(chunks_by_id={chunk_id: chunk}, settings=settings)
+        monkeypatch.setattr(verifier, "_default_client", FakeClient)
+        a = _entity("Ada", chunk_id=chunk_id)
+        b = _entity("Charles", chunk_id=chunk_id)
+
+        await verifier.compare(a, b)
+
+        assert captured["retry"] is non_default_retry
 
 
 # ── InBatchCandidateSource ─────────────────────────────────────────────

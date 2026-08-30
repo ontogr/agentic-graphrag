@@ -40,12 +40,12 @@ class TestExtractedEntity:
 
     @pytest.mark.parametrize(
         ("char_start", "char_end", "message"),
-        [(-1, 3, "char_start"), (4, 3, "char_end")],
+        [(-1, 3, "char_start"), (4, 3, "char_end"), (3, 3, "char_end")],
     )
     def test_rejects_invalid_spans(
         self, char_start: int, char_end: int, message: str
     ) -> None:
-        """Negative starts and reversed spans are rejected."""
+        """Negative starts, reversed spans, and empty spans are rejected."""
         with pytest.raises(ValidationError, match=message):
             ExtractedEntity(
                 chunk_id=uuid4(),

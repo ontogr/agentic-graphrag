@@ -2,7 +2,7 @@
 
 import pytest
 
-from agrag.llm.client_config import LLMClientConfig
+from agrag.llm.client_config import LLMClientConfig, RetryConfig
 from agrag.llm.client_registry import build_client_registry
 
 
@@ -12,6 +12,7 @@ class FakeClientRegistry:
     def __init__(self) -> None:
         """Start with no registered clients and no primary."""
         self.added: list[tuple[str, str, dict]] = []
+        self.retry_policies: list[str | None] = []
         self.primary: str | None = None
 
     def add_llm_client(
@@ -19,6 +20,7 @@ class FakeClientRegistry:
     ) -> None:
         """Record a registered client."""
         self.added.append((name, provider, options))
+        self.retry_policies.append(retry_policy)
 
     def set_primary(self, primary: str) -> None:
         """Record the primary client name."""
@@ -84,3 +86,35 @@ class TestBuildClientRegistry:
         assert options["base_url"] == "http://localhost:1234/v1"
         assert options["api_key"] == "secret"
         assert options["model"] == "llm"
+
+    def test_no_retry_attaches_no_retry_policy(self, monkeypatch) -> None:
+        """With retry=None, no retry_policy name is passed to add_llm_client."""
+        fake = FakeClientRegistry()
+        monkeypatch.setattr("baml_py.ClientRegistry", lambda: fake)
+        build_client_registry([_client("only")], strategy="single")
+        assert fake.retry_policies == [None]
+
+    def test_default_retry_attaches_the_default_policy_to_every_client(
+        self, monkeypatch
+    ) -> None:
+        """RetryConfig()'s defaults reach every client as AgragDefaultRetry."""
+        fake = FakeClientRegistry()
+        monkeypatch.setattr("baml_py.ClientRegistry", lambda: fake)
+        build_client_registry(
+            [_client("a"), _client("b")], strategy="single", retry=RetryConfig()
+        )
+        assert fake.retry_policies == ["AgragDefaultRetry", "AgragDefaultRetry"]
+
+    def test_non_default_retry_raises_instead_of_reaching_add_llm_client(
+        self, monkeypatch
+    ) -> None:
+        """A non-default RetryConfig is rejected, not silently passed through."""
+        fake = FakeClientRegistry()
+        monkeypatch.setattr("baml_py.ClientRegistry", lambda: fake)
+        with pytest.raises(ValueError, match="no matching BAML retry_policy"):
+            build_client_registry(
+                [_client("only")],
+                strategy="single",
+                retry=RetryConfig(max_retries=5),
+            )
+        assert fake.added == []

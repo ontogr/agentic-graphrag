@@ -1,5 +1,7 @@
 """Tests for the Extractor implementations and ExtractorMissingExtraError."""
 
+import asyncio
+import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
@@ -7,22 +9,44 @@ from uuid import uuid4
 import pytest
 
 from agrag.common.data_models.chunk import Chunk
-from agrag.common.data_models.extraction import (
-    ExtractedEntity,
-    ExtractionResult,
+from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
+from agrag.common.data_models.graph_schema import (
+    GENERIC,
+    EntityType,
+    GraphSchema,
+    RelationType,
 )
-from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion.extract import (
     BAMLExtractor,
     EscalatingExtractor,
+    ExtractionLLMSettings,
     ExtractorMissingExtraError,
     GlinerExtractor,
 )
+from agrag.llm.client_config import LLMClientConfig, RetryConfig
 from agrag.loaders.corpus.errors import IngestionError
 
 
 _DOC_ID = uuid4()
+
+# A schema that permits only a Person -> Organization WORKS_AT relation, used to
+# test that normalization drops relations with the wrong label or endpoint pair.
+_ONE_PAIR_SCHEMA = GraphSchema(
+    name="one-pair",
+    version="1",
+    entities=[
+        EntityType(label="Person", description="A named individual."),
+        EntityType(label="Organization", description="A company or institution."),
+    ],
+    relations=[
+        RelationType(
+            label="WORKS_AT",
+            description="A person works at an organization.",
+            patterns=[("Person", "Organization")],
+        )
+    ],
+)
 
 
 def _chunk(
@@ -65,15 +89,15 @@ class TestGlinerExtractor:
 
         class FakeSchemaBuilder:
             def __init__(self) -> None:
-                self.entity_labels: list[str] = []
-                self.relation_labels: list[str] = []
+                self.entity_descriptions: dict[str, str] = {}
+                self.relation_descriptions: dict[str, str] = {}
 
-            def entities(self, labels: list[str]) -> "FakeSchemaBuilder":
-                self.entity_labels = labels
+            def entities(self, descriptions: dict[str, str]) -> "FakeSchemaBuilder":
+                self.entity_descriptions = descriptions
                 return self
 
-            def relations(self, labels: list[str]) -> "FakeSchemaBuilder":
-                self.relation_labels = labels
+            def relations(self, descriptions: dict[str, str]) -> "FakeSchemaBuilder":
+                self.relation_descriptions = descriptions
                 return self
 
         class FakeModel:
@@ -83,26 +107,50 @@ class TestGlinerExtractor:
             def create_schema(self) -> FakeSchemaBuilder:
                 return self.schema
 
-            def extract(self, text: str, schema: FakeSchemaBuilder) -> dict:
+            def extract(
+                self, text: str, schema: FakeSchemaBuilder, include_spans: bool = False
+            ) -> dict:
                 assert text.startswith("Ada Lovelace")
                 assert schema is self.schema
+                assert include_spans is True
                 return {
                     "entities": {
-                        "Person": ["Ada Lovelace"],
-                        "Organization": ["Analytical Engine Company"],
+                        "Person": [{"text": "Ada Lovelace", "start": 0, "end": 12}],
+                        "Organization": [
+                            {
+                                "text": "Analytical Engine Company",
+                                "start": 27,
+                                "end": 53,
+                            }
+                        ],
                     },
                     "relation_extraction": {
-                        "RELATED_TO": [("Ada Lovelace", "Analytical Engine Company")]
+                        "RELATED_TO": [
+                            {
+                                "head": {
+                                    "text": "Ada Lovelace",
+                                    "start": 0,
+                                    "end": 12,
+                                },
+                                "tail": {
+                                    "text": "Analytical Engine Company",
+                                    "start": 27,
+                                    "end": 53,
+                                },
+                            }
+                        ]
                     },
                 }
 
         model = FakeModel()
         result = await GlinerExtractor(model=model).extract(_chunk(), GENERIC)
 
-        assert model.schema.entity_labels == [item.label for item in GENERIC.entities]
-        assert model.schema.relation_labels == [
-            item.label for item in GENERIC.relations
-        ]
+        assert model.schema.entity_descriptions == {
+            item.label: item.description for item in GENERIC.entities
+        }
+        assert model.schema.relation_descriptions == {
+            item.label: item.description for item in GENERIC.relations
+        }
         assert [(entity.text, entity.char_start) for entity in result.entities] == [
             ("Ada Lovelace", 0),
             ("Analytical Engine Company", 27),
@@ -110,6 +158,122 @@ class TestGlinerExtractor:
         assert result.relations[0].source_index == 0
         assert result.relations[0].target_index == 1
         assert result.extractor_name == "gliner"
+
+    async def test_extract_disambiguates_duplicate_mention_text(self) -> None:
+        """Two mentions with identical text resolve to their own entity index."""
+
+        class FakeModel:
+            def create_schema(self) -> "FakeModel":
+                return self
+
+            def entities(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def relations(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+                return {
+                    "entities": {
+                        "Person": [
+                            {"text": "Ada", "start": 0, "end": 3},
+                            {"text": "Ada", "start": 18, "end": 21},
+                        ],
+                        "Organization": [{"text": "Acme", "start": 13, "end": 17}],
+                    },
+                    "relation_extraction": {
+                        "WORKS_AT": [
+                            {
+                                "head": {"text": "Ada", "start": 18, "end": 21},
+                                "tail": {"text": "Acme", "start": 13, "end": 17},
+                            }
+                        ]
+                    },
+                }
+
+        chunk = _chunk("Ada met Bob at Acme; later Ada left.")
+        result = await GlinerExtractor(model=FakeModel()).extract(
+            chunk, _ONE_PAIR_SCHEMA
+        )
+
+        assert len(result.entities) == 3
+        assert len(result.relations) == 1
+        # The relation must target the second "Ada" mention (index 1), not the first.
+        assert result.relations[0].source_index == 1
+        assert result.relations[0].target_index == 2
+
+    async def test_extract_drops_relations_the_schema_does_not_permit(self) -> None:
+        """A relation whose endpoint labels the schema forbids is dropped."""
+
+        class FakeModel:
+            def create_schema(self) -> "FakeModel":
+                return self
+
+            def entities(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def relations(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+                return {
+                    "entities": {
+                        "Person": [{"text": "Ada", "start": 0, "end": 3}],
+                        "Organization": [{"text": "Acme", "start": 13, "end": 17}],
+                    },
+                    "relation_extraction": {
+                        # Reversed: Organization -> Person is not a declared pattern.
+                        "WORKS_AT": [
+                            {
+                                "head": {"text": "Acme", "start": 13, "end": 17},
+                                "tail": {"text": "Ada", "start": 0, "end": 3},
+                            }
+                        ]
+                    },
+                }
+
+        result = await GlinerExtractor(model=FakeModel()).extract(
+            _chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA
+        )
+        assert len(result.entities) == 2
+        assert result.relations == []
+
+    async def test_extract_drops_relation_with_undeclared_label(self) -> None:
+        """A relation label the schema never declares is dropped."""
+
+        class FakeModel:
+            def create_schema(self) -> "FakeModel":
+                return self
+
+            def entities(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def relations(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+                return {
+                    "entities": {
+                        "Person": [{"text": "Ada", "start": 0, "end": 3}],
+                        "Organization": [{"text": "Acme", "start": 13, "end": 17}],
+                    },
+                    "relation_extraction": {
+                        # Correct Person -> Organization pair, but the schema
+                        # never declares a FOUNDED relation type at all.
+                        "FOUNDED": [
+                            {
+                                "head": {"text": "Ada", "start": 0, "end": 3},
+                                "tail": {"text": "Acme", "start": 13, "end": 17},
+                            }
+                        ]
+                    },
+                }
+
+        result = await GlinerExtractor(model=FakeModel()).extract(
+            _chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA
+        )
+        assert len(result.entities) == 2
+        assert result.relations == []
 
     def test_raises_when_gliner2_not_importable(self) -> None:
         """ExtractorMissingExtraError is raised if gliner2 can't be imported."""
@@ -124,6 +288,48 @@ class TestGlinerExtractor:
         fake_model = SimpleNamespace()
         extractor = GlinerExtractor(model=fake_model)
         assert extractor._ensure_model() is fake_model
+
+    async def test_concurrent_extract_loads_model_once(self) -> None:
+        """Concurrent first calls to extract() load the model exactly once."""
+
+        class FakeSchemaBuilder:
+            def entities(self, labels: list[str]) -> "FakeSchemaBuilder":
+                return self
+
+            def relations(self, labels: list[str]) -> "FakeSchemaBuilder":
+                return self
+
+        class FakeModel:
+            def create_schema(self) -> FakeSchemaBuilder:
+                return FakeSchemaBuilder()
+
+            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+                return {"entities": {}, "relation_extraction": {}}
+
+        extractor = GlinerExtractor(model_name="fake")
+        load_started = threading.Event()
+        release_load = threading.Event()
+        load_calls: list[int] = []
+
+        def blocking_ensure_model() -> object:
+            load_calls.append(1)
+            load_started.set()
+            assert release_load.wait(timeout=5), "test deadlocked"
+            extractor._model = FakeModel()
+            return extractor._model
+
+        extractor._ensure_model = blocking_ensure_model
+
+        task_one = asyncio.create_task(extractor.extract(_chunk(), GENERIC))
+        await asyncio.to_thread(load_started.wait, 5)
+        task_two = asyncio.create_task(extractor.extract(_chunk(), GENERIC))
+        await asyncio.sleep(0.05)
+        release_load.set()
+        result_one, result_two = await asyncio.gather(task_one, task_two)
+
+        assert load_calls == [1]
+        assert result_one.extractor_name == "gliner"
+        assert result_two.extractor_name == "gliner"
 
 
 class TestBAMLExtractor:
@@ -142,14 +348,16 @@ class TestBAMLExtractor:
     async def test_to_result_maps_source_text_to_indices(self) -> None:
         """BAML output relations are mapped to entity indices by text."""
         chunk = _chunk()
+        org_text = "the Analytical Engine Company"
+        org_start = chunk.text.index(org_text)
         # Simulate BAML raw output
         entities_raw = [
             SimpleNamespace(label="Person", text="Ada", char_start=0, char_end=3),
             SimpleNamespace(
                 label="Organization",
-                text="the Analytical Engine Company",
-                char_start=14,
-                char_end=43,
+                text=org_text,
+                char_start=org_start,
+                char_end=org_start + len(org_text),
             ),
         ]
         relations_raw = [
@@ -194,6 +402,108 @@ class TestBAMLExtractor:
         assert len(result.entities) == 1
         assert len(result.relations) == 0
 
+    async def test_extract_drops_entity_with_out_of_range_span(self) -> None:
+        """An entity span beyond chunk.text is dropped."""
+        chunk = _chunk()
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                return SimpleNamespace(
+                    entities=[
+                        SimpleNamespace(
+                            label="Person", text="Ada", char_start=0, char_end=3
+                        ),
+                        SimpleNamespace(
+                            label="Person",
+                            text="Ghost",
+                            char_start=0,
+                            char_end=len(chunk.text) + 10,
+                        ),
+                    ],
+                    relations=[],
+                )
+
+        extractor = BAMLExtractor(client=FakeClient())
+        result = await extractor.extract(chunk, GENERIC)
+
+        assert [entity.text for entity in result.entities] == ["Ada"]
+
+    async def test_extract_drops_entity_with_zero_length_span(self) -> None:
+        """A zero-length span is dropped before it reaches ExtractedEntity."""
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                return SimpleNamespace(
+                    entities=[
+                        SimpleNamespace(
+                            label="Person", text="Ada", char_start=0, char_end=3
+                        ),
+                        SimpleNamespace(
+                            label="Person", text="", char_start=5, char_end=5
+                        ),
+                    ],
+                    relations=[],
+                )
+
+        extractor = BAMLExtractor(client=FakeClient())
+        result = await extractor.extract(_chunk(), GENERIC)
+
+        assert [entity.text for entity in result.entities] == ["Ada"]
+
+    async def test_extract_drops_entity_with_text_mismatched_span(self) -> None:
+        """An entity whose span doesn't cover its own text is dropped."""
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                return SimpleNamespace(
+                    entities=[
+                        SimpleNamespace(
+                            label="Person", text="Ada", char_start=0, char_end=3
+                        ),
+                        SimpleNamespace(
+                            label="Person", text="Charles", char_start=0, char_end=3
+                        ),
+                    ],
+                    relations=[],
+                )
+
+        extractor = BAMLExtractor(client=FakeClient())
+        result = await extractor.extract(_chunk(), GENERIC)
+
+        assert [entity.text for entity in result.entities] == ["Ada"]
+
+    async def test_extract_drops_relation_referencing_a_malformed_entity(self) -> None:
+        """A relation to a span-invalid entity is dropped along with the entity."""
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                return SimpleNamespace(
+                    entities=[
+                        SimpleNamespace(
+                            label="Person", text="Ada", char_start=0, char_end=3
+                        ),
+                        SimpleNamespace(
+                            label="Organization",
+                            text="Ghost Corp",
+                            char_start=0,
+                            char_end=1000,
+                        ),
+                    ],
+                    relations=[
+                        SimpleNamespace(
+                            label="WORKS_AT",
+                            source_text="Ada",
+                            target_text="Ghost Corp",
+                        )
+                    ],
+                )
+
+        extractor = BAMLExtractor(client=FakeClient())
+        result = await extractor.extract(_chunk(), _ONE_PAIR_SCHEMA)
+
+        assert [entity.text for entity in result.entities] == ["Ada"]
+        assert result.relations == []
+
     async def test_extract_with_injected_client_skips_settings(self) -> None:
         """An injected client works without EXTRACTION_LLM_CLIENTS env vars."""
 
@@ -215,6 +525,103 @@ class TestBAMLExtractor:
         result = await extractor.extract(chunk, GENERIC)
         assert len(result.entities) == 1
         assert result.entities[0].text == "Ada"
+
+    async def test_type_builder_output_format_permits_only_declared_labels(
+        self,
+    ) -> None:
+        """The rendered prompt offers only a schema's labels, never PLACEHOLDER.
+
+        Captures the TypeBuilder that extract() passes to the client, then
+        renders the real BAML HTTP request with it (no network call) — proving
+        the compiled runtime's behavior, not just BAMLExtractor's Python logic.
+        """
+        from agrag.llm.baml_client import b  # noqa: PLC0415
+
+        captured: dict = {}
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, text, call_options):  # noqa: N802
+                captured["tb"] = call_options["tb"]
+                return SimpleNamespace(entities=[], relations=[])
+
+        extractor = BAMLExtractor(client=FakeClient())
+        await extractor.extract(_chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA)
+
+        request = await b.request.ExtractEntitiesAndRelations(
+            "Ada works at Acme.", {"tb": captured["tb"]}
+        )
+        prompt = "".join(
+            block["text"]
+            for message in request.body.json()["messages"]
+            for block in message["content"]
+        )
+
+        assert "PLACEHOLDER" not in prompt
+        assert "Person" in prompt
+        assert "Organization" in prompt
+        assert "WORKS_AT" in prompt
+        assert _ONE_PAIR_SCHEMA.relations[0].description in prompt
+
+    async def test_extract_drops_relations_the_schema_does_not_permit(self) -> None:
+        """A relation whose endpoint labels the schema forbids is dropped."""
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                return SimpleNamespace(
+                    entities=[
+                        SimpleNamespace(
+                            label="Person", text="Ada", char_start=0, char_end=3
+                        ),
+                        SimpleNamespace(
+                            label="Organization",
+                            text="Acme",
+                            char_start=13,
+                            char_end=17,
+                        ),
+                    ],
+                    relations=[
+                        # Reversed: Organization -> Person is not a declared pattern.
+                        SimpleNamespace(
+                            label="WORKS_AT", source_text="Acme", target_text="Ada"
+                        )
+                    ],
+                )
+
+        extractor = BAMLExtractor(client=FakeClient())
+        result = await extractor.extract(_chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA)
+        assert len(result.entities) == 2
+        assert result.relations == []
+
+    async def test_extract_forwards_settings_retry_to_client_registry(
+        self, monkeypatch
+    ) -> None:
+        """settings.retry reaches build_client_registry's retry kwarg."""
+        captured: dict = {}
+
+        def fake_build_client_registry(clients, *, strategy, retry=None):
+            captured["retry"] = retry
+            return object()
+
+        monkeypatch.setattr(
+            "agrag.llm.client_registry.build_client_registry",
+            fake_build_client_registry,
+        )
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                return SimpleNamespace(entities=[], relations=[])
+
+        non_default_retry = RetryConfig(max_retries=5)
+        settings = ExtractionLLMSettings(
+            clients=[LLMClientConfig(name="c", provider="openai", model="gpt-4o-mini")],
+            retry=non_default_retry,
+        )
+        extractor = BAMLExtractor(settings=settings)
+        monkeypatch.setattr(extractor, "_default_client", FakeClient)
+
+        await extractor.extract(_chunk(), GENERIC)
+
+        assert captured["retry"] is non_default_retry
 
 
 class TestEscalatingExtractor:

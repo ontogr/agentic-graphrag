@@ -20,6 +20,42 @@ from agrag.llm.client_config import LLMClientConfig, RetryConfig
 from agrag.loaders.corpus.errors import IngestionError
 
 
+def _normalize_extraction_result(
+    result: ExtractionResult, schema: GraphSchema
+) -> ExtractionResult:
+    """Drop relations whose label or endpoint-label pair schema does not allow.
+
+    A relation survives only when its label is a declared RelationType and the
+    resolved (source label, target label) pair is one of that type's ``patterns``.
+
+    Args:
+        result: The extractor's raw result, before schema validation.
+        schema: The schema relations are validated against.
+
+    Returns:
+        A new ExtractionResult with the same entities and only the relations
+        that passed validation.
+    """
+    allowed_pairs = {
+        relation_type.label: set(relation_type.patterns)
+        for relation_type in schema.relations
+    }
+    valid_relations = [
+        relation
+        for relation in result.relations
+        if (
+            result.entities[relation.source_index].label,
+            result.entities[relation.target_index].label,
+        )
+        in allowed_pairs.get(relation.label, set())
+    ]
+    return ExtractionResult(
+        entities=result.entities,
+        relations=valid_relations,
+        extractor_name=result.extractor_name,
+    )
+
+
 class ExtractorMissingExtraError(IngestionError):
     """An Extractor needs a package extra that is not installed.
 
@@ -122,6 +158,7 @@ class GlinerExtractor(Extractor):
         """
         self.model_name = model_name
         self._model = model
+        self._load_lock = asyncio.Lock()
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
         """Extract with the local GLiNER2.5 model.
@@ -133,14 +170,29 @@ class GlinerExtractor(Extractor):
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
-        model = await asyncio.to_thread(self._ensure_model)
+        model = await self._load_model()
         gliner_schema = self._build_schema(model, schema)
         raw = await asyncio.to_thread(
             model.extract,  # ty: ignore[unresolved-attribute]
             chunk.text,
             gliner_schema,
+            include_spans=True,
         )
-        return self._to_result(raw, chunk)
+        return _normalize_extraction_result(self._to_result(raw, chunk), schema)
+
+    async def _load_model(self) -> object:
+        """Return the cached model, loading it once even under concurrent calls.
+
+        Concurrent first calls block on the same lock instead of each starting
+        their own model load. A failed load releases the lock without caching
+        anything, so the next call retries it cleanly.
+        """
+        if self._model is not None:
+            return self._model
+        async with self._load_lock:
+            if self._model is None:
+                self._model = await asyncio.to_thread(self._ensure_model)
+        return self._model
 
     def _ensure_model(self) -> object:
         """Return the cached model, building it from ``model_name`` on first call."""
@@ -154,58 +206,67 @@ class GlinerExtractor(Extractor):
         return self._model
 
     def _build_schema(self, model: object, schema: GraphSchema) -> object:
-        """Return a GLiNER2.5 schema object built from schema's declared labels."""
+        """Return a GLiNER2.5 schema object built from schema's labels and guidance.
+
+        GLiNER2.5's ``entities()``/``relations()`` accept a label -> description
+        dict, so each type's ``description`` reaches the model as extraction
+        guidance instead of being dropped.
+        """
         builder = model.create_schema()  # ty: ignore[unresolved-attribute]
-        builder = builder.entities([entity.label for entity in schema.entities])
-        return builder.relations([relation.label for relation in schema.relations])
+        builder = builder.entities(
+            {entity.label: entity.description for entity in schema.entities}
+        )
+        return builder.relations(
+            {relation.label: relation.description for relation in schema.relations}
+        )
 
     def _to_result(self, raw: object, chunk: Chunk) -> ExtractionResult:
         """Return an ExtractionResult built from gliner2's raw output.
 
-        GLiNER2.5's extract() returns a dict with ``entities`` (a dict mapping
-        entity labels to lists of surface texts) and ``relation_extraction`` (a
-        dict mapping relation labels to lists of (source_text, target_text)
-        tuples).
+        Called with ``include_spans=True``, GLiNER2.5's extract() returns a dict
+        with ``entities`` (label -> list of ``{"text", "start", "end"}`` mention
+        dicts) and ``relation_extraction`` (label -> list of ``{"head", "tail"}``
+        dicts, each endpoint shaped like a mention dict). Relation endpoints are
+        matched back to entities by (text, start, end), not by text alone, so two
+        mentions with identical surface text still resolve to their own entity.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
         raw_dict: dict = raw  # ty: ignore[invalid-assignment]
-        raw_entities: dict[str, list[str]] = raw_dict.get("entities", {})
-        raw_relations: dict[str, list[tuple[str, str]]] = raw_dict.get(
-            "relation_extraction", {}
-        )
+        raw_entities: dict[str, list[dict]] = raw_dict.get("entities", {})
+        raw_relations: dict[str, list[dict]] = raw_dict.get("relation_extraction", {})
 
-        # Build entities list and a text→index map for relation resolution.
         entities: list[ExtractedEntity] = []
-        text_index: dict[str, int] = {}
+        span_index: dict[tuple[str, int, int], int] = {}
         chunk_id = chunk.id
-        for label, texts in raw_entities.items():
-            for text in texts:
-                text_index[text] = len(entities)
-                # Search chunk text for character offsets.
-                char_start = chunk.text.find(text)
-                char_end = char_start + len(text) if char_start >= 0 else 0
+        for label, mentions in raw_entities.items():
+            for mention in mentions:
+                span_index[(mention["text"], mention["start"], mention["end"])] = len(
+                    entities
+                )
                 entities.append(
                     ExtractedEntity(
                         chunk_id=chunk_id,
                         label=label,
-                        text=text,
-                        char_start=char_start,
-                        char_end=char_end,
+                        text=mention["text"],
+                        char_start=mention["start"],
+                        char_end=mention["end"],
                     )
                 )
 
-        # Build relations list from (source_text, target_text) pairs.
         relations: list[ExtractedRelation] = []
         for label, pairs in raw_relations.items():
-            for source_text, target_text in pairs:
-                if source_text in text_index and target_text in text_index:
+            for pair in pairs:
+                head, tail = pair["head"], pair["tail"]
+                source_key = (head["text"], head["start"], head["end"])
+                target_key = (tail["text"], tail["start"], tail["end"])
+                if source_key in span_index and target_key in span_index:
                     relations.append(
                         ExtractedRelation(
                             chunk_id=chunk_id,
                             label=label,
-                            source_index=text_index[source_text],
-                            target_index=text_index[target_text],
+                            source_index=span_index[source_key],
+                            target_index=span_index[target_key],
                         )
                     )
         return ExtractionResult(
@@ -252,7 +313,7 @@ class BAMLExtractor(Extractor):
             client = self._default_client()
             settings = self.settings or ExtractionLLMSettings()
             registry = build_client_registry(
-                settings.clients, strategy=settings.strategy
+                settings.clients, strategy=settings.strategy, retry=settings.retry
             )
             baml_options = {"client_registry": registry}
         type_builder = self._type_builder_for(schema)
@@ -262,7 +323,7 @@ class BAMLExtractor(Extractor):
         raw = await client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
             chunk.text, call_options
         )
-        return self._to_result(raw, chunk)
+        return _normalize_extraction_result(self._to_result(raw, chunk), schema)
 
     def _default_client(self) -> object:
         """Return the default generated BAML client."""
@@ -273,7 +334,10 @@ class BAMLExtractor(Extractor):
         return b
 
     def _type_builder_for(self, schema: GraphSchema) -> object | None:
-        """Return a TypeBuilder populated with schema's entity/relation labels.
+        """Return a TypeBuilder populated with schema's labels and guidance.
+
+        Each value's ``description`` is attached to its enum value, so it
+        reaches the model as extraction guidance instead of being dropped.
 
         Returns ``None`` when the ``llm`` extra is not installed and an
         injected client is being used, so callers can skip the ``tb`` option.
@@ -287,9 +351,13 @@ class BAMLExtractor(Extractor):
 
         builder = TypeBuilder()
         for entity_type in schema.entities:
-            builder.ExtractedEntityLabel.add_value(entity_type.label)
+            builder.ExtractedEntityLabel.add_value(entity_type.label).description(
+                entity_type.description
+            )
         for relation_type in schema.relations:
-            builder.ExtractedRelationLabel.add_value(relation_type.label)
+            builder.ExtractedRelationLabel.add_value(relation_type.label).description(
+                relation_type.description
+            )
         return builder
 
     def _to_result(self, raw: object, chunk: Chunk) -> ExtractionResult:
@@ -299,10 +367,20 @@ class BAMLExtractor(Extractor):
         ``raw.entities`` — this matches each one back by exact normalized text,
         first match wins. A chunk with the same surface text for two different
         entities is a known, minor ambiguity this introduces.
+
+        Entities whose span the LLM got wrong — out of range, zero-length, or not
+        matching ``chunk.text`` at that span — are dropped, along with any
+        relation that references one by text. One malformed field is not reason
+        to fail the whole chunk's extraction.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
         chunk_id = chunk.id
+        valid_raw_entities = [
+            entity
+            for entity in raw.entities  # ty: ignore[unresolved-attribute]
+            if self._has_valid_span(entity, chunk.text)
+        ]
         entities = [
             ExtractedEntity(
                 chunk_id=chunk_id,
@@ -311,11 +389,10 @@ class BAMLExtractor(Extractor):
                 char_start=entity.char_start,
                 char_end=entity.char_end,
             )
-            for entity in raw.entities  # ty: ignore[unresolved-attribute]
+            for entity in valid_raw_entities
         ]
         text_index = {
-            entity.text: index
-            for index, entity in enumerate(raw.entities)  # ty: ignore[unresolved-attribute]
+            entity.text: index for index, entity in enumerate(valid_raw_entities)
         }
         relations = [
             ExtractedRelation(
@@ -329,6 +406,13 @@ class BAMLExtractor(Extractor):
         ]
         return ExtractionResult(
             entities=entities, relations=relations, extractor_name="baml"
+        )
+
+    def _has_valid_span(self, entity: object, chunk_text: str) -> bool:
+        """Return whether entity's span is in range and matches its own text."""
+        start, end = entity.char_start, entity.char_end  # ty: ignore[unresolved-attribute]
+        return (
+            0 <= start < end <= len(chunk_text) and chunk_text[start:end] == entity.text  # ty: ignore[unresolved-attribute]
         )
 
 

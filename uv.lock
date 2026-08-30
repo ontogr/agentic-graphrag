@@ -97,7 +97,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "baml-py", marker = "extra == 'llm'", specifier = ">=0.226.1" },
+    { name = "baml-py", marker = "extra == 'llm'", specifier = ">=0.226.1,<0.227" },
     { name = "charset-normalizer", specifier = ">=3.4" },
     { name = "chonkie", specifier = ">=1.7" },
     { name = "docling", marker = "extra == 'docling'", specifier = ">=2.0" },

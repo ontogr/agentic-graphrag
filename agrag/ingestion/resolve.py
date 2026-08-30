@@ -187,7 +187,7 @@ class LLMVerify(Comparator):
             client = self._default_client()
             settings = self.settings or ExtractionLLMSettings()
             registry = build_client_registry(
-                settings.clients, strategy=settings.strategy
+                settings.clients, strategy=settings.strategy, retry=settings.retry
             )
             baml_options = {"client_registry": registry}
         try:

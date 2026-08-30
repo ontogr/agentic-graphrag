@@ -1,10 +1,14 @@
 enum ExtractedEntityLabel {
-  PLACEHOLDER
+  // Seeds the enum so BAML generation accepts it; never offered to the model.
+  // Real values come from TypeBuilder at call time (see BAMLExtractor).
+  PLACEHOLDER @skip
   @@dynamic
 }
 
 enum ExtractedRelationLabel {
-  PLACEHOLDER
+  // Seeds the enum so BAML generation accepts it; never offered to the model.
+  // Real values come from TypeBuilder at call time (see BAMLExtractor).
+  PLACEHOLDER @skip
   @@dynamic
 }
 

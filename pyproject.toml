@@ -44,7 +44,7 @@ observability = [
   "openinference-semantic-conventions",
 ]
 llm = [
-    "baml-py>=0.226.1",
+    "baml-py>=0.226.1,<0.227",
 ]
 extract = [
     "gliner2[local]",
