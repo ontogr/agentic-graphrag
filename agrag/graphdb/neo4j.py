@@ -8,7 +8,12 @@ from uuid import UUID
 
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.vector_record import Distance, VectorHit
-from agrag.cypher.entities import upsert_node_query, validate_identifier
+from agrag.common.validation import require_positive_batch_size
+from agrag.cypher.entities import (
+    NODE_IDENTITY_LABEL,
+    upsert_node_query,
+    validate_identifier,
+)
 from agrag.cypher.relations import upsert_relation_query
 from agrag.cypher.schema import (
     node_id_constraint_query,
@@ -129,21 +134,63 @@ class Neo4jGraphStore(GraphStore):
         return await result.data()
 
     async def setup_constraints(self) -> None:
-        """Create a uniqueness constraint on ``id`` for every tracked label.
+        """Create a uniqueness constraint on ``id`` for every known label.
 
-        Also creates a per-type uniqueness constraint on ``id`` for every
-        relationship type written so far, which backs the stale-relationship
-        cleanup ``upsert_relation_query`` performs on endpoint changes.
+        "Known" means written by this instance or already present in the
+        database, so a fresh store can set up constraints for an existing
+        database without first rewriting every record. Also creates the
+        global uniqueness constraint on ``NODE_IDENTITY_LABEL`` that
+        ``upsert_node_query``'s ``MERGE`` relies on to resolve a node by id
+        regardless of its other, mutable labels, and a per-type uniqueness
+        constraint on ``id`` for every known relationship type, which backs
+        the stale-relationship cleanup ``upsert_relation_query`` performs on
+        endpoint changes.
         """
-        for label in self._known_labels:
+        await self.execute_write(node_id_constraint_query(NODE_IDENTITY_LABEL))
+        for label in await self._all_labels():
             await self.execute_write(node_id_constraint_query(label))
-        for rel_type in self._known_relation_types:
+        for rel_type in await self._all_relation_types():
             await self.execute_write(relation_id_constraint_query(rel_type))
 
     async def setup_indexes(self) -> None:
-        """Create a range index on ``id`` for every tracked label."""
-        for label in self._known_labels:
+        """Create a range index on ``id`` for every known label.
+
+        "Known" means written by this instance or already present in the
+        database, so a fresh store can set up indexes for an existing
+        database without first rewriting every record.
+        """
+        for label in await self._all_labels():
             await self.execute_write(plain_index_query(label))
+
+    async def _all_labels(self) -> set[str]:
+        """Return every node label this instance knows about.
+
+        Combines labels written through this instance with every label
+        already present in the database, so setup does not depend on this
+        instance having written the data itself.
+
+        Returns:
+            The label names, excluding the internal identity anchor.
+        """
+        rows = await self.execute_read("CALL db.labels() YIELD label RETURN label")
+        live = {row["label"] for row in rows} - {NODE_IDENTITY_LABEL}
+        return self._known_labels | live
+
+    async def _all_relation_types(self) -> set[str]:
+        """Return every relationship type this instance knows about.
+
+        Combines types written through this instance with every type already
+        present in the database, so setup does not depend on this instance
+        having written the data itself.
+
+        Returns:
+            The relationship type names.
+        """
+        rows = await self.execute_read(
+            "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType"
+        )
+        live = {row["relationshipType"] for row in rows}
+        return self._known_relation_types | live
 
     async def upsert_nodes(
         self,
@@ -162,7 +209,11 @@ class Neo4jGraphStore(GraphStore):
         queries, since Cypher requires labels to be literal in the query text
         rather than a runtime parameter, so ``batch_size`` chunks apply within
         each group rather than across the whole call.
+
+        Raises:
+            ValueError: ``batch_size`` is not positive.
         """
+        require_positive_batch_size(batch_size)
         validate_identifier(label)
         self._known_labels.add(label)
         groups: dict[tuple[str, ...], list[NodeRecord]] = defaultdict(list)
@@ -189,7 +240,11 @@ class Neo4jGraphStore(GraphStore):
         Relationship identity is each record's ``id``, not its endpoints: see
         ``upsert_relation_query`` for how endpoint changes and same-id
         parallel relationships are handled.
+
+        Raises:
+            ValueError: ``batch_size`` is not positive.
         """
+        require_positive_batch_size(batch_size)
         by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for rel in relations:
             validate_identifier(rel.type)

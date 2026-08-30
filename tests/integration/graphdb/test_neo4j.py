@@ -91,6 +91,40 @@ class TestNeo4jGraphStoreIntegration:
             await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await store.close()
 
+    async def test_fresh_store_sets_up_constraints_for_existing_database(
+        self,
+    ) -> None:
+        """A fresh store can set up constraints for data it never wrote itself.
+
+        setup_constraints must not depend on _known_labels alone, since a
+        separate process instance (a maintenance script, a new replica) may
+        need to set up constraints for a database it did not populate.
+        """
+        label = validate_identifier(f"Legacy_{uuid4().hex[:8]}")
+        writer = build_graph_store("neo4j")
+        await writer.connect()
+        try:
+            await writer.upsert_nodes(
+                label,
+                [NodeRecord(id=uuid4(), labels=[label], properties={"text": "x"})],
+            )
+        finally:
+            await writer.close()
+
+        fresh = build_graph_store("neo4j")
+        await fresh.connect()
+        try:
+            assert label not in fresh._known_labels
+            await fresh.setup_constraints()
+            rows = await fresh.execute_read(
+                "SHOW CONSTRAINTS YIELD name WHERE name = $name RETURN name",
+                {"name": f"{label}_id_unique"},
+            )
+            assert len(rows) == 1
+        finally:
+            await fresh.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await fresh.close()
+
     async def test_multi_label_node_gets_every_label(self) -> None:
         """A node with more than one label ends up with all of them in Neo4j."""
         store = build_graph_store("neo4j")
@@ -118,6 +152,77 @@ class TestNeo4jGraphStoreIntegration:
             assert set(rows[0]["labels"]) == {primary, secondary}
         finally:
             await store.execute_write(f"MATCH (n:{primary}) DETACH DELETE n")
+            await store.close()
+
+    async def test_label_addition_does_not_duplicate_node(self) -> None:
+        """Adding a label to an existing id updates it in place, not a copy.
+
+        Regression guard: MERGE-ing on the full requested label set would
+        only match a node that already has every one of those labels, so
+        this write would otherwise create a second node sharing the same id.
+        """
+        store = build_graph_store("neo4j")
+        await store.connect()
+        primary = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
+        secondary = validate_identifier(f"Entity_{uuid4().hex[:8]}")
+        node_id = uuid4()
+        try:
+            await store.upsert_nodes(
+                primary,
+                [NodeRecord(id=node_id, labels=[primary], properties={"n": 1})],
+            )
+            await store.upsert_nodes(
+                primary,
+                [
+                    NodeRecord(
+                        id=node_id, labels=[primary, secondary], properties={"n": 2}
+                    )
+                ],
+            )
+            rows = await store.execute_read(
+                "MATCH (n {id: $id}) RETURN labels(n) AS labels, n.n AS n",
+                {"id": str(node_id)},
+            )
+            assert len(rows) == 1
+            assert set(rows[0]["labels"]) == {primary, secondary}
+            assert rows[0]["n"] == 2
+        finally:
+            await store.execute_write(
+                "MATCH (n {id: $id}) DETACH DELETE n", {"id": str(node_id)}
+            )
+            await store.close()
+
+    async def test_label_removal_request_retains_existing_labels(self) -> None:
+        """Upserting a smaller label set keeps the labels already on the node.
+
+        This store treats labels as additive only: a later upsert that omits
+        a previously-written label does not remove it, since Cypher has no
+        parameterized way to remove a computed set of labels without APOC.
+        """
+        store = build_graph_store("neo4j")
+        await store.connect()
+        primary = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
+        secondary = validate_identifier(f"Entity_{uuid4().hex[:8]}")
+        node_id = uuid4()
+        try:
+            await store.upsert_nodes(
+                primary,
+                [NodeRecord(id=node_id, labels=[primary, secondary], properties={})],
+            )
+            await store.upsert_nodes(
+                primary,
+                [NodeRecord(id=node_id, labels=[primary], properties={})],
+            )
+            rows = await store.execute_read(
+                "MATCH (n {id: $id}) RETURN labels(n) AS labels",
+                {"id": str(node_id)},
+            )
+            assert len(rows) == 1
+            assert set(rows[0]["labels"]) == {primary, secondary}
+        finally:
+            await store.execute_write(
+                "MATCH (n {id: $id}) DETACH DELETE n", {"id": str(node_id)}
+            )
             await store.close()
 
     async def test_relation_upsert_links_nodes(self) -> None:

@@ -60,13 +60,20 @@ class GraphStore(ABC):
     async def setup_constraints(self) -> None:
         """Create per-label and per-relation-type uniqueness constraints.
 
-        Constraints cover every node label and relationship type written so
-        far.
+        Constraints cover every node label and relationship type written
+        through this instance or already present in the database, so a fresh
+        instance can set up an existing database without first rewriting
+        every record.
         """
 
     @abstractmethod
     async def setup_indexes(self) -> None:
-        """Create per-label property indexes for tracked labels."""
+        """Create per-label property indexes.
+
+        Covers every node label written through this instance or already
+        present in the database, so a fresh instance can set up an existing
+        database without first rewriting every record.
+        """
 
     @abstractmethod
     async def upsert_nodes(
@@ -85,7 +92,11 @@ class GraphStore(ABC):
                 names the full label set actually written to it, which may
                 include labels beyond ``label``.
             batch_size: Records per backend write call, applied within each
-                distinct label set when ``nodes`` mixes more than one.
+                distinct label set when ``nodes`` mixes more than one. Must
+                be positive.
+
+        Raises:
+            ValueError: ``batch_size`` is not positive.
         """
 
     @abstractmethod
@@ -99,7 +110,10 @@ class GraphStore(ABC):
 
         Args:
             relations: The relation records to upsert.
-            batch_size: Records per backend write call.
+            batch_size: Records per backend write call. Must be positive.
+
+        Raises:
+            ValueError: ``batch_size`` is not positive.
         """
 
     @abstractmethod

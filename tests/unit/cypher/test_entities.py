@@ -3,6 +3,7 @@
 import pytest
 
 from agrag.cypher.entities import (
+    NODE_IDENTITY_LABEL,
     filter_clause,
     upsert_node_query,
     validate_identifier,
@@ -34,17 +35,31 @@ class TestUpsertNodeQuery:
     """upsert_node_query builds a validated, UNWIND-batched merge."""
 
     def test_builds_unwind_merge(self) -> None:
-        """The query merges on id and sets the properties map."""
+        """The query merges on the identity anchor and sets the properties map."""
         q = upsert_node_query(["Chunk"])
         assert "UNWIND $records" in q
-        assert "MERGE (n:Chunk {id: record.id})" in q
+        assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in q
+        assert "SET n:Chunk" in q
         assert "SET n += record.properties" in q
         assert "SET n.id = record.id" in q
 
-    def test_builds_compound_label_merge(self) -> None:
-        """Multiple labels are joined into one Cypher label expression."""
+    def test_merge_identity_is_independent_of_content_labels(self) -> None:
+        """MERGE always anchors on NODE_IDENTITY_LABEL, never the content labels.
+
+        Regression guard: MERGE-ing on the full requested label set would
+        only match a node that already has every one of those labels, so
+        adding a label to an existing same-id node would create a duplicate
+        instead of updating it.
+        """
         q = upsert_node_query(["Chunk", "Entity"])
-        assert "MERGE (n:Chunk:Entity {id: record.id})" in q
+        assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in q
+        assert "MERGE (n:Chunk" not in q
+        assert "MERGE (n:Entity" not in q
+
+    def test_builds_compound_label_set(self) -> None:
+        """Multiple labels are joined into one additive SET expression."""
+        q = upsert_node_query(["Chunk", "Entity"])
+        assert "SET n:Chunk:Entity" in q
 
     def test_validates_label(self) -> None:
         """An unsafe label raises before the query is built."""

@@ -10,6 +10,7 @@ import pytest
 
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.vector_record import Distance
+from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.graphdb.errors import GraphStoreMissingExtraError
 from agrag.graphdb.neo4j import _VECTOR_SEARCH_MAX_K, Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
@@ -100,7 +101,8 @@ class TestUpsertNodes:
         assert "Chunk" in store._known_labels
         call = store._driver.last_session.execute_write.call_args
         query, params = call.args[1], call.args[2]
-        assert "MERGE (n:Chunk {id: record.id})" in query
+        assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in query
+        assert "SET n:Chunk" in query
         assert params == {
             "records": [{"id": str(node.id), "properties": {"text": "a"}}]
         }
@@ -114,7 +116,23 @@ class TestUpsertNodes:
         await store.upsert_nodes("Chunk", [node])
         assert store._known_labels == {"Chunk", "Entity"}
         query = store._driver.last_session.execute_write.call_args.args[1]
-        assert "MERGE (n:Chunk:Entity {id: record.id})" in query
+        assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in query
+        assert "SET n:Chunk:Entity" in query
+
+    async def test_merge_identity_is_independent_of_content_labels(self) -> None:
+        """MERGE never targets the mutable content labels directly.
+
+        Regression guard: MERGE-ing on the full requested label set would
+        only match a node that already has every one of those labels, so
+        adding a label to an existing same-id node would create a duplicate
+        instead of updating it.
+        """
+        store = _store()
+        node = NodeRecord(id=uuid4(), labels=["Chunk", "Entity"], properties={})
+        await store.upsert_nodes("Chunk", [node])
+        query = store._driver.last_session.execute_write.call_args.args[1]
+        assert "MERGE (n:Chunk" not in query
+        assert "MERGE (n:Entity" not in query
 
     async def test_groups_mixed_label_batch_into_separate_writes(self) -> None:
         """Records with different label sets get separate MERGE queries."""
@@ -127,14 +145,24 @@ class TestUpsertNodes:
         writes = store._driver.last_session.execute_write.call_args_list
         assert len(writes) == 2
         queries = {call.args[1] for call in writes}
-        assert any("MERGE (n:Chunk {id: record.id})" in q for q in queries)
-        assert any("MERGE (n:Chunk:Entity {id: record.id})" in q for q in queries)
+        assert any("SET n:Chunk " in q and "SET n:Chunk:" not in q for q in queries)
+        assert any("SET n:Chunk:Entity" in q for q in queries)
         single_call = next(
-            c for c in writes if "MERGE (n:Chunk {id: record.id})" in c.args[1]
+            c
+            for c in writes
+            if "SET n:Chunk " in c.args[1] and "SET n:Chunk:" not in c.args[1]
         )
         assert single_call.args[2]["records"] == [
             {"id": str(single.id), "properties": {"n": 1}}
         ]
+
+    async def test_rejects_non_positive_batch_size(self) -> None:
+        """A zero or negative batch_size raises instead of silently skipping."""
+        store = _store()
+        node = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
+        with pytest.raises(ValueError):
+            await store.upsert_nodes("Chunk", [node], batch_size=0)
+        store._driver.last_session.execute_write.assert_not_called()
 
 
 class TestUpsertRelations:
@@ -166,6 +194,20 @@ class TestUpsertRelations:
         assert any("-[r:MENTIONS {id: record.id}]->" in q for q in queries)
         assert any("-[r:LINKS {id: record.id}]->" in q for q in queries)
         assert store._known_relation_types == {"MENTIONS", "LINKS"}
+
+    async def test_rejects_non_positive_batch_size(self) -> None:
+        """A zero or negative batch_size raises instead of silently skipping."""
+        store = _store()
+        rel = RelationRecord(
+            id=uuid4(),
+            type="MENTIONS",
+            start_id=uuid4(),
+            end_id=uuid4(),
+            properties={},
+        )
+        with pytest.raises(ValueError):
+            await store.upsert_relations([rel], batch_size=-1)
+        store._driver.last_session.execute_write.assert_not_called()
 
 
 class TestEnsureVectorIndex:
@@ -199,7 +241,9 @@ class TestSetupIdempotent:
         index_calls = [
             c for c in writes if "INDEX" in c.args[1] and "VECTOR" not in c.args[1]
         ]
-        assert len(constraint_calls) == 2
+        # Chunk + Doc, plus the identity-anchor constraint every store sets up.
+        assert len(constraint_calls) == 3
+        assert any(NODE_IDENTITY_LABEL in c.args[1] for c in constraint_calls)
         assert len(index_calls) == 2
 
     async def test_constraints_run_per_relation_type(self) -> None:
@@ -210,6 +254,56 @@ class TestSetupIdempotent:
         writes = store._driver.last_session.execute_write.call_args_list
         constraint_calls = [c.args[1] for c in writes if "rel_id_unique" in c.args[1]]
         assert len(constraint_calls) == 2
+
+    async def test_discovers_labels_already_in_database(self) -> None:
+        """A label never written by this instance still gets set up.
+
+        A fresh store instance has an empty ``_known_labels``, so a label
+        already in the database must come from a live query instead, letting
+        a fresh store set up an existing database without rewriting records.
+        """
+        store = _store()
+
+        def fake_execute_read(_run: object, query: str, _params: object) -> list:
+            if "db.labels" in query:
+                return [{"label": "Existing"}]
+            return []
+
+        store._driver.last_session.execute_read.side_effect = fake_execute_read
+        await store.setup_constraints()
+        writes = store._driver.last_session.execute_write.call_args_list
+        assert any("Existing_id_unique" in c.args[1] for c in writes)
+
+    async def test_discovers_relation_types_already_in_database(self) -> None:
+        """A relation type never written by this instance still gets set up."""
+        store = _store()
+
+        def fake_execute_read(_run: object, query: str, _params: object) -> list:
+            if "db.relationshipTypes" in query:
+                return [{"relationshipType": "EXISTING_REL"}]
+            return []
+
+        store._driver.last_session.execute_read.side_effect = fake_execute_read
+        await store.setup_constraints()
+        writes = store._driver.last_session.execute_write.call_args_list
+        assert any("EXISTING_REL_rel_id_unique" in c.args[1] for c in writes)
+
+    async def test_discovered_identity_label_is_not_double_constrained(self) -> None:
+        """The identity anchor discovered live does not get a duplicate constraint."""
+        store = _store()
+
+        def fake_execute_read(_run: object, query: str, _params: object) -> list:
+            if "db.labels" in query:
+                return [{"label": NODE_IDENTITY_LABEL}]
+            return []
+
+        store._driver.last_session.execute_read.side_effect = fake_execute_read
+        await store.setup_constraints()
+        writes = store._driver.last_session.execute_write.call_args_list
+        identity_calls = [
+            c for c in writes if f"{NODE_IDENTITY_LABEL}_id_unique" in c.args[1]
+        ]
+        assert len(identity_calls) == 1
 
 
 class TestVectorSearch:

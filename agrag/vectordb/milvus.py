@@ -7,7 +7,8 @@ from typing import Any
 from uuid import UUID
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
-from agrag.vectordb.base import VectorStore, require_positive_batch_size
+from agrag.common.validation import require_positive_batch_size
+from agrag.vectordb.base import VectorStore
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
     VectorStoreMissingExtraError,

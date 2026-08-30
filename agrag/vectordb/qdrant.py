@@ -6,11 +6,13 @@ from typing import Any
 from uuid import UUID
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
+from agrag.common.validation import require_positive_batch_size
 from agrag.embedding.fastembed_bm25 import FastEmbedBM25Embedder
 from agrag.embedding.sparse_base import SparseEmbedder
-from agrag.vectordb.base import VectorStore, require_positive_batch_size
+from agrag.vectordb.base import VectorStore
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
+    VectorStoreError,
     VectorStoreMissingExtraError,
 )
 from agrag.vectordb.settings import QdrantSettings
@@ -240,6 +242,8 @@ class QdrantVectorStore(VectorStore):
         Raises:
             CollectionDimensionMismatchError: The collection exists with a
                 different dimension than ``dimensions``.
+            VectorStoreError: The collection exists without hybrid search
+                support and ``hybrid=True`` was requested.
         """
         client = await self._ensure_client()
         if await client.collection_exists(name):
@@ -252,15 +256,16 @@ class QdrantVectorStore(VectorStore):
             if info.config.params.sparse_vectors:
                 self._hybrid_collections.add(name)
             elif hybrid:
-                await client.update_collection(
-                    collection_name=name,
-                    sparse_vectors_config={
-                        _SPARSE_VECTOR_NAME: self._models.SparseVectorParams(
-                            modifier=self._models.Modifier.IDF
-                        )
-                    },
+                # Adding sparse-vector config to an existing collection would
+                # leave every record already in it without a sparse vector,
+                # so it would never surface in keyword search. Upgrading in
+                # place is not supported; the caller needs a new collection.
+                raise VectorStoreError(
+                    f"collection {name!r} already exists without hybrid "
+                    "search support; create a new collection with "
+                    "ensure_collection(..., hybrid=True) instead of "
+                    "upgrading this one in place"
                 )
-                self._hybrid_collections.add(name)
             self._checked_collections.add(name)
             return
         vectors_config = self._models.VectorParams(

@@ -1,12 +1,12 @@
-"""Tests for the VectorStore base contract helpers."""
+"""Tests for validation helpers shared across storage backends."""
 
 import pytest
 
-from agrag.vectordb.base import require_positive_batch_size
+from agrag.common.validation import require_positive_batch_size
 
 
 class TestRequirePositiveBatchSize:
-    """require_positive_batch_size guards the upsert batching contract."""
+    """require_positive_batch_size guards every backend's batching contract."""
 
     @pytest.mark.parametrize("batch_size", [1, 256, 10_000])
     def test_accepts_positive_values(self, batch_size: int) -> None:

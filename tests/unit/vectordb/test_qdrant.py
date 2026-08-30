@@ -11,6 +11,7 @@ from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRe
 from agrag.embedding.sparse_base import SparseVector
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
+    VectorStoreError,
     VectorStoreMissingExtraError,
 )
 from agrag.vectordb.qdrant import (
@@ -139,31 +140,22 @@ class TestEnsureCollection:
         assert "c" not in store._hybrid_collections
         client.update_collection.assert_not_called()
 
-    async def test_existing_dense_collection_upgraded_to_hybrid(
+    async def test_existing_dense_collection_rejects_hybrid_upgrade(
         self, store: QdrantVectorStore, client
     ) -> None:
-        """Requesting hybrid on an existing dense collection adds sparse config."""
-        client.collection_exists.return_value = True
-        client.get_collection.return_value = make_collection_info(4, sparse=False)
-        await store.ensure_collection(
-            "c", dimensions=4, distance=Distance.COSINE, hybrid=True
-        )
-        client.update_collection.assert_called_once()
-        sparse = client.update_collection.call_args.kwargs["sparse_vectors_config"]
-        assert _SPARSE_VECTOR_NAME in sparse
-        assert "c" in store._hybrid_collections
+        """Requesting hybrid on an existing dense collection raises.
 
-    async def test_upgrade_failure_does_not_mark_hybrid(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """A failed sparse-config upgrade leaves the collection untracked."""
+        Upgrading in place is not supported: existing records would have no
+        sparse vector and would never surface in keyword search. The caller
+        needs to create a new collection instead.
+        """
         client.collection_exists.return_value = True
         client.get_collection.return_value = make_collection_info(4, sparse=False)
-        client.update_collection.side_effect = RuntimeError("boom")
-        with pytest.raises(RuntimeError):
+        with pytest.raises(VectorStoreError):
             await store.ensure_collection(
                 "c", dimensions=4, distance=Distance.COSINE, hybrid=True
             )
+        client.update_collection.assert_not_called()
         assert "c" not in store._hybrid_collections
 
     async def test_dimension_mismatch_raises(

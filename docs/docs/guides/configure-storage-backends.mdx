@@ -183,6 +183,9 @@ tagged_node = NodeRecord(
 await store.upsert_nodes("Chunk", [tagged_node])
 ```
 
+Labels only ever accumulate. If a later upsert of the same node id lists
+fewer labels, the labels already on the node are kept, not removed.
+
 ### Search vectors stored in the graph
 
 You can search vectors stored as node properties, without a separate vector

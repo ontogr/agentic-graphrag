@@ -8,24 +8,6 @@ from uuid import UUID
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
 
 
-def require_positive_batch_size(batch_size: int) -> None:
-    """Check that a ``upsert`` ``batch_size`` is usable.
-
-    A non-positive ``batch_size`` breaks the ``range(0, len(records),
-    batch_size)`` chunking every backend uses: zero raises ``ValueError`` from
-    ``range`` itself, and a negative value silently produces an empty range,
-    skipping every record without error.
-
-    Args:
-        batch_size: The batch size to check.
-
-    Raises:
-        ValueError: ``batch_size`` is not positive.
-    """
-    if batch_size <= 0:
-        raise ValueError(f"batch_size must be positive, got {batch_size}")
-
-
 class VectorStore(ABC):
     """A vector database backend: collection lifecycle, writes, and search."""
 

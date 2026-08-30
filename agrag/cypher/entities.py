@@ -11,6 +11,14 @@ from typing import Any
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# Every node this store writes carries this label, used only to MERGE onto a
+# node by id independently of its other, mutable labels. MERGE-ing on the
+# full requested label set instead would only match a node that already has
+# every one of those labels, so adding a label to an existing same-id node
+# would create a duplicate node (and violate any per-label uniqueness
+# constraint) rather than update it.
+NODE_IDENTITY_LABEL = "_AgragNode"
+
 
 def validate_identifier(value: str) -> str:
     """Check that a label or relationship type is a safe Cypher identifier.
@@ -32,18 +40,25 @@ def validate_identifier(value: str) -> str:
 def upsert_node_query(labels: Sequence[str]) -> str:
     """Build the Cypher for an UNWIND-batched node upsert.
 
-    Every node in one call gets the same label set, since Cypher requires
-    labels to be literal in the query text rather than a runtime parameter.
-    Nodes whose ``NodeRecord.labels`` differ need separate calls, one per
-    distinct label set: see ``Neo4jGraphStore.upsert_nodes`` for how a mixed
-    batch is grouped and split before reaching this builder.
+    MERGE identity is anchored to ``NODE_IDENTITY_LABEL``, not to ``labels``
+    itself, so a node keeps resolving to the same id regardless of what
+    labels it currently carries. ``labels`` is then applied additively with
+    ``SET``, which is idempotent (a label the node already has is a no-op)
+    and never removes a label a previous upsert of the same id set but this
+    one omits: labels only ever accumulate. Every node in one call gets the
+    same additive label set, since Cypher requires labels to be literal in
+    the query text rather than a runtime parameter; nodes whose
+    ``NodeRecord.labels`` differ need separate calls, one per distinct label
+    set (see ``Neo4jGraphStore.upsert_nodes`` for how a mixed batch is
+    grouped and split before reaching this builder).
 
     Identity is reasserted after applying properties, so a caller-supplied
     ``properties["id"]`` cannot overwrite the ``id`` used to ``MERGE`` and
     orphan the node from later upserts of the same record.
 
     Args:
-        labels: The node's labels. Must already be validated, and non-empty.
+        labels: The node's labels to add, in addition to the identity anchor.
+            Must already be validated, and non-empty.
 
     Returns:
         A parameterized Cypher query expecting a ``$records`` list parameter.
@@ -57,7 +72,8 @@ def upsert_node_query(labels: Sequence[str]) -> str:
     label_expr = ":".join(validate_identifier(label) for label in labels)
     return (
         f"UNWIND $records AS record "
-        f"MERGE (n:{label_expr} {{id: record.id}}) "
+        f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"SET n:{label_expr} "
         f"SET n += record.properties "
         f"SET n.id = record.id"
     )
