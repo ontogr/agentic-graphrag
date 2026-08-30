@@ -993,9 +993,7 @@ class TestBAMLExtractor:
             ),
         ]
         relations_raw = [
-            SimpleNamespace(
-                label="WORKS_AT", source_text="Ada", target_text="Acme"
-            ),
+            SimpleNamespace(label="WORKS_AT", source_text="Ada", target_text="Acme"),
             SimpleNamespace(
                 label="CONSULTS_FOR", source_text="Ada", target_text="Acme"
             ),
