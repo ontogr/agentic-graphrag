@@ -6,10 +6,12 @@ from unittest import mock
 from uuid import UUID, uuid4
 
 import pytest
+from pymilvus.exceptions import MilvusException
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
+    VectorStoreError,
     VectorStoreMissingExtraError,
 )
 from agrag.vectordb.milvus import (
@@ -21,9 +23,25 @@ from agrag.vectordb.milvus import (
 from agrag.vectordb.settings import MilvusSettings
 
 
-def _describe_collection(dim: int = 4) -> dict:
-    """Build a fake ``describe_collection`` response with the given dimension."""
-    return {"fields": [{"name": "vector", "params": {"dim": dim}}]}
+_ALL_ADAPTER_FIELDS = ["id", "vector", "text", "sparse", "payload"]
+
+
+def _describe_collection(dim: int = 4, *, fields: list[str] | None = None) -> dict:
+    """Build a fake ``describe_collection`` response.
+
+    Args:
+        dim: The dense vector field's dimension.
+        fields: The field names the collection carries. Defaults to this
+            adapter's full required set (id, vector, text, sparse, payload),
+            representing a collection this adapter can actually serve.
+    """
+    field_names = _ALL_ADAPTER_FIELDS if fields is None else fields
+    return {
+        "fields": [
+            {"name": name, "params": {"dim": dim} if name == "vector" else {}}
+            for name in field_names
+        ]
+    }
 
 
 class FakeMilvusClient:
@@ -106,6 +124,44 @@ class TestEnsureCollection:
         client.describe_collection.return_value = _describe_collection(dim=4)
         await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
         client.create_collection.assert_not_called()
+
+    async def test_existing_dense_only_collection_raises(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """An existing collection with only id/vector fields is rejected.
+
+        Regression guard: upsert and hybrid_search always read and write the
+        text, sparse, and payload fields (Milvus has no per-call hybrid
+        toggle), so a dense-only collection this adapter did not provision
+        would fail at write or search time instead of at setup time.
+        """
+        client.has_collection.return_value = True
+        client.describe_collection.return_value = _describe_collection(
+            dim=4, fields=["id", "vector"]
+        )
+        with pytest.raises(VectorStoreError, match="missing fields"):
+            await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+
+    async def test_existing_collection_missing_sparse_index_raises(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """An existing collection with every field but no sparse index is rejected.
+
+        Regression guard: hybrid_search issues an AnnSearchRequest against
+        the sparse field's index; without that index the field exists but
+        cannot actually be searched.
+        """
+        client.has_collection.return_value = True
+        client.describe_collection.return_value = _describe_collection(dim=4)
+
+        async def fake_describe_index(*, collection_name: str, index_name: str):
+            if index_name == "sparse":
+                raise MilvusException("index not found")
+            return {"metric_type": "COSINE"}
+
+        client.describe_index = mock.AsyncMock(side_effect=fake_describe_index)
+        with pytest.raises(VectorStoreError, match="sparse index present: False"):
+            await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
 
 
 class TestWritesAndReads:
@@ -252,6 +308,32 @@ class TestWritesAndReads:
         expr = client.query.call_args.kwargs["filter"]
         assert f"id > {_escape_scalar(cursor)}" in expr
         assert 'payload["kind"] == "a"' in expr
+
+    async def test_scroll_orders_by_id_ascending(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """Scroll explicitly orders by id, not relying on unordered results.
+
+        Regression guard: without an explicit order, an unordered query
+        result could return rows out of id order. Advancing the cursor past
+        this page's highest returned id would then permanently skip any
+        lower, unmatched id that Milvus happened not to include in this
+        batch.
+        """
+        client.query.return_value = []
+        await store.scroll("c", limit=10)
+        assert client.query.call_args.kwargs["order_by"] == "id:asc"
+
+    async def test_scroll_next_offset_is_last_row_id_in_order(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """The next cursor is the last (highest) id in the ordered page."""
+        ids = [str(uuid4()) for _ in range(2)]
+        client.query.return_value = [
+            {"id": i, "vector": [], "payload": {}} for i in ids
+        ]
+        _, offset = await store.scroll("c", limit=2)
+        assert offset == ids[-1]
 
     async def test_scroll_caps_response_limit(
         self, store: MilvusVectorStore, client

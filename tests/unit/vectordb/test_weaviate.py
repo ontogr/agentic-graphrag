@@ -291,7 +291,7 @@ class TestEnsureClientMode:
     """_ensure_client builds the right client for each configured mode."""
 
     async def test_cloud_mode_builds_cloud_client(self) -> None:
-        """mode="cloud" (the default) builds a Weaviate Cloud client."""
+        """mode="cloud" builds a Weaviate Cloud client."""
         fake_client = mock.AsyncMock()
         with mock.patch.object(
             weaviate, "use_async_with_weaviate_cloud", return_value=fake_client
@@ -305,6 +305,22 @@ class TestEnsureClientMode:
         build.assert_called_once()
         assert build.call_args.kwargs["cluster_url"] == "https://xyz.cloud.weaviate.io"
         fake_client.connect.assert_called_once()
+        assert client is fake_client
+
+    async def test_default_settings_build_custom_client(self) -> None:
+        """Default settings (custom mode, localhost URL) build a custom client.
+
+        Regression guard: the default mode used to be "cloud" paired with a
+        localhost default URL, so an out-of-the-box store tried the cloud
+        connector against a local instance instead of the custom one.
+        """
+        fake_client = mock.AsyncMock()
+        with mock.patch.object(
+            weaviate, "use_async_with_custom", return_value=fake_client
+        ) as build:
+            store = WeaviateVectorStore(settings=WeaviateSettings())
+            client = await store._ensure_client()
+        build.assert_called_once()
         assert client is fake_client
 
     async def test_custom_mode_builds_custom_client(self) -> None:

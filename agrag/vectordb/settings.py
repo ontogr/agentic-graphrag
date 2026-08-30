@@ -64,7 +64,7 @@ class WeaviateSettings(BaseSettings):
         env_prefix="WEAVIATE_", env_file=".env", extra="ignore"
     )
 
-    mode: Literal["cloud", "custom"] = "cloud"
+    mode: Literal["cloud", "custom"] = "custom"
     url: str = "http://localhost:8080"
     api_key: str = ""
     grpc_port: int = 50051

@@ -12,15 +12,25 @@ from agrag.common.validation import require_positive_batch_size
 from agrag.vectordb.base import VectorStore
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
+    VectorStoreError,
     VectorStoreMissingExtraError,
 )
 from agrag.vectordb.settings import MilvusSettings
 
 
+_ID_FIELD = "id"
 _VECTOR_FIELD = "vector"
 _TEXT_FIELD = "text"
 _SPARSE_FIELD = "sparse"
 _PAYLOAD_FIELD = "payload"
+
+# Every field ensure_collection provisions on a new collection. upsert and
+# hybrid_search always read and write all of them (Milvus has no per-call
+# hybrid toggle), so an existing collection missing any of these, or its
+# sparse (BM25) index, cannot actually serve this adapter's calls.
+_REQUIRED_FIELDS = frozenset(
+    {_ID_FIELD, _VECTOR_FIELD, _TEXT_FIELD, _SPARSE_FIELD, _PAYLOAD_FIELD}
+)
 
 # Milvus's self-hosted default gRPC response ceiling is roughly 64MB, but Zilliz
 # Cloud caps a single response at about 4MB. Cap the number of records returned
@@ -269,7 +279,9 @@ class MilvusVectorStore(VectorStore):
 
         Milvus performs BM25 server-side, so the sparse field and its ``Function``
         are always provisioned; the ``hybrid`` flag is accepted for interface
-        parity but is a no-op here.
+        parity but is a no-op here. An existing collection must already carry
+        this same fixed schema, since ``upsert`` and ``hybrid_search`` always
+        read and write every field regardless of ``hybrid``.
 
         Args:
             name: The collection name.
@@ -280,6 +292,8 @@ class MilvusVectorStore(VectorStore):
         Raises:
             CollectionDimensionMismatchError: The collection exists with a
                 different dimension than ``dimensions``.
+            VectorStoreError: The collection exists but is missing a field or
+                index this adapter requires.
         """
         client = await self._ensure_client()
         if await client.has_collection(name):
@@ -287,6 +301,17 @@ class MilvusVectorStore(VectorStore):
             if existing is not None and existing != dimensions:
                 raise CollectionDimensionMismatchError(
                     expected=existing, actual=dimensions
+                )
+            existing_fields = await self._existing_field_names(client, name)
+            missing_fields = _REQUIRED_FIELDS - existing_fields
+            has_sparse_index = await self._has_index(client, name, _SPARSE_FIELD)
+            if missing_fields or not has_sparse_index:
+                raise VectorStoreError(
+                    f"collection {name!r} already exists without the fields "
+                    "and sparse index this adapter requires "
+                    f"(missing fields: {sorted(missing_fields) or 'none'}, "
+                    f"sparse index present: {has_sparse_index}); create a new "
+                    "collection instead of reusing this one"
                 )
             existing_metric = await self._existing_metric(client, name)
             if existing_metric is not None:
@@ -307,7 +332,7 @@ class MilvusVectorStore(VectorStore):
         self._collection_metrics[name] = metric
         fields = [
             FieldSchema(
-                name="id",
+                name=_ID_FIELD,
                 dtype=DataType.VARCHAR,
                 is_primary=True,
                 max_length=64,
@@ -364,6 +389,40 @@ class MilvusVectorStore(VectorStore):
                 dim = field.get("params", {}).get("dim")
                 return int(dim) if dim is not None else None
         return None
+
+    @staticmethod
+    async def _existing_field_names(client: Any, name: str) -> set[str]:
+        """Read the configured field names of an existing collection.
+
+        Args:
+            client: The connected Milvus client.
+            name: The collection name.
+
+        Returns:
+            The configured field names.
+        """
+        description = await client.describe_collection(name)
+        return {field.get("name") for field in description.get("fields", [])}
+
+    @staticmethod
+    async def _has_index(client: Any, name: str, field: str) -> bool:
+        """Report whether ``field`` has a configured index on an existing collection.
+
+        Args:
+            client: The connected Milvus client.
+            name: The collection name.
+            field: The field to check for an index.
+
+        Returns:
+            Whether the field has an index.
+        """
+        from pymilvus.exceptions import MilvusException  # noqa: PLC0415
+
+        try:
+            info = await client.describe_index(collection_name=name, index_name=field)
+        except MilvusException:
+            return False
+        return bool(info)
 
     @staticmethod
     async def _existing_metric(client: Any, name: str) -> str | None:
@@ -556,8 +615,11 @@ class MilvusVectorStore(VectorStore):
         Milvus rejects a query whose ``offset + limit`` exceeds
         ``MAX_RESPONSE_LIMIT``, so a numeric offset cannot page past that
         many total records. Pages instead cursor on the ``id`` primary key:
-        each page filters on ``id > page_offset``, which needs no offset at
-        all and so never hits that window regardless of collection size.
+        each page filters on ``id > page_offset`` and orders by ``id``
+        ascending, which needs no offset at all and so never hits that
+        window regardless of collection size. The explicit order is load
+        bearing: without it, an unordered query result could omit rows at or
+        below the next cursor, permanently skipping them on the next page.
 
         Args:
             collection: The collection to read.
@@ -584,11 +646,10 @@ class MilvusVectorStore(VectorStore):
             filter=expr,
             output_fields=output_fields,
             limit=safe_limit,
+            order_by="id:asc",
         )
         records = [self._to_record(row) for row in rows]
-        next_offset = (
-            max(row["id"] for row in rows) if len(rows) == safe_limit else None
-        )
+        next_offset = rows[-1]["id"] if len(rows) == safe_limit else None
         return records, next_offset
 
     async def retrieve(

@@ -26,6 +26,19 @@ class TestQdrantEncryptedRemoteConnection:
             QdrantSettings(url="http://example.com:6333", api_key="k")
 
 
+class TestWeaviateDefaults:
+    """Defaults must pair a mode with a URL that mode can actually reach."""
+
+    def test_default_mode_matches_default_local_url(self) -> None:
+        """The default URL is a local Docker host, so the default mode must be custom.
+
+        Regression guard: mode="cloud" paired with the localhost default URL
+        sent every out-of-the-box store through the Weaviate Cloud
+        connector against a local instance, which cannot connect.
+        """
+        assert WeaviateSettings().mode == "custom"
+
+
 class TestWeaviateEncryptedRemoteConnection:
     """A plaintext URL to a non-local host carrying an api_key is rejected."""
 
