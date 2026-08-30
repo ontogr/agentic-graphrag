@@ -3,8 +3,11 @@
 import pytest
 
 from agrag.common.validation import (
+    MAX_SEARCH_LIMIT,
     require_encrypted_remote_connection,
     require_positive_batch_size,
+    require_valid_alpha,
+    require_valid_search_limit,
 )
 
 
@@ -74,3 +77,46 @@ class TestRequirePositiveBatchSize:
         """A negative value would silently skip every record via range()."""
         with pytest.raises(ValueError):
             require_positive_batch_size(-1)
+
+
+class TestRequireValidSearchLimit:
+    """require_valid_search_limit guards search/hybrid_search's limit contract."""
+
+    @pytest.mark.parametrize("limit", [1, 10, 100, MAX_SEARCH_LIMIT])
+    def test_accepts_in_range_values(self, limit: int) -> None:
+        """A limit within (0, MAX_SEARCH_LIMIT] passes without error."""
+        require_valid_search_limit(limit)
+
+    def test_rejects_zero(self) -> None:
+        """A zero limit requests no results, which is not a meaningful search."""
+        with pytest.raises(ValueError, match="positive"):
+            require_valid_search_limit(0)
+
+    def test_rejects_negative(self) -> None:
+        """A negative limit is meaningless and backends handle it inconsistently."""
+        with pytest.raises(ValueError, match="positive"):
+            require_valid_search_limit(-1)
+
+    def test_rejects_above_max(self) -> None:
+        """A limit above MAX_SEARCH_LIMIT exceeds every backend's result window."""
+        with pytest.raises(ValueError, match=str(MAX_SEARCH_LIMIT)):
+            require_valid_search_limit(MAX_SEARCH_LIMIT + 1)
+
+
+class TestRequireValidAlpha:
+    """require_valid_alpha guards hybrid_search's dense/keyword blend weight."""
+
+    @pytest.mark.parametrize("alpha", [0.0, 0.5, 1.0])
+    def test_accepts_in_range_values(self, alpha: float) -> None:
+        """An alpha within [0.0, 1.0] passes without error."""
+        require_valid_alpha(alpha)
+
+    def test_rejects_below_zero(self) -> None:
+        """A negative alpha has no meaningful dense/keyword interpretation."""
+        with pytest.raises(ValueError, match="0.0 and 1.0"):
+            require_valid_alpha(-0.1)
+
+    def test_rejects_above_one(self) -> None:
+        """An alpha above 1.0 has no meaningful dense/keyword interpretation."""
+        with pytest.raises(ValueError, match="0.0 and 1.0"):
+            require_valid_alpha(1.1)

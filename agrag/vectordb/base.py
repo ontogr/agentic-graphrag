@@ -105,6 +105,12 @@ class VectorStore(ABC):
 
         Returns:
             The matched hits, highest score first.
+
+        Raises:
+            ValueError: ``limit`` is not positive, or exceeds
+                ``agrag.common.validation.MAX_SEARCH_LIMIT``. Enforced
+                uniformly across backends since they otherwise fail
+                differently outside that range.
         """
 
     @abstractmethod
@@ -143,6 +149,12 @@ class VectorStore(ABC):
 
         Returns:
             The fused hits, highest score first.
+
+        Raises:
+            ValueError: ``limit`` is not positive, or exceeds
+                ``agrag.common.validation.MAX_SEARCH_LIMIT``, or ``alpha`` is
+                outside ``[0.0, 1.0]``. Enforced uniformly across backends
+                since they otherwise fail differently outside that range.
         """
 
     @abstractmethod

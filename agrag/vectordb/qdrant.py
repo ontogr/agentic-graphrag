@@ -6,7 +6,11 @@ from typing import Any
 from uuid import UUID
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
-from agrag.common.validation import require_positive_batch_size
+from agrag.common.validation import (
+    require_positive_batch_size,
+    require_valid_alpha,
+    require_valid_search_limit,
+)
 from agrag.embedding.fastembed_bm25 import FastEmbedBM25Embedder
 from agrag.embedding.sparse_base import SparseEmbedder
 from agrag.vectordb.base import VectorStore
@@ -345,6 +349,23 @@ class QdrantVectorStore(VectorStore):
         """
         client = await self._ensure_client()
         await client.delete_collection(name)
+        self.invalidate_collection(name)
+
+    def invalidate_collection(self, name: str) -> None:
+        """Drop cached hybrid-state and distance-metric knowledge of a collection.
+
+        This store caches a collection's hybrid support and distance metric
+        after the first call that resolves them, on the assumption that it
+        alone (via ``ensure_collection``/``delete_collection``) owns the
+        collection's lifecycle for as long as this instance is in use. If
+        something outside this instance deletes and recreates a collection
+        under the same name with different config, call this first so the
+        next call re-resolves that collection's state from the backend
+        instead of trusting the stale cache.
+
+        Args:
+            name: The collection name.
+        """
         self._hybrid_collections.discard(name)
         self._checked_collections.discard(name)
         self._collection_distances.pop(name, None)
@@ -486,7 +507,12 @@ class QdrantVectorStore(VectorStore):
 
         Returns:
             The matched hits, highest score first.
+
+        Raises:
+            ValueError: ``limit`` is not positive, or exceeds
+                ``MAX_SEARCH_LIMIT``.
         """
+        require_valid_search_limit(limit)
         client = await self._ensure_client()
         response = await client.query_points(
             collection_name=collection,
@@ -530,7 +556,13 @@ class QdrantVectorStore(VectorStore):
 
         Returns:
             The blended hits, highest combined score first.
+
+        Raises:
+            ValueError: ``limit`` is not positive, or exceeds
+                ``MAX_SEARCH_LIMIT``, or ``alpha`` is outside ``[0.0, 1.0]``.
         """
+        require_valid_search_limit(limit)
+        require_valid_alpha(alpha)
         client = await self._ensure_client()
         sparse = await self._ensure_sparse_embedder().query_embed([query_text])
         sparse_vector = sparse[0]

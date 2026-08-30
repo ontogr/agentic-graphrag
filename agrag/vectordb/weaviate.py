@@ -8,7 +8,11 @@ from typing import Any
 from uuid import UUID
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
-from agrag.common.validation import require_positive_batch_size
+from agrag.common.validation import (
+    require_positive_batch_size,
+    require_valid_alpha,
+    require_valid_search_limit,
+)
 from agrag.vectordb.base import VectorStore
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
@@ -356,7 +360,12 @@ class WeaviateVectorStore(VectorStore):
 
         Returns:
             The matched hits, highest score first.
+
+        Raises:
+            ValueError: ``limit`` is not positive, or exceeds
+                ``MAX_SEARCH_LIMIT``.
         """
+        require_valid_search_limit(limit)
         client = await self._ensure_client()
 
         # Deferred until after _ensure_client so a missing extra surfaces as
@@ -396,7 +405,13 @@ class WeaviateVectorStore(VectorStore):
 
         Returns:
             The fused hits, highest score first.
+
+        Raises:
+            ValueError: ``limit`` is not positive, or exceeds
+                ``MAX_SEARCH_LIMIT``, or ``alpha`` is outside ``[0.0, 1.0]``.
         """
+        require_valid_search_limit(limit)
+        require_valid_alpha(alpha)
         client = await self._ensure_client()
 
         # Deferred until after _ensure_client so a missing extra surfaces as

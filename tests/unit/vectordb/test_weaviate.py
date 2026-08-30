@@ -207,6 +207,22 @@ class TestWritesAndReads:
         assert hits[0].id == UUID(obj_id)
         assert hits[0].score == pytest.approx(-0.1)
 
+    async def test_search_rejects_non_positive_limit(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """A non-positive limit raises instead of reaching the backend."""
+        with pytest.raises(ValueError, match="positive"):
+            await store.search("c", [0.1, 0.2], limit=0)
+        client._collection.query.near_vector.assert_not_called()
+
+    async def test_hybrid_search_rejects_invalid_alpha(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """An out-of-range alpha raises instead of reaching the backend."""
+        with pytest.raises(ValueError, match="0.0 and 1.0"):
+            await store.hybrid_search("c", [0.1, 0.2], "q", alpha=1.5)
+        client._collection.query.hybrid.assert_not_called()
+
     async def test_hybrid_search_passes_text_and_vector(
         self, store: WeaviateVectorStore, client
     ) -> None:

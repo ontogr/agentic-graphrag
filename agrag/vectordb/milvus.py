@@ -8,7 +8,11 @@ from typing import Any
 from uuid import UUID
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
-from agrag.common.validation import require_positive_batch_size
+from agrag.common.validation import (
+    require_positive_batch_size,
+    require_valid_alpha,
+    require_valid_search_limit,
+)
 from agrag.vectordb.base import VectorStore
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
@@ -477,6 +481,23 @@ class MilvusVectorStore(VectorStore):
         """
         client = await self._ensure_client()
         await client.drop_collection(name)
+        self.invalidate_collection(name)
+
+    def invalidate_collection(self, name: str) -> None:
+        """Drop cached distance-metric knowledge of a collection.
+
+        This store caches a collection's distance metric after the first
+        call that resolves it, on the assumption that it alone (via
+        ``ensure_collection``/``delete_collection``) owns the collection's
+        lifecycle for as long as this instance is in use. If something
+        outside this instance deletes and recreates a collection under the
+        same name with a different metric, call this first so the next call
+        re-resolves that collection's metric from the backend instead of
+        trusting the stale cache.
+
+        Args:
+            name: The collection name.
+        """
         self._collection_metrics.pop(name, None)
 
     async def upsert(
@@ -531,7 +552,12 @@ class MilvusVectorStore(VectorStore):
 
         Returns:
             The matched hits, highest score first.
+
+        Raises:
+            ValueError: ``limit`` is not positive, or exceeds
+                ``MAX_SEARCH_LIMIT``.
         """
+        require_valid_search_limit(limit)
         client = await self._ensure_client()
         response = await client.search(
             collection_name=collection,
@@ -570,7 +596,13 @@ class MilvusVectorStore(VectorStore):
 
         Returns:
             The fused hits, highest score first.
+
+        Raises:
+            ValueError: ``limit`` is not positive, or exceeds
+                ``MAX_SEARCH_LIMIT``, or ``alpha`` is outside ``[0.0, 1.0]``.
         """
+        require_valid_search_limit(limit)
+        require_valid_alpha(alpha)
         client = await self._ensure_client()
 
         # Deferred until after _ensure_client so a missing extra surfaces as
@@ -657,6 +689,10 @@ class MilvusVectorStore(VectorStore):
     ) -> list[VectorRecord]:
         """Fetch records by id.
 
+        Requests at most ``MAX_RESPONSE_LIMIT`` ids per call, so a large
+        ``ids`` list cannot exceed Milvus's response-size ceiling in one
+        request the way sending every id at once would.
+
         Args:
             collection: The collection to read.
             ids: The ids to fetch.
@@ -668,12 +704,15 @@ class MilvusVectorStore(VectorStore):
         client = await self._ensure_client()
         if not ids:
             return []
-        rows = await client.get(
-            collection_name=collection,
-            ids=[str(i) for i in ids],
-            output_fields=["id", _VECTOR_FIELD, _PAYLOAD_FIELD],
-        )
-        by_id = {row["id"]: row for row in rows}
+        by_id: dict[str, dict[str, Any]] = {}
+        for start in range(0, len(ids), MAX_RESPONSE_LIMIT):
+            batch = ids[start : start + MAX_RESPONSE_LIMIT]
+            rows = await client.get(
+                collection_name=collection,
+                ids=[str(i) for i in batch],
+                output_fields=["id", _VECTOR_FIELD, _PAYLOAD_FIELD],
+            )
+            by_id.update({row["id"]: row for row in rows})
         records = []
         for item_id in ids:
             row = by_id.get(str(item_id))

@@ -349,6 +349,22 @@ class TestWritesAndReads:
         assert hits[0].id == UUID(point_id)
         assert hits[0].score == 0.9
 
+    async def test_search_rejects_non_positive_limit(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """A non-positive limit raises instead of reaching the backend."""
+        with pytest.raises(ValueError, match="positive"):
+            await store.search("c", [0.1, 0.2], limit=0)
+        client.query_points.assert_not_called()
+
+    async def test_hybrid_search_rejects_invalid_alpha(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """An out-of-range alpha raises instead of reaching the backend."""
+        with pytest.raises(ValueError, match="0.0 and 1.0"):
+            await store.hybrid_search("c", [0.1, 0.2], "q", alpha=1.5)
+        client.query_points.assert_not_called()
+
     async def test_search_inverts_score_for_euclidean_collection(
         self, store: QdrantVectorStore, client
     ) -> None:
@@ -557,6 +573,23 @@ class TestWritesAndReads:
         store._hybrid_collections.add("c")
         await store.delete_collection("c")
         assert "c" not in store._hybrid_collections
+
+    async def test_invalidate_collection_clears_cached_state(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """invalidate_collection drops cached hybrid and distance-metric state.
+
+        This is the escape hatch for a collection recreated by something
+        other than this store instance: without it, stale cached state from
+        before the recreation would keep being trusted.
+        """
+        store._hybrid_collections.add("c")
+        store._checked_collections.add("c")
+        store._collection_distances["c"] = qdrant_models.Distance.EUCLID
+        store.invalidate_collection("c")
+        assert "c" not in store._hybrid_collections
+        assert "c" not in store._checked_collections
+        assert "c" not in store._collection_distances
 
     async def test_close_releases_client(
         self, store: QdrantVectorStore, client

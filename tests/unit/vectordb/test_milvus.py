@@ -225,6 +225,22 @@ class TestWritesAndReads:
         assert hits[0].score == 0.9
         assert hits[0].payload == {"text": "a"}
 
+    async def test_search_rejects_non_positive_limit(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """A non-positive limit raises instead of reaching the backend."""
+        with pytest.raises(ValueError, match="positive"):
+            await store.search("c", [0.1, 0.2], limit=0)
+        client.search.assert_not_called()
+
+    async def test_hybrid_search_rejects_invalid_alpha(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """An out-of-range alpha raises instead of reaching the backend."""
+        with pytest.raises(ValueError, match="0.0 and 1.0"):
+            await store.hybrid_search("c", [0.1, 0.2], "q", alpha=-0.1)
+        client.hybrid_search.assert_not_called()
+
     async def test_search_inverts_euclidean_distance(
         self, store: MilvusVectorStore, client
     ) -> None:
@@ -355,6 +371,24 @@ class TestWritesAndReads:
         records = await store.retrieve("c", [first, second])
         assert [r.id for r in records] == [first, second]
 
+    async def test_retrieve_batches_large_id_lists(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """Retrieve chunks a large id list instead of sending it all in one call.
+
+        Regression guard: a single request covering too many ids can exceed
+        Milvus's cloud response cap; MAX_RESPONSE_LIMIT already documents
+        that retrieve is meant to chunk the same way scroll does.
+        """
+        ids = [uuid4() for _ in range(MAX_RESPONSE_LIMIT + 5)]
+        client.get.return_value = []
+        await store.retrieve("c", ids)
+        assert client.get.call_count == 2
+        first_batch = client.get.call_args_list[0].kwargs["ids"]
+        second_batch = client.get.call_args_list[1].kwargs["ids"]
+        assert len(first_batch) == MAX_RESPONSE_LIMIT
+        assert len(second_batch) == 5
+
     async def test_count_returns_total(self, store: MilvusVectorStore, client) -> None:
         """Count returns the backend total."""
         client.query.return_value = [{"count(*)": 3}]
@@ -377,6 +411,19 @@ class TestWritesAndReads:
         await store.ensure_collection("c", dimensions=4, distance=Distance.EUCLID)
         assert "c" in store._collection_metrics
         await store.delete_collection("c")
+        assert "c" not in store._collection_metrics
+
+    async def test_invalidate_collection_clears_cached_metric(
+        self, store: MilvusVectorStore
+    ) -> None:
+        """invalidate_collection drops cached metric state without deleting data.
+
+        This is the escape hatch for a collection recreated by something
+        other than this store instance: without it, stale cached state from
+        before the recreation would keep being trusted.
+        """
+        store._collection_metrics["c"] = "L2"
+        store.invalidate_collection("c")
         assert "c" not in store._collection_metrics
 
     async def test_close_releases_client(

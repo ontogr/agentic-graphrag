@@ -6,6 +6,13 @@ from collections.abc import Collection
 
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
+# The result-window ceiling a VectorStore.search/hybrid_search `limit` is held
+# to across every backend, so an out-of-range value fails the same way
+# everywhere instead of erroring on one backend and silently truncating or
+# succeeding on another. Set to Milvus's own query/search result-window
+# limit, the tightest of the three backends this project supports.
+MAX_SEARCH_LIMIT = 16384
+
 
 def require_encrypted_remote_connection(
     *, url: str, has_credential: bool, encrypted_schemes: Collection[str]
@@ -60,3 +67,45 @@ def require_positive_batch_size(batch_size: int) -> None:
     """
     if batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {batch_size}")
+
+
+def require_valid_search_limit(limit: int) -> None:
+    """Check that a search/hybrid_search ``limit`` is usable across every backend.
+
+    Backends fail differently outside this range: Milvus raises for a
+    non-positive ``limit`` or one above ``MAX_SEARCH_LIMIT`` (its own
+    query/search result-window ceiling), while Qdrant and Weaviate may
+    instead return an empty or silently truncated result. Enforcing the
+    tightest bound uniformly means a given ``limit`` either works, or fails
+    the same way, regardless of which backend is configured.
+
+    Args:
+        limit: The requested maximum number of hits.
+
+    Raises:
+        ValueError: ``limit`` is not a positive integer, or exceeds
+            ``MAX_SEARCH_LIMIT``.
+    """
+    if limit <= 0:
+        raise ValueError(f"limit must be positive, got {limit}")
+    if limit > MAX_SEARCH_LIMIT:
+        raise ValueError(f"limit must be at most {MAX_SEARCH_LIMIT}, got {limit}")
+
+
+def require_valid_alpha(alpha: float) -> None:
+    """Check that a ``hybrid_search`` ``alpha`` is a valid dense/keyword weight.
+
+    ``alpha`` is only meaningful in ``[0.0, 1.0]``: ``1.0`` is pure dense,
+    ``0.0`` is pure keyword. Outside that range, backends behave
+    differently: Qdrant's client-side blend still produces a
+    mathematically well-defined but meaningless score, while a backend's
+    native ranker may reject the value outright.
+
+    Args:
+        alpha: The dense/keyword balance to check.
+
+    Raises:
+        ValueError: ``alpha`` is outside ``[0.0, 1.0]``.
+    """
+    if not 0.0 <= alpha <= 1.0:
+        raise ValueError(f"alpha must be between 0.0 and 1.0, got {alpha}")
