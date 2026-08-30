@@ -73,6 +73,8 @@ class Neo4jGraphStore(GraphStore):
         self._known_relation_types: set[str] = set()
         self._identity_constraint_ready = False
         self._identity_constraint_lock = asyncio.Lock()
+        self._relation_type_constraints_ready: set[str] = set()
+        self._relation_constraint_lock = asyncio.Lock()
 
     async def _ensure_driver(self) -> "AsyncDriver":
         """Build the Neo4j driver once and cache it.
@@ -163,7 +165,7 @@ class Neo4jGraphStore(GraphStore):
         for label in await self._all_labels():
             await self.execute_write(node_id_constraint_query(label))
         for rel_type in await self._all_relation_types():
-            await self.execute_write(relation_id_constraint_query(rel_type))
+            await self._ensure_relation_constraint(rel_type)
 
     async def _ensure_identity_constraint(self) -> None:
         """Create the ``NODE_IDENTITY_LABEL`` uniqueness constraint once.
@@ -183,6 +185,31 @@ class Neo4jGraphStore(GraphStore):
                 return
             await self.execute_write(node_id_constraint_query(NODE_IDENTITY_LABEL))
             self._identity_constraint_ready = True
+
+    async def _ensure_relation_constraint(self, rel_type: str) -> None:
+        """Create a relationship type's ``id`` uniqueness constraint once.
+
+        Relationship identity is each record's ``id``, and
+        ``upsert_relation_query``'s ``MERGE`` on that id is only atomic under
+        concurrent writers once a uniqueness constraint backs it; without
+        one, two concurrent ``upsert_relations`` calls for the same id and
+        type can each find no match and create a duplicate relationship.
+        Creating the constraint here, not only in ``setup_constraints``,
+        closes that window for callers that upsert before running setup, and
+        the lock serializes concurrent first calls so only one of them
+        issues the ``CREATE CONSTRAINT`` for a given type.
+
+        Args:
+            rel_type: The relationship type to ensure a constraint for. Must
+                already be validated.
+        """
+        if rel_type in self._relation_type_constraints_ready:
+            return
+        async with self._relation_constraint_lock:
+            if rel_type in self._relation_type_constraints_ready:
+                return
+            await self.execute_write(relation_id_constraint_query(rel_type))
+            self._relation_type_constraints_ready.add(rel_type)
 
     async def setup_indexes(self) -> None:
         """Create a range index on ``id`` for every known label.
@@ -298,6 +325,7 @@ class Neo4jGraphStore(GraphStore):
             validate_identifier(rel.type)
             by_type[rel.type].append(relation_params(rel))
         for rel_type, params in by_type.items():
+            await self._ensure_relation_constraint(rel_type)
             self._known_relation_types.add(rel_type)
             query = upsert_relation_query(rel_type)
             await self._batch_write(query, params, batch_size)

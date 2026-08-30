@@ -16,6 +16,7 @@ import pytest
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
+from agrag.cypher.schema import node_id_constraint_query
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
@@ -118,7 +119,7 @@ class TestNeo4jGraphStoreIntegration:
             await fresh.setup_constraints()
             rows = await fresh.execute_read(
                 "SHOW CONSTRAINTS YIELD name WHERE name = $name RETURN name",
-                {"name": f"{label}_id_unique"},
+                {"name": node_id_constraint_query(label).split()[2]},
             )
             assert len(rows) == 1
         finally:
@@ -149,7 +150,7 @@ class TestNeo4jGraphStoreIntegration:
             await store.setup_constraints()
             rows = await store.execute_read(
                 "SHOW CONSTRAINTS YIELD name WHERE name = $name RETURN name",
-                {"name": f"{valid_label}_id_unique"},
+                {"name": node_id_constraint_query(valid_label).split()[2]},
             )
             assert len(rows) == 1
         finally:

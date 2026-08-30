@@ -19,6 +19,13 @@ _VECTOR_SIMILARITY: dict[Distance, str] = {
 def node_id_constraint_query(label: str) -> str:
     """Build a CREATE CONSTRAINT query making ``id`` unique per node.
 
+    Neo4j constraint names share one flat, global namespace regardless of
+    whether they apply to a node label or a relationship type, so this name
+    is kind-prefixed and length-prefixed the same way ``vector_index_name``
+    is: label ``"X_rel"`` and relationship type ``"X"`` would otherwise both
+    produce ``X_rel_id_unique``, and ``IF NOT EXISTS`` would then silently
+    leave the second one never created.
+
     Args:
         label: The node label. Must already be validated.
 
@@ -26,8 +33,9 @@ def node_id_constraint_query(label: str) -> str:
         A Cypher query creating the uniqueness constraint if absent.
     """
     safe_label = validate_identifier(label)
+    name = f"node_{len(safe_label)}_{safe_label}_id_unique"
     return (
-        f"CREATE CONSTRAINT {safe_label}_id_unique IF NOT EXISTS "
+        f"CREATE CONSTRAINT {name} IF NOT EXISTS "
         f"FOR (n:{safe_label}) REQUIRE n.id IS UNIQUE"
     )
 
@@ -37,7 +45,8 @@ def relation_id_constraint_query(rel_type: str) -> str:
 
     This backs the stale-relationship lookup in ``upsert_relation_query`` with
     an index and guarantees at most one relationship of ``rel_type`` carries a
-    given id.
+    given id. See ``node_id_constraint_query`` for why the name is
+    kind-prefixed and length-prefixed rather than a plain concatenation.
 
     Args:
         rel_type: The relationship type. Must already be validated.
@@ -46,8 +55,9 @@ def relation_id_constraint_query(rel_type: str) -> str:
         A Cypher query creating the uniqueness constraint if absent.
     """
     safe_type = validate_identifier(rel_type)
+    name = f"rel_{len(safe_type)}_{safe_type}_id_unique"
     return (
-        f"CREATE CONSTRAINT {safe_type}_rel_id_unique IF NOT EXISTS "
+        f"CREATE CONSTRAINT {name} IF NOT EXISTS "
         f"FOR ()-[r:{safe_type}]-() REQUIRE r.id IS UNIQUE"
     )
 

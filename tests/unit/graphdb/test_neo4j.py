@@ -12,7 +12,11 @@ import pytest
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
-from agrag.cypher.schema import vector_index_name
+from agrag.cypher.schema import (
+    node_id_constraint_query,
+    relation_id_constraint_query,
+    vector_index_name,
+)
 from agrag.graphdb.errors import GraphStoreMissingExtraError
 from agrag.graphdb.neo4j import _VECTOR_SEARCH_MAX_K, Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
@@ -52,6 +56,16 @@ class FakeDriver:
 def _store() -> Neo4jGraphStore:
     """Build a Neo4jGraphStore wired to a FakeDriver."""
     return Neo4jGraphStore(settings=Neo4jSettings(), driver=FakeDriver())
+
+
+def _node_constraint_name(label: str) -> str:
+    """Derive the constraint name node_id_constraint_query issues for a label."""
+    return node_id_constraint_query(label).split()[2]
+
+
+def _relation_constraint_name(rel_type: str) -> str:
+    """Derive the constraint name relation_id_constraint_query issues for a type."""
+    return relation_id_constraint_query(rel_type).split()[2]
 
 
 class TestConnectClose:
@@ -201,7 +215,7 @@ class TestUpsertNodes:
         node = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
         await store.upsert_nodes("Chunk", [node])
         writes = store._driver.last_session.execute_write.call_args_list
-        assert f"{NODE_IDENTITY_LABEL}_id_unique" in writes[0].args[1]
+        assert _node_constraint_name(NODE_IDENTITY_LABEL) in writes[0].args[1]
         assert "MERGE" in writes[-1].args[1]
 
     async def test_concurrent_upserts_create_identity_constraint_once(self) -> None:
@@ -229,7 +243,7 @@ class TestUpsertNodes:
         )
         writes = store._driver.last_session.execute_write.call_args_list
         constraint_calls = [
-            c for c in writes if f"{NODE_IDENTITY_LABEL}_id_unique" in c.args[1]
+            c for c in writes if _node_constraint_name(NODE_IDENTITY_LABEL) in c.args[1]
         ]
         assert len(constraint_calls) == 1
 
@@ -278,6 +292,69 @@ class TestUpsertRelations:
             await store.upsert_relations([rel], batch_size=-1)
         store._driver.last_session.execute_write.assert_not_called()
 
+    async def test_creates_relation_constraint_before_first_write(self) -> None:
+        """A relation type's identity constraint is created before its first MERGE.
+
+        Neo4j only makes MERGE atomic under concurrent writers once a
+        uniqueness constraint backs the merged property, so the constraint
+        must land before the first relationship write for that type, not
+        only via a separate setup_constraints call.
+        """
+        store = _store()
+        rel = RelationRecord(
+            id=uuid4(),
+            type="MENTIONS",
+            start_id=uuid4(),
+            end_id=uuid4(),
+            properties={},
+        )
+        await store.upsert_relations([rel])
+        writes = store._driver.last_session.execute_write.call_args_list
+        assert _relation_constraint_name("MENTIONS") in writes[0].args[1]
+        assert "-[r:MENTIONS {id: record.id}]->" in writes[-1].args[1]
+
+    async def test_concurrent_upserts_create_relation_constraint_once(self) -> None:
+        """Concurrent first upserts of one type issue its constraint exactly once.
+
+        Regression guard: without serializing on a lock, two concurrent
+        upsert_relations calls for the same type could each observe the
+        constraint as not yet created and both proceed to MERGE before it
+        exists, letting Neo4j create two separate relationships for the
+        same id.
+        """
+        store = _store()
+
+        async def slow_write(
+            _run: object, _query: str, _params: object
+        ) -> list[dict[str, object]]:
+            await asyncio.sleep(0)
+            return []
+
+        store._driver.last_session.execute_write.side_effect = slow_write
+        first = RelationRecord(
+            id=uuid4(),
+            type="MENTIONS",
+            start_id=uuid4(),
+            end_id=uuid4(),
+            properties={},
+        )
+        second = RelationRecord(
+            id=uuid4(),
+            type="MENTIONS",
+            start_id=uuid4(),
+            end_id=uuid4(),
+            properties={},
+        )
+        await asyncio.gather(
+            store.upsert_relations([first]),
+            store.upsert_relations([second]),
+        )
+        writes = store._driver.last_session.execute_write.call_args_list
+        constraint_calls = [
+            c for c in writes if _relation_constraint_name("MENTIONS") in c.args[1]
+        ]
+        assert len(constraint_calls) == 1
+
 
 class TestEnsureVectorIndex:
     """ensure_vector_index issues the native CREATE VECTOR INDEX query."""
@@ -322,7 +399,7 @@ class TestSetupIdempotent:
         store._known_relation_types = {"MENTIONS", "LINKS"}
         await store.setup_constraints()
         writes = store._driver.last_session.execute_write.call_args_list
-        constraint_calls = [c.args[1] for c in writes if "rel_id_unique" in c.args[1]]
+        constraint_calls = [c.args[1] for c in writes if "FOR ()-[r:" in c.args[1]]
         assert len(constraint_calls) == 2
 
     async def test_discovers_labels_already_in_database(self) -> None:
@@ -342,7 +419,7 @@ class TestSetupIdempotent:
         store._driver.last_session.execute_read.side_effect = fake_execute_read
         await store.setup_constraints()
         writes = store._driver.last_session.execute_write.call_args_list
-        assert any("Existing_id_unique" in c.args[1] for c in writes)
+        assert any(_node_constraint_name("Existing") in c.args[1] for c in writes)
 
     async def test_unsafe_live_label_does_not_block_other_constraints(self) -> None:
         """One database label outside our identifier subset does not halt setup.
@@ -362,7 +439,7 @@ class TestSetupIdempotent:
         store._driver.last_session.execute_read.side_effect = fake_execute_read
         await store.setup_constraints()
         writes = store._driver.last_session.execute_write.call_args_list
-        assert any("Valid_id_unique" in c.args[1] for c in writes)
+        assert any(_node_constraint_name("Valid") in c.args[1] for c in writes)
         assert not any("Weird Label" in c.args[1] for c in writes)
 
     async def test_discovers_relation_types_already_in_database(self) -> None:
@@ -377,7 +454,9 @@ class TestSetupIdempotent:
         store._driver.last_session.execute_read.side_effect = fake_execute_read
         await store.setup_constraints()
         writes = store._driver.last_session.execute_write.call_args_list
-        assert any("EXISTING_REL_rel_id_unique" in c.args[1] for c in writes)
+        assert any(
+            _relation_constraint_name("EXISTING_REL") in c.args[1] for c in writes
+        )
 
     async def test_discovered_identity_label_is_not_double_constrained(self) -> None:
         """The identity anchor discovered live does not get a duplicate constraint."""
@@ -392,7 +471,7 @@ class TestSetupIdempotent:
         await store.setup_constraints()
         writes = store._driver.last_session.execute_write.call_args_list
         identity_calls = [
-            c for c in writes if f"{NODE_IDENTITY_LABEL}_id_unique" in c.args[1]
+            c for c in writes if _node_constraint_name(NODE_IDENTITY_LABEL) in c.args[1]
         ]
         assert len(identity_calls) == 1
 

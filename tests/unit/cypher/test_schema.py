@@ -19,7 +19,7 @@ class TestNodeConstraint:
     def test_builds_unique_constraint(self) -> None:
         """A uniqueness constraint on id is created if absent."""
         q = node_id_constraint_query("Chunk")
-        assert "CREATE CONSTRAINT Chunk_id_unique IF NOT EXISTS" in q
+        assert "CREATE CONSTRAINT node_5_Chunk_id_unique IF NOT EXISTS" in q
         assert "REQUIRE n.id IS UNIQUE" in q
 
 
@@ -29,8 +29,38 @@ class TestRelationConstraint:
     def test_builds_unique_constraint(self) -> None:
         """A uniqueness constraint on id is created if absent."""
         q = relation_id_constraint_query("MENTIONS")
-        assert "CREATE CONSTRAINT MENTIONS_rel_id_unique IF NOT EXISTS" in q
+        assert "CREATE CONSTRAINT rel_8_MENTIONS_id_unique IF NOT EXISTS" in q
         assert "FOR ()-[r:MENTIONS]-() REQUIRE r.id IS UNIQUE" in q
+
+
+class TestConstraintNamesDoNotCollide:
+    """Node and relationship constraint names never collide with each other.
+
+    Regression guard: a plain ``f"{name}_id_unique"`` /
+    ``f"{name}_rel_id_unique"`` join let a node label like ``"X_rel"`` and a
+    relationship type ``"X"`` both produce ``"X_rel_id_unique"``, so the
+    second ``CREATE CONSTRAINT ... IF NOT EXISTS`` would silently leave the
+    relationship type unconstrained.
+    """
+
+    def test_node_and_relation_with_the_collision_shape_do_not_collide(self) -> None:
+        """The exact reported shape: node label "X_rel", relationship type "X"."""
+        node_query = node_id_constraint_query("X_rel")
+        rel_query = relation_id_constraint_query("X")
+        node_name = node_query.split()[2]
+        rel_name = rel_query.split()[2]
+        assert node_name != rel_name
+
+    @pytest.mark.parametrize("name", ["Chunk", "X_rel", "rel_1_X"])
+    def test_same_text_as_node_and_relation_type_does_not_collide(
+        self, name: str
+    ) -> None:
+        """The same identifier used as both a label and a type stays disjoint."""
+        node_query = node_id_constraint_query(name)
+        rel_query = relation_id_constraint_query(name)
+        node_name = node_query.split()[2]
+        rel_name = rel_query.split()[2]
+        assert node_name != rel_name
 
 
 class TestPlainIndex:
