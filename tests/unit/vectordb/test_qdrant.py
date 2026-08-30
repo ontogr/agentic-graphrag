@@ -30,6 +30,7 @@ class FakeQdrantClient:
         self.collection_exists = mock.AsyncMock(return_value=False)
         self.get_collection = mock.AsyncMock()
         self.create_collection = mock.AsyncMock(return_value=True)
+        self.update_collection = mock.AsyncMock(return_value=True)
         self.upsert = mock.AsyncMock()
         self.query_points = mock.AsyncMock()
         self.scroll = mock.AsyncMock(return_value=([], None))
@@ -133,6 +134,34 @@ class TestEnsureCollection:
         client.collection_exists.return_value = True
         client.get_collection.return_value = make_collection_info(4, sparse=False)
         await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+        assert "c" not in store._hybrid_collections
+        client.update_collection.assert_not_called()
+
+    async def test_existing_dense_collection_upgraded_to_hybrid(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """Requesting hybrid on an existing dense collection adds sparse config."""
+        client.collection_exists.return_value = True
+        client.get_collection.return_value = make_collection_info(4, sparse=False)
+        await store.ensure_collection(
+            "c", dimensions=4, distance=Distance.COSINE, hybrid=True
+        )
+        client.update_collection.assert_called_once()
+        sparse = client.update_collection.call_args.kwargs["sparse_vectors_config"]
+        assert _SPARSE_VECTOR_NAME in sparse
+        assert "c" in store._hybrid_collections
+
+    async def test_upgrade_failure_does_not_mark_hybrid(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """A failed sparse-config upgrade leaves the collection untracked."""
+        client.collection_exists.return_value = True
+        client.get_collection.return_value = make_collection_info(4, sparse=False)
+        client.update_collection.side_effect = RuntimeError("boom")
+        with pytest.raises(RuntimeError):
+            await store.ensure_collection(
+                "c", dimensions=4, distance=Distance.COSINE, hybrid=True
+            )
         assert "c" not in store._hybrid_collections
 
     async def test_dimension_mismatch_raises(
@@ -296,6 +325,22 @@ class TestWritesAndReads:
         assert len(records) == 1
         assert records[0].id == target_id
 
+    async def test_retrieve_reads_dense_vector_from_hybrid_point(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """A hybrid point's named-vector dict yields its unnamed dense vector."""
+        target_id = uuid4()
+        client.retrieve.return_value = [
+            make_point(
+                str(target_id),
+                0.0,
+                {"text": "a"},
+                {"": [0.1, 0.2], _SPARSE_VECTOR_NAME: SimpleNamespace()},
+            )
+        ]
+        records = await store.retrieve("c", [target_id])
+        assert records[0].vector == [0.1, 0.2]
+
     async def test_count_returns_total(self, store: QdrantVectorStore, client) -> None:
         """Count returns the backend count."""
         client.count.return_value = SimpleNamespace(count=3)
@@ -317,6 +362,14 @@ class TestWritesAndReads:
         """delete_collection forwards to the backend."""
         await store.delete_collection("c")
         client.delete_collection.assert_called_once_with("c")
+
+    async def test_delete_collection_clears_hybrid_tracking(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """Deleting a hybrid collection stops tracking it as hybrid."""
+        store._hybrid_collections.add("c")
+        await store.delete_collection("c")
+        assert "c" not in store._hybrid_collections
 
     async def test_close_releases_client(
         self, store: QdrantVectorStore, client

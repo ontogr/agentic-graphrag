@@ -207,9 +207,15 @@ class QdrantVectorStore(VectorStore):
         Returns:
             The equivalent record.
         """
+        vector = point.vector or []
+        if isinstance(vector, dict):
+            # A hybrid point's vector is a dict of named vectors, with the
+            # dense vector stored unnamed (""), matching _point_vector's
+            # write-side convention.
+            vector = vector.get("", [])
         return VectorRecord(
             id=UUID(str(point.id)),
-            vector=list(point.vector) if point.vector else [],
+            vector=list(vector),
             payload=point.payload or {},
         )
 
@@ -243,6 +249,16 @@ class QdrantVectorStore(VectorStore):
                     expected=existing, actual=dimensions
                 )
             if info.config.params.sparse_vectors:
+                self._hybrid_collections.add(name)
+            elif hybrid:
+                await client.update_collection(
+                    collection_name=name,
+                    sparse_vectors_config={
+                        _SPARSE_VECTOR_NAME: self._models.SparseVectorParams(
+                            modifier=self._models.Modifier.IDF
+                        )
+                    },
+                )
                 self._hybrid_collections.add(name)
             return
         vectors_config = self._models.VectorParams(
@@ -282,6 +298,7 @@ class QdrantVectorStore(VectorStore):
         """
         client = await self._ensure_client()
         await client.delete_collection(name)
+        self._hybrid_collections.discard(name)
 
     async def upsert(
         self,

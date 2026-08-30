@@ -6,6 +6,7 @@ from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.schema import (
     node_id_constraint_query,
     plain_index_query,
+    relation_id_constraint_query,
     vector_index_name,
     vector_index_query,
     vector_search_query,
@@ -20,6 +21,16 @@ class TestNodeConstraint:
         q = node_id_constraint_query("Chunk")
         assert "CREATE CONSTRAINT Chunk_id_unique IF NOT EXISTS" in q
         assert "REQUIRE n.id IS UNIQUE" in q
+
+
+class TestRelationConstraint:
+    """relation_id_constraint_query builds a per-type uniqueness constraint."""
+
+    def test_builds_unique_constraint(self) -> None:
+        """A uniqueness constraint on id is created if absent."""
+        q = relation_id_constraint_query("MENTIONS")
+        assert "CREATE CONSTRAINT MENTIONS_rel_id_unique IF NOT EXISTS" in q
+        assert "FOR ()-[r:MENTIONS]-() REQUIRE r.id IS UNIQUE" in q
 
 
 class TestPlainIndex:

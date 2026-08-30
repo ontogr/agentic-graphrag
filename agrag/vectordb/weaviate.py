@@ -7,7 +7,11 @@ from uuid import UUID
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
 from agrag.vectordb.base import VectorStore
-from agrag.vectordb.errors import VectorStoreMissingExtraError
+from agrag.vectordb.errors import (
+    CollectionDimensionMismatchError,
+    VectorStoreError,
+    VectorStoreMissingExtraError,
+)
 from agrag.vectordb.settings import WeaviateSettings
 
 
@@ -132,6 +136,12 @@ class WeaviateVectorStore(VectorStore):
     def _to_hit(obj: Any) -> VectorHit:
         """Convert a Weaviate object to a ``VectorHit``.
 
+        ``hybrid_search`` populates ``score`` metadata directly, but
+        ``near_vector`` (dense-only search) has no such field and instead
+        reports ``distance``, which is smaller-is-closer for every configured
+        metric; that gets negated so it matches ``VectorHit.score``'s
+        higher-is-closer convention.
+
         Args:
             obj: A Weaviate query result object.
 
@@ -139,8 +149,12 @@ class WeaviateVectorStore(VectorStore):
             The equivalent hit.
         """
         score = 0.0
-        if obj.metadata is not None and obj.metadata.score is not None:
-            score = float(obj.metadata.score)
+        metadata = obj.metadata
+        if metadata is not None:
+            if getattr(metadata, "score", None) is not None:
+                score = float(metadata.score)
+            elif getattr(metadata, "distance", None) is not None:
+                score = -float(metadata.distance)
         return VectorHit(
             id=UUID(str(obj.uuid)),
             score=score,
@@ -175,16 +189,29 @@ class WeaviateVectorStore(VectorStore):
 
         Args:
             name: The collection name.
-            dimensions: The embedding dimension. Weaviate stores it on each
-                vector, so a mismatch surfaces at write time, not here.
+            dimensions: The embedding dimension.
             distance: The distance metric new collections use.
             hybrid: No-op for Weaviate, which needs no sparse provisioning.
-        """
-        from weaviate.classes.config import Configure  # noqa: PLC0415
 
+        Raises:
+            CollectionDimensionMismatchError: An existing object in the
+                collection carries a vector of a different dimension. Weaviate
+                keeps no schema-level dimension for self-provided vectors, so
+                an empty existing collection cannot be checked this way.
+        """
         client = await self._ensure_client()
         if await client.collections.exists(name):
+            existing = await self._existing_dimension(client, name)
+            if existing is not None and existing != dimensions:
+                raise CollectionDimensionMismatchError(
+                    expected=existing, actual=dimensions
+                )
             return
+
+        # Deferred until after _ensure_client so a missing extra surfaces as
+        # VectorStoreMissingExtraError, not a raw ImportError.
+        from weaviate.classes.config import Configure  # noqa: PLC0415
+
         distance_value = self._weaviate_distance(distance)
         vector_config = Configure.Vectors.self_provided(
             name=_VECTOR_NAME,
@@ -196,6 +223,29 @@ class WeaviateVectorStore(VectorStore):
             name=name,
             vector_config=vector_config,
         )
+
+    async def _existing_dimension(self, client: Any, name: str) -> int | None:
+        """Read the vector dimension from a sample object in a collection.
+
+        Weaviate's self-provided vector config carries no schema-level
+        dimension, so a mismatch can only be detected once the collection
+        holds at least one object.
+
+        Args:
+            client: The connected Weaviate client.
+            name: The collection name.
+
+        Returns:
+            The dimension of an existing object's vector, or ``None`` if the
+            collection has no objects yet.
+        """
+        target = client.collections.get(name)
+        response = await target.query.fetch_objects(limit=1, include_vector=True)
+        objects = response.objects if hasattr(response, "objects") else response
+        if not objects:
+            return None
+        vector = (objects[0].vector or {}).get(_VECTOR_NAME)
+        return len(vector) if vector else None
 
     async def collection_exists(self, name: str) -> bool:
         """Report whether a collection exists.
@@ -227,19 +277,40 @@ class WeaviateVectorStore(VectorStore):
     ) -> None:
         """Write or overwrite records in a collection.
 
+        Uses Weaviate's batch import, which replaces an existing object
+        sharing a written id instead of rejecting it, giving real
+        insert-or-replace semantics and per-call batching in one request.
+
         Args:
             collection: The collection to write to.
             records: The records to upsert, in order.
             batch_size: The number of records per backend write call.
+
+        Raises:
+            VectorStoreError: At least one record in a batch failed to write.
         """
         client = await self._ensure_client()
+
+        # Deferred until after _ensure_client so a missing extra surfaces as
+        # VectorStoreMissingExtraError, not a raw ImportError.
+        from weaviate.classes.data import DataObject  # noqa: PLC0415
+
         target = client.collections.get(collection)
-        for record in records:
-            await target.data.insert(
-                properties=record.payload,
-                vector={_VECTOR_NAME: record.vector},
-                uuid=str(record.id),
-            )
+        for start in range(0, len(records), batch_size):
+            batch = records[start : start + batch_size]
+            objects = [
+                DataObject(
+                    properties=record.payload,
+                    vector={_VECTOR_NAME: record.vector},
+                    uuid=str(record.id),
+                )
+                for record in batch
+            ]
+            result = await target.data.insert_many(objects)
+            if result.has_errors:
+                raise VectorStoreError(
+                    f"upsert failed for {len(result.errors)} record(s): {result.errors}"
+                )
 
     async def search(
         self,
@@ -260,15 +331,18 @@ class WeaviateVectorStore(VectorStore):
         Returns:
             The matched hits, highest score first.
         """
+        client = await self._ensure_client()
+
+        # Deferred until after _ensure_client so a missing extra surfaces as
+        # VectorStoreMissingExtraError, not a raw ImportError.
         from weaviate.classes.query import MetadataQuery  # noqa: PLC0415
 
-        client = await self._ensure_client()
         target = client.collections.get(collection)
         response = await target.query.near_vector(
             near_vector=list(query_vector),
             limit=limit,
             filters=self._compile_filter(filters),
-            return_metadata=MetadataQuery(score=True),
+            return_metadata=MetadataQuery(distance=True),
         )
         objects = response.objects if hasattr(response, "objects") else response
         return [self._to_hit(obj) for obj in objects]
@@ -297,9 +371,12 @@ class WeaviateVectorStore(VectorStore):
         Returns:
             The fused hits, highest score first.
         """
+        client = await self._ensure_client()
+
+        # Deferred until after _ensure_client so a missing extra surfaces as
+        # VectorStoreMissingExtraError, not a raw ImportError.
         from weaviate.classes.query import MetadataQuery  # noqa: PLC0415
 
-        client = await self._ensure_client()
         target = client.collections.get(collection)
         response = await target.query.hybrid(
             query=query_text,

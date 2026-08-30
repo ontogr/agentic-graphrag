@@ -14,17 +14,21 @@ class _RecordingCache(EmbeddingCache):
 
     def __init__(self) -> None:
         """Create an empty cache."""
-        self.store: dict[tuple[str, str], list[float]] = {}
+        self.store: dict[tuple[str, str, bool], list[float]] = {}
         self.get_calls = 0
 
-    async def get(self, *, text: str, model: str) -> list[float] | None:
+    async def get(
+        self, *, text: str, model: str, normalize: bool
+    ) -> list[float] | None:
         """Return the stored vector, or None on a miss."""
         self.get_calls += 1
-        return self.store.get((text, model))
+        return self.store.get((text, model, normalize))
 
-    async def set(self, *, text: str, model: str, vector: list[float]) -> None:
+    async def set(
+        self, *, text: str, model: str, normalize: bool, vector: list[float]
+    ) -> None:
         """Store the vector."""
-        self.store[(text, model)] = vector
+        self.store[(text, model, normalize)] = vector
 
 
 class _StubEmbedder(Embedder):
@@ -47,28 +51,36 @@ class TestNullEmbeddingCache:
 
     async def test_get_always_misses(self) -> None:
         """Get returns None."""
-        assert await NullEmbeddingCache().get(text="a", model="m") is None
+        cache = NullEmbeddingCache()
+        assert await cache.get(text="a", model="m", normalize=True) is None
 
     async def test_set_is_noop(self) -> None:
         """Set does nothing and does not raise."""
-        await NullEmbeddingCache().set(text="a", model="m", vector=[1.0])
+        cache = NullEmbeddingCache()
+        await cache.set(text="a", model="m", normalize=True, vector=[1.0])
 
 
 class TestEmbeddingCacheContract:
-    """A real cache stores and returns vectors by (text, model)."""
+    """A real cache stores and returns vectors by (text, model, normalize)."""
 
     async def test_set_then_get(self) -> None:
         """Set populates a key that get returns."""
         cache = _RecordingCache()
-        assert await cache.get(text="a", model="m") is None
-        await cache.set(text="a", model="m", vector=[0.1, 0.2])
-        assert await cache.get(text="a", model="m") == [0.1, 0.2]
+        assert await cache.get(text="a", model="m", normalize=True) is None
+        await cache.set(text="a", model="m", normalize=True, vector=[0.1, 0.2])
+        assert await cache.get(text="a", model="m", normalize=True) == [0.1, 0.2]
 
-    async def test_keys_are_distinct(self) -> None:
+    async def test_keys_are_distinct_by_model(self) -> None:
         """The same text under different models is a different key."""
         cache = _RecordingCache()
-        await cache.set(text="a", model="m1", vector=[1.0])
-        assert await cache.get(text="a", model="m2") is None
+        await cache.set(text="a", model="m1", normalize=True, vector=[1.0])
+        assert await cache.get(text="a", model="m2", normalize=True) is None
+
+    async def test_keys_are_distinct_by_normalize(self) -> None:
+        """The same text and model under different normalize is a different key."""
+        cache = _RecordingCache()
+        await cache.set(text="a", model="m", normalize=True, vector=[1.0])
+        assert await cache.get(text="a", model="m", normalize=False) is None
 
 
 class TestEmbedderEmbedOne:

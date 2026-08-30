@@ -58,7 +58,11 @@ class GraphStore(ABC):
 
     @abstractmethod
     async def setup_constraints(self) -> None:
-        """Create per-label uniqueness constraints for tracked labels."""
+        """Create per-label and per-relation-type uniqueness constraints.
+
+        Constraints cover every node label and relationship type written so
+        far.
+        """
 
     @abstractmethod
     async def setup_indexes(self) -> None:

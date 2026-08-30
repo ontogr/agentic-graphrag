@@ -10,6 +10,7 @@ import pytest
 from agrag.embedding.base import EmbeddingCache
 from agrag.embedding.errors import EmbeddingMissingExtraError
 from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
+from agrag.embedding.settings import EmbeddingSettings
 
 
 class FakeSentenceTransformer:
@@ -19,9 +20,17 @@ class FakeSentenceTransformer:
     so tests can assert off-loop execution and batching behavior.
     """
 
-    def __init__(self, dim: int = 4) -> None:
-        """Create the fake model with the given embedding dimension."""
+    def __init__(self, dim: int = 4, *, vary_by_normalize: bool = False) -> None:
+        """Create the fake model with the given embedding dimension.
+
+        Args:
+            dim: The embedding dimension.
+            vary_by_normalize: When set, ``encode`` fills vectors with ``1.0``
+                for a normalized request and ``0.0`` otherwise, so tests can
+                tell which output mode a returned vector came from.
+        """
         self._dim = dim
+        self._vary_by_normalize = vary_by_normalize
         self.encode_calls: list[list[str]] = []
         self.encode_thread: threading.Thread | None = None
 
@@ -36,10 +45,11 @@ class FakeSentenceTransformer:
         batch_size: int = 32,
         normalize_embeddings: bool = True,
     ):
-        """Record the call and return a fixed zero vector per text."""
+        """Record the call and return a fixed vector per text."""
         self.encode_thread = threading.current_thread()
         self.encode_calls.append(list(texts))
-        return [array("f", [0.0] * self._dim) for _ in texts]
+        fill = 1.0 if (self._vary_by_normalize and normalize_embeddings) else 0.0
+        return [array("f", [fill] * self._dim) for _ in texts]
 
 
 class _RecordingCache(EmbeddingCache):
@@ -47,15 +57,19 @@ class _RecordingCache(EmbeddingCache):
 
     def __init__(self) -> None:
         """Create an empty cache."""
-        self.store: dict[tuple[str, str], list[float]] = {}
+        self.store: dict[tuple[str, str, bool], list[float]] = {}
 
-    async def get(self, *, text: str, model: str) -> list[float] | None:
+    async def get(
+        self, *, text: str, model: str, normalize: bool
+    ) -> list[float] | None:
         """Return the stored vector, or None on a miss."""
-        return self.store.get((text, model))
+        return self.store.get((text, model, normalize))
 
-    async def set(self, *, text: str, model: str, vector: list[float]) -> None:
+    async def set(
+        self, *, text: str, model: str, normalize: bool, vector: list[float]
+    ) -> None:
         """Store the vector."""
-        self.store[(text, model)] = vector
+        self.store[(text, model, normalize)] = vector
 
 
 class TestSentenceTransformerEmbedderConstruction:
@@ -163,3 +177,23 @@ class TestEmbedCaching:
         model = FakeSentenceTransformer()
         embedder = SentenceTransformerEmbedder(model=model)
         assert await embedder.embed_one("solo") == [0.0, 0.0, 0.0, 0.0]
+
+    async def test_opposite_normalize_settings_do_not_share_cache_entries(
+        self,
+    ) -> None:
+        """Embedders differing only in normalize stay isolated in one cache."""
+        model = FakeSentenceTransformer(vary_by_normalize=True)
+        cache = _RecordingCache()
+        normalized = SentenceTransformerEmbedder(
+            model=model, cache=cache, settings=EmbeddingSettings(normalize=True)
+        )
+        raw = SentenceTransformerEmbedder(
+            model=model, cache=cache, settings=EmbeddingSettings(normalize=False)
+        )
+        assert await normalized.embed_one("a") == [1.0, 1.0, 1.0, 1.0]
+        assert await raw.embed_one("a") == [0.0, 0.0, 0.0, 0.0]
+        assert model.encode_calls == [["a"], ["a"]]
+        # A second round trip hits each embedder's own entry, not the other's.
+        assert await normalized.embed_one("a") == [1.0, 1.0, 1.0, 1.0]
+        assert await raw.embed_one("a") == [0.0, 0.0, 0.0, 0.0]
+        assert model.encode_calls == [["a"], ["a"]]

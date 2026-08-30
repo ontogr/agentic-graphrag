@@ -8,7 +8,10 @@ from uuid import UUID
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
 from agrag.vectordb.base import VectorStore
-from agrag.vectordb.errors import VectorStoreMissingExtraError
+from agrag.vectordb.errors import (
+    CollectionDimensionMismatchError,
+    VectorStoreMissingExtraError,
+)
 from agrag.vectordb.settings import MilvusSettings
 
 
@@ -78,6 +81,42 @@ def _escape_list(values: Sequence[Any]) -> str:
     return "[" + ", ".join(_escape_scalar(v) for v in values) + "]"
 
 
+def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Coerce a payload dict to values Milvus's JSON field can store.
+
+    Non-JSON-native values, such as ``UUID`` or ``datetime``, are stringified
+    the same way ``json.dumps(..., default=str)`` previously encoded them,
+    since the payload field now stores structured JSON rather than a string.
+
+    Args:
+        payload: The record payload to normalize.
+
+    Returns:
+        A JSON-round-tripped copy of ``payload``.
+    """
+    return json.loads(json.dumps(payload, default=str))
+
+
+def _payload_field_path(key: str) -> str:
+    """Build a Milvus JSON-path expression into the payload field.
+
+    Payload data has no top-level Milvus scalar fields to filter on, so a
+    filter key is compiled against ``payload``, the collection's JSON field,
+    instead.
+
+    Args:
+        key: The payload key used as a filter field.
+
+    Returns:
+        The JSON path expression, for example ``payload["kind"]``.
+
+    Raises:
+        ValueError: ``key`` is not a safe identifier.
+    """
+    safe_key = _escape_field(key)
+    return f'{_PAYLOAD_FIELD}["{safe_key}"]'
+
+
 class MilvusVectorStore(VectorStore):
     """A ``VectorStore`` backed by Milvus, including native hybrid search.
 
@@ -104,6 +143,7 @@ class MilvusVectorStore(VectorStore):
         """
         self._settings = settings or MilvusSettings()
         self._client: Any = client
+        self._collection_metrics: dict[str, str] = {}
 
     async def _ensure_client(self) -> Any:
         """Build the Milvus client once and cache it.
@@ -161,7 +201,7 @@ class MilvusVectorStore(VectorStore):
             return ""
         clauses = []
         for key, value in filters.items():
-            field = _escape_field(key)
+            field = _payload_field_path(key)
             if isinstance(value, list):
                 clauses.append(f"{field} in {_escape_list(value)}")
             else:
@@ -169,22 +209,24 @@ class MilvusVectorStore(VectorStore):
         return " and ".join(clauses)
 
     @staticmethod
-    def _to_hit(row: dict[str, Any]) -> VectorHit:
+    def _to_hit(row: dict[str, Any], *, invert_score: bool = False) -> VectorHit:
         """Convert a Milvus result row to a ``VectorHit``.
 
         Args:
             row: A Milvus search/query result row.
+            invert_score: Negate the raw ``distance`` field so that higher
+                always means closer. Milvus reports literal Euclidean distance
+                for ``L2`` collections (lower is closer), unlike ``COSINE`` and
+                ``IP``, where the field is already a similarity.
 
         Returns:
             The equivalent hit.
         """
-        payload = {}
-        if row.get(_PAYLOAD_FIELD):
-            payload = json.loads(row[_PAYLOAD_FIELD])
+        raw = float(row.get("distance", 0.0))
         return VectorHit(
             id=UUID(str(row["id"])),
-            score=float(row.get("distance", 0.0)),
-            payload=payload,
+            score=-raw if invert_score else raw,
+            payload=row.get(_PAYLOAD_FIELD) or {},
         )
 
     @staticmethod
@@ -197,14 +239,11 @@ class MilvusVectorStore(VectorStore):
         Returns:
             The equivalent record.
         """
-        payload = {}
-        if row.get(_PAYLOAD_FIELD):
-            payload = json.loads(row[_PAYLOAD_FIELD])
         vector = list(row.get(_VECTOR_FIELD) or [])
         return VectorRecord(
             id=UUID(str(row["id"])),
             vector=vector,
-            payload=payload,
+            payload=row.get(_PAYLOAD_FIELD) or {},
         )
 
     async def initialize(self) -> None:
@@ -226,7 +265,25 @@ class MilvusVectorStore(VectorStore):
             dimensions: The embedding dimension.
             distance: The distance metric new collections use.
             hybrid: Accepted for interface parity; ignored by Milvus.
+
+        Raises:
+            CollectionDimensionMismatchError: The collection exists with a
+                different dimension than ``dimensions``.
         """
+        client = await self._ensure_client()
+        if await client.has_collection(name):
+            existing = await self._existing_dimension(client, name)
+            if existing is not None and existing != dimensions:
+                raise CollectionDimensionMismatchError(
+                    expected=existing, actual=dimensions
+                )
+            existing_metric = await self._existing_metric(client, name)
+            if existing_metric is not None:
+                self._collection_metrics[name] = existing_metric
+            return
+
+        # Deferred until after _ensure_client so a missing extra surfaces as
+        # VectorStoreMissingExtraError, not a raw ImportError.
         from pymilvus import (  # noqa: PLC0415
             CollectionSchema,
             DataType,
@@ -235,10 +292,8 @@ class MilvusVectorStore(VectorStore):
             FunctionType,
         )
 
-        client = await self._ensure_client()
-        if await client.has_collection(name):
-            return
         metric = self._milvus_metric(distance)
+        self._collection_metrics[name] = metric
         fields = [
             FieldSchema(
                 name="id",
@@ -258,7 +313,7 @@ class MilvusVectorStore(VectorStore):
                 enable_analyzer=True,
             ),
             FieldSchema(name=_SPARSE_FIELD, dtype=DataType.SPARSE_FLOAT_VECTOR),
-            FieldSchema(name=_PAYLOAD_FIELD, dtype=DataType.VARCHAR, max_length=65535),
+            FieldSchema(name=_PAYLOAD_FIELD, dtype=DataType.JSON),
         ]
         bm25 = Function(
             name="bm25",
@@ -280,6 +335,57 @@ class MilvusVectorStore(VectorStore):
             collection_name=name, schema=schema, index_params=index_params
         )
         await client.load_collection(name)
+
+    @staticmethod
+    async def _existing_dimension(client: Any, name: str) -> int | None:
+        """Read the configured dense-vector dimension of an existing collection.
+
+        Args:
+            client: The connected Milvus client.
+            name: The collection name.
+
+        Returns:
+            The dimension, or ``None`` if it cannot be determined.
+        """
+        description = await client.describe_collection(name)
+        for field in description.get("fields", []):
+            if field.get("name") == _VECTOR_FIELD:
+                dim = field.get("params", {}).get("dim")
+                return int(dim) if dim is not None else None
+        return None
+
+    @staticmethod
+    async def _existing_metric(client: Any, name: str) -> str | None:
+        """Read the configured similarity metric of an existing vector index.
+
+        Args:
+            client: The connected Milvus client.
+            name: The collection name.
+
+        Returns:
+            The Milvus metric name (for example ``"L2"``), or ``None`` if it
+            cannot be determined.
+        """
+        info = await client.describe_index(
+            collection_name=name, index_name=_VECTOR_FIELD
+        )
+        return info.get("metric_type") if info else None
+
+    async def _metric_for(self, client: Any, collection: str) -> str | None:
+        """Return the cached similarity metric for ``collection``, resolving it lazily.
+
+        Args:
+            client: The connected Milvus client.
+            collection: The collection name.
+
+        Returns:
+            The Milvus metric name, or ``None`` if it cannot be determined.
+        """
+        if collection not in self._collection_metrics:
+            metric = await self._existing_metric(client, collection)
+            if metric is not None:
+                self._collection_metrics[collection] = metric
+        return self._collection_metrics.get(collection)
 
     async def collection_exists(self, name: str) -> bool:
         """Report whether a collection exists.
@@ -324,11 +430,11 @@ class MilvusVectorStore(VectorStore):
                     "id": str(record.id),
                     _VECTOR_FIELD: record.vector,
                     _TEXT_FIELD: record.payload.get(_TEXT_FIELD, ""),
-                    _PAYLOAD_FIELD: json.dumps(record.payload, default=str),
+                    _PAYLOAD_FIELD: _normalize_payload(record.payload),
                 }
                 for record in batch
             ]
-            await client.insert(collection_name=collection, data=data)
+            await client.upsert(collection_name=collection, data=data)
             await client.flush(collection_name=collection)
 
     async def search(
@@ -359,7 +465,8 @@ class MilvusVectorStore(VectorStore):
             filter=self._compile_filter(filters),
             output_fields=["id", _PAYLOAD_FIELD],
         )
-        return [self._to_hit(row) for row in response[0]]
+        invert = await self._metric_for(client, collection) == "L2"
+        return [self._to_hit(row, invert_score=invert) for row in response[0]]
 
     async def hybrid_search(
         self,
@@ -388,9 +495,12 @@ class MilvusVectorStore(VectorStore):
         Returns:
             The fused hits, highest score first.
         """
+        client = await self._ensure_client()
+
+        # Deferred until after _ensure_client so a missing extra surfaces as
+        # VectorStoreMissingExtraError, not a raw ImportError.
         from pymilvus import AnnSearchRequest, WeightedRanker  # noqa: PLC0415
 
-        client = await self._ensure_client()
         expr = self._compile_filter(filters)
         dense_req = AnnSearchRequest(
             data=[list(query_vector)],

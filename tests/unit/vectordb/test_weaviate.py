@@ -8,9 +8,18 @@ import pytest
 import weaviate
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
-from agrag.vectordb.errors import VectorStoreMissingExtraError
+from agrag.vectordb.errors import (
+    CollectionDimensionMismatchError,
+    VectorStoreError,
+    VectorStoreMissingExtraError,
+)
 from agrag.vectordb.settings import WeaviateSettings
 from agrag.vectordb.weaviate import WeaviateVectorStore
+
+
+def make_batch_result(*, has_errors: bool = False, errors: dict | None = None):
+    """Build a fake ``BatchObjectReturn`` from ``insert_many``."""
+    return SimpleNamespace(has_errors=has_errors, errors=errors or {})
 
 
 class FakeCollection:
@@ -19,13 +28,13 @@ class FakeCollection:
     def __init__(self) -> None:
         """Create the fake collection with async mocks for data and query."""
         self.data = SimpleNamespace(
-            insert=mock.AsyncMock(),
+            insert_many=mock.AsyncMock(return_value=make_batch_result()),
             delete_by_id=mock.AsyncMock(),
         )
         self.query = SimpleNamespace(
             near_vector=mock.AsyncMock(),
             hybrid=mock.AsyncMock(),
-            fetch_objects=mock.AsyncMock(),
+            fetch_objects=mock.AsyncMock(return_value=SimpleNamespace(objects=[])),
             fetch_object_by_id=mock.AsyncMock(),
         )
         self.aggregate = SimpleNamespace(count=mock.AsyncMock())
@@ -47,12 +56,22 @@ class FakeWeaviateClient:
 
 
 def make_object(
-    obj_id: str, score: float, properties: dict, vector=None
+    obj_id: str,
+    properties: dict,
+    *,
+    score: float | None = None,
+    distance: float | None = None,
+    vector=None,
 ) -> SimpleNamespace:
-    """Build a fake Weaviate query result object."""
+    """Build a fake Weaviate query result object.
+
+    ``score`` models a ``hybrid_search`` result; ``distance`` models a
+    ``near_vector`` (dense-only) result, matching how the real client
+    populates only the metadata field the request asked for.
+    """
     return SimpleNamespace(
         uuid=obj_id,
-        metadata=SimpleNamespace(score=score),
+        metadata=SimpleNamespace(score=score, distance=distance),
         properties=properties,
         vector={"vector": vector} if vector is not None else None,
     )
@@ -94,6 +113,39 @@ class TestEnsureCollection:
         await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
         client.collections.create.assert_not_called()
 
+    async def test_dimension_mismatch_raises(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """A sample object's vector length conflicting with dimensions raises."""
+        client.collections.exists.return_value = True
+        client._collection.query.fetch_objects.return_value = make_response(
+            [make_object(str(uuid4()), {}, vector=[0.1] * 8)]
+        )
+        with pytest.raises(CollectionDimensionMismatchError) as exc_info:
+            await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+        assert exc_info.value.expected == 8
+        assert exc_info.value.actual == 4
+
+    async def test_dimension_match_does_not_raise(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """A sample object's vector length matching dimensions passes silently."""
+        client.collections.exists.return_value = True
+        client._collection.query.fetch_objects.return_value = make_response(
+            [make_object(str(uuid4()), {}, vector=[0.1] * 4)]
+        )
+        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+        client.collections.create.assert_not_called()
+
+    async def test_empty_existing_collection_not_checked(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """An existing but empty collection has nothing to check, so it passes."""
+        client.collections.exists.return_value = True
+        client._collection.query.fetch_objects.return_value = make_response([])
+        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+        client.collections.create.assert_not_called()
+
 
 class TestWritesAndReads:
     """upsert, search, hybrid_search, scroll, retrieve, count, delete."""
@@ -101,39 +153,61 @@ class TestWritesAndReads:
     async def test_upsert_inserts_objects(
         self, store: WeaviateVectorStore, client
     ) -> None:
-        """Upsert inserts each record with its vector under the vector name."""
+        """Upsert batch-inserts each record with its vector under the vector name."""
         record = VectorRecord(id=uuid4(), vector=[0.1, 0.2], payload={"text": "a"})
         await store.upsert("c", [record])
-        insert = client._collection.data.insert
-        insert.assert_called_once()
-        kwargs = insert.call_args.kwargs
-        assert kwargs["properties"] == {"text": "a"}
-        assert kwargs["vector"] == {"vector": [0.1, 0.2]}
-        assert kwargs["uuid"] == str(record.id)
+        insert_many = client._collection.data.insert_many
+        insert_many.assert_called_once()
+        [obj] = insert_many.call_args.args[0]
+        assert obj.properties == {"text": "a"}
+        assert obj.vector == {"vector": [0.1, 0.2]}
+        assert obj.uuid == str(record.id)
+
+    async def test_upsert_batches_large_writes(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """Upsert issues one insert_many call per batch_size chunk."""
+        records = [VectorRecord(id=uuid4(), vector=[0.1], payload={}) for _ in range(5)]
+        await store.upsert("c", records, batch_size=2)
+        insert_many = client._collection.data.insert_many
+        assert insert_many.call_count == 3
+        assert [len(c.args[0]) for c in insert_many.call_args_list] == [2, 2, 1]
+
+    async def test_upsert_raises_on_batch_errors(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """A batch reporting errors raises instead of silently dropping records."""
+        client._collection.data.insert_many.return_value = make_batch_result(
+            has_errors=True, errors={0: "boom"}
+        )
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={})
+        with pytest.raises(VectorStoreError):
+            await store.upsert("c", [record])
 
     async def test_search_returns_hits(
         self, store: WeaviateVectorStore, client
     ) -> None:
-        """Search maps objects to VectorHit objects."""
+        """Search maps a near_vector distance to a higher-is-closer score."""
         obj_id = str(uuid4())
-        obj = make_object(obj_id, 0.9, {"text": "a"})
+        obj = make_object(obj_id, {"text": "a"}, distance=0.1)
         client._collection.query.near_vector.return_value = make_response([obj])
         hits = await store.search("c", [0.1, 0.2], limit=5)
         assert len(hits) == 1
         assert isinstance(hits[0], VectorHit)
         assert hits[0].id == UUID(obj_id)
-        assert hits[0].score == 0.9
+        assert hits[0].score == pytest.approx(-0.1)
 
     async def test_hybrid_search_passes_text_and_vector(
         self, store: WeaviateVectorStore, client
     ) -> None:
         """hybrid_search forwards the text and dense vector to the backend."""
         obj_id = str(uuid4())
-        obj = make_object(obj_id, 0.8, {})
+        obj = make_object(obj_id, {}, score=0.8)
         client._collection.query.hybrid.return_value = make_response([obj])
         hits = await store.hybrid_search("c", [0.1, 0.2], "query text", alpha=0.3)
         assert len(hits) == 1
         assert hits[0].id == UUID(obj_id)
+        assert hits[0].score == 0.8
         kwargs = client._collection.query.hybrid.call_args.kwargs
         assert kwargs["query"] == "query text"
         assert kwargs["vector"] == [0.1, 0.2]
@@ -144,7 +218,7 @@ class TestWritesAndReads:
     ) -> None:
         """Scroll returns the page and the next cursor."""
         obj_id = str(uuid4())
-        obj = make_object(obj_id, 0.0, {"text": "a"}, [0.1])
+        obj = make_object(obj_id, {"text": "a"}, vector=[0.1])
         client._collection.query.fetch_objects.return_value = make_response([obj])
         records, offset = await store.scroll("c", limit=1, with_vectors=True)
         assert len(records) == 1
@@ -158,7 +232,7 @@ class TestWritesAndReads:
         """Retrieve maps the fetched object to a VectorRecord."""
         target_id = uuid4()
         client._collection.query.fetch_object_by_id.return_value = make_object(
-            str(target_id), 0.0, {"text": "a"}, [0.1]
+            str(target_id), {"text": "a"}, vector=[0.1]
         )
         records = await store.retrieve("c", [target_id])
         assert len(records) == 1

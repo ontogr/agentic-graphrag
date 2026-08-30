@@ -7,7 +7,10 @@ from uuid import UUID, uuid4
 import pytest
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
-from agrag.vectordb.errors import VectorStoreMissingExtraError
+from agrag.vectordb.errors import (
+    CollectionDimensionMismatchError,
+    VectorStoreMissingExtraError,
+)
 from agrag.vectordb.milvus import (
     MAX_RESPONSE_LIMIT,
     MilvusVectorStore,
@@ -17,6 +20,11 @@ from agrag.vectordb.milvus import (
 from agrag.vectordb.settings import MilvusSettings
 
 
+def _describe_collection(dim: int = 4) -> dict:
+    """Build a fake ``describe_collection`` response with the given dimension."""
+    return {"fields": [{"name": "vector", "params": {"dim": dim}}]}
+
+
 class FakeMilvusClient:
     """A stand-in for AsyncMilvusClient that records calls and returns stubs."""
 
@@ -24,13 +32,15 @@ class FakeMilvusClient:
         """Create the fake with async mocks for every used method."""
         self.list_collections = mock.AsyncMock(return_value=[])
         self.has_collection = mock.AsyncMock(return_value=False)
+        self.describe_collection = mock.AsyncMock(return_value=_describe_collection())
+        self.describe_index = mock.AsyncMock(return_value={"metric_type": "COSINE"})
         self.drop_collection = mock.AsyncMock()
         self.prepare_index_params = mock.MagicMock(
             return_value=SimpleNamespace(add_index=mock.MagicMock())
         )
         self.create_collection = mock.AsyncMock()
         self.load_collection = mock.AsyncMock()
-        self.insert = mock.AsyncMock()
+        self.upsert = mock.AsyncMock()
         self.search = mock.AsyncMock(return_value=[[{"id": "x", "distance": 0.9}]])
         self.hybrid_search = mock.AsyncMock(
             return_value=[[{"id": "x", "distance": 0.8}]]
@@ -76,28 +86,71 @@ class TestEnsureCollection:
         client.create_collection.assert_not_called()
         client.load_collection.assert_not_called()
 
+    async def test_dimension_mismatch_raises(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """A dimension conflict on an existing collection raises."""
+        client.has_collection.return_value = True
+        client.describe_collection.return_value = _describe_collection(dim=8)
+        with pytest.raises(CollectionDimensionMismatchError) as exc_info:
+            await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+        assert exc_info.value.expected == 8
+        assert exc_info.value.actual == 4
+
+    async def test_dimension_match_does_not_raise(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """A matching dimension on an existing collection passes silently."""
+        client.has_collection.return_value = True
+        client.describe_collection.return_value = _describe_collection(dim=4)
+        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+        client.create_collection.assert_not_called()
+
 
 class TestWritesAndReads:
     """upsert, search, hybrid_search, scroll, retrieve, count, delete."""
 
     async def test_upsert_inserts_rows(self, store: MilvusVectorStore, client) -> None:
-        """Upsert inserts each record with its vector, text, and payload JSON."""
+        """Upsert writes each record with its vector, text, and payload JSON."""
         record = VectorRecord(
             id=uuid4(), vector=[0.1, 0.2], payload={"text": "a", "n": 1}
         )
         await store.upsert("c", [record])
-        client.insert.assert_called_once()
-        row = client.insert.call_args.kwargs["data"][0]
+        client.upsert.assert_called_once()
+        row = client.upsert.call_args.kwargs["data"][0]
         assert row["id"] == str(record.id)
         assert row["vector"] == [0.1, 0.2]
         assert row["text"] == "a"
-        assert row["payload"] == '{"text": "a", "n": 1}'
+        assert row["payload"] == {"text": "a", "n": 1}
+
+    async def test_upsert_overwrites_existing_id(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """Upsert uses Milvus's upsert call, not insert, so a repeat id overwrites."""
+        record_id = uuid4()
+        first = VectorRecord(id=record_id, vector=[0.1], payload={"text": "old"})
+        second = VectorRecord(id=record_id, vector=[0.2], payload={"text": "new"})
+        await store.upsert("c", [first])
+        await store.upsert("c", [second])
+        assert client.upsert.call_count == 2
+        last_row = client.upsert.call_args.kwargs["data"][0]
+        assert last_row["payload"] == {"text": "new"}
+
+    async def test_upsert_normalizes_non_json_native_values(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """A UUID payload value is stringified before writing, as it was before."""
+        payload_uuid = uuid4()
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={"ref": payload_uuid})
+        await store.upsert("c", [record])
+        row = client.upsert.call_args.kwargs["data"][0]
+        assert row["payload"] == {"ref": str(payload_uuid)}
 
     async def test_search_returns_hits(self, store: MilvusVectorStore, client) -> None:
         """Search maps rows to VectorHit objects."""
         obj_id = str(uuid4())
         client.search.return_value = [
-            [{"id": obj_id, "distance": 0.9, "payload": '{"text": "a"}'}]
+            [{"id": obj_id, "distance": 0.9, "payload": {"text": "a"}}]
         ]
         hits = await store.search("c", [0.1, 0.2], limit=5)
         assert len(hits) == 1
@@ -106,13 +159,44 @@ class TestWritesAndReads:
         assert hits[0].score == 0.9
         assert hits[0].payload == {"text": "a"}
 
+    async def test_search_inverts_euclidean_distance(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """An L2 collection's raw distance is negated so higher is closer."""
+        client.describe_index.return_value = {"metric_type": "L2"}
+        obj_id = str(uuid4())
+        client.search.return_value = [[{"id": obj_id, "distance": 0.5}]]
+        hits = await store.search("c", [0.1, 0.2], limit=5)
+        assert hits[0].score == pytest.approx(-0.5)
+
+    async def test_search_keeps_cosine_distance_as_is(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """A COSINE collection's distance field is already a similarity score."""
+        client.describe_index.return_value = {"metric_type": "COSINE"}
+        obj_id = str(uuid4())
+        client.search.return_value = [[{"id": obj_id, "distance": 0.5}]]
+        hits = await store.search("c", [0.1, 0.2], limit=5)
+        assert hits[0].score == pytest.approx(0.5)
+
+    async def test_search_uses_metric_cached_by_ensure_collection(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """A metric known from creation is not re-fetched on search."""
+        await store.ensure_collection("c", dimensions=4, distance=Distance.EUCLID)
+        obj_id = str(uuid4())
+        client.search.return_value = [[{"id": obj_id, "distance": 0.5}]]
+        hits = await store.search("c", [0.1, 0.2], limit=5)
+        client.describe_index.assert_not_called()
+        assert hits[0].score == pytest.approx(-0.5)
+
     async def test_hybrid_search_passes_requests(
         self, store: MilvusVectorStore, client
     ) -> None:
         """hybrid_search forwards the dense and sparse requests to the backend."""
         obj_id = str(uuid4())
         client.hybrid_search.return_value = [
-            [{"id": obj_id, "distance": 0.8, "payload": "{}"}]
+            [{"id": obj_id, "distance": 0.8, "payload": {}}]
         ]
         hits = await store.hybrid_search("c", [0.1, 0.2], "query text", alpha=0.3)
         assert len(hits) == 1
@@ -127,7 +211,7 @@ class TestWritesAndReads:
     ) -> None:
         """Scroll returns the page and the next offset when the page is full."""
         obj_id = str(uuid4())
-        client.query.return_value = [{"id": obj_id, "vector": [0.1], "payload": "{}"}]
+        client.query.return_value = [{"id": obj_id, "vector": [0.1], "payload": {}}]
         records, offset = await store.scroll("c", limit=1, with_vectors=True)
         assert len(records) == 1
         assert records[0].vector == [0.1]
@@ -147,8 +231,8 @@ class TestWritesAndReads:
         """Retrieve returns records in the requested id order, omitting misses."""
         first, second = uuid4(), uuid4()
         client.get.return_value = [
-            {"id": str(second), "vector": [0.1], "payload": "{}"},
-            {"id": str(first), "vector": [0.2], "payload": "{}"},
+            {"id": str(second), "vector": [0.1], "payload": {}},
+            {"id": str(first), "vector": [0.2], "payload": {}},
         ]
         records = await store.retrieve("c", [first, second])
         assert [r.id for r in records] == [first, second]
@@ -201,14 +285,20 @@ class TestFilterEscaping:
     def test_compile_neutralizes_operator_in_value(self) -> None:
         """An operator-looking value stays inside an escaped literal."""
         store = MilvusVectorStore(settings=MilvusSettings())
-        expr = store._compile_filter({"text": 'x" or 1==1'})
-        assert expr == 'text == "x\\" or 1==1"'
+        expr = store._compile_filter({"kind": 'x" or 1==1'})
+        assert expr == 'payload["kind"] == "x\\" or 1==1"'
 
     def test_compile_list_value(self) -> None:
         """A list value renders as an ``in`` clause."""
         store = MilvusVectorStore(settings=MilvusSettings())
         expr = store._compile_filter({"cat": ["a", "b"]})
-        assert expr == 'cat in ["a", "b"]'
+        assert expr == 'payload["cat"] in ["a", "b"]'
+
+    def test_compile_references_payload_json_field(self) -> None:
+        """A scalar filter compiles against the payload JSON field, not a bare field."""
+        store = MilvusVectorStore(settings=MilvusSettings())
+        expr = store._compile_filter({"kind": "doc"})
+        assert expr == 'payload["kind"] == "doc"'
 
     def test_compile_empty_is_blank(self) -> None:
         """An empty filter compiles to an empty expression."""

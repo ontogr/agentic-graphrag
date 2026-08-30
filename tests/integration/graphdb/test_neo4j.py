@@ -125,6 +125,155 @@ class TestNeo4jGraphStoreIntegration:
             await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await store.close()
 
+    async def test_parallel_relations_keep_separate_identity(self) -> None:
+        """Two same-type relations between the same nodes do not collapse."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
+        try:
+            start_id = uuid4()
+            end_id = uuid4()
+            await store.upsert_nodes(
+                label,
+                [
+                    NodeRecord(id=start_id, labels=[label], properties={"name": "a"}),
+                    NodeRecord(id=end_id, labels=[label], properties={"name": "b"}),
+                ],
+            )
+            relations = [
+                RelationRecord(
+                    id=uuid4(),
+                    type="RELATES",
+                    start_id=start_id,
+                    end_id=end_id,
+                    properties={"source": "doc1"},
+                ),
+                RelationRecord(
+                    id=uuid4(),
+                    type="RELATES",
+                    start_id=start_id,
+                    end_id=end_id,
+                    properties={"source": "doc2"},
+                ),
+            ]
+            await store.upsert_relations(relations)
+            rows = await store.execute_read(
+                f"MATCH (:{label} {{id: $start_id}})-[r:RELATES]->"
+                f"(:{label} {{id: $end_id}}) RETURN r.id AS id, r.source AS source",
+                {"start_id": str(start_id), "end_id": str(end_id)},
+            )
+            assert {row["id"] for row in rows} == {
+                str(relations[0].id),
+                str(relations[1].id),
+            }
+            assert {row["source"] for row in rows} == {"doc1", "doc2"}
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.close()
+
+    async def test_repeated_write_of_one_id_updates_in_place(self) -> None:
+        """Writing the same relation id twice updates it, not duplicates it."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
+        try:
+            start_id = uuid4()
+            end_id = uuid4()
+            await store.upsert_nodes(
+                label,
+                [
+                    NodeRecord(id=start_id, labels=[label], properties={"name": "a"}),
+                    NodeRecord(id=end_id, labels=[label], properties={"name": "b"}),
+                ],
+            )
+            rel_id = uuid4()
+            await store.upsert_relations(
+                [
+                    RelationRecord(
+                        id=rel_id,
+                        type="RELATES",
+                        start_id=start_id,
+                        end_id=end_id,
+                        properties={"weight": 1.0},
+                    )
+                ]
+            )
+            await store.upsert_relations(
+                [
+                    RelationRecord(
+                        id=rel_id,
+                        type="RELATES",
+                        start_id=start_id,
+                        end_id=end_id,
+                        properties={"weight": 2.0},
+                    )
+                ]
+            )
+            rows = await store.execute_read(
+                f"MATCH (:{label} {{id: $start_id}})-[r:RELATES]->"
+                f"(:{label} {{id: $end_id}}) RETURN r.weight AS weight",
+                {"start_id": str(start_id), "end_id": str(end_id)},
+            )
+            assert len(rows) == 1
+            assert rows[0]["weight"] == 2.0
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.close()
+
+    async def test_moving_endpoints_replaces_stale_relation(self) -> None:
+        """Re-writing a relation id with a new end node drops the old edge."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
+        try:
+            start_id = uuid4()
+            first_end_id = uuid4()
+            second_end_id = uuid4()
+            await store.upsert_nodes(
+                label,
+                [
+                    NodeRecord(id=start_id, labels=[label], properties={"name": "a"}),
+                    NodeRecord(
+                        id=first_end_id, labels=[label], properties={"name": "b"}
+                    ),
+                    NodeRecord(
+                        id=second_end_id, labels=[label], properties={"name": "c"}
+                    ),
+                ],
+            )
+            rel_id = uuid4()
+            await store.upsert_relations(
+                [
+                    RelationRecord(
+                        id=rel_id,
+                        type="RELATES",
+                        start_id=start_id,
+                        end_id=first_end_id,
+                        properties={},
+                    )
+                ]
+            )
+            await store.upsert_relations(
+                [
+                    RelationRecord(
+                        id=rel_id,
+                        type="RELATES",
+                        start_id=start_id,
+                        end_id=second_end_id,
+                        properties={},
+                    )
+                ]
+            )
+            rows = await store.execute_read(
+                f"MATCH (:{label} {{id: $start_id}})-[r:RELATES {{id: $rel_id}}]->"
+                f"(other:{label}) RETURN other.id AS end_id",
+                {"start_id": str(start_id), "rel_id": str(rel_id)},
+            )
+            assert [row["end_id"] for row in rows] == [str(second_end_id)]
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.close()
+
     @staticmethod
     async def _search_with_retry(
         store: Neo4jGraphStore, label: str, vector: list[float]

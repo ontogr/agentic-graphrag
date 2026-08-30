@@ -5,25 +5,45 @@ from collections.abc import Sequence
 
 
 class EmbeddingCache(ABC):
-    """A content-addressed cache for embedding vectors."""
+    """A content-addressed cache for embedding vectors.
+
+    ``normalize`` is part of the cache key alongside ``text`` and ``model``
+    because it changes the vector an embedder produces for the same text and
+    model: without it, embedders sharing one cache but configured with
+    opposite ``EmbeddingSettings.normalize`` values would read back the wrong
+    output mode. Any future embedder setting that changes output values must
+    join this key the same way.
+    """
 
     @abstractmethod
-    async def get(self, *, text: str, model: str) -> list[float] | None:
-        """Return the cached vector for ``(text, model)``, or ``None`` on a miss."""
+    async def get(
+        self, *, text: str, model: str, normalize: bool
+    ) -> list[float] | None:
+        """Return the cached vector for ``(text, model, normalize)``.
+
+        Returns:
+            The cached vector, or ``None`` on a miss.
+        """
 
     @abstractmethod
-    async def set(self, *, text: str, model: str, vector: list[float]) -> None:
-        """Store ``vector`` under ``(text, model)``."""
+    async def set(
+        self, *, text: str, model: str, normalize: bool, vector: list[float]
+    ) -> None:
+        """Store ``vector`` under ``(text, model, normalize)``."""
 
 
 class NullEmbeddingCache(EmbeddingCache):
     """A cache that never stores anything. The default when none is injected."""
 
-    async def get(self, *, text: str, model: str) -> list[float] | None:
+    async def get(
+        self, *, text: str, model: str, normalize: bool
+    ) -> list[float] | None:
         """Always miss."""
         return None
 
-    async def set(self, *, text: str, model: str, vector: list[float]) -> None:
+    async def set(
+        self, *, text: str, model: str, normalize: bool, vector: list[float]
+    ) -> None:
         """Do nothing."""
 
 

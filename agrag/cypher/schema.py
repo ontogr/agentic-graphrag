@@ -32,6 +32,26 @@ def node_id_constraint_query(label: str) -> str:
     )
 
 
+def relation_id_constraint_query(rel_type: str) -> str:
+    """Build a CREATE CONSTRAINT query making ``id`` unique per relationship type.
+
+    This backs the stale-relationship lookup in ``upsert_relation_query`` with
+    an index and guarantees at most one relationship of ``rel_type`` carries a
+    given id.
+
+    Args:
+        rel_type: The relationship type. Must already be validated.
+
+    Returns:
+        A Cypher query creating the uniqueness constraint if absent.
+    """
+    safe_type = validate_identifier(rel_type)
+    return (
+        f"CREATE CONSTRAINT {safe_type}_rel_id_unique IF NOT EXISTS "
+        f"FOR ()-[r:{safe_type}]-() REQUIRE r.id IS UNIQUE"
+    )
+
+
 def plain_index_query(label: str) -> str:
     """Build a CREATE INDEX query on the node ``id`` property.
 

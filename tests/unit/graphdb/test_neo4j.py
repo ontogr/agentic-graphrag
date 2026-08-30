@@ -11,7 +11,7 @@ import pytest
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.vector_record import Distance
 from agrag.graphdb.errors import GraphStoreMissingExtraError
-from agrag.graphdb.neo4j import Neo4jGraphStore
+from agrag.graphdb.neo4j import _VECTOR_SEARCH_MAX_K, Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
 
 
@@ -132,8 +132,9 @@ class TestUpsertRelations:
         queries = [
             c.args[1] for c in store._driver.last_session.execute_write.call_args_list
         ]
-        assert any("-[r:MENTIONS]->" in q for q in queries)
-        assert any("-[r:LINKS]->" in q for q in queries)
+        assert any("-[r:MENTIONS {id: record.id}]->" in q for q in queries)
+        assert any("-[r:LINKS {id: record.id}]->" in q for q in queries)
+        assert store._known_relation_types == {"MENTIONS", "LINKS"}
 
 
 class TestEnsureVectorIndex:
@@ -170,6 +171,15 @@ class TestSetupIdempotent:
         assert len(constraint_calls) == 2
         assert len(index_calls) == 2
 
+    async def test_constraints_run_per_relation_type(self) -> None:
+        """setup_constraints also emits one DDL per tracked relation type."""
+        store = _store()
+        store._known_relation_types = {"MENTIONS", "LINKS"}
+        await store.setup_constraints()
+        writes = store._driver.last_session.execute_write.call_args_list
+        constraint_calls = [c.args[1] for c in writes if "rel_id_unique" in c.args[1]]
+        assert len(constraint_calls) == 2
+
 
 class TestVectorSearch:
     """vector_search maps native index result rows to VectorHit."""
@@ -198,6 +208,66 @@ class TestVectorSearch:
         assert hits[0].id == rid
         assert hits[0].score == pytest.approx(0.91)
         assert hits[0].payload == {"text": "sepsis"}
+
+    async def test_unfiltered_search_issues_one_call(self) -> None:
+        """Without filters, a single call is made even if results are sparse."""
+        store = _store()
+        store._driver.last_session.execute_read.return_value = []
+        await store.vector_search(
+            label="Chunk",
+            vector_property="embedding",
+            query_vector=[0.1, 0.2, 0.3, 0.4],
+            limit=5,
+        )
+        assert store._driver.last_session.execute_read.await_count == 1
+
+    async def test_overfetches_past_a_filtered_out_top_match(self) -> None:
+        """A closer node that fails the filter does not hide a farther match.
+
+        With ``limit=1`` the vector procedure's first pass (``k=1``) only
+        considers the single nearest node, which the filter excludes. Only
+        escalating ``k`` past the multiplier's second step surfaces the
+        farther, filter-matching node.
+        """
+        store = _store()
+        rid = uuid4()
+
+        def fake_execute_read(_run, _query, parameters):
+            if parameters["k"] < 16:
+                return []
+            return [
+                {
+                    "node": {"id": str(rid), "text": "note", "kind": "doc"},
+                    "score": 0.5,
+                }
+            ]
+
+        store._driver.last_session.execute_read.side_effect = fake_execute_read
+        hits = await store.vector_search(
+            label="Chunk",
+            vector_property="embedding",
+            query_vector=[0.1, 0.2, 0.3, 0.4],
+            limit=1,
+            filters={"kind": "doc"},
+        )
+        assert len(hits) == 1
+        assert hits[0].id == rid
+        assert store._driver.last_session.execute_read.await_count == 3
+
+    async def test_overfetch_gives_up_at_the_k_ceiling(self) -> None:
+        """A filter matching nothing stops escalating at the k ceiling."""
+        store = _store()
+        store._driver.last_session.execute_read.return_value = []
+        hits = await store.vector_search(
+            label="Chunk",
+            vector_property="embedding",
+            query_vector=[0.1, 0.2, 0.3, 0.4],
+            limit=1,
+            filters={"kind": "doc"},
+        )
+        assert hits == []
+        last_params = store._driver.last_session.execute_read.call_args.args[2]
+        assert last_params["k"] == _VECTOR_SEARCH_MAX_K
 
 
 class TestMissingExtra:

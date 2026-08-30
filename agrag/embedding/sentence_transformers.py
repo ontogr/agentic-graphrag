@@ -104,7 +104,11 @@ class SentenceTransformerEmbedder(Embedder):
         Returns:
             One vector per input text, in the same order.
         """
-        cached = [await self._cache.get(text=t, model=self.model) for t in texts]
+        normalize = self._settings.normalize
+        cached = [
+            await self._cache.get(text=t, model=self.model, normalize=normalize)
+            for t in texts
+        ]
         misses = [i for i, v in enumerate(cached) if v is None]
         if misses:
             model = await asyncio.to_thread(self._ensure_model)
@@ -112,12 +116,15 @@ class SentenceTransformerEmbedder(Embedder):
                 model.encode,
                 [texts[i] for i in misses],
                 batch_size=self._settings.batch_size,
-                normalize_embeddings=self._settings.normalize,
+                normalize_embeddings=normalize,
             )
             for i, vector in zip(misses, new_vectors, strict=True):
                 vector_list = list(vector.tolist())
                 cached[i] = vector_list
                 await self._cache.set(
-                    text=texts[i], model=self.model, vector=vector_list
+                    text=texts[i],
+                    model=self.model,
+                    normalize=normalize,
+                    vector=vector_list,
                 )
         return cast(list[list[float]], cached)
