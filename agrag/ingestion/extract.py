@@ -76,26 +76,6 @@ def _resolve_span(
     return start, start + len(text)
 
 
-def _pick_relation_endpoints(
-    source_candidates: list[int], target_candidates: list[int]
-) -> tuple[int, int] | None:
-    """Return a (source, target) index pair whose two indices differ, or None.
-
-    BAML relation endpoints are text-only, so text shared by more than one
-    entity yields more than one candidate per side, including when a
-    relation's source and target text are the same. This picks the first
-    pairing that keeps source and target distinct, so a relation between two
-    separate mentions of identical text still resolves instead of colliding
-    on one entity. Returns None when either side has no candidate at all, or
-    every combination collapses to a single entity.
-    """
-    for source in source_candidates:
-        for target in target_candidates:
-            if source != target:
-                return source, target
-    return None
-
-
 def _normalize_extraction_result(
     result: ExtractionResult, schema: GraphSchema
 ) -> ExtractionResult:
@@ -530,12 +510,15 @@ class BAMLExtractor(Extractor):
         BAML returns each relation's endpoints as text, not an index into
         ``raw.entities``, so duplicate surface text is inherently ambiguous:
         every entity sharing an endpoint's text is a candidate for that
-        endpoint. ``_pick_relation_endpoints`` picks the first candidate
-        pairing whose two indices differ, so a relation between two distinct
-        mentions of the same text still resolves instead of colliding on one
-        entity. A relation is dropped, not raised, when either endpoint's text
-        matches no entity or every candidate pairing collapses to a single
-        entity — one unresolvable relation should not fail the whole chunk.
+        endpoint. All distinct (source, target) pairings where the two
+        indices differ are produced. This avoids discarding a valid
+        relation when the first pairing by text has labels the schema
+        forbids but a later pairing matches a declared pattern.
+        ``_normalize_extraction_result`` keeps only schema-valid pairings,
+        so duplicate or wrong-label pairings are filtered downstream.
+        Unresolvable relations — either endpoint's text matches no entity,
+        or every pairing collapses to a single entity — are dropped, not
+        raised, so one bad relation does not fail the whole chunk.
 
         Every entity's span is verified against chunk.text via
         ``_resolve_span``: an LLM-invented span (its text doesn't occur in
@@ -582,21 +565,25 @@ class BAMLExtractor(Extractor):
 
         relations: list[ExtractedRelation] = []
         for relation in raw.relations:  # ty: ignore[unresolved-attribute]
-            endpoints = _pick_relation_endpoints(
-                text_index.get(relation.source_text, []),
-                text_index.get(relation.target_text, []),
-            )
-            if endpoints is None:
-                continue
-            source_index, target_index = endpoints
-            relations.append(
-                ExtractedRelation(
-                    chunk_id=chunk_id,
-                    label=relation.label,
-                    source_index=source_index,
-                    target_index=target_index,
-                )
-            )
+            source_candidates = text_index.get(relation.source_text, [])
+            target_candidates = text_index.get(relation.target_text, [])
+            seen_pairs: set[tuple[int, int]] = set()
+            for source_index in source_candidates:
+                for target_index in target_candidates:
+                    if source_index == target_index:
+                        continue
+                    pair = (source_index, target_index)
+                    if pair in seen_pairs:
+                        continue
+                    seen_pairs.add(pair)
+                    relations.append(
+                        ExtractedRelation(
+                            chunk_id=chunk_id,
+                            label=relation.label,
+                            source_index=source_index,
+                            target_index=target_index,
+                        )
+                    )
         return ExtractionResult(
             entities=entities, relations=relations, extractor_name="baml"
         )
