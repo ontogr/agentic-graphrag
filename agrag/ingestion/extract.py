@@ -76,6 +76,52 @@ def _resolve_span(
     return start, start + len(text)
 
 
+def _relation_patterns(schema: GraphSchema) -> dict[str, set[tuple[str, str]]]:
+    """Return each relation label's set of allowed (source, target) label pairs.
+
+    Args:
+        schema: The schema whose relations declare endpoint-label ``patterns``.
+
+    Returns:
+        A map from relation label to the union of its declared patterns.
+    """
+    allowed: dict[str, set[tuple[str, str]]] = {}
+    for relation_type in schema.relations:
+        allowed.setdefault(relation_type.label, set()).update(relation_type.patterns)
+    return allowed
+
+
+def _resolve_relation_pair(
+    relation: object,
+    text_index: dict[str, list[int]],
+    valid_raw_entities: list[tuple[Any, int, int]],
+    allowed_pairs: dict[str, set[tuple[str, str]]],
+) -> tuple[int, int] | None:
+    """Return the single (source, target) index pair for one raw relation.
+
+    BAML identifies endpoints only by surface text, so each endpoint's text
+    may match several entities. Walk candidate source/target indices in order
+    and return the first pair whose endpoint labels satisfy one of the
+    relation's declared ``patterns``. Return None when the relation label is
+    undeclared, an endpoint's text matches no entity, or every pairing
+    self-references; callers drop such relations rather than raise.
+    """
+    source_candidates = text_index.get(relation.source_text, [])  # ty: ignore[unresolved-attribute]
+    target_candidates = text_index.get(relation.target_text, [])  # ty: ignore[unresolved-attribute]
+    patterns = allowed_pairs.get(relation.label)  # ty: ignore[unresolved-attribute]
+    if patterns is None:
+        return None
+    for source_index in source_candidates:
+        for target_index in target_candidates:
+            if source_index == target_index:
+                continue
+            source_label = valid_raw_entities[source_index][0].label
+            target_label = valid_raw_entities[target_index][0].label
+            if (source_label, target_label) in patterns:
+                return (source_index, target_index)
+    return None
+
+
 def _normalize_extraction_result(
     result: ExtractionResult, schema: GraphSchema
 ) -> ExtractionResult:
@@ -105,11 +151,7 @@ def _normalize_extraction_result(
         index_remap[old_index] = len(valid_entities)
         valid_entities.append(entity)
 
-    allowed_pairs: dict[str, set[tuple[str, str]]] = {}
-    for relation_type in schema.relations:
-        allowed_pairs.setdefault(relation_type.label, set()).update(
-            relation_type.patterns
-        )
+    allowed_pairs = _relation_patterns(schema)
     valid_relations: list[ExtractedRelation] = []
     for relation in result.relations:
         if (
@@ -467,7 +509,7 @@ class BAMLExtractor(Extractor):
             ),
             retry,
         )
-        return _normalize_extraction_result(self._to_result(raw, chunk), schema)
+        return _normalize_extraction_result(self._to_result(raw, chunk, schema), schema)
 
     def _default_client(self) -> object:
         """Return the default generated BAML client."""
@@ -504,21 +546,25 @@ class BAMLExtractor(Extractor):
             )
         return builder
 
-    def _to_result(self, raw: object, chunk: Chunk) -> ExtractionResult:
+    def _to_result(
+        self, raw: object, chunk: Chunk, schema: GraphSchema
+    ) -> ExtractionResult:
         """Return an ExtractionResult, matching relation text back to entities.
 
         BAML returns each relation's endpoints as text, not an index into
         ``raw.entities``, so duplicate surface text is inherently ambiguous:
         every entity sharing an endpoint's text is a candidate for that
-        endpoint. All distinct (source, target) pairings where the two
-        indices differ are produced. This avoids discarding a valid
-        relation when the first pairing by text has labels the schema
-        forbids but a later pairing matches a declared pattern.
-        ``_normalize_extraction_result`` keeps only schema-valid pairings,
-        so duplicate or wrong-label pairings are filtered downstream.
-        Unresolvable relations — either endpoint's text matches no entity,
-        or every pairing collapses to a single entity — are dropped, not
-        raised, so one bad relation does not fail the whole chunk.
+        endpoint. Each raw relation yields at most one (source, target)
+        pair: the first candidate pairing whose endpoint labels satisfy one
+        of the relation's declared ``patterns``. Candidate pairings are
+        walked in index order, so a pairing whose labels the schema forbids
+        is skipped in favor of a later matching one — but once a
+        schema-valid pairing is found, the search for that relation stops
+        instead of emitting every compatible combination. An undeclared
+        relation label, an endpoint whose text matches no entity, or a
+        relation that collapses to a single entity (self-reference) yields
+        no pair and is dropped, not raised, so one bad relation does not
+        fail the whole chunk.
 
         Every entity's span is verified against chunk.text via
         ``_resolve_span``: an LLM-invented span (its text doesn't occur in
@@ -563,27 +609,24 @@ class BAMLExtractor(Extractor):
         for index, (entity, _, _) in enumerate(valid_raw_entities):
             text_index.setdefault(entity.text, []).append(index)
 
+        allowed_pairs = _relation_patterns(schema)
         relations: list[ExtractedRelation] = []
+        seen_pairs: set[tuple[int, int]] = set()
         for relation in raw.relations:  # ty: ignore[unresolved-attribute]
-            source_candidates = text_index.get(relation.source_text, [])
-            target_candidates = text_index.get(relation.target_text, [])
-            seen_pairs: set[tuple[int, int]] = set()
-            for source_index in source_candidates:
-                for target_index in target_candidates:
-                    if source_index == target_index:
-                        continue
-                    pair = (source_index, target_index)
-                    if pair in seen_pairs:
-                        continue
-                    seen_pairs.add(pair)
-                    relations.append(
-                        ExtractedRelation(
-                            chunk_id=chunk_id,
-                            label=relation.label,
-                            source_index=source_index,
-                            target_index=target_index,
-                        )
-                    )
+            chosen = _resolve_relation_pair(
+                relation, text_index, valid_raw_entities, allowed_pairs
+            )
+            if chosen is None or chosen in seen_pairs:
+                continue
+            seen_pairs.add(chosen)
+            relations.append(
+                ExtractedRelation(
+                    chunk_id=chunk_id,
+                    label=relation.label,
+                    source_index=chosen[0],
+                    target_index=chosen[1],
+                )
+            )
         return ExtractionResult(
             entities=entities, relations=relations, extractor_name="baml"
         )

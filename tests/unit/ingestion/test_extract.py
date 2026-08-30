@@ -66,6 +66,23 @@ _MULTI_LABEL_SCHEMA = GraphSchema(
     ],
 )
 
+# Schema whose only relation is a symmetric Person -> Person KNOWS, used to
+# test that one raw relation yields a single edge even when endpoint names
+# repeat (two distinct people called "Alice", or a self-reference across two
+# mentions of one name), rather than multiplying into both directions.
+_KNOWS_SCHEMA = GraphSchema(
+    name="knows",
+    version="1",
+    entities=[EntityType(label="Person", description="A named individual.")],
+    relations=[
+        RelationType(
+            label="KNOWS",
+            description="A person knows another person.",
+            patterns=[("Person", "Person")],
+        )
+    ],
+)
+
 
 def _chunk(
     text: str = "Ada Lovelace worked at the Analytical Engine Company.",
@@ -586,7 +603,7 @@ class TestBAMLExtractor:
         raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
 
         extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk)
+        result = extractor._to_result(raw, chunk, _ONE_PAIR_SCHEMA)
 
         assert len(result.entities) == 2
         assert result.entities[0].text == "Ada"
@@ -613,7 +630,7 @@ class TestBAMLExtractor:
         raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
 
         extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk)
+        result = extractor._to_result(raw, chunk, _ONE_PAIR_SCHEMA)
 
         assert len(result.entities) == 1
         assert len(result.relations) == 0
@@ -621,14 +638,15 @@ class TestBAMLExtractor:
     async def test_to_result_resolves_self_referencing_relation_between_duplicates(
         self,
     ) -> None:
-        """A relation whose source and target text match resolves to two entities.
+        """One raw relation between two same-named people yields a single edge.
 
         BAML relations carry no entity identity beyond surface text, so a
-        relation between two distinct people who share a name (or the model
-        double-counting one) reports the same text for both endpoints. The
-        old text-only-keyed lookup mapped both endpoints to one index, and
-        ExtractedRelation raised on the self-reference, aborting the whole
-        chunk. This must instead resolve the two distinct mentions.
+        relation between two distinct people who share a name reports the
+        same text for both endpoints. The old text-only-keyed lookup mapped
+        both endpoints to one index, and ExtractedRelation raised on the
+        self-reference, aborting the whole chunk. Resolving the two distinct
+        mentions is right, but the single declared relation must still become
+        exactly one (source, target) pair — not both directions.
         """
         chunk = _chunk("Ada met Bob; later Ada left.")
         second_ada_start = chunk.text.index("Ada", 1)
@@ -647,14 +665,13 @@ class TestBAMLExtractor:
         raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
 
         extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk)
+        result = extractor._to_result(raw, chunk, _KNOWS_SCHEMA)
 
-        # Both directions survive: (0->1) and (1->0). Normalization filters
-        # only by schema pattern, so symmetric KNOWS keeps both.
-        assert len(result.relations) == 2
-        for relation in result.relations:
-            assert relation.source_index != relation.target_index
-            assert {relation.source_index, relation.target_index} == {0, 1}
+        # Exactly one edge (0->1 or 1->0), not both directions.
+        assert len(result.relations) == 1
+        relation = result.relations[0]
+        assert relation.source_index != relation.target_index
+        assert {relation.source_index, relation.target_index} == {0, 1}
 
     async def test_to_result_drops_self_referencing_relation_with_one_candidate(
         self,
@@ -675,7 +692,7 @@ class TestBAMLExtractor:
         raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
 
         extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk)
+        result = extractor._to_result(raw, chunk, _KNOWS_SCHEMA)
 
         assert len(result.entities) == 1
         assert result.relations == []
@@ -703,7 +720,7 @@ class TestBAMLExtractor:
         raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
 
         extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk)
+        result = extractor._to_result(raw, chunk, _KNOWS_SCHEMA)
 
         assert len(result.entities) == 1
         assert result.relations == []
@@ -815,7 +832,7 @@ class TestBAMLExtractor:
         raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
 
         extractor = BAMLExtractor.__new__(BAMLExtractor)
-        result = extractor._to_result(raw, chunk)
+        result = extractor._to_result(raw, chunk, _MULTI_LABEL_SCHEMA)
 
         # Both labels survive despite sharing a span.
         assert len(result.entities) == 2
@@ -875,6 +892,70 @@ class TestBAMLExtractor:
         assert labels == {"Product", "Organization"}
         assert len(result.relations) == 1
         assert result.relations[0].label == "SELLS"
+
+    async def test_extract_does_not_multiply_relation_across_duplicate_names(
+        self,
+    ) -> None:
+        """One raw relation stays one edge when endpoint names repeat.
+
+        The chunk names two distinct People called "Alice" (at different
+        spans) and two called "Bob". A single KNOWS relation between "Alice"
+        and "Bob" must resolve to exactly one (source, target) pair, not the
+        four combinations the old Cartesian product would emit and not a
+        reversed duplicate.
+        """
+        chunk = _chunk("Alice met Bob. Alice also met Bob later.")
+        alice_first = chunk.text.index("Alice")
+        alice_second = chunk.text.index("Alice", alice_first + 1)
+        bob_first = chunk.text.index("Bob")
+        bob_second = chunk.text.index("Bob", bob_first + 1)
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                return SimpleNamespace(
+                    entities=[
+                        SimpleNamespace(
+                            label="Person",
+                            text="Alice",
+                            char_start=alice_first,
+                            char_end=alice_first + 5,
+                        ),
+                        SimpleNamespace(
+                            label="Person",
+                            text="Alice",
+                            char_start=alice_second,
+                            char_end=alice_second + 5,
+                        ),
+                        SimpleNamespace(
+                            label="Person",
+                            text="Bob",
+                            char_start=bob_first,
+                            char_end=bob_first + 3,
+                        ),
+                        SimpleNamespace(
+                            label="Person",
+                            text="Bob",
+                            char_start=bob_second,
+                            char_end=bob_second + 3,
+                        ),
+                    ],
+                    relations=[
+                        SimpleNamespace(
+                            label="KNOWS", source_text="Alice", target_text="Bob"
+                        )
+                    ],
+                )
+
+        extractor = BAMLExtractor(client=FakeClient())
+        result = await extractor.extract(chunk, _KNOWS_SCHEMA)
+
+        assert len(result.relations) == 1
+        relation = result.relations[0]
+        assert relation.label == "KNOWS"
+        assert relation.source_index != relation.target_index
+        # Source is an Alice (entity 0 or 1), target a Bob (entity 2 or 3).
+        assert relation.source_index in {0, 1}
+        assert relation.target_index in {2, 3}
 
     async def test_extract_drops_relation_referencing_a_hallucinated_entity(
         self,
