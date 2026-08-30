@@ -357,7 +357,15 @@ class Neo4jGraphStore(GraphStore):
         call can return fewer matches than actually exist. This escalates
         ``k`` and retries until ``limit`` filtered hits come back or the
         escalation reaches ``_VECTOR_SEARCH_MAX_K``.
+
+        Raises:
+            ValueError: ``limit`` is not positive. A non-positive value is
+                not a meaningful request and would send that same
+                non-positive ``k`` to Neo4j's native vector procedure, which
+                requires a positive top-k.
         """
+        if limit <= 0:
+            raise ValueError(f"limit must be positive, got {limit}")
         validate_identifier(label)
         validate_identifier(vector_property)
         index_name = vector_index_name(label, vector_property)

@@ -38,7 +38,7 @@ or examples only when they help the caller use the API correctly.
 
 - Inline comments must explain why the code exists, not what the code does.
 - Add comments only when they explain non-obvious business logic,
-  medical-domain constraints, safety concerns, algorithms, performance
+  domain-specific constraints, safety concerns, algorithms, performance
   tradeoffs, library workarounds, or temporary hacks with ticket references.
   Prefer clearer code over comments for ordinary control flow.
 - Do not leave AI-slop comments: no progress notes, literal findings,
@@ -62,7 +62,7 @@ or examples only when they help the caller use the API correctly.
   rely on, parameters, return values, raised interface exceptions, side effects,
   constraints, and edge cases.
 - Add brief explanation only when context is necessary to use the API correctly,
-  such as a non-obvious invariant, algorithm choice, medical-domain assumption,
+  such as a non-obvious invariant, algorithm choice, domain-specific assumption,
   or safety constraint.
 - Add short examples only when they materially clarify common usage. Keep them
   canonical, not exhaustive.
@@ -124,15 +124,15 @@ Use these local patterns when documenting common agrag component types.
 
 ```python
 class Entity(DataPoint):
-    """A resolved medical entity from the knowledge graph.
+    """A resolved entity from the knowledge graph.
 
     Identity is ``(canonical_name, label)``. An entity may accumulate aliases
     and provenance records across resolution runs.
 
     Attributes:
         name: Surface-form name as extracted from source text.
-        label: Medical entity type from the schema, such as ``Disease`` or
-            ``Drug``.
+        label: Entity type from the schema, such as ``Person`` or
+            ``Organization``.
         canonical_name: Resolved canonical identifier, or ``None`` before the
             resolve stage.
         aliases: Known alternate names.

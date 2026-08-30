@@ -14,11 +14,16 @@ class QdrantSettings(BaseSettings):
     Attributes:
         url: The Qdrant endpoint URL. Env: ``QDRANT_URL``.
         api_key: The Qdrant API key. Env: ``QDRANT_API_KEY``.
+        require_tls: When ``True``, reject a plaintext ``url`` to a non-local
+            host even with no ``api_key`` configured. Off by default since
+            many deployments run an unauthenticated Qdrant on a private
+            network and rely on network segmentation rather than transport
+            encryption. Env: ``QDRANT_REQUIRE_TLS``.
 
     Raises:
         ValueError: ``url`` is plaintext (``http``), points at a non-local
-            host, and ``api_key`` is set. Use ``https`` for a remote Qdrant
-            instance.
+            host, and either ``api_key`` is set or ``require_tls`` is
+            ``True``. Use ``https`` for a remote Qdrant instance.
     """
 
     model_config = SettingsConfigDict(
@@ -27,6 +32,7 @@ class QdrantSettings(BaseSettings):
 
     url: str = "http://localhost:6333"
     api_key: str = ""
+    require_tls: bool = False
 
     @model_validator(mode="after")
     def _require_encrypted_remote_connection(self) -> "QdrantSettings":
@@ -35,6 +41,7 @@ class QdrantSettings(BaseSettings):
             url=self.url,
             has_credential=bool(self.api_key),
             encrypted_schemes=frozenset({"https"}),
+            require_encryption=self.require_tls,
         )
         return self
 
@@ -53,11 +60,16 @@ class WeaviateSettings(BaseSettings):
         api_key: The Weaviate API key. Env: ``WEAVIATE_API_KEY``.
         grpc_port: The gRPC port, used by ``"custom"`` mode only (``"cloud"``
             mode infers it). Env: ``WEAVIATE_GRPC_PORT``.
+        require_tls: When ``True``, reject a plaintext ``url`` to a non-local
+            host even with no ``api_key`` configured. Off by default since
+            many deployments run an unauthenticated Weaviate on a private
+            network and rely on network segmentation rather than transport
+            encryption. Env: ``WEAVIATE_REQUIRE_TLS``.
 
     Raises:
         ValueError: ``url`` is plaintext (``http``), points at a non-local
-            host, and ``api_key`` is set. Use ``https`` for a remote Weaviate
-            instance.
+            host, and either ``api_key`` is set or ``require_tls`` is
+            ``True``. Use ``https`` for a remote Weaviate instance.
     """
 
     model_config = SettingsConfigDict(
@@ -68,6 +80,7 @@ class WeaviateSettings(BaseSettings):
     url: str = "http://localhost:8080"
     api_key: str = ""
     grpc_port: int = 50051
+    require_tls: bool = False
 
     @model_validator(mode="after")
     def _require_encrypted_remote_connection(self) -> "WeaviateSettings":
@@ -76,6 +89,7 @@ class WeaviateSettings(BaseSettings):
             url=self.url,
             has_credential=bool(self.api_key),
             encrypted_schemes=frozenset({"https"}),
+            require_encryption=self.require_tls,
         )
         return self
 
@@ -87,11 +101,16 @@ class MilvusSettings(BaseSettings):
         uri: The Milvus endpoint URI. Env: ``MILVUS_URI``.
         token: The Milvus auth token. Empty string for an unauthenticated
             instance. Env: ``MILVUS_TOKEN``.
+        require_tls: When ``True``, reject a plaintext ``uri`` to a
+            non-local host even with no ``token`` configured. Off by default
+            since many deployments run an unauthenticated Milvus on a
+            private network and rely on network segmentation rather than
+            transport encryption. Env: ``MILVUS_REQUIRE_TLS``.
 
     Raises:
         ValueError: ``uri`` is plaintext (``http``), points at a non-local
-            host, and ``token`` is set. Use ``https`` for a remote Milvus
-            instance.
+            host, and either ``token`` is set or ``require_tls`` is
+            ``True``. Use ``https`` for a remote Milvus instance.
     """
 
     model_config = SettingsConfigDict(
@@ -100,6 +119,7 @@ class MilvusSettings(BaseSettings):
 
     uri: str = "http://localhost:19530"
     token: str = ""
+    require_tls: bool = False
 
     @model_validator(mode="after")
     def _require_encrypted_remote_connection(self) -> "MilvusSettings":
@@ -108,5 +128,6 @@ class MilvusSettings(BaseSettings):
             url=self.uri,
             has_credential=bool(self.token),
             encrypted_schemes=frozenset({"https"}),
+            require_encryption=self.require_tls,
         )
         return self

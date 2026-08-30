@@ -25,6 +25,15 @@ class TestQdrantEncryptedRemoteConnection:
         with pytest.raises(ValueError, match="unencrypted"):
             QdrantSettings(url="http://example.com:6333", api_key="k")
 
+    def test_require_tls_rejects_remote_plaintext_without_credential(self) -> None:
+        """require_tls=True rejects a remote plaintext URL even with no api_key."""
+        with pytest.raises(ValueError, match="unencrypted"):
+            QdrantSettings(url="http://example.com:6333", require_tls=True)
+
+    def test_require_tls_allows_localhost_without_credential(self) -> None:
+        """require_tls=True still allows the local dev default."""
+        QdrantSettings(url="http://localhost:6333", require_tls=True)
+
 
 class TestWeaviateDefaults:
     """Defaults must pair a mode with a URL that mode can actually reach."""
@@ -51,6 +60,13 @@ class TestWeaviateEncryptedRemoteConnection:
         with pytest.raises(ValueError, match="unencrypted"):
             WeaviateSettings(mode="custom", url="http://example.com:8080", api_key="k")
 
+    def test_require_tls_rejects_remote_plaintext_without_credential(self) -> None:
+        """require_tls=True rejects a remote plaintext URL even with no api_key."""
+        with pytest.raises(ValueError, match="unencrypted"):
+            WeaviateSettings(
+                mode="custom", url="http://example.com:8080", require_tls=True
+            )
+
 
 class TestMilvusEncryptedRemoteConnection:
     """A plaintext URI to a non-local host carrying a token is rejected."""
@@ -63,3 +79,8 @@ class TestMilvusEncryptedRemoteConnection:
         """A remote host, plaintext scheme, and a credential together raise."""
         with pytest.raises(ValueError, match="unencrypted"):
             MilvusSettings(uri="http://example.com:19530", token="t")
+
+    def test_require_tls_rejects_remote_plaintext_without_credential(self) -> None:
+        """require_tls=True rejects a remote plaintext URI even with no token."""
+        with pytest.raises(ValueError, match="unencrypted"):
+            MilvusSettings(uri="http://example.com:19530", require_tls=True)

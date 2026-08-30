@@ -516,6 +516,27 @@ class TestVectorSearch:
         )
         assert store._driver.last_session.execute_read.await_count == 1
 
+    @pytest.mark.parametrize("limit", [0, -1])
+    async def test_rejects_non_positive_limit(self, limit: int) -> None:
+        """A non-positive limit raises instead of reaching Neo4j.
+
+        Regression guard: with filters set, a non-positive k starts the
+        escalation loop stuck comparing an always-satisfied
+        len(rows) >= limit against a k the overfetch multiplier can never
+        grow past zero, so it would keep querying Neo4j with that same
+        unusable k instead of escalating toward real candidates.
+        """
+        store = _store()
+        with pytest.raises(ValueError, match="positive"):
+            await store.vector_search(
+                label="Chunk",
+                vector_property="embedding",
+                query_vector=[0.1, 0.2, 0.3, 0.4],
+                limit=limit,
+                filters={"kind": "doc"},
+            )
+        store._driver.last_session.execute_read.assert_not_called()
+
     async def test_overfetches_past_a_filtered_out_top_match(self) -> None:
         """A closer node that fails the filter does not hide a farther match.
 

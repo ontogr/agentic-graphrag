@@ -351,6 +351,20 @@ class TestWritesAndReads:
         _, offset = await store.scroll("c", limit=2)
         assert offset == ids[-1]
 
+    async def test_scroll_zero_limit_returns_empty_page(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """limit=0 returns an empty page instead of crashing on an empty result.
+
+        Regression guard: ``len(rows) == safe_limit`` was true for an empty
+        result at ``limit=0``, so indexing ``rows[-1]`` raised ``IndexError``
+        instead of signaling there is no next page.
+        """
+        client.query.return_value = []
+        records, offset = await store.scroll("c", limit=0)
+        assert records == []
+        assert offset is None
+
     async def test_scroll_caps_response_limit(
         self, store: MilvusVectorStore, client
     ) -> None:

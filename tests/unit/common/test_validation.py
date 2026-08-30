@@ -22,8 +22,15 @@ class TestRequireEncryptedRemoteConnection:
             encrypted_schemes={"https"},
         )
 
-    def test_no_credential_always_allowed(self) -> None:
-        """No credential means nothing secret travels in the clear."""
+    def test_no_credential_allowed_by_default(self) -> None:
+        """Without require_encryption, no credential means nothing secret leaks.
+
+        Many production deployments run an unauthenticated backend on a
+        private network and rely on network segmentation rather than
+        transport encryption; this check cannot tell that apart from a
+        public host from the URL alone, so it is opt-in via
+        require_encryption rather than the default.
+        """
         require_encrypted_remote_connection(
             url="http://example.com:6333",
             has_credential=False,
@@ -58,6 +65,42 @@ class TestRequireEncryptedRemoteConnection:
             has_credential=True,
             encrypted_schemes={"https"},
         )
+
+    def test_require_encryption_allows_loopback_without_credential(self) -> None:
+        """require_encryption still allows a loopback host with no credential."""
+        require_encrypted_remote_connection(
+            url="http://localhost:6333",
+            has_credential=False,
+            encrypted_schemes={"https"},
+            require_encryption=True,
+        )
+
+    def test_require_encryption_allows_encrypted_remote_without_credential(
+        self,
+    ) -> None:
+        """require_encryption allows an encrypted remote host with no credential."""
+        require_encrypted_remote_connection(
+            url="https://example.com:6333",
+            has_credential=False,
+            encrypted_schemes={"https"},
+            require_encryption=True,
+        )
+
+    def test_require_encryption_rejects_remote_plaintext_without_credential(
+        self,
+    ) -> None:
+        """require_encryption rejects plaintext to a remote host even without one.
+
+        This is the opt-in stricter posture: a deployment that wants every
+        non-local connection encrypted, not just ones carrying a credential.
+        """
+        with pytest.raises(ValueError, match="unencrypted"):
+            require_encrypted_remote_connection(
+                url="http://example.com:6333",
+                has_credential=False,
+                encrypted_schemes={"https"},
+                require_encryption=True,
+            )
 
 
 class TestRequirePositiveBatchSize:

@@ -98,14 +98,20 @@ Set the variables for the one backend you use.
 
 | Backend | Variables |
 | --- | --- |
-| Qdrant | `QDRANT_URL`, `QDRANT_API_KEY` |
-| Weaviate | `WEAVIATE_URL`, `WEAVIATE_API_KEY` |
-| Milvus | `MILVUS_URI`, `MILVUS_TOKEN` |
+| Qdrant | `QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_REQUIRE_TLS` |
+| Weaviate | `WEAVIATE_URL`, `WEAVIATE_API_KEY`, `WEAVIATE_REQUIRE_TLS` |
+| Milvus | `MILVUS_URI`, `MILVUS_TOKEN`, `MILVUS_REQUIRE_TLS` |
 
 The default URLs point at plaintext `localhost`, for the Docker Compose
 services `make dev-services-up` starts. Settings construction raises if a URL
 uses a plaintext scheme (`http`), points at a non-local host, and carries an
 API key or token: use `https://` for any remote deployment.
+
+An unauthenticated backend on a private network (a VPC, a cluster-internal
+service) is not flagged by default, since the settings cannot tell a private
+host from a public one from the URL alone. Set `*_REQUIRE_TLS=true` to reject
+plaintext to any non-local host regardless of credential, for a deployment
+that wants every remote connection encrypted.
 
 ### Write and search vectors
 

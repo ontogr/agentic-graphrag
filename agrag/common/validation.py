@@ -15,7 +15,11 @@ MAX_SEARCH_LIMIT = 16384
 
 
 def require_encrypted_remote_connection(
-    *, url: str, has_credential: bool, encrypted_schemes: Collection[str]
+    *,
+    url: str,
+    has_credential: bool,
+    encrypted_schemes: Collection[str],
+    require_encryption: bool = False,
 ) -> None:
     """Reject a plaintext connection to a non-local host carrying a credential.
 
@@ -26,27 +30,45 @@ def require_encrypted_remote_connection(
     remote host would leak credentials and data to network interception.
     Loopback hosts are always allowed, regardless of scheme or credential.
 
+    Without ``require_encryption``, a connection carrying no credential is
+    always allowed: many production deployments run an unauthenticated
+    backend on a private network (a VPC, a cluster-internal service) and
+    rely on network segmentation rather than transport encryption, and this
+    check cannot distinguish that from a public host from the URL alone.
+    ``require_encryption`` opts a deployment out of that default, for a
+    stricter posture where every non-local connection must be encrypted
+    regardless of credential.
+
     Args:
         url: The connection URL or URI to check.
         has_credential: Whether a credential (API key, token, password) is
             configured for this connection.
         encrypted_schemes: The URL schemes considered encrypted for this
             backend, for example ``{"https"}`` or ``{"bolt+s", "neo4j+s"}``.
+        require_encryption: When ``True``, reject plaintext to a non-local
+            host even without a configured credential.
 
     Raises:
         ValueError: ``url`` uses a scheme outside ``encrypted_schemes``, its
-            host is not loopback, and ``has_credential`` is ``True``.
+            host is not loopback, and either ``has_credential`` or
+            ``require_encryption`` is ``True``.
     """
-    if not has_credential:
+    if not has_credential and not require_encryption:
         return
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme in encrypted_schemes:
         return
     if parsed.hostname is None or parsed.hostname in _LOOPBACK_HOSTS:
         return
+    if has_credential:
+        raise ValueError(
+            f"{url!r} uses an unencrypted scheme ({parsed.scheme!r}) but sends a "
+            f"configured credential to a non-local host; use one of "
+            f"{sorted(encrypted_schemes)} instead"
+        )
     raise ValueError(
-        f"{url!r} uses an unencrypted scheme ({parsed.scheme!r}) but sends a "
-        f"configured credential to a non-local host; use one of "
+        f"{url!r} uses an unencrypted scheme ({parsed.scheme!r}) to a non-local "
+        f"host, and encryption is required for this connection; use one of "
         f"{sorted(encrypted_schemes)} instead"
     )
 

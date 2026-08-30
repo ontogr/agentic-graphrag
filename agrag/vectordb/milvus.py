@@ -681,7 +681,7 @@ class MilvusVectorStore(VectorStore):
             order_by="id:asc",
         )
         records = [self._to_record(row) for row in rows]
-        next_offset = rows[-1]["id"] if len(rows) == safe_limit else None
+        next_offset = rows[-1]["id"] if rows and len(rows) == safe_limit else None
         return records, next_offset
 
     async def retrieve(
