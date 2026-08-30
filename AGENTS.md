@@ -295,9 +295,10 @@ comments.
 - Types belong in annotations, not repeated in docstrings unless annotations are
   insufficient to describe units, shapes, or accepted values.
 - Inline comments explain why, not what. Do not add comments that restate code.
-- Add comments only when they explain non-obvious business logic, medical-domain
-  constraints, safety concerns, algorithms, performance tradeoffs, or library
-  workarounds. Prefer clearer code over comments for ordinary control flow.
+- Add comments only when they explain non-obvious business logic,
+  domain-specific constraints, safety concerns, algorithms, performance
+  tradeoffs, or library workarounds. Prefer clearer code over comments for
+  ordinary control flow.
 - Do not add AI-progress notes, implementation transcripts, or comments saying
   something now works.
 - Do not put comments at the end of code lines; place them above the relevant

@@ -1,0 +1,226 @@
+---
+sidebar_position: 2
+title: Configure storage backends
+---
+
+# Configure storage backends
+
+This guide sets up an embedder, a vector store, and a graph store. Use it
+before you store or search embeddings.
+
+## Install
+
+Install the core package. Then install one extra for each backend you use.
+
+```bash
+uv pip install agentic-graphrag
+uv pip install "agentic-graphrag[embed-local]"   # local embedding models
+uv pip install "agentic-graphrag[qdrant]"        # Qdrant vector store
+uv pip install "agentic-graphrag[weaviate]"      # Weaviate vector store
+uv pip install "agentic-graphrag[milvus]"        # Milvus vector store
+uv pip install "agentic-graphrag[neo4j]"         # Neo4j graph store
+```
+
+You must install at least one vector store extra to use `VectorStore`. You
+must install the `neo4j` extra to use `GraphStore`.
+
+## Set up the embedder
+
+`build_embedder` takes a sentence-transformers model name. It returns a
+ready-to-use embedder. The default model is `ibm-granite/granite-embedding-
+small-english-r2`.
+
+```python
+from agrag.embedding import build_embedder
+
+embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+vectors = await embedder.embed(["first passage", "second passage"])
+print(embedder.dimensions)  # the vector length this model produces
+```
+
+To use a different model, or to set the device or batch size, build a
+`SentenceTransformerEmbedder` yourself. Pass its own `EmbeddingSettings`.
+
+```python
+from agrag.embedding import EmbeddingSettings, SentenceTransformerEmbedder
+
+embedder = SentenceTransformerEmbedder(
+    settings=EmbeddingSettings(model="BAAI/bge-small-en-v1.5", device="cuda"),
+)
+```
+
+### Set embedder options with environment variables
+
+Set these variables instead of passing `EmbeddingSettings` fields in code.
+
+| Variable | Meaning |
+| --- | --- |
+| `EMBEDDING_MODEL` | The sentence-transformers model name. |
+| `EMBEDDING_DEVICE` | The device to load the model on. |
+| `EMBEDDING_NORMALIZE` | Whether to normalize output vectors. |
+| `EMBEDDING_BATCH_SIZE` | The number of texts per encode call. |
+
+## Set up a vector store
+
+`build_vector_store` takes a backend name. It reads connection settings from
+environment variables.
+
+```python
+from agrag.vectordb import build_vector_store
+from agrag.common.data_models.vector_record import Distance
+
+store = build_vector_store("qdrant")
+await store.initialize()
+await store.ensure_collection(
+    "chunks", dimensions=embedder.dimensions, distance=Distance.COSINE, hybrid=True
+)
+```
+
+Set `dimensions` to the value your embedder produces. `ensure_collection`
+raises an error if a collection with that name already exists with a
+different dimension. Pass `hybrid=True` to search the collection with
+`hybrid_search` later. Leave it out if you only need `search`.
+
+For full control, build a backend class yourself with its own settings.
+
+```python
+from agrag.vectordb.qdrant import QdrantVectorStore
+from agrag.vectordb.settings import QdrantSettings
+
+store = QdrantVectorStore(
+    settings=QdrantSettings(url="https://xyz.cloud.qdrant.io", api_key="...")
+)
+```
+
+### Set vector store credentials with environment variables
+
+Set the variables for the one backend you use.
+
+| Backend | Variables |
+| --- | --- |
+| Qdrant | `QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_REQUIRE_TLS` |
+| Weaviate | `WEAVIATE_URL`, `WEAVIATE_API_KEY`, `WEAVIATE_REQUIRE_TLS` |
+| Milvus | `MILVUS_URI`, `MILVUS_TOKEN`, `MILVUS_REQUIRE_TLS` |
+
+The default URLs point at plaintext `localhost`, for the Docker Compose
+services `make dev-services-up` starts. Settings construction raises if a URL
+uses a plaintext scheme (`http`), points at a non-local host, and carries an
+API key or token: use `https://` for any remote deployment.
+
+An unauthenticated backend on a private network (a VPC, a cluster-internal
+service) is not flagged by default, since the settings cannot tell a private
+host from a public one from the URL alone. Set `*_REQUIRE_TLS=true` to reject
+plaintext to any non-local host regardless of credential, for a deployment
+that wants every remote connection encrypted.
+
+### Write and search vectors
+
+Write vectors with `upsert`. Each record needs an id, a vector, and a payload.
+
+```python
+from uuid import uuid4
+from agrag.common.data_models.vector_record import VectorRecord
+
+record = VectorRecord(
+    id=uuid4(), vector=vectors[0], payload={"text": "first passage"}
+)
+await store.upsert("chunks", [record])
+```
+
+Search by vector alone with `search`. Search by vector and keyword together
+with `hybrid_search`.
+
+```python
+hits = await store.search("chunks", query_vector=vectors[0], limit=5)
+hits = await store.hybrid_search(
+    "chunks", query_vector=vectors[0], query_text="sepsis management", limit=5,
+)
+for hit in hits:
+    print(hit.id, hit.score, hit.payload)
+```
+
+## Set up a graph store
+
+Build a `Neo4jGraphStore` with `Neo4jSettings`. Call `connect` before you use
+it.
+
+```python
+from agrag.graphdb.neo4j import Neo4jGraphStore
+from agrag.graphdb.settings import Neo4jSettings
+
+store = Neo4jGraphStore(settings=Neo4jSettings())
+await store.connect()
+```
+
+### Set graph store credentials with environment variables
+
+| Variable | Meaning |
+| --- | --- |
+| `NEO4J_URI` | The Bolt connection URI. Use `neo4j+s://...` for Aura. |
+| `NEO4J_USERNAME` | The database username. |
+| `NEO4J_PASSWORD` | The database password. |
+| `NEO4J_DATABASE` | The target database name. |
+
+Neo4j always authenticates with a password, so settings construction raises
+if `NEO4J_URI` uses a plaintext scheme (`bolt://` or `neo4j://`) and points at
+a non-local host: use `neo4j+s://` (or `bolt+s://`) for a remote instance.
+
+### Write nodes
+
+Write nodes with `upsert_nodes`. Each record needs an id, its labels, and a
+properties map. Call `setup_constraints` after your first write of a label,
+so Neo4j knows which labels to constrain.
+
+```python
+from uuid import uuid4
+from agrag.common.data_models.graph_record import NodeRecord
+
+node = NodeRecord(
+    id=uuid4(),
+    labels=["Chunk"],
+    properties={"text": "first passage", "embedding": vectors[0]},
+)
+await store.upsert_nodes("Chunk", [node])
+await store.setup_constraints()
+```
+
+A node can carry more than one label. List every label the node should have in
+`labels`; `upsert_nodes` writes all of them, not only the `label` argument.
+Records with different label sets in the same call are grouped and written
+separately.
+
+```python
+tagged_node = NodeRecord(
+    id=uuid4(),
+    labels=["Chunk", "Entity"],
+    properties={"text": "sepsis protocol"},
+)
+await store.upsert_nodes("Chunk", [tagged_node])
+```
+
+Labels only ever accumulate. If a later upsert of the same node id lists
+fewer labels, the labels already on the node are kept, not removed.
+
+### Search vectors stored in the graph
+
+You can search vectors stored as node properties, without a separate vector
+store. First create a vector index on the property. Then search it.
+
+```python
+await store.ensure_vector_index(
+    label="Chunk",
+    vector_property="embedding",
+    dimensions=embedder.dimensions,
+    distance=Distance.COSINE,
+)
+hits = await store.vector_search(
+    label="Chunk", vector_property="embedding", query_vector=vectors[0], limit=5
+)
+```
+
+`vector_search` returns the same hit type `VectorStore.search` returns. Code
+that reads hits does not need to know which store produced them.
+
+## Next steps
+
+See the [API Reference](/api) for every parameter.

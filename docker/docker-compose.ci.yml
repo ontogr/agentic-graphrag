@@ -1,0 +1,139 @@
+# Local backends for GraphStore/VectorStore integration tests.
+#
+# Each service requires the same authentication its cloud counterpart does (Qdrant Cloud,
+# Weaviate Cloud, Zilliz Cloud, Neo4j Aura), so a test suite that forgets to pass credentials
+# fails locally too, not only against the real cloud service. See
+# thoughts/shared/decisions/0029-integration-test-backends-via-docker-compose-not-cloud-or-native-services.md
+# for why this exists as a compose file rather than GitHub Actions' native `services:` block, and
+# for the known gaps this stack does not cover (Aura's neo4j+s:// TLS enforcement and idle
+# timeout; Zilliz Cloud's gRPC response-size ceiling; Milvus auth is not yet enabled locally).
+#
+# Usage:
+#   docker compose -f docker/docker-compose.ci.yml up -d --wait
+#   docker compose -f docker/docker-compose.ci.yml down -v
+
+services:
+  neo4j:
+    image: neo4j:5.26.0-community
+    environment:
+      NEO4J_AUTH: neo4j/ci-test-password
+    ports:
+      - "7687:7687"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -O /dev/null -q http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    environment:
+      QDRANT__SERVICE__API_KEY: ci-test-qdrant-key
+    ports:
+      - "6333:6333"
+    # The qdrant image ships neither wget nor curl, so the readiness probe
+    # speaks raw HTTP over bash's /dev/tcp instead. Retries/start_period carry
+    # extra headroom for a cold, loaded CI runner starting five services at once.
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/6333 &&
+          printf 'GET /readyz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          head -n 1 <&3 | grep -q '200 OK'"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  weaviate:
+    image: semitechnologies/weaviate:1.27.7
+    environment:
+      QUERY_DEFAULTS_LIMIT: "25"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      DEFAULT_VECTORIZER_MODULE: "none"
+      ENABLE_MODULES: ""
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "false"
+      AUTHENTICATION_APIKEY_ENABLED: "true"
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: "ci-test-weaviate-key"
+      AUTHENTICATION_APIKEY_USERS: "ci@agrag.local"
+      AUTHORIZATION_ADMINLIST_ENABLED: "true"
+      AUTHORIZATION_ADMINLIST_USERS: "ci@agrag.local"
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -O /dev/null -q http://localhost:8080/v1/.well-known/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # Milvus standalone needs etcd (metadata) and MinIO (object storage) as sidecars, per Milvus's
+  # own official standalone docker-compose reference — mirrored here rather than hand-invented.
+  # Verify these three image tags against Milvus's current release docs before relying on this
+  # in CI; they were not executable in the environment that authored this file.
+  milvus-etcd:
+    image: quay.io/coreos/etcd:v3.5.18
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://milvus-etcd:2379
+      ETCD_DATA_DIR: /etcd-data
+    volumes:
+      - milvus-etcd-data:/etcd-data
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  milvus-minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: minio server /minio-data --console-address ":9001"
+    volumes:
+      - milvus-minio-data:/minio-data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  milvus:
+    image: milvusdb/milvus:v2.5.6
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: milvus-etcd:2379
+      MINIO_ADDRESS: milvus-minio:9000
+      MINIO_ACCESS_KEY_ID: minioadmin
+      MINIO_SECRET_ACCESS_KEY: minioadmin
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus-data:/var/lib/milvus
+    depends_on:
+      milvus-etcd:
+        condition: service_healthy
+      milvus-minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9091/healthz || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+volumes:
+  milvus-etcd-data:
+  milvus-minio-data:
+  milvus-data:

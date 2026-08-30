@@ -1,0 +1,759 @@
+"""Milvus vector-store backend."""
+
+import asyncio
+import json
+import re
+from collections.abc import Sequence
+from typing import Any
+from uuid import UUID
+
+from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
+from agrag.common.validation import (
+    require_positive_batch_size,
+    require_valid_alpha,
+    require_valid_search_limit,
+)
+from agrag.vectordb.base import VectorStore
+from agrag.vectordb.errors import (
+    CollectionDimensionMismatchError,
+    VectorStoreError,
+    VectorStoreMissingExtraError,
+)
+from agrag.vectordb.settings import MilvusSettings
+
+
+_ID_FIELD = "id"
+_VECTOR_FIELD = "vector"
+_TEXT_FIELD = "text"
+_SPARSE_FIELD = "sparse"
+_PAYLOAD_FIELD = "payload"
+
+# Every field ensure_collection provisions on a new collection. upsert and
+# hybrid_search always read and write all of them (Milvus has no per-call
+# hybrid toggle), so an existing collection missing any of these, or its
+# sparse (BM25) index, cannot actually serve this adapter's calls.
+_REQUIRED_FIELDS = frozenset(
+    {_ID_FIELD, _VECTOR_FIELD, _TEXT_FIELD, _SPARSE_FIELD, _PAYLOAD_FIELD}
+)
+
+# Milvus's self-hosted default gRPC response ceiling is roughly 64MB, but Zilliz
+# Cloud caps a single response at about 4MB. Cap the number of records returned
+# per page so a single scroll/retrieve call stays under that ceiling. This is a
+# conservative constant, not bisection/retry logic.
+MAX_RESPONSE_LIMIT = 16384
+
+_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _escape_field(name: str) -> str:
+    """Validate a filter field name is a safe Milvus identifier.
+
+    Args:
+        name: The payload key used as a filter field.
+
+    Returns:
+        ``name`` unchanged, once validated.
+
+    Raises:
+        ValueError: ``name`` is not a safe identifier (a real injection surface,
+            since Milvus filter syntax is a raw string).
+    """
+    if not _IDENTIFIER.match(name):
+        raise ValueError(f"invalid Milvus filter field: {name!r}")
+    return name
+
+
+def _escape_scalar(value: Any) -> str:
+    """Render a filter scalar as a Milvus expression literal.
+
+    Args:
+        value: A string, bool, int, or float to embed in a filter expression.
+
+    Returns:
+        The value as a safely escaped Milvus literal.
+
+    Raises:
+        TypeError: ``value`` is not a supported scalar type.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    raise TypeError(f"unsupported filter value type: {type(value).__name__}")
+
+
+def _escape_list(values: Sequence[Any]) -> str:
+    """Render a list filter value as a Milvus ``in`` clause body.
+
+    Args:
+        values: The values to match any of.
+
+    Returns:
+        The bracketed, comma-separated, escaped list.
+    """
+    return "[" + ", ".join(_escape_scalar(v) for v in values) + "]"
+
+
+def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Coerce a payload dict to values Milvus's JSON field can store.
+
+    Non-JSON-native values, such as ``UUID`` or ``datetime``, are stringified
+    the same way ``json.dumps(..., default=str)`` previously encoded them,
+    since the payload field now stores structured JSON rather than a string.
+
+    Args:
+        payload: The record payload to normalize.
+
+    Returns:
+        A JSON-round-tripped copy of ``payload``.
+    """
+    return json.loads(json.dumps(payload, default=str))
+
+
+def _payload_field_path(key: str) -> str:
+    """Build a Milvus JSON-path expression into the payload field.
+
+    Payload data has no top-level Milvus scalar fields to filter on, so a
+    filter key is compiled against ``payload``, the collection's JSON field,
+    instead.
+
+    Args:
+        key: The payload key used as a filter field.
+
+    Returns:
+        The JSON path expression, for example ``payload["kind"]``.
+
+    Raises:
+        ValueError: ``key`` is not a safe identifier.
+    """
+    safe_key = _escape_field(key)
+    return f'{_PAYLOAD_FIELD}["{safe_key}"]'
+
+
+class MilvusVectorStore(VectorStore):
+    """A ``VectorStore`` backed by Milvus, including native hybrid search.
+
+    The client connects lazily on first use, so constructing the store does not
+    open a network connection. Milvus performs BM25 server-side, so hybrid
+    search needs no client-side sparse embedder; the sparse vector is computed
+    by a Milvus ``Function`` from the ``text`` field on write and at query time.
+    """
+
+    def __init__(
+        self,
+        *,
+        settings: MilvusSettings | None = None,
+        client: Any | None = None,
+    ) -> None:
+        """Build the store.
+
+        Args:
+            settings: Milvus connection settings. Defaults to
+                ``MilvusSettings()``.
+            client: A pre-built ``AsyncMilvusClient``, for tests. When set,
+                ``__init__`` imports nothing and the store calls this object
+                directly instead of building one.
+        """
+        self._settings = settings or MilvusSettings()
+        self._client: Any = client
+        self._client_lock = asyncio.Lock()
+        self._collection_metrics: dict[str, str] = {}
+
+    async def _ensure_client(self) -> Any:
+        """Build the Milvus client once and cache it.
+
+        Concurrent first calls are serialized on ``_client_lock`` so only one
+        of them builds the client, rather than each racing to construct its
+        own.
+
+        Returns:
+            The connected client object.
+
+        Raises:
+            VectorStoreMissingExtraError: pymilvus is not installed.
+        """
+        if self._client is not None:
+            return self._client
+        async with self._client_lock:
+            if self._client is not None:
+                return self._client
+            try:
+                # Lazy import: a clean install must raise
+                # VectorStoreMissingExtraError, not ImportError, when
+                # pymilvus is absent.
+                from pymilvus import AsyncMilvusClient  # noqa: PLC0415
+            except ImportError as exc:
+                raise VectorStoreMissingExtraError("milvus") from exc
+            if self._settings.token:
+                self._client = AsyncMilvusClient(
+                    uri=self._settings.uri, token=self._settings.token
+                )
+            else:
+                self._client = AsyncMilvusClient(uri=self._settings.uri)
+        return self._client
+
+    def _milvus_metric(self, distance: Distance) -> str:
+        """Map our ``Distance`` to Milvus's metric-type name.
+
+        Args:
+            distance: The distance metric to map.
+
+        Returns:
+            The matching Milvus metric name.
+        """
+        return {
+            Distance.COSINE: "COSINE",
+            Distance.EUCLID: "L2",
+            Distance.DOT: "IP",
+        }[distance]
+
+    def _compile_filter(self, filters: dict[str, Any] | None) -> str:
+        """Build a Milvus filter expression from a flat-dict payload filter.
+
+        Args:
+            filters: A flat-dict filter: a scalar value means exact match, a
+                list value means any of, and all keys are AND-ed together.
+                ``None`` means no filter.
+
+        Returns:
+            A Milvus ``filter`` expression string, or ``""`` when ``filters`` is
+            empty.
+        """
+        if not filters:
+            return ""
+        clauses = []
+        for key, value in filters.items():
+            field = _payload_field_path(key)
+            if isinstance(value, list):
+                clauses.append(f"{field} in {_escape_list(value)}")
+            else:
+                clauses.append(f"{field} == {_escape_scalar(value)}")
+        return " and ".join(clauses)
+
+    @staticmethod
+    def _to_hit(row: dict[str, Any], *, invert_score: bool = False) -> VectorHit:
+        """Convert a Milvus result row to a ``VectorHit``.
+
+        Args:
+            row: A Milvus search/query result row.
+            invert_score: Negate the raw ``distance`` field so that higher
+                always means closer. Milvus reports literal Euclidean distance
+                for ``L2`` collections (lower is closer), unlike ``COSINE`` and
+                ``IP``, where the field is already a similarity.
+
+        Returns:
+            The equivalent hit.
+        """
+        raw = float(row.get("distance", 0.0))
+        return VectorHit(
+            id=UUID(str(row["id"])),
+            score=-raw if invert_score else raw,
+            payload=row.get(_PAYLOAD_FIELD) or {},
+        )
+
+    @staticmethod
+    def _to_record(row: dict[str, Any]) -> VectorRecord:
+        """Convert a Milvus result row to a ``VectorRecord``.
+
+        Args:
+            row: A Milvus query result row.
+
+        Returns:
+            The equivalent record.
+        """
+        vector = list(row.get(_VECTOR_FIELD) or [])
+        return VectorRecord(
+            id=UUID(str(row["id"])),
+            vector=vector,
+            payload=row.get(_PAYLOAD_FIELD) or {},
+        )
+
+    async def initialize(self) -> None:
+        """Check connectivity and authentication."""
+        client = await self._ensure_client()
+        await client.list_collections()
+
+    async def ensure_collection(
+        self, name: str, *, dimensions: int, distance: Distance, hybrid: bool = False
+    ) -> None:
+        """Create the collection if it does not exist.
+
+        Milvus performs BM25 server-side, so the sparse field and its ``Function``
+        are always provisioned; the ``hybrid`` flag is accepted for interface
+        parity but is a no-op here. An existing collection must already carry
+        this same fixed schema, since ``upsert`` and ``hybrid_search`` always
+        read and write every field regardless of ``hybrid``.
+
+        Args:
+            name: The collection name.
+            dimensions: The embedding dimension.
+            distance: The distance metric new collections use.
+            hybrid: Accepted for interface parity; ignored by Milvus.
+
+        Raises:
+            CollectionDimensionMismatchError: The collection exists with a
+                different dimension than ``dimensions``.
+            VectorStoreError: The collection exists but is missing a field or
+                index this adapter requires.
+        """
+        client = await self._ensure_client()
+        if await client.has_collection(name):
+            existing = await self._existing_dimension(client, name)
+            if existing is not None and existing != dimensions:
+                raise CollectionDimensionMismatchError(
+                    expected=existing, actual=dimensions
+                )
+            existing_fields = await self._existing_field_names(client, name)
+            missing_fields = _REQUIRED_FIELDS - existing_fields
+            has_sparse_index = await self._has_index(client, name, _SPARSE_FIELD)
+            if missing_fields or not has_sparse_index:
+                raise VectorStoreError(
+                    f"collection {name!r} already exists without the fields "
+                    "and sparse index this adapter requires "
+                    f"(missing fields: {sorted(missing_fields) or 'none'}, "
+                    f"sparse index present: {has_sparse_index}); create a new "
+                    "collection instead of reusing this one"
+                )
+            existing_metric = await self._existing_metric(client, name)
+            if existing_metric is not None:
+                self._collection_metrics[name] = existing_metric
+            return
+
+        # Deferred until after _ensure_client so a missing extra surfaces as
+        # VectorStoreMissingExtraError, not a raw ImportError.
+        from pymilvus import (  # noqa: PLC0415
+            CollectionSchema,
+            DataType,
+            FieldSchema,
+            Function,
+            FunctionType,
+        )
+
+        metric = self._milvus_metric(distance)
+        self._collection_metrics[name] = metric
+        fields = [
+            FieldSchema(
+                name=_ID_FIELD,
+                dtype=DataType.VARCHAR,
+                is_primary=True,
+                max_length=64,
+            ),
+            FieldSchema(
+                name=_VECTOR_FIELD,
+                dtype=DataType.FLOAT_VECTOR,
+                dim=dimensions,
+            ),
+            FieldSchema(
+                name=_TEXT_FIELD,
+                dtype=DataType.VARCHAR,
+                max_length=65535,
+                enable_analyzer=True,
+            ),
+            FieldSchema(name=_SPARSE_FIELD, dtype=DataType.SPARSE_FLOAT_VECTOR),
+            FieldSchema(name=_PAYLOAD_FIELD, dtype=DataType.JSON),
+        ]
+        bm25 = Function(
+            name="bm25",
+            function_type=FunctionType.BM25,
+            input_field_names=[_TEXT_FIELD],
+            output_field_names=[_SPARSE_FIELD],
+        )
+        schema = CollectionSchema(fields, functions=[bm25], enable_dynamic_field=False)
+        index_params = client.prepare_index_params()
+        index_params.add_index(
+            field_name=_VECTOR_FIELD, index_type="AUTOINDEX", metric_type=metric
+        )
+        index_params.add_index(
+            field_name=_SPARSE_FIELD,
+            index_type="SPARSE_INVERTED_INDEX",
+            metric_type="BM25",
+        )
+        await client.create_collection(
+            collection_name=name, schema=schema, index_params=index_params
+        )
+        await client.load_collection(name)
+
+    @staticmethod
+    async def _existing_dimension(client: Any, name: str) -> int | None:
+        """Read the configured dense-vector dimension of an existing collection.
+
+        Args:
+            client: The connected Milvus client.
+            name: The collection name.
+
+        Returns:
+            The dimension, or ``None`` if it cannot be determined.
+        """
+        description = await client.describe_collection(name)
+        for field in description.get("fields", []):
+            if field.get("name") == _VECTOR_FIELD:
+                dim = field.get("params", {}).get("dim")
+                return int(dim) if dim is not None else None
+        return None
+
+    @staticmethod
+    async def _existing_field_names(client: Any, name: str) -> set[str]:
+        """Read the configured field names of an existing collection.
+
+        Args:
+            client: The connected Milvus client.
+            name: The collection name.
+
+        Returns:
+            The configured field names.
+        """
+        description = await client.describe_collection(name)
+        return {field.get("name") for field in description.get("fields", [])}
+
+    @staticmethod
+    async def _has_index(client: Any, name: str, field: str) -> bool:
+        """Report whether ``field`` has a configured index on an existing collection.
+
+        Args:
+            client: The connected Milvus client.
+            name: The collection name.
+            field: The field to check for an index.
+
+        Returns:
+            Whether the field has an index.
+        """
+        from pymilvus.exceptions import MilvusException  # noqa: PLC0415
+
+        try:
+            info = await client.describe_index(collection_name=name, index_name=field)
+        except MilvusException:
+            return False
+        return bool(info)
+
+    @staticmethod
+    async def _existing_metric(client: Any, name: str) -> str | None:
+        """Read the configured similarity metric of an existing vector index.
+
+        Args:
+            client: The connected Milvus client.
+            name: The collection name.
+
+        Returns:
+            The Milvus metric name (for example ``"L2"``), or ``None`` if it
+            cannot be determined.
+        """
+        info = await client.describe_index(
+            collection_name=name, index_name=_VECTOR_FIELD
+        )
+        return info.get("metric_type") if info else None
+
+    async def _metric_for(self, client: Any, collection: str) -> str | None:
+        """Return the cached similarity metric for ``collection``, resolving it lazily.
+
+        Args:
+            client: The connected Milvus client.
+            collection: The collection name.
+
+        Returns:
+            The Milvus metric name, or ``None`` if it cannot be determined.
+        """
+        if collection not in self._collection_metrics:
+            metric = await self._existing_metric(client, collection)
+            if metric is not None:
+                self._collection_metrics[collection] = metric
+        return self._collection_metrics.get(collection)
+
+    async def collection_exists(self, name: str) -> bool:
+        """Report whether a collection exists.
+
+        Args:
+            name: The collection name.
+
+        Returns:
+            ``True`` if the collection exists.
+        """
+        client = await self._ensure_client()
+        return await client.has_collection(name)
+
+    async def delete_collection(self, name: str) -> None:
+        """Delete a collection and all its entities.
+
+        Args:
+            name: The collection name.
+        """
+        client = await self._ensure_client()
+        await client.drop_collection(name)
+        self.invalidate_collection(name)
+
+    def invalidate_collection(self, name: str) -> None:
+        """Drop cached distance-metric knowledge of a collection.
+
+        This store caches a collection's distance metric after the first
+        call that resolves it, on the assumption that it alone (via
+        ``ensure_collection``/``delete_collection``) owns the collection's
+        lifecycle for as long as this instance is in use. If something
+        outside this instance deletes and recreates a collection under the
+        same name with a different metric, call this first so the next call
+        re-resolves that collection's metric from the backend instead of
+        trusting the stale cache.
+
+        Args:
+            name: The collection name.
+        """
+        self._collection_metrics.pop(name, None)
+
+    async def upsert(
+        self,
+        collection: str,
+        records: Sequence[VectorRecord],
+        *,
+        batch_size: int = 256,
+    ) -> None:
+        """Write or overwrite records in a collection.
+
+        Args:
+            collection: The collection to write to.
+            records: The records to upsert, in order.
+            batch_size: The number of records per backend write call. Must be
+                positive.
+
+        Raises:
+            ValueError: ``batch_size`` is not positive.
+        """
+        require_positive_batch_size(batch_size)
+        client = await self._ensure_client()
+        for start in range(0, len(records), batch_size):
+            batch = records[start : start + batch_size]
+            data = [
+                {
+                    "id": str(record.id),
+                    _VECTOR_FIELD: record.vector,
+                    _TEXT_FIELD: record.payload.get(_TEXT_FIELD, ""),
+                    _PAYLOAD_FIELD: _normalize_payload(record.payload),
+                }
+                for record in batch
+            ]
+            await client.upsert(collection_name=collection, data=data)
+            await client.flush(collection_name=collection)
+
+    async def search(
+        self,
+        collection: str,
+        query_vector: Sequence[float],
+        *,
+        limit: int = 10,
+        filters: dict[str, Any] | None = None,
+    ) -> list[VectorHit]:
+        """Search by dense vector only.
+
+        Args:
+            collection: The collection to search.
+            query_vector: The dense query embedding.
+            limit: The maximum number of hits to return.
+            filters: A flat-dict filter on scalar fields.
+
+        Returns:
+            The matched hits, highest score first.
+
+        Raises:
+            ValueError: ``limit`` is not positive, or exceeds
+                ``MAX_SEARCH_LIMIT``.
+        """
+        require_valid_search_limit(limit)
+        client = await self._ensure_client()
+        response = await client.search(
+            collection_name=collection,
+            data=[list(query_vector)],
+            anns_field=_VECTOR_FIELD,
+            limit=limit,
+            filter=self._compile_filter(filters),
+            output_fields=["id", _PAYLOAD_FIELD],
+        )
+        invert = await self._metric_for(client, collection) == "L2"
+        return [self._to_hit(row, invert_score=invert) for row in response[0]]
+
+    async def hybrid_search(
+        self,
+        collection: str,
+        query_vector: Sequence[float],
+        query_text: str,
+        *,
+        limit: int = 10,
+        filters: dict[str, Any] | None = None,
+        alpha: float = 0.5,
+    ) -> list[VectorHit]:
+        """Search by dense vector and keyword text in one fused call.
+
+        Fusion uses Milvus's native weighted reranker, which normalizes each
+        request's scores before applying ``alpha``.
+
+        Args:
+            collection: The collection to search.
+            query_vector: The dense query embedding.
+            query_text: The query text, matched by BM25.
+            limit: The maximum number of hits to return.
+            filters: A flat-dict filter on scalar fields.
+            alpha: The dense/keyword balance. ``1.0`` is pure dense, ``0.0`` is
+                pure keyword.
+
+        Returns:
+            The fused hits, highest score first.
+
+        Raises:
+            ValueError: ``limit`` is not positive, or exceeds
+                ``MAX_SEARCH_LIMIT``, or ``alpha`` is outside ``[0.0, 1.0]``.
+        """
+        require_valid_search_limit(limit)
+        require_valid_alpha(alpha)
+        client = await self._ensure_client()
+
+        # Deferred until after _ensure_client so a missing extra surfaces as
+        # VectorStoreMissingExtraError, not a raw ImportError.
+        from pymilvus import AnnSearchRequest, WeightedRanker  # noqa: PLC0415
+
+        expr = self._compile_filter(filters)
+        dense_req = AnnSearchRequest(
+            data=[list(query_vector)],
+            anns_field=_VECTOR_FIELD,
+            param={},
+            limit=limit,
+            filter=expr or None,
+        )
+        sparse_req = AnnSearchRequest(
+            data=[query_text],
+            anns_field=_SPARSE_FIELD,
+            param={},
+            limit=limit,
+            filter=expr or None,
+        )
+        response = await client.hybrid_search(
+            collection_name=collection,
+            reqs=[dense_req, sparse_req],
+            ranker=WeightedRanker(alpha, 1 - alpha),
+            limit=limit,
+            output_fields=["id", _PAYLOAD_FIELD],
+        )
+        return [self._to_hit(row) for row in response[0]]
+
+    async def scroll(
+        self,
+        collection: str,
+        *,
+        limit: int = 100,
+        page_offset: str | None = None,
+        filters: dict[str, Any] | None = None,
+        with_vectors: bool = False,
+    ) -> tuple[list[VectorRecord], str | None]:
+        """Iterate records in a collection, in batches.
+
+        Milvus rejects a query whose ``offset + limit`` exceeds
+        ``MAX_RESPONSE_LIMIT``, so a numeric offset cannot page past that
+        many total records. Pages instead cursor on the ``id`` primary key:
+        each page filters on ``id > page_offset`` and orders by ``id``
+        ascending, which needs no offset at all and so never hits that
+        window regardless of collection size. The explicit order is load
+        bearing: without it, an unordered query result could omit rows at or
+        below the next cursor, permanently skipping them on the next page.
+
+        Args:
+            collection: The collection to read.
+            limit: The maximum number of records per page.
+            page_offset: The id cursor from a previous ``scroll`` call.
+            filters: A flat-dict filter on scalar fields.
+            with_vectors: Whether to return each record's vector.
+
+        Returns:
+            The page of records and the next page cursor, or ``None`` at the
+            end.
+        """
+        client = await self._ensure_client()
+        output_fields = ["id", _PAYLOAD_FIELD]
+        if with_vectors:
+            output_fields.append(_VECTOR_FIELD)
+        safe_limit = min(limit, MAX_RESPONSE_LIMIT)
+        expr = self._compile_filter(filters)
+        if page_offset is not None:
+            cursor_clause = f"id > {_escape_scalar(page_offset)}"
+            expr = f"{cursor_clause} and {expr}" if expr else cursor_clause
+        rows = await client.query(
+            collection_name=collection,
+            filter=expr,
+            output_fields=output_fields,
+            limit=safe_limit,
+            order_by="id:asc",
+        )
+        records = [self._to_record(row) for row in rows]
+        next_offset = rows[-1]["id"] if rows and len(rows) == safe_limit else None
+        return records, next_offset
+
+    async def retrieve(
+        self, collection: str, ids: Sequence[UUID]
+    ) -> list[VectorRecord]:
+        """Fetch records by id.
+
+        Requests at most ``MAX_RESPONSE_LIMIT`` ids per call, so a large
+        ``ids`` list cannot exceed Milvus's response-size ceiling in one
+        request the way sending every id at once would.
+
+        Args:
+            collection: The collection to read.
+            ids: The ids to fetch.
+
+        Returns:
+            The records that exist, in the requested order, omitting missing
+            ids.
+        """
+        client = await self._ensure_client()
+        if not ids:
+            return []
+        by_id: dict[str, dict[str, Any]] = {}
+        for start in range(0, len(ids), MAX_RESPONSE_LIMIT):
+            batch = ids[start : start + MAX_RESPONSE_LIMIT]
+            rows = await client.get(
+                collection_name=collection,
+                ids=[str(i) for i in batch],
+                output_fields=["id", _VECTOR_FIELD, _PAYLOAD_FIELD],
+            )
+            by_id.update({row["id"]: row for row in rows})
+        records = []
+        for item_id in ids:
+            row = by_id.get(str(item_id))
+            if row is not None:
+                records.append(self._to_record(row))
+        return records
+
+    async def count(
+        self, collection: str, *, filters: dict[str, Any] | None = None
+    ) -> int:
+        """Count records in a collection.
+
+        Args:
+            collection: The collection to count.
+            filters: A flat-dict filter on scalar fields.
+
+        Returns:
+            The number of matching records.
+        """
+        client = await self._ensure_client()
+        rows = await client.query(
+            collection_name=collection,
+            filter=self._compile_filter(filters),
+            output_fields=["count(*)"],
+        )
+        if not rows:
+            return 0
+        return int(rows[0]["count(*)"])
+
+    async def delete(self, collection: str, ids: Sequence[UUID]) -> None:
+        """Delete records by id.
+
+        Args:
+            collection: The collection to delete from.
+            ids: The ids to delete.
+        """
+        client = await self._ensure_client()
+        await client.delete(collection_name=collection, ids=[str(i) for i in ids])
+
+    async def close(self) -> None:
+        """Release the backend connection."""
+        if self._client is not None:
+            await self._client.close()
+            self._client = None

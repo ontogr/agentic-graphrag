@@ -42,11 +42,11 @@ test:
 
 test-integration:
 	uv run pytest tests/integration -v -n auto --dist loadscope \
-		--junitxml=pytest-integration-results.xml \
-		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
+		--junitxml=pytest-integration-results.xml
 
 dev-services-up:
-	docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 240
+	docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420
 
 dev-services-down:
 	docker compose -f docker/docker-compose.ci.yml down -v

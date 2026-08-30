@@ -1,0 +1,154 @@
+"""Tests for the Cypher schema builders."""
+
+import pytest
+
+from agrag.common.data_models.vector_record import Distance
+from agrag.cypher.schema import (
+    node_id_constraint_query,
+    plain_index_query,
+    relation_id_constraint_query,
+    vector_index_name,
+    vector_index_query,
+    vector_search_query,
+)
+
+
+class TestNodeConstraint:
+    """node_id_constraint_query builds a uniqueness constraint on id."""
+
+    def test_builds_unique_constraint(self) -> None:
+        """A uniqueness constraint on id is created if absent."""
+        q = node_id_constraint_query("Chunk")
+        assert "CREATE CONSTRAINT node_5_Chunk_id_unique IF NOT EXISTS" in q
+        assert "REQUIRE n.id IS UNIQUE" in q
+
+
+class TestRelationConstraint:
+    """relation_id_constraint_query builds a per-type uniqueness constraint."""
+
+    def test_builds_unique_constraint(self) -> None:
+        """A uniqueness constraint on id is created if absent."""
+        q = relation_id_constraint_query("MENTIONS")
+        assert "CREATE CONSTRAINT rel_8_MENTIONS_id_unique IF NOT EXISTS" in q
+        assert "FOR ()-[r:MENTIONS]-() REQUIRE r.id IS UNIQUE" in q
+
+
+class TestConstraintNamesDoNotCollide:
+    """Node and relationship constraint names never collide with each other.
+
+    Regression guard: a plain ``f"{name}_id_unique"`` /
+    ``f"{name}_rel_id_unique"`` join let a node label like ``"X_rel"`` and a
+    relationship type ``"X"`` both produce ``"X_rel_id_unique"``, so the
+    second ``CREATE CONSTRAINT ... IF NOT EXISTS`` would silently leave the
+    relationship type unconstrained.
+    """
+
+    def test_node_and_relation_with_the_collision_shape_do_not_collide(self) -> None:
+        """The exact reported shape: node label "X_rel", relationship type "X"."""
+        node_query = node_id_constraint_query("X_rel")
+        rel_query = relation_id_constraint_query("X")
+        node_name = node_query.split()[2]
+        rel_name = rel_query.split()[2]
+        assert node_name != rel_name
+
+    @pytest.mark.parametrize("name", ["Chunk", "X_rel", "rel_1_X"])
+    def test_same_text_as_node_and_relation_type_does_not_collide(
+        self, name: str
+    ) -> None:
+        """The same identifier used as both a label and a type stays disjoint."""
+        node_query = node_id_constraint_query(name)
+        rel_query = relation_id_constraint_query(name)
+        node_name = node_query.split()[2]
+        rel_name = rel_query.split()[2]
+        assert node_name != rel_name
+
+
+class TestPlainIndex:
+    """plain_index_query builds a range index on id."""
+
+    def test_builds_range_index(self) -> None:
+        """A range index on id is created if absent."""
+        q = plain_index_query("Chunk")
+        assert "CREATE INDEX Chunk_id_index IF NOT EXISTS" in q
+        assert "ON (n.id)" in q
+
+
+class TestVectorIndexName:
+    """vector_index_name derives a deterministic name from label and property."""
+
+    def test_deterministic(self) -> None:
+        """The index name length-prefixes the label and property."""
+        assert (
+            vector_index_name("Chunk", "embedding") == "idx_5_Chunk_9_embedding_vector"
+        )
+
+    def test_deterministic_across_calls(self) -> None:
+        """The same inputs always produce the same name."""
+        assert vector_index_name("Chunk", "embedding") == vector_index_name(
+            "Chunk", "embedding"
+        )
+
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [
+            (("A_B", "C"), ("A", "B_C")),
+            (("A", "B_C"), ("A_B", "C")),
+            (("A_B_C", "D"), ("A", "B_C_D")),
+        ],
+    )
+    def test_no_collision_across_underscore_placement(
+        self, first: tuple[str, str], second: tuple[str, str]
+    ) -> None:
+        """Underscore placement alone must not make two names collide.
+
+        A plain ``f"{label}_{property}_vector"`` join would let ``("A_B",
+        "C")`` and ``("A", "B_C")`` collide on ``"A_B_C_vector"``, making
+        ``ensure_vector_index`` reuse one index for two different label and
+        property pairs and ``vector_search`` search the wrong nodes.
+        """
+        assert vector_index_name(*first) != vector_index_name(*second)
+
+
+class TestVectorIndexQuery:
+    """vector_index_query maps Distance to Neo4j similarity functions."""
+
+    def test_cosine(self) -> None:
+        """Cosine maps to Neo4j's 'cosine' similarity function."""
+        q = vector_index_query("Chunk", "embedding", 4, Distance.COSINE)
+        name = vector_index_name("Chunk", "embedding")
+        assert f"CREATE VECTOR INDEX {name} IF NOT EXISTS" in q
+        assert "FOR (n:Chunk) ON (n.embedding)" in q
+        assert "`vector.similarity_function`: 'cosine'" in q
+        assert "`vector.dimensions`: 4" in q
+
+    def test_euclid(self) -> None:
+        """Euclid maps to Neo4j's 'euclidean' similarity function."""
+        q = vector_index_query("Chunk", "embedding", 4, Distance.EUCLID)
+        assert "`vector.similarity_function`: 'euclidean'" in q
+
+    def test_dot_unsupported(self) -> None:
+        """Neo4j vector indexes have no dot-product function."""
+        with pytest.raises(ValueError):
+            vector_index_query("Chunk", "embedding", 4, Distance.DOT)
+
+    def test_validates_label(self) -> None:
+        """An unsafe label is rejected."""
+        with pytest.raises(ValueError):
+            vector_index_query("Bad Label", "embedding", 4, Distance.COSINE)
+
+
+class TestVectorSearchQuery:
+    """vector_search_query builds the native vector procedure call."""
+
+    def test_no_filter(self) -> None:
+        """Without a filter the query calls the vector procedure and returns."""
+        q, params = vector_search_query("Chunk_embedding_vector")
+        assert "CALL db.index.vector.queryNodes($index, $k, $vector)" in q
+        assert "RETURN node, score" in q
+        assert params == {}
+
+    def test_with_filter(self) -> None:
+        """A filter is appended as a WHERE clause with its own parameters."""
+        q, params = vector_search_query("Chunk_embedding_vector", {"kind": "doc"})
+        assert "WHERE node.kind = $filter_kind" in q
+        assert params == {"filter_kind": "doc"}

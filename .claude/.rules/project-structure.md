@@ -1,8 +1,8 @@
 # Project Structure And Domain Map
 
 `agrag` is an Agentic GraphRAG system. It builds a
-knowledge graph from corpus text and answers medical/clinical questions with
-multi-strategy retrieval and LLM reasoning.
+knowledge graph from corpus text and answers questions with multi-strategy
+retrieval and LLM reasoning.
 
 ## Commands
 

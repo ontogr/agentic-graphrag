@@ -37,6 +37,11 @@ dependencies = [
 
 [project.optional-dependencies]
 docling = ["docling>=2.0"]
+embed-local = ["sentence-transformers>=5"]
+qdrant = ["qdrant-client>=1.12", "fastembed>=0.4"]
+weaviate = ["weaviate-client>=4.9"]
+milvus = ["pymilvus>=2.5.3"]
+neo4j = ["neo4j>=5.0"]
 observability = [
   "opentelemetry-sdk>=1.20",
   "opentelemetry-exporter-otlp>=1.20",
