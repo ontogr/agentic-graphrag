@@ -81,10 +81,10 @@ class TestSentenceTransformerEmbedderConstruction:
         embedder = SentenceTransformerEmbedder()
         assert embedder.model == "ibm-granite/granite-embedding-small-english-r2"
 
-    def test_dimensions_from_injected_model(self) -> None:
+    async def test_dimensions_from_injected_model(self) -> None:
         """Dimensions reflects the injected model's dimension."""
         embedder = SentenceTransformerEmbedder(model=FakeSentenceTransformer(dim=7))
-        assert embedder.dimensions == 7
+        assert await embedder.dimensions() == 7
 
     def test_model_not_loaded_on_construct(self) -> None:
         """Construction does not import or build the model."""
@@ -96,14 +96,14 @@ class TestSentenceTransformerEmbedderConstruction:
 class TestMissingExtra:
     """Without the extra installed, construction is fine but use raises."""
 
-    def test_dimensions_raises_missing_extra(self) -> None:
+    async def test_dimensions_raises_missing_extra(self) -> None:
         """Reading dimensions without the extra raises, not ImportError."""
         embedder = SentenceTransformerEmbedder()
         with (
             mock.patch.dict(sys.modules, {"sentence_transformers": None}),
             pytest.raises(EmbeddingMissingExtraError) as exc_info,
         ):
-            _ = embedder.dimensions
+            await embedder.dimensions()
         assert exc_info.value.extra == "embed-local"
 
     async def test_embed_raises_missing_extra(self) -> None:
@@ -178,6 +178,42 @@ class TestConcurrentModelLoad:
             await asyncio.gather(first, second)
 
         assert build_calls == 1
+
+    async def test_concurrent_dimensions_and_embed_build_model_once(self) -> None:
+        """dimensions() and embed() share one model build under concurrency.
+
+        Regression guard: dimensions() used to load the model through an
+        unlocked, synchronous path outside asyncio.to_thread, so it could
+        stall the event loop and build a second, independent model copy
+        while a concurrent embed() was already loading one through the lock.
+        """
+        build_calls = 0
+        entered = threading.Event()
+        release = threading.Event()
+
+        def slow_build(_self: SentenceTransformerEmbedder) -> FakeSentenceTransformer:
+            nonlocal build_calls
+            build_calls += 1
+            entered.set()
+            release.wait(timeout=5)
+            return FakeSentenceTransformer()
+
+        embedder = SentenceTransformerEmbedder()
+        with mock.patch.object(
+            SentenceTransformerEmbedder,
+            "_build_model",
+            autospec=True,
+            side_effect=slow_build,
+        ):
+            first = asyncio.create_task(embedder.embed(["a"]))
+            await asyncio.to_thread(entered.wait, 5)
+            second = asyncio.create_task(embedder.dimensions())
+            await asyncio.sleep(0.05)
+            release.set()
+            dims = (await asyncio.gather(first, second))[1]
+
+        assert build_calls == 1
+        assert dims == 4
 
     async def test_failed_build_can_be_retried(self) -> None:
         """A build failure does not permanently poison the embedder."""

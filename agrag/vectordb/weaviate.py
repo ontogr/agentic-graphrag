@@ -1,6 +1,7 @@
 """Weaviate vector-store backend."""
 
 import asyncio
+import contextlib
 import urllib.parse
 from collections.abc import Sequence
 from typing import Any
@@ -95,8 +96,15 @@ class WeaviateVectorStore(VectorStore):
                 )
             # use_async_with_custom / use_async_with_weaviate_cloud build a
             # disconnected client; we must connect it before any call, and
-            # only cache it in self._client once that succeeds.
-            await client.connect()
+            # only cache it in self._client once that succeeds. A failed
+            # connect must still close the client's HTTP/gRPC resources, or
+            # each retry leaks another pair of unclosed connections.
+            try:
+                await client.connect()
+            except Exception:
+                with contextlib.suppress(Exception):
+                    await client.close()
+                raise
             self._client = client
         return self._client
 

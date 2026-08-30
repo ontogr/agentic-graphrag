@@ -70,7 +70,26 @@ class TestConnectClose:
         driver = store._driver
         await store.close()
         assert driver.close.await_count == 1
-        assert store._driver is None
+
+    async def test_concurrent_first_calls_build_driver_once(self) -> None:
+        """Concurrent first calls build exactly one Neo4j driver, not one each."""
+        build_calls = 0
+        fake_driver = FakeDriver()
+
+        def fake_driver_ctor(*args, **kwargs):
+            nonlocal build_calls
+            build_calls += 1
+            return fake_driver
+
+        store = Neo4jGraphStore(settings=Neo4jSettings())
+        with mock.patch(
+            "neo4j.AsyncGraphDatabase.driver", side_effect=fake_driver_ctor
+        ):
+            first, second = await asyncio.gather(
+                store._ensure_driver(), store._ensure_driver()
+            )
+        assert build_calls == 1
+        assert first is second
 
 
 class TestExecute:

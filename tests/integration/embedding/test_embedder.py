@@ -28,10 +28,11 @@ class TestSentenceTransformerEmbedderIntegration:
         embedder = SentenceTransformerEmbedder()
         texts = ["first passage", "second passage", "third passage"]
         vectors = asyncio.run(embedder.embed(texts))
+        dimensions = asyncio.run(embedder.dimensions())
         assert len(vectors) == len(texts)
-        assert embedder.dimensions > 0
+        assert dimensions > 0
         for vector in vectors:
-            assert len(vector) == embedder.dimensions
+            assert len(vector) == dimensions
 
     def test_embed_is_deterministic(self) -> None:
         """The same text always yields the same vector."""
@@ -44,7 +45,7 @@ class TestSentenceTransformerEmbedderIntegration:
         """embed_one returns one vector of the embedder's dimension."""
         embedder = SentenceTransformerEmbedder()
         vector = asyncio.run(embedder.embed_one("a single passage"))
-        assert len(vector) == embedder.dimensions
+        assert len(vector) == asyncio.run(embedder.dimensions())
 
     def test_normalize_setting_changes_magnitude(self) -> None:
         """normalize=True yields near-unit vectors and differs from False."""
@@ -64,4 +65,4 @@ class TestSentenceTransformerEmbedderIntegration:
         """build_embedder builds a working embedder from a model name."""
         embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
         vector = asyncio.run(embedder.embed_one("configured by name"))
-        assert len(vector) == embedder.dimensions
+        assert len(vector) == asyncio.run(embedder.dimensions())

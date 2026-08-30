@@ -35,10 +35,13 @@ class _StubEmbedder(Embedder):
     """A minimal Embedder whose embed returns fixed per-text vectors."""
 
     model = "stub-model"
-    dimensions = 2
 
     def __init__(self) -> None:
         self.calls: list[list[str]] = []
+
+    async def dimensions(self) -> int:
+        """Return the fixed stub dimension."""
+        return 2
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return one fixed vector per input text."""

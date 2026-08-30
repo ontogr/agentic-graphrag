@@ -1,5 +1,6 @@
 """Milvus vector-store backend."""
 
+import asyncio
 import json
 import re
 from collections.abc import Sequence
@@ -144,10 +145,15 @@ class MilvusVectorStore(VectorStore):
         """
         self._settings = settings or MilvusSettings()
         self._client: Any = client
+        self._client_lock = asyncio.Lock()
         self._collection_metrics: dict[str, str] = {}
 
     async def _ensure_client(self) -> Any:
         """Build the Milvus client once and cache it.
+
+        Concurrent first calls are serialized on ``_client_lock`` so only one
+        of them builds the client, rather than each racing to construct its
+        own.
 
         Returns:
             The connected client object.
@@ -155,7 +161,11 @@ class MilvusVectorStore(VectorStore):
         Raises:
             VectorStoreMissingExtraError: pymilvus is not installed.
         """
-        if self._client is None:
+        if self._client is not None:
+            return self._client
+        async with self._client_lock:
+            if self._client is not None:
+                return self._client
             try:
                 # Lazy import: a clean install must raise
                 # VectorStoreMissingExtraError, not ImportError, when
@@ -543,15 +553,21 @@ class MilvusVectorStore(VectorStore):
     ) -> tuple[list[VectorRecord], str | None]:
         """Iterate records in a collection, in batches.
 
+        Milvus rejects a query whose ``offset + limit`` exceeds
+        ``MAX_RESPONSE_LIMIT``, so a numeric offset cannot page past that
+        many total records. Pages instead cursor on the ``id`` primary key:
+        each page filters on ``id > page_offset``, which needs no offset at
+        all and so never hits that window regardless of collection size.
+
         Args:
             collection: The collection to read.
             limit: The maximum number of records per page.
-            page_offset: The numeric offset from a previous ``scroll`` call.
+            page_offset: The id cursor from a previous ``scroll`` call.
             filters: A flat-dict filter on scalar fields.
             with_vectors: Whether to return each record's vector.
 
         Returns:
-            The page of records and the next page offset, or ``None`` at the
+            The page of records and the next page cursor, or ``None`` at the
             end.
         """
         client = await self._ensure_client()
@@ -559,16 +575,20 @@ class MilvusVectorStore(VectorStore):
         if with_vectors:
             output_fields.append(_VECTOR_FIELD)
         safe_limit = min(limit, MAX_RESPONSE_LIMIT)
-        offset = int(page_offset) if page_offset is not None else 0
+        expr = self._compile_filter(filters)
+        if page_offset is not None:
+            cursor_clause = f"id > {_escape_scalar(page_offset)}"
+            expr = f"{cursor_clause} and {expr}" if expr else cursor_clause
         rows = await client.query(
             collection_name=collection,
-            filter=self._compile_filter(filters),
+            filter=expr,
             output_fields=output_fields,
             limit=safe_limit,
-            offset=offset,
         )
         records = [self._to_record(row) for row in rows]
-        next_offset = str(offset + len(rows)) if len(rows) == safe_limit else None
+        next_offset = (
+            max(row["id"] for row in rows) if len(rows) == safe_limit else None
+        )
         return records, next_offset
 
     async def retrieve(

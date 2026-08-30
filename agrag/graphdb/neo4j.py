@@ -68,6 +68,7 @@ class Neo4jGraphStore(GraphStore):
         """
         self._settings = settings or Neo4jSettings()
         self._driver: Any = driver
+        self._driver_lock = asyncio.Lock()
         self._known_labels: set[str] = set()
         self._known_relation_types: set[str] = set()
         self._identity_constraint_ready = False
@@ -76,13 +77,21 @@ class Neo4jGraphStore(GraphStore):
     async def _ensure_driver(self) -> "AsyncDriver":
         """Build the Neo4j driver once and cache it.
 
+        Concurrent first calls are serialized on ``_driver_lock`` so only one
+        of them builds the driver, rather than each racing to construct its
+        own.
+
         Returns:
             The connected driver object.
 
         Raises:
             GraphStoreMissingExtraError: the neo4j driver is not installed.
         """
-        if self._driver is None:
+        if self._driver is not None:
+            return self._driver
+        async with self._driver_lock:
+            if self._driver is not None:
+                return self._driver
             try:
                 # Lazy import: a clean install must raise
                 # GraphStoreMissingExtraError, not ImportError, when neo4j is

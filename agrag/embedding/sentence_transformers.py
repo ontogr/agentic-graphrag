@@ -44,16 +44,18 @@ class SentenceTransformerEmbedder(Embedder):
         """The configured model name."""
         return self._settings.model
 
-    @property
-    def dimensions(self) -> int:
-        """The dimension the loaded model produces.
+    async def dimensions(self) -> int:
+        """Return the dimension the loaded model produces.
 
-        Accessing this loads the model the first time.
+        Calling this loads the model the first time, the same
+        lock-protected, worker-thread path ``embed`` uses, so it is safe to
+        call concurrently with ``embed`` without stalling the event loop or
+        loading a second copy of the model.
 
         Raises:
             EmbeddingMissingExtraError: sentence-transformers is not installed.
         """
-        return self._model_dimension(self._ensure_model())
+        return self._model_dimension(await self._ensure_model_async())
 
     @staticmethod
     def _model_dimension(model: Any) -> int:
@@ -94,28 +96,15 @@ class SentenceTransformerEmbedder(Embedder):
             cache_folder=self._settings.cache_folder,
         )
 
-    def _ensure_model(self) -> Any:
-        """Load the model once and cache it.
-
-        Returns:
-            The loaded model object.
-
-        Raises:
-            EmbeddingMissingExtraError: sentence-transformers is not installed.
-        """
-        if self._model is None:
-            self._model = self._build_model()
-        return self._model
-
     async def _ensure_model_async(self) -> Any:
         """Load the model once and cache it, safely under concurrent calls.
 
-        Unlike ``_ensure_model``, this is safe to call from multiple
-        concurrent ``embed`` calls: only the first caller through the lock
-        builds the model, in a worker thread so the event loop stays free,
-        and later callers reuse the cached instance instead of each loading
-        their own copy. A failed build leaves ``self._model`` unset, so the
-        next call retries instead of caching the failure.
+        Safe to call from multiple concurrent ``embed``/``dimensions`` calls:
+        only the first caller through the lock builds the model, in a worker
+        thread so the event loop stays free, and later callers reuse the
+        cached instance instead of each loading their own copy. A failed
+        build leaves ``self._model`` unset, so the next call retries instead
+        of caching the failure.
 
         Returns:
             The loaded model object.

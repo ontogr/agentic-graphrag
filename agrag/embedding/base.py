@@ -51,7 +51,15 @@ class Embedder(ABC):
     """A component that turns text into dense embedding vectors."""
 
     model: str
-    dimensions: int
+
+    @abstractmethod
+    async def dimensions(self) -> int:
+        """Return the dimension of the vectors this embedder produces.
+
+        Async because a lazily-loaded embedder may need to load its model to
+        answer, and that load must go through the same worker-thread/lock
+        path ``embed`` uses rather than blocking the event loop.
+        """
 
     @abstractmethod
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:

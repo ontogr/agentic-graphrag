@@ -25,10 +25,28 @@ class SparseEmbedder(ABC):
 
     @abstractmethod
     async def embed(self, texts: Sequence[str]) -> list[SparseVector]:
-        """Embed a batch of texts into sparse vectors.
+        """Embed a batch of documents into sparse vectors.
 
         Args:
-            texts: The texts to embed, in order.
+            texts: The document texts to embed, in order.
+
+        Returns:
+            One sparse vector per input text, in the same order.
+        """
+
+    @abstractmethod
+    async def query_embed(self, texts: Sequence[str]) -> list[SparseVector]:
+        """Embed a batch of search queries into sparse vectors.
+
+        Query-side sparse embedding is not always the same computation as
+        document-side embedding: BM25, for example, applies term-frequency
+        and document-length normalization on the document side but only a
+        uniform per-term weight on the query side, since IDF weighting is
+        applied by the sparse index at query time instead. Implementations
+        with no such asymmetry may implement this identically to ``embed``.
+
+        Args:
+            texts: The query texts to embed, in order.
 
         Returns:
             One sparse vector per input text, in the same order.

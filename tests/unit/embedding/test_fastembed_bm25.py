@@ -18,11 +18,19 @@ class FakeSparseModel:
     model_name = DEFAULT_BM25_MODEL
 
     def embed(self, texts: list[str]):
-        """Return one sparse vector per text, with int indices and float values."""
+        """Return one document sparse vector per text, weighted by index."""
         return [
             type("SV", (), {"indices": [i], "values": [1.0]})()
             for i, _ in enumerate(texts)
         ]
+
+    def query_embed(self, texts: list[str]):
+        """Return one query sparse vector per text, at a fixed index and weight.
+
+        Distinct output from ``embed`` so tests can prove ``query_embed``
+        delegates to this method, not the document-side ``embed``.
+        """
+        return [type("SV", (), {"indices": [9], "values": [1.0]})() for _ in texts]
 
 
 class TestFastEmbedBM25Construction:
@@ -56,6 +64,21 @@ class TestFastEmbedBM25Embed:
         assert all(isinstance(v, SparseVector) for v in vectors)
         assert vectors[0].indices == [0]
         assert vectors[0].values == [1.0]
+
+    async def test_query_embed_uses_query_side_weighting(self) -> None:
+        """query_embed delegates to the model's query_embed, not its embed.
+
+        Regression guard: BM25's document embedding applies term-frequency
+        and length-normalization weighting meant for passages. Sending
+        query text through that path instead of the model's query-side
+        method would rank matches incorrectly.
+        """
+        embedder = FastEmbedBM25Embedder(model=FakeSparseModel.model_name)
+        model = FakeSparseModel()
+        embedder._model = model
+        vectors = await embedder.query_embed(["a", "b"])
+        assert len(vectors) == 2
+        assert all(v.indices == [9] for v in vectors)
 
 
 class TestFastEmbedBM25ConcurrentLoad:

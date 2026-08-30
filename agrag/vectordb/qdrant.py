@@ -69,6 +69,7 @@ class QdrantVectorStore(VectorStore):
         settings: QdrantSettings | None = None,
         sparse_embedder: SparseEmbedder | None = None,
         client: Any | None = None,
+        models: Any | None = None,
     ) -> None:
         """Build the store.
 
@@ -80,11 +81,15 @@ class QdrantVectorStore(VectorStore):
             client: A pre-built ``AsyncQdrantClient``, for tests. When set,
                 ``__init__`` imports nothing and the store calls this object
                 directly instead of building one.
+            models: The ``qdrant_client.models`` module, for tests. Pair with
+                ``client`` so filter/payload helpers work without needing the
+                real ``qdrant_client`` package installed at all.
         """
         self._settings = settings or QdrantSettings()
         self._sparse_embedder = sparse_embedder
         self._client: Any = client
-        self._models: Any = None
+        self._models: Any = models
+        self._client_lock = asyncio.Lock()
         self._hybrid_collections: set[str] = set()
         self._checked_collections: set[str] = set()
         self._collection_distances: dict[str, Any] = {}
@@ -92,31 +97,37 @@ class QdrantVectorStore(VectorStore):
     async def _ensure_client(self) -> Any:
         """Build the Qdrant client once and cache it.
 
+        Concurrent first calls are serialized on ``_client_lock`` so only one
+        of them builds the client and resolves ``models``, rather than each
+        racing to construct its own.
+
         Returns:
             The connected client object.
 
         Raises:
             VectorStoreMissingExtraError: qdrant-client is not installed.
         """
-        if self._client is None:
-            try:
-                # Lazy import: a clean install must raise
-                # VectorStoreMissingExtraError, not ImportError, when
-                # qdrant-client is absent.
-                from qdrant_client import AsyncQdrantClient, models  # noqa: PLC0415
-            except ImportError as exc:
-                raise VectorStoreMissingExtraError("qdrant") from exc
-            self._models = models
-            self._client = AsyncQdrantClient(
-                url=self._settings.url,
-                api_key=self._settings.api_key or None,
-            )
-        elif self._models is None:
-            # A test injected a client; still resolve the models module so
-            # filter and payload helpers work without rebuilding a client.
-            from qdrant_client import models  # noqa: PLC0415
+        if self._client is not None and self._models is not None:
+            return self._client
+        async with self._client_lock:
+            if self._client is not None and self._models is not None:
+                return self._client
+            if self._models is None:
+                try:
+                    # Lazy import: a clean install must raise
+                    # VectorStoreMissingExtraError, not ImportError, when
+                    # qdrant-client is absent.
+                    from qdrant_client import models  # noqa: PLC0415
+                except ImportError as exc:
+                    raise VectorStoreMissingExtraError("qdrant") from exc
+                self._models = models
+            if self._client is None:
+                from qdrant_client import AsyncQdrantClient  # noqa: PLC0415
 
-            self._models = models
+                self._client = AsyncQdrantClient(
+                    url=self._settings.url,
+                    api_key=self._settings.api_key or None,
+                )
         return self._client
 
     def _ensure_sparse_embedder(self) -> SparseEmbedder:
@@ -521,7 +532,7 @@ class QdrantVectorStore(VectorStore):
             The blended hits, highest combined score first.
         """
         client = await self._ensure_client()
-        sparse = await self._ensure_sparse_embedder().embed([query_text])
+        sparse = await self._ensure_sparse_embedder().query_embed([query_text])
         sparse_vector = sparse[0]
         query_filter = self._compile_filter(filters)
         pool_limit = max(limit * _HYBRID_POOL_MULTIPLIER, limit)

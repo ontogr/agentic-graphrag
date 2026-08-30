@@ -1,5 +1,6 @@
 """Unit tests for the Milvus vector-store backend, with a mocked client."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest import mock
 from uuid import UUID, uuid4
@@ -218,13 +219,39 @@ class TestWritesAndReads:
     async def test_scroll_returns_records_and_offset(
         self, store: MilvusVectorStore, client
     ) -> None:
-        """Scroll returns the page and the next offset when the page is full."""
+        """Scroll returns the page and the next id cursor when the page is full."""
         obj_id = str(uuid4())
         client.query.return_value = [{"id": obj_id, "vector": [0.1], "payload": {}}]
         records, offset = await store.scroll("c", limit=1, with_vectors=True)
         assert len(records) == 1
         assert records[0].vector == [0.1]
-        assert offset == "1"
+        assert offset == obj_id
+
+    async def test_scroll_never_sends_offset(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """Scroll never sends a numeric offset, regardless of page depth.
+
+        Regression guard: Milvus rejects a query whose offset + limit
+        exceeds MAX_RESPONSE_LIMIT, so a numeric offset cannot page past
+        that many total records without eventually erroring and leaving
+        later records unread. The id cursor needs no offset at all.
+        """
+        obj_id = str(uuid4())
+        client.query.return_value = [{"id": obj_id, "vector": [0.1], "payload": {}}]
+        await store.scroll("c", limit=1, page_offset=str(uuid4()))
+        assert "offset" not in client.query.call_args.kwargs
+
+    async def test_scroll_filters_on_id_cursor(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """A follow-up page filters on ``id > page_offset``, combined with filters."""
+        cursor = str(uuid4())
+        client.query.return_value = []
+        await store.scroll("c", limit=10, page_offset=cursor, filters={"kind": "a"})
+        expr = client.query.call_args.kwargs["filter"]
+        assert f"id > {_escape_scalar(cursor)}" in expr
+        assert 'payload["kind"] == "a"' in expr
 
     async def test_scroll_caps_response_limit(
         self, store: MilvusVectorStore, client
@@ -341,3 +368,24 @@ class TestMissingExtra:
         ):
             await store.initialize()
         assert exc_info.value.extra == "milvus"
+
+
+class TestEnsureClientConcurrency:
+    """_ensure_client serializes concurrent first calls."""
+
+    async def test_concurrent_first_calls_build_client_once(self) -> None:
+        """Concurrent first calls build exactly one Milvus client, not one each."""
+        build_calls = 0
+
+        def fake_client_ctor(*args, **kwargs):
+            nonlocal build_calls
+            build_calls += 1
+            return object()
+
+        store = MilvusVectorStore(settings=MilvusSettings())
+        with mock.patch("pymilvus.AsyncMilvusClient", side_effect=fake_client_ctor):
+            first, second = await asyncio.gather(
+                store._ensure_client(), store._ensure_client()
+            )
+        assert build_calls == 1
+        assert first is second

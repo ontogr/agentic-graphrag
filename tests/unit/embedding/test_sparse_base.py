@@ -13,8 +13,12 @@ class _StubSparseEmbedder(SparseEmbedder):
     model = "stub"
 
     async def embed(self, texts: Sequence[str]) -> list[SparseVector]:
-        """Return one sparse vector per text."""
+        """Return one sparse vector per document text."""
         return [SparseVector(indices=[0], values=[1.0]) for _ in texts]
+
+    async def query_embed(self, texts: Sequence[str]) -> list[SparseVector]:
+        """Return one sparse vector per query text."""
+        return [SparseVector(indices=[1], values=[2.0]) for _ in texts]
 
 
 class TestSparseVector:
@@ -28,7 +32,7 @@ class TestSparseVector:
 
 
 class TestSparseEmbedder:
-    """SparseEmbedder is an abstract protocol with one method."""
+    """SparseEmbedder is an abstract protocol with a document and query method."""
 
     def test_cannot_instantiate(self) -> None:
         """The base class cannot be constructed directly."""
@@ -36,10 +40,18 @@ class TestSparseEmbedder:
             SparseEmbedder()  # type: ignore[abstract]
 
     async def test_stub_embed_returns_one_vector_per_text(self) -> None:
-        """A concrete embedder returns one sparse vector per input text."""
+        """A concrete embedder's embed returns one sparse vector per input text."""
         embedder = _StubSparseEmbedder()
         texts = ["alpha", "beta"]
         vectors = await embedder.embed(texts)
+        assert len(vectors) == 2
+        assert all(isinstance(v, SparseVector) for v in vectors)
+
+    async def test_stub_query_embed_returns_one_vector_per_text(self) -> None:
+        """A concrete embedder's query_embed returns one vector per input text."""
+        embedder = _StubSparseEmbedder()
+        texts = ["alpha", "beta"]
+        vectors = await embedder.query_embed(texts)
         assert len(vectors) == 2
         assert all(isinstance(v, SparseVector) for v in vectors)
 

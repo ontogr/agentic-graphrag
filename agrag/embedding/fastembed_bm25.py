@@ -79,10 +79,13 @@ class FastEmbedBM25Embedder(SparseEmbedder):
         return self._model
 
     async def embed(self, texts: Sequence[str]) -> list[SparseVector]:
-        """Embed a batch of texts into BM25 sparse vectors.
+        """Embed a batch of documents into BM25 sparse vectors.
+
+        Applies FastEmbed's document-side term-frequency and length
+        normalization weighting. Use ``query_embed`` for search queries.
 
         Args:
-            texts: The texts to embed, in order.
+            texts: The document texts to embed, in order.
 
         Returns:
             One sparse vector per input text, in the same order.
@@ -93,6 +96,41 @@ class FastEmbedBM25Embedder(SparseEmbedder):
             return list(model.embed(list(texts)))
 
         raw = await asyncio.to_thread(_encode)
+        return self._to_sparse_vectors(raw)
+
+    async def query_embed(self, texts: Sequence[str]) -> list[SparseVector]:
+        """Embed a batch of search queries into BM25 sparse vectors.
+
+        Uses FastEmbed's ``query_embed``, which assigns each unique query
+        term a uniform weight of ``1.0`` rather than the document-side
+        term-frequency and length-normalization weighting ``embed`` applies;
+        IDF weighting is applied separately by the sparse index's
+        ``Modifier.IDF`` at query time.
+
+        Args:
+            texts: The query texts to embed, in order.
+
+        Returns:
+            One sparse vector per input text, in the same order.
+        """
+        model = await self._ensure_model_async()
+
+        def _encode() -> list[Any]:
+            return list(model.query_embed(list(texts)))
+
+        raw = await asyncio.to_thread(_encode)
+        return self._to_sparse_vectors(raw)
+
+    @staticmethod
+    def _to_sparse_vectors(raw: list[Any]) -> list[SparseVector]:
+        """Convert FastEmbed's sparse embedding objects to ``SparseVector``.
+
+        Args:
+            raw: FastEmbed ``SparseEmbedding`` objects.
+
+        Returns:
+            One ``SparseVector`` per input, in the same order.
+        """
         return [
             SparseVector(
                 indices=[int(i) for i in sv.indices],

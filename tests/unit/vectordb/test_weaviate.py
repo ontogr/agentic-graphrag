@@ -375,6 +375,44 @@ class TestEnsureClientMode:
         assert client is working_client
         working_client.connect.assert_called_once()
 
+    async def test_failed_connect_closes_the_abandoned_client(self) -> None:
+        """A failed connect closes the local client instead of leaking it.
+
+        Regression guard: each retry after a connect failure built a new
+        HTTP/gRPC client without ever closing the one abandoned by the
+        previous failed attempt, leaking a pair of unclosed connections per
+        retry.
+        """
+        failing_client = mock.AsyncMock()
+        failing_client.connect.side_effect = RuntimeError("boom")
+        with mock.patch.object(
+            weaviate, "use_async_with_weaviate_cloud", return_value=failing_client
+        ):
+            store = WeaviateVectorStore(
+                settings=WeaviateSettings(
+                    mode="cloud", url="https://xyz.cloud.weaviate.io"
+                )
+            )
+            with pytest.raises(RuntimeError):
+                await store._ensure_client()
+        failing_client.close.assert_called_once()
+
+    async def test_close_failure_does_not_mask_connect_error(self) -> None:
+        """If cleanup close() also fails, the original connect error still raises."""
+        failing_client = mock.AsyncMock()
+        failing_client.connect.side_effect = RuntimeError("connect boom")
+        failing_client.close.side_effect = RuntimeError("close boom")
+        with mock.patch.object(
+            weaviate, "use_async_with_weaviate_cloud", return_value=failing_client
+        ):
+            store = WeaviateVectorStore(
+                settings=WeaviateSettings(
+                    mode="cloud", url="https://xyz.cloud.weaviate.io"
+                )
+            )
+            with pytest.raises(RuntimeError, match="connect boom"):
+                await store._ensure_client()
+
 
 class TestMissingExtra:
     """Without the extra installed, use raises, not ImportError."""

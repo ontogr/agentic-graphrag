@@ -1,5 +1,6 @@
 """Unit tests for the Qdrant vector-store backend, with a mocked client."""
 
+import asyncio
 import sys
 from types import SimpleNamespace
 from typing import Any
@@ -372,7 +373,7 @@ class TestWritesAndReads:
     ) -> None:
         """hybrid_search queries dense and sparse independently, then blends."""
         sparse = mock.AsyncMock()
-        sparse.embed = mock.AsyncMock(
+        sparse.query_embed = mock.AsyncMock(
             return_value=[SparseVector(indices=[0], values=[1.0])]
         )
         store._sparse_embedder = sparse
@@ -385,7 +386,7 @@ class TestWritesAndReads:
 
         client.query_points = mock.AsyncMock(side_effect=fake_query_points)
         hits = await store.hybrid_search("c", [0.1, 0.2], "query text")
-        sparse.embed.assert_called_once_with(["query text"])
+        sparse.query_embed.assert_called_once_with(["query text"])
         assert len(hits) == 1
         assert hits[0].id == UUID(point_id)
         assert client.query_points.call_count == 2
@@ -396,6 +397,27 @@ class TestWritesAndReads:
         )
         assert sparse_call.kwargs["query"].indices == [0]
         assert sparse_call.kwargs["query"].values == [1.0]
+
+    async def test_hybrid_search_never_calls_document_embed_for_query_text(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """hybrid_search embeds query text via query_embed, never document embed.
+
+        Regression guard: BM25 document embedding applies term-frequency and
+        length-normalization weighting meant for passages, not queries.
+        Sending query text through the document path can rank matches
+        incorrectly instead of using the uniform query-side weights the
+        sparse index's IDF modifier expects.
+        """
+        sparse = mock.AsyncMock()
+        sparse.query_embed = mock.AsyncMock(
+            return_value=[SparseVector(indices=[0], values=[1.0])]
+        )
+        store._sparse_embedder = sparse
+        client.query_points.return_value = make_response([])
+        await store.hybrid_search("c", [0.1, 0.2], "query text")
+        sparse.query_embed.assert_called_once_with(["query text"])
+        sparse.embed.assert_not_called()
 
     async def test_hybrid_search_inverts_dense_score_for_euclidean_collection(
         self, store: QdrantVectorStore, client
@@ -410,7 +432,7 @@ class TestWritesAndReads:
             4, distance=qdrant_models.Distance.EUCLID
         )
         sparse = mock.AsyncMock()
-        sparse.embed = mock.AsyncMock(
+        sparse.query_embed = mock.AsyncMock(
             return_value=[SparseVector(indices=[0], values=[1.0])]
         )
         store._sparse_embedder = sparse
@@ -432,7 +454,7 @@ class TestWritesAndReads:
     ) -> None:
         """alpha=1.0 ranks by dense only; alpha=0.0 ranks by sparse only."""
         sparse = mock.AsyncMock()
-        sparse.embed = mock.AsyncMock(
+        sparse.query_embed = mock.AsyncMock(
             return_value=[SparseVector(indices=[0], values=[1.0])]
         )
         store._sparse_embedder = sparse
@@ -657,3 +679,42 @@ class TestMissingExtra:
         ):
             await store.initialize()
         assert exc_info.value.extra == "qdrant"
+
+    async def test_injected_client_and_models_avoids_import(self) -> None:
+        """An injected client paired with injected models imports nothing.
+
+        Regression guard: a test-injected client alone still forced an
+        import of the real qdrant_client package to resolve ``models``,
+        defeating the point of the injection seam for environments without
+        the extra installed.
+        """
+        fake_client = FakeQdrantClient()
+        fake_models = SimpleNamespace()
+        store = QdrantVectorStore(client=fake_client, models=fake_models)
+        with mock.patch.dict(sys.modules, {"qdrant_client": None}):
+            result = await store._ensure_client()
+        assert result is fake_client
+        assert store._models is fake_models
+
+
+class TestEnsureClientConcurrency:
+    """_ensure_client serializes concurrent first calls."""
+
+    async def test_concurrent_first_calls_build_client_once(self) -> None:
+        """Concurrent first calls build exactly one Qdrant client, not one each."""
+        build_calls = 0
+
+        def fake_client_ctor(*args, **kwargs):
+            nonlocal build_calls
+            build_calls += 1
+            return object()
+
+        store = QdrantVectorStore(settings=QdrantSettings())
+        with mock.patch(
+            "qdrant_client.AsyncQdrantClient", side_effect=fake_client_ctor
+        ):
+            first, second = await asyncio.gather(
+                store._ensure_client(), store._ensure_client()
+            )
+        assert build_calls == 1
+        assert first is second
