@@ -18,7 +18,10 @@ def upsert_relation_query(rel_type: str) -> str:
     new one is written, backed by the per-type uniqueness constraint from
     ``relation_id_constraint_query``. A relationship's type is immutable once
     written; retyping one requires deleting it under its old type first, since
-    a single upsert call only ever targets one type.
+    a single upsert call only ever targets one type. Identity is reasserted
+    after applying properties, so a caller-supplied ``properties["id"]``
+    cannot overwrite the ``id`` used to ``MERGE`` and orphan the relationship
+    from later upserts of the same record.
 
     Args:
         rel_type: The relationship type. Must already be validated.
@@ -36,5 +39,6 @@ def upsert_relation_query(rel_type: str) -> str:
         f"WHERE x.id <> record.start_id OR y.id <> record.end_id "
         f"FOREACH (_ IN CASE WHEN stale IS NULL THEN [] ELSE [1] END | DELETE stale) "
         f"MERGE (a)-[r:{safe_type} {{id: record.id}}]->(b) "
-        f"SET r += record.properties"
+        f"SET r += record.properties "
+        f"SET r.id = record.id"
     )

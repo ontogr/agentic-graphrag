@@ -35,15 +35,31 @@ class TestUpsertNodeQuery:
 
     def test_builds_unwind_merge(self) -> None:
         """The query merges on id and sets the properties map."""
-        q = upsert_node_query("Chunk")
+        q = upsert_node_query(["Chunk"])
         assert "UNWIND $records" in q
         assert "MERGE (n:Chunk {id: record.id})" in q
         assert "SET n += record.properties" in q
+        assert "SET n.id = record.id" in q
+
+    def test_builds_compound_label_merge(self) -> None:
+        """Multiple labels are joined into one Cypher label expression."""
+        q = upsert_node_query(["Chunk", "Entity"])
+        assert "MERGE (n:Chunk:Entity {id: record.id})" in q
 
     def test_validates_label(self) -> None:
         """An unsafe label raises before the query is built."""
         with pytest.raises(ValueError):
-            upsert_node_query("Bad Label")
+            upsert_node_query(["Bad Label"])
+
+    def test_validates_every_label_in_a_compound_set(self) -> None:
+        """An unsafe label anywhere in the set raises."""
+        with pytest.raises(ValueError):
+            upsert_node_query(["Chunk", "Bad Label"])
+
+    def test_rejects_empty_labels(self) -> None:
+        """An empty label set raises rather than building a labelless MERGE."""
+        with pytest.raises(ValueError):
+            upsert_node_query([])
 
 
 class TestFilterClause:

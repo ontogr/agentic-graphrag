@@ -163,6 +163,15 @@ class TestWritesAndReads:
         assert obj.vector == {"vector": [0.1, 0.2]}
         assert obj.uuid == str(record.id)
 
+    async def test_upsert_rejects_non_positive_batch_size(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """A zero or negative batch_size raises instead of silently misbehaving."""
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={})
+        with pytest.raises(ValueError):
+            await store.upsert("c", [record], batch_size=-1)
+        client._collection.data.insert_many.assert_not_called()
+
     async def test_upsert_batches_large_writes(
         self, store: WeaviateVectorStore, client
     ) -> None:

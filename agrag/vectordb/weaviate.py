@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
-from agrag.vectordb.base import VectorStore
+from agrag.vectordb.base import VectorStore, require_positive_batch_size
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
     VectorStoreError,
@@ -284,11 +284,14 @@ class WeaviateVectorStore(VectorStore):
         Args:
             collection: The collection to write to.
             records: The records to upsert, in order.
-            batch_size: The number of records per backend write call.
+            batch_size: The number of records per backend write call. Must be
+                positive.
 
         Raises:
+            ValueError: ``batch_size`` is not positive.
             VectorStoreError: At least one record in a batch failed to write.
         """
+        require_positive_batch_size(batch_size)
         client = await self._ensure_client()
 
         # Deferred until after _ensure_client so a missing extra surfaces as

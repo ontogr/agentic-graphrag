@@ -152,11 +152,31 @@ class Neo4jGraphStore(GraphStore):
         *,
         batch_size: int = 256,
     ) -> None:
-        """Write or merge nodes of one label."""
+        """Write or merge nodes, honoring each record's full label set.
+
+        ``label`` names the batch for constraint/index bookkeeping, matching
+        every other tracked label; the labels actually written to a node come
+        from ``NodeRecord.labels``, which may name more than one label (for
+        example a node that is both ``Chunk`` and ``Entity``). Records with
+        different label sets are grouped and written with separate ``MERGE``
+        queries, since Cypher requires labels to be literal in the query text
+        rather than a runtime parameter, so ``batch_size`` chunks apply within
+        each group rather than across the whole call.
+        """
         validate_identifier(label)
         self._known_labels.add(label)
-        query = upsert_node_query(label)
-        await self._batch_write(query, [node_params(n) for n in nodes], batch_size)
+        groups: dict[tuple[str, ...], list[NodeRecord]] = defaultdict(list)
+        for node in nodes:
+            labels = tuple(sorted(set(node.labels)))
+            for node_label in labels:
+                validate_identifier(node_label)
+            self._known_labels.update(labels)
+            groups[labels].append(node)
+        for labels, group_nodes in groups.items():
+            query = upsert_node_query(labels)
+            await self._batch_write(
+                query, [node_params(n) for n in group_nodes], batch_size
+            )
 
     async def upsert_relations(
         self,

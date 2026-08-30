@@ -5,6 +5,7 @@ the dependency points one way (store -> cypher).
 """
 
 import re
+from collections.abc import Sequence
 from typing import Any
 
 
@@ -28,19 +29,37 @@ def validate_identifier(value: str) -> str:
     return value
 
 
-def upsert_node_query(label: str) -> str:
+def upsert_node_query(labels: Sequence[str]) -> str:
     """Build the Cypher for an UNWIND-batched node upsert.
 
+    Every node in one call gets the same label set, since Cypher requires
+    labels to be literal in the query text rather than a runtime parameter.
+    Nodes whose ``NodeRecord.labels`` differ need separate calls, one per
+    distinct label set: see ``Neo4jGraphStore.upsert_nodes`` for how a mixed
+    batch is grouped and split before reaching this builder.
+
+    Identity is reasserted after applying properties, so a caller-supplied
+    ``properties["id"]`` cannot overwrite the ``id`` used to ``MERGE`` and
+    orphan the node from later upserts of the same record.
+
     Args:
-        label: The node label. Must already be validated.
+        labels: The node's labels. Must already be validated, and non-empty.
 
     Returns:
         A parameterized Cypher query expecting a ``$records`` list parameter.
+
+    Raises:
+        ValueError: ``labels`` is empty, or any label is not a safe
+            identifier.
     """
+    if not labels:
+        raise ValueError("upsert_node_query requires at least one label")
+    label_expr = ":".join(validate_identifier(label) for label in labels)
     return (
         f"UNWIND $records AS record "
-        f"MERGE (n:{validate_identifier(label)} {{id: record.id}}) "
-        f"SET n += record.properties"
+        f"MERGE (n:{label_expr} {{id: record.id}}) "
+        f"SET n += record.properties "
+        f"SET n.id = record.id"
     )
 
 

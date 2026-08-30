@@ -1,6 +1,8 @@
 """Tests for the FastEmbed BM25 sparse embedder."""
 
+import asyncio
 import sys
+import threading
 from unittest import mock
 
 import pytest
@@ -54,6 +56,44 @@ class TestFastEmbedBM25Embed:
         assert all(isinstance(v, SparseVector) for v in vectors)
         assert vectors[0].indices == [0]
         assert vectors[0].values == [1.0]
+
+
+class TestFastEmbedBM25ConcurrentLoad:
+    """Concurrent first-time embeds must share one model build, not race it."""
+
+    async def test_concurrent_embeds_build_model_once(self) -> None:
+        """A second concurrent embed waits for, and reuses, the first build.
+
+        Regression guard: without locking, both calls would see ``self._model
+        is None`` before either finishes building, and each would construct
+        its own model.
+        """
+        build_calls = 0
+        entered = threading.Event()
+        release = threading.Event()
+
+        def slow_build(_self: FastEmbedBM25Embedder) -> FakeSparseModel:
+            nonlocal build_calls
+            build_calls += 1
+            entered.set()
+            release.wait(timeout=5)
+            return FakeSparseModel()
+
+        embedder = FastEmbedBM25Embedder()
+        with mock.patch.object(
+            FastEmbedBM25Embedder,
+            "_build_model",
+            autospec=True,
+            side_effect=slow_build,
+        ):
+            first = asyncio.create_task(embedder.embed(["a"]))
+            await asyncio.to_thread(entered.wait, 5)
+            second = asyncio.create_task(embedder.embed(["b"]))
+            await asyncio.sleep(0.05)
+            release.set()
+            await asyncio.gather(first, second)
+
+        assert build_calls == 1
 
 
 class TestFastEmbedBM25MissingExtra:

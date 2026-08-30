@@ -1,5 +1,6 @@
 """Tests for the sentence-transformers embedder implementation."""
 
+import asyncio
 import sys
 import threading
 from array import array
@@ -139,6 +140,65 @@ class TestEmbedEventLoop:
         await embedder.embed(["b"])
         # encode is called per batch; the model object is shared, not rebuilt.
         assert model.encode_calls == [["a"], ["b"]]
+
+
+class TestConcurrentModelLoad:
+    """Concurrent first-time embeds must share one model build, not race it."""
+
+    async def test_concurrent_embeds_build_model_once(self) -> None:
+        """A second concurrent embed waits for, and reuses, the first build.
+
+        Regression guard: without locking, both calls would see ``self._model
+        is None`` before either finishes building, and each would construct
+        its own model.
+        """
+        build_calls = 0
+        entered = threading.Event()
+        release = threading.Event()
+
+        def slow_build(_self: SentenceTransformerEmbedder) -> FakeSentenceTransformer:
+            nonlocal build_calls
+            build_calls += 1
+            entered.set()
+            release.wait(timeout=5)
+            return FakeSentenceTransformer()
+
+        embedder = SentenceTransformerEmbedder()
+        with mock.patch.object(
+            SentenceTransformerEmbedder,
+            "_build_model",
+            autospec=True,
+            side_effect=slow_build,
+        ):
+            first = asyncio.create_task(embedder.embed(["a"]))
+            await asyncio.to_thread(entered.wait, 5)
+            second = asyncio.create_task(embedder.embed(["b"]))
+            await asyncio.sleep(0.05)
+            release.set()
+            await asyncio.gather(first, second)
+
+        assert build_calls == 1
+
+    async def test_failed_build_can_be_retried(self) -> None:
+        """A build failure does not permanently poison the embedder."""
+        embedder = SentenceTransformerEmbedder()
+        with (
+            mock.patch.object(
+                SentenceTransformerEmbedder,
+                "_build_model",
+                side_effect=RuntimeError("boom"),
+            ),
+            pytest.raises(RuntimeError),
+        ):
+            await embedder.embed(["a"])
+        assert embedder._model is None
+
+        model = FakeSentenceTransformer()
+        with mock.patch.object(
+            SentenceTransformerEmbedder, "_build_model", return_value=model
+        ):
+            await embedder.embed(["a"])
+        assert embedder._model is model
 
 
 class TestEmbedCaching:

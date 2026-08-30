@@ -37,6 +37,7 @@ class SentenceTransformerEmbedder(Embedder):
         self._settings = settings or EmbeddingSettings()
         self._cache = cache or NullEmbeddingCache()
         self._model = model
+        self._model_lock = asyncio.Lock()
 
     @property
     def model(self) -> str:
@@ -72,6 +73,27 @@ class SentenceTransformerEmbedder(Embedder):
             return model.get_embedding_dimension()
         return model.get_sentence_embedding_dimension()
 
+    def _build_model(self) -> Any:
+        """Construct a new sentence-transformers model instance.
+
+        Returns:
+            The loaded model object.
+
+        Raises:
+            EmbeddingMissingExtraError: sentence-transformers is not installed.
+        """
+        try:
+            # Lazy import: a clean install must raise EmbeddingMissingExtraError,
+            # not ImportError, when sentence-transformers is absent.
+            from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+        except ImportError as exc:
+            raise EmbeddingMissingExtraError("embed-local") from exc
+        return SentenceTransformer(
+            self._settings.model,
+            device=self._settings.device,
+            cache_folder=self._settings.cache_folder,
+        )
+
     def _ensure_model(self) -> Any:
         """Load the model once and cache it.
 
@@ -82,17 +104,30 @@ class SentenceTransformerEmbedder(Embedder):
             EmbeddingMissingExtraError: sentence-transformers is not installed.
         """
         if self._model is None:
-            try:
-                # Lazy import: a clean install must raise EmbeddingMissingExtraError,
-                # not ImportError, when sentence-transformers is absent.
-                from sentence_transformers import SentenceTransformer  # noqa: PLC0415
-            except ImportError as exc:
-                raise EmbeddingMissingExtraError("embed-local") from exc
-            self._model = SentenceTransformer(
-                self._settings.model,
-                device=self._settings.device,
-                cache_folder=self._settings.cache_folder,
-            )
+            self._model = self._build_model()
+        return self._model
+
+    async def _ensure_model_async(self) -> Any:
+        """Load the model once and cache it, safely under concurrent calls.
+
+        Unlike ``_ensure_model``, this is safe to call from multiple
+        concurrent ``embed`` calls: only the first caller through the lock
+        builds the model, in a worker thread so the event loop stays free,
+        and later callers reuse the cached instance instead of each loading
+        their own copy. A failed build leaves ``self._model`` unset, so the
+        next call retries instead of caching the failure.
+
+        Returns:
+            The loaded model object.
+
+        Raises:
+            EmbeddingMissingExtraError: sentence-transformers is not installed.
+        """
+        if self._model is not None:
+            return self._model
+        async with self._model_lock:
+            if self._model is None:
+                self._model = await asyncio.to_thread(self._build_model)
         return self._model
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -111,7 +146,7 @@ class SentenceTransformerEmbedder(Embedder):
         ]
         misses = [i for i, v in enumerate(cached) if v is None]
         if misses:
-            model = await asyncio.to_thread(self._ensure_model)
+            model = await self._ensure_model_async()
             new_vectors = await asyncio.to_thread(
                 model.encode,
                 [texts[i] for i in misses],

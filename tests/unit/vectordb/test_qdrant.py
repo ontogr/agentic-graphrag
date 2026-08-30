@@ -28,7 +28,9 @@ class FakeQdrantClient:
         """Create the fake with async mocks for every used method."""
         self.get_collections = mock.AsyncMock()
         self.collection_exists = mock.AsyncMock(return_value=False)
-        self.get_collection = mock.AsyncMock()
+        self.get_collection = mock.AsyncMock(
+            return_value=make_collection_info(4, sparse=False)
+        )
         self.create_collection = mock.AsyncMock(return_value=True)
         self.update_collection = mock.AsyncMock(return_value=True)
         self.upsert = mock.AsyncMock()
@@ -175,9 +177,29 @@ class TestEnsureCollection:
         assert exc_info.value.expected == 8
         assert exc_info.value.actual == 4
 
+    async def test_create_failure_does_not_mark_hybrid(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """A failed collection creation leaves the collection untracked."""
+        client.create_collection.side_effect = RuntimeError("boom")
+        with pytest.raises(RuntimeError):
+            await store.ensure_collection(
+                "c", dimensions=4, distance=Distance.COSINE, hybrid=True
+            )
+        assert "c" not in store._hybrid_collections
+
 
 class TestWritesAndReads:
     """upsert, search, scroll, retrieve, count, delete go through the client."""
+
+    async def test_upsert_rejects_non_positive_batch_size(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """A zero or negative batch_size raises instead of silently misbehaving."""
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={})
+        with pytest.raises(ValueError):
+            await store.upsert("c", [record], batch_size=0)
+        client.upsert.assert_not_called()
 
     async def test_upsert_builds_points(self, store: QdrantVectorStore, client) -> None:
         """Upsert forwards id, vector, and payload as a PointStruct."""
@@ -194,6 +216,7 @@ class TestWritesAndReads:
     ) -> None:
         """Upsert into a hybrid collection also writes a sparse vector."""
         store._hybrid_collections.add("c")
+        store._checked_collections.add("c")
         sparse = mock.AsyncMock()
         sparse.embed = mock.AsyncMock(
             return_value=[SparseVector(indices=[1, 2], values=[0.5, 0.5])]
@@ -207,11 +230,49 @@ class TestWritesAndReads:
         assert point.vector[_SPARSE_VECTOR_NAME].indices == [1, 2]
         assert point.vector[_SPARSE_VECTOR_NAME].values == [0.5, 0.5]
 
+    async def test_upsert_resolves_hybrid_state_for_unseen_collection(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """A fresh instance detects an already-hybrid collection on first upsert.
+
+        Nothing here calls ensure_collection first, so this store's
+        _hybrid_collections/_checked_collections start empty; the collection's
+        sparse-vector support must be resolved from the backend instead of
+        silently defaulting to dense.
+        """
+        client.get_collection.return_value = make_collection_info(4, sparse=True)
+        sparse = mock.AsyncMock()
+        sparse.embed = mock.AsyncMock(
+            return_value=[SparseVector(indices=[1], values=[0.5])]
+        )
+        store._sparse_embedder = sparse
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "hello"})
+        await store.upsert("c", [record])
+        sparse.embed.assert_called_once_with(["hello"])
+        point = client.upsert.call_args.kwargs["points"][0]
+        assert point.vector[_SPARSE_VECTOR_NAME].indices == [1]
+        client.get_collection.assert_called_once_with("c")
+
+        await store.upsert("c", [record])
+        client.get_collection.assert_called_once_with("c")
+
+    async def test_upsert_caches_dense_state_for_unseen_collection(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """A confirmed-dense collection is not re-checked on every upsert."""
+        client.get_collection.return_value = make_collection_info(4, sparse=False)
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "hello"})
+        await store.upsert("c", [record])
+        await store.upsert("c", [record])
+        client.get_collection.assert_called_once_with("c")
+        assert "c" not in store._hybrid_collections
+
     async def test_upsert_uses_empty_text_when_missing(
         self, store: QdrantVectorStore, client
     ) -> None:
         """A record with no text key still sparse-embeds, as an empty string."""
         store._hybrid_collections.add("c")
+        store._checked_collections.add("c")
         sparse = mock.AsyncMock()
         sparse.embed = mock.AsyncMock(
             return_value=[SparseVector(indices=[], values=[])]

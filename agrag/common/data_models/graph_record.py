@@ -8,7 +8,7 @@ storage/merge-mechanics work this decouples from.
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class NodeRecord(BaseModel):
@@ -16,14 +16,17 @@ class NodeRecord(BaseModel):
 
     Attributes:
         id: The node id.
-        labels: The node's labels.
+        labels: The node's labels. A node carries every label listed here;
+            ``GraphStore.upsert_nodes`` groups records by their full label set
+            within a batch, since Cypher requires labels to be literal in the
+            query rather than a runtime parameter.
         properties: The node's properties, including an embedding vector under
             whatever key ``GraphStore.ensure_vector_index`` was configured
             with, if native vector search is in use.
     """
 
     id: UUID
-    labels: list[str]
+    labels: list[str] = Field(min_length=1)
     properties: dict[str, Any]
 
 

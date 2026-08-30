@@ -169,6 +169,20 @@ await store.upsert_nodes("Chunk", [node])
 await store.setup_constraints()
 ```
 
+A node can carry more than one label. List every label the node should have in
+`labels`; `upsert_nodes` writes all of them, not only the `label` argument.
+Records with different label sets in the same call are grouped and written
+separately.
+
+```python
+tagged_node = NodeRecord(
+    id=uuid4(),
+    labels=["Chunk", "Entity"],
+    properties={"text": "sepsis protocol"},
+)
+await store.upsert_nodes("Chunk", [tagged_node])
+```
+
 ### Search vectors stored in the graph
 
 You can search vectors stored as node properties, without a separate vector

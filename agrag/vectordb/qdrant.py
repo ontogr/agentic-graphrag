@@ -8,7 +8,7 @@ from uuid import UUID
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
 from agrag.embedding.fastembed_bm25 import FastEmbedBM25Embedder
 from agrag.embedding.sparse_base import SparseEmbedder
-from agrag.vectordb.base import VectorStore
+from agrag.vectordb.base import VectorStore, require_positive_batch_size
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
     VectorStoreMissingExtraError,
@@ -84,6 +84,7 @@ class QdrantVectorStore(VectorStore):
         self._client: Any = client
         self._models: Any = None
         self._hybrid_collections: set[str] = set()
+        self._checked_collections: set[str] = set()
 
     async def _ensure_client(self) -> Any:
         """Build the Qdrant client once and cache it.
@@ -260,6 +261,7 @@ class QdrantVectorStore(VectorStore):
                     },
                 )
                 self._hybrid_collections.add(name)
+            self._checked_collections.add(name)
             return
         vectors_config = self._models.VectorParams(
             size=dimensions, distance=self._qdrant_distance(distance)
@@ -271,12 +273,14 @@ class QdrantVectorStore(VectorStore):
                     modifier=self._models.Modifier.IDF
                 )
             }
-            self._hybrid_collections.add(name)
         await client.create_collection(
             collection_name=name,
             vectors_config=vectors_config,
             sparse_vectors_config=sparse_config,
         )
+        if hybrid:
+            self._hybrid_collections.add(name)
+        self._checked_collections.add(name)
 
     async def collection_exists(self, name: str) -> bool:
         """Report whether a collection exists.
@@ -299,6 +303,30 @@ class QdrantVectorStore(VectorStore):
         client = await self._ensure_client()
         await client.delete_collection(name)
         self._hybrid_collections.discard(name)
+        self._checked_collections.discard(name)
+
+    async def _is_hybrid(self, client: Any, collection: str) -> bool:
+        """Report whether ``collection`` has sparse-vector support, resolving lazily.
+
+        A fresh store instance has no process-local record of a collection it
+        did not itself create or upgrade through ``ensure_collection``, so a
+        collection's hybrid state is resolved from the backend on first use
+        and cached from then on.
+
+        Args:
+            client: The connected Qdrant client.
+            collection: The collection name.
+
+        Returns:
+            Whether the collection was provisioned with the named sparse
+            vector.
+        """
+        if collection not in self._checked_collections:
+            info = await client.get_collection(collection)
+            if info.config.params.sparse_vectors:
+                self._hybrid_collections.add(collection)
+            self._checked_collections.add(collection)
+        return collection in self._hybrid_collections
 
     async def upsert(
         self,
@@ -309,21 +337,27 @@ class QdrantVectorStore(VectorStore):
     ) -> None:
         """Write or overwrite records in a collection.
 
-        When ``collection`` was created with ``ensure_collection(...,
-        hybrid=True)``, each record's ``payload["text"]`` is also
-        sparse-embedded and stored under the named sparse vector, so
-        ``hybrid_search``'s keyword arm has real vectors to match. A record
-        with no ``text`` payload key gets an empty sparse vector and only
-        ever surfaces through the dense side of a hybrid search.
+        When ``collection`` has sparse-vector support (created or previously
+        seen with ``ensure_collection(..., hybrid=True)``), each record's
+        ``payload["text"]`` is also sparse-embedded and stored under the named
+        sparse vector, so ``hybrid_search``'s keyword arm has real vectors to
+        match. A record with no ``text`` payload key gets an empty sparse
+        vector and only ever surfaces through the dense side of a hybrid
+        search.
 
         Args:
             collection: The collection to write to.
             records: The records to upsert, in order.
-            batch_size: The number of records per backend write call.
+            batch_size: The number of records per backend write call. Must be
+                positive.
+
+        Raises:
+            ValueError: ``batch_size`` is not positive.
         """
+        require_positive_batch_size(batch_size)
         client = await self._ensure_client()
         sparse_vectors: list[Any] | None = None
-        if collection in self._hybrid_collections:
+        if await self._is_hybrid(client, collection):
             texts = [
                 str(record.payload.get(_TEXT_PAYLOAD_FIELD, "")) for record in records
             ]

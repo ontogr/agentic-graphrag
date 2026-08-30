@@ -8,6 +8,24 @@ from uuid import UUID
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
 
 
+def require_positive_batch_size(batch_size: int) -> None:
+    """Check that a ``upsert`` ``batch_size`` is usable.
+
+    A non-positive ``batch_size`` breaks the ``range(0, len(records),
+    batch_size)`` chunking every backend uses: zero raises ``ValueError`` from
+    ``range`` itself, and a negative value silently produces an empty range,
+    skipping every record without error.
+
+    Args:
+        batch_size: The batch size to check.
+
+    Raises:
+        ValueError: ``batch_size`` is not positive.
+    """
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {batch_size}")
+
+
 class VectorStore(ABC):
     """A vector database backend: collection lifecycle, writes, and search."""
 
@@ -72,7 +90,11 @@ class VectorStore(ABC):
         Args:
             collection: The collection to write to.
             records: The records to upsert, in order.
-            batch_size: The number of records per backend write call.
+            batch_size: The number of records per backend write call. Must be
+                positive.
+
+        Raises:
+            ValueError: ``batch_size`` is not positive.
         """
 
     @abstractmethod
@@ -92,6 +114,12 @@ class VectorStore(ABC):
             limit: The maximum number of hits to return.
             filters: A flat-dict filter: a scalar value means exact match, a
                 list value means any of, and all keys are AND-ed together.
+                Keys must be valid identifiers (letters, digits, underscore,
+                not starting with a digit) to stay portable: Milvus compiles
+                them into a filter expression and Neo4j's ``GraphStore``
+                counterpart compiles them into Cypher, so both reject other
+                characters, while Qdrant and Weaviate accept arbitrary payload
+                keys.
 
         Returns:
             The matched hits, highest score first.
@@ -118,6 +146,12 @@ class VectorStore(ABC):
             limit: The maximum number of hits to return.
             filters: A flat-dict filter: a scalar value means exact match, a
                 list value means any of, and all keys are AND-ed together.
+                Keys must be valid identifiers (letters, digits, underscore,
+                not starting with a digit) to stay portable: Milvus compiles
+                them into a filter expression and Neo4j's ``GraphStore``
+                counterpart compiles them into Cypher, so both reject other
+                characters, while Qdrant and Weaviate accept arbitrary payload
+                keys.
             alpha: The dense/keyword balance. ``1.0`` is pure dense, ``0.0`` is
                 pure keyword. Weaviate and Milvus apply this weight natively.
                 Qdrant's native fusion (Reciprocal Rank Fusion) has no
@@ -148,6 +182,12 @@ class VectorStore(ABC):
                 ``None`` to start at the beginning.
             filters: A flat-dict filter: a scalar value means exact match, a
                 list value means any of, and all keys are AND-ed together.
+                Keys must be valid identifiers (letters, digits, underscore,
+                not starting with a digit) to stay portable: Milvus compiles
+                them into a filter expression and Neo4j's ``GraphStore``
+                counterpart compiles them into Cypher, so both reject other
+                characters, while Qdrant and Weaviate accept arbitrary payload
+                keys.
             with_vectors: Whether to return each record's vector.
 
         Returns:
@@ -180,6 +220,12 @@ class VectorStore(ABC):
             collection: The collection to count.
             filters: A flat-dict filter: a scalar value means exact match, a
                 list value means any of, and all keys are AND-ed together.
+                Keys must be valid identifiers (letters, digits, underscore,
+                not starting with a digit) to stay portable: Milvus compiles
+                them into a filter expression and Neo4j's ``GraphStore``
+                counterpart compiles them into Cypher, so both reject other
+                characters, while Qdrant and Weaviate accept arbitrary payload
+                keys.
 
         Returns:
             The number of matching records.

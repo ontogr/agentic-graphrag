@@ -76,12 +76,16 @@ class GraphStore(ABC):
         *,
         batch_size: int = 256,
     ) -> None:
-        """Write or merge nodes of one label.
+        """Write or merge nodes, honoring each record's full label set.
 
         Args:
-            label: The node label.
-            nodes: The node records to upsert.
-            batch_size: Records per backend write call.
+            label: The label this batch is tracked under for constraint and
+                index bookkeeping.
+            nodes: The node records to upsert. Each node's ``NodeRecord.labels``
+                names the full label set actually written to it, which may
+                include labels beyond ``label``.
+            batch_size: Records per backend write call, applied within each
+                distinct label set when ``nodes`` mixes more than one.
         """
 
     @abstractmethod

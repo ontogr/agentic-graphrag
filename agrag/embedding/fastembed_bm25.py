@@ -30,14 +30,15 @@ class FastEmbedBM25Embedder(SparseEmbedder):
         """
         self._model_name = model
         self._model: Any = None
+        self._model_lock = asyncio.Lock()
 
     @property
     def model(self) -> str:
         """The configured model name, or the FastEmbed default when unset."""
         return self._model_name or DEFAULT_BM25_MODEL
 
-    def _ensure_model(self) -> Any:
-        """Load the FastEmbed model once and cache it.
+    def _build_model(self) -> Any:
+        """Construct a new FastEmbed sparse embedding model instance.
 
         Returns:
             The loaded sparse embedding model.
@@ -45,16 +46,36 @@ class FastEmbedBM25Embedder(SparseEmbedder):
         Raises:
             EmbeddingMissingExtraError: fastembed is not installed.
         """
-        if self._model is None:
-            try:
-                # Lazy import: a clean install must raise
-                # EmbeddingMissingExtraError, not ImportError, when fastembed
-                # is absent. fastembed is bundled into the `qdrant` extra.
-                from fastembed import SparseTextEmbedding  # noqa: PLC0415
-            except ImportError as exc:
-                raise EmbeddingMissingExtraError("qdrant") from exc
-            model_name = self._model_name or DEFAULT_BM25_MODEL
-            self._model = SparseTextEmbedding(model_name=model_name)
+        try:
+            # Lazy import: a clean install must raise
+            # EmbeddingMissingExtraError, not ImportError, when fastembed
+            # is absent. fastembed is bundled into the `qdrant` extra.
+            from fastembed import SparseTextEmbedding  # noqa: PLC0415
+        except ImportError as exc:
+            raise EmbeddingMissingExtraError("qdrant") from exc
+        model_name = self._model_name or DEFAULT_BM25_MODEL
+        return SparseTextEmbedding(model_name=model_name)
+
+    async def _ensure_model_async(self) -> Any:
+        """Load the model once and cache it, safely under concurrent calls.
+
+        Only the first caller through the lock builds the model, in a worker
+        thread so the event loop stays free; later callers reuse the cached
+        instance instead of each loading their own copy. A failed build
+        leaves ``self._model`` unset, so the next call retries instead of
+        caching the failure.
+
+        Returns:
+            The loaded sparse embedding model.
+
+        Raises:
+            EmbeddingMissingExtraError: fastembed is not installed.
+        """
+        if self._model is not None:
+            return self._model
+        async with self._model_lock:
+            if self._model is None:
+                self._model = await asyncio.to_thread(self._build_model)
         return self._model
 
     async def embed(self, texts: Sequence[str]) -> list[SparseVector]:
@@ -66,7 +87,7 @@ class FastEmbedBM25Embedder(SparseEmbedder):
         Returns:
             One sparse vector per input text, in the same order.
         """
-        model = await asyncio.to_thread(self._ensure_model)
+        model = await self._ensure_model_async()
 
         def _encode() -> list[Any]:
             return list(model.embed(list(texts)))

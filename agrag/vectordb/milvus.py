@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
-from agrag.vectordb.base import VectorStore
+from agrag.vectordb.base import VectorStore, require_positive_batch_size
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
     VectorStoreMissingExtraError,
@@ -407,6 +407,7 @@ class MilvusVectorStore(VectorStore):
         """
         client = await self._ensure_client()
         await client.drop_collection(name)
+        self._collection_metrics.pop(name, None)
 
     async def upsert(
         self,
@@ -420,8 +421,13 @@ class MilvusVectorStore(VectorStore):
         Args:
             collection: The collection to write to.
             records: The records to upsert, in order.
-            batch_size: The number of records per backend write call.
+            batch_size: The number of records per backend write call. Must be
+                positive.
+
+        Raises:
+            ValueError: ``batch_size`` is not positive.
         """
+        require_positive_batch_size(batch_size)
         client = await self._ensure_client()
         for start in range(0, len(records), batch_size):
             batch = records[start : start + batch_size]

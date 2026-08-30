@@ -91,6 +91,35 @@ class TestNeo4jGraphStoreIntegration:
             await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await store.close()
 
+    async def test_multi_label_node_gets_every_label(self) -> None:
+        """A node with more than one label ends up with all of them in Neo4j."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        primary = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
+        secondary = validate_identifier(f"Entity_{uuid4().hex[:8]}")
+        try:
+            node_id = uuid4()
+            await store.upsert_nodes(
+                primary,
+                [
+                    NodeRecord(
+                        id=node_id,
+                        labels=[primary, secondary],
+                        properties={"name": "a"},
+                    )
+                ],
+            )
+            rows = await store.execute_read(
+                f"MATCH (n:{primary}:{secondary} {{id: $id}}) "
+                f"RETURN labels(n) AS labels",
+                {"id": str(node_id)},
+            )
+            assert len(rows) == 1
+            assert set(rows[0]["labels"]) == {primary, secondary}
+        finally:
+            await store.execute_write(f"MATCH (n:{primary}) DETACH DELETE n")
+            await store.close()
+
     async def test_relation_upsert_links_nodes(self) -> None:
         """A relation MERGEs onto previously written nodes."""
         store = build_graph_store("neo4j")

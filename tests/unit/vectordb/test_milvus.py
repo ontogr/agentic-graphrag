@@ -123,6 +123,15 @@ class TestWritesAndReads:
         assert row["text"] == "a"
         assert row["payload"] == {"text": "a", "n": 1}
 
+    async def test_upsert_rejects_non_positive_batch_size(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """A zero or negative batch_size raises instead of silently misbehaving."""
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={})
+        with pytest.raises(ValueError):
+            await store.upsert("c", [record], batch_size=0)
+        client.upsert.assert_not_called()
+
     async def test_upsert_overwrites_existing_id(
         self, store: MilvusVectorStore, client
     ) -> None:
@@ -247,6 +256,19 @@ class TestWritesAndReads:
         target_id = uuid4()
         await store.delete("c", [target_id])
         assert client.delete.call_args.kwargs["ids"] == [str(target_id)]
+
+    async def test_delete_collection_clears_cached_metric(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """Deleting a collection forgets its cached similarity metric.
+
+        Otherwise a name reused with a different metric would apply the old
+        score conversion to the new collection's results.
+        """
+        await store.ensure_collection("c", dimensions=4, distance=Distance.EUCLID)
+        assert "c" in store._collection_metrics
+        await store.delete_collection("c")
+        assert "c" not in store._collection_metrics
 
     async def test_close_releases_client(
         self, store: MilvusVectorStore, client

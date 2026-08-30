@@ -105,6 +105,37 @@ class TestUpsertNodes:
             "records": [{"id": str(node.id), "properties": {"text": "a"}}]
         }
 
+    async def test_tracks_every_label_on_multi_label_node(self) -> None:
+        """A multi-label node tracks each of its labels, not only the call label."""
+        store = _store()
+        node = NodeRecord(
+            id=uuid4(), labels=["Chunk", "Entity"], properties={"text": "a"}
+        )
+        await store.upsert_nodes("Chunk", [node])
+        assert store._known_labels == {"Chunk", "Entity"}
+        query = store._driver.last_session.execute_write.call_args.args[1]
+        assert "MERGE (n:Chunk:Entity {id: record.id})" in query
+
+    async def test_groups_mixed_label_batch_into_separate_writes(self) -> None:
+        """Records with different label sets get separate MERGE queries."""
+        store = _store()
+        single = NodeRecord(id=uuid4(), labels=["Chunk"], properties={"n": 1})
+        compound = NodeRecord(
+            id=uuid4(), labels=["Chunk", "Entity"], properties={"n": 2}
+        )
+        await store.upsert_nodes("Chunk", [single, compound])
+        writes = store._driver.last_session.execute_write.call_args_list
+        assert len(writes) == 2
+        queries = {call.args[1] for call in writes}
+        assert any("MERGE (n:Chunk {id: record.id})" in q for q in queries)
+        assert any("MERGE (n:Chunk:Entity {id: record.id})" in q for q in queries)
+        single_call = next(
+            c for c in writes if "MERGE (n:Chunk {id: record.id})" in c.args[1]
+        )
+        assert single_call.args[2]["records"] == [
+            {"id": str(single.id), "properties": {"n": 1}}
+        ]
+
 
 class TestUpsertRelations:
     """upsert_relations groups records by type before writing."""
