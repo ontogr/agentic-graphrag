@@ -1,4 +1,4 @@
-.PHONY: sync lint-actions test test-integration dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
+.PHONY: sync baml-gen lint-actions test test-integration dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
 help:
 	@echo "Available make targets:"
@@ -21,11 +21,14 @@ help:
 	@echo "  make security         - Run all security scans"
 	@echo "  make build            - Build sdist and wheel into dist/"
 	@echo "  make wheel-test       - Install the built wheel in a clean env and import it"
-	@echo "  make clean            - Clean build artifacts and cache"
 	@echo "  make docs-api         - Regenerate docs/docs/api/index.md from docstrings"
 	@echo "  make docs-install     - Install the Docusaurus site's npm dependencies"
 	@echo "  make docs-dev         - Run the Docusaurus dev server"
 	@echo "  make docs-build       - Regenerate the API reference and build the docs site"
+	@echo "  make clean            - Clean build artifacts and cache"
+
+baml-gen:
+	uv run baml-cli generate --from agrag/llm/baml_src
 
 sync:
 	uv sync --all-groups --all-extras

@@ -329,8 +329,19 @@ the dependency points one way (store -> cypher).
 **Functions:**
 
 - [**filter_clause**](#agrag.cypher.entities.filter_clause) – Build a Cypher WHERE clause and parameters from a flat-dict filter.
+- [**is_safe_identifier**](#agrag.cypher.entities.is_safe_identifier) – Report whether a label or relationship type is a safe Cypher identifier.
 - [**upsert_node_query**](#agrag.cypher.entities.upsert_node_query) – Build the Cypher for an UNWIND-batched node upsert.
 - [**validate_identifier**](#agrag.cypher.entities.validate_identifier) – Check that a label or relationship type is a safe Cypher identifier.
+
+**Attributes:**
+
+- [**NODE_IDENTITY_LABEL**](#agrag.cypher.entities.NODE_IDENTITY_LABEL) –
+
+##### `agrag.cypher.entities.NODE_IDENTITY_LABEL`
+
+```python
+NODE_IDENTITY_LABEL = '_AgragNode'
+```
 
 ##### `agrag.cypher.entities.filter_clause`
 
@@ -352,21 +363,63 @@ Build a Cypher WHERE clause and parameters from a flat-dict filter.
 - <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – non-empty, otherwise an empty string) and the parameter dict to pass
 - <code>[tuple](#tuple)\[[str](#str), [dict](#dict)\[[str](#str), [Any](#typing.Any)\]\]</code> – with it.
 
+##### `agrag.cypher.entities.is_safe_identifier`
+
+```python
+is_safe_identifier(value:str) -> bool
+```
+
+Report whether a label or relationship type is a safe Cypher identifier.
+
+A non-raising counterpart to `validate_identifier`, for filtering a
+batch of names (for example ones read back from the database) rather
+than validating one name a caller must supply correctly.
+
+**Parameters:**
+
+- **value** (<code>[str](#str)</code>) – The label or relationship type to check.
+
+**Returns:**
+
+- <code>[bool](#bool)</code> – `True` if `value` is a safe identifier.
+
 ##### `agrag.cypher.entities.upsert_node_query`
 
 ```python
-upsert_node_query(label:str) -> str
+upsert_node_query(labels:Sequence[str]) -> str
 ```
 
 Build the Cypher for an UNWIND-batched node upsert.
 
+MERGE identity is anchored to `NODE_IDENTITY_LABEL`, not to `labels`
+itself, so a node keeps resolving to the same id regardless of what
+labels it currently carries. `labels` is then applied additively with
+`SET`, which is idempotent (a label the node already has is a no-op)
+and never removes a label a previous upsert of the same id set but this
+one omits: labels only ever accumulate. Every node in one call gets the
+same additive label set, since Cypher requires labels to be literal in
+the query text rather than a runtime parameter; nodes whose
+`NodeRecord.labels` differ need separate calls, one per distinct label
+set (see `Neo4jGraphStore.upsert_nodes` for how a mixed batch is
+grouped and split before reaching this builder).
+
+Identity is reasserted after applying properties, so a caller-supplied
+`properties["id"]` cannot overwrite the `id` used to `MERGE` and
+orphan the node from later upserts of the same record.
+
 **Parameters:**
 
-- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+- **labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The node's labels to add, in addition to the identity anchor.
+  Must already be validated, and non-empty.
 
 **Returns:**
 
 - <code>[str](#str)</code> – A parameterized Cypher query expecting a `$records` list parameter.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `labels` is empty, or any label is not a safe
+  identifier.
 
 ##### `agrag.cypher.entities.validate_identifier`
 
@@ -407,6 +460,19 @@ upsert_relation_query(rel_type:str) -> str
 
 Build the Cypher for an UNWIND-batched relationship upsert.
 
+Relationship identity is `record.id`, not the `(start, end, type)`
+triple: two relationships of this type between the same nodes keep
+separate identities when their ids differ, so parallel relationships do
+not collapse into one. When a record's endpoints move, the relationship
+keeps its id: the stale copy at the old endpoints is deleted before the
+new one is written, backed by the per-type uniqueness constraint from
+`relation_id_constraint_query`. A relationship's type is immutable once
+written; retyping one requires deleting it under its old type first, since
+a single upsert call only ever targets one type. Identity is reasserted
+after applying properties, so a caller-supplied `properties["id"]`
+cannot overwrite the `id` used to `MERGE` and orphan the relationship
+from later upserts of the same record.
+
 **Parameters:**
 
 - **rel_type** (<code>[str](#str)</code>) – The relationship type. Must already be validated.
@@ -414,7 +480,7 @@ Build the Cypher for an UNWIND-batched relationship upsert.
 **Returns:**
 
 - <code>[str](#str)</code> – A parameterized Cypher query expecting a `$records` list parameter whose
-- <code>[str](#str)</code> – items carry `start_id`, `end_id`, and `properties` keys.
+- <code>[str](#str)</code> – items carry `id`, `start_id`, `end_id`, and `properties` keys.
 
 #### `agrag.cypher.schema`
 
@@ -427,6 +493,7 @@ identifier-validation contract shared by every Cypher builder.
 
 - [**node_id_constraint_query**](#agrag.cypher.schema.node_id_constraint_query) – Build a CREATE CONSTRAINT query making `id` unique per node.
 - [**plain_index_query**](#agrag.cypher.schema.plain_index_query) – Build a CREATE INDEX query on the node `id` property.
+- [**relation_id_constraint_query**](#agrag.cypher.schema.relation_id_constraint_query) – Build a CREATE CONSTRAINT query making `id` unique per relationship type.
 - [**vector_index_name**](#agrag.cypher.schema.vector_index_name) – Derive the deterministic name a vector index is created under.
 - [**vector_index_query**](#agrag.cypher.schema.vector_index_query) – Build a CREATE VECTOR INDEX query for native vector search.
 - [**vector_search_query**](#agrag.cypher.schema.vector_search_query) – Build a native vector search query and its filter parameters.
@@ -438,6 +505,13 @@ node_id_constraint_query(label:str) -> str
 ```
 
 Build a CREATE CONSTRAINT query making `id` unique per node.
+
+Neo4j constraint names share one flat, global namespace regardless of
+whether they apply to a node label or a relationship type, so this name
+is kind-prefixed and length-prefixed the same way `vector_index_name`
+is: label `"X_rel"` and relationship type `"X"` would otherwise both
+produce `X_rel_id_unique`, and `IF NOT EXISTS` would then silently
+leave the second one never created.
 
 **Parameters:**
 
@@ -463,6 +537,27 @@ Build a CREATE INDEX query on the node `id` property.
 
 - <code>[str](#str)</code> – A Cypher query creating the range index if absent.
 
+##### `agrag.cypher.schema.relation_id_constraint_query`
+
+```python
+relation_id_constraint_query(rel_type:str) -> str
+```
+
+Build a CREATE CONSTRAINT query making `id` unique per relationship type.
+
+This backs the stale-relationship lookup in `upsert_relation_query` with
+an index and guarantees at most one relationship of `rel_type` carries a
+given id. See `node_id_constraint_query` for why the name is
+kind-prefixed and length-prefixed rather than a plain concatenation.
+
+**Parameters:**
+
+- **rel_type** (<code>[str](#str)</code>) – The relationship type. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – A Cypher query creating the uniqueness constraint if absent.
+
 ##### `agrag.cypher.schema.vector_index_name`
 
 ```python
@@ -470,6 +565,15 @@ vector_index_name(label:str, vector_property:str) -> str
 ```
 
 Derive the deterministic name a vector index is created under.
+
+Each component is length-prefixed so the encoding is unambiguous: a plain
+join like `f"{label}_{vector_property}_vector"` would let a label and
+property containing underscores collide, for example `("A_B", "C")` and
+`("A", "B_C")` both joining to `"A_B_C_vector"`. A collision would
+make `ensure_vector_index` reuse one index for two different label and
+property pairs, and `vector_search` would then search the wrong nodes.
+`ensure_vector_index` and `vector_search` both call this function, so
+they always agree on the name.
 
 **Parameters:**
 
@@ -556,19 +660,25 @@ A component that turns text into dense embedding vectors.
 
 **Functions:**
 
+- [**dimensions**](#agrag.embedding.Embedder.dimensions) – Return the dimension of the vectors this embedder produces.
 - [**embed**](#agrag.embedding.Embedder.embed) – Embed a batch of texts.
 - [**embed_one**](#agrag.embedding.Embedder.embed_one) – Embed a single text.
 
 **Attributes:**
 
-- [**dimensions**](#agrag.embedding.Embedder.dimensions) (<code>[int](#int)</code>) –
 - [**model**](#agrag.embedding.Embedder.model) (<code>[str](#str)</code>) –
 
 ##### `agrag.embedding.Embedder.dimensions`
 
 ```python
-dimensions: int
+dimensions() -> int
 ```
+
+Return the dimension of the vectors this embedder produces.
+
+Async because a lazily-loaded embedder may need to load its model to
+answer, and that load must go through the same worker-thread/lock
+path `embed` uses rather than blocking the event loop.
 
 ##### `agrag.embedding.Embedder.embed`
 
@@ -683,7 +793,8 @@ worker thread, keeping the event loop free. FastEmbed ships with the
 
 **Functions:**
 
-- [**embed**](#agrag.embedding.FastEmbedBM25Embedder.embed) – Embed a batch of texts into BM25 sparse vectors.
+- [**embed**](#agrag.embedding.FastEmbedBM25Embedder.embed) – Embed a batch of documents into BM25 sparse vectors.
+- [**query_embed**](#agrag.embedding.FastEmbedBM25Embedder.query_embed) – Embed a batch of search queries into BM25 sparse vectors.
 
 **Attributes:**
 
@@ -700,11 +811,14 @@ worker thread, keeping the event loop free. FastEmbed ships with the
 embed(texts:Sequence[str]) -> list[SparseVector]
 ```
 
-Embed a batch of texts into BM25 sparse vectors.
+Embed a batch of documents into BM25 sparse vectors.
+
+Applies FastEmbed's document-side term-frequency and length
+normalization weighting. Use `query_embed` for search queries.
 
 **Parameters:**
 
-- **texts** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The texts to embed, in order.
+- **texts** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The document texts to embed, in order.
 
 **Returns:**
 
@@ -717,6 +831,28 @@ model: str
 ```
 
 The configured model name, or the FastEmbed default when unset.
+
+##### `agrag.embedding.FastEmbedBM25Embedder.query_embed`
+
+```python
+query_embed(texts:Sequence[str]) -> list[SparseVector]
+```
+
+Embed a batch of search queries into BM25 sparse vectors.
+
+Uses FastEmbed's `query_embed`, which assigns each unique query
+term a uniform weight of `1.0` rather than the document-side
+term-frequency and length-normalization weighting `embed` applies;
+IDF weighting is applied separately by the sparse index's
+`Modifier.IDF` at query time.
+
+**Parameters:**
+
+- **texts** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The query texts to embed, in order.
+
+**Returns:**
+
+- <code>[list](#list)\[[SparseVector](#agrag.embedding.sparse_base.SparseVector)\]</code> – One sparse vector per input text, in the same order.
 
 #### `agrag.embedding.SentenceTransformerEmbedder`
 
@@ -735,12 +871,12 @@ stays free for other work while a large batch encodes.
 
 **Functions:**
 
+- [**dimensions**](#agrag.embedding.SentenceTransformerEmbedder.dimensions) – Return the dimension the loaded model produces.
 - [**embed**](#agrag.embedding.SentenceTransformerEmbedder.embed) – Embed a batch of texts, using the cache where possible.
 - [**embed_one**](#agrag.embedding.SentenceTransformerEmbedder.embed_one) – Embed a single text.
 
 **Attributes:**
 
-- [**dimensions**](#agrag.embedding.SentenceTransformerEmbedder.dimensions) (<code>[int](#int)</code>) – The dimension the loaded model produces.
 - [**model**](#agrag.embedding.SentenceTransformerEmbedder.model) (<code>[str](#str)</code>) – The configured model name.
 
 **Parameters:**
@@ -754,12 +890,15 @@ stays free for other work while a large batch encodes.
 ##### `agrag.embedding.SentenceTransformerEmbedder.dimensions`
 
 ```python
-dimensions: int
+dimensions() -> int
 ```
 
-The dimension the loaded model produces.
+Return the dimension the loaded model produces.
 
-Accessing this loads the model the first time.
+Calling this loads the model the first time, the same
+lock-protected, worker-thread path `embed` uses, so it is safe to
+call concurrently with `embed` without stalling the event loop or
+loading a second copy of the model.
 
 **Raises:**
 
@@ -813,7 +952,8 @@ A component that turns text into sparse lexical vectors, for hybrid search.
 
 **Functions:**
 
-- [**embed**](#agrag.embedding.SparseEmbedder.embed) – Embed a batch of texts into sparse vectors.
+- [**embed**](#agrag.embedding.SparseEmbedder.embed) – Embed a batch of documents into sparse vectors.
+- [**query_embed**](#agrag.embedding.SparseEmbedder.query_embed) – Embed a batch of search queries into sparse vectors.
 
 **Attributes:**
 
@@ -825,11 +965,11 @@ A component that turns text into sparse lexical vectors, for hybrid search.
 embed(texts:Sequence[str]) -> list[SparseVector]
 ```
 
-Embed a batch of texts into sparse vectors.
+Embed a batch of documents into sparse vectors.
 
 **Parameters:**
 
-- **texts** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The texts to embed, in order.
+- **texts** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The document texts to embed, in order.
 
 **Returns:**
 
@@ -840,6 +980,29 @@ Embed a batch of texts into sparse vectors.
 ```python
 model: str
 ```
+
+##### `agrag.embedding.SparseEmbedder.query_embed`
+
+```python
+query_embed(texts:Sequence[str]) -> list[SparseVector]
+```
+
+Embed a batch of search queries into sparse vectors.
+
+Query-side sparse embedding is not always the same computation as
+document-side embedding: BM25, for example, applies term-frequency
+and document-length normalization on the document side but only a
+uniform per-term weight on the query side, since IDF weighting is
+applied by the sparse index at query time instead. Implementations
+with no such asymmetry may implement this identically to `embed`.
+
+**Parameters:**
+
+- **texts** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The query texts to embed, in order.
+
+**Returns:**
+
+- <code>[list](#list)\[[SparseVector](#agrag.embedding.sparse_base.SparseVector)\]</code> – One sparse vector per input text, in the same order.
 
 #### `agrag.embedding.SparseVector`
 
@@ -882,19 +1045,25 @@ A component that turns text into dense embedding vectors.
 
 **Functions:**
 
+- [**dimensions**](#agrag.embedding.base.Embedder.dimensions) – Return the dimension of the vectors this embedder produces.
 - [**embed**](#agrag.embedding.base.Embedder.embed) – Embed a batch of texts.
 - [**embed_one**](#agrag.embedding.base.Embedder.embed_one) – Embed a single text.
 
 **Attributes:**
 
-- [**dimensions**](#agrag.embedding.base.Embedder.dimensions) (<code>[int](#int)</code>) –
 - [**model**](#agrag.embedding.base.Embedder.model) (<code>[str](#str)</code>) –
 
 ###### `agrag.embedding.base.Embedder.dimensions`
 
 ```python
-dimensions: int
+dimensions() -> int
 ```
+
+Return the dimension of the vectors this embedder produces.
+
+Async because a lazily-loaded embedder may need to load its model to
+answer, and that load must go through the same worker-thread/lock
+path `embed` uses rather than blocking the event loop.
 
 ###### `agrag.embedding.base.Embedder.embed`
 
@@ -940,26 +1109,37 @@ Bases: <code>[ABC](#abc.ABC)</code>
 
 A content-addressed cache for embedding vectors.
 
+`normalize` is part of the cache key alongside `text` and `model`
+because it changes the vector an embedder produces for the same text and
+model: without it, embedders sharing one cache but configured with
+opposite `EmbeddingSettings.normalize` values would read back the wrong
+output mode. Any future embedder setting that changes output values must
+join this key the same way.
+
 **Functions:**
 
-- [**get**](#agrag.embedding.base.EmbeddingCache.get) – Return the cached vector for `(text, model)`, or `None` on a miss.
-- [**set**](#agrag.embedding.base.EmbeddingCache.set) – Store `vector` under `(text, model)`.
+- [**get**](#agrag.embedding.base.EmbeddingCache.get) – Return the cached vector for `(text, model, normalize)`.
+- [**set**](#agrag.embedding.base.EmbeddingCache.set) – Store `vector` under `(text, model, normalize)`.
 
 ###### `agrag.embedding.base.EmbeddingCache.get`
 
 ```python
-get(*, text:str, model:str) -> list[float] | None
+get(*, text:str, model:str, normalize:bool) -> list[float] | None
 ```
 
-Return the cached vector for `(text, model)`, or `None` on a miss.
+Return the cached vector for `(text, model, normalize)`.
+
+**Returns:**
+
+- <code>[list](#list)\[[float](#float)\] | None</code> – The cached vector, or `None` on a miss.
 
 ###### `agrag.embedding.base.EmbeddingCache.set`
 
 ```python
-set(*, text:str, model:str, vector:list[float]) -> None
+set(*, text:str, model:str, normalize:bool, vector:list[float]) -> None
 ```
 
-Store `vector` under `(text, model)`.
+Store `vector` under `(text, model, normalize)`.
 
 ##### `agrag.embedding.base.NullEmbeddingCache`
 
@@ -975,7 +1155,7 @@ A cache that never stores anything. The default when none is injected.
 ###### `agrag.embedding.base.NullEmbeddingCache.get`
 
 ```python
-get(*, text:str, model:str) -> list[float] | None
+get(*, text:str, model:str, normalize:bool) -> list[float] | None
 ```
 
 Always miss.
@@ -983,7 +1163,7 @@ Always miss.
 ###### `agrag.embedding.base.NullEmbeddingCache.set`
 
 ```python
-set(*, text:str, model:str, vector:list[float]) -> None
+set(*, text:str, model:str, normalize:bool, vector:list[float]) -> None
 ```
 
 Do nothing.
@@ -1106,7 +1286,8 @@ worker thread, keeping the event loop free. FastEmbed ships with the
 
 **Functions:**
 
-- [**embed**](#agrag.embedding.fastembed_bm25.FastEmbedBM25Embedder.embed) – Embed a batch of texts into BM25 sparse vectors.
+- [**embed**](#agrag.embedding.fastembed_bm25.FastEmbedBM25Embedder.embed) – Embed a batch of documents into BM25 sparse vectors.
+- [**query_embed**](#agrag.embedding.fastembed_bm25.FastEmbedBM25Embedder.query_embed) – Embed a batch of search queries into BM25 sparse vectors.
 
 **Attributes:**
 
@@ -1123,11 +1304,14 @@ worker thread, keeping the event loop free. FastEmbed ships with the
 embed(texts:Sequence[str]) -> list[SparseVector]
 ```
 
-Embed a batch of texts into BM25 sparse vectors.
+Embed a batch of documents into BM25 sparse vectors.
+
+Applies FastEmbed's document-side term-frequency and length
+normalization weighting. Use `query_embed` for search queries.
 
 **Parameters:**
 
-- **texts** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The texts to embed, in order.
+- **texts** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The document texts to embed, in order.
 
 **Returns:**
 
@@ -1140,6 +1324,28 @@ model: str
 ```
 
 The configured model name, or the FastEmbed default when unset.
+
+###### `agrag.embedding.fastembed_bm25.FastEmbedBM25Embedder.query_embed`
+
+```python
+query_embed(texts:Sequence[str]) -> list[SparseVector]
+```
+
+Embed a batch of search queries into BM25 sparse vectors.
+
+Uses FastEmbed's `query_embed`, which assigns each unique query
+term a uniform weight of `1.0` rather than the document-side
+term-frequency and length-normalization weighting `embed` applies;
+IDF weighting is applied separately by the sparse index's
+`Modifier.IDF` at query time.
+
+**Parameters:**
+
+- **texts** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The query texts to embed, in order.
+
+**Returns:**
+
+- <code>[list](#list)\[[SparseVector](#agrag.embedding.sparse_base.SparseVector)\]</code> – One sparse vector per input text, in the same order.
 
 #### `agrag.embedding.sentence_transformers`
 
@@ -1166,12 +1372,12 @@ stays free for other work while a large batch encodes.
 
 **Functions:**
 
+- [**dimensions**](#agrag.embedding.sentence_transformers.SentenceTransformerEmbedder.dimensions) – Return the dimension the loaded model produces.
 - [**embed**](#agrag.embedding.sentence_transformers.SentenceTransformerEmbedder.embed) – Embed a batch of texts, using the cache where possible.
 - [**embed_one**](#agrag.embedding.sentence_transformers.SentenceTransformerEmbedder.embed_one) – Embed a single text.
 
 **Attributes:**
 
-- [**dimensions**](#agrag.embedding.sentence_transformers.SentenceTransformerEmbedder.dimensions) (<code>[int](#int)</code>) – The dimension the loaded model produces.
 - [**model**](#agrag.embedding.sentence_transformers.SentenceTransformerEmbedder.model) (<code>[str](#str)</code>) – The configured model name.
 
 **Parameters:**
@@ -1185,12 +1391,15 @@ stays free for other work while a large batch encodes.
 ###### `agrag.embedding.sentence_transformers.SentenceTransformerEmbedder.dimensions`
 
 ```python
-dimensions: int
+dimensions() -> int
 ```
 
-The dimension the loaded model produces.
+Return the dimension the loaded model produces.
 
-Accessing this loads the model the first time.
+Calling this loads the model the first time, the same
+lock-protected, worker-thread path `embed` uses, so it is safe to
+call concurrently with `embed` without stalling the event loop or
+loading a second copy of the model.
 
 **Raises:**
 
@@ -1318,7 +1527,8 @@ A component that turns text into sparse lexical vectors, for hybrid search.
 
 **Functions:**
 
-- [**embed**](#agrag.embedding.sparse_base.SparseEmbedder.embed) – Embed a batch of texts into sparse vectors.
+- [**embed**](#agrag.embedding.sparse_base.SparseEmbedder.embed) – Embed a batch of documents into sparse vectors.
+- [**query_embed**](#agrag.embedding.sparse_base.SparseEmbedder.query_embed) – Embed a batch of search queries into sparse vectors.
 
 **Attributes:**
 
@@ -1330,11 +1540,11 @@ A component that turns text into sparse lexical vectors, for hybrid search.
 embed(texts:Sequence[str]) -> list[SparseVector]
 ```
 
-Embed a batch of texts into sparse vectors.
+Embed a batch of documents into sparse vectors.
 
 **Parameters:**
 
-- **texts** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The texts to embed, in order.
+- **texts** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The document texts to embed, in order.
 
 **Returns:**
 
@@ -1345,6 +1555,29 @@ Embed a batch of texts into sparse vectors.
 ```python
 model: str
 ```
+
+###### `agrag.embedding.sparse_base.SparseEmbedder.query_embed`
+
+```python
+query_embed(texts:Sequence[str]) -> list[SparseVector]
+```
+
+Embed a batch of search queries into sparse vectors.
+
+Query-side sparse embedding is not always the same computation as
+document-side embedding: BM25, for example, applies term-frequency
+and document-length normalization on the document side but only a
+uniform per-term weight on the query side, since IDF weighting is
+applied by the sparse index at query time instead. Implementations
+with no such asymmetry may implement this identically to `embed`.
+
+**Parameters:**
+
+- **texts** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The query texts to embed, in order.
+
+**Returns:**
+
+- <code>[list](#list)\[[SparseVector](#agrag.embedding.sparse_base.SparseVector)\]</code> – One sparse vector per input text, in the same order.
 
 ##### `agrag.embedding.sparse_base.SparseVector`
 
@@ -1411,9 +1644,9 @@ A graph database backend: schema, writes, and native vector search.
 - [**execute_read**](#agrag.graphdb.GraphStore.execute_read) – Run a read transaction.
 - [**execute_write**](#agrag.graphdb.GraphStore.execute_write) – Run a write transaction.
 - [**session**](#agrag.graphdb.GraphStore.session) – Open a session as an async context manager.
-- [**setup_constraints**](#agrag.graphdb.GraphStore.setup_constraints) – Create per-label uniqueness constraints for tracked labels.
-- [**setup_indexes**](#agrag.graphdb.GraphStore.setup_indexes) – Create per-label property indexes for tracked labels.
-- [**upsert_nodes**](#agrag.graphdb.GraphStore.upsert_nodes) – Write or merge nodes of one label.
+- [**setup_constraints**](#agrag.graphdb.GraphStore.setup_constraints) – Create per-label and per-relation-type uniqueness constraints.
+- [**setup_indexes**](#agrag.graphdb.GraphStore.setup_indexes) – Create per-label property indexes.
+- [**upsert_nodes**](#agrag.graphdb.GraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag.graphdb.GraphStore.upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag.graphdb.GraphStore.vector_search) – Search nodes by dense vector.
 
@@ -1500,7 +1733,12 @@ Open a session as an async context manager.
 setup_constraints() -> None
 ```
 
-Create per-label uniqueness constraints for tracked labels.
+Create per-label and per-relation-type uniqueness constraints.
+
+Constraints cover every node label and relationship type written
+through this instance or already present in the database, so a fresh
+instance can set up an existing database without first rewriting
+every record.
 
 ##### `agrag.graphdb.GraphStore.setup_indexes`
 
@@ -1508,7 +1746,11 @@ Create per-label uniqueness constraints for tracked labels.
 setup_indexes() -> None
 ```
 
-Create per-label property indexes for tracked labels.
+Create per-label property indexes.
+
+Covers every node label written through this instance or already
+present in the database, so a fresh instance can set up an existing
+database without first rewriting every record.
 
 ##### `agrag.graphdb.GraphStore.upsert_nodes`
 
@@ -1516,13 +1758,22 @@ Create per-label property indexes for tracked labels.
 upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> None
 ```
 
-Write or merge nodes of one label.
+Write or merge nodes, honoring each record's full label set.
 
 **Parameters:**
 
-- **label** (<code>[str](#str)</code>) – The node label.
-- **nodes** (<code>[Sequence](#collections.abc.Sequence)\[[NodeRecord](#agrag.common.data_models.graph_record.NodeRecord)\]</code>) – The node records to upsert.
-- **batch_size** (<code>[int](#int)</code>) – Records per backend write call.
+- **label** (<code>[str](#str)</code>) – The label this batch is tracked under for constraint and
+  index bookkeeping.
+- **nodes** (<code>[Sequence](#collections.abc.Sequence)\[[NodeRecord](#agrag.common.data_models.graph_record.NodeRecord)\]</code>) – The node records to upsert. Each node's `NodeRecord.labels`
+  names the full label set actually written to it, which may
+  include labels beyond `label`.
+- **batch_size** (<code>[int](#int)</code>) – Records per backend write call, applied within each
+  distinct label set when `nodes` mixes more than one. Must
+  be positive.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
 ##### `agrag.graphdb.GraphStore.upsert_relations`
 
@@ -1535,7 +1786,11 @@ Write or merge relationships between existing nodes.
 **Parameters:**
 
 - **relations** (<code>[Sequence](#collections.abc.Sequence)\[[RelationRecord](#agrag.common.data_models.graph_record.RelationRecord)\]</code>) – The relation records to upsert.
-- **batch_size** (<code>[int](#int)</code>) – Records per backend write call.
+- **batch_size** (<code>[int](#int)</code>) – Records per backend write call. Must be positive.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
 ##### `agrag.graphdb.GraphStore.vector_search`
 
@@ -1611,9 +1866,9 @@ driver's managed transactions with no added retry loop, per ADR 0027.
 - [**execute_read**](#agrag.graphdb.Neo4jGraphStore.execute_read) – Run a read transaction and return its rows.
 - [**execute_write**](#agrag.graphdb.Neo4jGraphStore.execute_write) – Run a write transaction and return its rows.
 - [**session**](#agrag.graphdb.Neo4jGraphStore.session) – Open a session to the configured database.
-- [**setup_constraints**](#agrag.graphdb.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every tracked label.
-- [**setup_indexes**](#agrag.graphdb.Neo4jGraphStore.setup_indexes) – Create a range index on `id` for every tracked label.
-- [**upsert_nodes**](#agrag.graphdb.Neo4jGraphStore.upsert_nodes) – Write or merge nodes of one label.
+- [**setup_constraints**](#agrag.graphdb.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every known label.
+- [**setup_indexes**](#agrag.graphdb.Neo4jGraphStore.setup_indexes) – Create a range index on `id` for every known label.
+- [**upsert_nodes**](#agrag.graphdb.Neo4jGraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag.graphdb.Neo4jGraphStore.upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag.graphdb.Neo4jGraphStore.vector_search) – Search nodes by dense vector using the native vector index.
 
@@ -1678,7 +1933,17 @@ Open a session to the configured database.
 setup_constraints() -> None
 ```
 
-Create a uniqueness constraint on `id` for every tracked label.
+Create a uniqueness constraint on `id` for every known label.
+
+"Known" means written by this instance or already present in the
+database, so a fresh store can set up constraints for an existing
+database without first rewriting every record. Also creates the
+global uniqueness constraint on `NODE_IDENTITY_LABEL` that
+`upsert_node_query`'s `MERGE` relies on to resolve a node by id
+regardless of its other, mutable labels, and a per-type uniqueness
+constraint on `id` for every known relationship type, which backs
+the stale-relationship cleanup `upsert_relation_query` performs on
+endpoint changes.
 
 ##### `agrag.graphdb.Neo4jGraphStore.setup_indexes`
 
@@ -1686,7 +1951,11 @@ Create a uniqueness constraint on `id` for every tracked label.
 setup_indexes() -> None
 ```
 
-Create a range index on `id` for every tracked label.
+Create a range index on `id` for every known label.
+
+"Known" means written by this instance or already present in the
+database, so a fresh store can set up indexes for an existing
+database without first rewriting every record.
 
 ##### `agrag.graphdb.Neo4jGraphStore.upsert_nodes`
 
@@ -1694,7 +1963,20 @@ Create a range index on `id` for every tracked label.
 upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> None
 ```
 
-Write or merge nodes of one label.
+Write or merge nodes, honoring each record's full label set.
+
+`label` names the batch for constraint/index bookkeeping, matching
+every other tracked label; the labels actually written to a node come
+from `NodeRecord.labels`, which may name more than one label (for
+example a node that is both `Chunk` and `Entity`). Records with
+different label sets are grouped and written with separate `MERGE`
+queries, since Cypher requires labels to be literal in the query text
+rather than a runtime parameter, so `batch_size` chunks apply within
+each group rather than across the whole call.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
 ##### `agrag.graphdb.Neo4jGraphStore.upsert_relations`
 
@@ -1704,6 +1986,14 @@ upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) ->
 
 Write or merge relationships between existing nodes.
 
+Relationship identity is each record's `id`, not its endpoints: see
+`upsert_relation_query` for how endpoint changes and same-id
+parallel relationships are handled.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
+
 ##### `agrag.graphdb.Neo4jGraphStore.vector_search`
 
 ```python
@@ -1711,6 +2001,19 @@ vector_search(*, label:str, vector_property:str, query_vector:Sequence[float], l
 ```
 
 Search nodes by dense vector using the native vector index.
+
+When `filters` is set, Neo4j's vector procedure applies the filter
+only after selecting its top `k` candidates, so a plain `k=limit`
+call can return fewer matches than actually exist. This escalates
+`k` and retries until `limit` filtered hits come back or the
+escalation reaches `_VECTOR_SEARCH_MAX_K`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive. A non-positive value is
+  not a meaningful request and would send that same
+  non-positive `k` to Neo4j's native vector procedure, which
+  requires a positive top-k.
 
 #### `agrag.graphdb.Neo4jSettings`
 
@@ -1728,6 +2031,13 @@ Neo4j connection configuration.
 - [**max_connection_lifetime**](#agrag.graphdb.Neo4jSettings.max_connection_lifetime) (<code>[int](#int)</code>) – The maximum seconds a pooled connection
   lives, kept well below Aura's roughly five-minute idle timeout.
   Env: `NEO4J_MAX_CONNECTION_LIFETIME`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `uri` is plaintext (`bolt://` or `neo4j://`) and
+  points at a non-local host. Neo4j always authenticates with a
+  password, so a plaintext scheme always sends it in the clear; use
+  `neo4j+s://` (or `bolt+s://`) for a remote instance.
 
 ##### `agrag.graphdb.Neo4jSettings.database`
 
@@ -1787,9 +2097,9 @@ A graph database backend: schema, writes, and native vector search.
 - [**execute_read**](#agrag.graphdb.base.GraphStore.execute_read) – Run a read transaction.
 - [**execute_write**](#agrag.graphdb.base.GraphStore.execute_write) – Run a write transaction.
 - [**session**](#agrag.graphdb.base.GraphStore.session) – Open a session as an async context manager.
-- [**setup_constraints**](#agrag.graphdb.base.GraphStore.setup_constraints) – Create per-label uniqueness constraints for tracked labels.
-- [**setup_indexes**](#agrag.graphdb.base.GraphStore.setup_indexes) – Create per-label property indexes for tracked labels.
-- [**upsert_nodes**](#agrag.graphdb.base.GraphStore.upsert_nodes) – Write or merge nodes of one label.
+- [**setup_constraints**](#agrag.graphdb.base.GraphStore.setup_constraints) – Create per-label and per-relation-type uniqueness constraints.
+- [**setup_indexes**](#agrag.graphdb.base.GraphStore.setup_indexes) – Create per-label property indexes.
+- [**upsert_nodes**](#agrag.graphdb.base.GraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag.graphdb.base.GraphStore.upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag.graphdb.base.GraphStore.vector_search) – Search nodes by dense vector.
 
@@ -1876,7 +2186,12 @@ Open a session as an async context manager.
 setup_constraints() -> None
 ```
 
-Create per-label uniqueness constraints for tracked labels.
+Create per-label and per-relation-type uniqueness constraints.
+
+Constraints cover every node label and relationship type written
+through this instance or already present in the database, so a fresh
+instance can set up an existing database without first rewriting
+every record.
 
 ###### `agrag.graphdb.base.GraphStore.setup_indexes`
 
@@ -1884,7 +2199,11 @@ Create per-label uniqueness constraints for tracked labels.
 setup_indexes() -> None
 ```
 
-Create per-label property indexes for tracked labels.
+Create per-label property indexes.
+
+Covers every node label written through this instance or already
+present in the database, so a fresh instance can set up an existing
+database without first rewriting every record.
 
 ###### `agrag.graphdb.base.GraphStore.upsert_nodes`
 
@@ -1892,13 +2211,22 @@ Create per-label property indexes for tracked labels.
 upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> None
 ```
 
-Write or merge nodes of one label.
+Write or merge nodes, honoring each record's full label set.
 
 **Parameters:**
 
-- **label** (<code>[str](#str)</code>) – The node label.
-- **nodes** (<code>[Sequence](#collections.abc.Sequence)\[[NodeRecord](#agrag.common.data_models.graph_record.NodeRecord)\]</code>) – The node records to upsert.
-- **batch_size** (<code>[int](#int)</code>) – Records per backend write call.
+- **label** (<code>[str](#str)</code>) – The label this batch is tracked under for constraint and
+  index bookkeeping.
+- **nodes** (<code>[Sequence](#collections.abc.Sequence)\[[NodeRecord](#agrag.common.data_models.graph_record.NodeRecord)\]</code>) – The node records to upsert. Each node's `NodeRecord.labels`
+  names the full label set actually written to it, which may
+  include labels beyond `label`.
+- **batch_size** (<code>[int](#int)</code>) – Records per backend write call, applied within each
+  distinct label set when `nodes` mixes more than one. Must
+  be positive.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
 ###### `agrag.graphdb.base.GraphStore.upsert_relations`
 
@@ -1911,7 +2239,11 @@ Write or merge relationships between existing nodes.
 **Parameters:**
 
 - **relations** (<code>[Sequence](#collections.abc.Sequence)\[[RelationRecord](#agrag.common.data_models.graph_record.RelationRecord)\]</code>) – The relation records to upsert.
-- **batch_size** (<code>[int](#int)</code>) – Records per backend write call.
+- **batch_size** (<code>[int](#int)</code>) – Records per backend write call. Must be positive.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
 ###### `agrag.graphdb.base.GraphStore.vector_search`
 
@@ -2014,9 +2346,9 @@ driver's managed transactions with no added retry loop, per ADR 0027.
 - [**execute_read**](#agrag.graphdb.neo4j.Neo4jGraphStore.execute_read) – Run a read transaction and return its rows.
 - [**execute_write**](#agrag.graphdb.neo4j.Neo4jGraphStore.execute_write) – Run a write transaction and return its rows.
 - [**session**](#agrag.graphdb.neo4j.Neo4jGraphStore.session) – Open a session to the configured database.
-- [**setup_constraints**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every tracked label.
-- [**setup_indexes**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_indexes) – Create a range index on `id` for every tracked label.
-- [**upsert_nodes**](#agrag.graphdb.neo4j.Neo4jGraphStore.upsert_nodes) – Write or merge nodes of one label.
+- [**setup_constraints**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every known label.
+- [**setup_indexes**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_indexes) – Create a range index on `id` for every known label.
+- [**upsert_nodes**](#agrag.graphdb.neo4j.Neo4jGraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag.graphdb.neo4j.Neo4jGraphStore.upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag.graphdb.neo4j.Neo4jGraphStore.vector_search) – Search nodes by dense vector using the native vector index.
 
@@ -2081,7 +2413,17 @@ Open a session to the configured database.
 setup_constraints() -> None
 ```
 
-Create a uniqueness constraint on `id` for every tracked label.
+Create a uniqueness constraint on `id` for every known label.
+
+"Known" means written by this instance or already present in the
+database, so a fresh store can set up constraints for an existing
+database without first rewriting every record. Also creates the
+global uniqueness constraint on `NODE_IDENTITY_LABEL` that
+`upsert_node_query`'s `MERGE` relies on to resolve a node by id
+regardless of its other, mutable labels, and a per-type uniqueness
+constraint on `id` for every known relationship type, which backs
+the stale-relationship cleanup `upsert_relation_query` performs on
+endpoint changes.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.setup_indexes`
 
@@ -2089,7 +2431,11 @@ Create a uniqueness constraint on `id` for every tracked label.
 setup_indexes() -> None
 ```
 
-Create a range index on `id` for every tracked label.
+Create a range index on `id` for every known label.
+
+"Known" means written by this instance or already present in the
+database, so a fresh store can set up indexes for an existing
+database without first rewriting every record.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.upsert_nodes`
 
@@ -2097,7 +2443,20 @@ Create a range index on `id` for every tracked label.
 upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> None
 ```
 
-Write or merge nodes of one label.
+Write or merge nodes, honoring each record's full label set.
+
+`label` names the batch for constraint/index bookkeeping, matching
+every other tracked label; the labels actually written to a node come
+from `NodeRecord.labels`, which may name more than one label (for
+example a node that is both `Chunk` and `Entity`). Records with
+different label sets are grouped and written with separate `MERGE`
+queries, since Cypher requires labels to be literal in the query text
+rather than a runtime parameter, so `batch_size` chunks apply within
+each group rather than across the whole call.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.upsert_relations`
 
@@ -2107,6 +2466,14 @@ upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) ->
 
 Write or merge relationships between existing nodes.
 
+Relationship identity is each record's `id`, not its endpoints: see
+`upsert_relation_query` for how endpoint changes and same-id
+parallel relationships are handled.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
+
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.vector_search`
 
 ```python
@@ -2114,6 +2481,19 @@ vector_search(*, label:str, vector_property:str, query_vector:Sequence[float], l
 ```
 
 Search nodes by dense vector using the native vector index.
+
+When `filters` is set, Neo4j's vector procedure applies the filter
+only after selecting its top `k` candidates, so a plain `k=limit`
+call can return fewer matches than actually exist. This escalates
+`k` and retries until `limit` filtered hits come back or the
+escalation reaches `_VECTOR_SEARCH_MAX_K`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive. A non-positive value is
+  not a meaningful request and would send that same
+  non-positive `k` to Neo4j's native vector procedure, which
+  requires a positive top-k.
 
 #### `agrag.graphdb.serialize`
 
@@ -2181,6 +2561,13 @@ Neo4j connection configuration.
   lives, kept well below Aura's roughly five-minute idle timeout.
   Env: `NEO4J_MAX_CONNECTION_LIFETIME`.
 
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `uri` is plaintext (`bolt://` or `neo4j://`) and
+  points at a non-local host. Neo4j always authenticates with a
+  password, so a plaintext scheme always sends it in the clear; use
+  `neo4j+s://` (or `bolt+s://`) for a remote instance.
+
 ###### `agrag.graphdb.settings.Neo4jSettings.database`
 
 ```python
@@ -2223,7 +2610,9 @@ The ingestion package.
 
 **Modules:**
 
+- [**extract**](#agrag.ingestion.extract) – The Extractor interface: reads one Chunk and produces an ExtractionResult.
 - [**graph**](#agrag.ingestion.graph) – The public Graph API for ingestion.
+- [**resolve**](#agrag.ingestion.resolve) – Entity resolution: deciding which ExtractedEntity mentions are the same thing.
 
 **Classes:**
 
@@ -2298,6 +2687,293 @@ Open a graph with no setup.
 **Returns:**
 
 - <code>[Graph](#agrag.ingestion.graph.Graph)</code> – A ready-to-use graph. This call needs no external service.
+
+#### `agrag.ingestion.extract`
+
+The Extractor interface: reads one Chunk and produces an ExtractionResult.
+
+**Classes:**
+
+- [**BAMLExtractor**](#agrag.ingestion.extract.BAMLExtractor) – Extracts with an LLM, via a BAML function and a runtime ClientRegistry.
+- [**EscalatingExtractor**](#agrag.ingestion.extract.EscalatingExtractor) – Runs a cheap primary extractor first, escalating per chunk when it's weak.
+- [**ExtractionLLMSettings**](#agrag.ingestion.extract.ExtractionLLMSettings) – Env-backed LLM client config for the extraction role.
+- [**Extractor**](#agrag.ingestion.extract.Extractor) – Reads one Chunk and produces the entities and relations it contains.
+- [**ExtractorMissingExtraError**](#agrag.ingestion.extract.ExtractorMissingExtraError) – An Extractor needs a package extra that is not installed.
+- [**GlinerExtractor**](#agrag.ingestion.extract.GlinerExtractor) – Extracts locally with a GLiNER2.5 model. No network call.
+
+##### `agrag.ingestion.extract.BAMLExtractor`
+
+```python
+BAMLExtractor(*, settings:ExtractionLLMSettings | None = None, client:object | None = None) -> None
+```
+
+Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
+
+Extracts with an LLM, via a BAML function and a runtime ClientRegistry.
+
+**Functions:**
+
+- [**extract**](#agrag.ingestion.extract.BAMLExtractor.extract) – Extract with an LLM call through the configured ClientRegistry.
+
+**Attributes:**
+
+- [**settings**](#agrag.ingestion.extract.BAMLExtractor.settings) –
+
+**Parameters:**
+
+- **settings** (<code>[ExtractionLLMSettings](#agrag.ingestion.extract.ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`,
+  loaded from the environment/`.env`. Ignored when `client`
+  is given: an injected client also disables `settings.retry`,
+  since a caller building its own client is assumed to own its
+  own retry behavior too.
+- **client** (<code>[object](#object) | None</code>) – An already-built BAML client object exposing
+  `ExtractEntitiesAndRelations`. Tests inject a fake here.
+
+###### `agrag.ingestion.extract.BAMLExtractor.extract`
+
+```python
+extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+```
+
+Extract with an LLM call through the configured ClientRegistry.
+
+**Raises:**
+
+- <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `llm` package extra is not
+  installed.
+- <code>[ValueError](#ValueError)</code> – `chunk.id` is `None`.
+
+###### `agrag.ingestion.extract.BAMLExtractor.settings`
+
+```python
+settings = settings
+```
+
+##### `agrag.ingestion.extract.EscalatingExtractor`
+
+```python
+EscalatingExtractor(primary:Extractor, escalate_to:Extractor, *, min_confidence:float = 0.5, min_chunk_words:int = 8) -> None
+```
+
+Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
+
+Runs a cheap primary extractor first, escalating per chunk when it's weak.
+
+**Functions:**
+
+- [**extract**](#agrag.ingestion.extract.EscalatingExtractor.extract) – Extract with the primary extractor, escalating when it's weak.
+
+**Attributes:**
+
+- [**escalate_to**](#agrag.ingestion.extract.EscalatingExtractor.escalate_to) –
+- [**min_chunk_words**](#agrag.ingestion.extract.EscalatingExtractor.min_chunk_words) –
+- [**min_confidence**](#agrag.ingestion.extract.EscalatingExtractor.min_confidence) –
+- [**primary**](#agrag.ingestion.extract.EscalatingExtractor.primary) –
+
+**Parameters:**
+
+- **primary** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs first, for every chunk.
+- **escalate_to** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs instead of, never in addition to, the primary's
+  result, when escalation triggers. Merging both extractors'
+  output would mean reconciling overlapping spans between them,
+  which is what entity resolution is for, not extraction.
+- **min_confidence** (<code>[float](#float)</code>) – Escalate when the primary's mean entity confidence
+  falls below this, among entities that report a confidence.
+- **min_chunk_words** (<code>[int](#int)</code>) – Below this word count, a zero-entity result from
+  the primary is treated as plausibly correct, not a miss.
+
+###### `agrag.ingestion.extract.EscalatingExtractor.escalate_to`
+
+```python
+escalate_to = escalate_to
+```
+
+###### `agrag.ingestion.extract.EscalatingExtractor.extract`
+
+```python
+extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+```
+
+Extract with the primary extractor, escalating when it's weak.
+
+Returns escalate_to's result outright when escalation triggers, never
+a combination of both extractors' results.
+
+###### `agrag.ingestion.extract.EscalatingExtractor.min_chunk_words`
+
+```python
+min_chunk_words = min_chunk_words
+```
+
+###### `agrag.ingestion.extract.EscalatingExtractor.min_confidence`
+
+```python
+min_confidence = min_confidence
+```
+
+###### `agrag.ingestion.extract.EscalatingExtractor.primary`
+
+```python
+primary = primary
+```
+
+##### `agrag.ingestion.extract.ExtractionLLMSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+Env-backed LLM client config for the extraction role.
+
+**Attributes:**
+
+- [**clients**](#agrag.ingestion.extract.ExtractionLLMSettings.clients) (<code>[list](#list)\[[LLMClientConfig](#agrag.llm.client_config.LLMClientConfig)\]</code>) – The LLM client(s) to use. One element for a single provider;
+  more than one composed per `strategy`.
+- [**strategy**](#agrag.ingestion.extract.ExtractionLLMSettings.strategy) (<code>[Literal](#typing.Literal)['single', 'fallback', 'round_robin']</code>) – How to compose multiple clients. Ignored with one client.
+- [**retry**](#agrag.ingestion.extract.ExtractionLLMSettings.retry) (<code>[RetryConfig](#agrag.llm.client_config.RetryConfig)</code>) – Retry settings applied to the extraction LLM call.
+
+Env prefix: `EXTRACTION_LLM_`.
+
+**Functions:**
+
+- [**from_openai_compatible_env**](#agrag.ingestion.extract.ExtractionLLMSettings.from_openai_compatible_env) – Build settings from a generic OpenAI-compatible endpoint.
+
+###### `agrag.ingestion.extract.ExtractionLLMSettings.clients`
+
+```python
+clients: list[LLMClientConfig]
+```
+
+###### `agrag.ingestion.extract.ExtractionLLMSettings.from_openai_compatible_env`
+
+```python
+from_openai_compatible_env() -> ExtractionLLMSettings
+```
+
+Build settings from a generic OpenAI-compatible endpoint.
+
+Reads `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` from the
+environment or `.env`, so the model name is never hardcoded. Raises
+`RuntimeError` when the required variables are not all set.
+
+**Returns:**
+
+- <code>[ExtractionLLMSettings](#agrag.ingestion.extract.ExtractionLLMSettings)</code> – Settings pointing at one `openai-generic` client.
+
+###### `agrag.ingestion.extract.ExtractionLLMSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='EXTRACTION_LLM_', env_file='.env', extra='ignore')
+```
+
+###### `agrag.ingestion.extract.ExtractionLLMSettings.retry`
+
+```python
+retry: RetryConfig = Field(default_factory=RetryConfig)
+```
+
+###### `agrag.ingestion.extract.ExtractionLLMSettings.strategy`
+
+```python
+strategy: Literal['single', 'fallback', 'round_robin'] = 'single'
+```
+
+##### `agrag.ingestion.extract.Extractor`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+Reads one Chunk and produces the entities and relations it contains.
+
+**Functions:**
+
+- [**extract**](#agrag.ingestion.extract.Extractor.extract) – Extract entities and relations from one chunk.
+
+###### `agrag.ingestion.extract.Extractor.extract`
+
+```python
+extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+```
+
+Extract entities and relations from one chunk.
+
+**Parameters:**
+
+- **chunk** (<code>[Chunk](#agrag.common.data_models.chunk.Chunk)</code>) – The chunk to read. Only `chunk.text` and `chunk.id` are used.
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The entity/relation types to extract. Every returned entity's
+  `label` and relation's `label` must be declared in this schema.
+
+**Returns:**
+
+- <code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code> – The entities and relations this call found, in extraction order.
+
+##### `agrag.ingestion.extract.ExtractorMissingExtraError`
+
+```python
+ExtractorMissingExtraError(component:str, extra:str) -> None
+```
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+An Extractor needs a package extra that is not installed.
+
+**Attributes:**
+
+- [**component**](#agrag.ingestion.extract.ExtractorMissingExtraError.component) – The class name that needs the extra.
+- [**extra**](#agrag.ingestion.extract.ExtractorMissingExtraError.extra) – The package extra to install.
+
+###### `agrag.ingestion.extract.ExtractorMissingExtraError.component`
+
+```python
+component = component
+```
+
+###### `agrag.ingestion.extract.ExtractorMissingExtraError.extra`
+
+```python
+extra = extra
+```
+
+##### `agrag.ingestion.extract.GlinerExtractor`
+
+```python
+GlinerExtractor(*, model_name:str = 'fastino/gliner2.5-small-v1', model:object | None = None) -> None
+```
+
+Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
+
+Extracts locally with a GLiNER2.5 model. No network call.
+
+**Functions:**
+
+- [**extract**](#agrag.ingestion.extract.GlinerExtractor.extract) – Extract with the local GLiNER2.5 model.
+
+**Attributes:**
+
+- [**model_name**](#agrag.ingestion.extract.GlinerExtractor.model_name) –
+
+**Parameters:**
+
+- **model_name** (<code>[str](#str)</code>) – The checkpoint to load if `model` is not given.
+- **model** (<code>[object](#object) | None</code>) – An already-built GLiNER2.5 model. Tests inject a fake here
+  to avoid a real model download.
+
+###### `agrag.ingestion.extract.GlinerExtractor.extract`
+
+```python
+extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+```
+
+Extract with the local GLiNER2.5 model.
+
+**Raises:**
+
+- <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `extract` package extra is not
+  installed.
+- <code>[ValueError](#ValueError)</code> – `chunk.id` is `None`.
+
+###### `agrag.ingestion.extract.GlinerExtractor.model_name`
+
+```python
+model_name = model_name
+```
 
 #### `agrag.ingestion.graph`
 
@@ -2393,6 +3069,322 @@ SourceType = Union[str, Path]
 ```python
 SourcesType = Union[SourceType, Sequence[SourceType]]
 ```
+
+#### `agrag.ingestion.resolve`
+
+Entity resolution: deciding which ExtractedEntity mentions are the same thing.
+
+**Classes:**
+
+- [**CandidateSource**](#agrag.ingestion.resolve.CandidateSource) – Narrows which entity pairs resolution compares — the blocking step.
+- [**Comparator**](#agrag.ingestion.resolve.Comparator) – One matching strategy a Resolver runs against a candidate pair.
+- [**ComparisonVerdict**](#agrag.ingestion.resolve.ComparisonVerdict) – A Comparator's verdict on one entity pair.
+- [**ExactMatch**](#agrag.ingestion.resolve.ExactMatch) – Matches when normalized text is identical. Never returns NO_MATCH.
+- [**FuzzyMatch**](#agrag.ingestion.resolve.FuzzyMatch) – Matches by string similarity, within a confident-match/distinct band.
+- [**InBatchCandidateSource**](#agrag.ingestion.resolve.InBatchCandidateSource) – Blocks by label: only entities sharing a label are ever compared.
+- [**LLMVerify**](#agrag.ingestion.resolve.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
+- [**ResolutionGroup**](#agrag.ingestion.resolve.ResolutionGroup) – One set of ExtractedEntity indices resolution decided are the same entity.
+- [**Resolver**](#agrag.ingestion.resolve.Resolver) – Runs an ordered comparator sequence over blocked candidate pairs.
+
+##### `agrag.ingestion.resolve.CandidateSource`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+Narrows which entity pairs resolution compares — the blocking step.
+
+**Functions:**
+
+- [**candidates_for**](#agrag.ingestion.resolve.CandidateSource.candidates_for) – Return indices worth comparing against entities[index].
+
+###### `agrag.ingestion.resolve.CandidateSource.candidates_for`
+
+```python
+candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
+```
+
+Return indices worth comparing against entities[index].
+
+**Parameters:**
+
+- **index** (<code>[int](#int)</code>) – The entity to find candidates for.
+- **entities** (<code>[list](#list)\[[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]</code>) – The full entity list this call is scoped to.
+
+**Returns:**
+
+- <code>[list](#list)\[[int](#int)\]</code> – Indices into `entities`, excluding `index` itself. Order does
+- <code>[list](#list)\[[int](#int)\]</code> – not matter; duplicates are harmless but wasteful.
+
+##### `agrag.ingestion.resolve.Comparator`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+One matching strategy a Resolver runs against a candidate pair.
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.Comparator.compare) – Compare two entities.
+
+###### `agrag.ingestion.resolve.Comparator.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Compare two entities.
+
+**Parameters:**
+
+- **a** (<code>[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)</code>) – The first entity.
+- **b** (<code>[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)</code>) – The second entity.
+
+**Returns:**
+
+- <code>[ComparisonVerdict](#agrag.ingestion.resolve.ComparisonVerdict)</code> – This comparator's verdict. UNCERTAIN defers to the next comparator.
+
+##### `agrag.ingestion.resolve.ComparisonVerdict`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+A Comparator's verdict on one entity pair.
+
+**Attributes:**
+
+- [**MATCH**](#agrag.ingestion.resolve.ComparisonVerdict.MATCH) – The comparator is confident these are the same entity.
+- [**NO_MATCH**](#agrag.ingestion.resolve.ComparisonVerdict.NO_MATCH) – The comparator is confident these are different entities.
+- [**UNCERTAIN**](#agrag.ingestion.resolve.ComparisonVerdict.UNCERTAIN) – This comparator can't decide; the next one gets a turn.
+
+###### `agrag.ingestion.resolve.ComparisonVerdict.MATCH`
+
+```python
+MATCH = 'match'
+```
+
+###### `agrag.ingestion.resolve.ComparisonVerdict.NO_MATCH`
+
+```python
+NO_MATCH = 'no_match'
+```
+
+###### `agrag.ingestion.resolve.ComparisonVerdict.UNCERTAIN`
+
+```python
+UNCERTAIN = 'uncertain'
+```
+
+##### `agrag.ingestion.resolve.ExactMatch`
+
+Bases: <code>[Comparator](#agrag.ingestion.resolve.Comparator)</code>
+
+Matches when normalized text is identical. Never returns NO_MATCH.
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.ExactMatch.compare) – Return MATCH on identical normalized text, else UNCERTAIN.
+
+###### `agrag.ingestion.resolve.ExactMatch.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Return MATCH on identical normalized text, else UNCERTAIN.
+
+##### `agrag.ingestion.resolve.FuzzyMatch`
+
+```python
+FuzzyMatch(*, match_above:float = 0.92, no_match_below:float = 0.7) -> None
+```
+
+Bases: <code>[Comparator](#agrag.ingestion.resolve.Comparator)</code>
+
+Matches by string similarity, within a confident-match/distinct band.
+
+**Attributes:**
+
+- [**match_above**](#agrag.ingestion.resolve.FuzzyMatch.match_above) – A similarity score at or above this is a confident match.
+- [**no_match_below**](#agrag.ingestion.resolve.FuzzyMatch.no_match_below) – A similarity score below this is a confident non-match.
+  A score in between is UNCERTAIN and defers to the next comparator.
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.FuzzyMatch.compare) – Return a verdict from token-sort-ratio similarity.
+
+###### `agrag.ingestion.resolve.FuzzyMatch.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Return a verdict from token-sort-ratio similarity.
+
+###### `agrag.ingestion.resolve.FuzzyMatch.match_above`
+
+```python
+match_above = match_above
+```
+
+###### `agrag.ingestion.resolve.FuzzyMatch.no_match_below`
+
+```python
+no_match_below = no_match_below
+```
+
+##### `agrag.ingestion.resolve.InBatchCandidateSource`
+
+Bases: <code>[CandidateSource](#agrag.ingestion.resolve.CandidateSource)</code>
+
+Blocks by label: only entities sharing a label are ever compared.
+
+Scoped to whatever entity list a caller passes to candidates_for — today,
+always the current extraction batch. A future graph-backed candidate source
+can replace this without changing any Comparator, since comparators only
+ever see the pairs a CandidateSource proposes.
+
+**Functions:**
+
+- [**candidates_for**](#agrag.ingestion.resolve.InBatchCandidateSource.candidates_for) – Return every other entity sharing entities[index]'s label.
+
+###### `agrag.ingestion.resolve.InBatchCandidateSource.candidates_for`
+
+```python
+candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
+```
+
+Return every other entity sharing entities[index]'s label.
+
+##### `agrag.ingestion.resolve.LLMVerify`
+
+```python
+LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None) -> None
+```
+
+Bases: <code>[Comparator](#agrag.ingestion.resolve.Comparator)</code>
+
+Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
+
+Never raises from an LLM-call failure: it resolves to NO_MATCH instead, by
+the same fail-safe design as every comparator a Resolver runs — an
+ambiguous or failed comparison never merges two entities. A missing package
+extra is a configuration error, not an ambiguous judgment call, and is
+raised outright instead (see compare's Raises section).
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.LLMVerify.compare) – Return the LLM's verdict, or NO_MATCH if the call itself fails.
+
+**Attributes:**
+
+- [**chunks_by_id**](#agrag.ingestion.resolve.LLMVerify.chunks_by_id) –
+- [**settings**](#agrag.ingestion.resolve.LLMVerify.settings) –
+
+**Parameters:**
+
+- **chunks_by_id** (<code>[dict](#dict)\[[UUID](#uuid.UUID), [Chunk](#agrag.common.data_models.chunk.Chunk)\]</code>) – Maps a Chunk id to the Chunk, for prompt context.
+- **settings** (<code>[ExtractionLLMSettings](#agrag.ingestion.extract.ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`.
+  Ignored when `client` is given: an injected client also
+  disables `settings.retry`, since a caller building its own
+  client is assumed to own its own retry behavior too.
+- **client** (<code>[object](#object) | None</code>) – An already-built BAML client. Tests inject a fake here.
+
+###### `agrag.ingestion.resolve.LLMVerify.chunks_by_id`
+
+```python
+chunks_by_id = chunks_by_id
+```
+
+###### `agrag.ingestion.resolve.LLMVerify.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Return the LLM's verdict, or NO_MATCH if the call itself fails.
+
+**Raises:**
+
+- <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `llm` package extra is not
+  installed.
+
+###### `agrag.ingestion.resolve.LLMVerify.settings`
+
+```python
+settings = settings
+```
+
+##### `agrag.ingestion.resolve.ResolutionGroup`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One set of ExtractedEntity indices resolution decided are the same entity.
+
+**Attributes:**
+
+- [**entity_indices**](#agrag.ingestion.resolve.ResolutionGroup.entity_indices) (<code>[list](#list)\[[int](#int)\]</code>) – Indices into the entity list passed to Resolver.resolve.
+  A group of one means resolution found no match for that entity.
+
+###### `agrag.ingestion.resolve.ResolutionGroup.entity_indices`
+
+```python
+entity_indices: list[int]
+```
+
+##### `agrag.ingestion.resolve.Resolver`
+
+```python
+Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource) -> None
+```
+
+Runs an ordered comparator sequence over blocked candidate pairs.
+
+Groups every pair a comparator confirms as a match into a ResolutionGroup.
+
+**Functions:**
+
+- [**resolve**](#agrag.ingestion.resolve.Resolver.resolve) – Group entities that resolution decided are the same thing.
+
+**Attributes:**
+
+- [**candidate_source**](#agrag.ingestion.resolve.Resolver.candidate_source) –
+- [**comparators**](#agrag.ingestion.resolve.Resolver.comparators) –
+
+**Parameters:**
+
+- **comparators** (<code>[list](#list)\[[Comparator](#agrag.ingestion.resolve.Comparator)\]</code>) – Tried in order per candidate pair. The first
+  non-UNCERTAIN verdict wins; if every comparator is UNCERTAIN,
+  the pair does not merge.
+- **candidate_source** (<code>[CandidateSource](#agrag.ingestion.resolve.CandidateSource)</code>) – Narrows which pairs get compared at all.
+
+###### `agrag.ingestion.resolve.Resolver.candidate_source`
+
+```python
+candidate_source = candidate_source
+```
+
+###### `agrag.ingestion.resolve.Resolver.comparators`
+
+```python
+comparators = comparators
+```
+
+###### `agrag.ingestion.resolve.Resolver.resolve`
+
+```python
+resolve(entities:list[ExtractedEntity]) -> list[ResolutionGroup]
+```
+
+Group entities that resolution decided are the same thing.
+
+**Parameters:**
+
+- **entities** (<code>[list](#list)\[[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]</code>) – The entities to resolve. Only entities passed in the
+  same call are ever compared against each other — resolving
+  against previously-resolved entities from an earlier call is
+  not supported by this Resolver.
+
+**Returns:**
+
+- <code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.ResolutionGroup)\]</code> – One ResolutionGroup per distinct entity found. Every input index
+- <code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.ResolutionGroup)\]</code> – appears in exactly one group.
 
 ### `agrag.observability`
 
@@ -2513,11 +3505,28 @@ Milvus connection configuration.
 - [**uri**](#agrag.vectordb.MilvusSettings.uri) (<code>[str](#str)</code>) – The Milvus endpoint URI. Env: `MILVUS_URI`.
 - [**token**](#agrag.vectordb.MilvusSettings.token) (<code>[str](#str)</code>) – The Milvus auth token. Empty string for an unauthenticated
   instance. Env: `MILVUS_TOKEN`.
+- [**require_tls**](#agrag.vectordb.MilvusSettings.require_tls) (<code>[bool](#bool)</code>) – When `True`, reject a plaintext `uri` to a
+  non-local host even with no `token` configured. Off by default
+  since many deployments run an unauthenticated Milvus on a
+  private network and rely on network segmentation rather than
+  transport encryption. Env: `MILVUS_REQUIRE_TLS`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `uri` is plaintext (`http`), points at a non-local
+  host, and either `token` is set or `require_tls` is
+  `True`. Use `https` for a remote Milvus instance.
 
 ##### `agrag.vectordb.MilvusSettings.model_config`
 
 ```python
 model_config = SettingsConfigDict(env_prefix='MILVUS_', env_file='.env', extra='ignore')
+```
+
+##### `agrag.vectordb.MilvusSettings.require_tls`
+
+```python
+require_tls: bool = False
 ```
 
 ##### `agrag.vectordb.MilvusSettings.token`
@@ -2557,6 +3566,7 @@ by a Milvus `Function` from the `text` field on write and at query time.
 - [**ensure_collection**](#agrag.vectordb.MilvusVectorStore.ensure_collection) – Create the collection if it does not exist.
 - [**hybrid_search**](#agrag.vectordb.MilvusVectorStore.hybrid_search) – Search by dense vector and keyword text in one fused call.
 - [**initialize**](#agrag.vectordb.MilvusVectorStore.initialize) – Check connectivity and authentication.
+- [**invalidate_collection**](#agrag.vectordb.MilvusVectorStore.invalidate_collection) – Drop cached distance-metric knowledge of a collection.
 - [**retrieve**](#agrag.vectordb.MilvusVectorStore.retrieve) – Fetch records by id.
 - [**scroll**](#agrag.vectordb.MilvusVectorStore.scroll) – Iterate records in a collection, in batches.
 - [**search**](#agrag.vectordb.MilvusVectorStore.search) – Search by dense vector only.
@@ -2646,7 +3656,9 @@ Create the collection if it does not exist.
 
 Milvus performs BM25 server-side, so the sparse field and its `Function`
 are always provisioned; the `hybrid` flag is accepted for interface
-parity but is a no-op here.
+parity but is a no-op here. An existing collection must already carry
+this same fixed schema, since `upsert` and `hybrid_search` always
+read and write every field regardless of `hybrid`.
 
 **Parameters:**
 
@@ -2654,6 +3666,13 @@ parity but is a no-op here.
 - **dimensions** (<code>[int](#int)</code>) – The embedding dimension.
 - **distance** (<code>[Distance](#agrag.common.data_models.vector_record.Distance)</code>) – The distance metric new collections use.
 - **hybrid** (<code>[bool](#bool)</code>) – Accepted for interface parity; ignored by Milvus.
+
+**Raises:**
+
+- <code>[CollectionDimensionMismatchError](#agrag.vectordb.errors.CollectionDimensionMismatchError)</code> – The collection exists with a
+  different dimension than `dimensions`.
+- <code>[VectorStoreError](#agrag.vectordb.errors.VectorStoreError)</code> – The collection exists but is missing a field or
+  index this adapter requires.
 
 ##### `agrag.vectordb.MilvusVectorStore.hybrid_search`
 
@@ -2680,6 +3699,11 @@ request's scores before applying `alpha`.
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The fused hits, highest score first.
 
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `MAX_SEARCH_LIMIT`, or `alpha` is outside `[0.0, 1.0]`.
+
 ##### `agrag.vectordb.MilvusVectorStore.initialize`
 
 ```python
@@ -2688,6 +3712,27 @@ initialize() -> None
 
 Check connectivity and authentication.
 
+##### `agrag.vectordb.MilvusVectorStore.invalidate_collection`
+
+```python
+invalidate_collection(name:str) -> None
+```
+
+Drop cached distance-metric knowledge of a collection.
+
+This store caches a collection's distance metric after the first
+call that resolves it, on the assumption that it alone (via
+`ensure_collection`/`delete_collection`) owns the collection's
+lifecycle for as long as this instance is in use. If something
+outside this instance deletes and recreates a collection under the
+same name with a different metric, call this first so the next call
+re-resolves that collection's metric from the backend instead of
+trusting the stale cache.
+
+**Parameters:**
+
+- **name** (<code>[str](#str)</code>) – The collection name.
+
 ##### `agrag.vectordb.MilvusVectorStore.retrieve`
 
 ```python
@@ -2695,6 +3740,10 @@ retrieve(collection:str, ids:Sequence[UUID]) -> list[VectorRecord]
 ```
 
 Fetch records by id.
+
+Requests at most `MAX_RESPONSE_LIMIT` ids per call, so a large
+`ids` list cannot exceed Milvus's response-size ceiling in one
+request the way sending every id at once would.
 
 **Parameters:**
 
@@ -2714,17 +3763,26 @@ scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filter
 
 Iterate records in a collection, in batches.
 
+Milvus rejects a query whose `offset + limit` exceeds
+`MAX_RESPONSE_LIMIT`, so a numeric offset cannot page past that
+many total records. Pages instead cursor on the `id` primary key:
+each page filters on `id > page_offset` and orders by `id`
+ascending, which needs no offset at all and so never hits that
+window regardless of collection size. The explicit order is load
+bearing: without it, an unordered query result could omit rows at or
+below the next cursor, permanently skipping them on the next page.
+
 **Parameters:**
 
 - **collection** (<code>[str](#str)</code>) – The collection to read.
 - **limit** (<code>[int](#int)</code>) – The maximum number of records per page.
-- **page_offset** (<code>[str](#str) | None</code>) – The numeric offset from a previous `scroll` call.
+- **page_offset** (<code>[str](#str) | None</code>) – The id cursor from a previous `scroll` call.
 - **filters** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – A flat-dict filter on scalar fields.
 - **with_vectors** (<code>[bool](#bool)</code>) – Whether to return each record's vector.
 
 **Returns:**
 
-- <code>[list](#list)\[[VectorRecord](#agrag.common.data_models.vector_record.VectorRecord)\]</code> – The page of records and the next page offset, or `None` at the
+- <code>[list](#list)\[[VectorRecord](#agrag.common.data_models.vector_record.VectorRecord)\]</code> – The page of records and the next page cursor, or `None` at the
 - <code>[str](#str) | None</code> – end.
 
 ##### `agrag.vectordb.MilvusVectorStore.search`
@@ -2746,6 +3804,11 @@ Search by dense vector only.
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The matched hits, highest score first.
 
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `MAX_SEARCH_LIMIT`.
+
 ##### `agrag.vectordb.MilvusVectorStore.upsert`
 
 ```python
@@ -2758,7 +3821,12 @@ Write or overwrite records in a collection.
 
 - **collection** (<code>[str](#str)</code>) – The collection to write to.
 - **records** (<code>[Sequence](#collections.abc.Sequence)\[[VectorRecord](#agrag.common.data_models.vector_record.VectorRecord)\]</code>) – The records to upsert, in order.
-- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call.
+- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call. Must be
+  positive.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
 #### `agrag.vectordb.QdrantSettings`
 
@@ -2770,6 +3838,17 @@ Qdrant connection configuration.
 
 - [**url**](#agrag.vectordb.QdrantSettings.url) (<code>[str](#str)</code>) – The Qdrant endpoint URL. Env: `QDRANT_URL`.
 - [**api_key**](#agrag.vectordb.QdrantSettings.api_key) (<code>[str](#str)</code>) – The Qdrant API key. Env: `QDRANT_API_KEY`.
+- [**require_tls**](#agrag.vectordb.QdrantSettings.require_tls) (<code>[bool](#bool)</code>) – When `True`, reject a plaintext `url` to a non-local
+  host even with no `api_key` configured. Off by default since
+  many deployments run an unauthenticated Qdrant on a private
+  network and rely on network segmentation rather than transport
+  encryption. Env: `QDRANT_REQUIRE_TLS`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `url` is plaintext (`http`), points at a non-local
+  host, and either `api_key` is set or `require_tls` is
+  `True`. Use `https` for a remote Qdrant instance.
 
 ##### `agrag.vectordb.QdrantSettings.api_key`
 
@@ -2783,6 +3862,12 @@ api_key: str = ''
 model_config = SettingsConfigDict(env_prefix='QDRANT_', env_file='.env', extra='ignore')
 ```
 
+##### `agrag.vectordb.QdrantSettings.require_tls`
+
+```python
+require_tls: bool = False
+```
+
 ##### `agrag.vectordb.QdrantSettings.url`
 
 ```python
@@ -2792,7 +3877,7 @@ url: str = 'http://localhost:6333'
 #### `agrag.vectordb.QdrantVectorStore`
 
 ```python
-QdrantVectorStore(*, settings:QdrantSettings | None = None, sparse_embedder:SparseEmbedder | None = None, client:Any | None = None) -> None
+QdrantVectorStore(*, settings:QdrantSettings | None = None, sparse_embedder:SparseEmbedder | None = None, client:Any | None = None, models:Any | None = None) -> None
 ```
 
 Bases: <code>[VectorStore](#agrag.vectordb.base.VectorStore)</code>
@@ -2814,6 +3899,7 @@ hybrid call first runs, not at construction.
 - [**ensure_collection**](#agrag.vectordb.QdrantVectorStore.ensure_collection) – Create the collection if it does not exist.
 - [**hybrid_search**](#agrag.vectordb.QdrantVectorStore.hybrid_search) – Search by dense vector and keyword text, fused by a weighted blend.
 - [**initialize**](#agrag.vectordb.QdrantVectorStore.initialize) – Check connectivity and authentication.
+- [**invalidate_collection**](#agrag.vectordb.QdrantVectorStore.invalidate_collection) – Drop cached hybrid-state and distance-metric knowledge of a collection.
 - [**retrieve**](#agrag.vectordb.QdrantVectorStore.retrieve) – Fetch records by id.
 - [**scroll**](#agrag.vectordb.QdrantVectorStore.scroll) – Iterate records in a collection, in batches.
 - [**search**](#agrag.vectordb.QdrantVectorStore.search) – Search by dense vector only.
@@ -2828,6 +3914,9 @@ hybrid call first runs, not at construction.
 - **client** (<code>[Any](#typing.Any) | None</code>) – A pre-built `AsyncQdrantClient`, for tests. When set,
   `__init__` imports nothing and the store calls this object
   directly instead of building one.
+- **models** (<code>[Any](#typing.Any) | None</code>) – The `qdrant_client.models` module, for tests. Pair with
+  `client` so filter/payload helpers work without needing the
+  real `qdrant_client` package installed at all.
 
 ##### `agrag.vectordb.QdrantVectorStore.close`
 
@@ -2915,6 +4004,8 @@ Create the collection if it does not exist.
 
 - <code>[CollectionDimensionMismatchError](#agrag.vectordb.errors.CollectionDimensionMismatchError)</code> – The collection exists with a
   different dimension than `dimensions`.
+- <code>[VectorStoreError](#agrag.vectordb.errors.VectorStoreError)</code> – The collection exists without hybrid search
+  support and `hybrid=True` was requested.
 
 ##### `agrag.vectordb.QdrantVectorStore.hybrid_search`
 
@@ -2946,6 +4037,11 @@ still has a chance to reach the blended top results.
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The blended hits, highest combined score first.
 
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `MAX_SEARCH_LIMIT`, or `alpha` is outside `[0.0, 1.0]`.
+
 ##### `agrag.vectordb.QdrantVectorStore.initialize`
 
 ```python
@@ -2953,6 +4049,27 @@ initialize() -> None
 ```
 
 Check connectivity and authentication.
+
+##### `agrag.vectordb.QdrantVectorStore.invalidate_collection`
+
+```python
+invalidate_collection(name:str) -> None
+```
+
+Drop cached hybrid-state and distance-metric knowledge of a collection.
+
+This store caches a collection's hybrid support and distance metric
+after the first call that resolves them, on the assumption that it
+alone (via `ensure_collection`/`delete_collection`) owns the
+collection's lifecycle for as long as this instance is in use. If
+something outside this instance deletes and recreates a collection
+under the same name with different config, call this first so the
+next call re-resolves that collection's state from the backend
+instead of trusting the stale cache.
+
+**Parameters:**
+
+- **name** (<code>[str](#str)</code>) – The collection name.
 
 ##### `agrag.vectordb.QdrantVectorStore.retrieve`
 
@@ -3012,6 +4129,11 @@ Search by dense vector only.
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The matched hits, highest score first.
 
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `MAX_SEARCH_LIMIT`.
+
 ##### `agrag.vectordb.QdrantVectorStore.upsert`
 
 ```python
@@ -3020,17 +4142,24 @@ upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256) 
 
 Write or overwrite records in a collection.
 
-When `collection` was created with `ensure_collection(..., hybrid=True)`, each record's `payload["text"]` is also
-sparse-embedded and stored under the named sparse vector, so
-`hybrid_search`'s keyword arm has real vectors to match. A record
-with no `text` payload key gets an empty sparse vector and only
-ever surfaces through the dense side of a hybrid search.
+When `collection` has sparse-vector support (created or previously
+seen with `ensure_collection(..., hybrid=True)`), each record's
+`payload["text"]` is also sparse-embedded and stored under the named
+sparse vector, so `hybrid_search`'s keyword arm has real vectors to
+match. A record with no `text` payload key gets an empty sparse
+vector and only ever surfaces through the dense side of a hybrid
+search.
 
 **Parameters:**
 
 - **collection** (<code>[str](#str)</code>) – The collection to write to.
 - **records** (<code>[Sequence](#collections.abc.Sequence)\[[VectorRecord](#agrag.common.data_models.vector_record.VectorRecord)\]</code>) – The records to upsert, in order.
-- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call.
+- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call. Must be
+  positive.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
 #### `agrag.vectordb.VectorStore`
 
@@ -3090,6 +4219,12 @@ Count records in a collection.
 - **collection** (<code>[str](#str)</code>) – The collection to count.
 - **filters** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – A flat-dict filter: a scalar value means exact match, a
   list value means any of, and all keys are AND-ed together.
+  Keys must be valid identifiers (letters, digits, underscore,
+  not starting with a digit) to stay portable: Milvus compiles
+  them into a filter expression and Neo4j's `GraphStore`
+  counterpart compiles them into Cypher, so both reject other
+  characters, while Qdrant and Weaviate accept arbitrary payload
+  keys.
 
 **Returns:**
 
@@ -3160,6 +4295,12 @@ Search by dense vector and keyword text in one fused call.
 - **limit** (<code>[int](#int)</code>) – The maximum number of hits to return.
 - **filters** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – A flat-dict filter: a scalar value means exact match, a
   list value means any of, and all keys are AND-ed together.
+  Keys must be valid identifiers (letters, digits, underscore,
+  not starting with a digit) to stay portable: Milvus compiles
+  them into a filter expression and Neo4j's `GraphStore`
+  counterpart compiles them into Cypher, so both reject other
+  characters, while Qdrant and Weaviate accept arbitrary payload
+  keys.
 - **alpha** (<code>[float](#float)</code>) – The dense/keyword balance. `1.0` is pure dense, `0.0` is
   pure keyword. Weaviate and Milvus apply this weight natively.
   Qdrant's native fusion (Reciprocal Rank Fusion) has no
@@ -3170,6 +4311,13 @@ Search by dense vector and keyword text in one fused call.
 **Returns:**
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The fused hits, highest score first.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `agrag.common.validation.MAX_SEARCH_LIMIT`, or `alpha` is
+  outside `[0.0, 1.0]`. Enforced uniformly across backends
+  since they otherwise fail differently outside that range.
 
 ##### `agrag.vectordb.VectorStore.initialize`
 
@@ -3218,6 +4366,12 @@ Iterate records in a collection, in batches.
   `None` to start at the beginning.
 - **filters** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – A flat-dict filter: a scalar value means exact match, a
   list value means any of, and all keys are AND-ed together.
+  Keys must be valid identifiers (letters, digits, underscore,
+  not starting with a digit) to stay portable: Milvus compiles
+  them into a filter expression and Neo4j's `GraphStore`
+  counterpart compiles them into Cypher, so both reject other
+  characters, while Qdrant and Weaviate accept arbitrary payload
+  keys.
 - **with_vectors** (<code>[bool](#bool)</code>) – Whether to return each record's vector.
 
 **Returns:**
@@ -3240,10 +4394,23 @@ Search by dense vector only.
 - **limit** (<code>[int](#int)</code>) – The maximum number of hits to return.
 - **filters** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – A flat-dict filter: a scalar value means exact match, a
   list value means any of, and all keys are AND-ed together.
+  Keys must be valid identifiers (letters, digits, underscore,
+  not starting with a digit) to stay portable: Milvus compiles
+  them into a filter expression and Neo4j's `GraphStore`
+  counterpart compiles them into Cypher, so both reject other
+  characters, while Qdrant and Weaviate accept arbitrary payload
+  keys.
 
 **Returns:**
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The matched hits, highest score first.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `agrag.common.validation.MAX_SEARCH_LIMIT`. Enforced
+  uniformly across backends since they otherwise fail
+  differently outside that range.
 
 ##### `agrag.vectordb.VectorStore.upsert`
 
@@ -3257,7 +4424,12 @@ Write or overwrite records in a collection.
 
 - **collection** (<code>[str](#str)</code>) – The collection to write to.
 - **records** (<code>[Sequence](#collections.abc.Sequence)\[[VectorRecord](#agrag.common.data_models.vector_record.VectorRecord)\]</code>) – The records to upsert, in order.
-- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call.
+- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call. Must be
+  positive.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
 #### `agrag.vectordb.VectorStoreError`
 
@@ -3303,6 +4475,17 @@ Weaviate connection configuration.
 - [**api_key**](#agrag.vectordb.WeaviateSettings.api_key) (<code>[str](#str)</code>) – The Weaviate API key. Env: `WEAVIATE_API_KEY`.
 - [**grpc_port**](#agrag.vectordb.WeaviateSettings.grpc_port) (<code>[int](#int)</code>) – The gRPC port, used by `"custom"` mode only (`"cloud"`
   mode infers it). Env: `WEAVIATE_GRPC_PORT`.
+- [**require_tls**](#agrag.vectordb.WeaviateSettings.require_tls) (<code>[bool](#bool)</code>) – When `True`, reject a plaintext `url` to a non-local
+  host even with no `api_key` configured. Off by default since
+  many deployments run an unauthenticated Weaviate on a private
+  network and rely on network segmentation rather than transport
+  encryption. Env: `WEAVIATE_REQUIRE_TLS`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `url` is plaintext (`http`), points at a non-local
+  host, and either `api_key` is set or `require_tls` is
+  `True`. Use `https` for a remote Weaviate instance.
 
 ##### `agrag.vectordb.WeaviateSettings.api_key`
 
@@ -3319,13 +4502,19 @@ grpc_port: int = 50051
 ##### `agrag.vectordb.WeaviateSettings.mode`
 
 ```python
-mode: Literal['cloud', 'custom'] = 'cloud'
+mode: Literal['cloud', 'custom'] = 'custom'
 ```
 
 ##### `agrag.vectordb.WeaviateSettings.model_config`
 
 ```python
 model_config = SettingsConfigDict(env_prefix='WEAVIATE_', env_file='.env', extra='ignore')
+```
+
+##### `agrag.vectordb.WeaviateSettings.require_tls`
+
+```python
+require_tls: bool = False
 ```
 
 ##### `agrag.vectordb.WeaviateSettings.url`
@@ -3448,10 +4637,17 @@ Create the collection if it does not exist.
 **Parameters:**
 
 - **name** (<code>[str](#str)</code>) – The collection name.
-- **dimensions** (<code>[int](#int)</code>) – The embedding dimension. Weaviate stores it on each
-  vector, so a mismatch surfaces at write time, not here.
+- **dimensions** (<code>[int](#int)</code>) – The embedding dimension.
 - **distance** (<code>[Distance](#agrag.common.data_models.vector_record.Distance)</code>) – The distance metric new collections use.
 - **hybrid** (<code>[bool](#bool)</code>) – No-op for Weaviate, which needs no sparse provisioning.
+
+**Raises:**
+
+- <code>[CollectionDimensionMismatchError](#agrag.vectordb.errors.CollectionDimensionMismatchError)</code> – An existing object in the
+  collection carries a vector of a different dimension. Weaviate
+  keeps no schema-level dimension for self-provided vectors, so
+  an existing collection with no vector-bearing object cannot be
+  checked this way.
 
 ##### `agrag.vectordb.WeaviateVectorStore.hybrid_search`
 
@@ -3474,6 +4670,11 @@ Search by dense vector and keyword text in one fused call.
 **Returns:**
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The fused hits, highest score first.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `MAX_SEARCH_LIMIT`, or `alpha` is outside `[0.0, 1.0]`.
 
 ##### `agrag.vectordb.WeaviateVectorStore.initialize`
 
@@ -3541,6 +4742,11 @@ Search by dense vector only.
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The matched hits, highest score first.
 
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `MAX_SEARCH_LIMIT`.
+
 ##### `agrag.vectordb.WeaviateVectorStore.upsert`
 
 ```python
@@ -3549,11 +4755,21 @@ upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256) 
 
 Write or overwrite records in a collection.
 
+Uses Weaviate's batch import, which replaces an existing object
+sharing a written id instead of rejecting it, giving real
+insert-or-replace semantics and per-call batching in one request.
+
 **Parameters:**
 
 - **collection** (<code>[str](#str)</code>) – The collection to write to.
 - **records** (<code>[Sequence](#collections.abc.Sequence)\[[VectorRecord](#agrag.common.data_models.vector_record.VectorRecord)\]</code>) – The records to upsert, in order.
-- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call.
+- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call. Must be
+  positive.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
+- <code>[VectorStoreError](#agrag.vectordb.errors.VectorStoreError)</code> – At least one record in a batch failed to write.
 
 #### `agrag.vectordb.base`
 
@@ -3621,6 +4837,12 @@ Count records in a collection.
 - **collection** (<code>[str](#str)</code>) – The collection to count.
 - **filters** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – A flat-dict filter: a scalar value means exact match, a
   list value means any of, and all keys are AND-ed together.
+  Keys must be valid identifiers (letters, digits, underscore,
+  not starting with a digit) to stay portable: Milvus compiles
+  them into a filter expression and Neo4j's `GraphStore`
+  counterpart compiles them into Cypher, so both reject other
+  characters, while Qdrant and Weaviate accept arbitrary payload
+  keys.
 
 **Returns:**
 
@@ -3691,6 +4913,12 @@ Search by dense vector and keyword text in one fused call.
 - **limit** (<code>[int](#int)</code>) – The maximum number of hits to return.
 - **filters** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – A flat-dict filter: a scalar value means exact match, a
   list value means any of, and all keys are AND-ed together.
+  Keys must be valid identifiers (letters, digits, underscore,
+  not starting with a digit) to stay portable: Milvus compiles
+  them into a filter expression and Neo4j's `GraphStore`
+  counterpart compiles them into Cypher, so both reject other
+  characters, while Qdrant and Weaviate accept arbitrary payload
+  keys.
 - **alpha** (<code>[float](#float)</code>) – The dense/keyword balance. `1.0` is pure dense, `0.0` is
   pure keyword. Weaviate and Milvus apply this weight natively.
   Qdrant's native fusion (Reciprocal Rank Fusion) has no
@@ -3701,6 +4929,13 @@ Search by dense vector and keyword text in one fused call.
 **Returns:**
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The fused hits, highest score first.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `agrag.common.validation.MAX_SEARCH_LIMIT`, or `alpha` is
+  outside `[0.0, 1.0]`. Enforced uniformly across backends
+  since they otherwise fail differently outside that range.
 
 ###### `agrag.vectordb.base.VectorStore.initialize`
 
@@ -3749,6 +4984,12 @@ Iterate records in a collection, in batches.
   `None` to start at the beginning.
 - **filters** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – A flat-dict filter: a scalar value means exact match, a
   list value means any of, and all keys are AND-ed together.
+  Keys must be valid identifiers (letters, digits, underscore,
+  not starting with a digit) to stay portable: Milvus compiles
+  them into a filter expression and Neo4j's `GraphStore`
+  counterpart compiles them into Cypher, so both reject other
+  characters, while Qdrant and Weaviate accept arbitrary payload
+  keys.
 - **with_vectors** (<code>[bool](#bool)</code>) – Whether to return each record's vector.
 
 **Returns:**
@@ -3771,10 +5012,23 @@ Search by dense vector only.
 - **limit** (<code>[int](#int)</code>) – The maximum number of hits to return.
 - **filters** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – A flat-dict filter: a scalar value means exact match, a
   list value means any of, and all keys are AND-ed together.
+  Keys must be valid identifiers (letters, digits, underscore,
+  not starting with a digit) to stay portable: Milvus compiles
+  them into a filter expression and Neo4j's `GraphStore`
+  counterpart compiles them into Cypher, so both reject other
+  characters, while Qdrant and Weaviate accept arbitrary payload
+  keys.
 
 **Returns:**
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The matched hits, highest score first.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `agrag.common.validation.MAX_SEARCH_LIMIT`. Enforced
+  uniformly across backends since they otherwise fail
+  differently outside that range.
 
 ###### `agrag.vectordb.base.VectorStore.upsert`
 
@@ -3788,7 +5042,12 @@ Write or overwrite records in a collection.
 
 - **collection** (<code>[str](#str)</code>) – The collection to write to.
 - **records** (<code>[Sequence](#collections.abc.Sequence)\[[VectorRecord](#agrag.common.data_models.vector_record.VectorRecord)\]</code>) – The records to upsert, in order.
-- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call.
+- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call. Must be
+  positive.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
 #### `agrag.vectordb.build_vector_store`
 
@@ -3913,6 +5172,7 @@ by a Milvus `Function` from the `text` field on write and at query time.
 - [**ensure_collection**](#agrag.vectordb.milvus.MilvusVectorStore.ensure_collection) – Create the collection if it does not exist.
 - [**hybrid_search**](#agrag.vectordb.milvus.MilvusVectorStore.hybrid_search) – Search by dense vector and keyword text in one fused call.
 - [**initialize**](#agrag.vectordb.milvus.MilvusVectorStore.initialize) – Check connectivity and authentication.
+- [**invalidate_collection**](#agrag.vectordb.milvus.MilvusVectorStore.invalidate_collection) – Drop cached distance-metric knowledge of a collection.
 - [**retrieve**](#agrag.vectordb.milvus.MilvusVectorStore.retrieve) – Fetch records by id.
 - [**scroll**](#agrag.vectordb.milvus.MilvusVectorStore.scroll) – Iterate records in a collection, in batches.
 - [**search**](#agrag.vectordb.milvus.MilvusVectorStore.search) – Search by dense vector only.
@@ -4002,7 +5262,9 @@ Create the collection if it does not exist.
 
 Milvus performs BM25 server-side, so the sparse field and its `Function`
 are always provisioned; the `hybrid` flag is accepted for interface
-parity but is a no-op here.
+parity but is a no-op here. An existing collection must already carry
+this same fixed schema, since `upsert` and `hybrid_search` always
+read and write every field regardless of `hybrid`.
 
 **Parameters:**
 
@@ -4010,6 +5272,13 @@ parity but is a no-op here.
 - **dimensions** (<code>[int](#int)</code>) – The embedding dimension.
 - **distance** (<code>[Distance](#agrag.common.data_models.vector_record.Distance)</code>) – The distance metric new collections use.
 - **hybrid** (<code>[bool](#bool)</code>) – Accepted for interface parity; ignored by Milvus.
+
+**Raises:**
+
+- <code>[CollectionDimensionMismatchError](#agrag.vectordb.errors.CollectionDimensionMismatchError)</code> – The collection exists with a
+  different dimension than `dimensions`.
+- <code>[VectorStoreError](#agrag.vectordb.errors.VectorStoreError)</code> – The collection exists but is missing a field or
+  index this adapter requires.
 
 ###### `agrag.vectordb.milvus.MilvusVectorStore.hybrid_search`
 
@@ -4036,6 +5305,11 @@ request's scores before applying `alpha`.
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The fused hits, highest score first.
 
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `MAX_SEARCH_LIMIT`, or `alpha` is outside `[0.0, 1.0]`.
+
 ###### `agrag.vectordb.milvus.MilvusVectorStore.initialize`
 
 ```python
@@ -4044,6 +5318,27 @@ initialize() -> None
 
 Check connectivity and authentication.
 
+###### `agrag.vectordb.milvus.MilvusVectorStore.invalidate_collection`
+
+```python
+invalidate_collection(name:str) -> None
+```
+
+Drop cached distance-metric knowledge of a collection.
+
+This store caches a collection's distance metric after the first
+call that resolves it, on the assumption that it alone (via
+`ensure_collection`/`delete_collection`) owns the collection's
+lifecycle for as long as this instance is in use. If something
+outside this instance deletes and recreates a collection under the
+same name with a different metric, call this first so the next call
+re-resolves that collection's metric from the backend instead of
+trusting the stale cache.
+
+**Parameters:**
+
+- **name** (<code>[str](#str)</code>) – The collection name.
+
 ###### `agrag.vectordb.milvus.MilvusVectorStore.retrieve`
 
 ```python
@@ -4051,6 +5346,10 @@ retrieve(collection:str, ids:Sequence[UUID]) -> list[VectorRecord]
 ```
 
 Fetch records by id.
+
+Requests at most `MAX_RESPONSE_LIMIT` ids per call, so a large
+`ids` list cannot exceed Milvus's response-size ceiling in one
+request the way sending every id at once would.
 
 **Parameters:**
 
@@ -4070,17 +5369,26 @@ scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filter
 
 Iterate records in a collection, in batches.
 
+Milvus rejects a query whose `offset + limit` exceeds
+`MAX_RESPONSE_LIMIT`, so a numeric offset cannot page past that
+many total records. Pages instead cursor on the `id` primary key:
+each page filters on `id > page_offset` and orders by `id`
+ascending, which needs no offset at all and so never hits that
+window regardless of collection size. The explicit order is load
+bearing: without it, an unordered query result could omit rows at or
+below the next cursor, permanently skipping them on the next page.
+
 **Parameters:**
 
 - **collection** (<code>[str](#str)</code>) – The collection to read.
 - **limit** (<code>[int](#int)</code>) – The maximum number of records per page.
-- **page_offset** (<code>[str](#str) | None</code>) – The numeric offset from a previous `scroll` call.
+- **page_offset** (<code>[str](#str) | None</code>) – The id cursor from a previous `scroll` call.
 - **filters** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – A flat-dict filter on scalar fields.
 - **with_vectors** (<code>[bool](#bool)</code>) – Whether to return each record's vector.
 
 **Returns:**
 
-- <code>[list](#list)\[[VectorRecord](#agrag.common.data_models.vector_record.VectorRecord)\]</code> – The page of records and the next page offset, or `None` at the
+- <code>[list](#list)\[[VectorRecord](#agrag.common.data_models.vector_record.VectorRecord)\]</code> – The page of records and the next page cursor, or `None` at the
 - <code>[str](#str) | None</code> – end.
 
 ###### `agrag.vectordb.milvus.MilvusVectorStore.search`
@@ -4102,6 +5410,11 @@ Search by dense vector only.
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The matched hits, highest score first.
 
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `MAX_SEARCH_LIMIT`.
+
 ###### `agrag.vectordb.milvus.MilvusVectorStore.upsert`
 
 ```python
@@ -4114,7 +5427,12 @@ Write or overwrite records in a collection.
 
 - **collection** (<code>[str](#str)</code>) – The collection to write to.
 - **records** (<code>[Sequence](#collections.abc.Sequence)\[[VectorRecord](#agrag.common.data_models.vector_record.VectorRecord)\]</code>) – The records to upsert, in order.
-- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call.
+- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call. Must be
+  positive.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
 #### `agrag.vectordb.qdrant`
 
@@ -4127,7 +5445,7 @@ Qdrant vector-store backend.
 ##### `agrag.vectordb.qdrant.QdrantVectorStore`
 
 ```python
-QdrantVectorStore(*, settings:QdrantSettings | None = None, sparse_embedder:SparseEmbedder | None = None, client:Any | None = None) -> None
+QdrantVectorStore(*, settings:QdrantSettings | None = None, sparse_embedder:SparseEmbedder | None = None, client:Any | None = None, models:Any | None = None) -> None
 ```
 
 Bases: <code>[VectorStore](#agrag.vectordb.base.VectorStore)</code>
@@ -4149,6 +5467,7 @@ hybrid call first runs, not at construction.
 - [**ensure_collection**](#agrag.vectordb.qdrant.QdrantVectorStore.ensure_collection) – Create the collection if it does not exist.
 - [**hybrid_search**](#agrag.vectordb.qdrant.QdrantVectorStore.hybrid_search) – Search by dense vector and keyword text, fused by a weighted blend.
 - [**initialize**](#agrag.vectordb.qdrant.QdrantVectorStore.initialize) – Check connectivity and authentication.
+- [**invalidate_collection**](#agrag.vectordb.qdrant.QdrantVectorStore.invalidate_collection) – Drop cached hybrid-state and distance-metric knowledge of a collection.
 - [**retrieve**](#agrag.vectordb.qdrant.QdrantVectorStore.retrieve) – Fetch records by id.
 - [**scroll**](#agrag.vectordb.qdrant.QdrantVectorStore.scroll) – Iterate records in a collection, in batches.
 - [**search**](#agrag.vectordb.qdrant.QdrantVectorStore.search) – Search by dense vector only.
@@ -4163,6 +5482,9 @@ hybrid call first runs, not at construction.
 - **client** (<code>[Any](#typing.Any) | None</code>) – A pre-built `AsyncQdrantClient`, for tests. When set,
   `__init__` imports nothing and the store calls this object
   directly instead of building one.
+- **models** (<code>[Any](#typing.Any) | None</code>) – The `qdrant_client.models` module, for tests. Pair with
+  `client` so filter/payload helpers work without needing the
+  real `qdrant_client` package installed at all.
 
 ###### `agrag.vectordb.qdrant.QdrantVectorStore.close`
 
@@ -4250,6 +5572,8 @@ Create the collection if it does not exist.
 
 - <code>[CollectionDimensionMismatchError](#agrag.vectordb.errors.CollectionDimensionMismatchError)</code> – The collection exists with a
   different dimension than `dimensions`.
+- <code>[VectorStoreError](#agrag.vectordb.errors.VectorStoreError)</code> – The collection exists without hybrid search
+  support and `hybrid=True` was requested.
 
 ###### `agrag.vectordb.qdrant.QdrantVectorStore.hybrid_search`
 
@@ -4281,6 +5605,11 @@ still has a chance to reach the blended top results.
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The blended hits, highest combined score first.
 
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `MAX_SEARCH_LIMIT`, or `alpha` is outside `[0.0, 1.0]`.
+
 ###### `agrag.vectordb.qdrant.QdrantVectorStore.initialize`
 
 ```python
@@ -4288,6 +5617,27 @@ initialize() -> None
 ```
 
 Check connectivity and authentication.
+
+###### `agrag.vectordb.qdrant.QdrantVectorStore.invalidate_collection`
+
+```python
+invalidate_collection(name:str) -> None
+```
+
+Drop cached hybrid-state and distance-metric knowledge of a collection.
+
+This store caches a collection's hybrid support and distance metric
+after the first call that resolves them, on the assumption that it
+alone (via `ensure_collection`/`delete_collection`) owns the
+collection's lifecycle for as long as this instance is in use. If
+something outside this instance deletes and recreates a collection
+under the same name with different config, call this first so the
+next call re-resolves that collection's state from the backend
+instead of trusting the stale cache.
+
+**Parameters:**
+
+- **name** (<code>[str](#str)</code>) – The collection name.
 
 ###### `agrag.vectordb.qdrant.QdrantVectorStore.retrieve`
 
@@ -4347,6 +5697,11 @@ Search by dense vector only.
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The matched hits, highest score first.
 
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `MAX_SEARCH_LIMIT`.
+
 ###### `agrag.vectordb.qdrant.QdrantVectorStore.upsert`
 
 ```python
@@ -4355,17 +5710,24 @@ upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256) 
 
 Write or overwrite records in a collection.
 
-When `collection` was created with `ensure_collection(..., hybrid=True)`, each record's `payload["text"]` is also
-sparse-embedded and stored under the named sparse vector, so
-`hybrid_search`'s keyword arm has real vectors to match. A record
-with no `text` payload key gets an empty sparse vector and only
-ever surfaces through the dense side of a hybrid search.
+When `collection` has sparse-vector support (created or previously
+seen with `ensure_collection(..., hybrid=True)`), each record's
+`payload["text"]` is also sparse-embedded and stored under the named
+sparse vector, so `hybrid_search`'s keyword arm has real vectors to
+match. A record with no `text` payload key gets an empty sparse
+vector and only ever surfaces through the dense side of a hybrid
+search.
 
 **Parameters:**
 
 - **collection** (<code>[str](#str)</code>) – The collection to write to.
 - **records** (<code>[Sequence](#collections.abc.Sequence)\[[VectorRecord](#agrag.common.data_models.vector_record.VectorRecord)\]</code>) – The records to upsert, in order.
-- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call.
+- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call. Must be
+  positive.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
 #### `agrag.vectordb.settings`
 
@@ -4388,11 +5750,28 @@ Milvus connection configuration.
 - [**uri**](#agrag.vectordb.settings.MilvusSettings.uri) (<code>[str](#str)</code>) – The Milvus endpoint URI. Env: `MILVUS_URI`.
 - [**token**](#agrag.vectordb.settings.MilvusSettings.token) (<code>[str](#str)</code>) – The Milvus auth token. Empty string for an unauthenticated
   instance. Env: `MILVUS_TOKEN`.
+- [**require_tls**](#agrag.vectordb.settings.MilvusSettings.require_tls) (<code>[bool](#bool)</code>) – When `True`, reject a plaintext `uri` to a
+  non-local host even with no `token` configured. Off by default
+  since many deployments run an unauthenticated Milvus on a
+  private network and rely on network segmentation rather than
+  transport encryption. Env: `MILVUS_REQUIRE_TLS`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `uri` is plaintext (`http`), points at a non-local
+  host, and either `token` is set or `require_tls` is
+  `True`. Use `https` for a remote Milvus instance.
 
 ###### `agrag.vectordb.settings.MilvusSettings.model_config`
 
 ```python
 model_config = SettingsConfigDict(env_prefix='MILVUS_', env_file='.env', extra='ignore')
+```
+
+###### `agrag.vectordb.settings.MilvusSettings.require_tls`
+
+```python
+require_tls: bool = False
 ```
 
 ###### `agrag.vectordb.settings.MilvusSettings.token`
@@ -4417,6 +5796,17 @@ Qdrant connection configuration.
 
 - [**url**](#agrag.vectordb.settings.QdrantSettings.url) (<code>[str](#str)</code>) – The Qdrant endpoint URL. Env: `QDRANT_URL`.
 - [**api_key**](#agrag.vectordb.settings.QdrantSettings.api_key) (<code>[str](#str)</code>) – The Qdrant API key. Env: `QDRANT_API_KEY`.
+- [**require_tls**](#agrag.vectordb.settings.QdrantSettings.require_tls) (<code>[bool](#bool)</code>) – When `True`, reject a plaintext `url` to a non-local
+  host even with no `api_key` configured. Off by default since
+  many deployments run an unauthenticated Qdrant on a private
+  network and rely on network segmentation rather than transport
+  encryption. Env: `QDRANT_REQUIRE_TLS`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `url` is plaintext (`http`), points at a non-local
+  host, and either `api_key` is set or `require_tls` is
+  `True`. Use `https` for a remote Qdrant instance.
 
 ###### `agrag.vectordb.settings.QdrantSettings.api_key`
 
@@ -4428,6 +5818,12 @@ api_key: str = ''
 
 ```python
 model_config = SettingsConfigDict(env_prefix='QDRANT_', env_file='.env', extra='ignore')
+```
+
+###### `agrag.vectordb.settings.QdrantSettings.require_tls`
+
+```python
+require_tls: bool = False
 ```
 
 ###### `agrag.vectordb.settings.QdrantSettings.url`
@@ -4454,6 +5850,17 @@ Weaviate connection configuration.
 - [**api_key**](#agrag.vectordb.settings.WeaviateSettings.api_key) (<code>[str](#str)</code>) – The Weaviate API key. Env: `WEAVIATE_API_KEY`.
 - [**grpc_port**](#agrag.vectordb.settings.WeaviateSettings.grpc_port) (<code>[int](#int)</code>) – The gRPC port, used by `"custom"` mode only (`"cloud"`
   mode infers it). Env: `WEAVIATE_GRPC_PORT`.
+- [**require_tls**](#agrag.vectordb.settings.WeaviateSettings.require_tls) (<code>[bool](#bool)</code>) – When `True`, reject a plaintext `url` to a non-local
+  host even with no `api_key` configured. Off by default since
+  many deployments run an unauthenticated Weaviate on a private
+  network and rely on network segmentation rather than transport
+  encryption. Env: `WEAVIATE_REQUIRE_TLS`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `url` is plaintext (`http`), points at a non-local
+  host, and either `api_key` is set or `require_tls` is
+  `True`. Use `https` for a remote Weaviate instance.
 
 ###### `agrag.vectordb.settings.WeaviateSettings.api_key`
 
@@ -4470,13 +5877,19 @@ grpc_port: int = 50051
 ###### `agrag.vectordb.settings.WeaviateSettings.mode`
 
 ```python
-mode: Literal['cloud', 'custom'] = 'cloud'
+mode: Literal['cloud', 'custom'] = 'custom'
 ```
 
 ###### `agrag.vectordb.settings.WeaviateSettings.model_config`
 
 ```python
 model_config = SettingsConfigDict(env_prefix='WEAVIATE_', env_file='.env', extra='ignore')
+```
+
+###### `agrag.vectordb.settings.WeaviateSettings.require_tls`
+
+```python
+require_tls: bool = False
 ```
 
 ###### `agrag.vectordb.settings.WeaviateSettings.url`
@@ -4607,10 +6020,17 @@ Create the collection if it does not exist.
 **Parameters:**
 
 - **name** (<code>[str](#str)</code>) – The collection name.
-- **dimensions** (<code>[int](#int)</code>) – The embedding dimension. Weaviate stores it on each
-  vector, so a mismatch surfaces at write time, not here.
+- **dimensions** (<code>[int](#int)</code>) – The embedding dimension.
 - **distance** (<code>[Distance](#agrag.common.data_models.vector_record.Distance)</code>) – The distance metric new collections use.
 - **hybrid** (<code>[bool](#bool)</code>) – No-op for Weaviate, which needs no sparse provisioning.
+
+**Raises:**
+
+- <code>[CollectionDimensionMismatchError](#agrag.vectordb.errors.CollectionDimensionMismatchError)</code> – An existing object in the
+  collection carries a vector of a different dimension. Weaviate
+  keeps no schema-level dimension for self-provided vectors, so
+  an existing collection with no vector-bearing object cannot be
+  checked this way.
 
 ###### `agrag.vectordb.weaviate.WeaviateVectorStore.hybrid_search`
 
@@ -4633,6 +6053,11 @@ Search by dense vector and keyword text in one fused call.
 **Returns:**
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The fused hits, highest score first.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `MAX_SEARCH_LIMIT`, or `alpha` is outside `[0.0, 1.0]`.
 
 ###### `agrag.vectordb.weaviate.WeaviateVectorStore.initialize`
 
@@ -4700,6 +6125,11 @@ Search by dense vector only.
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The matched hits, highest score first.
 
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not positive, or exceeds
+  `MAX_SEARCH_LIMIT`.
+
 ###### `agrag.vectordb.weaviate.WeaviateVectorStore.upsert`
 
 ```python
@@ -4708,8 +6138,18 @@ upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256) 
 
 Write or overwrite records in a collection.
 
+Uses Weaviate's batch import, which replaces an existing object
+sharing a written id instead of rejecting it, giving real
+insert-or-replace semantics and per-call batching in one request.
+
 **Parameters:**
 
 - **collection** (<code>[str](#str)</code>) – The collection to write to.
 - **records** (<code>[Sequence](#collections.abc.Sequence)\[[VectorRecord](#agrag.common.data_models.vector_record.VectorRecord)\]</code>) – The records to upsert, in order.
-- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call.
+- **batch_size** (<code>[int](#int)</code>) – The number of records per backend write call. Must be
+  positive.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
+- <code>[VectorStoreError](#agrag.vectordb.errors.VectorStoreError)</code> – At least one record in a batch failed to write.

@@ -3,22 +3,27 @@ fail_fast: true
 # Test fixtures under any tests/**/fixtures/ directory hold deliberately
 # non-UTF-8 bytes (latin-1, UTF-16 with BOM, CRLF line endings) that exercise
 # decode edge cases. Every hook here, including typos, must leave them alone.
-exclude: '^tests/.*/fixtures/'
+exclude: '(^tests/.*/fixtures/|agrag/llm/baml_client/)'
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: check-ast # checks Python syntax
+        exclude: agrag/llm/baml_client/
       - id: check-json # checks JSON syntax
+        exclude: agrag/llm/baml_client/
       - id: check-merge-conflict # checks for no merge conflict strings
       - id: check-shebang-scripts-are-executable # checks all shell scripts have executable permissions
       - id: check-toml # checks TOML syntax
       - id: check-yaml # checks YAML syntax
       - id: end-of-file-fixer # checks there is a newline at the end of the file
+        exclude: agrag/llm/baml_client/
       - id: mixed-line-ending # normalizes line endings
+        exclude: agrag/llm/baml_client/
       - id: trailing-whitespace # trims trailing whitespace
         args: [--markdown-linebreak-ext=md]
+        exclude: agrag/llm/baml_client/
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.0
@@ -31,8 +36,10 @@ repos:
       - id: ruff-check
         args: [--fix, --unsafe-fixes, --exit-non-zero-on-fix]
         types_or: [python, jupyter]
+        exclude: agrag/llm/baml_client/
       - id: ruff-format
         types_or: [python, jupyter]
+        exclude: agrag/llm/baml_client/
 
   - repo: https://github.com/PyCQA/bandit
     rev: "1.9.4"
@@ -49,12 +56,14 @@ repos:
             "high",
             "agrag/",
           ]
+        exclude: agrag/llm/baml_client/
         additional_dependencies: ["bandit[toml]"]
 
   - repo: https://github.com/crate-ci/typos
     rev: v1.49.0
     hooks:
       - id: typos
+        exclude: agrag/llm/baml_client/
 
   - repo: local
     hooks:
@@ -64,12 +73,16 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+        exclude: agrag/llm/baml_client/
       - id: pytest
         name: pytest
         entry: uv run pytest tests -m "not integration"
         language: system
         types: [python]
         pass_filenames: false
+        # Override the global exclude so pytest runs even when only
+        # BAML-client files changed, to catch regressions elsewhere.
+        exclude: '(^tests/.*/fixtures/)'
 
 ci:
   autofix_prs: true
