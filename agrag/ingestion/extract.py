@@ -543,7 +543,8 @@ class BAMLExtractor(Extractor):
         Every entity's span is verified against chunk.text via
         ``_resolve_span``: an LLM-invented span (its text doesn't occur in
         chunk.text at all) is dropped, along with any relation referencing it
-        by text; a merely miscounted span is corrected instead of dropped.        A second entity with the same label, text, and resolved span is
+        by text; a merely miscounted span is corrected instead of dropped.
+        A second entity with the same label, text, and resolved span is
         dropped as a true duplicate. Two entities with different labels on
         the same span (e.g. "Apple" as both Product and Organization) are
         both kept, so relations that need the second label survive.

@@ -782,7 +782,7 @@ class TestBAMLExtractor:
         assert [entity.text for entity in result.entities] == ["Ada"]
 
     async def test_to_result_keeps_distinct_labels_on_same_span(self) -> None:
-        """Two valid labels on one span are both kept, preserving the second's relations.
+        """Two valid labels on one span are kept, preserving the second's relations.
 
         When the LLM extracts "Apple" as both Product and Organization at the
         same character span, the old dedup (keyed only on span) would drop the
