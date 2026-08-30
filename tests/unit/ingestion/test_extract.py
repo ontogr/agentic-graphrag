@@ -177,21 +177,23 @@ class TestGlinerExtractor:
                     "entities": {
                         "Person": [
                             {"text": "Ada", "start": 0, "end": 3},
-                            {"text": "Ada", "start": 18, "end": 21},
+                            {"text": "Ada", "start": 27, "end": 30},
                         ],
-                        "Organization": [{"text": "Acme", "start": 13, "end": 17}],
+                        "Organization": [{"text": "Acme", "start": 15, "end": 19}],
                     },
                     "relation_extraction": {
                         "WORKS_AT": [
                             {
-                                "head": {"text": "Ada", "start": 18, "end": 21},
-                                "tail": {"text": "Acme", "start": 13, "end": 17},
+                                "head": {"text": "Ada", "start": 27, "end": 30},
+                                "tail": {"text": "Acme", "start": 15, "end": 19},
                             }
                         ]
                     },
                 }
 
         chunk = _chunk("Ada met Bob at Acme; later Ada left.")
+        assert chunk.text.index("Ada", 1) == 27
+        assert chunk.text.index("Acme") == 15
         result = await GlinerExtractor(model=FakeModel()).extract(
             chunk, _ONE_PAIR_SCHEMA
         )
@@ -275,6 +277,51 @@ class TestGlinerExtractor:
         assert len(result.entities) == 2
         assert result.relations == []
 
+    async def test_extract_drops_undeclared_entity_and_remaps_relation_indices(
+        self,
+    ) -> None:
+        """An entity with an undeclared label is dropped; relation indices remap."""
+
+        class FakeModel:
+            def create_schema(self) -> "FakeModel":
+                return self
+
+            def entities(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def relations(self, labels: list[str]) -> "FakeModel":
+                return self
+
+            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+                return {
+                    "entities": {
+                        "Person": [{"text": "Ada", "start": 0, "end": 3}],
+                        # Animal is not declared in _ONE_PAIR_SCHEMA at all.
+                        "Animal": [{"text": "Rex", "start": 4, "end": 7}],
+                        "Organization": [{"text": "Acme", "start": 17, "end": 21}],
+                    },
+                    "relation_extraction": {
+                        "WORKS_AT": [
+                            {
+                                "head": {"text": "Ada", "start": 0, "end": 3},
+                                "tail": {"text": "Acme", "start": 17, "end": 21},
+                            }
+                        ]
+                    },
+                }
+
+        chunk = _chunk("Ada Rex works at Acme.")
+        result = await GlinerExtractor(model=FakeModel()).extract(
+            chunk, _ONE_PAIR_SCHEMA
+        )
+
+        assert [entity.text for entity in result.entities] == ["Ada", "Acme"]
+        assert len(result.relations) == 1
+        # Acme was originally index 2; after Rex (index 1) is dropped, it must
+        # be remapped to index 1, not left pointing at the old index.
+        assert result.relations[0].source_index == 0
+        assert result.relations[0].target_index == 1
+
     def test_raises_when_gliner2_not_importable(self) -> None:
         """ExtractorMissingExtraError is raised if gliner2 can't be imported."""
         extractor = GlinerExtractor()
@@ -329,6 +376,55 @@ class TestGlinerExtractor:
 
         assert load_calls == [1]
         assert result_one.extractor_name == "gliner"
+        assert result_two.extractor_name == "gliner"
+
+    async def test_cancelled_waiter_does_not_duplicate_the_model_load(self) -> None:
+        """A cancelled first waiter does not stop the load or start a second one."""
+
+        class FakeSchemaBuilder:
+            def entities(self, labels: list[str]) -> "FakeSchemaBuilder":
+                return self
+
+            def relations(self, labels: list[str]) -> "FakeSchemaBuilder":
+                return self
+
+        class FakeModel:
+            def create_schema(self) -> FakeSchemaBuilder:
+                return FakeSchemaBuilder()
+
+            def extract(self, text: str, schema: object, include_spans=False) -> dict:
+                return {"entities": {}, "relation_extraction": {}}
+
+        extractor = GlinerExtractor(model_name="fake")
+        load_started = threading.Event()
+        release_load = threading.Event()
+        load_calls: list[int] = []
+
+        def blocking_ensure_model() -> object:
+            load_calls.append(1)
+            load_started.set()
+            assert release_load.wait(timeout=5), "test deadlocked"
+            extractor._model = FakeModel()
+            return extractor._model
+
+        extractor._ensure_model = blocking_ensure_model
+
+        task_one = asyncio.create_task(extractor.extract(_chunk(), GENERIC))
+        await asyncio.to_thread(load_started.wait, 5)
+
+        task_one.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task_one
+
+        # A second extraction, arriving while the cancelled waiter's load is
+        # still blocked, must reuse that same in-flight load instead of
+        # starting a new one.
+        task_two = asyncio.create_task(extractor.extract(_chunk(), GENERIC))
+        await asyncio.sleep(0.05)
+        release_load.set()
+        result_two = await task_two
+
+        assert load_calls == [1]
         assert result_two.extractor_name == "gliner"
 
 
@@ -402,8 +498,36 @@ class TestBAMLExtractor:
         assert len(result.entities) == 1
         assert len(result.relations) == 0
 
-    async def test_extract_drops_entity_with_out_of_range_span(self) -> None:
-        """An entity span beyond chunk.text is dropped."""
+    async def test_extract_keeps_entity_with_corrected_span(self) -> None:
+        """A wrong-but-recoverable span is corrected, not dropped.
+
+        LLMs are unreliable at counting characters; a span this far off (but
+        whose text genuinely occurs in the chunk) is a miscount, not a
+        fabrication, so the mention is kept with its real span.
+        """
+        chunk = _chunk()
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                return SimpleNamespace(
+                    entities=[
+                        SimpleNamespace(
+                            label="Person", text="Ada", char_start=0, char_end=1000
+                        ),
+                    ],
+                    relations=[],
+                )
+
+        extractor = BAMLExtractor(client=FakeClient())
+        result = await extractor.extract(chunk, GENERIC)
+
+        assert len(result.entities) == 1
+        assert result.entities[0].text == "Ada"
+        assert result.entities[0].char_start == 0
+        assert result.entities[0].char_end == 3
+
+    async def test_extract_drops_entity_with_hallucinated_text(self) -> None:
+        """An entity whose text never occurs in chunk.text is dropped."""
         chunk = _chunk()
 
         class FakeClient:
@@ -414,10 +538,7 @@ class TestBAMLExtractor:
                             label="Person", text="Ada", char_start=0, char_end=3
                         ),
                         SimpleNamespace(
-                            label="Person",
-                            text="Ghost",
-                            char_start=0,
-                            char_end=len(chunk.text) + 10,
+                            label="Person", text="Ghost", char_start=0, char_end=5
                         ),
                     ],
                     relations=[],
@@ -450,30 +571,10 @@ class TestBAMLExtractor:
 
         assert [entity.text for entity in result.entities] == ["Ada"]
 
-    async def test_extract_drops_entity_with_text_mismatched_span(self) -> None:
-        """An entity whose span doesn't cover its own text is dropped."""
-
-        class FakeClient:
-            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
-                return SimpleNamespace(
-                    entities=[
-                        SimpleNamespace(
-                            label="Person", text="Ada", char_start=0, char_end=3
-                        ),
-                        SimpleNamespace(
-                            label="Person", text="Charles", char_start=0, char_end=3
-                        ),
-                    ],
-                    relations=[],
-                )
-
-        extractor = BAMLExtractor(client=FakeClient())
-        result = await extractor.extract(_chunk(), GENERIC)
-
-        assert [entity.text for entity in result.entities] == ["Ada"]
-
-    async def test_extract_drops_relation_referencing_a_malformed_entity(self) -> None:
-        """A relation to a span-invalid entity is dropped along with the entity."""
+    async def test_extract_drops_relation_referencing_a_hallucinated_entity(
+        self,
+    ) -> None:
+        """A relation to a hallucinated entity is dropped along with it."""
 
         class FakeClient:
             async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
@@ -486,7 +587,7 @@ class TestBAMLExtractor:
                             label="Organization",
                             text="Ghost Corp",
                             char_start=0,
-                            char_end=1000,
+                            char_end=10,
                         ),
                     ],
                     relations=[
@@ -592,36 +693,71 @@ class TestBAMLExtractor:
         assert len(result.entities) == 2
         assert result.relations == []
 
-    async def test_extract_forwards_settings_retry_to_client_registry(
+    async def test_extract_retries_a_transient_failure_per_settings_retry(
         self, monkeypatch
     ) -> None:
-        """settings.retry reaches build_client_registry's retry kwarg."""
-        captured: dict = {}
+        """settings.retry drives real retry-with-backoff around the LLM call."""
+        sleeps: list[float] = []
 
-        def fake_build_client_registry(clients, *, strategy, retry=None):
-            captured["retry"] = retry
-            return object()
+        async def fake_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
 
+        monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
         monkeypatch.setattr(
             "agrag.llm.client_registry.build_client_registry",
-            fake_build_client_registry,
+            lambda clients, *, strategy: object(),
         )
+
+        call_count = 0
+
+        class FlakyClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                nonlocal call_count
+                call_count += 1
+                if call_count < 3:
+                    raise RuntimeError("transient provider error")
+                return SimpleNamespace(entities=[], relations=[])
+
+        settings = ExtractionLLMSettings(
+            clients=[LLMClientConfig(name="c", provider="openai", model="gpt-4o-mini")],
+            retry=RetryConfig(max_retries=3, delay_ms=50, multiplier=2),
+        )
+        extractor = BAMLExtractor(settings=settings)
+        monkeypatch.setattr(extractor, "_default_client", FlakyClient)
+
+        result = await extractor.extract(_chunk(), GENERIC)
+
+        assert call_count == 3
+        assert sleeps == [0.05, 0.1]
+        assert result.entities == []
+
+    async def test_extract_with_non_default_env_retry_does_not_abort(
+        self, monkeypatch
+    ) -> None:
+        """A non-default, env-backed RetryConfig no longer aborts extraction.
+
+        Exercises the real (unmocked) build_client_registry — this used to
+        raise for any non-default RetryConfig before BAML's static
+        retry_policy syntax was replaced with Python-level retry.
+        """
+        monkeypatch.setenv(
+            "EXTRACTION_LLM_CLIENTS",
+            '[{"name": "c", "provider": "openai", "model": "gpt-4o-mini"}]',
+        )
+        monkeypatch.setenv("EXTRACTION_LLM_RETRY", '{"max_retries": 7}')
+        settings = ExtractionLLMSettings()
+        assert settings.retry.max_retries == 7
 
         class FakeClient:
             async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
                 return SimpleNamespace(entities=[], relations=[])
 
-        non_default_retry = RetryConfig(max_retries=5)
-        settings = ExtractionLLMSettings(
-            clients=[LLMClientConfig(name="c", provider="openai", model="gpt-4o-mini")],
-            retry=non_default_retry,
-        )
         extractor = BAMLExtractor(settings=settings)
         monkeypatch.setattr(extractor, "_default_client", FakeClient)
 
-        await extractor.extract(_chunk(), GENERIC)
+        result = await extractor.extract(_chunk(), GENERIC)
 
-        assert captured["retry"] is non_default_retry
+        assert result.entities == []
 
 
 class TestEscalatingExtractor:

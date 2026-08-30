@@ -3,7 +3,7 @@
 import asyncio
 import os
 from abc import ABC, abstractmethod
-from typing import Literal
+from typing import Any, Literal
 
 from dotenv import load_dotenv
 from pydantic import Field
@@ -17,40 +17,98 @@ from agrag.common.data_models.extraction import (
 )
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
+from agrag.llm.retry import NO_RETRY, call_with_retry
 from agrag.loaders.corpus.errors import IngestionError
+
+
+def _resolve_span(
+    text: str, chunk_text: str, hint_start: int, hint_end: int
+) -> tuple[int, int] | None:
+    """Return a verified (start, end) span for text within chunk_text, or None.
+
+    Trusts (hint_start, hint_end) only when it already points at an exact
+    occurrence of text. Extractors — GLiNER's own boundary predictions and,
+    especially, an LLM counting characters by hand — can report an
+    approximately right but off-by-a-few span. Rather than drop a real mention
+    over that, this searches chunk_text for every occurrence of text and
+    returns the one closest to hint_start, so a near-miss offset gets
+    corrected instead of discarding real provenance, while a duplicate mention
+    still resolves to the intended occurrence rather than always the first one.
+
+    Returns None when text is empty or does not occur in chunk_text at all —
+    the caller should treat that as a fabricated or unrecoverable mention.
+    """
+    if not text:
+        return None
+    if (
+        0 <= hint_start < hint_end <= len(chunk_text)
+        and chunk_text[hint_start:hint_end] == text
+    ):
+        return hint_start, hint_end
+    occurrences: list[int] = []
+    search_from = 0
+    while (found := chunk_text.find(text, search_from)) != -1:
+        occurrences.append(found)
+        search_from = found + 1
+    if not occurrences:
+        return None
+    start = min(occurrences, key=lambda candidate: abs(candidate - hint_start))
+    return start, start + len(text)
 
 
 def _normalize_extraction_result(
     result: ExtractionResult, schema: GraphSchema
 ) -> ExtractionResult:
-    """Drop relations whose label or endpoint-label pair schema does not allow.
+    """Drop entities and relations schema does not declare.
 
-    A relation survives only when its label is a declared RelationType and the
-    resolved (source label, target label) pair is one of that type's ``patterns``.
+    An entity survives only when its label is a declared EntityType. A
+    relation survives only when its label is a declared RelationType and the
+    resolved (source label, target label) pair — checked against the
+    surviving entities — is one of that type's ``patterns``; a relation
+    pointing at a dropped entity is dropped too. Surviving relation indices
+    are remapped to the filtered entity list.
 
     Args:
         result: The extractor's raw result, before schema validation.
-        schema: The schema relations are validated against.
+        schema: The schema entities and relations are validated against.
 
     Returns:
-        A new ExtractionResult with the same entities and only the relations
-        that passed validation.
+        A new ExtractionResult holding only schema-declared entities and
+        relations, with relation indices remapped to the filtered entities.
     """
+    entity_labels = {entity_type.label for entity_type in schema.entities}
+    valid_entities: list[ExtractedEntity] = []
+    index_remap: dict[int, int] = {}
+    for old_index, entity in enumerate(result.entities):
+        if entity.label not in entity_labels:
+            continue
+        index_remap[old_index] = len(valid_entities)
+        valid_entities.append(entity)
+
     allowed_pairs = {
         relation_type.label: set(relation_type.patterns)
         for relation_type in schema.relations
     }
-    valid_relations = [
-        relation
-        for relation in result.relations
+    valid_relations: list[ExtractedRelation] = []
+    for relation in result.relations:
         if (
-            result.entities[relation.source_index].label,
-            result.entities[relation.target_index].label,
+            relation.source_index not in index_remap
+            or relation.target_index not in index_remap
+        ):
+            continue
+        new_source = index_remap[relation.source_index]
+        new_target = index_remap[relation.target_index]
+        pair = (valid_entities[new_source].label, valid_entities[new_target].label)
+        if pair not in allowed_pairs.get(relation.label, set()):
+            continue
+        valid_relations.append(
+            relation.model_copy(
+                update={"source_index": new_source, "target_index": new_target}
+            )
         )
-        in allowed_pairs.get(relation.label, set())
-    ]
+
     return ExtractionResult(
-        entities=result.entities,
+        entities=valid_entities,
         relations=valid_relations,
         extractor_name=result.extractor_name,
     )
@@ -158,7 +216,7 @@ class GlinerExtractor(Extractor):
         """
         self.model_name = model_name
         self._model = model
-        self._load_lock = asyncio.Lock()
+        self._load_task: asyncio.Task[object] | None = None
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
         """Extract with the local GLiNER2.5 model.
@@ -183,16 +241,36 @@ class GlinerExtractor(Extractor):
     async def _load_model(self) -> object:
         """Return the cached model, loading it once even under concurrent calls.
 
-        Concurrent first calls block on the same lock instead of each starting
-        their own model load. A failed load releases the lock without caching
-        anything, so the next call retries it cleanly.
+        All callers await the same shared task via asyncio.shield, so a
+        cancelled waiter does not stop or hide the load: the worker thread
+        asyncio.to_thread starts keeps running regardless of the cancellation
+        (Python cannot interrupt a running thread), and shield keeps the task
+        itself alive for a later caller to discover through self._load_task
+        and await afresh. A lock alone doesn't give this — cancelling a waiter
+        parked on `async with lock` releases the lock while the abandoned
+        thread keeps running unobserved, so a second caller starts a second
+        load. A load that raises clears self._load_task so the next call
+        retries instead of reusing a broken one.
         """
         if self._model is not None:
             return self._model
-        async with self._load_lock:
-            if self._model is None:
-                self._model = await asyncio.to_thread(self._ensure_model)
-        return self._model
+        if self._load_task is None:
+            self._load_task = asyncio.ensure_future(
+                asyncio.to_thread(self._ensure_model)
+            )
+        task = self._load_task
+        try:
+            model = await asyncio.shield(task)
+        except Exception:
+            # CancelledError is a BaseException, not caught here, so a
+            # cancelled waiter leaves self._load_task in place for others.
+            if self._load_task is task:
+                self._load_task = None
+            raise
+        if self._load_task is task:
+            self._load_task = None
+        self._model = model
+        return model
 
     def _ensure_model(self) -> object:
         """Return the cached model, building it from ``model_name`` on first call."""
@@ -226,9 +304,12 @@ class GlinerExtractor(Extractor):
         Called with ``include_spans=True``, GLiNER2.5's extract() returns a dict
         with ``entities`` (label -> list of ``{"text", "start", "end"}`` mention
         dicts) and ``relation_extraction`` (label -> list of ``{"head", "tail"}``
-        dicts, each endpoint shaped like a mention dict). Relation endpoints are
-        matched back to entities by (text, start, end), not by text alone, so two
-        mentions with identical surface text still resolve to their own entity.
+        dicts, each endpoint shaped like a mention dict). Every reported span is
+        verified against chunk.text via ``_resolve_span``: a mention whose text
+        does not occur in chunk.text at all is dropped, an off-by-a-few span is
+        corrected. Relation endpoints are matched back to entities by their
+        resolved (text, start, end), not by text alone, so two mentions with
+        identical surface text still resolve to their own entity.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
@@ -241,16 +322,20 @@ class GlinerExtractor(Extractor):
         chunk_id = chunk.id
         for label, mentions in raw_entities.items():
             for mention in mentions:
-                span_index[(mention["text"], mention["start"], mention["end"])] = len(
-                    entities
+                span = _resolve_span(
+                    mention["text"], chunk.text, mention["start"], mention["end"]
                 )
+                if span is None:
+                    continue
+                start, end = span
+                span_index[(mention["text"], start, end)] = len(entities)
                 entities.append(
                     ExtractedEntity(
                         chunk_id=chunk_id,
                         label=label,
                         text=mention["text"],
-                        char_start=mention["start"],
-                        char_end=mention["end"],
+                        char_start=start,
+                        char_end=end,
                     )
                 )
 
@@ -258,8 +343,16 @@ class GlinerExtractor(Extractor):
         for label, pairs in raw_relations.items():
             for pair in pairs:
                 head, tail = pair["head"], pair["tail"]
-                source_key = (head["text"], head["start"], head["end"])
-                target_key = (tail["text"], tail["start"], tail["end"])
+                source_span = _resolve_span(
+                    head["text"], chunk.text, head["start"], head["end"]
+                )
+                target_span = _resolve_span(
+                    tail["text"], chunk.text, tail["start"], tail["end"]
+                )
+                if source_span is None or target_span is None:
+                    continue
+                source_key = (head["text"], *source_span)
+                target_key = (tail["text"], *target_span)
                 if source_key in span_index and target_key in span_index:
                     relations.append(
                         ExtractedRelation(
@@ -307,21 +400,29 @@ class BAMLExtractor(Extractor):
         if self._client is not None:
             client = self._client
             baml_options: dict = {}
+            retry = NO_RETRY
         else:
             from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
 
             client = self._default_client()
             settings = self.settings or ExtractionLLMSettings()
             registry = build_client_registry(
-                settings.clients, strategy=settings.strategy, retry=settings.retry
+                settings.clients, strategy=settings.strategy
             )
             baml_options = {"client_registry": registry}
+            retry = settings.retry
         type_builder = self._type_builder_for(schema)
         call_options: dict = {**baml_options}
         if type_builder is not None:
             call_options["tb"] = type_builder
-        raw = await client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
-            chunk.text, call_options
+        # ponytail: retries on every exception, not just transient provider
+        # errors (a bad prompt or auth failure gets retried too); narrow to
+        # specific BAML/HTTP error types if that proves noisy in practice.
+        raw = await call_with_retry(
+            lambda: client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
+                chunk.text, call_options
+            ),
+            retry,
         )
         return _normalize_extraction_result(self._to_result(raw, chunk), schema)
 
@@ -368,31 +469,34 @@ class BAMLExtractor(Extractor):
         first match wins. A chunk with the same surface text for two different
         entities is a known, minor ambiguity this introduces.
 
-        Entities whose span the LLM got wrong — out of range, zero-length, or not
-        matching ``chunk.text`` at that span — are dropped, along with any
-        relation that references one by text. One malformed field is not reason
-        to fail the whole chunk's extraction.
+        Every entity's span is verified against chunk.text via
+        ``_resolve_span``: an LLM-invented span (its text doesn't occur in
+        chunk.text at all) is dropped, along with any relation referencing it
+        by text; a merely miscounted span is corrected instead of dropped.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
         chunk_id = chunk.id
-        valid_raw_entities = [
-            entity
-            for entity in raw.entities  # ty: ignore[unresolved-attribute]
-            if self._has_valid_span(entity, chunk.text)
-        ]
+        valid_raw_entities: list[tuple[Any, int, int]] = []
+        for entity in raw.entities:  # ty: ignore[unresolved-attribute]
+            span = _resolve_span(
+                entity.text, chunk.text, entity.char_start, entity.char_end
+            )
+            if span is not None:
+                valid_raw_entities.append((entity, *span))
         entities = [
             ExtractedEntity(
                 chunk_id=chunk_id,
                 label=entity.label,
                 text=entity.text,
-                char_start=entity.char_start,
-                char_end=entity.char_end,
+                char_start=start,
+                char_end=end,
             )
-            for entity in valid_raw_entities
+            for entity, start, end in valid_raw_entities
         ]
         text_index = {
-            entity.text: index for index, entity in enumerate(valid_raw_entities)
+            entity.text: index
+            for index, (entity, _, _) in enumerate(valid_raw_entities)
         }
         relations = [
             ExtractedRelation(
@@ -406,13 +510,6 @@ class BAMLExtractor(Extractor):
         ]
         return ExtractionResult(
             entities=entities, relations=relations, extractor_name="baml"
-        )
-
-    def _has_valid_span(self, entity: object, chunk_text: str) -> bool:
-        """Return whether entity's span is in range and matches its own text."""
-        start, end = entity.char_start, entity.char_end  # ty: ignore[unresolved-attribute]
-        return (
-            0 <= start < end <= len(chunk_text) and chunk_text[start:end] == entity.text  # ty: ignore[unresolved-attribute]
         )
 
 

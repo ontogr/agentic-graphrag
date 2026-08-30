@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.ingestion.extract import ExtractionLLMSettings, ExtractorMissingExtraError
+from agrag.llm.retry import NO_RETRY, call_with_retry
 
 
 class ResolutionGroup(BaseModel):
@@ -181,22 +182,30 @@ class LLMVerify(Comparator):
         if self._client is not None:
             client = self._client
             baml_options: dict = {}
+            retry = NO_RETRY
         else:
             from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
 
             client = self._default_client()
             settings = self.settings or ExtractionLLMSettings()
             registry = build_client_registry(
-                settings.clients, strategy=settings.strategy, retry=settings.retry
+                settings.clients, strategy=settings.strategy
             )
             baml_options = {"client_registry": registry}
+            retry = settings.retry
         try:
-            is_match = await client.VerifyEntityMatch(  # ty: ignore[unresolved-attribute]
-                a.text,
-                self._context_for(a),
-                b.text,
-                self._context_for(b),
-                baml_options,
+            # ponytail: retries on every exception, not just transient
+            # provider errors; narrow to specific BAML/HTTP error types if
+            # that proves noisy in practice.
+            is_match = await call_with_retry(
+                lambda: client.VerifyEntityMatch(  # ty: ignore[unresolved-attribute]
+                    a.text,
+                    self._context_for(a),
+                    b.text,
+                    self._context_for(b),
+                    baml_options,
+                ),
+                retry,
             )
         except Exception:  # noqa: BLE001
             return ComparisonVerdict.NO_MATCH
