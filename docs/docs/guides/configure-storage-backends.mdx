@@ -102,6 +102,11 @@ Set the variables for the one backend you use.
 | Weaviate | `WEAVIATE_URL`, `WEAVIATE_API_KEY` |
 | Milvus | `MILVUS_URI`, `MILVUS_TOKEN` |
 
+The default URLs point at plaintext `localhost`, for the Docker Compose
+services `make dev-services-up` starts. Settings construction raises if a URL
+uses a plaintext scheme (`http`), points at a non-local host, and carries an
+API key or token: use `https://` for any remote deployment.
+
 ### Write and search vectors
 
 Write vectors with `upsert`. Each record needs an id, a vector, and a payload.
@@ -149,6 +154,10 @@ await store.connect()
 | `NEO4J_USERNAME` | The database username. |
 | `NEO4J_PASSWORD` | The database password. |
 | `NEO4J_DATABASE` | The target database name. |
+
+Neo4j always authenticates with a password, so settings construction raises
+if `NEO4J_URI` uses a plaintext scheme (`bolt://` or `neo4j://`) and points at
+a non-local host: use `neo4j+s://` (or `bolt+s://`) for a remote instance.
 
 ### Write nodes
 

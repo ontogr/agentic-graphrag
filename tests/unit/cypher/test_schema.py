@@ -47,8 +47,36 @@ class TestVectorIndexName:
     """vector_index_name derives a deterministic name from label and property."""
 
     def test_deterministic(self) -> None:
-        """The index name is the label, property, and a fixed suffix."""
-        assert vector_index_name("Chunk", "embedding") == "Chunk_embedding_vector"
+        """The index name length-prefixes the label and property."""
+        assert (
+            vector_index_name("Chunk", "embedding") == "idx_5_Chunk_9_embedding_vector"
+        )
+
+    def test_deterministic_across_calls(self) -> None:
+        """The same inputs always produce the same name."""
+        assert vector_index_name("Chunk", "embedding") == vector_index_name(
+            "Chunk", "embedding"
+        )
+
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [
+            (("A_B", "C"), ("A", "B_C")),
+            (("A", "B_C"), ("A_B", "C")),
+            (("A_B_C", "D"), ("A", "B_C_D")),
+        ],
+    )
+    def test_no_collision_across_underscore_placement(
+        self, first: tuple[str, str], second: tuple[str, str]
+    ) -> None:
+        """Underscore placement alone must not make two names collide.
+
+        A plain ``f"{label}_{property}_vector"`` join would let ``("A_B",
+        "C")`` and ``("A", "B_C")`` collide on ``"A_B_C_vector"``, making
+        ``ensure_vector_index`` reuse one index for two different label and
+        property pairs and ``vector_search`` search the wrong nodes.
+        """
+        assert vector_index_name(*first) != vector_index_name(*second)
 
 
 class TestVectorIndexQuery:
@@ -57,7 +85,8 @@ class TestVectorIndexQuery:
     def test_cosine(self) -> None:
         """Cosine maps to Neo4j's 'cosine' similarity function."""
         q = vector_index_query("Chunk", "embedding", 4, Distance.COSINE)
-        assert "CREATE VECTOR INDEX Chunk_embedding_vector IF NOT EXISTS" in q
+        name = vector_index_name("Chunk", "embedding")
+        assert f"CREATE VECTOR INDEX {name} IF NOT EXISTS" in q
         assert "FOR (n:Chunk) ON (n.embedding)" in q
         assert "`vector.similarity_function`: 'cosine'" in q
         assert "`vector.dimensions`: 4" in q

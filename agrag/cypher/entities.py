@@ -37,6 +37,22 @@ def validate_identifier(value: str) -> str:
     return value
 
 
+def is_safe_identifier(value: str) -> bool:
+    """Report whether a label or relationship type is a safe Cypher identifier.
+
+    A non-raising counterpart to ``validate_identifier``, for filtering a
+    batch of names (for example ones read back from the database) rather
+    than validating one name a caller must supply correctly.
+
+    Args:
+        value: The label or relationship type to check.
+
+    Returns:
+        ``True`` if ``value`` is a safe identifier.
+    """
+    return _IDENTIFIER.match(value) is not None
+
+
 def upsert_node_query(labels: Sequence[str]) -> str:
     """Build the Cypher for an UNWIND-batched node upsert.
 

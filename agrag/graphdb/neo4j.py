@@ -11,6 +11,7 @@ from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.common.validation import require_positive_batch_size
 from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
+    is_safe_identifier,
     upsert_node_query,
     validate_identifier,
 )
@@ -167,13 +168,21 @@ class Neo4jGraphStore(GraphStore):
 
         Combines labels written through this instance with every label
         already present in the database, so setup does not depend on this
-        instance having written the data itself.
+        instance having written the data itself. A live label outside this
+        store's stricter identifier subset (Neo4j itself allows names our
+        Cypher builders cannot safely interpolate unquoted, such as ones with
+        spaces or hyphens) is skipped rather than raised, so one such name
+        left over from other tooling cannot block every other constraint.
 
         Returns:
             The label names, excluding the internal identity anchor.
         """
         rows = await self.execute_read("CALL db.labels() YIELD label RETURN label")
-        live = {row["label"] for row in rows} - {NODE_IDENTITY_LABEL}
+        live = {
+            row["label"]
+            for row in rows
+            if row["label"] != NODE_IDENTITY_LABEL and is_safe_identifier(row["label"])
+        }
         return self._known_labels | live
 
     async def _all_relation_types(self) -> set[str]:
@@ -181,7 +190,10 @@ class Neo4jGraphStore(GraphStore):
 
         Combines types written through this instance with every type already
         present in the database, so setup does not depend on this instance
-        having written the data itself.
+        having written the data itself. A live type outside this store's
+        stricter identifier subset is skipped rather than raised, so one such
+        name left over from other tooling cannot block every other
+        constraint.
 
         Returns:
             The relationship type names.
@@ -189,7 +201,11 @@ class Neo4jGraphStore(GraphStore):
         rows = await self.execute_read(
             "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType"
         )
-        live = {row["relationshipType"] for row in rows}
+        live = {
+            row["relationshipType"]
+            for row in rows
+            if is_safe_identifier(row["relationshipType"])
+        }
         return self._known_relation_types | live
 
     async def upsert_nodes(

@@ -56,10 +56,17 @@ def make_response(points: list) -> SimpleNamespace:
     return SimpleNamespace(points=points)
 
 
-def make_collection_info(size: int, *, sparse: bool = False) -> SimpleNamespace:
-    """Build a fake CollectionInfo exposing a dense vector of the given size."""
+def make_collection_info(
+    size: int, *, sparse: bool = False, sparse_name: str = _SPARSE_VECTOR_NAME
+) -> SimpleNamespace:
+    """Build a fake CollectionInfo exposing a dense vector of the given size.
+
+    ``sparse_name`` lets a test simulate a collection carrying some other
+    application's sparse vector under a different name, which must not be
+    mistaken for this store's own named ``bm25`` vector.
+    """
     vectors = SimpleNamespace(size=size)
-    sparse_vectors = {"bm25": SimpleNamespace()} if sparse else None
+    sparse_vectors = {sparse_name: SimpleNamespace()} if sparse else None
     config = SimpleNamespace(
         params=SimpleNamespace(vectors=vectors, sparse_vectors=sparse_vectors)
     )
@@ -156,6 +163,36 @@ class TestEnsureCollection:
                 "c", dimensions=4, distance=Distance.COSINE, hybrid=True
             )
         client.update_collection.assert_not_called()
+        assert "c" not in store._hybrid_collections
+
+    async def test_unrelated_sparse_vector_is_not_treated_as_bm25(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """A collection's unrelated sparse vector is not mistaken for ours.
+
+        Regression guard: checking only "does sparse_vectors exist" would
+        treat any other application's differently-named sparse vector as if
+        it were this store's own ``bm25`` field.
+        """
+        client.collection_exists.return_value = True
+        client.get_collection.return_value = make_collection_info(
+            4, sparse=True, sparse_name="some_other_app_vector"
+        )
+        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+        assert "c" not in store._hybrid_collections
+
+    async def test_unrelated_sparse_vector_still_rejects_hybrid_upgrade(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """Requesting hybrid still raises when the only sparse field isn't bm25."""
+        client.collection_exists.return_value = True
+        client.get_collection.return_value = make_collection_info(
+            4, sparse=True, sparse_name="some_other_app_vector"
+        )
+        with pytest.raises(VectorStoreError):
+            await store.ensure_collection(
+                "c", dimensions=4, distance=Distance.COSINE, hybrid=True
+            )
         assert "c" not in store._hybrid_collections
 
     async def test_dimension_mismatch_raises(
@@ -257,6 +294,26 @@ class TestWritesAndReads:
         await store.upsert("c", [record])
         await store.upsert("c", [record])
         client.get_collection.assert_called_once_with("c")
+        assert "c" not in store._hybrid_collections
+
+    async def test_upsert_does_not_treat_unrelated_sparse_vector_as_bm25(
+        self, store: QdrantVectorStore, client
+    ) -> None:
+        """A collection's unrelated sparse vector does not trigger sparse-embedding.
+
+        Regression guard: checking only "does sparse_vectors exist" would
+        treat any other application's differently-named sparse vector as if
+        it were this store's own ``bm25`` field, sparse-embedding records
+        into a collection that has no ``bm25`` field to hold them.
+        """
+        client.get_collection.return_value = make_collection_info(
+            4, sparse=True, sparse_name="some_other_app_vector"
+        )
+        sparse = mock.AsyncMock()
+        store._sparse_embedder = sparse
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "hello"})
+        await store.upsert("c", [record])
+        sparse.embed.assert_not_called()
         assert "c" not in store._hybrid_collections
 
     async def test_upsert_uses_empty_text_when_missing(

@@ -11,6 +11,7 @@ import pytest
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
+from agrag.cypher.schema import vector_index_name
 from agrag.graphdb.errors import GraphStoreMissingExtraError
 from agrag.graphdb.neo4j import _VECTOR_SEARCH_MAX_K, Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
@@ -224,7 +225,8 @@ class TestEnsureVectorIndex:
         )
         assert "Chunk" in store._known_labels
         query = store._driver.last_session.execute_write.call_args.args[1]
-        assert "CREATE VECTOR INDEX Chunk_embedding_vector IF NOT EXISTS" in query
+        name = vector_index_name("Chunk", "embedding")
+        assert f"CREATE VECTOR INDEX {name} IF NOT EXISTS" in query
 
 
 class TestSetupIdempotent:
@@ -273,6 +275,27 @@ class TestSetupIdempotent:
         await store.setup_constraints()
         writes = store._driver.last_session.execute_write.call_args_list
         assert any("Existing_id_unique" in c.args[1] for c in writes)
+
+    async def test_unsafe_live_label_does_not_block_other_constraints(self) -> None:
+        """One database label outside our identifier subset does not halt setup.
+
+        Regression guard: Neo4j allows labels with spaces or hyphens that our
+        Cypher builders cannot safely interpolate unquoted. Raising on one
+        such name discovered live would abort the whole constraint loop
+        before it reached any later, valid label.
+        """
+        store = _store()
+
+        def fake_execute_read(_run: object, query: str, _params: object) -> list:
+            if "db.labels" in query:
+                return [{"label": "Weird Label"}, {"label": "Valid"}]
+            return []
+
+        store._driver.last_session.execute_read.side_effect = fake_execute_read
+        await store.setup_constraints()
+        writes = store._driver.last_session.execute_write.call_args_list
+        assert any("Valid_id_unique" in c.args[1] for c in writes)
+        assert not any("Weird Label" in c.args[1] for c in writes)
 
     async def test_discovers_relation_types_already_in_database(self) -> None:
         """A relation type never written by this instance still gets set up."""

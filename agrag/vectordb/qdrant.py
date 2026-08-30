@@ -253,7 +253,7 @@ class QdrantVectorStore(VectorStore):
                 raise CollectionDimensionMismatchError(
                     expected=existing, actual=dimensions
                 )
-            if info.config.params.sparse_vectors:
+            if _SPARSE_VECTOR_NAME in (info.config.params.sparse_vectors or {}):
                 self._hybrid_collections.add(name)
             elif hybrid:
                 # Adding sparse-vector config to an existing collection would
@@ -328,7 +328,7 @@ class QdrantVectorStore(VectorStore):
         """
         if collection not in self._checked_collections:
             info = await client.get_collection(collection)
-            if info.config.params.sparse_vectors:
+            if _SPARSE_VECTOR_NAME in (info.config.params.sparse_vectors or {}):
                 self._hybrid_collections.add(collection)
             self._checked_collections.add(collection)
         return collection in self._hybrid_collections

@@ -125,6 +125,38 @@ class TestNeo4jGraphStoreIntegration:
             await fresh.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await fresh.close()
 
+    async def test_unsafe_live_label_does_not_block_setup(self) -> None:
+        """A pre-existing label outside our identifier subset does not halt setup.
+
+        Neo4j itself allows labels with spaces when backtick-quoted, unlike
+        this store's own writer. One such label left over from other tooling
+        must not stop setup_constraints from reaching a later, valid label.
+        """
+        weird_label = f"Weird Label {uuid4().hex[:8]}"
+        valid_label = validate_identifier(f"Valid_{uuid4().hex[:8]}")
+        store = build_graph_store("neo4j")
+        await store.connect()
+        try:
+            await store.execute_write(f"CREATE (:`{weird_label}` {{id: '1'}})")
+            await store.upsert_nodes(
+                valid_label,
+                [
+                    NodeRecord(
+                        id=uuid4(), labels=[valid_label], properties={"text": "x"}
+                    )
+                ],
+            )
+            await store.setup_constraints()
+            rows = await store.execute_read(
+                "SHOW CONSTRAINTS YIELD name WHERE name = $name RETURN name",
+                {"name": f"{valid_label}_id_unique"},
+            )
+            assert len(rows) == 1
+        finally:
+            await store.execute_write(f"MATCH (n:`{weird_label}`) DETACH DELETE n")
+            await store.execute_write(f"MATCH (n:{valid_label}) DETACH DELETE n")
+            await store.close()
+
     async def test_multi_label_node_gets_every_label(self) -> None:
         """A node with more than one label ends up with all of them in Neo4j."""
         store = build_graph_store("neo4j")

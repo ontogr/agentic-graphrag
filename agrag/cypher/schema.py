@@ -71,6 +71,15 @@ def plain_index_query(label: str) -> str:
 def vector_index_name(label: str, vector_property: str) -> str:
     """Derive the deterministic name a vector index is created under.
 
+    Each component is length-prefixed so the encoding is unambiguous: a plain
+    join like ``f"{label}_{vector_property}_vector"`` would let a label and
+    property containing underscores collide, for example ``("A_B", "C")`` and
+    ``("A", "B_C")`` both joining to ``"A_B_C_vector"``. A collision would
+    make ``ensure_vector_index`` reuse one index for two different label and
+    property pairs, and ``vector_search`` would then search the wrong nodes.
+    ``ensure_vector_index`` and ``vector_search`` both call this function, so
+    they always agree on the name.
+
     Args:
         label: The node label. Must already be validated.
         vector_property: The vector property name. Must already be validated.
@@ -80,7 +89,7 @@ def vector_index_name(label: str, vector_property: str) -> str:
     """
     validate_identifier(label)
     validate_identifier(vector_property)
-    return f"{label}_{vector_property}_vector"
+    return f"idx_{len(label)}_{label}_{len(vector_property)}_{vector_property}_vector"
 
 
 def vector_index_query(

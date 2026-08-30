@@ -5,6 +5,7 @@ import pytest
 from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
     filter_clause,
+    is_safe_identifier,
     upsert_node_query,
     validate_identifier,
 )
@@ -29,6 +30,19 @@ class TestValidateIdentifier:
         """A space, backtick, semicolon, leading digit, or dot is rejected."""
         with pytest.raises(ValueError):
             validate_identifier(bad)
+
+
+class TestIsSafeIdentifier:
+    """is_safe_identifier is the non-raising counterpart to validate_identifier."""
+
+    def test_true_for_safe_identifier(self) -> None:
+        """A safe identifier reports True."""
+        assert is_safe_identifier("Chunk_Node") is True
+
+    @pytest.mark.parametrize("bad", ["", " ", "Person Node", "Person-Node", "1Node"])
+    def test_false_for_unsafe_identifier(self, bad: str) -> None:
+        """An unsafe identifier reports False instead of raising."""
+        assert is_safe_identifier(bad) is False
 
 
 class TestUpsertNodeQuery:
