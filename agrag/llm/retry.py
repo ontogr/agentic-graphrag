@@ -25,7 +25,7 @@ async def call_with_retry(call: Callable[[], Awaitable[_T]], retry: RetryConfig)
     Args:
         call: A zero-argument async callable. Invoked at least once.
         retry: Backoff settings. ``max_retries`` is the number of retries
-            after the first attempt; a negative value is treated as zero.
+            after the first attempt.
 
     Returns:
         The first successful call's result.
@@ -33,7 +33,7 @@ async def call_with_retry(call: Callable[[], Awaitable[_T]], retry: RetryConfig)
     Raises:
         Exception: The last attempt's exception, if every attempt fails.
     """
-    attempts = max(retry.max_retries, 0) + 1
+    attempts = retry.max_retries + 1
     delay_seconds = retry.delay_ms / 1000
     max_delay_seconds = retry.max_delay_ms / 1000
     for attempt in range(attempts):

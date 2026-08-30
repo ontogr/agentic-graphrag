@@ -22,7 +22,11 @@ from agrag.loaders.corpus.errors import IngestionError
 
 
 def _resolve_span(
-    text: str, chunk_text: str, hint_start: int, hint_end: int
+    text: str,
+    chunk_text: str,
+    hint_start: int,
+    hint_end: int,
+    occurrences_by_text: dict[str, list[int]] | None = None,
 ) -> tuple[int, int] | None:
     """Return a verified (start, end) span for text within chunk_text, or None.
 
@@ -35,8 +39,19 @@ def _resolve_span(
     corrected instead of discarding real provenance, while a duplicate mention
     still resolves to the intended occurrence rather than always the first one.
 
-    Returns None when text is empty or does not occur in chunk_text at all —
-    the caller should treat that as a fabricated or unrecoverable mention.
+    Args:
+        text: The mention text to locate.
+        chunk_text: The chunk to search.
+        hint_start: The extractor-reported start offset.
+        hint_end: The extractor-reported end offset.
+        occurrences_by_text: A cache of every occurrence of text already found
+            in chunk_text, keyed by text. Callers resolving many spans against
+            the same chunk should pass one dict and reuse it across calls, so
+            repeated text is scanned once instead of once per mention.
+
+    Returns:
+        None when text is empty or does not occur in chunk_text at all — the
+        caller should treat that as a fabricated or unrecoverable mention.
     """
     if not text:
         return None
@@ -45,15 +60,40 @@ def _resolve_span(
         and chunk_text[hint_start:hint_end] == text
     ):
         return hint_start, hint_end
-    occurrences: list[int] = []
-    search_from = 0
-    while (found := chunk_text.find(text, search_from)) != -1:
-        occurrences.append(found)
-        search_from = found + 1
+    if occurrences_by_text is not None and text in occurrences_by_text:
+        occurrences = occurrences_by_text[text]
+    else:
+        occurrences = []
+        search_from = 0
+        while (found := chunk_text.find(text, search_from)) != -1:
+            occurrences.append(found)
+            search_from = found + 1
+        if occurrences_by_text is not None:
+            occurrences_by_text[text] = occurrences
     if not occurrences:
         return None
     start = min(occurrences, key=lambda candidate: abs(candidate - hint_start))
     return start, start + len(text)
+
+
+def _pick_relation_endpoints(
+    source_candidates: list[int], target_candidates: list[int]
+) -> tuple[int, int] | None:
+    """Return a (source, target) index pair whose two indices differ, or None.
+
+    BAML relation endpoints are text-only, so text shared by more than one
+    entity yields more than one candidate per side, including when a
+    relation's source and target text are the same. This picks the first
+    pairing that keeps source and target distinct, so a relation between two
+    separate mentions of identical text still resolves instead of colliding
+    on one entity. Returns None when either side has no candidate at all, or
+    every combination collapses to a single entity.
+    """
+    for source in source_candidates:
+        for target in target_candidates:
+            if source != target:
+                return source, target
+    return None
 
 
 def _normalize_extraction_result(
@@ -320,10 +360,15 @@ class GlinerExtractor(Extractor):
         entities: list[ExtractedEntity] = []
         span_index: dict[tuple[str, int, int], int] = {}
         chunk_id = chunk.id
+        occurrences_by_text: dict[str, list[int]] = {}
         for label, mentions in raw_entities.items():
             for mention in mentions:
                 span = _resolve_span(
-                    mention["text"], chunk.text, mention["start"], mention["end"]
+                    mention["text"],
+                    chunk.text,
+                    mention["start"],
+                    mention["end"],
+                    occurrences_by_text,
                 )
                 if span is None:
                     continue
@@ -344,10 +389,18 @@ class GlinerExtractor(Extractor):
             for pair in pairs:
                 head, tail = pair["head"], pair["tail"]
                 source_span = _resolve_span(
-                    head["text"], chunk.text, head["start"], head["end"]
+                    head["text"],
+                    chunk.text,
+                    head["start"],
+                    head["end"],
+                    occurrences_by_text,
                 )
                 target_span = _resolve_span(
-                    tail["text"], chunk.text, tail["start"], tail["end"]
+                    tail["text"],
+                    chunk.text,
+                    tail["start"],
+                    tail["end"],
+                    occurrences_by_text,
                 )
                 if source_span is None or target_span is None:
                     continue
@@ -465,9 +518,14 @@ class BAMLExtractor(Extractor):
         """Return an ExtractionResult, matching relation text back to entities.
 
         BAML returns each relation's endpoints as text, not an index into
-        ``raw.entities`` — this matches each one back by exact normalized text,
-        first match wins. A chunk with the same surface text for two different
-        entities is a known, minor ambiguity this introduces.
+        ``raw.entities``, so duplicate surface text is inherently ambiguous:
+        every entity sharing an endpoint's text is a candidate for that
+        endpoint. ``_pick_relation_endpoints`` picks the first candidate
+        pairing whose two indices differ, so a relation between two distinct
+        mentions of the same text still resolves instead of colliding on one
+        entity. A relation is dropped, not raised, when either endpoint's text
+        matches no entity or every candidate pairing collapses to a single
+        entity — one unresolvable relation should not fail the whole chunk.
 
         Every entity's span is verified against chunk.text via
         ``_resolve_span``: an LLM-invented span (its text doesn't occur in
@@ -477,10 +535,15 @@ class BAMLExtractor(Extractor):
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
         chunk_id = chunk.id
+        occurrences_by_text: dict[str, list[int]] = {}
         valid_raw_entities: list[tuple[Any, int, int]] = []
         for entity in raw.entities:  # ty: ignore[unresolved-attribute]
             span = _resolve_span(
-                entity.text, chunk.text, entity.char_start, entity.char_end
+                entity.text,
+                chunk.text,
+                entity.char_start,
+                entity.char_end,
+                occurrences_by_text,
             )
             if span is not None:
                 valid_raw_entities.append((entity, *span))
@@ -494,20 +557,27 @@ class BAMLExtractor(Extractor):
             )
             for entity, start, end in valid_raw_entities
         ]
-        text_index = {
-            entity.text: index
-            for index, (entity, _, _) in enumerate(valid_raw_entities)
-        }
-        relations = [
-            ExtractedRelation(
-                chunk_id=chunk_id,
-                label=relation.label,
-                source_index=text_index[relation.source_text],
-                target_index=text_index[relation.target_text],
+        text_index: dict[str, list[int]] = {}
+        for index, (entity, _, _) in enumerate(valid_raw_entities):
+            text_index.setdefault(entity.text, []).append(index)
+
+        relations: list[ExtractedRelation] = []
+        for relation in raw.relations:  # ty: ignore[unresolved-attribute]
+            endpoints = _pick_relation_endpoints(
+                text_index.get(relation.source_text, []),
+                text_index.get(relation.target_text, []),
             )
-            for relation in raw.relations  # ty: ignore[unresolved-attribute]
-            if relation.source_text in text_index and relation.target_text in text_index
-        ]
+            if endpoints is None:
+                continue
+            source_index, target_index = endpoints
+            relations.append(
+                ExtractedRelation(
+                    chunk_id=chunk_id,
+                    label=relation.label,
+                    source_index=source_index,
+                    target_index=target_index,
+                )
+            )
         return ExtractionResult(
             entities=entities, relations=relations, extractor_name="baml"
         )

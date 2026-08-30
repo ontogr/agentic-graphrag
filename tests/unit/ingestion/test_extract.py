@@ -498,6 +498,66 @@ class TestBAMLExtractor:
         assert len(result.entities) == 1
         assert len(result.relations) == 0
 
+    async def test_to_result_resolves_self_referencing_relation_between_duplicates(
+        self,
+    ) -> None:
+        """A relation whose source and target text match resolves to two entities.
+
+        BAML relations carry no entity identity beyond surface text, so a
+        relation between two distinct people who share a name (or the model
+        double-counting one) reports the same text for both endpoints. The
+        old text-only-keyed lookup mapped both endpoints to one index, and
+        ExtractedRelation raised on the self-reference, aborting the whole
+        chunk. This must instead resolve the two distinct mentions.
+        """
+        chunk = _chunk("Ada met Bob; later Ada left.")
+        second_ada_start = chunk.text.index("Ada", 1)
+        entities_raw = [
+            SimpleNamespace(label="Person", text="Ada", char_start=0, char_end=3),
+            SimpleNamespace(
+                label="Person",
+                text="Ada",
+                char_start=second_ada_start,
+                char_end=second_ada_start + 3,
+            ),
+        ]
+        relations_raw = [
+            SimpleNamespace(label="KNOWS", source_text="Ada", target_text="Ada"),
+        ]
+        raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
+
+        extractor = BAMLExtractor.__new__(BAMLExtractor)
+        result = extractor._to_result(raw, chunk)
+
+        assert len(result.relations) == 1
+        relation = result.relations[0]
+        assert relation.source_index != relation.target_index
+        assert {relation.source_index, relation.target_index} == {0, 1}
+
+    async def test_to_result_drops_self_referencing_relation_with_one_candidate(
+        self,
+    ) -> None:
+        """A self-referencing relation with only one matching entity is dropped.
+
+        With a single "Ada" entity, a relation naming "Ada" on both sides has
+        no distinct pairing available. Dropping it, not raising, keeps the
+        rest of the chunk's entities and relations intact.
+        """
+        chunk = _chunk()
+        entities_raw = [
+            SimpleNamespace(label="Person", text="Ada", char_start=0, char_end=3),
+        ]
+        relations_raw = [
+            SimpleNamespace(label="KNOWS", source_text="Ada", target_text="Ada"),
+        ]
+        raw = SimpleNamespace(entities=entities_raw, relations=relations_raw)
+
+        extractor = BAMLExtractor.__new__(BAMLExtractor)
+        result = extractor._to_result(raw, chunk)
+
+        assert len(result.entities) == 1
+        assert result.relations == []
+
     async def test_extract_keeps_entity_with_corrected_span(self) -> None:
         """A wrong-but-recoverable span is corrected, not dropped.
 

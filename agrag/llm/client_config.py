@@ -51,7 +51,7 @@ class RetryConfig(BaseModel):
         max_delay_ms: The maximum delay between retries.
     """
 
-    max_retries: int = 3
-    delay_ms: int = 200
-    multiplier: float = 1.5
-    max_delay_ms: int = 10_000
+    max_retries: int = Field(default=3, ge=0)
+    delay_ms: int = Field(default=200, ge=0)
+    multiplier: float = Field(default=1.5, ge=0)
+    max_delay_ms: int = Field(default=10_000, ge=0)

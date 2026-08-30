@@ -1,9 +1,22 @@
 """Tests for the async retry-with-backoff helper."""
 
 import pytest
+from pydantic import ValidationError
 
 from agrag.llm.client_config import RetryConfig
 from agrag.llm.retry import NO_RETRY, call_with_retry
+
+
+class TestRetryConfig:
+    """RetryConfig rejects negative backoff settings at construction."""
+
+    @pytest.mark.parametrize(
+        "field", ["max_retries", "delay_ms", "multiplier", "max_delay_ms"]
+    )
+    def test_rejects_negative_value(self, field: str) -> None:
+        """A negative value for any backoff field raises ValidationError."""
+        with pytest.raises(ValidationError):
+            RetryConfig(**{field: -1})
 
 
 class TestCallWithRetry:
@@ -75,19 +88,6 @@ class TestCallWithRetry:
 
         with pytest.raises(RuntimeError):
             await call_with_retry(call, RetryConfig(max_retries=0))
-        assert calls == 1
-
-    async def test_negative_max_retries_is_treated_as_zero(self) -> None:
-        """A negative max_retries still makes exactly one attempt."""
-        calls = 0
-
-        async def call() -> str:
-            nonlocal calls
-            calls += 1
-            raise RuntimeError("boom")
-
-        with pytest.raises(RuntimeError):
-            await call_with_retry(call, RetryConfig(max_retries=-1))
         assert calls == 1
 
     async def test_delay_is_capped_at_max_delay_ms(self, monkeypatch) -> None:
