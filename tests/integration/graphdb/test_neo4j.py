@@ -15,7 +15,7 @@ import pytest
 
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.vector_record import Distance
-from agrag.cypher.entities import validate_identifier
+from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
 from agrag.cypher.schema import node_id_constraint_query
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.neo4j import Neo4jGraphStore
@@ -182,7 +182,7 @@ class TestNeo4jGraphStoreIntegration:
                 {"id": str(node_id)},
             )
             assert len(rows) == 1
-            assert set(rows[0]["labels"]) == {primary, secondary}
+            assert set(rows[0]["labels"]) == {primary, secondary, NODE_IDENTITY_LABEL}
         finally:
             await store.execute_write(f"MATCH (n:{primary}) DETACH DELETE n")
             await store.close()
@@ -217,7 +217,7 @@ class TestNeo4jGraphStoreIntegration:
                 {"id": str(node_id)},
             )
             assert len(rows) == 1
-            assert set(rows[0]["labels"]) == {primary, secondary}
+            assert set(rows[0]["labels"]) == {primary, secondary, NODE_IDENTITY_LABEL}
             assert rows[0]["n"] == 2
         finally:
             await store.execute_write(
@@ -251,7 +251,7 @@ class TestNeo4jGraphStoreIntegration:
                 {"id": str(node_id)},
             )
             assert len(rows) == 1
-            assert set(rows[0]["labels"]) == {primary, secondary}
+            assert set(rows[0]["labels"]) == {primary, secondary, NODE_IDENTITY_LABEL}
         finally:
             await store.execute_write(
                 "MATCH (n {id: $id}) DETACH DELETE n", {"id": str(node_id)}

@@ -737,7 +737,6 @@ class MilvusVectorStore(VectorStore):
             collection_name=collection,
             filter=self._compile_filter(filters),
             output_fields=["count(*)"],
-            limit=1,
         )
         if not rows:
             return 0

@@ -526,7 +526,9 @@ class WeaviateVectorStore(VectorStore):
         """
         client = await self._ensure_client()
         target = client.collections.get(collection)
-        result = await target.aggregate.count(filters=self._compile_filter(filters))
+        result = await target.aggregate.over_all(
+            filters=self._compile_filter(filters), total_count=True
+        )
         return result.total_count
 
     async def delete(self, collection: str, ids: Sequence[UUID]) -> None:
