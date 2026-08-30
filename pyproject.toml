@@ -25,14 +25,11 @@ classifiers = [
 ]
 dependencies = [
   "pydantic>=2.0",
-  "pydantic-settings>=2.0",
-  "python-dotenv>=1.0",
   "chonkie>=1.7",            # bare install, no chonkie extras
   "opentelemetry-api>=1.20", # API only; the SDK stays optional
   "charset-normalizer>=3.4",
   "markdown-it-py>=3.0",
   "selectolax>=0.3.21",
-  "rapidfuzz>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -42,14 +39,6 @@ observability = [
   "opentelemetry-exporter-otlp>=1.20",
   "opentelemetry-instrumentation-asyncio",
   "openinference-semantic-conventions",
-]
-llm = [
-    "baml-py>=0.226.1",
-]
-extract = [
-    "gliner2[local]",
-    "transformers<4.56",
-    "protobuf",
 ]
 
 [project.urls]
@@ -89,7 +78,7 @@ docs = [
 target-version = "py311"
 line-length = 88
 include = ["*.py", "pyproject.toml", "*.ipynb"]
-extend-exclude = ["thoughts", "agrag/llm/baml_client"]
+extend-exclude = ["thoughts"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -154,7 +143,7 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 source_pkgs = ["agrag"]
-omit = ["tests/*", "*/__init__.py", "agrag/llm/baml_client/*"]
+omit = ["tests/*", "*/__init__.py"]
 branch = true
 parallel = false
 
@@ -178,15 +167,6 @@ invalid-assignment = "ignore"
 invalid-argument-type = "ignore"
 unresolved-attribute = "ignore"
 
-# The BAML codegen output is generated, never hand-edited; silence the few
-# diagnostics ty reports inside it.
-[[tool.ty.overrides]]
-include = ["agrag/llm/baml_client/**"]
-[tool.ty.overrides.rules]
-too-many-positional-arguments = "ignore"
-unresolved-attribute = "ignore"
-unused-type-ignore-comment = "ignore"
-
 [tool.bandit]
 exclude_dirs = ["/tests", "/.venv", "/build", "/dist"]
 skips = ["B101"]
@@ -201,4 +181,4 @@ signature_crossrefs = true
 # UTF-16 with BOM) and intentional odd words that exercise decode edge cases.
 # thoughts/ holds vendored reference repos and research notes, not this project's
 # own prose (see the matching [tool.ruff] extend-exclude).
-extend-exclude = ["tests/**/fixtures/**", "thoughts/**", "agrag/llm/baml_client/**"]
+extend-exclude = ["tests/**/fixtures/**", "thoughts/**"]

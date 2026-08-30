@@ -28,4 +28,3 @@ github_checks:
 ignore:
   - "tests/"
   - "**/__init__.py"
-  - "agrag/llm/baml_client/"
