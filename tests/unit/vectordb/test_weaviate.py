@@ -38,7 +38,7 @@ class FakeCollection:
             fetch_objects=mock.AsyncMock(return_value=SimpleNamespace(objects=[])),
             fetch_object_by_id=mock.AsyncMock(),
         )
-        self.aggregate = SimpleNamespace(count=mock.AsyncMock())
+        self.aggregate = SimpleNamespace(over_all=mock.AsyncMock())
 
 
 class FakeWeaviateClient:
@@ -356,7 +356,9 @@ class TestWritesAndReads:
         self, store: WeaviateVectorStore, client
     ) -> None:
         """Count returns the backend total."""
-        client._collection.aggregate.count.return_value = SimpleNamespace(total_count=3)
+        client._collection.aggregate.over_all.return_value = SimpleNamespace(
+            total_count=3
+        )
         assert await store.count("c") == 3
 
     async def test_delete_forwards_ids(
