@@ -24,6 +24,12 @@ from agrag.vectordb.settings import WeaviateSettings
 
 _VECTOR_NAME = "vector"
 
+# The page size _existing_dimension pages through while looking for a
+# vector-bearing object. Not a correctness knob: a smaller value means more
+# round trips before finding one, a larger value means a heavier single
+# response; either way the scan still covers every object.
+_DIMENSION_SAMPLE_PAGE_SIZE = 100
+
 
 class WeaviateVectorStore(VectorStore):
     """A ``VectorStore`` backed by Weaviate, including native hybrid search.
@@ -224,7 +230,8 @@ class WeaviateVectorStore(VectorStore):
             CollectionDimensionMismatchError: An existing object in the
                 collection carries a vector of a different dimension. Weaviate
                 keeps no schema-level dimension for self-provided vectors, so
-                an empty existing collection cannot be checked this way.
+                an existing collection with no vector-bearing object cannot be
+                checked this way.
         """
         client = await self._ensure_client()
         if await client.collections.exists(name):
@@ -252,27 +259,42 @@ class WeaviateVectorStore(VectorStore):
         )
 
     async def _existing_dimension(self, client: Any, name: str) -> int | None:
-        """Read the vector dimension from a sample object in a collection.
+        """Read the vector dimension from the first vector-bearing object found.
 
         Weaviate's self-provided vector config carries no schema-level
-        dimension, so a mismatch can only be detected once the collection
-        holds at least one object.
+        dimension, so a mismatch can only be detected from an existing
+        object's vector. A single sampled object is not a reliable source
+        for that: this store's own ``upsert`` always sets a vector, but an
+        object written by other tooling could lack one, and Weaviate's fetch
+        order is not guaranteed to put a vector-bearing object first. This
+        pages through the whole collection until it finds one, or has
+        checked every object and found none.
 
         Args:
             client: The connected Weaviate client.
             name: The collection name.
 
         Returns:
-            The dimension of an existing object's vector, or ``None`` if the
-            collection has no objects yet.
+            The dimension of the first vector-bearing object found, or
+            ``None`` if the collection has no objects, or none of its
+            objects carry a vector for the named vector.
         """
         target = client.collections.get(name)
-        response = await target.query.fetch_objects(limit=1, include_vector=True)
-        objects = response.objects if hasattr(response, "objects") else response
-        if not objects:
-            return None
-        vector = (objects[0].vector or {}).get(_VECTOR_NAME)
-        return len(vector) if vector else None
+        after: str | None = None
+        while True:
+            response = await target.query.fetch_objects(
+                limit=_DIMENSION_SAMPLE_PAGE_SIZE, after=after, include_vector=True
+            )
+            objects = response.objects if hasattr(response, "objects") else response
+            if not objects:
+                return None
+            for obj in objects:
+                vector = (obj.vector or {}).get(_VECTOR_NAME)
+                if vector:
+                    return len(vector)
+            if len(objects) < _DIMENSION_SAMPLE_PAGE_SIZE:
+                return None
+            after = str(objects[-1].uuid)
 
     async def collection_exists(self, name: str) -> bool:
         """Report whether a collection exists.

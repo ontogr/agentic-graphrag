@@ -15,7 +15,7 @@ from agrag.vectordb.errors import (
     VectorStoreMissingExtraError,
 )
 from agrag.vectordb.settings import WeaviateSettings
-from agrag.vectordb.weaviate import WeaviateVectorStore
+from agrag.vectordb.weaviate import _DIMENSION_SAMPLE_PAGE_SIZE, WeaviateVectorStore
 
 
 def make_batch_result(*, has_errors: bool = False, errors: dict | None = None):
@@ -146,6 +146,80 @@ class TestEnsureCollection:
         client._collection.query.fetch_objects.return_value = make_response([])
         await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
         client.collections.create.assert_not_called()
+
+    async def test_dimension_check_skips_vectorless_object_before_a_real_one(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """A vectorless object sampled first does not hide a real mismatch.
+
+        Regression guard: checking only the first sampled object let a
+        vectorless object (written by tooling other than this store) mask
+        the real dimension of a vector-bearing object later in the same
+        page, letting ensure_collection silently accept an incompatible
+        dimension.
+        """
+        client.collections.exists.return_value = True
+        vectorless = make_object(str(uuid4()), {})
+        vector_bearing = make_object(str(uuid4()), {}, vector=[0.1] * 8)
+        client._collection.query.fetch_objects.return_value = make_response(
+            [vectorless, vector_bearing]
+        )
+        with pytest.raises(CollectionDimensionMismatchError) as exc_info:
+            await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+        assert exc_info.value.expected == 8
+
+    async def test_dimension_check_pages_past_a_vectorless_first_page(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """A vector-bearing object on a later page is found, not just the first page.
+
+        Regression guard: checking only the first sampled page would let a
+        collection whose earliest objects are all vectorless mask a real
+        dimension mismatch on a vector-bearing object further in.
+        """
+        client.collections.exists.return_value = True
+        first_page = [
+            make_object(str(uuid4()), {}) for _ in range(_DIMENSION_SAMPLE_PAGE_SIZE)
+        ]
+        vector_bearing = make_object(str(uuid4()), {}, vector=[0.1] * 8)
+
+        def fake_fetch_objects(*, limit, after, include_vector):
+            if after is None:
+                return make_response(first_page)
+            return make_response([vector_bearing])
+
+        client._collection.query.fetch_objects = mock.AsyncMock(
+            side_effect=fake_fetch_objects
+        )
+        with pytest.raises(CollectionDimensionMismatchError) as exc_info:
+            await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+        assert exc_info.value.expected == 8
+
+    async def test_dimension_check_proves_no_vector_across_all_pages(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """A collection with no vector-bearing object anywhere passes silently.
+
+        Every page is exhausted (not just the first) before concluding there
+        is nothing to check.
+        """
+        client.collections.exists.return_value = True
+        first_page = [
+            make_object(str(uuid4()), {}) for _ in range(_DIMENSION_SAMPLE_PAGE_SIZE)
+        ]
+        second_page = [make_object(str(uuid4()), {})]
+
+        def fake_fetch_objects(*, limit, after, include_vector):
+            if after is None:
+                return make_response(first_page)
+            return make_response(second_page)
+
+        client._collection.query.fetch_objects = mock.AsyncMock(
+            side_effect=fake_fetch_objects
+        )
+        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+        client.collections.create.assert_not_called()
+        assert client._collection.query.fetch_objects.await_count == 2
 
 
 class TestWritesAndReads:
