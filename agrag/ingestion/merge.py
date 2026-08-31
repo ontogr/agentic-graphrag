@@ -703,7 +703,7 @@ async def apply_merge(
             return
 
         await txn.execute_write(
-            tombstone_query(plan.survivor.label),
+            tombstone_query(plan.survivor.label, vector_property="embedding"),
             {"tombstone_ids": tombstone_ids, "survivor_id": survivor_id},
         )
 

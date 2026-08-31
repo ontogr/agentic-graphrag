@@ -6,6 +6,7 @@ only guards the missing extra; with the extra installed the tests expect a
 reachable Neo4j at the default ``NEO4J_URI``.
 """
 
+import asyncio
 import importlib.util
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -18,11 +19,13 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.cypher.schema import merge_key_constraint_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.errors import GraphStoreAliasConflictError
+from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph, _apply_merge_with_conflict_retry
 from agrag.ingestion.merge import (
@@ -358,3 +361,108 @@ class TestMentionedInTransferIntegration:
                     "MATCH (c:Chunk {id: $id}) DETACH DELETE c", {"id": str(chunk_id)}
                 )
             await store.close()
+
+
+@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+class TestTombstoneVectorSearchIntegration:
+    """Regression coverage for an absorbed entity's embedding and vector search."""
+
+    async def test_merged_entity_drops_out_of_vector_search(self) -> None:
+        """A tombstoned entity's embedding must not keep it in vector search.
+
+        ``tombstone_query`` used to only set ``merged_into``, leaving the
+        absorbed node's domain label and embedding untouched. Neo4j's native
+        vector index covers every node carrying the indexed property
+        regardless of ``merged_into``, so a search could return an absorbed
+        entity instead of, or alongside, its survivor.
+        """
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Person_{uuid4().hex[:8]}")
+        schema = GraphSchema(
+            name="test",
+            version="1",
+            entities=[EntityType(label=label, description="test")],
+            relations=[],
+        )
+        query_vector = [1.0, 0.0, 0.0, 0.0]
+        try:
+            entity_a = Entity(
+                id=uuid4(), label=label, name="Ada Lovelace", embedding=query_vector
+            )
+            # Earlier created_at wins canonical selection, so this becomes
+            # the merge survivor and entity_a is tombstoned into it.
+            entity_b = Entity(
+                id=uuid4(),
+                label=label,
+                name="A. Lovelace",
+                embedding=[0.0, 1.0, 0.0, 0.0],
+                created_at=entity_a.created_at - timedelta(minutes=5),
+            )
+            await store.upsert_nodes(
+                label, [entity_a.to_node_record(), entity_b.to_node_record()]
+            )
+            await store.execute_write(merge_key_constraint_query(label))
+            await store.ensure_vector_index(
+                label=label,
+                vector_property="embedding",
+                dimensions=len(query_vector),
+                distance=Distance.COSINE,
+            )
+
+            plan, _ = await compute_merge(
+                existing_entities=[entity_a, entity_b], mentions=[], schema=schema
+            )
+            assert plan.survivor.id == entity_b.id
+            assert plan.tombstone_ids == [entity_a.id]
+            await apply_merge(plan, graph_store=store, schema=schema)
+
+            # Deterministic, independent of index population lag: the
+            # tombstone's embedding property itself must be gone.
+            tombstone_row = (
+                await store.execute_read(
+                    f"MATCH (n:{label} {{id: $id}}) RETURN n.embedding AS embedding",
+                    {"id": str(entity_a.id)},
+                )
+            )[0]
+            assert tombstone_row["embedding"] is None
+
+            # Query with the tombstone's own former embedding: if it were
+            # still indexed, it would rank above the survivor's unrelated
+            # vector. A generous limit means both nodes are candidates.
+            hits = await self._vector_search_with_retry(
+                store, label=label, query_vector=query_vector, limit=5
+            )
+            hit_ids = {hit.id for hit in hits}
+            assert entity_b.id in hit_ids
+            assert entity_a.id not in hit_ids
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.execute_write(
+                "MATCH (a:_AgragMergeAlias) "
+                "WHERE a.merge_key STARTS WITH $prefix DELETE a",
+                {"prefix": f"{label}:"},
+            )
+            await store.close()
+
+    @staticmethod
+    async def _vector_search_with_retry(
+        store: Neo4jGraphStore,
+        *,
+        label: str,
+        query_vector: list[float],
+        limit: int,
+    ) -> list:
+        """Retry the vector search while the newly created index warms up."""
+        last: list = []
+        for _ in range(10):
+            last = await store.vector_search(
+                label=label,
+                vector_property="embedding",
+                query_vector=query_vector,
+                limit=limit,
+            )
+            if last:
+                return last
+            await asyncio.sleep(1)
+        return last

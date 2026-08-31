@@ -1078,6 +1078,10 @@ class TestApplyMerge:
         ]
         assert len(tombstone_calls) == 1
         assert tombstone_calls[0].args[1]["tombstone_ids"] == [str(tombstone)]
+        # A tombstone's embedding is dropped in the same write: a native
+        # vector index only covers nodes carrying the indexed property, so
+        # this is what keeps an absorbed entity out of vector search.
+        assert "REMOVE n.embedding" in tombstone_calls[0].args[0]
         # Internal/self-link edge cleanup, once, before any transfer.
         internal_delete_calls = [
             c

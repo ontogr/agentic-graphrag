@@ -27,11 +27,18 @@ def clear_tombstone_merge_keys_query(label: str) -> str:
     )
 
 
-def tombstone_query(label: str) -> str:
+def tombstone_query(label: str, *, vector_property: str) -> str:
     """Build Cypher marking one or more nodes as merged, never deleting them.
+
+    Also removes ``vector_property``: a native Neo4j vector index only covers
+    nodes that currently carry the indexed property, so dropping it takes the
+    tombstone out of vector search immediately, with no query-time filter and
+    no dependency on a later re-embed ever running against it.
 
     Args:
         label: The node label. Must already be validated.
+        vector_property: The embedding property to remove. Must already be
+            validated.
 
     Returns:
         Parameterized Cypher expecting $tombstone_ids and $survivor_id.
@@ -39,7 +46,8 @@ def tombstone_query(label: str) -> str:
     return (
         f"UNWIND $tombstone_ids AS tombstone_id "
         f"MATCH (n:{validate_identifier(label)} {{id: tombstone_id}}) "
-        f"SET n.merged_into = $survivor_id"
+        f"SET n.merged_into = $survivor_id "
+        f"REMOVE n.{validate_identifier(vector_property)}"
     )
 
 
