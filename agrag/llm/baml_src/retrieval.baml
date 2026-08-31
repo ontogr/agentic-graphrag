@@ -1,5 +1,5 @@
 function GenerateCypherQuery(question: string, schema_description: string) -> string {
-  client GENERIC_TEXT2CYPHER
+  client "openai/gpt-4o-mini"
   prompt #"
     {{ _.role("system") }}
     Write one read-only Cypher query that answers the question, using only
