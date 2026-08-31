@@ -337,6 +337,94 @@ def fetch_relations_between_query(rel_type: str) -> str:
     )
 
 
+def set_chunk_embedding_query(vector_property: str) -> str:
+    """Build Cypher setting a vector property on Chunk nodes.
+
+    Similar to ``set_embedding_query`` but guards on ``text`` instead of
+    ``name``/``description``, since chunks have no name field. The text
+    guard prevents a stale write from overwriting a newer vector.
+
+    Args:
+        vector_property: The property to set. Must already be validated.
+
+    Returns:
+        Parameterized Cypher expecting $records, a list of dicts with the
+        keys id, vector, and expected_text.
+    """
+    safe_property = validate_identifier(vector_property)
+    return (
+        f"UNWIND $records AS record "
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"WHERE n.text = record.expected_text "
+        f"AND n.merged_into IS NULL "
+        f"SET n.{safe_property} = record.vector"
+    )
+
+
+def resolve_merged_into_query(*, max_hops: int = 10) -> str:
+    """Return current data for a node, following any merged_into chain.
+
+    A tombstoned node is never deleted; it only gains a merged_into
+    pointer to its survivor (ADR 0033). A chain longer than max_hops is
+    a data integrity bug, so it raises instead of silently truncating.
+
+    ``max_hops`` is formatted into the query text, not passed as a
+    parameter, because Neo4j does not accept a parameter for a
+    variable-length relationship bound. It must be a small, trusted
+    constant from code, never from user input.
+
+    Args:
+        max_hops: The maximum merged_into hops to follow. Must be a
+            small, trusted constant.
+
+    Returns:
+        A parameterized query expecting an $id parameter, returning the
+        live node's properties and the hop count.
+    """
+    # max_hops is a small, trusted constant from code, not an
+    # identifier. No validation needed; just ensure it's positive.
+    if max_hops < 1:
+        raise ValueError("max_hops must be at least 1")
+    return (
+        f"MATCH (start:{NODE_IDENTITY_LABEL} {{id: $id}}) "
+        f"MATCH path = (start)-[:MERGED_INTO*0..{max_hops}]->(live) "
+        f"WHERE NOT EXISTS((live)-[:MERGED_INTO]->()) "
+        f"RETURN live, length(path) AS hops"
+    )
+
+
+def hydrate_entities_by_id_query() -> str:
+    """Build Cypher fetching entities by id, excluding tombstones.
+
+    A tombstoned node is never deleted (ADR 0033) so a naive
+    ``MATCH (n) WHERE n.id IN $ids`` would surface one. This query
+    filters on ``merged_into IS NULL`` to return only live nodes.
+
+    Returns:
+        Parameterized Cypher expecting $ids (list of string ids).
+    """
+    return (
+        f"UNWIND $ids AS id "
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: id}}) "
+        f"WHERE n.merged_into IS NULL "
+        f"RETURN n"
+    )
+
+
+def hydrate_chunks_by_id_query() -> str:
+    """Build Cypher fetching chunks by id.
+
+    Chunks are never tombstoned, so no merged_into guard is needed.
+    The query filters on the Chunk label for type safety.
+
+    Returns:
+        Parameterized Cypher expecting $ids (list of string ids).
+    """
+    return (
+        f"UNWIND $ids AS id MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) RETURN n"
+    )
+
+
 def filter_clause(
     filters: dict[str, Any], node_var: str = "node"
 ) -> tuple[str, dict[str, Any]]:

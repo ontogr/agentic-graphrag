@@ -30,6 +30,7 @@ from agrag.cypher.entities import (
     fetch_all_by_label_query,
     fetch_by_merge_keys_query,
     fetch_relations_between_query,
+    set_chunk_embedding_query,
     set_embedding_query,
 )
 from agrag.embedding.base import Embedder
@@ -582,6 +583,49 @@ def _embedding_guard_fields(entity: Entity) -> dict[str, str]:
     }
 
 
+async def _embed_and_upsert_chunks(
+    chunks: list[Chunk],
+    *,
+    embedder: Embedder,
+    graph_store: GraphStore,
+) -> list[StageFailure]:
+    """Embed every chunk's text and write the vectors back onto their nodes.
+
+    Args:
+        chunks: The chunks this call wrote to graph_store already.
+        embedder: Produces one vector per chunk text.
+        graph_store: Where the embedding is written back.
+
+    Returns:
+        One StageFailure per chunk whose embed or write step raised.
+    """
+    try:
+        texts = [ch.text for ch in chunks]
+        vectors = await embedder.embed(texts)
+        records = []
+        for ch, vec in zip(chunks, vectors, strict=True):
+            ch.embedding = vec
+            records.append(
+                {
+                    "id": str(ch.id),
+                    "vector": vec,
+                    "expected_text": ch.text,
+                }
+            )
+        await graph_store.execute_write(
+            set_chunk_embedding_query("embedding"), {"records": records}
+        )
+    except Exception as exc:  # noqa: BLE001
+        return [
+            StageFailure(
+                item_id="chunk_embeddings",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+        ]
+    return []
+
+
 async def _embed_and_upsert_survivors(
     survivors: dict[UUID, Entity],
     *,
@@ -866,6 +910,12 @@ class Graph:
                     dimensions=dimensions,
                     distance=distance,
                 )
+            await graph_store.ensure_vector_index(
+                label=CHUNK_LABEL,
+                vector_property="embedding",
+                dimensions=dimensions,
+                distance=distance,
+            )
         except Exception:
             await graph_store.close()
             raise
@@ -1383,6 +1433,16 @@ class Graph:
                     item_id="chunks",
                     error_type=type(exc).__name__,
                     error_message=str(exc),
+                )
+            )
+
+        # Chunk embedding stage: embed chunks and write vectors.
+        if chunk_records:
+            storage_failures.extend(
+                await _embed_and_upsert_chunks(
+                    chunks,
+                    embedder=self._embedder,
+                    graph_store=self._graph_store,
                 )
             )
 

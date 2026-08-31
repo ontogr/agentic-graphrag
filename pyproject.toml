@@ -56,6 +56,11 @@ extract = [
     "transformers<4.56",
     "protobuf",
 ]
+agents = [
+    "langgraph>=1.2",
+    "deepagents>=0.7",
+    "langchain-openai>=1.0",
+]
 
 [project.urls]
 Documentation = "https://ontogr.github.io/agentic-graphrag/"
