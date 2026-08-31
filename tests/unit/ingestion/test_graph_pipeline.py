@@ -28,14 +28,17 @@ from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.errors import GraphStoreConstraintViolationError
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import (
     Graph,
+    _apply_merge_with_conflict_retry,
     _global_exact_match,
     _global_relation_lookup,
     _parse_entity_node,
     _resolve_paths,
 )
+from agrag.ingestion.merge import MergePlan
 from agrag.ingestion.types import AddResult
 from agrag.loaders.corpus.types import ErrorPolicy
 
@@ -503,6 +506,126 @@ class TestGlobalExactMatch:
         result = await _global_exact_match([m], graph_store=store)
         assert result[0].id == survivor_id
         assert result[0].name == "Robert"
+
+
+class TestApplyMergeWithConflictRetry:
+    """_apply_merge_with_conflict_retry recovers from a concurrent create race."""
+
+    async def test_retries_and_merges_into_the_winner(self) -> None:
+        """A constraint violation on a brand-new entity re-resolves and retries.
+
+        Regression test: two concurrent add() calls for the same normalized
+        name can both miss the exact-match lookup and both try to create a
+        live node for the same merge_key. merge_key_constraint_query rejects
+        whichever lands second; this must recover by re-resolving to the
+        entity that won the race, rather than losing the mention or
+        crashing the whole add() call.
+        """
+        winner_id = uuid4()
+        mention = ExtractedEntity(
+            chunk_id=uuid4(), label="Person", text="Bob", char_start=0, char_end=3
+        )
+        losing_plan = MergePlan(
+            survivor=Entity(id=uuid4(), label="Person", name="Bob", properties={}),
+            tombstone_ids=[],
+            conflicts=[],
+        )
+
+        store = MockStore()
+        store.execute_read_responses = [
+            [
+                {
+                    "n": {
+                        "id": str(winner_id),
+                        "labels": ["Person"],
+                        "properties": {
+                            "name": "Bob",
+                            "merge_key": "Person:bob",
+                            "merged_from": [],
+                            "merge_count": 1,
+                            "source_chunk_ids": [],
+                            "created_at": "2020-01-01T00:00:00+00:00",
+                        },
+                    }
+                }
+            ]
+        ]
+
+        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+
+        call_count = 0
+
+        async def fake_apply_merge(
+            plan: MergePlan, *, graph_store: object, schema: object
+        ) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise GraphStoreConstraintViolationError("merge_key already exists")
+
+        with mock.patch.object(gmod, "apply_merge", side_effect=fake_apply_merge):
+            plan, desc_failures = await _apply_merge_with_conflict_retry(
+                losing_plan,
+                graph_store=store,
+                schema=GENERIC,
+                mentions=[mention],
+                is_new_entity=True,
+            )
+
+        assert call_count == 2
+        assert plan.survivor.id == winner_id
+        assert desc_failures == []
+
+    async def test_reraises_when_not_a_new_entity(self) -> None:
+        """A violation while updating an existing entity is not this race: reraise."""
+        plan = MergePlan(
+            survivor=Entity(id=uuid4(), label="Person", name="Bob", properties={}),
+            tombstone_ids=[],
+            conflicts=[],
+        )
+        store = MockStore()
+        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+
+        async def fake_apply_merge(*args: object, **kwargs: object) -> None:
+            raise GraphStoreConstraintViolationError("boom")
+
+        with (
+            mock.patch.object(gmod, "apply_merge", side_effect=fake_apply_merge),
+            pytest.raises(GraphStoreConstraintViolationError),
+        ):
+            await _apply_merge_with_conflict_retry(
+                plan,
+                graph_store=store,
+                schema=GENERIC,
+                mentions=[],
+                is_new_entity=False,
+            )
+
+    async def test_reraises_when_winner_cannot_be_found(self) -> None:
+        """If the constraint says it exists but re-resolution finds nothing, reraise."""
+        plan = MergePlan(
+            survivor=Entity(id=uuid4(), label="Person", name="Bob", properties={}),
+            tombstone_ids=[],
+            conflicts=[],
+        )
+        store = MockStore()
+        store.execute_read_responses = [[]]
+        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+
+        async def fake_apply_merge(*args: object, **kwargs: object) -> None:
+            raise GraphStoreConstraintViolationError("boom")
+
+        with (
+            mock.patch.object(gmod, "apply_merge", side_effect=fake_apply_merge),
+            pytest.raises(GraphStoreConstraintViolationError),
+        ):
+            await _apply_merge_with_conflict_retry(
+                plan,
+                graph_store=store,
+                schema=GENERIC,
+                mentions=[],
+                is_new_entity=True,
+            )
 
 
 class TestGlobalRelationLookup:
@@ -1369,6 +1492,163 @@ class TestGraphAddPipeline:
                         report2 = await graph.consolidate(apply=True)
                         assert report2.applied is True
                         assert mock_apply.call_count == 1
+
+    async def test_consolidate_apply_reembeds_survivor(self) -> None:
+        """Applying a consolidation re-embeds the survivor's final text.
+
+        Regression test: apply_merge alone never computes an embedding, so
+        without this, a survivor whose canonical name changed by
+        consolidation would keep whatever embedding it had before, and
+        vector search would keep ranking it by that stale text.
+        """
+        store = MockStore()
+        e1 = Entity(
+            id=uuid4(),
+            label="Person",
+            name="Alice",
+            properties={},
+            source_chunk_ids=[uuid4()],
+        )
+        e2 = Entity(
+            id=uuid4(),
+            label="Person",
+            name="alice",
+            properties={},
+            source_chunk_ids=[uuid4()],
+        )
+        small_schema = GraphSchema(
+            name="test",
+            version="1",
+            entities=[EntityType(label="Person", description="p")],
+            relations=[],
+        )
+        graph = await Graph.open(
+            schema=small_schema,
+            graph_store=store,
+            embedder=MockEmbedder(),
+            extractor=MockExtractor(),
+        )
+        with mock.patch.object(
+            graph, "_all_entities_by_label", new_callable=mock.AsyncMock
+        ) as mock_all:
+            mock_all.return_value = [e1, e2]
+            import agrag.ingestion.graph as gmod  # noqa: PLC0415
+
+            with mock.patch.object(gmod, "Resolver") as mock_resolver:
+                mock_instance = mock.AsyncMock()
+                from agrag.ingestion.resolve import ResolutionGroup  # noqa: PLC0415
+
+                mock_instance.resolve.return_value = [
+                    ResolutionGroup(entity_indices=[0, 1])
+                ]
+                mock_resolver.return_value = mock_instance
+                with mock.patch.object(
+                    gmod, "compute_merge", new_callable=mock.AsyncMock
+                ) as mock_compute:
+                    survivor = Entity(
+                        id=e1.id,
+                        label="Person",
+                        name="Alice",
+                        properties={},
+                        source_chunk_ids=e1.source_chunk_ids + e2.source_chunk_ids,
+                    )
+                    mock_compute.return_value = (
+                        MergePlan(
+                            survivor=survivor, tombstone_ids=[e2.id], conflicts=[]
+                        ),
+                        [],
+                    )
+                    with mock.patch.object(
+                        gmod, "apply_merge", new_callable=mock.AsyncMock
+                    ):
+                        report = await graph.consolidate(apply=True)
+
+        assert report.failures == []
+        embed_upserts = [
+            call
+            for call in store.upsert_nodes_calls
+            if call[0] == "Person"
+            and call[1]
+            and call[1][0].properties.get("embedding") is not None
+        ]
+        assert len(embed_upserts) == 1
+
+    async def test_consolidate_apply_clears_embedding_on_failure(self) -> None:
+        """A failed re-embed during apply clears the stale embedding and reports it."""
+        store = MockStore()
+        e1 = Entity(
+            id=uuid4(),
+            label="Person",
+            name="Alice",
+            properties={},
+            source_chunk_ids=[uuid4()],
+        )
+        e2 = Entity(
+            id=uuid4(),
+            label="Person",
+            name="alice",
+            properties={},
+            source_chunk_ids=[uuid4()],
+        )
+        small_schema = GraphSchema(
+            name="test",
+            version="1",
+            entities=[EntityType(label="Person", description="p")],
+            relations=[],
+        )
+
+        class _FailingEmbedder(MockEmbedder):
+            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+                raise RuntimeError("embed backend down")
+
+        graph = await Graph.open(
+            schema=small_schema,
+            graph_store=store,
+            embedder=_FailingEmbedder(),
+            extractor=MockExtractor(),
+        )
+        with mock.patch.object(
+            graph, "_all_entities_by_label", new_callable=mock.AsyncMock
+        ) as mock_all:
+            mock_all.return_value = [e1, e2]
+            import agrag.ingestion.graph as gmod  # noqa: PLC0415
+
+            with mock.patch.object(gmod, "Resolver") as mock_resolver:
+                mock_instance = mock.AsyncMock()
+                from agrag.ingestion.resolve import ResolutionGroup  # noqa: PLC0415
+
+                mock_instance.resolve.return_value = [
+                    ResolutionGroup(entity_indices=[0, 1])
+                ]
+                mock_resolver.return_value = mock_instance
+                with mock.patch.object(
+                    gmod, "compute_merge", new_callable=mock.AsyncMock
+                ) as mock_compute:
+                    survivor = Entity(
+                        id=e1.id,
+                        label="Person",
+                        name="Alice",
+                        properties={},
+                        source_chunk_ids=e1.source_chunk_ids + e2.source_chunk_ids,
+                    )
+                    mock_compute.return_value = (
+                        MergePlan(
+                            survivor=survivor, tombstone_ids=[e2.id], conflicts=[]
+                        ),
+                        [],
+                    )
+                    with mock.patch.object(
+                        gmod, "apply_merge", new_callable=mock.AsyncMock
+                    ):
+                        report = await graph.consolidate(apply=True)
+
+        assert len(report.failures) == 1
+        clear_calls = [
+            call
+            for call in store.execute_write_calls
+            if "REMOVE n.embedding" in call[0]
+        ]
+        assert len(clear_calls) == 1
 
     async def test_consolidate_no_entities(self) -> None:
         """Less than 2 entities yields no would_merge."""

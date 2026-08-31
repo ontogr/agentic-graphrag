@@ -173,10 +173,13 @@ class ConsolidationReport(BaseModel):
     Attributes:
         would_merge: The merge plans found, whether applied or not.
         applied: Whether the plans were applied.
+        failures: Failures re-embedding an applied survivor's final text.
+            Always empty when apply is False.
     """
 
     would_merge: list[MergePlan] = Field(default_factory=list)
     applied: bool = False
+    failures: list[StageFailure] = Field(default_factory=list)
 
 
 def _capped(failures: list[StageFailure]) -> list[StageFailure]:

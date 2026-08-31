@@ -7,7 +7,7 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Union
+from typing import Any, Union
 from uuid import UUID, uuid4
 
 from opentelemetry.trace import Tracer
@@ -33,8 +33,10 @@ from agrag.cypher.entities import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.errors import GraphStoreConstraintViolationError
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.merge import (
+    MergePlan,
     apply_merge,
     compute_merge,
     mentioned_in_id,
@@ -473,6 +475,135 @@ async def _global_relation_lookup(
     return result
 
 
+async def _embed_and_upsert_survivors(
+    survivors: dict[UUID, Entity],
+    *,
+    embedder: Embedder,
+    graph_store: GraphStore,
+    error_policy: ErrorPolicy,
+) -> list[StageFailure]:
+    """Embed every survivor's current text and upsert the result.
+
+    Shared by add() and consolidate(apply=True): both write a survivor's
+    node before this call, so its embedding must be refreshed for whatever
+    text that write left it with.
+
+    On failure, clears any embedding already on the survivor nodes rather
+    than leaving one computed for their prior text in place: vector search
+    must not keep ranking an entity by outdated content just because this
+    re-embed failed. ``zip(..., strict=True)`` turns an embedder returning
+    too few vectors into the same failure path, rather than silently
+    leaving the trailing entities' embeddings stale.
+
+    Args:
+        survivors: The entities to embed, keyed by id.
+        embedder: Computes one vector per entity's embedding_text.
+        graph_store: Where the updated nodes, and on failure the cleared
+            embedding property, are written.
+        error_policy: RAISE propagates the failure after clearing; any
+            other policy returns it instead.
+
+    Returns:
+        A single-item list with the failure, or empty on success.
+
+    Raises:
+        Exception: Whatever embed() or the upsert raised, when error_policy
+            is RAISE.
+    """
+    try:
+        texts = [ent.embedding_text for ent in survivors.values()]
+        vectors = await embedder.embed(texts)
+        updated_records = []
+        for ent, vec in zip(survivors.values(), vectors, strict=True):
+            ent.embedding = vec
+            updated_records.append(ent.to_node_record())
+        by_label: dict[str, list] = defaultdict(list)
+        for rec in updated_records:
+            by_label[survivors[rec.id].label].append(rec)
+        for label, recs in by_label.items():
+            await graph_store.upsert_nodes(label, recs)
+    except Exception as exc:  # noqa: BLE001
+        # Best-effort: a failure here must not mask error_policy.
+        with contextlib.suppress(Exception):
+            await graph_store.execute_write(
+                clear_property_query("embedding"),
+                {"ids": [str(entity_id) for entity_id in survivors]},
+            )
+        if error_policy is ErrorPolicy.RAISE:
+            raise
+        return [
+            StageFailure(
+                item_id="embeddings",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+        ]
+    return []
+
+
+async def _apply_merge_with_conflict_retry(
+    plan: MergePlan,
+    *,
+    graph_store: GraphStore,
+    schema: GraphSchema,
+    mentions: list[ExtractedEntity],
+    is_new_entity: bool,
+) -> tuple[MergePlan, list[Any]]:
+    """Apply a merge plan, recovering once from a concurrent create race.
+
+    A brand-new entity's write can lose a race: two concurrent add() calls
+    resolving the same normalized name each run their exact-match lookup
+    before either has written anything, so neither sees the other, and both
+    then try to create a live node for the same merge_key. Rather than
+    silently letting a duplicate through, merge_key_constraint_query rejects
+    whichever write lands second; this recovers by re-resolving the name to
+    whichever entity won the race and merging into it instead, the way a
+    normal update would have if the exact-match lookup had seen it in time.
+
+    Args:
+        plan: The merge to apply.
+        graph_store: Where the merge is written.
+        schema: The schema the survivor's label belongs to.
+        mentions: The mentions compute_merge originally folded into plan,
+            needed to recompute the merge against the real canonical entity.
+        is_new_entity: Whether plan was building a brand-new entity (no
+            existing_entities) -- the only case a constraint violation here
+            means a create race rather than a genuine error.
+
+    Returns:
+        The plan that was actually applied (plan itself, or the recomputed
+        one after recovering from a conflict) and any description-LLM
+        failures the recovery's own compute_merge call raised.
+
+    Raises:
+        GraphStoreConstraintViolationError: The violation was not a create race
+            this can recover from (not a new-entity write, or the entity
+            still cannot be found by merge_key after the retry).
+    """
+    try:
+        await apply_merge(plan, graph_store=graph_store, schema=schema)
+        return plan, []
+    except GraphStoreConstraintViolationError:
+        if not is_new_entity:
+            raise
+        synthetic = ExtractedEntity(
+            chunk_id=uuid4(),
+            label=plan.survivor.label,
+            text=plan.survivor.name,
+            char_start=0,
+            char_end=len(plan.survivor.name),
+        )
+        resolved = await _global_exact_match([synthetic], graph_store=graph_store)
+        canonical = resolved.get(0)
+        if canonical is None:
+            raise
+        retried_plan, desc_failures = await compute_merge(
+            existing_entities=[canonical], mentions=mentions, schema=schema
+        )
+        await apply_merge(retried_plan, graph_store=graph_store, schema=schema)
+        return retried_plan, desc_failures
+
+
 class Graph:
     """A knowledge graph that a caller can open and add content to."""
 
@@ -905,9 +1036,15 @@ class Graph:
 
             # Apply merge (writes survivor and handles tombstone)
             try:
-                await apply_merge(
-                    plan, graph_store=self._graph_store, schema=self._schema
+                plan, retry_desc_failures = await _apply_merge_with_conflict_retry(
+                    plan,
+                    graph_store=self._graph_store,
+                    schema=self._schema,
+                    mentions=group_mentions,
+                    is_new_entity=not existing_for_group,
                 )
+                if retry_desc_failures:
+                    merge_failures.extend(retry_desc_failures)
             except Exception as exc:  # noqa: BLE001
                 if error_policy is ErrorPolicy.RAISE:
                     raise
@@ -1082,45 +1219,16 @@ class Graph:
                 )
             )
 
-        # Embedding stage: embed survivors and update them
+        # Embedding stage: embed survivors and update them.
         if survivors:
-            try:
-                texts = [ent.embedding_text for ent in survivors.values()]
-                vectors = await self._embedder.embed(texts)
-                # Assign and update
-                updated_records = []
-                for ent, vec in zip(survivors.values(), vectors, strict=False):
-                    ent.embedding = vec
-                    updated_records.append(ent.to_node_record())
-                # Upsert with embeddings, grouped by label.
-                by_label: dict[str, list] = defaultdict(list)
-                for rec in updated_records:
-                    ent = survivors[rec.id]
-                    by_label[ent.label].append(rec)
-                for label, recs in by_label.items():
-                    await self._graph_store.upsert_nodes(label, recs)
-                # Embedding upsert is an update, not new nodes.
-            except Exception as exc:  # noqa: BLE001
-                # A survivor's node was already committed with its (possibly
-                # new) name and properties before this batch embed() call;
-                # if the call fails, any embedding still on the node is from
-                # before that update and would rank the entity by stale
-                # text. Clear it rather than leave it searchable as current.
-                # Best-effort: a failure here must not mask error_policy.
-                with contextlib.suppress(Exception):
-                    await self._graph_store.execute_write(
-                        clear_property_query("embedding"),
-                        {"ids": [str(entity_id) for entity_id in survivors]},
-                    )
-                if error_policy is ErrorPolicy.RAISE:
-                    raise
-                storage_failures.append(
-                    StageFailure(
-                        item_id="embeddings",
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
-                    )
+            storage_failures.extend(
+                await _embed_and_upsert_survivors(
+                    survivors,
+                    embedder=self._embedder,
+                    graph_store=self._graph_store,
+                    error_policy=error_policy,
                 )
+            )
 
         storage_stats = StorageStats(
             nodes_written=nodes_written,
@@ -1318,12 +1426,28 @@ class Graph:
                     continue
                 would_merge.append(plan)
 
+        consolidation_failures: list[StageFailure] = []
         if apply and would_merge:
+            survivors: dict[UUID, Entity] = {}
             for plan in would_merge:
                 await apply_merge(
                     plan, graph_store=self._graph_store, schema=self._schema
                 )
+                survivors[plan.survivor.id] = plan.survivor
+            # Every survivor's node was just (re)written, possibly with a new
+            # canonical name or description; its embedding must match that
+            # final text, the same way add()'s embedding stage keeps one in
+            # sync with a merge it just applied.
+            if survivors:
+                consolidation_failures = await _embed_and_upsert_survivors(
+                    survivors,
+                    embedder=self._embedder,
+                    graph_store=self._graph_store,
+                    error_policy=ErrorPolicy.SKIP,
+                )
 
         return ConsolidationReport(
-            would_merge=would_merge, applied=apply and bool(would_merge)
+            would_merge=would_merge,
+            applied=apply and bool(would_merge),
+            failures=consolidation_failures,
         )

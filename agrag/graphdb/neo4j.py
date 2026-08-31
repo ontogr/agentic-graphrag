@@ -1,6 +1,7 @@
 """Neo4j graph-store backend."""
 
 import asyncio
+import contextlib
 from collections import defaultdict
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -28,7 +29,10 @@ from agrag.cypher.schema import (
     vector_search_query,
 )
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
-from agrag.graphdb.errors import GraphStoreMissingExtraError
+from agrag.graphdb.errors import (
+    GraphStoreConstraintViolationError,
+    GraphStoreMissingExtraError,
+)
 from agrag.graphdb.serialize import node_params, relation_params
 from agrag.graphdb.settings import Neo4jSettings
 
@@ -205,9 +209,20 @@ class Neo4jGraphStore(GraphStore):
     async def execute_write(
         self, query: str, parameters: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Run a write transaction and return its rows."""
+        """Run a write transaction and return its rows.
+
+        Raises:
+            GraphStoreConstraintViolationError: The write violated a uniqueness
+                constraint, translated from the driver's own exception so
+                callers do not need a hard dependency on it.
+        """
+        from neo4j.exceptions import ConstraintError  # noqa: PLC0415
+
         async with self.session() as s:
-            return await s.execute_write(self._run, query, parameters or {})
+            try:
+                return await s.execute_write(self._run, query, parameters or {})
+            except ConstraintError as exc:
+                raise GraphStoreConstraintViolationError(str(exc)) from exc
 
     @staticmethod
     async def _run(
@@ -226,18 +241,30 @@ class Neo4jGraphStore(GraphStore):
         opening the transaction, the same way ``upsert_nodes`` ensures it
         before writing, since ``_Neo4jTransaction.upsert_nodes`` skips that
         check to avoid a nested write racing the transaction it belongs to.
+
+        Raises:
+            GraphStoreConstraintViolationError: A write inside the block, or the
+                commit itself, violated a uniqueness constraint -- Neo4j
+                validates some constraints only at commit time for an
+                explicit transaction, so this can surface here even when
+                every individual write appeared to succeed.
         """
+        from neo4j.exceptions import ConstraintError  # noqa: PLC0415
+
         await self._ensure_identity_constraint()
         await self._ensure_merge_alias_constraint()
         async with self.session() as session:
             tx = await session.begin_transaction()
             try:
                 yield _Neo4jTransaction(tx, store=self)
+                await tx.commit()
+            except ConstraintError as exc:
+                with contextlib.suppress(Exception):
+                    await tx.rollback()
+                raise GraphStoreConstraintViolationError(str(exc)) from exc
             except Exception:
                 await tx.rollback()
                 raise
-            else:
-                await tx.commit()
 
     async def setup_constraints(self) -> None:
         """Create a uniqueness constraint on ``id`` for every known label.

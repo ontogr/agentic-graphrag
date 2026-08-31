@@ -23,12 +23,23 @@ def upsert_relation_query(rel_type: str) -> str:
     cannot overwrite the ``id`` used to ``MERGE`` and orphan the relationship
     from later upserts of the same record.
 
+    ``source_chunk_ids`` is unioned against whatever is already on the
+    relationship at write time, inside this same query, rather than blindly
+    overwritten: two concurrent callers upserting the same relationship each
+    compute their own union from a read taken before either write lands, so
+    without this, whichever caller's write commits second would silently
+    discard the chunk ids the other one contributed. Reading the current
+    value here, inside the same MERGE, keeps the union correct regardless of
+    which caller's read was stale.
+
     Args:
         rel_type: The relationship type. Must already be validated.
 
     Returns:
         A parameterized Cypher query expecting a ``$records`` list parameter whose
         items carry ``id``, ``start_id``, ``end_id``, and ``properties`` keys.
+        ``properties`` may include ``source_chunk_ids``; other keys are
+        applied as-is.
     """
     safe_type = validate_identifier(rel_type)
     return (
@@ -39,6 +50,12 @@ def upsert_relation_query(rel_type: str) -> str:
         f"WHERE x.id <> record.start_id OR y.id <> record.end_id "
         f"FOREACH (_ IN CASE WHEN stale IS NULL THEN [] ELSE [1] END | DELETE stale) "
         f"MERGE (a)-[r:{safe_type} {{id: record.id}}]->(b) "
+        f"WITH r, record, "
+        f"coalesce(r.source_chunk_ids, []) AS existing_source_chunk_ids "
         f"SET r += record.properties "
+        f"SET r.source_chunk_ids = "
+        f"[x IN existing_source_chunk_ids "
+        f"WHERE NOT x IN coalesce(record.properties.source_chunk_ids, [])] "
+        f"+ coalesce(record.properties.source_chunk_ids, []) "
         f"SET r.id = record.id"
     )

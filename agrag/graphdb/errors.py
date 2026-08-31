@@ -20,4 +20,19 @@ class GraphStoreMissingExtraError(GraphStoreError):
         self.extra = extra
 
 
-__all__ = ["GraphStoreError", "GraphStoreMissingExtraError"]
+class GraphStoreConstraintViolationError(GraphStoreError):
+    """A write violated a uniqueness constraint the backend enforces.
+
+    Raised instead of letting the backend's own driver exception propagate,
+    so callers can recognize this specific case -- for example, two
+    concurrent writers both missing an exact-match lookup and racing to
+    create the same ``merge_key`` -- and recover by re-resolving to
+    whichever write landed first, rather than treating it as a fatal error.
+    """
+
+
+__all__ = [
+    "GraphStoreConstraintViolationError",
+    "GraphStoreError",
+    "GraphStoreMissingExtraError",
+]
