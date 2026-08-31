@@ -25,6 +25,7 @@ from agrag.ingestion.merge import (
     apply_merge,
     compute_merge,
     mentioned_in_id,
+    relation_id,
 )
 from agrag.ingestion.types import StageFailure
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
@@ -234,6 +235,46 @@ class TestResolveProperty:
         """Single candidate is returned without conflict."""
         value, conflicted = _resolve_property("f", ["x"], PropertyRules())
         assert value == "x"
+        assert conflicted is False
+
+    def test_list_valued_candidates_do_not_raise(self) -> None:
+        """A list-valued candidate does not crash the hashable-only dedup path.
+
+        Regression test: dict.fromkeys(candidates) raises TypeError for
+        unhashable values such as a list, aborting the merge instead of
+        resolving the field.
+        """
+        rules = PropertyRules(default=PropertyStrategy.KEEP_FIRST)
+        value, conflicted = _resolve_property("tags", [["a", "b"], ["c"]], rules)
+        assert value == ["a", "b"]
+        assert conflicted is True
+
+    def test_dict_valued_candidates_do_not_raise(self) -> None:
+        """A dict-valued candidate does not crash the hashable-only dedup path."""
+        rules = PropertyRules(default=PropertyStrategy.KEEP_LAST)
+        value, conflicted = _resolve_property("meta", [{"a": 1}, {"b": 2}], rules)
+        assert value == {"b": 2}
+        assert conflicted is True
+
+    def test_merge_all_result_merged_again_with_list_candidates(self) -> None:
+        """A prior MERGE_ALL list result merging again does not raise.
+
+        Simulates re-ingesting an already-merged entity whose property was
+        previously resolved to a list by MERGE_ALL: that list becomes one of
+        the candidates in a later merge, which must still resolve cleanly.
+        """
+        rules = PropertyRules(default=PropertyStrategy.MERGE_ALL)
+        prior_result, _ = _resolve_property("tags", ["a", "b"], rules)
+        assert prior_result == ["a", "b"]
+        value, conflicted = _resolve_property("tags", [prior_result, ["c"]], rules)
+        assert value == [["a", "b"], ["c"]]
+        assert conflicted is True
+
+    def test_list_valued_duplicate_candidates_deduped_by_equality(self) -> None:
+        """Equal list candidates collapse to one, not raise or duplicate."""
+        rules = PropertyRules(default=PropertyStrategy.KEEP_FIRST)
+        value, conflicted = _resolve_property("tags", [["a"], ["a"]], rules)
+        assert value == ["a"]
         assert conflicted is False
 
 
@@ -748,17 +789,30 @@ class TestComputeMerge:
         assert plan.survivor.id == e_full.id
 
 
+def _transferred(
+    *,
+    other_id: UUID | None = None,
+    rel_type: str = "KNOWS",
+    new_relationship_id: UUID | None = None,
+    source_chunk_ids: list[UUID] | None = None,
+    properties: dict[str, object] | None = None,
+) -> _TransferredRelationship:
+    """Build a _TransferredRelationship for dedup tests."""
+    return _TransferredRelationship(
+        other_id=other_id or uuid4(),
+        rel_type=rel_type,
+        new_relationship_id=new_relationship_id or uuid4(),
+        source_chunk_ids=source_chunk_ids or [],
+        properties=properties or {},
+    )
+
+
 class TestPlanRelationshipDedup:
     """_plan_relationship_dedup grouping."""
 
     def test_group_of_one_returns_empty(self) -> None:
         """Single row in a group produces no updates."""
-        r = _TransferredRelationship(
-            other_id=uuid4(),
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[uuid4()],
-        )
+        r = _transferred(source_chunk_ids=[uuid4()])
         updates, delete_ids = _plan_relationship_dedup([r])
         assert updates == []
         assert delete_ids == []
@@ -767,24 +821,16 @@ class TestPlanRelationshipDedup:
         """Two rows with same type and other merges chunk ids."""
         other = uuid4()
         c1, c2, c3 = uuid4(), uuid4(), uuid4()
-        r1 = _TransferredRelationship(
-            other_id=other,
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[c1, c2],
-        )
-        r2 = _TransferredRelationship(
-            other_id=other,
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[c2, c3],
-        )
+        r1 = _transferred(other_id=other, source_chunk_ids=[c1, c2])
+        r2 = _transferred(other_id=other, source_chunk_ids=[c2, c3])
         updates, deletes = _plan_relationship_dedup([r1, r2])
         assert len(updates) == 1
         assert updates[0]["id"] == str(r1.new_relationship_id)
         assert updates[0]["rel_type"] == "KNOWS"
+        properties = updates[0]["properties"]
+        assert isinstance(properties, dict)
         # deduped, order preserved: c1, c2, c3
-        assert updates[0]["source_chunk_ids"] == [
+        assert properties["source_chunk_ids"] == [
             str(c1),
             str(c2),
             str(c3),
@@ -794,36 +840,16 @@ class TestPlanRelationshipDedup:
     def test_separate_groups_by_type(self) -> None:
         """Different rel_type creates separate groups."""
         other = uuid4()
-        r1 = _TransferredRelationship(
-            other_id=other,
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[uuid4()],
-        )
-        r2 = _TransferredRelationship(
-            other_id=other,
-            rel_type="WORKS_AT",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[uuid4()],
-        )
+        r1 = _transferred(other_id=other, rel_type="KNOWS")
+        r2 = _transferred(other_id=other, rel_type="WORKS_AT")
         updates, delete_ids = _plan_relationship_dedup([r1, r2])
         assert updates == []
         assert delete_ids == []
 
     def test_separate_groups_by_other_id(self) -> None:
         """Different other_id creates separate groups."""
-        r1 = _TransferredRelationship(
-            other_id=uuid4(),
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[uuid4()],
-        )
-        r2 = _TransferredRelationship(
-            other_id=uuid4(),
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[uuid4()],
-        )
+        r1 = _transferred()
+        r2 = _transferred()
         updates, delete_ids = _plan_relationship_dedup([r1, r2])
         assert updates == []
         assert delete_ids == []
@@ -831,30 +857,10 @@ class TestPlanRelationshipDedup:
     def test_multiple_groups_mixed(self) -> None:
         """Multiple duplicate groups each produce an update."""
         other_a, other_b = uuid4(), uuid4()
-        r1 = _TransferredRelationship(
-            other_id=other_a,
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[uuid4()],
-        )
-        r2 = _TransferredRelationship(
-            other_id=other_a,
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[uuid4()],
-        )
-        r3 = _TransferredRelationship(
-            other_id=other_b,
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[uuid4()],
-        )
-        r4 = _TransferredRelationship(
-            other_id=other_b,
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[uuid4()],
-        )
+        r1 = _transferred(other_id=other_a)
+        r2 = _transferred(other_id=other_a)
+        r3 = _transferred(other_id=other_b)
+        r4 = _transferred(other_id=other_b)
         updates, delete_ids = _plan_relationship_dedup([r1, r2, r3, r4])
         assert len(updates) == 2
         assert len(delete_ids) == 2
@@ -867,29 +873,37 @@ class TestPlanRelationshipDedup:
         """
         other = uuid4()
         # Outgoing group
-        r_out1 = _TransferredRelationship(
-            other_id=other,
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[uuid4()],
-        )
-        r_out2 = _TransferredRelationship(
-            other_id=other,
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[uuid4()],
-        )
+        r_out1 = _transferred(other_id=other)
+        r_out2 = _transferred(other_id=other)
         updates_out, _ = _plan_relationship_dedup([r_out1, r_out2])
         # Incoming group separately
-        r_in1 = _TransferredRelationship(
-            other_id=other,
-            rel_type="KNOWS",
-            new_relationship_id=uuid4(),
-            source_chunk_ids=[uuid4()],
-        )
+        r_in1 = _transferred(other_id=other)
         updates_in, _ = _plan_relationship_dedup([r_in1])
         assert len(updates_out) == 1
         assert updates_in == []
+
+    def test_merges_non_provenance_properties_from_duplicates(self) -> None:
+        """A duplicate's distinct property is not lost when its edge is deleted.
+
+        Regression test: fetch_node_relationships_query now returns each
+        edge's full property map, and the dedup update carries the merged
+        result, so a field only the deleted duplicate had survives onto the
+        kept edge instead of disappearing.
+        """
+        other = uuid4()
+        keeper = _transferred(other_id=other, properties={"confidence": "high"})
+        extra = _transferred(
+            other_id=other, properties={"confidence": None, "note": "from doc B"}
+        )
+        updates, deletes = _plan_relationship_dedup([keeper, extra])
+        assert len(updates) == 1
+        merged = updates[0]["properties"]
+        assert isinstance(merged, dict)
+        # Keeper's own value wins when it has one.
+        assert merged["confidence"] == "high"
+        # A field only the duplicate had is not dropped.
+        assert merged["note"] == "from doc B"
+        assert deletes == [{"id": str(extra.new_relationship_id), "rel_type": "KNOWS"}]
 
 
 def _store_with_transaction(execute_write: AsyncMock) -> AsyncMock:
@@ -915,29 +929,26 @@ def _store_with_transaction(execute_write: AsyncMock) -> AsyncMock:
 class TestApplyMerge:
     """apply_merge writes to GraphStore."""
 
-    async def test_zero_tombstones_only_upserts(self) -> None:
-        """No tombstones only upserts survivor."""
+    async def test_zero_tombstones_upserts_survivor_and_alias(self) -> None:
+        """No tombstones still runs in a transaction: upsert survivor + alias."""
         survivor = _entity(name="Ada")
         plan = MergePlan(survivor=survivor, tombstone_ids=[], conflicts=[])
-        store = AsyncMock()
-        store.upsert_nodes = AsyncMock()
-        store.execute_write = AsyncMock()
-        await apply_merge(plan, graph_store=store, schema=_schema())
-        store.upsert_nodes.assert_awaited_once()
-        args, _ = store.upsert_nodes.call_args
-        assert args[0] == survivor.label
-        store.execute_write.assert_not_awaited()
+        execute_write = AsyncMock(return_value=[])
+        store = _store_with_transaction(execute_write)
 
-    async def test_one_existing_only_upserts(self) -> None:
-        """Plan with no tombstones still only upserts."""
-        survivor = _entity(name="Bob")
-        plan = MergePlan(survivor=survivor, tombstone_ids=[], conflicts=[])
-        store = AsyncMock()
-        store.upsert_nodes = AsyncMock()
-        store.execute_write = AsyncMock()
         await apply_merge(plan, graph_store=store, schema=_schema())
-        store.upsert_nodes.assert_awaited_once()
+
+        store.upsert_nodes.assert_not_awaited()
         store.execute_write.assert_not_awaited()
+        store.txn_upsert_nodes.assert_awaited_once()
+        args, _ = store.txn_upsert_nodes.call_args
+        assert args[0] == survivor.label
+        execute_write.assert_awaited_once()
+        alias_params = execute_write.call_args.args[1]
+        assert alias_params == {
+            "merge_key": survivor.merge_key,
+            "entity_id": str(survivor.id),
+        }
 
     async def test_two_plus_runs_in_one_transaction(self) -> None:
         """Two-plus tombstones, deletes internal edges, transfers, and re-fetches.
@@ -960,20 +971,39 @@ class TestApplyMerge:
         store.txn_upsert_nodes.assert_awaited_once()
         args, _ = store.txn_upsert_nodes.call_args
         assert args[0] == survivor.label
-        param_sets = [set(c.args[1]) for c in execute_write.call_args_list]
+
+        calls = execute_write.call_args_list
+        # Merge-key alias for the survivor's own current name.
+        alias_calls = [c for c in calls if set(c.args[1]) == {"merge_key", "entity_id"}]
+        assert len(alias_calls) == 1
+        assert alias_calls[0].args[1]["entity_id"] == str(survivor.id)
+        # Tombstone: marks the absorbed id merged, distinguished from the
+        # internal-edge delete below by query text since both take the same
+        # {tombstone_ids, survivor_id} parameters.
         tombstone_calls = [
-            c.args[1]
-            for c in execute_write.call_args_list
+            c
+            for c in calls
             if set(c.args[1]) == {"tombstone_ids", "survivor_id"}
+            and "REMOVE n.merge_key" in c.args[0]
         ]
         assert len(tombstone_calls) == 1
-        assert tombstone_calls[0]["tombstone_ids"] == [str(tombstone)]
-        # Internal-edge cleanup, once, before any transfer.
-        assert param_sets.count({"tombstone_ids"}) == 1
+        assert tombstone_calls[0].args[1]["tombstone_ids"] == [str(tombstone)]
+        # Internal/self-link edge cleanup, once, before any transfer.
+        internal_delete_calls = [
+            c
+            for c in calls
+            if set(c.args[1]) == {"tombstone_ids", "survivor_id"}
+            and "DELETE r" in c.args[0]
+        ]
+        assert len(internal_delete_calls) == 1
         # Both transfer directions, once per tombstone.
-        assert param_sets.count({"tombstone_id", "survivor_id"}) == 2
+        transfer_calls = [
+            c for c in calls if set(c.args[1]) == {"tombstone_id", "survivor_id"}
+        ]
+        assert len(transfer_calls) == 2
         # Both post-transfer neighbourhood fetches.
-        assert param_sets.count({"node_id"}) == 2
+        fetch_calls = [c for c in calls if set(c.args[1]) == {"node_id"}]
+        assert len(fetch_calls) == 2
 
     async def test_handles_row_parsing_errors(self) -> None:
         """Malformed neighbourhood rows are skipped, and no dedup call follows."""
@@ -994,7 +1024,7 @@ class TestApplyMerge:
                         "other_id": str(uuid4()),
                         "rel_type": "KNOWS",
                         "new_relationship_id": str(uuid4()),
-                        "source_chunk_ids": ["not-a-uuid"],
+                        "properties": {"source_chunk_ids": ["not-a-uuid"]},
                     },
                 ]
             return []
@@ -1025,13 +1055,13 @@ class TestApplyMerge:
                         "other_id": str(other),
                         "rel_type": "KNOWS",
                         "new_relationship_id": str(good_id),
-                        "source_chunk_ids": [str(c1)],
+                        "properties": {"source_chunk_ids": [str(c1)]},
                     },
                     {
                         "other_id": "bad",
                         "rel_type": "KNOWS",
                         "new_relationship_id": str(uuid4()),
-                        "source_chunk_ids": [],
+                        "properties": {"source_chunk_ids": []},
                     },
                 ]
             return []
@@ -1062,13 +1092,13 @@ class TestApplyMerge:
                         "other_id": str(other),
                         "rel_type": "KNOWS",
                         "new_relationship_id": str(r1),
-                        "source_chunk_ids": [str(c1)],
+                        "properties": {"source_chunk_ids": [str(c1)]},
                     },
                     {
                         "other_id": str(other),
                         "rel_type": "KNOWS",
                         "new_relationship_id": str(r2),
-                        "source_chunk_ids": [str(c2)],
+                        "properties": {"source_chunk_ids": [str(c2)]},
                     },
                 ]
             if params and "updates" in params:
@@ -1086,6 +1116,39 @@ class TestApplyMerge:
         delete_calls = [c for c in calls if "delete_ids" in c.args[1]]
         assert update_calls
         assert delete_calls
+
+
+class TestRelationId:
+    """relation_id deterministic ids.
+
+    Regression coverage for concurrent ingestion of the same domain
+    relation triple: two callers that both miss the existing-relation
+    lookup must compute the same id here, or their upserts create two
+    parallel edges instead of converging on one (see relation_id_constraint_query,
+    which only enforces uniqueness of id within a type, not of the triple).
+    """
+
+    def test_deterministic(self) -> None:
+        """Same triple returns same id, matching what a concurrent miss needs."""
+        s, t = uuid4(), uuid4()
+        assert relation_id(s, t, "KNOWS") == relation_id(s, t, "KNOWS")
+
+    def test_different_types_differ(self) -> None:
+        """Same endpoints, different type, differs."""
+        s, t = uuid4(), uuid4()
+        assert relation_id(s, t, "KNOWS") != relation_id(s, t, "WORKS_AT")
+
+    def test_direction_matters(self) -> None:
+        """Swapped source/target differs, since the relation is directed."""
+        s, t = uuid4(), uuid4()
+        assert relation_id(s, t, "KNOWS") != relation_id(t, s, "KNOWS")
+
+    def test_known_value(self) -> None:
+        """Known triple matches uuid5 with OID namespace."""
+        s = UUID("11111111-1111-1111-1111-111111111111")
+        t = UUID("22222222-2222-2222-2222-222222222222")
+        expected = uuid5(NAMESPACE_OID, f"KNOWS:{s}:{t}")
+        assert relation_id(s, t, "KNOWS") == expected
 
 
 class TestMentionedInId:

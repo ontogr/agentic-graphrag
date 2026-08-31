@@ -19,6 +19,14 @@ _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # constraint) rather than update it.
 NODE_IDENTITY_LABEL = "_AgragNode"
 
+# One node per merge_key ever assigned to any entity, permanently mapping
+# that key to the entity's own id. A live entity's node also carries
+# merge_key directly (see merge_key_constraint_query), but tombstone_query
+# clears that property on absorption; this table is what keeps an absorbed
+# name resolvable afterward. See fetch_by_merge_keys_query and
+# upsert_merge_alias_query.
+MERGE_ALIAS_LABEL = "_AgragMergeAlias"
+
 
 def validate_identifier(value: str) -> str:
     """Check that a label or relationship type is a safe Cypher identifier.
@@ -113,24 +121,66 @@ def merge_key_index_query(label: str) -> str:
     )
 
 
-def fetch_by_merge_keys_query(label: str) -> str:
+def fetch_by_merge_keys_query() -> str:
     """Build Cypher for a batched exact-match lookup by merge key.
 
-    Tombstones clear their ``merge_key`` on absorption, but the filter on
-    ``merged_into`` remains as defence for data written before that change
-    and for chains where a survivor was itself merged later.
-
-    Args:
-        label: The node label. Must already be validated.
+    Resolves through the merge-key alias table (``MERGE_ALIAS_LABEL``)
+    rather than matching each node's own ``merge_key`` property directly:
+    that property is cleared when a node is tombstoned (see
+    ``tombstone_query``), so a name it once held would otherwise become
+    unreachable. The alias always points at the entity id that first held
+    the key, which may itself now be a tombstone; the caller follows its
+    ``merged_into`` chain to the live survivor.
 
     Returns:
         Parameterized Cypher expecting $merge_keys (list of strings).
     """
     return (
         f"UNWIND $merge_keys AS merge_key "
-        f"MATCH (n:{validate_identifier(label)} {{merge_key: merge_key}}) "
-        f"WHERE n.merged_into IS NULL "
+        f"MATCH (a:{MERGE_ALIAS_LABEL} {{merge_key: merge_key}}) "
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: a.entity_id}}) "
         f"RETURN n"
+    )
+
+
+def upsert_merge_alias_query() -> str:
+    """Build Cypher recording one merge_key's originating entity id.
+
+    Every ``apply_merge`` call writes this for the survivor's current
+    merge_key, so a name an entity has ever held keeps resolving to that
+    entity even after the entity's own node clears ``merge_key`` on
+    absorption. The alias is never rewritten to point elsewhere: if the
+    entity it names is later itself absorbed, ``fetch_by_merge_keys_query``'s
+    caller follows that entity's ``merged_into`` chain from here instead of
+    this table being kept in sync with every later merge.
+
+    Returns:
+        Parameterized Cypher expecting $merge_key and $entity_id.
+    """
+    return (
+        f"MERGE (a:{MERGE_ALIAS_LABEL} {{merge_key: $merge_key}}) "
+        f"SET a.entity_id = $entity_id"
+    )
+
+
+def clear_property_query(property_name: str) -> str:
+    """Build Cypher removing one property from a batch of nodes by id.
+
+    Used to drop a stale value rather than leave it readable after a write
+    that was supposed to replace it fails partway through, such as an
+    embedding vector left over from before an entity's text changed.
+
+    Args:
+        property_name: The property to remove. Must already be validated.
+
+    Returns:
+        Parameterized Cypher expecting $ids (list of strings).
+    """
+    safe_property = validate_identifier(property_name)
+    return (
+        f"UNWIND $ids AS entity_id "
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: entity_id}}) "
+        f"REMOVE n.{safe_property}"
     )
 
 

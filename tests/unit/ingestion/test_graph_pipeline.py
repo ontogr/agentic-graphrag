@@ -444,6 +444,66 @@ class TestGlobalExactMatch:
         result = await _global_exact_match([m], graph_store=store)
         assert result == {}
 
+    async def test_reingest_of_absorbed_name_resolves_to_survivor(self) -> None:
+        """A name absorbed into a survivor still resolves there on re-ingest.
+
+        Regression test: tombstone_query clears merge_key on absorption, so
+        a later mention of the absorbed name can only be found through the
+        merge-key alias table (fetch_by_merge_keys_query,
+        upsert_merge_alias_query). Without that alias, this mention would
+        find nothing and a duplicate "Bob" entity would be created instead
+        of resolving to the existing survivor.
+        """
+        store = MockStore()
+        cid = uuid4()
+        m = ExtractedEntity(
+            chunk_id=cid, label="Person", text="Bob", char_start=0, char_end=3
+        )
+        tombstone_id = uuid4()
+        survivor_id = uuid4()
+        store.execute_read_responses = [
+            # fetch_by_merge_keys_query resolves the alias to the original
+            # (now-tombstoned) "Bob" entity; merge_key is absent, matching
+            # what REMOVE n.merge_key leaves behind.
+            [
+                {
+                    "n": {
+                        "id": str(tombstone_id),
+                        "labels": ["Person"],
+                        "properties": {
+                            "name": "Bob",
+                            "merged_from": [],
+                            "merge_count": 1,
+                            "source_chunk_ids": [],
+                            "created_at": "2020-01-01T00:00:00+00:00",
+                            "merged_into": str(survivor_id),
+                        },
+                    }
+                }
+            ],
+            # _resolve_tombstone_chain follows merged_into to the live
+            # survivor.
+            [
+                {
+                    "n": {
+                        "id": str(survivor_id),
+                        "labels": ["Person"],
+                        "properties": {
+                            "name": "Robert",
+                            "merge_key": "Person:robert",
+                            "merged_from": [str(tombstone_id)],
+                            "merge_count": 2,
+                            "source_chunk_ids": [],
+                            "created_at": "2020-01-01T00:00:00+00:00",
+                        },
+                    }
+                }
+            ],
+        ]
+        result = await _global_exact_match([m], graph_store=store)
+        assert result[0].id == survivor_id
+        assert result[0].name == "Robert"
+
 
 class TestGlobalRelationLookup:
     """Tests for _global_relation_lookup."""
@@ -1068,6 +1128,100 @@ class TestGraphAddPipeline:
         ]
         assert len(person_upserts) >= 2
         assert result.storage.nodes_written >= 1
+
+    async def test_embedding_failure_clears_stale_embedding(self) -> None:
+        """A failed batch embed() clears any embedding already on the survivor.
+
+        Regression test: the survivor's node is committed via apply_merge
+        before this stage runs, so if embed() then fails, an embedding left
+        over from before this call's update would rank the entity by
+        outdated text. It must be cleared, not left in place.
+        """
+        store = MockStore()
+
+        class _FailingEmbedder(MockEmbedder):
+            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+                raise RuntimeError("embed backend down")
+
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=store,
+            embedder=_FailingEmbedder(),
+            extractor=MockExtractor(),
+        )
+
+        class BobExtractor(Extractor):
+            async def extract(
+                self, chunk: ChunkModel, schema: GraphSchema
+            ) -> ExtractionResult:
+                return ExtractionResult(
+                    entities=[
+                        ExtractedEntity(
+                            chunk_id=chunk.id,
+                            label="Person",
+                            text="Bob",
+                            char_start=0,
+                            char_end=3,
+                        )
+                    ],
+                    relations=[],
+                    extractor_name="fake",
+                )  # type: ignore[arg-type]
+
+        graph._extractor = BobExtractor()
+        result = await graph.add(text="Bob", error_policy=ErrorPolicy.SKIP)
+
+        clear_calls = [
+            call
+            for call in store.execute_write_calls
+            if "REMOVE n.embedding" in call[0]
+        ]
+        assert len(clear_calls) == 1
+        assert result.storage.failures
+
+    async def test_embedding_failure_clears_before_raising(self) -> None:
+        """Under RAISE policy, the stale embedding is still cleared first."""
+        store = MockStore()
+
+        class _FailingEmbedder(MockEmbedder):
+            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+                raise RuntimeError("embed backend down")
+
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=store,
+            embedder=_FailingEmbedder(),
+            extractor=MockExtractor(),
+        )
+
+        class BobExtractor(Extractor):
+            async def extract(
+                self, chunk: ChunkModel, schema: GraphSchema
+            ) -> ExtractionResult:
+                return ExtractionResult(
+                    entities=[
+                        ExtractedEntity(
+                            chunk_id=chunk.id,
+                            label="Person",
+                            text="Bob",
+                            char_start=0,
+                            char_end=3,
+                        )
+                    ],
+                    relations=[],
+                    extractor_name="fake",
+                )  # type: ignore[arg-type]
+
+        graph._extractor = BobExtractor()
+        with pytest.raises(RuntimeError, match="embed backend down"):
+            await graph.add(text="Bob", error_policy=ErrorPolicy.RAISE)
+
+        clear_calls = [
+            call
+            for call in store.execute_write_calls
+            if "REMOVE n.embedding" in call[0]
+        ]
+        assert len(clear_calls) == 1
 
     async def test_all_entities_by_label_pagination(self) -> None:
         """Pagination via skip/limit."""

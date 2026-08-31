@@ -28,11 +28,15 @@ _FIXTURES = Path(__file__).parents[1] / "loaders" / "corpus" / "fixtures"
 class _MockGraphStore(GraphStore):
     """A no-op GraphStore for ingestion-only unit tests."""
 
+    def __init__(self) -> None:
+        """Create the store, tracking close() calls for cleanup assertions."""
+        self.close_calls = 0
+
     async def connect(self) -> None:
         return None
 
     async def close(self) -> None:
-        return None
+        self.close_calls += 1
 
     def session(self) -> AbstractAsyncContextManager[Any]:
         class _MockSession:
@@ -248,3 +252,58 @@ class TestGraphAdd:
         result = await graph.add(str(tmp_path / "*"))
         assert result.documents == 1
         assert result.sources == 1
+
+
+class TestGraphOpen:
+    """Graph.open provisioning failure handling."""
+
+    async def test_setup_constraints_failure_closes_store(self) -> None:
+        """A provisioning failure after connect() still closes the store.
+
+        Regression test: a failure between connect() and the end of
+        provisioning must not leak the connection. Fails at
+        setup_constraints, before the later stages (setup_indexes,
+        embedder.dimensions(), ensure_vector_index) even run.
+        """
+
+        class _FailingStore(_MockGraphStore):
+            async def setup_constraints(self) -> None:
+                raise RuntimeError("boom")
+
+        store = _FailingStore()
+        with pytest.raises(RuntimeError, match="boom"):
+            await Graph.open(
+                schema=GENERIC,
+                graph_store=store,
+                embedder=_MockEmbedder(),
+                extractor=_MockExtractor(),
+            )
+        assert store.close_calls == 1
+
+    async def test_ensure_vector_index_failure_closes_store(self) -> None:
+        """A failure in the last provisioning stage still closes the store."""
+
+        class _FailingStore(_MockGraphStore):
+            async def ensure_vector_index(self, **kwargs: Any) -> None:
+                raise RuntimeError("boom")
+
+        store = _FailingStore()
+        with pytest.raises(RuntimeError, match="boom"):
+            await Graph.open(
+                schema=GENERIC,
+                graph_store=store,
+                embedder=_MockEmbedder(),
+                extractor=_MockExtractor(),
+            )
+        assert store.close_calls == 1
+
+    async def test_successful_open_does_not_close_store(self) -> None:
+        """A successful open leaves the store connected."""
+        store = _MockGraphStore()
+        await Graph.open(
+            schema=GENERIC,
+            graph_store=store,
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+        )
+        assert store.close_calls == 0

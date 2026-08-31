@@ -26,6 +26,7 @@ from agrag.common.data_models.relation import Relation
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
+    clear_property_query,
     fetch_all_by_label_query,
     fetch_by_merge_keys_query,
     fetch_relations_between_query,
@@ -33,7 +34,12 @@ from agrag.cypher.entities import (
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
-from agrag.ingestion.merge import apply_merge, compute_merge, mentioned_in_id
+from agrag.ingestion.merge import (
+    apply_merge,
+    compute_merge,
+    mentioned_in_id,
+    relation_id,
+)
 from agrag.ingestion.resolve import (
     ExactMatch,
     FuzzyMatch,
@@ -354,12 +360,13 @@ async def _global_exact_match(  # noqa: PLR0912,PLR0915
         mk_to_indices[mk].append(idx)
 
     result: dict[int, Entity] = {}
-    for label, mks in grouped.items():
+    for _label, mks in grouped.items():
         unique_mks = list(dict.fromkeys(mks))
         if not unique_mks:
             continue
-        query = fetch_by_merge_keys_query(label)
-        rows = await graph_store.execute_read(query, {"merge_keys": unique_mks})
+        rows = await graph_store.execute_read(
+            fetch_by_merge_keys_query(), {"merge_keys": unique_mks}
+        )
         for row in rows:
             # Row may be {"n": Node} or {"n": {...}} or just node dict
             node = row.get("n") if isinstance(row, dict) and "n" in row else row
@@ -529,25 +536,34 @@ class Graph:
 
         Returns:
             A graph connected to graph_store and ready to accept add() calls.
+
+        Raises:
+            Exception: Whatever registration, constraint/index setup, or
+                vector-index provisioning raises. graph_store is closed
+                first, so a failed open() never leaks a connection.
         """
         await graph_store.connect()
-        entity_labels = [entity_type.label for entity_type in schema.entities]
-        relation_types = [relation_type.label for relation_type in schema.relations]
-        await graph_store.register_labels([*entity_labels, CHUNK_LABEL])
-        await graph_store.register_relation_types(
-            [*relation_types, *SYSTEM_RELATION_TYPES]
-        )
-        await graph_store.setup_constraints()
-        await graph_store.setup_indexes()
-        dimensions = await embedder.dimensions()
-        distance = embedder.distance
-        for label in entity_labels:
-            await graph_store.ensure_vector_index(
-                label=label,
-                vector_property="embedding",
-                dimensions=dimensions,
-                distance=distance,
+        try:
+            entity_labels = [entity_type.label for entity_type in schema.entities]
+            relation_types = [relation_type.label for relation_type in schema.relations]
+            await graph_store.register_labels([*entity_labels, CHUNK_LABEL])
+            await graph_store.register_relation_types(
+                [*relation_types, *SYSTEM_RELATION_TYPES]
             )
+            await graph_store.setup_constraints()
+            await graph_store.setup_indexes()
+            dimensions = await embedder.dimensions()
+            distance = embedder.distance
+            for label in entity_labels:
+                await graph_store.ensure_vector_index(
+                    label=label,
+                    vector_property="embedding",
+                    dimensions=dimensions,
+                    distance=distance,
+                )
+        except Exception:
+            await graph_store.close()
+            raise
         return cls(
             schema=schema,
             graph_store=graph_store,
@@ -955,7 +971,11 @@ class Graph:
                 union_ids = list(dict.fromkeys([*existing_scids, *chunk_ids]))
                 rel_id = existing_id
             else:
-                rel_id = uuid4()
+                # Deterministic, not uuid4(): two concurrent add() calls that
+                # both miss the existing-relation lookup for this triple must
+                # compute the same id, so their upserts converge onto one
+                # edge instead of creating parallel ones.
+                rel_id = relation_id(src_id, tgt_id, rel_type)
                 union_ids = list(dict.fromkeys(chunk_ids))
 
             # Build Relation domain object then to record
@@ -1081,6 +1101,17 @@ class Graph:
                     await self._graph_store.upsert_nodes(label, recs)
                 # Embedding upsert is an update, not new nodes.
             except Exception as exc:  # noqa: BLE001
+                # A survivor's node was already committed with its (possibly
+                # new) name and properties before this batch embed() call;
+                # if the call fails, any embedding still on the node is from
+                # before that update and would rank the entity by stale
+                # text. Clear it rather than leave it searchable as current.
+                # Best-effort: a failure here must not mask error_policy.
+                with contextlib.suppress(Exception):
+                    await self._graph_store.execute_write(
+                        clear_property_query("embedding"),
+                        {"ids": [str(entity_id) for entity_id in survivors]},
+                    )
                 if error_policy is ErrorPolicy.RAISE:
                     raise
                 storage_failures.append(

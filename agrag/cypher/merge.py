@@ -51,17 +51,19 @@ def transfer_relationships_query(*, outgoing: bool) -> str:
 
 
 def apply_relationship_dedup_update_query() -> str:
-    """Build Cypher applying kept relationships' merged source_chunk_ids.
+    """Build Cypher applying a kept relationship's merged properties.
 
     Returns:
         Parameterized Cypher expecting $updates (list of
-        {id, rel_type, source_chunk_ids}).
+        {id, rel_type, properties}), where properties is the full merged
+        property map -- not just source_chunk_ids -- so a duplicate's other
+        fields are not silently dropped when its edge is deleted.
     """
     return (
         "UNWIND $updates AS update "
         "MATCH ()-[r {id: update.id}]-() "
         "WHERE type(r) = update.rel_type "
-        "SET r.source_chunk_ids = update.source_chunk_ids"
+        "SET r += update.properties"
     )
 
 
@@ -103,23 +105,32 @@ def fetch_node_relationships_query(*, outgoing: bool) -> str:
     return (
         f"{match} "
         f"RETURN other.id AS other_id, type(r) AS rel_type, "
-        f"r.id AS new_relationship_id, r.source_chunk_ids AS source_chunk_ids"
+        f"r.id AS new_relationship_id, properties(r) AS properties"
     )
 
 
 def delete_internal_relationships_query() -> str:
-    """Build Cypher deleting relationships whose both endpoints are tombstoned.
+    """Build Cypher deleting edges that would become meaningless self-links.
 
-    Prevents edges between two absorbed nodes from becoming stale
-    ``survivor->tombstone`` edges after the first transfer. Deletes before
-    any transfer runs, inside the same transaction as the merge.
+    Covers two cases, both before any transfer runs, inside the same
+    transaction as the merge:
+
+    - An edge between two absorbed nodes: left untransferred, it would
+      become a stale ``survivor->tombstone`` edge after the first transfer.
+    - An edge directly between an absorbed node and its own survivor:
+      ``transfer_relationships_query`` excludes these (``other.id <>
+      $survivor_id``), since transferring one would create a
+      ``survivor->survivor`` self-loop that no relation type's semantics
+      call for. Deleting them here, in both directions, is what keeps them
+      from being silently orphaned on the tombstone instead.
 
     Returns:
-        Parameterized Cypher expecting $tombstone_ids (list of strings).
+        Parameterized Cypher expecting $tombstone_ids (list of strings) and
+        $survivor_id.
     """
     return (
         "UNWIND $tombstone_ids AS tid "
         "MATCH (a {id: tid})-[r]-(b) "
-        "WHERE b.id IN $tombstone_ids "
+        "WHERE b.id IN $tombstone_ids OR b.id = $survivor_id "
         "DELETE r"
     )

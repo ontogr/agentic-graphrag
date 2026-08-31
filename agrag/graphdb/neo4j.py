@@ -18,6 +18,7 @@ from agrag.cypher.entities import (
 )
 from agrag.cypher.relations import upsert_relation_query
 from agrag.cypher.schema import (
+    merge_alias_constraint_query,
     merge_key_constraint_query,
     node_id_constraint_query,
     plain_index_query,
@@ -139,6 +140,8 @@ class Neo4jGraphStore(GraphStore):
         self._known_relation_types: set[str] = set()
         self._identity_constraint_ready = False
         self._identity_constraint_lock = asyncio.Lock()
+        self._merge_alias_constraint_ready = False
+        self._merge_alias_constraint_lock = asyncio.Lock()
         self._relation_type_constraints_ready: set[str] = set()
         self._relation_constraint_lock = asyncio.Lock()
 
@@ -225,6 +228,7 @@ class Neo4jGraphStore(GraphStore):
         check to avoid a nested write racing the transaction it belongs to.
         """
         await self._ensure_identity_constraint()
+        await self._ensure_merge_alias_constraint()
         async with self.session() as session:
             tx = await session.begin_transaction()
             try:
@@ -249,6 +253,7 @@ class Neo4jGraphStore(GraphStore):
         endpoint changes.
         """
         await self._ensure_identity_constraint()
+        await self._ensure_merge_alias_constraint()
         for label in await self._all_labels():
             await self.execute_write(node_id_constraint_query(label))
             # Merge-key uniqueness backs concurrent add() safety: two writers for
@@ -275,6 +280,22 @@ class Neo4jGraphStore(GraphStore):
                 return
             await self.execute_write(node_id_constraint_query(NODE_IDENTITY_LABEL))
             self._identity_constraint_ready = True
+
+    async def _ensure_merge_alias_constraint(self) -> None:
+        """Create the merge-key alias table's uniqueness constraint once.
+
+        Backs ``upsert_merge_alias_query``'s ``MERGE`` the same way
+        ``_ensure_identity_constraint`` backs node upserts: without it, two
+        concurrent writers recording an alias for the same merge_key for the
+        first time could each find no match and create separate alias nodes.
+        """
+        if self._merge_alias_constraint_ready:
+            return
+        async with self._merge_alias_constraint_lock:
+            if self._merge_alias_constraint_ready:
+                return
+            await self.execute_write(merge_alias_constraint_query())
+            self._merge_alias_constraint_ready = True
 
     async def _ensure_relation_constraint(self, rel_type: str) -> None:
         """Create a relationship type's ``id`` uniqueness constraint once.

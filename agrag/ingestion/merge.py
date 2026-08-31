@@ -105,6 +105,26 @@ def _select_canonical(
     return ranked[0], ranked[1:]
 
 
+def _dedupe_preserve_order(candidates: list[object]) -> list[object]:
+    """Deduplicate values by equality, preserving first-occurrence order.
+
+    Unlike ``dict.fromkeys``, this accepts unhashable values such as list- or
+    dict-valued properties, for example a prior ``PropertyStrategy.MERGE_ALL``
+    result being merged again on a later ingest.
+
+    Args:
+        candidates: Candidate values in encounter order.
+
+    Returns:
+        The distinct values, first-occurrence order.
+    """
+    distinct: list[object] = []
+    for candidate in candidates:
+        if candidate not in distinct:
+            distinct.append(candidate)
+    return distinct
+
+
 def _resolve_property(
     field_name: str, candidates: list[object], rules: PropertyRules
 ) -> tuple[object, bool]:
@@ -119,7 +139,7 @@ def _resolve_property(
     Returns:
         The resolved value and True if more than one distinct value was seen.
     """
-    distinct = list(dict.fromkeys(candidates))
+    distinct = _dedupe_preserve_order(candidates)
     if len(distinct) <= 1:
         return (distinct[0] if distinct else None), False
 
@@ -152,7 +172,7 @@ async def _resolve_description(
     Returns:
         The resolved value, whether it conflicted, and an optional failure.
     """
-    distinct = list(dict.fromkeys(candidates))
+    distinct = _dedupe_preserve_order(candidates)
     if len(distinct) <= 1:
         return (distinct[0] if distinct else None), False, None
 
@@ -408,6 +428,7 @@ class _TransferredRelationship:
     rel_type: str
     new_relationship_id: UUID
     source_chunk_ids: list[UUID]
+    properties: dict[str, object]
 
 
 def _parse_relationship_rows(
@@ -417,10 +438,13 @@ def _parse_relationship_rows(
 
     Args:
         rows: Rows from ``fetch_node_relationships_query``, each carrying one
-            edge's other-end id, type, id, and source_chunk_ids.
+            edge's other-end id, type, id, and full property map.
 
     Returns:
-        The rows that parsed successfully.
+        The rows that parsed successfully. A row with an unreadable
+        ``properties`` map still parses -- its identity fields are what
+        dedup grouping needs, and losing extra-property enrichment for one
+        row is a smaller defect than dropping a real duplicate.
     """
     parsed: list[_TransferredRelationship] = []
     for row in rows:
@@ -428,18 +452,24 @@ def _parse_relationship_rows(
             other_id = UUID(str(row["other_id"]))
             rel_type = str(row["rel_type"])
             new_id = UUID(str(row["new_relationship_id"]))
-            raw_chunk_ids = row.get("source_chunk_ids") or []
+        except (KeyError, ValueError, TypeError):
+            continue
+        raw_properties = row.get("properties")
+        properties = raw_properties if isinstance(raw_properties, dict) else {}
+        raw_chunk_ids = properties.get("source_chunk_ids") or []
+        try:
             if not isinstance(raw_chunk_ids, list):
                 raise TypeError("source_chunk_ids must be a list")
             chunk_ids = [UUID(str(cid)) for cid in raw_chunk_ids]
-        except (KeyError, ValueError, TypeError):
-            continue
+        except (ValueError, TypeError):
+            chunk_ids = []
         parsed.append(
             _TransferredRelationship(
                 other_id=other_id,
                 rel_type=rel_type,
                 new_relationship_id=new_id,
                 source_chunk_ids=chunk_ids,
+                properties=properties,
             )
         )
     return parsed
@@ -449,6 +479,12 @@ def _plan_relationship_dedup(
     rows: list[_TransferredRelationship],
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     """Group relationships by (type, other_id) and plan dedup within one direction.
+
+    A duplicate group's kept edge absorbs every field from the edges being
+    deleted: ``source_chunk_ids`` is unioned, and every other property keeps
+    the keeper's own value when it has one, otherwise falls back to the
+    first duplicate that does, so a duplicate's answer is not silently lost
+    just because the keeper happened to be picked first.
 
     Args:
         rows: Every relationship currently linking the survivor to another
@@ -477,11 +513,19 @@ def _plan_relationship_dedup(
                 + [cid for extra in extras for cid in extra.source_chunk_ids]
             )
         )
+        merged_properties = dict(keeper.properties)
+        for extra in extras:
+            for key, value in extra.properties.items():
+                if key in ("id", "source_chunk_ids"):
+                    continue
+                if merged_properties.get(key) is None and value is not None:
+                    merged_properties[key] = value
+        merged_properties["source_chunk_ids"] = [str(cid) for cid in merged_chunk_ids]
         updates.append(
             {
                 "id": str(keeper.new_relationship_id),
                 "rel_type": keeper.rel_type,
-                "source_chunk_ids": [str(cid) for cid in merged_chunk_ids],
+                "properties": merged_properties,
             }
         )
         deletes.extend(
@@ -491,16 +535,38 @@ def _plan_relationship_dedup(
     return updates, deletes
 
 
+def relation_id(source_id: UUID, target_id: UUID, rel_type: str) -> UUID:
+    """Return the deterministic id for a domain relationship triple.
+
+    Two concurrent ``add()`` calls resolving the same ``(source_id,
+    target_id, rel_type)`` triple can both miss the existing-relation lookup
+    and each try to create it; since this id depends only on the triple, both
+    writers compute the same one, so ``upsert_relation_query``'s ``MERGE``
+    converges to a single edge instead of two parallel ones with unrelated
+    random ids. Mirrors ``mentioned_in_id``.
+
+    Args:
+        source_id: The relationship's source Entity id.
+        target_id: The relationship's target Entity id.
+        rel_type: The relationship's type.
+
+    Returns:
+        The relationship id. Same triple always returns the same id.
+    """
+    return uuid5(NAMESPACE_OID, f"{rel_type}:{source_id}:{target_id}")
+
+
 async def apply_merge(
     plan: MergePlan, *, graph_store: GraphStore, schema: GraphSchema
 ) -> None:
     """Write a computed MergePlan to storage.
 
-    Upserts the survivor unconditionally. When tombstone_ids is non-empty,
-    the rest of the write -- tombstoning, deleting edges wholly internal to
-    the absorbed set, transferring what remains, and deduping the survivor's
-    resulting neighbourhood -- runs inside one GraphStore transaction, so a
-    failure partway through leaves no half-merged state: no tombstone without
+    Every call runs inside one GraphStore transaction: it always upserts the
+    survivor and records a merge-key alias for its current name, and, when
+    tombstone_ids is non-empty, also tombstones, deletes edges that would
+    become meaningless self-links, transfers what remains, and dedupes the
+    survivor's resulting neighbourhood. A failure partway through leaves no
+    half-written state: no survivor without its alias, no tombstone without
     its edges transferred, no transferred edge without its duplicate cleaned
     up.
 
@@ -509,7 +575,10 @@ async def apply_merge(
         graph_store: Where the merge is written.
         schema: The schema the survivor's label belongs to.
     """
-    from agrag.cypher.entities import validate_identifier  # noqa: PLC0415
+    from agrag.cypher.entities import (  # noqa: PLC0415
+        upsert_merge_alias_query,
+        validate_identifier,
+    )
     from agrag.cypher.merge import (  # noqa: PLC0415
         apply_relationship_dedup_delete_query,
         apply_relationship_dedup_update_query,
@@ -519,29 +588,34 @@ async def apply_merge(
         transfer_relationships_query,
     )
 
-    if not plan.tombstone_ids:
-        await graph_store.upsert_nodes(
-            plan.survivor.label, [plan.survivor.to_node_record()]
-        )
-        return
-
     validate_identifier(plan.survivor.label)
-    tombstone_ids = [str(tid) for tid in plan.tombstone_ids]
     survivor_id = str(plan.survivor.id)
 
     async with graph_store.transaction() as txn:
         await txn.upsert_nodes(plan.survivor.label, [plan.survivor.to_node_record()])
+        await txn.execute_write(
+            upsert_merge_alias_query(),
+            {"merge_key": plan.survivor.merge_key, "entity_id": survivor_id},
+        )
+
+        if not plan.tombstone_ids:
+            return
+
+        tombstone_ids = [str(tid) for tid in plan.tombstone_ids]
 
         await txn.execute_write(
             tombstone_query(plan.survivor.label),
             {"tombstone_ids": tombstone_ids, "survivor_id": survivor_id},
         )
 
-        # Edges between two absorbed nodes must go before any transfer runs,
-        # or the first tombstone's transfer would re-anchor them as a stale
-        # survivor -> tombstone edge instead of dropping them.
+        # Edges wholly inside the absorbed set, and edges directly between an
+        # absorbed node and the survivor itself, must go before any transfer
+        # runs: transferring either would create a meaningless self-loop, or
+        # (for the former) a stale survivor -> tombstone edge once the first
+        # transfer moves the other end.
         await txn.execute_write(
-            delete_internal_relationships_query(), {"tombstone_ids": tombstone_ids}
+            delete_internal_relationships_query(),
+            {"tombstone_ids": tombstone_ids, "survivor_id": survivor_id},
         )
 
         for tombstone_id in tombstone_ids:

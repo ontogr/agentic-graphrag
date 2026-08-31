@@ -402,10 +402,12 @@ class TestSetupIdempotent:
             c for c in writes if "INDEX" in c.args[1] and "VECTOR" not in c.args[1]
         ]
         # Chunk + Doc, each with an id and a merge_key uniqueness constraint,
-        # plus the identity-anchor constraint every store sets up.
-        assert len(constraint_calls) == 5
+        # plus the identity-anchor and merge-key-alias constraints every
+        # store sets up once.
+        assert len(constraint_calls) == 6
         assert any(NODE_IDENTITY_LABEL in c.args[1] for c in constraint_calls)
         assert any("merge_key_unique" in c.args[1] for c in constraint_calls)
+        assert any("agragmergealias" in c.args[1].lower() for c in constraint_calls)
         # Two range indexes per label: plain id index + merge_key index.
         assert len(index_calls) == 4
         assert any("_id_index" in c.args[1] for c in index_calls)
@@ -672,3 +674,16 @@ class TestTransaction:
             pass
         writes = store._driver.last_session.execute_write.call_args_list
         assert any(NODE_IDENTITY_LABEL in c.args[1] for c in writes)
+
+    async def test_ensures_merge_alias_constraint_before_opening(self) -> None:
+        """The merge-key alias constraint is created before the transaction opens.
+
+        apply_merge writes an alias row (upsert_merge_alias_query) inside
+        this transaction; without the constraint in place first, MERGE on
+        merge_key would not be atomic under concurrent writers.
+        """
+        store = _store()
+        async with store.transaction():
+            pass
+        writes = store._driver.last_session.execute_write.call_args_list
+        assert any("agragmergealias" in c.args[1].lower() for c in writes)
