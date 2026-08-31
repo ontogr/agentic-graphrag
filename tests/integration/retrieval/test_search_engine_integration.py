@@ -284,3 +284,42 @@ class TestSearchEngineIntegration:
         results = await engine.search("test", recipe)
 
         assert len(results) <= 3
+
+    async def test_cypher_where_labels_match_native_node_labels(self) -> None:
+        """SearchFilters(labels=[...]) includes matching labels, excludes others."""
+        person_label = validate_identifier(f"Person_{uuid4().hex[:8]}")
+        org_label = validate_identifier(f"Org_{uuid4().hex[:8]}")
+        try:
+            # Seed nodes with distinct native labels.
+            person_id = uuid4()
+            org_id = uuid4()
+            await self.store.execute_write(
+                f"CREATE (p:{person_label} {{id: $id, name: $name}}) "
+                f"CREATE (o:{org_label} {{id: $id2, name: $name2}})",
+                {
+                    "id": str(person_id),
+                    "name": "Alice",
+                    "id2": str(org_id),
+                    "name2": "Acme",
+                },
+            )
+
+            # Filter for Person label only.
+            filters = SearchFilters(labels=[person_label])
+            where, params = filters.to_cypher_where(node_var="n")
+            query = (
+                f"MATCH (n:_AgragNode) {where} "
+                f"RETURN n.id AS id, n.name AS name"
+            )
+            rows = await self.store.execute_read(query, params)
+            ids = {row["id"] for row in rows}
+
+            assert str(person_id) in ids
+            assert str(org_id) not in ids
+        finally:
+            await self.store.execute_write(
+                f"MATCH (n:{person_label}) DETACH DELETE n"
+            )
+            await self.store.execute_write(
+                f"MATCH (n:{org_label}) DETACH DELETE n"
+            )

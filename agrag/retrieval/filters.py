@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agrag.cypher.entities import filter_clause
+from agrag.cypher.entities import filter_clause, validate_identifier
 
 
 class SearchFilters(BaseModel):
@@ -45,8 +45,10 @@ class SearchFilters(BaseModel):
     def to_cypher_where(self, node_var: str = "node") -> tuple[str, dict[str, Any]]:
         """Return a parameterized WHERE clause fragment.
 
-        Combines label, document_id, and property filters into a
-        single WHERE clause using agrag.cypher's filter_clause.
+        Labels are emitted as native Cypher node labels (``node:Label``)
+        rather than property filters, since Neo4j represents entity types
+        as labels on nodes.  Document-id and property filters go through
+        ``filter_clause`` as before.
 
         Args:
             node_var: The Cypher variable bound to the node.
@@ -54,11 +56,26 @@ class SearchFilters(BaseModel):
         Returns:
             The WHERE clause text and parameters dict.
         """
+        # Labels become native node-label checks.
+        label_clauses: list[str] = []
+        for lbl in self.labels:
+            validate_identifier(lbl)
+            label_clauses.append(f"{node_var}:{lbl}")
+
+        # Remaining filters go through filter_clause.
         combined: dict[str, Any] = {}
-        if self.labels:
-            combined["label"] = self.labels
         if self.document_ids:
             combined["document_id"] = self.document_ids
         for key, value in self.properties.items():
             combined[key] = value
-        return filter_clause(combined, node_var=node_var)
+        where, params = filter_clause(combined, node_var=node_var)
+
+        # Merge label clauses into the WHERE fragment.
+        all_clauses: list[str] = []
+        if label_clauses:
+            all_clauses.extend(label_clauses)
+        if where:
+            all_clauses.append(where[6:])  # strip "WHERE " prefix
+        if not all_clauses:
+            return "", {}
+        return "WHERE " + " AND ".join(all_clauses), params
