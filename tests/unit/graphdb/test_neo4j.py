@@ -22,7 +22,7 @@ from agrag.graphdb.neo4j import _VECTOR_SEARCH_MAX_K, Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
 
 
-class FakeSession:
+class MockSession:
     """A stand-in for a Neo4j async session backed by AsyncMocks."""
 
     def __init__(self) -> None:
@@ -30,7 +30,7 @@ class FakeSession:
         self.execute_read = mock.AsyncMock()
         self.execute_write = mock.AsyncMock()
 
-    async def __aenter__(self) -> "FakeSession":
+    async def __aenter__(self) -> "MockSession":
         """Enter the session context."""
         return self
 
@@ -38,24 +38,24 @@ class FakeSession:
         """Exit the session context."""
 
 
-class FakeDriver:
+class MockDriver:
     """A stand-in for a Neo4j async driver."""
 
     def __init__(self) -> None:
         """Create the driver with async mocks for its lifecycle methods."""
-        self.session = mock.MagicMock(return_value=FakeSession())
+        self.session = mock.MagicMock(return_value=MockSession())
         self.verify_connectivity = mock.AsyncMock()
         self.close = mock.AsyncMock()
 
     @property
-    def last_session(self) -> FakeSession:
+    def last_session(self) -> MockSession:
         """Return the most recently created fake session."""
         return self.session.return_value
 
 
 def _store() -> Neo4jGraphStore:
-    """Build a Neo4jGraphStore wired to a FakeDriver."""
-    return Neo4jGraphStore(settings=Neo4jSettings(), driver=FakeDriver())
+    """Build a Neo4jGraphStore wired to a MockDriver."""
+    return Neo4jGraphStore(settings=Neo4jSettings(), driver=MockDriver())
 
 
 def _node_constraint_name(label: str) -> str:
@@ -88,16 +88,16 @@ class TestConnectClose:
     async def test_concurrent_first_calls_build_driver_once(self) -> None:
         """Concurrent first calls build exactly one Neo4j driver, not one each."""
         build_calls = 0
-        fake_driver = FakeDriver()
+        mock_driver = MockDriver()
 
-        def fake_driver_ctor(*args, **kwargs):
+        def mock_driver_ctor(*args, **kwargs):
             nonlocal build_calls
             build_calls += 1
-            return fake_driver
+            return mock_driver
 
         store = Neo4jGraphStore(settings=Neo4jSettings())
         with mock.patch(
-            "neo4j.AsyncGraphDatabase.driver", side_effect=fake_driver_ctor
+            "neo4j.AsyncGraphDatabase.driver", side_effect=mock_driver_ctor
         ):
             first, second = await asyncio.gather(
                 store._ensure_driver(), store._ensure_driver()
@@ -391,7 +391,10 @@ class TestSetupIdempotent:
         # Chunk + Doc, plus the identity-anchor constraint every store sets up.
         assert len(constraint_calls) == 3
         assert any(NODE_IDENTITY_LABEL in c.args[1] for c in constraint_calls)
-        assert len(index_calls) == 2
+        # Two range indexes per label: plain id index + merge_key index.
+        assert len(index_calls) == 4
+        assert any("_id_index" in c.args[1] for c in index_calls)
+        assert any("_merge_key_index" in c.args[1] for c in index_calls)
 
     async def test_constraints_run_per_relation_type(self) -> None:
         """setup_constraints also emits one DDL per tracked relation type."""

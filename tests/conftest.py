@@ -17,7 +17,8 @@ def pytest_collection_modifyitems(
         items: The collected test items.
     """
     for item in items:
-        if "tests/integration" in str(item.path).replace("\\", "/"):
+        path = str(item.path).replace("\\", "/")
+        if "tests/integration" in path:
             item.add_marker(pytest.mark.integration)
             item.add_marker(pytest.mark.enable_socket)
             item.add_marker(
@@ -25,3 +26,5 @@ def pytest_collection_modifyitems(
                     reruns=3, reruns_delay=30, rerun_except=[AssertionError]
                 )
             )
+        if "tests/integration/e2e" in path:
+            item.add_marker(pytest.mark.slow)

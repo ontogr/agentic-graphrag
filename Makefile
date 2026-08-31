@@ -1,10 +1,12 @@
-.PHONY: sync baml-gen lint-actions test test-integration dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
+.PHONY: sync baml-gen lint-actions test test-integration test-e2e test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
 help:
 	@echo "Available make targets:"
 	@echo "  make sync             - Sync project and install dependencies"
 	@echo "  make test             - Run unit tests with coverage"
 	@echo "  make test-integration - Run integration tests (requires network)"
+	@echo "  make test-e2e         - Run end-to-end pipeline tests (requires Neo4j)"
+	@echo "  make test-all         - Run unit, integration, and e2e tests in order"
 	@echo "  make dev-services-up  - Start local Neo4j/Qdrant/Weaviate/Milvus for integration tests"
 	@echo "  make dev-services-down - Stop and remove local backend services and their data"
 	@echo "  make cov-report       - Generate coverage reports (xml, html)"
@@ -41,9 +43,16 @@ test:
 		--junitxml=pytest-results.xml
 
 test-integration:
-	uv run pytest tests/integration -v -n auto --dist loadscope \
+	uv run pytest tests/integration --ignore=tests/integration/e2e -v -n auto --dist loadscope \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
 		--junitxml=pytest-integration-results.xml
+
+test-e2e:
+	uv run pytest tests/integration/e2e -v \
+		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
+		--junitxml=pytest-e2e-results.xml
+
+test-all: test test-integration test-e2e
 
 dev-services-up:
 	docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420

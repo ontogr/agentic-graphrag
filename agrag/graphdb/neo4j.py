@@ -211,6 +211,34 @@ class Neo4jGraphStore(GraphStore):
             await self.execute_write(relation_id_constraint_query(rel_type))
             self._relation_type_constraints_ready.add(rel_type)
 
+    async def register_labels(self, labels: Sequence[str]) -> None:
+        """Add labels to this instance's known-label set.
+
+        Args:
+            labels: The labels to register. Each must be a safe Cypher
+                identifier.
+
+        Raises:
+            ValueError: Any label is not a safe identifier.
+        """
+        for label in labels:
+            validate_identifier(label)
+        self._known_labels.update(labels)
+
+    async def register_relation_types(self, types: Sequence[str]) -> None:
+        """Add types to this instance's known-relation-type set.
+
+        Args:
+            types: The relationship types to register. Each must be a safe
+                Cypher identifier.
+
+        Raises:
+            ValueError: Any type is not a safe identifier.
+        """
+        for rel_type in types:
+            validate_identifier(rel_type)
+        self._known_relation_types.update(types)
+
     async def setup_indexes(self) -> None:
         """Create a range index on ``id`` for every known label.
 
@@ -220,6 +248,14 @@ class Neo4jGraphStore(GraphStore):
         """
         for label in await self._all_labels():
             await self.execute_write(plain_index_query(label))
+            try:
+                from agrag.cypher import entities as _cypher_entities  # noqa: PLC0415
+
+                merge_key_fn = getattr(_cypher_entities, "merge_key_index_query", None)
+                if merge_key_fn is not None:
+                    await self.execute_write(merge_key_fn(label))
+            except ImportError:
+                pass
 
     async def _all_labels(self) -> set[str]:
         """Return every node label this instance knows about.

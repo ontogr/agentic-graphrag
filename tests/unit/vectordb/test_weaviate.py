@@ -23,7 +23,7 @@ def make_batch_result(*, has_errors: bool = False, errors: dict | None = None):
     return SimpleNamespace(has_errors=has_errors, errors=errors or {})
 
 
-class FakeCollection:
+class MockCollection:
     """A stand-in for a Weaviate collection."""
 
     def __init__(self) -> None:
@@ -41,7 +41,7 @@ class FakeCollection:
         self.aggregate = SimpleNamespace(over_all=mock.AsyncMock())
 
 
-class FakeWeaviateClient:
+class MockWeaviateClient:
     """A stand-in for a Weaviate async client that records calls."""
 
     def __init__(self) -> None:
@@ -52,7 +52,7 @@ class FakeWeaviateClient:
             exists=mock.AsyncMock(return_value=False),
             create=mock.AsyncMock(),
         )
-        self._collection = FakeCollection()
+        self._collection = MockCollection()
         self.collections.get = lambda name: self._collection
 
 
@@ -84,13 +84,13 @@ def make_response(objects: list) -> SimpleNamespace:
 
 
 @pytest.fixture
-def client() -> FakeWeaviateClient:
+def client() -> MockWeaviateClient:
     """A fresh fake Weaviate client."""
-    return FakeWeaviateClient()
+    return MockWeaviateClient()
 
 
 @pytest.fixture
-def store(client: FakeWeaviateClient) -> WeaviateVectorStore:
+def store(client: MockWeaviateClient) -> WeaviateVectorStore:
     """A WeaviateVectorStore backed by the fake client."""
     return WeaviateVectorStore(settings=WeaviateSettings(), client=client)
 
@@ -384,9 +384,9 @@ class TestEnsureClientMode:
 
     async def test_cloud_mode_builds_cloud_client(self) -> None:
         """mode="cloud" builds a Weaviate Cloud client."""
-        fake_client = mock.AsyncMock()
+        mock_client = mock.AsyncMock()
         with mock.patch.object(
-            weaviate, "use_async_with_weaviate_cloud", return_value=fake_client
+            weaviate, "use_async_with_weaviate_cloud", return_value=mock_client
         ) as build:
             store = WeaviateVectorStore(
                 settings=WeaviateSettings(
@@ -396,8 +396,8 @@ class TestEnsureClientMode:
             client = await store._ensure_client()
         build.assert_called_once()
         assert build.call_args.kwargs["cluster_url"] == "https://xyz.cloud.weaviate.io"
-        fake_client.connect.assert_called_once()
-        assert client is fake_client
+        mock_client.connect.assert_called_once()
+        assert client is mock_client
 
     async def test_default_settings_build_custom_client(self) -> None:
         """Default settings (custom mode, localhost URL) build a custom client.
@@ -406,20 +406,20 @@ class TestEnsureClientMode:
         localhost default URL, so an out-of-the-box store tried the cloud
         connector against a local instance instead of the custom one.
         """
-        fake_client = mock.AsyncMock()
+        mock_client = mock.AsyncMock()
         with mock.patch.object(
-            weaviate, "use_async_with_custom", return_value=fake_client
+            weaviate, "use_async_with_custom", return_value=mock_client
         ) as build:
             store = WeaviateVectorStore(settings=WeaviateSettings())
             client = await store._ensure_client()
         build.assert_called_once()
-        assert client is fake_client
+        assert client is mock_client
 
     async def test_custom_mode_builds_custom_client(self) -> None:
         """mode="custom" parses the URL and builds a self-hosted client."""
-        fake_client = mock.AsyncMock()
+        mock_client = mock.AsyncMock()
         with mock.patch.object(
-            weaviate, "use_async_with_custom", return_value=fake_client
+            weaviate, "use_async_with_custom", return_value=mock_client
         ) as build:
             store = WeaviateVectorStore(
                 settings=WeaviateSettings(mode="custom", url="http://localhost:8080")
@@ -429,8 +429,8 @@ class TestEnsureClientMode:
         assert build.call_args.kwargs["http_host"] == "localhost"
         assert build.call_args.kwargs["http_port"] == 8080
         assert build.call_args.kwargs["http_secure"] is False
-        fake_client.connect.assert_called_once()
-        assert client is fake_client
+        mock_client.connect.assert_called_once()
+        assert client is mock_client
 
     async def test_concurrent_first_calls_connect_once(self) -> None:
         """Concurrent first calls share one connect, not a disconnected client.
@@ -439,14 +439,14 @@ class TestEnsureClientMode:
         ``connect()`` let a second concurrent caller observe and use a
         still-disconnected client.
         """
-        fake_client = mock.AsyncMock()
+        mock_client = mock.AsyncMock()
 
         async def slow_connect() -> None:
             await asyncio.sleep(0)
 
-        fake_client.connect.side_effect = slow_connect
+        mock_client.connect.side_effect = slow_connect
         with mock.patch.object(
-            weaviate, "use_async_with_weaviate_cloud", return_value=fake_client
+            weaviate, "use_async_with_weaviate_cloud", return_value=mock_client
         ) as build:
             store = WeaviateVectorStore(
                 settings=WeaviateSettings(
@@ -457,9 +457,9 @@ class TestEnsureClientMode:
                 store._ensure_client(), store._ensure_client()
             )
         build.assert_called_once()
-        fake_client.connect.assert_called_once()
-        assert first is fake_client
-        assert second is fake_client
+        mock_client.connect.assert_called_once()
+        assert first is mock_client
+        assert second is mock_client
 
     async def test_failed_connect_is_retried_on_next_call(self) -> None:
         """A failed connect leaves ``self._client`` unset so the next call retries."""

@@ -25,7 +25,7 @@ from agrag.vectordb.qdrant import (
 from agrag.vectordb.settings import QdrantSettings
 
 
-class FakeQdrantClient:
+class MockQdrantClient:
     """A stand-in for AsyncQdrantClient that records calls and returns stubs."""
 
     def __init__(self) -> None:
@@ -81,13 +81,13 @@ def make_collection_info(
 
 
 @pytest.fixture
-def client() -> FakeQdrantClient:
+def client() -> MockQdrantClient:
     """A fresh fake Qdrant client."""
-    return FakeQdrantClient()
+    return MockQdrantClient()
 
 
 @pytest.fixture
-def store(client: FakeQdrantClient) -> QdrantVectorStore:
+def store(client: MockQdrantClient) -> QdrantVectorStore:
     """A QdrantVectorStore backed by the fake client."""
     return QdrantVectorStore(settings=QdrantSettings(), client=client)
 
@@ -721,13 +721,13 @@ class TestMissingExtra:
         defeating the point of the injection seam for environments without
         the extra installed.
         """
-        fake_client = FakeQdrantClient()
-        fake_models = SimpleNamespace()
-        store = QdrantVectorStore(client=fake_client, models=fake_models)
+        mock_client = MockQdrantClient()
+        mock_models = SimpleNamespace()
+        store = QdrantVectorStore(client=mock_client, models=mock_models)
         with mock.patch.dict(sys.modules, {"qdrant_client": None}):
             result = await store._ensure_client()
-        assert result is fake_client
-        assert store._models is fake_models
+        assert result is mock_client
+        assert store._models is mock_models
 
 
 class TestEnsureClientConcurrency:
@@ -737,14 +737,14 @@ class TestEnsureClientConcurrency:
         """Concurrent first calls build exactly one Qdrant client, not one each."""
         build_calls = 0
 
-        def fake_client_ctor(*args, **kwargs):
+        def mock_client_ctor(*args, **kwargs):
             nonlocal build_calls
             build_calls += 1
             return object()
 
         store = QdrantVectorStore(settings=QdrantSettings())
         with mock.patch(
-            "qdrant_client.AsyncQdrantClient", side_effect=fake_client_ctor
+            "qdrant_client.AsyncQdrantClient", side_effect=mock_client_ctor
         ):
             first, second = await asyncio.gather(
                 store._ensure_client(), store._ensure_client()

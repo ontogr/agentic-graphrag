@@ -1,12 +1,18 @@
 """The Chunk model: one retrieval-sized piece of a Document."""
 
+import json
 from typing import Literal
 from uuid import NAMESPACE_OID, UUID, uuid5
 
 from pydantic import Field, model_validator
 
 from agrag.common.data_models.data_point import DataPoint
+from agrag.common.data_models.graph_record import NodeRecord
 from agrag.common.data_models.provenance import PageProvenance, TextProvenance
+
+# The fixed system label every Chunk node is written with.
+CHUNK_LABEL = "Chunk"
+""""""
 
 
 class Chunk(DataPoint):
@@ -79,3 +85,26 @@ class Chunk(DataPoint):
         else:
             key = f"Chunk:{document_id}:{index}"
         return uuid5(NAMESPACE_OID, key)
+
+    def to_node_record(self) -> NodeRecord:
+        """Return this chunk as a GraphStore write record.
+
+        Provenance is flattened to a plain JSON-safe dict via model_dump —
+        GraphStore's own serialize.node_params only converts UUIDs and walks
+        containers.
+
+        Raises:
+            ValueError: id is None.
+        """
+        if self.id is None:
+            raise ValueError("Chunk.id must be set before writing to GraphStore.")
+        properties: dict[str, object] = {
+            "document_id": str(self.document_id),
+            "index": self.index,
+            "text": self.text,
+            "provenance": json.dumps(self.provenance.model_dump(mode="json")),
+            "heading_path": self.heading_path,
+            "content_kind": self.content_kind,
+            "created_at": self.created_at.isoformat(),
+        }
+        return NodeRecord(id=self.id, labels=[CHUNK_LABEL], properties=properties)

@@ -95,6 +95,75 @@ def upsert_node_query(labels: Sequence[str]) -> str:
     )
 
 
+def merge_key_index_query(label: str) -> str:
+    """Build a CREATE INDEX query on the node merge_key property.
+
+    Backs the global exact-match lookup.
+
+    Args:
+        label: The node label. Must already be validated.
+
+    Returns:
+        A Cypher query creating the range index if absent.
+    """
+    safe_label = validate_identifier(label)
+    return (
+        f"CREATE INDEX {safe_label}_merge_key_index IF NOT EXISTS "
+        f"FOR (n:{safe_label}) ON (n.merge_key)"
+    )
+
+
+def fetch_by_merge_keys_query(label: str) -> str:
+    """Build Cypher for a batched exact-match lookup by merge key.
+
+    Args:
+        label: The node label. Must already be validated.
+
+    Returns:
+        Parameterized Cypher expecting $merge_keys (list of strings).
+    """
+    return (
+        f"UNWIND $merge_keys AS merge_key "
+        f"MATCH (n:{validate_identifier(label)} {{merge_key: merge_key}}) "
+        f"RETURN n"
+    )
+
+
+def fetch_all_by_label_query(label: str) -> str:
+    """Build Cypher paginating every node with label, for consolidate().
+
+    Args:
+        label: The node label. Must already be validated.
+
+    Returns:
+        Parameterized Cypher expecting $skip and $limit.
+    """
+    return (
+        f"MATCH (n:{validate_identifier(label)}) "
+        f"RETURN n ORDER BY n.id SKIP $skip LIMIT $limit"
+    )
+
+
+def fetch_relations_between_query(rel_type: str) -> str:
+    """Build Cypher for batched lookup of existing relations by endpoints.
+
+    Args:
+        rel_type: The relationship type. Must already be validated.
+
+    Returns:
+        Parameterized Cypher expecting $pairs (list of
+        {source_id, target_id}). Returns each match's id and
+        source_chunk_ids alongside the pair it matched.
+    """
+    safe_type = validate_identifier(rel_type)
+    return (
+        f"UNWIND $pairs AS pair "
+        f"MATCH (a {{id: pair.source_id}})-[r:{safe_type}]->(b {{id: pair.target_id}}) "
+        f"RETURN pair.source_id AS source_id, pair.target_id AS target_id, "
+        f"r.id AS id, r.source_chunk_ids AS source_chunk_ids"
+    )
+
+
 def filter_clause(
     filters: dict[str, Any], node_var: str = "node"
 ) -> tuple[str, dict[str, Any]]:

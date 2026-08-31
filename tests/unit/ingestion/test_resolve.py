@@ -165,7 +165,7 @@ class TestLLMVerify:
     async def test_injected_client_works_without_settings(self) -> None:
         """An injected client works without EXTRACTION_LLM_CLIENTS env vars."""
 
-        class FakeClient:
+        class MockClient:
             async def VerifyEntityMatch(self, *args):  # noqa: N802
                 return True
 
@@ -175,7 +175,7 @@ class TestLLMVerify:
         b = _entity("Ada", chunk_id=chunk_id)
         verifier = LLMVerify(
             chunks_by_id={chunk_id: chunk},
-            client=FakeClient(),
+            client=MockClient(),
         )
         assert verifier.settings is None
         verdict = await verifier.compare(a, b)
@@ -253,14 +253,14 @@ class TestLLMVerify:
         settings = ExtractionLLMSettings()
         assert settings.retry.max_retries == 7
 
-        class FakeClient:
+        class MockClient:
             async def VerifyEntityMatch(self, *args):  # noqa: N802
                 return True
 
         chunk = _chunk("context text")
         chunk_id = uuid4()
         verifier = LLMVerify(chunks_by_id={chunk_id: chunk}, settings=settings)
-        monkeypatch.setattr(verifier, "_default_client", FakeClient)
+        monkeypatch.setattr(verifier, "_default_client", MockClient)
         a = _entity("Ada", chunk_id=chunk_id)
         b = _entity("Charles", chunk_id=chunk_id)
 

@@ -316,6 +316,7 @@ points one way (store -> cypher).
 **Modules:**
 
 - [**entities**](#agrag.cypher.entities) – Cypher builders for node writes and filters.
+- [**merge**](#agrag.cypher.merge) – Cypher for the tombstone/transfer/dedup merge path.
 - [**relations**](#agrag.cypher.relations) – Cypher builders for relationship writes.
 - [**schema**](#agrag.cypher.schema) – Cypher builders for constraints and native vector indexes.
 
@@ -328,8 +329,12 @@ the dependency points one way (store -> cypher).
 
 **Functions:**
 
+- [**fetch_all_by_label_query**](#agrag.cypher.entities.fetch_all_by_label_query) – Build Cypher paginating every node with label, for consolidate().
+- [**fetch_by_merge_keys_query**](#agrag.cypher.entities.fetch_by_merge_keys_query) – Build Cypher for a batched exact-match lookup by merge key.
+- [**fetch_relations_between_query**](#agrag.cypher.entities.fetch_relations_between_query) – Build Cypher for batched lookup of existing relations by endpoints.
 - [**filter_clause**](#agrag.cypher.entities.filter_clause) – Build a Cypher WHERE clause and parameters from a flat-dict filter.
 - [**is_safe_identifier**](#agrag.cypher.entities.is_safe_identifier) – Report whether a label or relationship type is a safe Cypher identifier.
+- [**merge_key_index_query**](#agrag.cypher.entities.merge_key_index_query) – Build a CREATE INDEX query on the node merge_key property.
 - [**upsert_node_query**](#agrag.cypher.entities.upsert_node_query) – Build the Cypher for an UNWIND-batched node upsert.
 - [**validate_identifier**](#agrag.cypher.entities.validate_identifier) – Check that a label or relationship type is a safe Cypher identifier.
 
@@ -342,6 +347,56 @@ the dependency points one way (store -> cypher).
 ```python
 NODE_IDENTITY_LABEL = '_AgragNode'
 ```
+
+##### `agrag.cypher.entities.fetch_all_by_label_query`
+
+```python
+fetch_all_by_label_query(label:str) -> str
+```
+
+Build Cypher paginating every node with label, for consolidate().
+
+**Parameters:**
+
+- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $skip and $limit.
+
+##### `agrag.cypher.entities.fetch_by_merge_keys_query`
+
+```python
+fetch_by_merge_keys_query(label:str) -> str
+```
+
+Build Cypher for a batched exact-match lookup by merge key.
+
+**Parameters:**
+
+- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $merge_keys (list of strings).
+
+##### `agrag.cypher.entities.fetch_relations_between_query`
+
+```python
+fetch_relations_between_query(rel_type:str) -> str
+```
+
+Build Cypher for batched lookup of existing relations by endpoints.
+
+**Parameters:**
+
+- **rel_type** (<code>[str](#str)</code>) – The relationship type. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $pairs (list of
+- <code>[str](#str)</code> – {source_id, target_id}). Returns each match's id and
+- <code>[str](#str)</code> – source_chunk_ids alongside the pair it matched.
 
 ##### `agrag.cypher.entities.filter_clause`
 
@@ -382,6 +437,24 @@ than validating one name a caller must supply correctly.
 **Returns:**
 
 - <code>[bool](#bool)</code> – `True` if `value` is a safe identifier.
+
+##### `agrag.cypher.entities.merge_key_index_query`
+
+```python
+merge_key_index_query(label:str) -> str
+```
+
+Build a CREATE INDEX query on the node merge_key property.
+
+Backs the global exact-match lookup.
+
+**Parameters:**
+
+- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – A Cypher query creating the range index if absent.
 
 ##### `agrag.cypher.entities.upsert_node_query`
 
@@ -440,6 +513,77 @@ Check that a label or relationship type is a safe Cypher identifier.
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – `value` is not a safe identifier.
+
+#### `agrag.cypher.merge`
+
+Cypher for the tombstone/transfer/dedup merge path.
+
+Only the two-or-more-existing-entities case needs this — a brand-new or
+single-updated entity is a plain upsert.
+
+**Functions:**
+
+- [**apply_relationship_dedup_delete_query**](#agrag.cypher.merge.apply_relationship_dedup_delete_query) – Build Cypher deleting relationships a dedup pass superseded.
+- [**apply_relationship_dedup_update_query**](#agrag.cypher.merge.apply_relationship_dedup_update_query) – Build Cypher applying kept relationships' merged source_chunk_ids.
+- [**tombstone_query**](#agrag.cypher.merge.tombstone_query) – Build Cypher marking one or more nodes as merged, never deleting them.
+- [**transfer_relationships_query**](#agrag.cypher.merge.transfer_relationships_query) – Build Cypher moving one direction of a tombstoned node's relationships.
+
+##### `agrag.cypher.merge.apply_relationship_dedup_delete_query`
+
+```python
+apply_relationship_dedup_delete_query() -> str
+```
+
+Build Cypher deleting relationships a dedup pass superseded.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $delete_ids (list of relationship ids).
+
+##### `agrag.cypher.merge.apply_relationship_dedup_update_query`
+
+```python
+apply_relationship_dedup_update_query() -> str
+```
+
+Build Cypher applying kept relationships' merged source_chunk_ids.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $updates (list of {id, source_chunk_ids}).
+
+##### `agrag.cypher.merge.tombstone_query`
+
+```python
+tombstone_query(label:str) -> str
+```
+
+Build Cypher marking one or more nodes as merged, never deleting them.
+
+**Parameters:**
+
+- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $tombstone_ids and $survivor_id.
+
+##### `agrag.cypher.merge.transfer_relationships_query`
+
+```python
+transfer_relationships_query(*, outgoing:bool) -> str
+```
+
+Build Cypher moving one direction of a tombstoned node's relationships.
+
+**Parameters:**
+
+- **outgoing** (<code>[bool](#bool)</code>) – True moves (tombstone)-[r]->(other) edges. False moves
+  (other)-[r]->(tombstone) edges.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $tombstone_id and $survivor_id.
 
 #### `agrag.cypher.relations`
 
@@ -1643,6 +1787,8 @@ A graph database backend: schema, writes, and native vector search.
 - [**ensure_vector_index**](#agrag.graphdb.GraphStore.ensure_vector_index) – Create a native vector index if it does not exist.
 - [**execute_read**](#agrag.graphdb.GraphStore.execute_read) – Run a read transaction.
 - [**execute_write**](#agrag.graphdb.GraphStore.execute_write) – Run a write transaction.
+- [**register_labels**](#agrag.graphdb.GraphStore.register_labels) – Mark labels as known, without writing anything.
+- [**register_relation_types**](#agrag.graphdb.GraphStore.register_relation_types) – Mark relationship types as known, without writing anything.
 - [**session**](#agrag.graphdb.GraphStore.session) – Open a session as an async context manager.
 - [**setup_constraints**](#agrag.graphdb.GraphStore.setup_constraints) – Create per-label and per-relation-type uniqueness constraints.
 - [**setup_indexes**](#agrag.graphdb.GraphStore.setup_indexes) – Create per-label property indexes.
@@ -1714,6 +1860,49 @@ Run a write transaction.
 **Returns:**
 
 - <code>[list](#list)\[[dict](#dict)\[[str](#str), [Any](#typing.Any)\]\]</code> – The result rows as dicts.
+
+##### `agrag.graphdb.GraphStore.register_labels`
+
+```python
+register_labels(labels:Sequence[str]) -> None
+```
+
+Mark labels as known, without writing anything.
+
+setup_constraints()/setup_indexes() only cover labels this instance
+has already written (or that already exist live in the database) —
+both empty on a brand-new database. register_labels lets a caller
+holding a GraphSchema (Graph.open()) provision a fresh database
+fully before its first write.
+
+**Parameters:**
+
+- **labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The labels to register. Each must be a safe Cypher
+  identifier.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – Any label is not a safe identifier.
+
+##### `agrag.graphdb.GraphStore.register_relation_types`
+
+```python
+register_relation_types(types:Sequence[str]) -> None
+```
+
+Mark relationship types as known, without writing anything.
+
+The relationship-type counterpart to register_labels — see its
+docstring for why this exists.
+
+**Parameters:**
+
+- **types** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The relationship types to register. Each must be a safe
+  Cypher identifier.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – Any type is not a safe identifier.
 
 ##### `agrag.graphdb.GraphStore.session`
 
@@ -1865,6 +2054,8 @@ driver's managed transactions with no added retry loop, per ADR 0027.
 - [**ensure_vector_index**](#agrag.graphdb.Neo4jGraphStore.ensure_vector_index) – Create a native vector index if it does not exist.
 - [**execute_read**](#agrag.graphdb.Neo4jGraphStore.execute_read) – Run a read transaction and return its rows.
 - [**execute_write**](#agrag.graphdb.Neo4jGraphStore.execute_write) – Run a write transaction and return its rows.
+- [**register_labels**](#agrag.graphdb.Neo4jGraphStore.register_labels) – Add labels to this instance's known-label set.
+- [**register_relation_types**](#agrag.graphdb.Neo4jGraphStore.register_relation_types) – Add types to this instance's known-relation-type set.
 - [**session**](#agrag.graphdb.Neo4jGraphStore.session) – Open a session to the configured database.
 - [**setup_constraints**](#agrag.graphdb.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every known label.
 - [**setup_indexes**](#agrag.graphdb.Neo4jGraphStore.setup_indexes) – Create a range index on `id` for every known label.
@@ -1918,6 +2109,40 @@ execute_write(query:str, parameters:Mapping[str, Any] | None = None) -> list[dic
 ```
 
 Run a write transaction and return its rows.
+
+##### `agrag.graphdb.Neo4jGraphStore.register_labels`
+
+```python
+register_labels(labels:Sequence[str]) -> None
+```
+
+Add labels to this instance's known-label set.
+
+**Parameters:**
+
+- **labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The labels to register. Each must be a safe Cypher
+  identifier.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – Any label is not a safe identifier.
+
+##### `agrag.graphdb.Neo4jGraphStore.register_relation_types`
+
+```python
+register_relation_types(types:Sequence[str]) -> None
+```
+
+Add types to this instance's known-relation-type set.
+
+**Parameters:**
+
+- **types** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The relationship types to register. Each must be a safe
+  Cypher identifier.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – Any type is not a safe identifier.
 
 ##### `agrag.graphdb.Neo4jGraphStore.session`
 
@@ -2096,6 +2321,8 @@ A graph database backend: schema, writes, and native vector search.
 - [**ensure_vector_index**](#agrag.graphdb.base.GraphStore.ensure_vector_index) – Create a native vector index if it does not exist.
 - [**execute_read**](#agrag.graphdb.base.GraphStore.execute_read) – Run a read transaction.
 - [**execute_write**](#agrag.graphdb.base.GraphStore.execute_write) – Run a write transaction.
+- [**register_labels**](#agrag.graphdb.base.GraphStore.register_labels) – Mark labels as known, without writing anything.
+- [**register_relation_types**](#agrag.graphdb.base.GraphStore.register_relation_types) – Mark relationship types as known, without writing anything.
 - [**session**](#agrag.graphdb.base.GraphStore.session) – Open a session as an async context manager.
 - [**setup_constraints**](#agrag.graphdb.base.GraphStore.setup_constraints) – Create per-label and per-relation-type uniqueness constraints.
 - [**setup_indexes**](#agrag.graphdb.base.GraphStore.setup_indexes) – Create per-label property indexes.
@@ -2167,6 +2394,49 @@ Run a write transaction.
 **Returns:**
 
 - <code>[list](#list)\[[dict](#dict)\[[str](#str), [Any](#typing.Any)\]\]</code> – The result rows as dicts.
+
+###### `agrag.graphdb.base.GraphStore.register_labels`
+
+```python
+register_labels(labels:Sequence[str]) -> None
+```
+
+Mark labels as known, without writing anything.
+
+setup_constraints()/setup_indexes() only cover labels this instance
+has already written (or that already exist live in the database) —
+both empty on a brand-new database. register_labels lets a caller
+holding a GraphSchema (Graph.open()) provision a fresh database
+fully before its first write.
+
+**Parameters:**
+
+- **labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The labels to register. Each must be a safe Cypher
+  identifier.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – Any label is not a safe identifier.
+
+###### `agrag.graphdb.base.GraphStore.register_relation_types`
+
+```python
+register_relation_types(types:Sequence[str]) -> None
+```
+
+Mark relationship types as known, without writing anything.
+
+The relationship-type counterpart to register_labels — see its
+docstring for why this exists.
+
+**Parameters:**
+
+- **types** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The relationship types to register. Each must be a safe
+  Cypher identifier.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – Any type is not a safe identifier.
 
 ###### `agrag.graphdb.base.GraphStore.session`
 
@@ -2345,6 +2615,8 @@ driver's managed transactions with no added retry loop, per ADR 0027.
 - [**ensure_vector_index**](#agrag.graphdb.neo4j.Neo4jGraphStore.ensure_vector_index) – Create a native vector index if it does not exist.
 - [**execute_read**](#agrag.graphdb.neo4j.Neo4jGraphStore.execute_read) – Run a read transaction and return its rows.
 - [**execute_write**](#agrag.graphdb.neo4j.Neo4jGraphStore.execute_write) – Run a write transaction and return its rows.
+- [**register_labels**](#agrag.graphdb.neo4j.Neo4jGraphStore.register_labels) – Add labels to this instance's known-label set.
+- [**register_relation_types**](#agrag.graphdb.neo4j.Neo4jGraphStore.register_relation_types) – Add types to this instance's known-relation-type set.
 - [**session**](#agrag.graphdb.neo4j.Neo4jGraphStore.session) – Open a session to the configured database.
 - [**setup_constraints**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every known label.
 - [**setup_indexes**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_indexes) – Create a range index on `id` for every known label.
@@ -2398,6 +2670,40 @@ execute_write(query:str, parameters:Mapping[str, Any] | None = None) -> list[dic
 ```
 
 Run a write transaction and return its rows.
+
+###### `agrag.graphdb.neo4j.Neo4jGraphStore.register_labels`
+
+```python
+register_labels(labels:Sequence[str]) -> None
+```
+
+Add labels to this instance's known-label set.
+
+**Parameters:**
+
+- **labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The labels to register. Each must be a safe Cypher
+  identifier.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – Any label is not a safe identifier.
+
+###### `agrag.graphdb.neo4j.Neo4jGraphStore.register_relation_types`
+
+```python
+register_relation_types(types:Sequence[str]) -> None
+```
+
+Add types to this instance's known-relation-type set.
+
+**Parameters:**
+
+- **types** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The relationship types to register. Each must be a safe
+  Cypher identifier.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – Any type is not a safe identifier.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.session`
 
@@ -2612,7 +2918,9 @@ The ingestion package.
 
 - [**extract**](#agrag.ingestion.extract) – The Extractor interface: reads one Chunk and produces an ExtractionResult.
 - [**graph**](#agrag.ingestion.graph) – The public Graph API for ingestion.
+- [**merge**](#agrag.ingestion.merge) – Merge mechanics: computing how a resolved group of mentions and entities combine.
 - [**resolve**](#agrag.ingestion.resolve) – Entity resolution: deciding which ExtractedEntity mentions are the same thing.
+- [**types**](#agrag.ingestion.types) – Graph.add()'s result and per-stage observability types.
 
 **Classes:**
 
@@ -2621,7 +2929,7 @@ The ingestion package.
 #### `agrag.ingestion.Graph`
 
 ```python
-Graph(*, tracer:Tracer | None = None) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -2629,17 +2937,31 @@ A knowledge graph that a caller can open and add content to.
 **Functions:**
 
 - [**add**](#agrag.ingestion.Graph.add) – Add content to the graph.
-- [**open**](#agrag.ingestion.Graph.open) – Open a graph with no setup.
+- [**consolidate**](#agrag.ingestion.Graph.consolidate) – Run full tiered resolution against everything persisted.
+- [**open**](#agrag.ingestion.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
 
 **Parameters:**
 
-- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every ingest step. Pass `None` to run
-  with no tracing.
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The entity/relation types this graph validates every
+  extraction against. Fixed for this instance; not resuppliable
+  per add() call.
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where entities, relations, chunks, and MENTIONED_IN
+  edges are written. Required: a graph with nowhere to write is
+  not a useful default for a library built around producing a
+  queryable graph.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Populates entity embeddings for native vector search.
+  Required, feeding both storage and resolution's fuzzy tier.
+- **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs against each chunk. Required, with no default —
+  the natural default needs two package extras a core install
+  won't have, so a defaulted extractor would surface a
+  MissingExtraError deep inside a later add() call instead of
+  here at open().
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every step. Pass None for none.
 
 ##### `agrag.ingestion.Graph.add`
 
 ```python
-add(source:SourcesType | None = None, *, text:str | None = None, documents:Sequence[Document] | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, on_progress:Callable[[LoadStats], None] | None = None) -> IngestResult
+add(source:SourcesType | None = None, *, text:str | None = None, documents:Sequence[Document] | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, on_progress:Callable[[AddResult], None] | None = None, return_chunks:bool = False) -> AddResult
 ```
 
 Add content to the graph.
@@ -2655,11 +2977,15 @@ Give exactly one of `source`, `text`, and `documents`.
   single-file `source`; a directory, glob, or list of sources raises an
   error.
 - **error_policy** (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – The action to take on a per-source error.
-- **on_progress** (<code>[Callable](#collections.abc.Callable)\[\[[LoadStats](#agrag.loaders.corpus.types.LoadStats)\], None\] | None</code>) – A callback the call runs after each batch.
+- **on_progress** (<code>[Callable](#collections.abc.Callable)\[\[[AddResult](#agrag.ingestion.types.AddResult)\], None\] | None</code>) – A callback the call runs after each batch and once more
+  at the end with the fully-populated result.
+- **return_chunks** (<code>[bool](#bool)</code>) – Whether to include the produced chunks in the
+  returned AddResult. False by default to avoid holding full text
+  for a large corpus when not needed.
 
 **Returns:**
 
-- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – A summary of what was added, skipped, and quarantined, plus its chunks.
+- <code>[AddResult](#agrag.ingestion.types.AddResult)</code> – A summary of what was added per pipeline stage.
 
 **Raises:**
 
@@ -2671,22 +2997,60 @@ Give exactly one of `source`, `text`, and `documents`.
   package extra is not installed. This error follows `error_policy`
   instead of always stopping the call.
 
-##### `agrag.ingestion.Graph.open`
+##### `agrag.ingestion.Graph.consolidate`
 
 ```python
-open(*, tracer:Tracer | None = None) -> Graph
+consolidate(*, apply:bool = False) -> ConsolidationReport
 ```
 
-Open a graph with no setup.
+Run full tiered resolution against everything persisted.
+
+Dry-run by default: produces a report of what would merge before any
+node is touched. Pass apply=True to write the merges.
+
+For each EntityType label in self.\_schema, fetches every persisted
+entity with that label and runs the same comparator sequence add() uses
+in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
+them — O(n^2) within each label's population, which ADR 0032 already
+accepted as the cost of not yet having blocking/ANN infrastructure.
+Confirmed matches become MergePlans via compute_merge.
 
 **Parameters:**
 
-- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every ingest step. Pass `None` to
-  run with no tracing.
+- **apply** (<code>[bool](#bool)</code>) – Write the computed merges. False produces a report only.
 
 **Returns:**
 
-- <code>[Graph](#agrag.ingestion.graph.Graph)</code> – A ready-to-use graph. This call needs no external service.
+- <code>[ConsolidationReport](#agrag.ingestion.types.ConsolidationReport)</code> – A report of every group consolidate() found, applied or not.
+
+##### `agrag.ingestion.Graph.open`
+
+```python
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None) -> Graph
+```
+
+Open a graph, connecting and fully provisioning graph_store.
+
+Provisioning order: connect, then register every label/relation type
+this graph will ever write (schema's own labels/types plus the fixed
+system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
+setup_constraints(), then setup_indexes() — so a brand-new database is
+fully ready, including the merge_key index the global exact-match tier
+needs, before this call returns.
+
+**Parameters:**
+
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The entity/relation types this graph validates every
+  extraction against. Fixed for this instance.
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where entities, relations, chunks, and MENTIONED_IN
+  edges are written.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Populates entity embeddings for native vector search.
+- **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs against each chunk.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every step. Pass None for none.
+
+**Returns:**
+
+- <code>[Graph](#agrag.ingestion.graph.Graph)</code> – A graph connected to graph_store and ready to accept add() calls.
 
 #### `agrag.ingestion.extract`
 
@@ -2985,13 +3349,14 @@ The public Graph API for ingestion.
 
 **Attributes:**
 
+- [**SYSTEM_RELATION_TYPES**](#agrag.ingestion.graph.SYSTEM_RELATION_TYPES) – Relationship types Graph.open() always registers, outside any GraphSchema.
 - [**SourceType**](#agrag.ingestion.graph.SourceType) –
 - [**SourcesType**](#agrag.ingestion.graph.SourcesType) –
 
 ##### `agrag.ingestion.graph.Graph`
 
 ```python
-Graph(*, tracer:Tracer | None = None) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -2999,17 +3364,31 @@ A knowledge graph that a caller can open and add content to.
 **Functions:**
 
 - [**add**](#agrag.ingestion.graph.Graph.add) – Add content to the graph.
-- [**open**](#agrag.ingestion.graph.Graph.open) – Open a graph with no setup.
+- [**consolidate**](#agrag.ingestion.graph.Graph.consolidate) – Run full tiered resolution against everything persisted.
+- [**open**](#agrag.ingestion.graph.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
 
 **Parameters:**
 
-- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every ingest step. Pass `None` to run
-  with no tracing.
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The entity/relation types this graph validates every
+  extraction against. Fixed for this instance; not resuppliable
+  per add() call.
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where entities, relations, chunks, and MENTIONED_IN
+  edges are written. Required: a graph with nowhere to write is
+  not a useful default for a library built around producing a
+  queryable graph.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Populates entity embeddings for native vector search.
+  Required, feeding both storage and resolution's fuzzy tier.
+- **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs against each chunk. Required, with no default —
+  the natural default needs two package extras a core install
+  won't have, so a defaulted extractor would surface a
+  MissingExtraError deep inside a later add() call instead of
+  here at open().
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every step. Pass None for none.
 
 ###### `agrag.ingestion.graph.Graph.add`
 
 ```python
-add(source:SourcesType | None = None, *, text:str | None = None, documents:Sequence[Document] | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, on_progress:Callable[[LoadStats], None] | None = None) -> IngestResult
+add(source:SourcesType | None = None, *, text:str | None = None, documents:Sequence[Document] | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, on_progress:Callable[[AddResult], None] | None = None, return_chunks:bool = False) -> AddResult
 ```
 
 Add content to the graph.
@@ -3025,11 +3404,15 @@ Give exactly one of `source`, `text`, and `documents`.
   single-file `source`; a directory, glob, or list of sources raises an
   error.
 - **error_policy** (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – The action to take on a per-source error.
-- **on_progress** (<code>[Callable](#collections.abc.Callable)\[\[[LoadStats](#agrag.loaders.corpus.types.LoadStats)\], None\] | None</code>) – A callback the call runs after each batch.
+- **on_progress** (<code>[Callable](#collections.abc.Callable)\[\[[AddResult](#agrag.ingestion.types.AddResult)\], None\] | None</code>) – A callback the call runs after each batch and once more
+  at the end with the fully-populated result.
+- **return_chunks** (<code>[bool](#bool)</code>) – Whether to include the produced chunks in the
+  returned AddResult. False by default to avoid holding full text
+  for a large corpus when not needed.
 
 **Returns:**
 
-- <code>[IngestResult](#agrag.loaders.corpus.types.IngestResult)</code> – A summary of what was added, skipped, and quarantined, plus its chunks.
+- <code>[AddResult](#agrag.ingestion.types.AddResult)</code> – A summary of what was added per pipeline stage.
 
 **Raises:**
 
@@ -3041,22 +3424,68 @@ Give exactly one of `source`, `text`, and `documents`.
   package extra is not installed. This error follows `error_policy`
   instead of always stopping the call.
 
-###### `agrag.ingestion.graph.Graph.open`
+###### `agrag.ingestion.graph.Graph.consolidate`
 
 ```python
-open(*, tracer:Tracer | None = None) -> Graph
+consolidate(*, apply:bool = False) -> ConsolidationReport
 ```
 
-Open a graph with no setup.
+Run full tiered resolution against everything persisted.
+
+Dry-run by default: produces a report of what would merge before any
+node is touched. Pass apply=True to write the merges.
+
+For each EntityType label in self.\_schema, fetches every persisted
+entity with that label and runs the same comparator sequence add() uses
+in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
+them — O(n^2) within each label's population, which ADR 0032 already
+accepted as the cost of not yet having blocking/ANN infrastructure.
+Confirmed matches become MergePlans via compute_merge.
 
 **Parameters:**
 
-- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every ingest step. Pass `None` to
-  run with no tracing.
+- **apply** (<code>[bool](#bool)</code>) – Write the computed merges. False produces a report only.
 
 **Returns:**
 
-- <code>[Graph](#agrag.ingestion.graph.Graph)</code> – A ready-to-use graph. This call needs no external service.
+- <code>[ConsolidationReport](#agrag.ingestion.types.ConsolidationReport)</code> – A report of every group consolidate() found, applied or not.
+
+###### `agrag.ingestion.graph.Graph.open`
+
+```python
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None) -> Graph
+```
+
+Open a graph, connecting and fully provisioning graph_store.
+
+Provisioning order: connect, then register every label/relation type
+this graph will ever write (schema's own labels/types plus the fixed
+system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
+setup_constraints(), then setup_indexes() — so a brand-new database is
+fully ready, including the merge_key index the global exact-match tier
+needs, before this call returns.
+
+**Parameters:**
+
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The entity/relation types this graph validates every
+  extraction against. Fixed for this instance.
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where entities, relations, chunks, and MENTIONED_IN
+  edges are written.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Populates entity embeddings for native vector search.
+- **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs against each chunk.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every step. Pass None for none.
+
+**Returns:**
+
+- <code>[Graph](#agrag.ingestion.graph.Graph)</code> – A graph connected to graph_store and ready to accept add() calls.
+
+##### `agrag.ingestion.graph.SYSTEM_RELATION_TYPES`
+
+```python
+SYSTEM_RELATION_TYPES = ['MENTIONED_IN']
+```
+
+Relationship types Graph.open() always registers, outside any GraphSchema.
 
 ##### `agrag.ingestion.graph.SourceType`
 
@@ -3069,6 +3498,224 @@ SourceType = Union[str, Path]
 ```python
 SourcesType = Union[SourceType, Sequence[SourceType]]
 ```
+
+#### `agrag.ingestion.merge`
+
+Merge mechanics: computing how a resolved group of mentions and entities combine.
+
+This module is storage-agnostic: it decides what a merge should look like,
+but never touches GraphStore itself. Applying a computed MergePlan is a
+separate step.
+
+**Classes:**
+
+- [**ConflictRecord**](#agrag.ingestion.merge.ConflictRecord) – One property that had more than one candidate value.
+- [**MergePlan**](#agrag.ingestion.merge.MergePlan) – Computed result of merging zero or more entities and mentions.
+- [**PropertyRules**](#agrag.ingestion.merge.PropertyRules) – Per-property conflict resolution, with a default for unlisted properties.
+- [**PropertyStrategy**](#agrag.ingestion.merge.PropertyStrategy) – Fallback rule for a property with no entry in PropertyRules.
+
+**Functions:**
+
+- [**apply_merge**](#agrag.ingestion.merge.apply_merge) – Write a computed MergePlan to storage.
+- [**compute_merge**](#agrag.ingestion.merge.compute_merge) – Compute how existing_entities and mentions combine into one Entity.
+- [**mentioned_in_id**](#agrag.ingestion.merge.mentioned_in_id) – Return the deterministic id for a Chunk -[:MENTIONED_IN]-> Entity edge.
+
+**Attributes:**
+
+- [**PropertyRule**](#agrag.ingestion.merge.PropertyRule) – Per-property conflict resolver.
+
+##### `agrag.ingestion.merge.ConflictRecord`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One property that had more than one candidate value.
+
+**Attributes:**
+
+- [**field**](#agrag.ingestion.merge.ConflictRecord.field) (<code>[str](#str)</code>) – The property name.
+- [**candidates**](#agrag.ingestion.merge.ConflictRecord.candidates) (<code>[list](#list)\[[object](#object)\]</code>) – Every distinct candidate value seen, in encounter order.
+- [**resolved**](#agrag.ingestion.merge.ConflictRecord.resolved) (<code>[object](#object)</code>) – The value compute_merge chose.
+
+###### `agrag.ingestion.merge.ConflictRecord.candidates`
+
+```python
+candidates: list[object]
+```
+
+###### `agrag.ingestion.merge.ConflictRecord.field`
+
+```python
+field: str
+```
+
+###### `agrag.ingestion.merge.ConflictRecord.resolved`
+
+```python
+resolved: object
+```
+
+##### `agrag.ingestion.merge.MergePlan`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Computed result of merging zero or more entities and mentions.
+
+**Attributes:**
+
+- [**survivor**](#agrag.ingestion.merge.MergePlan.survivor) (<code>[Entity](#agrag.common.data_models.entity.Entity)</code>) – The resulting Entity.
+- [**tombstone_ids**](#agrag.ingestion.merge.MergePlan.tombstone_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of entities absorbed into survivor.
+- [**conflicts**](#agrag.ingestion.merge.MergePlan.conflicts) (<code>[list](#list)\[[ConflictRecord](#agrag.ingestion.merge.ConflictRecord)\]</code>) – Every field that had more than one candidate value.
+
+###### `agrag.ingestion.merge.MergePlan.conflicts`
+
+```python
+conflicts: list[ConflictRecord] = []
+```
+
+###### `agrag.ingestion.merge.MergePlan.survivor`
+
+```python
+survivor: Entity
+```
+
+###### `agrag.ingestion.merge.MergePlan.tombstone_ids`
+
+```python
+tombstone_ids: list[UUID] = []
+```
+
+##### `agrag.ingestion.merge.PropertyRule`
+
+```python
+PropertyRule = Callable[[list[object]], object]
+```
+
+Per-property conflict resolver.
+
+Takes every candidate value for one property, in encounter order, already
+filtered to exclude None, and returns the resolved value.
+
+##### `agrag.ingestion.merge.PropertyRules`
+
+```python
+PropertyRules(rules:dict[str, PropertyRule] = dict(), default:PropertyStrategy = PropertyStrategy.KEEP_FIRST) -> None
+```
+
+Per-property conflict resolution, with a default for unlisted properties.
+
+**Attributes:**
+
+- [**rules**](#agrag.ingestion.merge.PropertyRules.rules) (<code>[dict](#dict)\[[str](#str), [PropertyRule](#agrag.ingestion.merge.PropertyRule)\]</code>) – Property name to resolver, for properties needing a specific rule.
+- [**default**](#agrag.ingestion.merge.PropertyRules.default) (<code>[PropertyStrategy](#agrag.ingestion.merge.PropertyStrategy)</code>) – Strategy applied to a property with no entry in rules.
+
+###### `agrag.ingestion.merge.PropertyRules.default`
+
+```python
+default: PropertyStrategy = PropertyStrategy.KEEP_FIRST
+```
+
+###### `agrag.ingestion.merge.PropertyRules.rules`
+
+```python
+rules: dict[str, PropertyRule] = field(default_factory=dict)
+```
+
+##### `agrag.ingestion.merge.PropertyStrategy`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+Fallback rule for a property with no entry in PropertyRules.
+
+**Attributes:**
+
+- [**KEEP_FIRST**](#agrag.ingestion.merge.PropertyStrategy.KEEP_FIRST) –
+- [**KEEP_LAST**](#agrag.ingestion.merge.PropertyStrategy.KEEP_LAST) –
+- [**MERGE_ALL**](#agrag.ingestion.merge.PropertyStrategy.MERGE_ALL) –
+
+###### `agrag.ingestion.merge.PropertyStrategy.KEEP_FIRST`
+
+```python
+KEEP_FIRST = 'keep_first'
+```
+
+###### `agrag.ingestion.merge.PropertyStrategy.KEEP_LAST`
+
+```python
+KEEP_LAST = 'keep_last'
+```
+
+###### `agrag.ingestion.merge.PropertyStrategy.MERGE_ALL`
+
+```python
+MERGE_ALL = 'merge_all'
+```
+
+##### `agrag.ingestion.merge.apply_merge`
+
+```python
+apply_merge(plan:MergePlan, *, graph_store:GraphStore, schema:GraphSchema) -> None
+```
+
+Write a computed MergePlan to storage.
+
+Upserts the survivor unconditionally. When tombstone_ids is non-empty,
+marks each tombstoned id merged, transfers its relationships in both
+directions, groups the returned rows with \_plan_relationship_dedup, and
+applies the result.
+
+**Parameters:**
+
+- **plan** (<code>[MergePlan](#agrag.ingestion.merge.MergePlan)</code>) – The merge to write.
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where the merge is written.
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The schema the survivor's label belongs to.
+
+##### `agrag.ingestion.merge.compute_merge`
+
+```python
+compute_merge(*, existing_entities:list[Entity], mentions:list[ExtractedEntity], schema:GraphSchema, rules:PropertyRules | None = None, description_settings:Any | None = None, description_client:Any | None = None) -> tuple[MergePlan, list[Any]]
+```
+
+Compute how existing_entities and mentions combine into one Entity.
+
+No storage is touched. Zero existing entities produces a brand-new Entity.
+One produces an updated copy folding in the mentions. Two or more picks a
+canonical survivor and marks the rest for tombstoning.
+
+**Parameters:**
+
+- **existing_entities** (<code>[list](#list)\[[Entity](#agrag.common.data_models.entity.Entity)\]</code>) – Already-persisted entities this call reconciles.
+- **mentions** (<code>[list](#list)\[[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]</code>) – Fresh ExtractedEntity mentions to fold in.
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – Used to look up the entity type's declared properties for the
+  canonical-id schema-completeness check.
+- **rules** (<code>[PropertyRules](#agrag.ingestion.merge.PropertyRules) | None</code>) – Per-property conflict resolution. Defaults to keep_first.
+- **description_settings** (<code>[Any](#typing.Any) | None</code>) – LLM settings for description summarization.
+- **description_client** (<code>[Any](#typing.Any) | None</code>) – Injected LLM client for tests.
+
+**Returns:**
+
+- <code>[tuple](#tuple)\[[MergePlan](#agrag.ingestion.merge.MergePlan), [list](#list)\[[Any](#typing.Any)\]\]</code> – The computed MergePlan and any description-LLM failures.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – existing_entities and mentions are both empty, or their
+  labels disagree.
+
+##### `agrag.ingestion.merge.mentioned_in_id`
+
+```python
+mentioned_in_id(chunk_id:UUID, entity_id:UUID) -> UUID
+```
+
+Return the deterministic id for a Chunk -[:MENTIONED_IN]-> Entity edge.
+
+**Parameters:**
+
+- **chunk_id** (<code>[UUID](#uuid.UUID)</code>) – The Chunk's id.
+- **entity_id** (<code>[UUID](#uuid.UUID)</code>) – The Entity's id.
+
+**Returns:**
+
+- <code>[UUID](#uuid.UUID)</code> – The edge id. Deterministic: same pair always returns same id.
 
 #### `agrag.ingestion.resolve`
 
@@ -3385,6 +4032,384 @@ Group entities that resolution decided are the same thing.
 
 - <code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.ResolutionGroup)\]</code> – One ResolutionGroup per distinct entity found. Every input index
 - <code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.ResolutionGroup)\]</code> – appears in exactly one group.
+
+#### `agrag.ingestion.types`
+
+Graph.add()'s result and per-stage observability types.
+
+**Classes:**
+
+- [**AddResult**](#agrag.ingestion.types.AddResult) – Graph.add()'s return type — one summary per pipeline stage.
+- [**ConsolidationReport**](#agrag.ingestion.types.ConsolidationReport) – Report from Graph.consolidate().
+- [**ExtractionStats**](#agrag.ingestion.types.ExtractionStats) – Extraction-stage results.
+- [**IngestStats**](#agrag.ingestion.types.IngestStats) – Ingestion-stage results. Renamed from IngestResult (ADR 0031).
+- [**MergeStats**](#agrag.ingestion.types.MergeStats) – Merge-stage results.
+- [**ResolutionStats**](#agrag.ingestion.types.ResolutionStats) – Resolution-stage results.
+- [**StageFailure**](#agrag.ingestion.types.StageFailure) – One item's failure within a pipeline stage.
+- [**StorageStats**](#agrag.ingestion.types.StorageStats) – Storage-write-stage results.
+
+##### `agrag.ingestion.types.AddResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Graph.add()'s return type — one summary per pipeline stage.
+
+**Attributes:**
+
+- [**ingestion**](#agrag.ingestion.types.AddResult.ingestion) (<code>[IngestStats](#agrag.ingestion.types.IngestStats)</code>) – What today's IngestResult covered.
+- [**extraction**](#agrag.ingestion.types.AddResult.extraction) (<code>[ExtractionStats](#agrag.ingestion.types.ExtractionStats)</code>) – Extractor output across every chunk this call
+  processed.
+- [**resolution**](#agrag.ingestion.types.AddResult.resolution) (<code>[ResolutionStats](#agrag.ingestion.types.ResolutionStats)</code>) – Resolution's tier-by-tier match counts.
+- [**merge**](#agrag.ingestion.types.AddResult.merge) (<code>[MergeStats](#agrag.ingestion.types.MergeStats)</code>) – What merge mechanics did with resolution's groups.
+- [**storage**](#agrag.ingestion.types.AddResult.storage) (<code>[StorageStats](#agrag.ingestion.types.StorageStats)</code>) – What made it to GraphStore, and what didn't.
+- [**chunks**](#agrag.ingestion.types.AddResult.chunks) (<code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code>) – Every Chunk this call produced. Empty unless
+  return_chunks=True — holding full chunk text for a large
+  corpus is a real memory cost most callers don't need paid
+  for.
+
+###### `agrag.ingestion.types.AddResult.chunks`
+
+```python
+chunks: list[Chunk] = Field(default_factory=list)
+```
+
+###### `agrag.ingestion.types.AddResult.documents`
+
+```python
+documents: int
+```
+
+Proxy to ingestion.documents for backward compatibility.
+
+###### `agrag.ingestion.types.AddResult.extraction`
+
+```python
+extraction: ExtractionStats = Field(default_factory=ExtractionStats)
+```
+
+###### `agrag.ingestion.types.AddResult.ingestion`
+
+```python
+ingestion: IngestStats = Field(default_factory=IngestStats)
+```
+
+###### `agrag.ingestion.types.AddResult.merge`
+
+```python
+merge: MergeStats = Field(default_factory=MergeStats)
+```
+
+###### `agrag.ingestion.types.AddResult.quarantined`
+
+```python
+quarantined: int
+```
+
+Proxy to ingestion.quarantined for backward compatibility.
+
+###### `agrag.ingestion.types.AddResult.quarantined_items`
+
+```python
+quarantined_items: list[StageFailure]
+```
+
+Proxy to ingestion.quarantined_items for backward compatibility.
+
+###### `agrag.ingestion.types.AddResult.resolution`
+
+```python
+resolution: ResolutionStats = Field(default_factory=ResolutionStats)
+```
+
+###### `agrag.ingestion.types.AddResult.skipped`
+
+```python
+skipped: int
+```
+
+Proxy to ingestion.skipped for backward compatibility.
+
+###### `agrag.ingestion.types.AddResult.sources`
+
+```python
+sources: int
+```
+
+Proxy to ingestion.sources for backward compatibility.
+
+###### `agrag.ingestion.types.AddResult.storage`
+
+```python
+storage: StorageStats = Field(default_factory=StorageStats)
+```
+
+##### `agrag.ingestion.types.ConsolidationReport`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Report from Graph.consolidate().
+
+**Attributes:**
+
+- [**would_merge**](#agrag.ingestion.types.ConsolidationReport.would_merge) (<code>[list](#list)\[[MergePlan](#agrag.ingestion.merge.MergePlan)\]</code>) – The merge plans found, whether applied or not.
+- [**applied**](#agrag.ingestion.types.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the plans were applied.
+
+###### `agrag.ingestion.types.ConsolidationReport.applied`
+
+```python
+applied: bool = False
+```
+
+###### `agrag.ingestion.types.ConsolidationReport.would_merge`
+
+```python
+would_merge: list[MergePlan] = Field(default_factory=list)
+```
+
+##### `agrag.ingestion.types.ExtractionStats`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Extraction-stage results.
+
+**Attributes:**
+
+- [**chunks_processed**](#agrag.ingestion.types.ExtractionStats.chunks_processed) (<code>[int](#int)</code>) –
+- [**entities_extracted**](#agrag.ingestion.types.ExtractionStats.entities_extracted) (<code>[int](#int)</code>) –
+- [**failures**](#agrag.ingestion.types.ExtractionStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.types.StageFailure)\]</code>) –
+- [**relations_extracted**](#agrag.ingestion.types.ExtractionStats.relations_extracted) (<code>[int](#int)</code>) –
+
+###### `agrag.ingestion.types.ExtractionStats.chunks_processed`
+
+```python
+chunks_processed: int = 0
+```
+
+###### `agrag.ingestion.types.ExtractionStats.entities_extracted`
+
+```python
+entities_extracted: int = 0
+```
+
+###### `agrag.ingestion.types.ExtractionStats.failures`
+
+```python
+failures: list[StageFailure] = Field(default_factory=list)
+```
+
+###### `agrag.ingestion.types.ExtractionStats.relations_extracted`
+
+```python
+relations_extracted: int = 0
+```
+
+##### `agrag.ingestion.types.IngestStats`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Ingestion-stage results. Renamed from IngestResult (ADR 0031).
+
+**Attributes:**
+
+- [**documents**](#agrag.ingestion.types.IngestStats.documents) (<code>[int](#int)</code>) –
+- [**quarantined**](#agrag.ingestion.types.IngestStats.quarantined) (<code>[int](#int)</code>) –
+- [**quarantined_items**](#agrag.ingestion.types.IngestStats.quarantined_items) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.types.StageFailure)\]</code>) –
+- [**skipped**](#agrag.ingestion.types.IngestStats.skipped) (<code>[int](#int)</code>) –
+- [**sources**](#agrag.ingestion.types.IngestStats.sources) (<code>[int](#int)</code>) –
+
+###### `agrag.ingestion.types.IngestStats.documents`
+
+```python
+documents: int = 0
+```
+
+###### `agrag.ingestion.types.IngestStats.quarantined`
+
+```python
+quarantined: int = 0
+```
+
+###### `agrag.ingestion.types.IngestStats.quarantined_items`
+
+```python
+quarantined_items: list[StageFailure] = Field(default_factory=list)
+```
+
+###### `agrag.ingestion.types.IngestStats.skipped`
+
+```python
+skipped: int = 0
+```
+
+###### `agrag.ingestion.types.IngestStats.sources`
+
+```python
+sources: int = 0
+```
+
+##### `agrag.ingestion.types.MergeStats`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Merge-stage results.
+
+**Attributes:**
+
+- [**nodes_created**](#agrag.ingestion.types.MergeStats.nodes_created) (<code>[int](#int)</code>) – Brand-new entities materialized this call.
+- [**nodes_updated**](#agrag.ingestion.types.MergeStats.nodes_updated) (<code>[int](#int)</code>) – Existing entities that absorbed new mention data
+  without tombstoning anything.
+- [**nodes_merged**](#agrag.ingestion.types.MergeStats.nodes_merged) (<code>[int](#int)</code>) – Entities tombstoned into a survivor this call.
+- [**conflicts_resolved**](#agrag.ingestion.types.MergeStats.conflicts_resolved) (<code>[int](#int)</code>) – Total property/description conflicts resolved
+  across every merge this call performed.
+- [**failures**](#agrag.ingestion.types.MergeStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.types.StageFailure)\]</code>) – Includes an LLM failure during description
+  summarization (ADR 0033's fallback-to-concatenation path still
+  records one here, even though it didn't block the merge).
+
+###### `agrag.ingestion.types.MergeStats.conflicts_resolved`
+
+```python
+conflicts_resolved: int = 0
+```
+
+###### `agrag.ingestion.types.MergeStats.failures`
+
+```python
+failures: list[StageFailure] = Field(default_factory=list)
+```
+
+###### `agrag.ingestion.types.MergeStats.nodes_created`
+
+```python
+nodes_created: int = 0
+```
+
+###### `agrag.ingestion.types.MergeStats.nodes_merged`
+
+```python
+nodes_merged: int = 0
+```
+
+###### `agrag.ingestion.types.MergeStats.nodes_updated`
+
+```python
+nodes_updated: int = 0
+```
+
+##### `agrag.ingestion.types.ResolutionStats`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Resolution-stage results.
+
+**Attributes:**
+
+- [**exact_match_hits**](#agrag.ingestion.types.ResolutionStats.exact_match_hits) (<code>[int](#int)</code>) – Mentions that matched an already-persisted
+  entity via the global exact-match tier.
+- [**in_batch_groups**](#agrag.ingestion.types.ResolutionStats.in_batch_groups) (<code>[int](#int)</code>) – Resolution groups the in-batch fuzzy/LLM tier
+  found.
+- [**ambiguous_count**](#agrag.ingestion.types.ResolutionStats.ambiguous_count) (<code>[int](#int)</code>) – Comparisons no comparator could confidently
+  decide (ADR 0013's fail-safe: never merged).
+
+###### `agrag.ingestion.types.ResolutionStats.ambiguous_count`
+
+```python
+ambiguous_count: int = 0
+```
+
+###### `agrag.ingestion.types.ResolutionStats.exact_match_hits`
+
+```python
+exact_match_hits: int = 0
+```
+
+###### `agrag.ingestion.types.ResolutionStats.in_batch_groups`
+
+```python
+in_batch_groups: int = 0
+```
+
+##### `agrag.ingestion.types.StageFailure`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One item's failure within a pipeline stage.
+
+**Attributes:**
+
+- [**item_id**](#agrag.ingestion.types.StageFailure.item_id) (<code>[str](#str)</code>) – The chunk id, mention id, or batch id — whichever unit
+  the stage failed on.
+- [**error_type**](#agrag.ingestion.types.StageFailure.error_type) (<code>[str](#str)</code>) – The exception's class name.
+- [**error_message**](#agrag.ingestion.types.StageFailure.error_message) (<code>[str](#str)</code>) – The exception's message.
+- [**trace_id**](#agrag.ingestion.types.StageFailure.trace_id) (<code>[str](#str) | None</code>) – The OTel trace id correlating to the full span detail,
+  when tracing is configured.
+- [**span_id**](#agrag.ingestion.types.StageFailure.span_id) (<code>[str](#str) | None</code>) – The OTel span id within that trace.
+
+###### `agrag.ingestion.types.StageFailure.error_message`
+
+```python
+error_message: str
+```
+
+###### `agrag.ingestion.types.StageFailure.error_type`
+
+```python
+error_type: str
+```
+
+###### `agrag.ingestion.types.StageFailure.item_id`
+
+```python
+item_id: str
+```
+
+###### `agrag.ingestion.types.StageFailure.span_id`
+
+```python
+span_id: str | None = None
+```
+
+###### `agrag.ingestion.types.StageFailure.trace_id`
+
+```python
+trace_id: str | None = None
+```
+
+##### `agrag.ingestion.types.StorageStats`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Storage-write-stage results.
+
+**Attributes:**
+
+- [**nodes_written**](#agrag.ingestion.types.StorageStats.nodes_written) (<code>[int](#int)</code>) – Chunk and Entity nodes together, one aggregate
+  count rather than a sub-count per kind — both are written in
+  the same final phase, so there is one natural accounting
+  point.
+- [**relationships_written**](#agrag.ingestion.types.StorageStats.relationships_written) (<code>[int](#int)</code>) – Domain Relation and MENTIONED_IN edges
+  together, for the same reason.
+- [**failures**](#agrag.ingestion.types.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.types.StageFailure)\]</code>) – One record per batch write that failed, capped per
+  call. A GraphStore write is a single managed transaction, so
+  a failure here means the whole batch did not land, not a
+  partial subset of it.
+
+###### `agrag.ingestion.types.StorageStats.failures`
+
+```python
+failures: list[StageFailure] = Field(default_factory=list)
+```
+
+###### `agrag.ingestion.types.StorageStats.nodes_written`
+
+```python
+nodes_written: int = 0
+```
+
+###### `agrag.ingestion.types.StorageStats.relationships_written`
+
+```python
+relationships_written: int = 0
+```
 
 ### `agrag.observability`
 

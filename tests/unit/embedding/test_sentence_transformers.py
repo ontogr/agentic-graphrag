@@ -14,7 +14,7 @@ from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
 from agrag.embedding.settings import EmbeddingSettings
 
 
-class FakeSentenceTransformer:
+class MockSentenceTransformer:
     """A stand-in for a sentence-transformers model in tests.
 
     Records the thread each ``encode`` runs on, and the texts it received,
@@ -83,12 +83,12 @@ class TestSentenceTransformerEmbedderConstruction:
 
     async def test_dimensions_from_injected_model(self) -> None:
         """Dimensions reflects the injected model's dimension."""
-        embedder = SentenceTransformerEmbedder(model=FakeSentenceTransformer(dim=7))
+        embedder = SentenceTransformerEmbedder(model=MockSentenceTransformer(dim=7))
         assert await embedder.dimensions() == 7
 
     def test_model_not_loaded_on_construct(self) -> None:
         """Construction does not import or build the model."""
-        model = FakeSentenceTransformer()
+        model = MockSentenceTransformer()
         SentenceTransformerEmbedder(model=model)
         assert model.encode_calls == []
 
@@ -126,7 +126,7 @@ class TestEmbedEventLoop:
         ``encode`` runs on the loop thread and this assertion fails.
         """
         loop_thread = threading.current_thread()
-        model = FakeSentenceTransformer()
+        model = MockSentenceTransformer()
         embedder = SentenceTransformerEmbedder(model=model)
         await embedder.embed(["a", "b"])
         assert model.encode_thread is not None
@@ -134,7 +134,7 @@ class TestEmbedEventLoop:
 
     async def test_model_loaded_once(self) -> None:
         """Repeated embeds reuse one model instance."""
-        model = FakeSentenceTransformer()
+        model = MockSentenceTransformer()
         embedder = SentenceTransformerEmbedder(model=model)
         await embedder.embed(["a"])
         await embedder.embed(["b"])
@@ -156,12 +156,12 @@ class TestConcurrentModelLoad:
         entered = threading.Event()
         release = threading.Event()
 
-        def slow_build(_self: SentenceTransformerEmbedder) -> FakeSentenceTransformer:
+        def slow_build(_self: SentenceTransformerEmbedder) -> MockSentenceTransformer:
             nonlocal build_calls
             build_calls += 1
             entered.set()
             release.wait(timeout=5)
-            return FakeSentenceTransformer()
+            return MockSentenceTransformer()
 
         embedder = SentenceTransformerEmbedder()
         with mock.patch.object(
@@ -191,12 +191,12 @@ class TestConcurrentModelLoad:
         entered = threading.Event()
         release = threading.Event()
 
-        def slow_build(_self: SentenceTransformerEmbedder) -> FakeSentenceTransformer:
+        def slow_build(_self: SentenceTransformerEmbedder) -> MockSentenceTransformer:
             nonlocal build_calls
             build_calls += 1
             entered.set()
             release.wait(timeout=5)
-            return FakeSentenceTransformer()
+            return MockSentenceTransformer()
 
         embedder = SentenceTransformerEmbedder()
         with mock.patch.object(
@@ -229,7 +229,7 @@ class TestConcurrentModelLoad:
             await embedder.embed(["a"])
         assert embedder._model is None
 
-        model = FakeSentenceTransformer()
+        model = MockSentenceTransformer()
         with mock.patch.object(
             SentenceTransformerEmbedder, "_build_model", return_value=model
         ):
@@ -242,7 +242,7 @@ class TestEmbedCaching:
 
     async def test_miss_then_hit_uses_cache(self) -> None:
         """A second identical embed hits the cache and re-encodes nothing."""
-        model = FakeSentenceTransformer()
+        model = MockSentenceTransformer()
         cache = _RecordingCache()
         embedder = SentenceTransformerEmbedder(model=model, cache=cache)
         out1 = await embedder.embed(["a", "b"])
@@ -254,7 +254,7 @@ class TestEmbedCaching:
 
     async def test_partial_miss_batches_only_misses(self) -> None:
         """A partial miss encodes only the missing texts in one call."""
-        model = FakeSentenceTransformer()
+        model = MockSentenceTransformer()
         cache = _RecordingCache()
         embedder = SentenceTransformerEmbedder(model=model, cache=cache)
         await embedder.embed(["a", "b"])
@@ -263,14 +263,14 @@ class TestEmbedCaching:
 
     async def test_vectors_returned_in_input_order(self) -> None:
         """Returned vectors keep the input text order."""
-        model = FakeSentenceTransformer(dim=3)
+        model = MockSentenceTransformer(dim=3)
         embedder = SentenceTransformerEmbedder(model=model)
         out = await embedder.embed(["x", "y"])
         assert out == [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
 
     async def test_embed_one_returns_single_vector(self) -> None:
         """embed_one returns the single vector for one text."""
-        model = FakeSentenceTransformer()
+        model = MockSentenceTransformer()
         embedder = SentenceTransformerEmbedder(model=model)
         assert await embedder.embed_one("solo") == [0.0, 0.0, 0.0, 0.0]
 
@@ -278,7 +278,7 @@ class TestEmbedCaching:
         self,
     ) -> None:
         """Embedders differing only in normalize stay isolated in one cache."""
-        model = FakeSentenceTransformer(vary_by_normalize=True)
+        model = MockSentenceTransformer(vary_by_normalize=True)
         cache = _RecordingCache()
         normalized = SentenceTransformerEmbedder(
             model=model, cache=cache, settings=EmbeddingSettings(normalize=True)

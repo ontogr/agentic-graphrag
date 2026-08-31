@@ -76,6 +76,39 @@ class GraphStore(ABC):
         """
 
     @abstractmethod
+    async def register_labels(self, labels: Sequence[str]) -> None:
+        """Mark labels as known, without writing anything.
+
+        setup_constraints()/setup_indexes() only cover labels this instance
+        has already written (or that already exist live in the database) —
+        both empty on a brand-new database. register_labels lets a caller
+        holding a GraphSchema (Graph.open()) provision a fresh database
+        fully before its first write.
+
+        Args:
+            labels: The labels to register. Each must be a safe Cypher
+                identifier.
+
+        Raises:
+            ValueError: Any label is not a safe identifier.
+        """
+
+    @abstractmethod
+    async def register_relation_types(self, types: Sequence[str]) -> None:
+        """Mark relationship types as known, without writing anything.
+
+        The relationship-type counterpart to register_labels — see its
+        docstring for why this exists.
+
+        Args:
+            types: The relationship types to register. Each must be a safe
+                Cypher identifier.
+
+        Raises:
+            ValueError: Any type is not a safe identifier.
+        """
+
+    @abstractmethod
     async def upsert_nodes(
         self,
         label: str,

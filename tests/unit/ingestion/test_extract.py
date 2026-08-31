@@ -164,28 +164,28 @@ class TestGlinerExtractor:
     async def test_extract_maps_model_output_and_schema(self) -> None:
         """Injected model output becomes indexed entities and relations."""
 
-        class FakeSchemaBuilder:
+        class MockSchemaBuilder:
             def __init__(self) -> None:
                 self.entity_descriptions: dict[str, str] = {}
                 self.relation_descriptions: dict[str, str] = {}
 
-            def entities(self, descriptions: dict[str, str]) -> "FakeSchemaBuilder":
+            def entities(self, descriptions: dict[str, str]) -> "MockSchemaBuilder":
                 self.entity_descriptions = descriptions
                 return self
 
-            def relations(self, descriptions: dict[str, str]) -> "FakeSchemaBuilder":
+            def relations(self, descriptions: dict[str, str]) -> "MockSchemaBuilder":
                 self.relation_descriptions = descriptions
                 return self
 
-        class FakeModel:
+        class MockModel:
             def __init__(self) -> None:
-                self.schema = FakeSchemaBuilder()
+                self.schema = MockSchemaBuilder()
 
-            def create_schema(self) -> FakeSchemaBuilder:
+            def create_schema(self) -> MockSchemaBuilder:
                 return self.schema
 
             def extract(
-                self, text: str, schema: FakeSchemaBuilder, include_spans: bool = False
+                self, text: str, schema: MockSchemaBuilder, include_spans: bool = False
             ) -> dict:
                 assert text.startswith("Ada Lovelace")
                 assert schema is self.schema
@@ -219,7 +219,7 @@ class TestGlinerExtractor:
                     },
                 }
 
-        model = FakeModel()
+        model = MockModel()
         result = await GlinerExtractor(model=model).extract(_chunk(), GENERIC)
 
         assert model.schema.entity_descriptions == {
@@ -239,14 +239,14 @@ class TestGlinerExtractor:
     async def test_extract_disambiguates_duplicate_mention_text(self) -> None:
         """Two mentions with identical text resolve to their own entity index."""
 
-        class FakeModel:
-            def create_schema(self) -> "FakeModel":
+        class MockModel:
+            def create_schema(self) -> "MockModel":
                 return self
 
-            def entities(self, labels: list[str]) -> "FakeModel":
+            def entities(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def relations(self, labels: list[str]) -> "FakeModel":
+            def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
             def extract(self, text: str, schema: object, include_spans=False) -> dict:
@@ -271,7 +271,7 @@ class TestGlinerExtractor:
         chunk = _chunk("Ada met Bob at Acme; later Ada left.")
         assert chunk.text.index("Ada", 1) == 27
         assert chunk.text.index("Acme") == 15
-        result = await GlinerExtractor(model=FakeModel()).extract(
+        result = await GlinerExtractor(model=MockModel()).extract(
             chunk, _ONE_PAIR_SCHEMA
         )
 
@@ -284,14 +284,14 @@ class TestGlinerExtractor:
     async def test_extract_drops_relations_the_schema_does_not_permit(self) -> None:
         """A relation whose endpoint labels the schema forbids is dropped."""
 
-        class FakeModel:
-            def create_schema(self) -> "FakeModel":
+        class MockModel:
+            def create_schema(self) -> "MockModel":
                 return self
 
-            def entities(self, labels: list[str]) -> "FakeModel":
+            def entities(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def relations(self, labels: list[str]) -> "FakeModel":
+            def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
             def extract(self, text: str, schema: object, include_spans=False) -> dict:
@@ -311,7 +311,7 @@ class TestGlinerExtractor:
                     },
                 }
 
-        result = await GlinerExtractor(model=FakeModel()).extract(
+        result = await GlinerExtractor(model=MockModel()).extract(
             _chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA
         )
         assert len(result.entities) == 2
@@ -325,14 +325,14 @@ class TestGlinerExtractor:
         outright, so _to_result has to catch it first.
         """
 
-        class FakeModel:
-            def create_schema(self) -> "FakeModel":
+        class MockModel:
+            def create_schema(self) -> "MockModel":
                 return self
 
-            def entities(self, labels: list[str]) -> "FakeModel":
+            def entities(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def relations(self, labels: list[str]) -> "FakeModel":
+            def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
             def extract(self, text: str, schema: object, include_spans=False) -> dict:
@@ -350,7 +350,7 @@ class TestGlinerExtractor:
                     },
                 }
 
-        result = await GlinerExtractor(model=FakeModel()).extract(_chunk(), GENERIC)
+        result = await GlinerExtractor(model=MockModel()).extract(_chunk(), GENERIC)
 
         assert len(result.entities) == 1
         assert result.relations == []
@@ -358,14 +358,14 @@ class TestGlinerExtractor:
     async def test_extract_drops_relation_with_undeclared_label(self) -> None:
         """A relation label the schema never declares is dropped."""
 
-        class FakeModel:
-            def create_schema(self) -> "FakeModel":
+        class MockModel:
+            def create_schema(self) -> "MockModel":
                 return self
 
-            def entities(self, labels: list[str]) -> "FakeModel":
+            def entities(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def relations(self, labels: list[str]) -> "FakeModel":
+            def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
             def extract(self, text: str, schema: object, include_spans=False) -> dict:
@@ -386,7 +386,7 @@ class TestGlinerExtractor:
                     },
                 }
 
-        result = await GlinerExtractor(model=FakeModel()).extract(
+        result = await GlinerExtractor(model=MockModel()).extract(
             _chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA
         )
         assert len(result.entities) == 2
@@ -425,14 +425,14 @@ class TestGlinerExtractor:
             ],
         )
 
-        class FakeModel:
-            def create_schema(self) -> "FakeModel":
+        class MockModel:
+            def create_schema(self) -> "MockModel":
                 return self
 
-            def entities(self, labels: list[str]) -> "FakeModel":
+            def entities(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def relations(self, labels: list[str]) -> "FakeModel":
+            def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
             def extract(self, text: str, schema: object, include_spans=False) -> dict:
@@ -451,7 +451,7 @@ class TestGlinerExtractor:
                     },
                 }
 
-        result = await GlinerExtractor(model=FakeModel()).extract(
+        result = await GlinerExtractor(model=MockModel()).extract(
             _chunk("Ada works at Acme."), schema
         )
         assert len(result.relations) == 1
@@ -461,14 +461,14 @@ class TestGlinerExtractor:
     ) -> None:
         """An entity with an undeclared label is dropped; relation indices remap."""
 
-        class FakeModel:
-            def create_schema(self) -> "FakeModel":
+        class MockModel:
+            def create_schema(self) -> "MockModel":
                 return self
 
-            def entities(self, labels: list[str]) -> "FakeModel":
+            def entities(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def relations(self, labels: list[str]) -> "FakeModel":
+            def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
             def extract(self, text: str, schema: object, include_spans=False) -> dict:
@@ -490,7 +490,7 @@ class TestGlinerExtractor:
                 }
 
         chunk = _chunk("Ada Rex works at Acme.")
-        result = await GlinerExtractor(model=FakeModel()).extract(
+        result = await GlinerExtractor(model=MockModel()).extract(
             chunk, _ONE_PAIR_SCHEMA
         )
 
@@ -511,23 +511,23 @@ class TestGlinerExtractor:
 
     def test_uses_injected_model_when_provided(self) -> None:
         """An injected model skips the import and loading entirely."""
-        fake_model = SimpleNamespace()
-        extractor = GlinerExtractor(model=fake_model)
-        assert extractor._ensure_model() is fake_model
+        mock_model = SimpleNamespace()
+        extractor = GlinerExtractor(model=mock_model)
+        assert extractor._ensure_model() is mock_model
 
     async def test_concurrent_extract_loads_model_once(self) -> None:
         """Concurrent first calls to extract() load the model exactly once."""
 
-        class FakeSchemaBuilder:
-            def entities(self, labels: list[str]) -> "FakeSchemaBuilder":
+        class MockSchemaBuilder:
+            def entities(self, labels: list[str]) -> "MockSchemaBuilder":
                 return self
 
-            def relations(self, labels: list[str]) -> "FakeSchemaBuilder":
+            def relations(self, labels: list[str]) -> "MockSchemaBuilder":
                 return self
 
-        class FakeModel:
-            def create_schema(self) -> FakeSchemaBuilder:
-                return FakeSchemaBuilder()
+        class MockModel:
+            def create_schema(self) -> MockSchemaBuilder:
+                return MockSchemaBuilder()
 
             def extract(self, text: str, schema: object, include_spans=False) -> dict:
                 return {"entities": {}, "relation_extraction": {}}
@@ -541,7 +541,7 @@ class TestGlinerExtractor:
             load_calls.append(1)
             load_started.set()
             assert release_load.wait(timeout=5), "test deadlocked"
-            extractor._model = FakeModel()
+            extractor._model = MockModel()
             return extractor._model
 
         extractor._ensure_model = blocking_ensure_model
@@ -560,16 +560,16 @@ class TestGlinerExtractor:
     async def test_cancelled_waiter_does_not_duplicate_the_model_load(self) -> None:
         """A cancelled first waiter does not stop the load or start a second one."""
 
-        class FakeSchemaBuilder:
-            def entities(self, labels: list[str]) -> "FakeSchemaBuilder":
+        class MockSchemaBuilder:
+            def entities(self, labels: list[str]) -> "MockSchemaBuilder":
                 return self
 
-            def relations(self, labels: list[str]) -> "FakeSchemaBuilder":
+            def relations(self, labels: list[str]) -> "MockSchemaBuilder":
                 return self
 
-        class FakeModel:
-            def create_schema(self) -> FakeSchemaBuilder:
-                return FakeSchemaBuilder()
+        class MockModel:
+            def create_schema(self) -> MockSchemaBuilder:
+                return MockSchemaBuilder()
 
             def extract(self, text: str, schema: object, include_spans=False) -> dict:
                 return {"entities": {}, "relation_extraction": {}}
@@ -583,7 +583,7 @@ class TestGlinerExtractor:
             load_calls.append(1)
             load_started.set()
             assert release_load.wait(timeout=5), "test deadlocked"
-            extractor._model = FakeModel()
+            extractor._model = MockModel()
             return extractor._model
 
         extractor._ensure_model = blocking_ensure_model
@@ -619,14 +619,14 @@ class TestGlinerExtractor:
         apple_start = chunk.text.index("Apple")
         iphone_start = chunk.text.index("iPhone")
 
-        class FakeModel:
-            def create_schema(self) -> "FakeModel":
+        class MockModel:
+            def create_schema(self) -> "MockModel":
                 return self
 
-            def entities(self, labels: list[str]) -> "FakeModel":
+            def entities(self, labels: list[str]) -> "MockModel":
                 return self
 
-            def relations(self, labels: list[str]) -> "FakeModel":
+            def relations(self, labels: list[str]) -> "MockModel":
                 return self
 
             def extract(self, text: str, schema: object, include_spans=False) -> dict:
@@ -675,7 +675,7 @@ class TestGlinerExtractor:
                     },
                 }
 
-        result = await GlinerExtractor(model=FakeModel()).extract(
+        result = await GlinerExtractor(model=MockModel()).extract(
             chunk, _OVERWRITE_LABEL_SCHEMA
         )
 
@@ -865,7 +865,7 @@ class TestBAMLExtractor:
         """
         chunk = _chunk()
 
-        class FakeClient:
+        class MockClient:
             async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
                 return SimpleNamespace(
                     entities=[
@@ -876,7 +876,7 @@ class TestBAMLExtractor:
                     relations=[],
                 )
 
-        extractor = BAMLExtractor(client=FakeClient())
+        extractor = BAMLExtractor(client=MockClient())
         result = await extractor.extract(chunk, GENERIC)
 
         assert len(result.entities) == 1
@@ -888,7 +888,7 @@ class TestBAMLExtractor:
         """An entity whose text never occurs in chunk.text is dropped."""
         chunk = _chunk()
 
-        class FakeClient:
+        class MockClient:
             async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
                 return SimpleNamespace(
                     entities=[
@@ -902,7 +902,7 @@ class TestBAMLExtractor:
                     relations=[],
                 )
 
-        extractor = BAMLExtractor(client=FakeClient())
+        extractor = BAMLExtractor(client=MockClient())
         result = await extractor.extract(chunk, GENERIC)
 
         assert [entity.text for entity in result.entities] == ["Ada"]
@@ -910,7 +910,7 @@ class TestBAMLExtractor:
     async def test_extract_drops_entity_with_zero_length_span(self) -> None:
         """A zero-length span is dropped before it reaches ExtractedEntity."""
 
-        class FakeClient:
+        class MockClient:
             async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
                 return SimpleNamespace(
                     entities=[
@@ -924,7 +924,7 @@ class TestBAMLExtractor:
                     relations=[],
                 )
 
-        extractor = BAMLExtractor(client=FakeClient())
+        extractor = BAMLExtractor(client=MockClient())
         result = await extractor.extract(_chunk(), GENERIC)
 
         assert [entity.text for entity in result.entities] == ["Ada"]
@@ -1024,7 +1024,7 @@ class TestBAMLExtractor:
         apple_start = chunk.text.index("Apple")
         iphone_start = chunk.text.index("iPhone")
 
-        class FakeClient:
+        class MockClient:
             async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
                 return SimpleNamespace(
                     entities=[
@@ -1056,7 +1056,7 @@ class TestBAMLExtractor:
                     ],
                 )
 
-        extractor = BAMLExtractor(client=FakeClient())
+        extractor = BAMLExtractor(client=MockClient())
         result = await extractor.extract(chunk, _MULTI_LABEL_SCHEMA)
 
         assert len(result.entities) == 3
@@ -1082,7 +1082,7 @@ class TestBAMLExtractor:
         bob_first = chunk.text.index("Bob")
         bob_second = chunk.text.index("Bob", bob_first + 1)
 
-        class FakeClient:
+        class MockClient:
             async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
                 return SimpleNamespace(
                     entities=[
@@ -1118,7 +1118,7 @@ class TestBAMLExtractor:
                     ],
                 )
 
-        extractor = BAMLExtractor(client=FakeClient())
+        extractor = BAMLExtractor(client=MockClient())
         result = await extractor.extract(chunk, _KNOWS_SCHEMA)
 
         assert len(result.relations) == 1
@@ -1134,7 +1134,7 @@ class TestBAMLExtractor:
     ) -> None:
         """A relation to a hallucinated entity is dropped along with it."""
 
-        class FakeClient:
+        class MockClient:
             async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
                 return SimpleNamespace(
                     entities=[
@@ -1157,7 +1157,7 @@ class TestBAMLExtractor:
                     ],
                 )
 
-        extractor = BAMLExtractor(client=FakeClient())
+        extractor = BAMLExtractor(client=MockClient())
         result = await extractor.extract(_chunk(), _ONE_PAIR_SCHEMA)
 
         assert [entity.text for entity in result.entities] == ["Ada"]
@@ -1166,7 +1166,7 @@ class TestBAMLExtractor:
     async def test_extract_with_injected_client_skips_settings(self) -> None:
         """An injected client works without EXTRACTION_LLM_CLIENTS env vars."""
 
-        class FakeClient:
+        class MockClient:
             async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
                 return SimpleNamespace(
                     entities=[
@@ -1178,7 +1178,7 @@ class TestBAMLExtractor:
                 )
 
         chunk = _chunk()
-        extractor = BAMLExtractor(client=FakeClient())
+        extractor = BAMLExtractor(client=MockClient())
         # No settings set — should not raise
         assert extractor.settings is None
         result = await extractor.extract(chunk, GENERIC)
@@ -1198,12 +1198,12 @@ class TestBAMLExtractor:
 
         captured: dict = {}
 
-        class FakeClient:
+        class MockClient:
             async def ExtractEntitiesAndRelations(self, text, call_options):  # noqa: N802
                 captured["tb"] = call_options["tb"]
                 return SimpleNamespace(entities=[], relations=[])
 
-        extractor = BAMLExtractor(client=FakeClient())
+        extractor = BAMLExtractor(client=MockClient())
         await extractor.extract(_chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA)
 
         request = await b.request.ExtractEntitiesAndRelations(
@@ -1224,7 +1224,7 @@ class TestBAMLExtractor:
     async def test_extract_drops_relations_the_schema_does_not_permit(self) -> None:
         """A relation whose endpoint labels the schema forbids is dropped."""
 
-        class FakeClient:
+        class MockClient:
             async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
                 return SimpleNamespace(
                     entities=[
@@ -1246,7 +1246,7 @@ class TestBAMLExtractor:
                     ],
                 )
 
-        extractor = BAMLExtractor(client=FakeClient())
+        extractor = BAMLExtractor(client=MockClient())
         result = await extractor.extract(_chunk("Ada works at Acme."), _ONE_PAIR_SCHEMA)
         assert len(result.entities) == 2
         assert result.relations == []
@@ -1306,12 +1306,12 @@ class TestBAMLExtractor:
         settings = ExtractionLLMSettings()
         assert settings.retry.max_retries == 7
 
-        class FakeClient:
+        class MockClient:
             async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
                 return SimpleNamespace(entities=[], relations=[])
 
         extractor = BAMLExtractor(settings=settings)
-        monkeypatch.setattr(extractor, "_default_client", FakeClient)
+        monkeypatch.setattr(extractor, "_default_client", MockClient)
 
         result = await extractor.extract(_chunk(), GENERIC)
 
@@ -1369,7 +1369,7 @@ class TestEscalatingExtractor:
             extractor_name="escalate",
         )
 
-        class FakeExtractor:
+        class MockExtractor:
             def __init__(self, result: ExtractionResult, name: str) -> None:
                 self._result = result
                 self._name = name
@@ -1378,8 +1378,8 @@ class TestEscalatingExtractor:
                 ran.append(self._name)
                 return self._result
 
-        primary = FakeExtractor(primary_result, "primary")
-        escalate = FakeExtractor(escalate_result, "escalate")
+        primary = MockExtractor(primary_result, "primary")
+        escalate = MockExtractor(escalate_result, "escalate")
         return EscalatingExtractor(primary=primary, escalate_to=escalate), ran
 
     async def test_escalates_on_zero_yield_above_word_floor(self) -> None:
