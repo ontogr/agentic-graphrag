@@ -1,6 +1,8 @@
 """Retrieval's public entry point, independent of Graph (ADR 0035)."""
 
 import asyncio
+from typing import Any
+from uuid import UUID
 
 from agrag.common.data_models.search_result import SearchResult
 from agrag.embedding.base import Embedder
@@ -79,6 +81,30 @@ class SearchEngine:
         """
         retrievers = self._build_retrievers()
 
+        # Project SearchFilters per retriever: labels only go to entity
+        # search, document_ids only to chunk search, while property
+        # filters apply to both.
+        entity_filters = (
+            SearchFilters(
+                labels=filters.labels if filters else [],
+                properties=filters.properties if filters else {},
+            )
+            if filters and (filters.labels or filters.properties)
+            else None
+        )
+        chunk_filters = (
+            SearchFilters(
+                document_ids=filters.document_ids if filters else [],
+                properties=filters.properties if filters else {},
+            )
+            if filters and (filters.document_ids or filters.properties)
+            else None
+        )
+        retriever_filters: dict[str, SearchFilters | None] = {
+            "entity": entity_filters,
+            "chunk": chunk_filters,
+        }
+
         # Fan out recipe.methods concurrently.
         tasks = []
         method_names = []
@@ -86,7 +112,9 @@ class SearchEngine:
             if method_name in retrievers:
                 tasks.append(
                     retrievers[method_name].retrieve(
-                        query, filters=filters, limit=recipe.limit
+                        query,
+                        filters=retriever_filters.get(method_name, filters),
+                        limit=recipe.limit,
                     )
                 )
                 method_names.append(method_name)
@@ -104,26 +132,23 @@ class SearchEngine:
 
         # BFS expansion as sequential follow-up.
         if recipe.bfs:
-            seed_ids = [
-                r.item.id
-                for r in fused
-                if hasattr(r.item, "id") and type(r.item).__name__ == "Entity"
-            ]
+            seed_ids = self._extract_entity_ids(fused)
             bfs_retriever = BFSRetriever(
                 graph_store=self._graph_store, settings=self._settings
             )
-            bfs_results = await bfs_retriever.retrieve(
-                query,
-                filters=filters,
-                limit=recipe.limit,
-                seed_ids=seed_ids,
-            )
+            bfs_filters = filters if filters and filters.relation_types else None
+            bfs_kwargs: dict[str, Any] = {
+                "query": query,
+                "filters": bfs_filters,
+                "limit": recipe.limit,
+                "seed_ids": seed_ids,
+            }
+            if recipe.bfs_depth is not None:
+                bfs_kwargs["depth"] = recipe.bfs_depth
+            bfs_results = await bfs_retriever.retrieve(**bfs_kwargs)
             if bfs_results:
                 fused = fuse(
-                    {
-                        **{f"fused_{i}": [r] for i, r in enumerate(fused)},
-                        "bfs": bfs_results,
-                    },
+                    {"methods": fused, "bfs": bfs_results},
                     rrf_k=self._settings.rrf_k,
                 )
 
@@ -135,11 +160,7 @@ class SearchEngine:
                 min_score=self._settings.reranker_min_score,
             )
         elif recipe.reranker == "node_distance":
-            seed_ids = [
-                r.item.id
-                for r in fused
-                if hasattr(r.item, "id") and type(r.item).__name__ == "Entity"
-            ]
+            seed_ids = self._extract_entity_ids(fused)
             fused = await node_distance_rerank(
                 fused,
                 graph_store=self._graph_store,
@@ -147,6 +168,30 @@ class SearchEngine:
             )
 
         return fused[: recipe.limit]
+
+    @staticmethod
+    def _extract_entity_ids(
+        results: list[SearchResult],
+    ) -> list[UUID]:
+        """Return entity ids from results, preserving order.
+
+        Used for BFS seeds and node-distance reranking. Keeps the
+        first-seen id of each entity so the fusion ranking is
+        respected. Only Entity items are included; Chunks and other
+        non-entity result items are skipped.
+        """
+        from agrag.common.data_models.entity import Entity  # noqa: PLC0415
+
+        seen: set[UUID] = set()
+        ids: list[UUID] = []
+        for r in results:
+            if not isinstance(r.item, Entity):
+                continue
+            item_id: UUID = r.item.id
+            if item_id not in seen:
+                seen.add(item_id)
+                ids.append(item_id)
+        return ids
 
     def _build_retrievers(self) -> dict:
         """Build the retriever map from current stores."""

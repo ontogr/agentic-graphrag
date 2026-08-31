@@ -26,6 +26,7 @@ from agrag.common.data_models.relation import Relation
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
+    clear_chunk_embedding_query,
     clear_property_query,
     fetch_all_by_label_query,
     fetch_by_merge_keys_query,
@@ -588,16 +589,32 @@ async def _embed_and_upsert_chunks(
     *,
     embedder: Embedder,
     graph_store: GraphStore,
+    error_policy: ErrorPolicy,
 ) -> list[StageFailure]:
     """Embed every chunk's text and write the vectors back onto their nodes.
+
+    On failure, clears any embedding already written to the chunk nodes
+    rather than leaving one computed for stale text in place: vector
+    search must not keep ranking a chunk by outdated content just because
+    this re-embed failed. The clear is guarded by ``expected_text`` the
+    same way the write is, so a concurrent update that changed a chunk's
+    text between this call's embed and its clear does not accidentally
+    wipe a newer vector.
 
     Args:
         chunks: The chunks this call wrote to graph_store already.
         embedder: Produces one vector per chunk text.
-        graph_store: Where the embedding is written back.
+        graph_store: Where the embedding, and on failure the cleared
+            embedding property, are written.
+        error_policy: RAISE propagates the failure after clearing; any
+            other policy returns it instead.
 
     Returns:
         One StageFailure per chunk whose embed or write step raised.
+
+    Raises:
+        Exception: Whatever embed() or the write raised, when
+            error_policy is RAISE.
     """
     try:
         texts = [ch.text for ch in chunks]
@@ -616,6 +633,17 @@ async def _embed_and_upsert_chunks(
             set_chunk_embedding_query("embedding"), {"records": records}
         )
     except Exception as exc:  # noqa: BLE001
+        with contextlib.suppress(Exception):
+            await graph_store.execute_write(
+                clear_chunk_embedding_query("embedding"),
+                {
+                    "records": [
+                        {"id": str(ch.id), "expected_text": ch.text} for ch in chunks
+                    ]
+                },
+            )
+        if error_policy is ErrorPolicy.RAISE:
+            raise
         return [
             StageFailure(
                 item_id="chunk_embeddings",
@@ -1443,6 +1471,7 @@ class Graph:
                     chunks,
                     embedder=self._embedder,
                     graph_store=self._graph_store,
+                    error_policy=error_policy,
                 )
             )
 

@@ -21,6 +21,10 @@ def build_agent(
     planner (decomposes the question), researcher (has tools),
     and verifier (judges evidence sufficiency).
 
+    Each call to ``ainvoke`` creates a fresh ``Ledger`` so
+    citation numbering, identity mappings, and retrieved evidence
+    do not leak across runs.
+
     Args:
         engine: Retrieval to expose to the researcher subagent's
             tools.
@@ -34,30 +38,64 @@ def build_agent(
     """
     settings = agent_settings or AgentSettings()
     model = build_chat_model(llm_settings.clients[0])
-    ledger = Ledger()
-    tools = make_tools(engine, ledger)
 
     try:
         from deepagents import create_deep_agent  # noqa: PLC0415
 
-        return create_deep_agent(
+        inner = create_deep_agent(
             model=model,
+            tools=make_tools(engine, Ledger()),
+            system_prompt=(
+                "You are a research assistant that answers questions "
+                "by searching a knowledge graph and citing evidence."
+            ),
+        )
+        return _RunScopedAgent(inner=inner, engine=engine, model=model)
+    except ImportError:
+        # Fallback: return a simple wrapper when deepagents is not
+        # installed, useful for unit testing without the full extra.
+        return _SimpleAgent(
+            model=model,
+            engine=engine,
+            settings=settings,
+        )
+
+
+class _RunScopedAgent:
+    """Wraps a deepagents graph to create fresh tools per run.
+
+    The inner agent is built once (the graph structure is reused),
+    but each ``ainvoke`` call creates a new ``Ledger`` and tool
+    set so citation state does not span runs.
+    """
+
+    def __init__(
+        self,
+        *,
+        inner: Any,
+        engine: SearchEngine,
+        model: Any,
+    ) -> None:
+        """Construct the wrapper."""
+        self._inner = inner
+        self._engine = engine
+        self._model = model
+
+    async def ainvoke(self, input_data: dict) -> dict[str, Any]:
+        """Delegate to inner agent with a fresh Ledger."""
+        from deepagents import create_deep_agent  # noqa: PLC0415
+
+        ledger = Ledger()
+        tools = make_tools(self._engine, ledger)
+        agent = create_deep_agent(
+            model=self._model,
             tools=tools,
             system_prompt=(
                 "You are a research assistant that answers questions "
                 "by searching a knowledge graph and citing evidence."
             ),
         )
-    except ImportError:
-        # Fallback: return a simple wrapper when deepagents is not
-        # installed, useful for unit testing without the full extra.
-        return _SimpleAgent(
-            model=model,
-            tools=tools,
-            ledger=ledger,
-            engine=engine,
-            settings=settings,
-        )
+        return await agent.ainvoke(input_data)
 
 
 class _SimpleAgent:
@@ -67,20 +105,19 @@ class _SimpleAgent:
         self,
         *,
         model: Any,
-        tools: list[Any],
-        ledger: Ledger,
         engine: SearchEngine,
         settings: AgentSettings,
     ) -> None:
         """Construct a simple agent wrapper."""
         self._model = model
-        self._tools = {t.name: t for t in tools}
-        self._ledger = ledger
         self._engine = engine
         self._settings = settings
 
     async def ainvoke(self, input_data: dict) -> dict[str, Any]:
-        """Run the agent synchronously (simplified path).
+        """Run the agent with a fresh ledger (simplified path).
+
+        Creates a new ``Ledger`` and tool set per invocation so
+        citation state does not span runs.
 
         Args:
             input_data: Dict with ``messages`` key.
@@ -92,12 +129,12 @@ class _SimpleAgent:
         if not messages:
             return {"messages": []}
 
+        ledger = Ledger()
         question = messages[-1].get("content", "")
-        # Simple direct search for testing.
         from agrag.retrieval.recipes import HYBRID  # noqa: PLC0415
 
         results = await self._engine.search(question, HYBRID)
-        evidence = [self._ledger.render(r) for r in results]
+        evidence = [ledger.render(r) for r in results]
         answer = (
             "Based on the knowledge graph:\n" + "\n".join(evidence)
             if evidence

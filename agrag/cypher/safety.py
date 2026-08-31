@@ -4,6 +4,7 @@ import re
 
 
 _WRITE_KEYWORDS = frozenset({"CREATE", "MERGE", "DELETE", "SET", "REMOVE", "DROP"})
+_CALL_KEYWORDS = frozenset({"CALL"})
 
 
 class UnsafeCypherError(Exception):
@@ -36,4 +37,8 @@ def reject_write_cypher(query: str) -> None:
         if token in _WRITE_KEYWORDS:
             raise UnsafeCypherError(
                 f"Generated Cypher contains write keyword '{token}': {query[:200]}"
+            )
+        if token in _CALL_KEYWORDS:
+            raise UnsafeCypherError(
+                f"Generated Cypher contains CALL keyword: {query[:200]}"
             )

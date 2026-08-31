@@ -49,14 +49,20 @@ class TestRejectWriteCypher:
         """A pure MATCH...RETURN query is accepted."""
         reject_write_cypher("MATCH (n:Person) WHERE n.name = $name RETURN n")
 
-    def test_accepts_call_vector_query(self) -> None:
-        """CALL db.index.vector.queryNodes is accepted (read Cypher)."""
-        reject_write_cypher(
-            "CALL db.index.vector.queryNodes("
-            "'my_index', 10, $vector) "
-            "YIELD node, score "
-            "RETURN node, score"
-        )
+    def test_rejects_call(self) -> None:
+        """A query containing CALL is rejected."""
+        with pytest.raises(UnsafeCypherError, match="CALL"):
+            reject_write_cypher(
+                "CALL db.index.vector.queryNodes("
+                "'my_index', 10, $vector) "
+                "YIELD node, score "
+                "RETURN node, score"
+            )
+
+    def test_rejects_call_in_subquery(self) -> None:
+        """CALL inside a subquery is rejected."""
+        with pytest.raises(UnsafeCypherError, match="CALL"):
+            reject_write_cypher("MATCH (n) CALL { WITH n RETURN n } RETURN n")
 
     def test_ignores_keywords_inside_string_literals(self) -> None:
         """DELETE inside a string literal does not trigger rejection."""

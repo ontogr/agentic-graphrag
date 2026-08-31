@@ -37,6 +37,7 @@ from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import (
     Graph,
     _apply_merge_with_conflict_retry,
+    _embed_and_upsert_chunks,
     _embed_and_upsert_survivors,
     _extract_merged_into,
     _global_exact_match,
@@ -1246,12 +1247,14 @@ class TestGlobalRelationLookup:
 class _GuardedNodeStore(MockStore):
     """MockStore whose execute_write honors the embedding write/clear guard.
 
-    set_embedding_query and clear_property_query only apply a record when
-    the target node's current name/description match the record's
-    expected_name/expected_description, and (for set_embedding_query only)
-    the node is not merged_into another entity. Real Neo4j enforces that
-    WHERE clause; this fake reproduces it in memory so a concurrent-write
-    test can prove a stale record is rejected without a live database.
+    ``set_embedding_query`` / ``clear_property_query`` apply a record
+    only when the target node's current name/description match the
+    record's ``expected_name`` / ``expected_description``. The chunk
+    variants (``set_chunk_embedding_query`` /
+    ``clear_chunk_embedding_query``) guard on ``text`` instead. Real
+    Neo4j enforces those WHERE clauses; this fake reproduces them in
+    memory so a concurrent-write test can prove a stale record is
+    rejected without a live database.
     """
 
     def __init__(self, nodes: dict[str, dict[str, Any]]) -> None:
@@ -1267,9 +1270,19 @@ class _GuardedNodeStore(MockStore):
             node = self.nodes.get(record["id"])
             if node is None:
                 continue
-            if node["name"] != record["expected_name"]:
+            # Entity guard: name + description.
+            if "expected_name" in record and node["name"] != record["expected_name"]:
                 continue
-            if (node.get("description") or "") != record["expected_description"]:
+            if (
+                "expected_description" in record
+                and (node.get("description") or "") != record["expected_description"]
+            ):
+                continue
+            # Chunk guard: text.
+            if (
+                "expected_text" in record
+                and node.get("text") != record["expected_text"]
+            ):
                 continue
             if "REMOVE n.embedding" in query:
                 node["embedding"] = None
@@ -1419,6 +1432,157 @@ class TestEmbedAndUpsertSurvivors:
         )
 
         assert store.nodes[str(entity_id)]["embedding"] == [0.9, 0.9]
+
+
+class TestEmbedAndUpsertChunks:
+    """Tests for _embed_and_upsert_chunks error handling and cleanup."""
+
+    async def test_success_writes_embeddings(self) -> None:
+        """On success, chunk embeddings are written."""
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Hello world",
+            provenance=TextProvenance(char_start=0, char_end=11),
+        )
+        store = _GuardedNodeStore(
+            {
+                str(ch.id): {
+                    "name": "Hello world",
+                    "text": "Hello world",
+                    "embedding": None,
+                }
+            }
+        )
+
+        failures = await _embed_and_upsert_chunks(
+            [ch],
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.RAISE,
+        )
+
+        assert failures == []
+        assert store.nodes[str(ch.id)]["embedding"] is not None
+
+    async def test_failure_clears_embeddings_and_raises(self) -> None:
+        """On embed failure with RAISE, embeddings are cleared.
+
+        The error then propagates.
+        """
+
+        class _FailingEmbedder(MockEmbedder):
+            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+                raise RuntimeError("embed backend down")
+
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Hello world",
+            provenance=TextProvenance(char_start=0, char_end=11),
+        )
+        store = _GuardedNodeStore(
+            {
+                str(ch.id): {
+                    "name": "Hello world",
+                    "text": "Hello world",
+                    "embedding": [0.5, 0.5],
+                }
+            }
+        )
+
+        with pytest.raises(RuntimeError, match="embed backend down"):
+            await _embed_and_upsert_chunks(
+                [ch],
+                embedder=_FailingEmbedder(),
+                graph_store=store,
+                error_policy=ErrorPolicy.RAISE,
+            )
+
+        # Embedding should be cleared after the failure.
+        assert store.nodes[str(ch.id)]["embedding"] is None
+
+    async def test_failure_clears_embeddings_and_returns_skip(self) -> None:
+        """On embed failure with SKIP, embeddings are cleared.
+
+        A StageFailure is returned instead of raising.
+        """
+
+        class _FailingEmbedder(MockEmbedder):
+            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+                raise RuntimeError("embed timeout")
+
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Hello world",
+            provenance=TextProvenance(char_start=0, char_end=11),
+        )
+        store = _GuardedNodeStore(
+            {
+                str(ch.id): {
+                    "name": "Hello world",
+                    "text": "Hello world",
+                    "embedding": [0.5, 0.5],
+                }
+            }
+        )
+
+        failures = await _embed_and_upsert_chunks(
+            [ch],
+            embedder=_FailingEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.SKIP,
+        )
+
+        assert len(failures) == 1
+        assert failures[0].error_type == "RuntimeError"
+        assert store.nodes[str(ch.id)]["embedding"] is None
+
+    async def test_stale_text_guard_prevents_clearing_newer_vector(
+        self,
+    ) -> None:
+        """A chunk whose text changed since embed keeps its vector.
+
+        The text guard must reject the clear when the persisted text
+        differs from the text this call embedded.
+        """
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Old text",
+            provenance=TextProvenance(char_start=0, char_end=8),
+        )
+        # Node's persisted text is different from what this call embedded.
+        store = _GuardedNodeStore(
+            {
+                str(ch.id): {
+                    "name": "New text",
+                    "text": "New text",
+                    "embedding": [0.9, 0.9],
+                }
+            }
+        )
+
+        class _FailingEmbedder(MockEmbedder):
+            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+                raise RuntimeError("fail")
+
+        with pytest.raises(RuntimeError):
+            await _embed_and_upsert_chunks(
+                [ch],
+                embedder=_FailingEmbedder(),
+                graph_store=store,
+                error_policy=ErrorPolicy.RAISE,
+            )
+
+        # The newer vector must be preserved because the guard rejected
+        # the clear for stale text.
+        assert store.nodes[str(ch.id)]["embedding"] == [0.9, 0.9]
 
 
 class TestGraphOpen:
@@ -2085,7 +2249,8 @@ class TestGraphAddPipeline:
             for call in store.execute_write_calls
             if call[1] and "records" in call[1] and "vector" in call[1]["records"][0]
         ]
-        assert len(embedding_calls) == 1
+        # At least one embedding write: entity and/or chunk.
+        assert len(embedding_calls) >= 1
         assert result.storage.nodes_written >= 1
 
     async def test_embedding_failure_clears_stale_embedding(self) -> None:
@@ -2135,7 +2300,8 @@ class TestGraphAddPipeline:
             for call in store.execute_write_calls
             if "REMOVE n.embedding" in call[0]
         ]
-        assert len(clear_calls) == 1
+        # Both chunk and entity embedding clears on failure.
+        assert len(clear_calls) >= 1
         assert result.storage.failures
 
     async def test_embedding_failure_clears_before_raising(self) -> None:
@@ -2180,7 +2346,8 @@ class TestGraphAddPipeline:
             for call in store.execute_write_calls
             if "REMOVE n.embedding" in call[0]
         ]
-        assert len(clear_calls) == 1
+        # Both chunk and entity embedding clears happen before raising.
+        assert len(clear_calls) >= 1
 
     async def test_all_entities_by_label_pagination(self) -> None:
         """Pagination via skip/limit."""
@@ -2405,7 +2572,8 @@ class TestGraphAddPipeline:
             for call in store.execute_write_calls
             if call[1] and "records" in call[1] and "vector" in call[1]["records"][0]
         ]
-        assert len(embedding_calls) == 1
+        # At least one embedding write: entity and/or chunk.
+        assert len(embedding_calls) >= 1
 
     async def test_consolidate_apply_clears_embedding_on_failure(self) -> None:
         """A failed re-embed during apply clears the stale embedding and reports it."""

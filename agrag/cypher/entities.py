@@ -361,6 +361,31 @@ def set_chunk_embedding_query(vector_property: str) -> str:
     )
 
 
+def clear_chunk_embedding_query(vector_property: str) -> str:
+    """Build Cypher removing a vector property from Chunk nodes.
+
+    Guards on ``text`` the same way ``set_chunk_embedding_query`` does,
+    so a concurrent update that changed a chunk's text between this
+    call's embed and its clear does not accidentally wipe a newer
+    vector.
+
+    Args:
+        vector_property: The property to remove. Must already be
+            validated.
+
+    Returns:
+        Parameterized Cypher expecting $records, a list of dicts with
+        the keys id and expected_text.
+    """
+    safe_property = validate_identifier(vector_property)
+    return (
+        f"UNWIND $records AS record "
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"WHERE n.text = record.expected_text "
+        f"REMOVE n.{safe_property}"
+    )
+
+
 def resolve_merged_into_query(*, max_hops: int = 10) -> str:
     """Return current data for a node, following any merged_into chain.
 

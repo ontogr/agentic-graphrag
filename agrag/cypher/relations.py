@@ -4,10 +4,17 @@ Leaf module: imports nothing from ``agrag.graphdb``. See ``entities.py`` for the
 identifier-validation contract shared by every Cypher builder.
 """
 
+from typing import Any
+
 from agrag.cypher.entities import validate_identifier
 
 
-def bfs_expand_query(*, depth: int = 2, limit: int = 50) -> str:
+def bfs_expand_query(
+    *,
+    depth: int = 2,
+    limit: int = 50,
+    filters: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
     """Build Cypher for BFS expansion from seed entity ids.
 
     Traverses outgoing relationships from a set of seed entities, bounded
@@ -16,21 +23,45 @@ def bfs_expand_query(*, depth: int = 2, limit: int = 50) -> str:
     not accept a parameter for a variable-length relationship bound. It
     must come from ``RetrievalSettings``, never from user input.
 
+    ``depth`` is clamped to [1, 10] and ``limit`` to [1, 1000] so
+    misconfigured or malicious settings cannot produce unbounded
+    traversals. The clamp is applied here, closest to the Cypher
+    interpolation, so every caller benefits.
+
+    Result nodes are restricted to ``_AgragNode`` entities that are
+    **not** ``Chunk`` nodes: chunks are intermediate path nodes only,
+    never returned as BFS results.
+
     Args:
-        depth: The maximum BFS hops. Must be a small, trusted constant.
-        limit: The maximum number of result nodes.
+        depth: The maximum BFS hops. Clamped to [1, 10].
+        limit: The maximum number of result nodes. Clamped to [1, 1000].
+        filters: Optional flat-dict filter applied to neighbor nodes.
+            A scalar value means exact match, a list means any of.
 
     Returns:
-        Parameterized Cypher expecting $seed_ids (list of string ids).
+        A ``(query, params)`` tuple. The query expects ``$seed_ids``
+        (list of string ids) plus any filter parameters.
     """
-    return (
+    from agrag.cypher.entities import filter_clause  # noqa: PLC0415
+
+    safe_depth = max(1, min(depth, 10))
+    safe_limit = max(1, min(limit, 1000))
+
+    where_clause, filter_params = filter_clause(filters or {}, node_var="neighbor")
+    filter_suffix = f" AND {where_clause[6:]}" if where_clause else ""
+    base_where = (
+        "neighbor:_AgragNode AND NOT neighbor:Chunk AND NOT neighbor.id IN $seed_ids"
+    )
+    where = f"{base_where}{filter_suffix}"
+    query = (
         f"UNWIND $seed_ids AS seed_id "
         f"MATCH (start:_AgragNode {{id: seed_id}}) "
-        f"MATCH path = (start)-[*1..{depth}]-(neighbor) "
-        f"WHERE neighbor:_AgragNode AND NOT neighbor.id IN $seed_ids "
+        f"MATCH path = (start)-[*1..{safe_depth}]-(neighbor) "
+        f"WHERE {where} "
         f"RETURN DISTINCT neighbor, neighbor.id AS id "
-        f"LIMIT {limit}"
+        f"LIMIT {safe_limit}"
     )
+    return query, filter_params
 
 
 def chunks_mentioning_entities_query() -> str:

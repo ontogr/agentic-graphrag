@@ -46,6 +46,7 @@ class BFSRetriever(Retriever):
         filters: SearchFilters | None = None,
         limit: int | None = None,
         seed_ids: list[UUID] | None = None,
+        depth: int | None = None,
     ) -> list[SearchResult]:
         """Run BFS expansion from seed entity ids.
 
@@ -56,6 +57,8 @@ class BFSRetriever(Retriever):
             limit: Maximum results. None uses traversal_limit.
             seed_ids: The entity ids to expand from. If None, BFS
                 returns empty.
+            depth: BFS hops. None uses
+                RetrievalSettings.traversal_depth.
 
         Returns:
             SearchResults with entities and relations found via BFS.
@@ -64,12 +67,15 @@ class BFSRetriever(Retriever):
             return []
 
         effective_limit = limit or self._settings.traversal_limit
-        depth = self._settings.traversal_depth
+        effective_depth = depth if depth is not None else self._settings.traversal_depth
 
-        rows = await self._graph_store.execute_read(
-            bfs_expand_query(depth=depth, limit=effective_limit),
-            {"seed_ids": [str(sid) for sid in seed_ids]},
+        filter_dict = filters.to_payload_filter() if filters else None
+        query, filter_params = bfs_expand_query(
+            depth=effective_depth, limit=effective_limit, filters=filter_dict,
         )
+        params = {"seed_ids": [str(sid) for sid in seed_ids], **filter_params}
+
+        rows = await self._graph_store.execute_read(query, params)
 
         results: list[SearchResult] = []
         seen_ids: set[UUID] = set()
