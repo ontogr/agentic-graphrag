@@ -329,14 +329,14 @@ the dependency points one way (store -> cypher).
 
 **Functions:**
 
-- [**clear_property_query**](#agrag.cypher.entities.clear_property_query) – Build Cypher removing one property from a batch of nodes by id.
+- [**clear_property_query**](#agrag.cypher.entities.clear_property_query) – Build Cypher removing one property from a batch of nodes, guarded by text.
 - [**fetch_all_by_label_query**](#agrag.cypher.entities.fetch_all_by_label_query) – Build Cypher paginating every node with label, for consolidate().
 - [**fetch_by_merge_keys_query**](#agrag.cypher.entities.fetch_by_merge_keys_query) – Build Cypher for a batched exact-match lookup by merge key.
 - [**fetch_relations_between_query**](#agrag.cypher.entities.fetch_relations_between_query) – Build Cypher for batched lookup of existing relations by endpoints.
 - [**filter_clause**](#agrag.cypher.entities.filter_clause) – Build a Cypher WHERE clause and parameters from a flat-dict filter.
 - [**is_safe_identifier**](#agrag.cypher.entities.is_safe_identifier) – Report whether a label or relationship type is a safe Cypher identifier.
 - [**merge_key_index_query**](#agrag.cypher.entities.merge_key_index_query) – Build a CREATE INDEX query on the node merge_key property.
-- [**set_embedding_query**](#agrag.cypher.entities.set_embedding_query) – Build Cypher setting one vector property per node, by id.
+- [**set_embedding_query**](#agrag.cypher.entities.set_embedding_query) – Build Cypher setting one vector property per node, guarded by its text.
 - [**upsert_merge_alias_query**](#agrag.cypher.entities.upsert_merge_alias_query) – Build Cypher recording every accepted merge_key's owning entity id.
 - [**upsert_node_query**](#agrag.cypher.entities.upsert_node_query) – Build the Cypher for an UNWIND-batched node upsert.
 - [**upsert_survivor_query**](#agrag.cypher.entities.upsert_survivor_query) – Build Cypher upserting a merge survivor with atomic accumulation.
@@ -365,11 +365,15 @@ NODE_IDENTITY_LABEL = '_AgragNode'
 clear_property_query(property_name:str) -> str
 ```
 
-Build Cypher removing one property from a batch of nodes by id.
+Build Cypher removing one property from a batch of nodes, guarded by text.
 
 Used to drop a stale value rather than leave it readable after a write
 that was supposed to replace it fails partway through, such as an
-embedding vector left over from before an entity's text changed.
+embedding vector left over from before an entity's text changed. The
+same `name`/`description` guard as `set_embedding_query` applies:
+a record only clears the property if the node's text still matches what
+this call started with, so it cannot wipe a vector a newer, still-in-
+flight call has already written for different text.
 
 **Parameters:**
 
@@ -377,7 +381,8 @@ embedding vector left over from before an entity's text changed.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of strings).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $records, a list of dicts with the keys
+- <code>[str](#str)</code> – id, expected_name, and expected_description.
 
 ##### `agrag.cypher.entities.fetch_all_by_label_query`
 
@@ -406,10 +411,10 @@ Build Cypher for a batched exact-match lookup by merge key.
 Resolves through the merge-key alias table (`MERGE_ALIAS_LABEL`)
 rather than matching each node's own `merge_key` property directly:
 that property is cleared when a node is tombstoned (see
-`tombstone_query`), so a name it once held would otherwise become
-unreachable. The alias always points at the entity id that first held
-the key, which may itself now be a tombstone; the caller follows its
-`merged_into` chain to the live survivor.
+`clear_tombstone_merge_keys_query`), so a name it once held would
+otherwise become unreachable. The alias always points at the entity id
+that first held the key, which may itself now be a tombstone; the caller
+follows its `merged_into` chain to the live survivor.
 
 `merge_key` is returned alongside `n` so the caller can map a row
 back to the mention(s) that queried it without re-deriving a key from
@@ -504,13 +509,16 @@ Backs the global exact-match lookup.
 set_embedding_query(vector_property:str) -> str
 ```
 
-Build Cypher setting one vector property per node, by id.
+Build Cypher setting one vector property per node, guarded by its text.
 
 Touches only `vector_property`, unlike a full node upsert: another
 write can update an entity's provenance or properties while its new
 embedding is being computed, and overwriting the whole node from a
 snapshot taken before that update would discard it along with
-delivering the vector.
+delivering the vector. The `name`/`description` match is an
+optimistic-concurrency guard: a record only applies if the node's text
+still matches what its vector was computed from, so a slower write from
+an older call cannot overwrite a newer one's vector with a stale one.
 
 **Parameters:**
 
@@ -518,7 +526,8 @@ delivering the vector.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $records (list of `{id, vector}`).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $records, a list of dicts with the keys
+- <code>[str](#str)</code> – id, vector, expected_name, and expected_description.
 
 ##### `agrag.cypher.entities.upsert_merge_alias_query`
 
@@ -646,6 +655,7 @@ Cypher for the tombstone/transfer/dedup merge path.
 
 - [**apply_relationship_dedup_delete_query**](#agrag.cypher.merge.apply_relationship_dedup_delete_query) – Build Cypher deleting relationships a dedup pass superseded.
 - [**apply_relationship_dedup_update_query**](#agrag.cypher.merge.apply_relationship_dedup_update_query) – Build Cypher applying a kept relationship's merged properties.
+- [**clear_tombstone_merge_keys_query**](#agrag.cypher.merge.clear_tombstone_merge_keys_query) – Build Cypher removing merge_key from nodes about to be absorbed.
 - [**delete_internal_relationships_query**](#agrag.cypher.merge.delete_internal_relationships_query) – Build Cypher deleting edges that would become meaningless self-links.
 - [**fetch_node_relationships_query**](#agrag.cypher.merge.fetch_node_relationships_query) – Build Cypher fetching one direction of a node's own relationships.
 - [**tombstone_query**](#agrag.cypher.merge.tombstone_query) – Build Cypher marking one or more nodes as merged, never deleting them.
@@ -678,6 +688,30 @@ Build Cypher applying a kept relationship's merged properties.
 - <code>[str](#str)</code> – `{id, rel_type, properties}`), where properties is the full merged
 - <code>[str](#str)</code> – property map -- not just source_chunk_ids -- so a duplicate's other
 - <code>[str](#str)</code> – fields are not silently dropped when its edge is deleted.
+
+##### `agrag.cypher.merge.clear_tombstone_merge_keys_query`
+
+```python
+clear_tombstone_merge_keys_query(label:str) -> str
+```
+
+Build Cypher removing merge_key from nodes about to be absorbed.
+
+Must run before `upsert_survivor_query` writes the survivor, not after
+`tombstone_query`: canonical selection can choose a different node as
+survivor than the one a property rule (e.g. KEEP_FIRST) resolves the
+name from, so the survivor's resolved merge_key can equal a still-live
+tombstone's own merge_key. Writing the survivor first would then collide
+with the per-label `merge_key` uniqueness constraint, since both nodes
+would briefly hold the same value.
+
+**Parameters:**
+
+- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $tombstone_ids.
 
 ##### `agrag.cypher.merge.delete_internal_relationships_query`
 
@@ -856,9 +890,9 @@ Build a CREATE CONSTRAINT query making `merge_key` unique per label.
 Backs the concurrent-ingestion safety tier: two concurrent `add()` calls
 for the same `(label, normalized name)` cannot both create a canonical
 node; the second fails the constraint and is resolved to the canonical via
-the merge path. Tombstoned nodes clear their `merge_key` when marked
-`merged_into`, so the constraint permits one live survivor per key plus
-any number of tombstones.
+the merge path. A node absorbed by a merge has its `merge_key` cleared
+before it is marked `merged_into`, so the constraint permits one live
+survivor per key plus any number of tombstones.
 
 **Parameters:**
 
@@ -2957,6 +2991,7 @@ Errors that the graph-store layer raises.
 **Classes:**
 
 - [**GraphStoreConstraintViolationError**](#agrag.graphdb.errors.GraphStoreConstraintViolationError) – A write violated a uniqueness constraint the backend enforces.
+- [**GraphStoreDataIntegrityError**](#agrag.graphdb.errors.GraphStoreDataIntegrityError) – A read found the graph store in a state its own invariants forbid.
 - [**GraphStoreError**](#agrag.graphdb.errors.GraphStoreError) – The base class for every graph-store error.
 - [**GraphStoreMissingExtraError**](#agrag.graphdb.errors.GraphStoreMissingExtraError) – A graph store exists, but its package extra is not installed.
 
@@ -2971,6 +3006,18 @@ so callers can recognize this specific case -- for example, two
 concurrent writers both missing an exact-match lookup and racing to
 create the same `merge_key` -- and recover by re-resolving to
 whichever write landed first, rather than treating it as a fatal error.
+
+##### `agrag.graphdb.errors.GraphStoreDataIntegrityError`
+
+Bases: <code>[GraphStoreError](#agrag.graphdb.errors.GraphStoreError)</code>
+
+A read found the graph store in a state its own invariants forbid.
+
+Raised when persisted data cannot be trusted at face value -- for
+example a `merged_into` tombstone chain that cycles, points at a
+missing node, or runs past its expected bound without reaching a live
+node. Returning the last-seen data in these cases would let a caller
+silently act on a tombstone instead of the entity it was absorbed into.
 
 ##### `agrag.graphdb.errors.GraphStoreError`
 
@@ -4130,14 +4177,20 @@ apply_merge(plan:MergePlan, *, graph_store:GraphStore, schema:GraphSchema) -> No
 
 Write a computed MergePlan to storage.
 
-Every call runs inside one GraphStore transaction: it always upserts the
-survivor and records a merge-key alias for its current name, and, when
-tombstone_ids is non-empty, also tombstones, deletes edges that would
-become meaningless self-links, transfers what remains, and dedupes the
-survivor's resulting neighbourhood. A failure partway through leaves no
-half-written state: no survivor without its alias, no tombstone without
-its edges transferred, no transferred edge without its duplicate cleaned
-up.
+Every call runs inside one GraphStore transaction: when tombstone_ids is
+non-empty, it first clears merge_key from every entity about to be
+absorbed, since canonical selection can pick a different node as
+survivor than the one a property rule (e.g. KEEP_FIRST) resolves the
+name from, so the survivor's resolved merge_key can equal a still-live
+tombstone's own merge_key -- writing the survivor before clearing that
+would collide with the per-label merge_key uniqueness constraint. It
+then always upserts the survivor and records a merge-key alias for its
+current name, and, when tombstone_ids is non-empty, also tombstones,
+deletes edges that would become meaningless self-links, transfers what
+remains, and dedupes the survivor's resulting neighbourhood. A failure
+partway through leaves no half-written state: no survivor without its
+alias, no tombstone without its edges transferred, no transferred edge
+without its duplicate cleaned up.
 
 **Parameters:**
 

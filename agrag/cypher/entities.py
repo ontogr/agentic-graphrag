@@ -21,10 +21,10 @@ NODE_IDENTITY_LABEL = "_AgragNode"
 
 # One node per merge_key ever assigned to any entity, permanently mapping
 # that key to the entity's own id. A live entity's node also carries
-# merge_key directly (see merge_key_constraint_query), but tombstone_query
-# clears that property on absorption; this table is what keeps an absorbed
-# name resolvable afterward. See fetch_by_merge_keys_query and
-# upsert_merge_alias_query.
+# merge_key directly (see merge_key_constraint_query), but
+# clear_tombstone_merge_keys_query clears that property on absorption; this
+# table is what keeps an absorbed name resolvable afterward. See
+# fetch_by_merge_keys_query and upsert_merge_alias_query.
 MERGE_ALIAS_LABEL = "_AgragMergeAlias"
 
 
@@ -127,10 +127,10 @@ def fetch_by_merge_keys_query() -> str:
     Resolves through the merge-key alias table (``MERGE_ALIAS_LABEL``)
     rather than matching each node's own ``merge_key`` property directly:
     that property is cleared when a node is tombstoned (see
-    ``tombstone_query``), so a name it once held would otherwise become
-    unreachable. The alias always points at the entity id that first held
-    the key, which may itself now be a tombstone; the caller follows its
-    ``merged_into`` chain to the live survivor.
+    ``clear_tombstone_merge_keys_query``), so a name it once held would
+    otherwise become unreachable. The alias always points at the entity id
+    that first held the key, which may itself now be a tombstone; the caller
+    follows its ``merged_into`` chain to the live survivor.
 
     ``merge_key`` is returned alongside ``n`` so the caller can map a row
     back to the mention(s) that queried it without re-deriving a key from
@@ -241,8 +241,8 @@ def set_embedding_query(vector_property: str) -> str:
         vector_property: The property to set. Must already be validated.
 
     Returns:
-        Parameterized Cypher expecting $records (list of ``{id, vector,
-        expected_name, expected_description}``).
+        Parameterized Cypher expecting $records, a list of dicts with the keys
+        id, vector, expected_name, and expected_description.
     """
     safe_property = validate_identifier(vector_property)
     return (
@@ -269,8 +269,8 @@ def clear_property_query(property_name: str) -> str:
         property_name: The property to remove. Must already be validated.
 
     Returns:
-        Parameterized Cypher expecting $records (list of ``{id,
-        expected_name, expected_description}``).
+        Parameterized Cypher expecting $records, a list of dicts with the keys
+        id, expected_name, and expected_description.
     """
     safe_property = validate_identifier(property_name)
     return (

@@ -604,14 +604,20 @@ async def apply_merge(
 ) -> None:
     """Write a computed MergePlan to storage.
 
-    Every call runs inside one GraphStore transaction: it always upserts the
-    survivor and records a merge-key alias for its current name, and, when
-    tombstone_ids is non-empty, also tombstones, deletes edges that would
-    become meaningless self-links, transfers what remains, and dedupes the
-    survivor's resulting neighbourhood. A failure partway through leaves no
-    half-written state: no survivor without its alias, no tombstone without
-    its edges transferred, no transferred edge without its duplicate cleaned
-    up.
+    Every call runs inside one GraphStore transaction: when tombstone_ids is
+    non-empty, it first clears merge_key from every entity about to be
+    absorbed, since canonical selection can pick a different node as
+    survivor than the one a property rule (e.g. KEEP_FIRST) resolves the
+    name from, so the survivor's resolved merge_key can equal a still-live
+    tombstone's own merge_key -- writing the survivor before clearing that
+    would collide with the per-label merge_key uniqueness constraint. It
+    then always upserts the survivor and records a merge-key alias for its
+    current name, and, when tombstone_ids is non-empty, also tombstones,
+    deletes edges that would become meaningless self-links, transfers what
+    remains, and dedupes the survivor's resulting neighbourhood. A failure
+    partway through leaves no half-written state: no survivor without its
+    alias, no tombstone without its edges transferred, no transferred edge
+    without its duplicate cleaned up.
 
     Args:
         plan: The merge to write.
@@ -627,6 +633,7 @@ async def apply_merge(
     from agrag.cypher.merge import (  # noqa: PLC0415
         apply_relationship_dedup_delete_query,
         apply_relationship_dedup_update_query,
+        clear_tombstone_merge_keys_query,
         delete_internal_relationships_query,
         fetch_node_relationships_query,
         tombstone_query,
@@ -636,8 +643,15 @@ async def apply_merge(
 
     validate_identifier(plan.survivor.label)
     survivor_id = str(plan.survivor.id)
+    tombstone_ids = [str(tid) for tid in plan.tombstone_ids]
 
     async with graph_store.transaction() as txn:
+        if tombstone_ids:
+            await txn.execute_write(
+                clear_tombstone_merge_keys_query(plan.survivor.label),
+                {"tombstone_ids": tombstone_ids},
+            )
+
         # Everything except source_chunk_ids/merged_from/merge_count is
         # applied as-is; those three go through upsert_survivor_query's
         # atomic accumulation instead, using node_params only to get their
@@ -664,10 +678,8 @@ async def apply_merge(
             {"merge_keys": accepted_merge_keys, "entity_id": survivor_id},
         )
 
-        if not plan.tombstone_ids:
+        if not tombstone_ids:
             return
-
-        tombstone_ids = [str(tid) for tid in plan.tombstone_ids]
 
         await txn.execute_write(
             tombstone_query(plan.survivor.label),

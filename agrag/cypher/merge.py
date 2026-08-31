@@ -3,6 +3,30 @@
 from agrag.cypher.entities import validate_identifier
 
 
+def clear_tombstone_merge_keys_query(label: str) -> str:
+    """Build Cypher removing merge_key from nodes about to be absorbed.
+
+    Must run before ``upsert_survivor_query`` writes the survivor, not after
+    ``tombstone_query``: canonical selection can choose a different node as
+    survivor than the one a property rule (e.g. KEEP_FIRST) resolves the
+    name from, so the survivor's resolved merge_key can equal a still-live
+    tombstone's own merge_key. Writing the survivor first would then collide
+    with the per-label ``merge_key`` uniqueness constraint, since both nodes
+    would briefly hold the same value.
+
+    Args:
+        label: The node label. Must already be validated.
+
+    Returns:
+        Parameterized Cypher expecting $tombstone_ids.
+    """
+    return (
+        f"UNWIND $tombstone_ids AS tombstone_id "
+        f"MATCH (n:{validate_identifier(label)} {{id: tombstone_id}}) "
+        f"REMOVE n.merge_key"
+    )
+
+
 def tombstone_query(label: str) -> str:
     """Build Cypher marking one or more nodes as merged, never deleting them.
 
@@ -15,8 +39,7 @@ def tombstone_query(label: str) -> str:
     return (
         f"UNWIND $tombstone_ids AS tombstone_id "
         f"MATCH (n:{validate_identifier(label)} {{id: tombstone_id}}) "
-        f"SET n.merged_into = $survivor_id "
-        f"REMOVE n.merge_key"
+        f"SET n.merged_into = $survivor_id"
     )
 
 

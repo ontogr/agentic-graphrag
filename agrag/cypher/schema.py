@@ -84,9 +84,9 @@ def merge_key_constraint_query(label: str) -> str:
     Backs the concurrent-ingestion safety tier: two concurrent ``add()`` calls
     for the same ``(label, normalized name)`` cannot both create a canonical
     node; the second fails the constraint and is resolved to the canonical via
-    the merge path. Tombstoned nodes clear their ``merge_key`` when marked
-    ``merged_into``, so the constraint permits one live survivor per key plus
-    any number of tombstones.
+    the merge path. A node absorbed by a merge has its ``merge_key`` cleared
+    before it is marked ``merged_into``, so the constraint permits one live
+    survivor per key plus any number of tombstones.
 
     Args:
         label: The node label. Must already be validated.

@@ -380,9 +380,10 @@ class GlinerExtractor(Extractor):
         """Return an ExtractionResult built from gliner2's raw output.
 
         Called with ``include_spans=True``, GLiNER2.5's extract() returns a dict
-        with ``entities`` (label -> list of ``{"text", "start", "end"}`` mention
-        dicts) and ``relation_extraction`` (label -> list of ``{"head", "tail"}``
-        dicts, each endpoint shaped like a mention dict). Every reported span is
+        with ``entities`` (label -> list of mention dicts each having the keys
+        text, start, end) and ``relation_extraction`` (label -> list of relation
+        dicts each having the keys head, tail, with endpoints shaped like mention
+        dicts). Every reported span is
         verified against chunk.text via ``_resolve_span``: a mention whose text
         does not occur in chunk.text at all is dropped, an off-by-a-few span is
         corrected. Relation endpoints are matched back to entities by their

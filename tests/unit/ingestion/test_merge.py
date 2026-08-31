@@ -1045,10 +1045,21 @@ class TestApplyMerge:
         store.txn_upsert_nodes.assert_not_awaited()
 
         calls = execute_write.call_args_list
+        # merge_key is cleared from every tombstone before the survivor is
+        # written, so a survivor whose resolved name matches a tombstone's
+        # own name cannot collide with the per-label merge_key constraint.
+        clear_calls = [
+            c
+            for c in calls
+            if set(c.args[1]) == {"tombstone_ids"} and "REMOVE n.merge_key" in c.args[0]
+        ]
+        assert len(clear_calls) == 1
+        assert clear_calls[0].args[1]["tombstone_ids"] == [str(tombstone)]
         # Survivor write, via upsert_survivor_query's atomic accumulation.
         survivor_calls = [c for c in calls if set(c.args[1]) == {"records"}]
         assert len(survivor_calls) == 1
         assert survivor_calls[0].args[1]["records"][0]["id"] == str(survivor.id)
+        assert calls.index(clear_calls[0]) < calls.index(survivor_calls[0])
         # Merge-key alias for the survivor's own current name.
         alias_calls = [
             c for c in calls if set(c.args[1]) == {"merge_keys", "entity_id"}
@@ -1062,7 +1073,7 @@ class TestApplyMerge:
             c
             for c in calls
             if set(c.args[1]) == {"tombstone_ids", "survivor_id"}
-            and "REMOVE n.merge_key" in c.args[0]
+            and "SET n.merged_into" in c.args[0]
         ]
         assert len(tombstone_calls) == 1
         assert tombstone_calls[0].args[1]["tombstone_ids"] == [str(tombstone)]
