@@ -20,7 +20,7 @@ from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResul
 from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.vector_record import Distance
-from agrag.cypher.entities import validate_identifier
+from agrag.cypher.entities import set_embedding_query, validate_identifier
 from agrag.cypher.schema import merge_key_constraint_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
@@ -217,6 +217,28 @@ class _StubEmbedder(Embedder):
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return a constant vector for each input text."""
         return [[1.0, 2.0, 3.0] for _ in texts]
+
+
+async def _vector_search_with_retry(
+    store: Neo4jGraphStore,
+    *,
+    label: str,
+    query_vector: list[float],
+    limit: int,
+) -> list:
+    """Retry the vector search while a newly created index warms up."""
+    last: list = []
+    for _ in range(10):
+        last = await store.vector_search(
+            label=label,
+            vector_property="embedding",
+            query_vector=query_vector,
+            limit=limit,
+        )
+        if last:
+            return last
+        await asyncio.sleep(1)
+    return last
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
@@ -430,7 +452,7 @@ class TestTombstoneVectorSearchIntegration:
             # Query with the tombstone's own former embedding: if it were
             # still indexed, it would rank above the survivor's unrelated
             # vector. A generous limit means both nodes are candidates.
-            hits = await self._vector_search_with_retry(
+            hits = await _vector_search_with_retry(
                 store, label=label, query_vector=query_vector, limit=5
             )
             hit_ids = {hit.id for hit in hits}
@@ -445,24 +467,105 @@ class TestTombstoneVectorSearchIntegration:
             )
             await store.close()
 
-    @staticmethod
-    async def _vector_search_with_retry(
-        store: Neo4jGraphStore,
-        *,
-        label: str,
-        query_vector: list[float],
-        limit: int,
-    ) -> list:
-        """Retry the vector search while the newly created index warms up."""
-        last: list = []
-        for _ in range(10):
-            last = await store.vector_search(
+
+@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+class TestConcurrentEmbedDuringMergeIntegration:
+    """Regression coverage for an embed write racing a concurrent merge."""
+
+    async def test_resumed_embed_write_does_not_restore_tombstone_vector(
+        self,
+    ) -> None:
+        """A stale embed write must not restore a vector a merge just cleared.
+
+        Simulates the interleaving deterministically rather than with real
+        concurrent tasks, which would be non-deterministic and flaky:
+
+        1. Pause embedding -- capture the name/description an in-flight
+           embed() call for entity_a would have read, before anything else
+           happens.
+        2. Apply a merge -- tombstone entity_a into entity_b, which sets
+           entity_a.merged_into and removes entity_a.embedding.
+        3. Resume the stale vector write -- run set_embedding_query directly
+           with the pre-merge name/description, exactly as the paused
+           embed() call would once it finally lands.
+
+        Before the ``merged_into IS NULL`` guard, this write would succeed
+        because entity_a's name/description had not changed, restoring its
+        embedding and returning it to native vector search despite being
+        absorbed.
+        """
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Person_{uuid4().hex[:8]}")
+        schema = GraphSchema(
+            name="test",
+            version="1",
+            entities=[EntityType(label=label, description="test")],
+            relations=[],
+        )
+        stale_vector = [1.0, 0.0, 0.0, 0.0]
+        try:
+            entity_a = Entity(id=uuid4(), label=label, name="Ada Lovelace")
+            # Earlier created_at wins canonical selection, so this becomes
+            # the merge survivor and entity_a is tombstoned into it.
+            entity_b = Entity(
+                id=uuid4(),
+                label=label,
+                name="A. Lovelace",
+                embedding=[0.0, 1.0, 0.0, 0.0],
+                created_at=entity_a.created_at - timedelta(minutes=5),
+            )
+            await store.upsert_nodes(
+                label, [entity_a.to_node_record(), entity_b.to_node_record()]
+            )
+            await store.execute_write(merge_key_constraint_query(label))
+            await store.ensure_vector_index(
                 label=label,
                 vector_property="embedding",
-                query_vector=query_vector,
-                limit=limit,
+                dimensions=len(stale_vector),
+                distance=Distance.COSINE,
             )
-            if last:
-                return last
-            await asyncio.sleep(1)
-        return last
+
+            # 1. Pause embedding: the in-flight call's own read of entity_a,
+            # taken before the merge below runs.
+            paused_embed_record = {
+                "id": str(entity_a.id),
+                "vector": stale_vector,
+                "expected_name": entity_a.name,
+                "expected_description": "",
+            }
+
+            # 2. Apply a merge: tombstones entity_a into entity_b.
+            plan, _ = await compute_merge(
+                existing_entities=[entity_a, entity_b], mentions=[], schema=schema
+            )
+            assert plan.survivor.id == entity_b.id
+            assert plan.tombstone_ids == [entity_a.id]
+            await apply_merge(plan, graph_store=store, schema=schema)
+
+            # 3. Resume the stale vector write.
+            await store.execute_write(
+                set_embedding_query("embedding"), {"records": [paused_embed_record]}
+            )
+
+            tombstone_row = (
+                await store.execute_read(
+                    f"MATCH (n:{label} {{id: $id}}) RETURN n.embedding AS embedding",
+                    {"id": str(entity_a.id)},
+                )
+            )[0]
+            assert tombstone_row["embedding"] is None
+
+            hits = await _vector_search_with_retry(
+                store, label=label, query_vector=stale_vector, limit=5
+            )
+            hit_ids = {hit.id for hit in hits}
+            assert entity_a.id not in hit_ids
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.execute_write(
+                "MATCH (a:_AgragMergeAlias) "
+                "WHERE a.merge_key STARTS WITH $prefix DELETE a",
+                {"prefix": f"{label}:"},
+            )
+            await store.close()

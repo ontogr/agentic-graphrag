@@ -1130,9 +1130,10 @@ class _GuardedNodeStore(MockStore):
 
     set_embedding_query and clear_property_query only apply a record when
     the target node's current name/description match the record's
-    expected_name/expected_description. Real Neo4j enforces that WHERE
-    clause; this fake reproduces it in memory so a concurrent-write test can
-    prove a stale record is rejected without a live database.
+    expected_name/expected_description, and (for set_embedding_query only)
+    the node is not merged_into another entity. Real Neo4j enforces that
+    WHERE clause; this fake reproduces it in memory so a concurrent-write
+    test can prove a stale record is rejected without a live database.
     """
 
     def __init__(self, nodes: dict[str, dict[str, Any]]) -> None:
@@ -1155,6 +1156,8 @@ class _GuardedNodeStore(MockStore):
             if "REMOVE n.embedding" in query:
                 node["embedding"] = None
             elif "SET n.embedding" in query:
+                if node.get("merged_into") is not None:
+                    continue
                 node["embedding"] = record["vector"]
         return []
 
@@ -1218,6 +1221,43 @@ class TestEmbedAndUpsertSurvivors:
             name="Ada",
             properties={"description": "old description"},
         )
+
+        await _embed_and_upsert_survivors(
+            {entity_id: stale_entity},
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.SKIP,
+        )
+
+        assert store.nodes[str(entity_id)]["embedding"] is None
+
+    async def test_merge_during_embed_does_not_restore_tombstone_vector(self) -> None:
+        """A merge landing mid-embed must not have its cleared vector restored.
+
+        Regression test: set_embedding_query's guard used to check only
+        name/description, so a concurrent merge tombstoning this entity
+        after embed() started -- clearing its embedding -- would still
+        accept a write whose text still matched, silently putting the
+        absorbed entity back in native vector search. Simulates the
+        interleaving deterministically: the node is already merged_into
+        another entity by the time this call's write reaches the guard,
+        the same state a race with a real, concurrent apply_merge would
+        leave behind.
+        """
+        entity_id = uuid4()
+        store = _GuardedNodeStore(
+            {
+                str(entity_id): {
+                    "name": "Ada",
+                    "description": None,
+                    "embedding": None,
+                    "merged_into": str(uuid4()),
+                }
+            }
+        )
+        # This call's own read of the entity happened before the concurrent
+        # merge landed, so its text still matches the now-tombstoned node.
+        stale_entity = Entity(id=entity_id, label="Person", name="Ada")
 
         await _embed_and_upsert_survivors(
             {entity_id: stale_entity},

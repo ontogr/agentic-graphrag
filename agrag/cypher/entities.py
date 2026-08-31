@@ -247,6 +247,15 @@ def set_embedding_query(vector_property: str) -> str:
     still matches what its vector was computed from, so a slower write from
     an older call cannot overwrite a newer one's vector with a stale one.
 
+    Also requires ``merged_into IS NULL``: a concurrent merge can tombstone
+    the node -- clearing this same property -- after this call already read
+    its text and started embedding, but before this write lands. Without
+    this guard, the write would restore a vector on an absorbed entity
+    purely because its name/description happened not to change, putting it
+    back in native vector search. ``tombstone_query`` sets ``merged_into``
+    and removes the embedding in the same write, so this guard racing that
+    one always sees them change together.
+
     Args:
         vector_property: The property to set. Must already be validated.
 
@@ -260,6 +269,7 @@ def set_embedding_query(vector_property: str) -> str:
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
         f"WHERE n.name = record.expected_name "
         f"AND coalesce(n.description, '') = record.expected_description "
+        f"AND n.merged_into IS NULL "
         f"SET n.{safe_property} = record.vector"
     )
 
