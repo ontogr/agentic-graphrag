@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
+from agrag.common.text import normalize_text as _normalize
 from agrag.ingestion.extract import ExtractionLLMSettings, ExtractorMissingExtraError
 from agrag.llm.retry import NO_RETRY, call_with_retry
 
@@ -75,11 +76,6 @@ class ComparisonVerdict(StrEnum):
     MATCH = "match"
     NO_MATCH = "no_match"
     UNCERTAIN = "uncertain"
-
-
-def _normalize(text: str) -> str:
-    """Return text stripped and case-folded for comparison."""
-    return text.strip().casefold()
 
 
 class Comparator(ABC):

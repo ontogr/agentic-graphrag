@@ -27,3 +27,23 @@ class TestUpsertRelationQuery:
         """An unsafe relationship type raises before the query is built."""
         with pytest.raises(ValueError):
             upsert_relation_query("Bad Type")
+
+    def test_unions_source_chunk_ids_instead_of_overwriting(self) -> None:
+        """source_chunk_ids is read and unioned inside the query, not overwritten.
+
+        Regression test: two concurrent upserts of the same relationship
+        each compute their own union from a read taken before either write
+        lands. Reading the relationship's current source_chunk_ids inside
+        this same query (not a blind SET from the caller's properties) is
+        what keeps a concurrent writer's chunk ids from being discarded.
+        """
+        q = upsert_relation_query("MENTIONS")
+        assert "coalesce(r.source_chunk_ids, [])" in q
+        assert "SET r.source_chunk_ids =" in q
+        assert "coalesce(record.properties.source_chunk_ids, [])" in q
+        # The union read must happen before the blind property SET, or it
+        # would read back the value this same write just overwrote instead
+        # of what another writer may have already committed.
+        assert q.index("existing_source_chunk_ids") < q.index(
+            "SET r += record.properties"
+        )

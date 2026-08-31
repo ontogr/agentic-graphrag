@@ -17,6 +17,11 @@ class BAMLExtractedEntity {
   text string
   char_start int
   char_end int
+  properties map<string, string> @description(#"
+    Schema-declared property values this entity's type defines, keyed by
+    property name, drawn only from what the text states. Empty object when
+    none apply. Do not invent property names or values.
+  "#)
 }
 
 class BAMLExtractedRelation {
@@ -50,6 +55,9 @@ function ExtractEntitiesAndRelations(chunk_text: string) -> BAMLExtractionResult
     - source_text and target_text in relations must copy the entity's surface
       text exactly as it appears in the extracted entities, character for
       character. Do not normalize, shorten, or reorder them.
+    - properties: only the entity type's own declared property names, each
+      with a value stated in the text. Leave the object empty rather than
+      guess a value or invent a property name.
 
     {{ ctx.output_format }}
   "#

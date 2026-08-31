@@ -55,6 +55,7 @@ class BAMLExtractedEntity(BaseModel):
     text: str
     char_start: int
     char_end: int
+    properties: typing.Dict[str, str] = Field(description='Schema-declared property values this entity\'s type defines, keyed by\nproperty name, drawn only from what the text states. Empty object when\nnone apply. Do not invent property names or values.')
 
 class BAMLExtractedRelation(BaseModel):
     label: typing.Union[ExtractedRelationLabel, str]

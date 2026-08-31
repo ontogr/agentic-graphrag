@@ -88,7 +88,7 @@ class TestDecodeText:
         ``match.encoding`` corrupts the text. ``str(match)`` must be used instead.
         """
 
-        class _FakeMatch:
+        class _MockMatch:
             encoding = "cp1252"
 
             def output(self):
@@ -97,12 +97,12 @@ class TestDecodeText:
             def __str__(self) -> str:
                 return "café"
 
-        class _FakeCharsetMatches:
+        class _MockCharsetMatches:
             def best(self):
-                return _FakeMatch()
+                return _MockMatch()
 
         monkeypatch.setattr(
-            "agrag.loaders.corpus.decode.from_bytes", lambda raw: _FakeCharsetMatches()
+            "agrag.loaders.corpus.decode.from_bytes", lambda raw: _MockCharsetMatches()
         )
         decoded = decode_text(b"irrelevant", ReadOptions())
         assert decoded.text == "café"

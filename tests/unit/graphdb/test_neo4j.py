@@ -22,15 +22,28 @@ from agrag.graphdb.neo4j import _VECTOR_SEARCH_MAX_K, Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
 
 
-class FakeSession:
+class MockTransaction:
+    """A stand-in for a Neo4j async explicit transaction."""
+
+    def __init__(self) -> None:
+        """Create the transaction with async mocks for run/commit/rollback."""
+        result = mock.MagicMock()
+        result.data = mock.AsyncMock(return_value=[])
+        self.run = mock.AsyncMock(return_value=result)
+        self.commit = mock.AsyncMock()
+        self.rollback = mock.AsyncMock()
+
+
+class MockSession:
     """A stand-in for a Neo4j async session backed by AsyncMocks."""
 
     def __init__(self) -> None:
-        """Create the session with async mocks for reads and writes."""
+        """Create the session with async mocks for reads, writes, and transactions."""
         self.execute_read = mock.AsyncMock()
         self.execute_write = mock.AsyncMock()
+        self.begin_transaction = mock.AsyncMock(return_value=MockTransaction())
 
-    async def __aenter__(self) -> "FakeSession":
+    async def __aenter__(self) -> "MockSession":
         """Enter the session context."""
         return self
 
@@ -38,24 +51,24 @@ class FakeSession:
         """Exit the session context."""
 
 
-class FakeDriver:
+class MockDriver:
     """A stand-in for a Neo4j async driver."""
 
     def __init__(self) -> None:
         """Create the driver with async mocks for its lifecycle methods."""
-        self.session = mock.MagicMock(return_value=FakeSession())
+        self.session = mock.MagicMock(return_value=MockSession())
         self.verify_connectivity = mock.AsyncMock()
         self.close = mock.AsyncMock()
 
     @property
-    def last_session(self) -> FakeSession:
+    def last_session(self) -> MockSession:
         """Return the most recently created fake session."""
         return self.session.return_value
 
 
 def _store() -> Neo4jGraphStore:
-    """Build a Neo4jGraphStore wired to a FakeDriver."""
-    return Neo4jGraphStore(settings=Neo4jSettings(), driver=FakeDriver())
+    """Build a Neo4jGraphStore wired to a MockDriver."""
+    return Neo4jGraphStore(settings=Neo4jSettings(), driver=MockDriver())
 
 
 def _node_constraint_name(label: str) -> str:
@@ -88,16 +101,16 @@ class TestConnectClose:
     async def test_concurrent_first_calls_build_driver_once(self) -> None:
         """Concurrent first calls build exactly one Neo4j driver, not one each."""
         build_calls = 0
-        fake_driver = FakeDriver()
+        mock_driver = MockDriver()
 
-        def fake_driver_ctor(*args, **kwargs):
+        def mock_driver_ctor(*args, **kwargs):
             nonlocal build_calls
             build_calls += 1
-            return fake_driver
+            return mock_driver
 
         store = Neo4jGraphStore(settings=Neo4jSettings())
         with mock.patch(
-            "neo4j.AsyncGraphDatabase.driver", side_effect=fake_driver_ctor
+            "neo4j.AsyncGraphDatabase.driver", side_effect=mock_driver_ctor
         ):
             first, second = await asyncio.gather(
                 store._ensure_driver(), store._ensure_driver()
@@ -388,10 +401,17 @@ class TestSetupIdempotent:
         index_calls = [
             c for c in writes if "INDEX" in c.args[1] and "VECTOR" not in c.args[1]
         ]
-        # Chunk + Doc, plus the identity-anchor constraint every store sets up.
-        assert len(constraint_calls) == 3
+        # Chunk + Doc, each with an id and a merge_key uniqueness constraint,
+        # plus the identity-anchor and merge-key-alias constraints every
+        # store sets up once.
+        assert len(constraint_calls) == 6
         assert any(NODE_IDENTITY_LABEL in c.args[1] for c in constraint_calls)
-        assert len(index_calls) == 2
+        assert any("merge_key_unique" in c.args[1] for c in constraint_calls)
+        assert any("agragmergealias" in c.args[1].lower() for c in constraint_calls)
+        # Two range indexes per label: plain id index + merge_key index.
+        assert len(index_calls) == 4
+        assert any("_id_index" in c.args[1] for c in index_calls)
+        assert any("_merge_key_index" in c.args[1] for c in index_calls)
 
     async def test_constraints_run_per_relation_type(self) -> None:
         """setup_constraints also emits one DDL per tracked relation type."""
@@ -598,3 +618,72 @@ class TestMissingExtra:
         ):
             await store.connect()
         assert exc_info.value.extra == "neo4j"
+
+
+class TestTransaction:
+    """transaction() opens one explicit transaction and commits or rolls it back."""
+
+    async def test_commits_on_clean_exit(self) -> None:
+        """A clean exit from the block commits, and never rolls back."""
+        store = _store()
+        async with store.transaction() as txn:
+            await txn.execute_write("MATCH (n) RETURN n")
+        tx = store._driver.last_session.begin_transaction.return_value
+        assert tx.commit.await_count == 1
+        assert tx.rollback.await_count == 0
+
+    async def test_rolls_back_and_reraises_on_exception(self) -> None:
+        """An exception in the block rolls back and propagates, no commit."""
+        store = _store()
+        with pytest.raises(ValueError, match="boom"):
+            async with store.transaction() as txn:
+                await txn.execute_write("MATCH (n) RETURN n")
+                raise ValueError("boom")
+        tx = store._driver.last_session.begin_transaction.return_value
+        assert tx.rollback.await_count == 1
+        assert tx.commit.await_count == 0
+
+    async def test_execute_write_runs_against_the_open_transaction(self) -> None:
+        """execute_write inside the block runs on the transaction, not a new one."""
+        store = _store()
+        tx = store._driver.last_session.begin_transaction.return_value
+        tx.run.return_value.data = mock.AsyncMock(return_value=[{"n": 1}])
+        async with store.transaction() as txn:
+            rows = await txn.execute_write("MATCH (n) RETURN n", {"a": 1})
+        assert rows == [{"n": 1}]
+        tx.run.assert_awaited_once_with("MATCH (n) RETURN n", {"a": 1})
+
+    async def test_upsert_nodes_runs_against_the_open_transaction(self) -> None:
+        """Upsert inside the block runs through the transaction and tracks labels."""
+        store = _store()
+        tx = store._driver.last_session.begin_transaction.return_value
+        node = NodeRecord(id=uuid4(), labels=["Person"], properties={"name": "Ada"})
+        async with store.transaction() as txn:
+            await txn.upsert_nodes("Person", [node])
+        assert "Person" in store._known_labels
+        query, params = tx.run.call_args.args
+        assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in query
+        assert params == {
+            "records": [{"id": str(node.id), "properties": {"name": "Ada"}}]
+        }
+
+    async def test_ensures_identity_constraint_before_opening(self) -> None:
+        """The identity constraint is created once, before the transaction opens."""
+        store = _store()
+        async with store.transaction():
+            pass
+        writes = store._driver.last_session.execute_write.call_args_list
+        assert any(NODE_IDENTITY_LABEL in c.args[1] for c in writes)
+
+    async def test_ensures_merge_alias_constraint_before_opening(self) -> None:
+        """The merge-key alias constraint is created before the transaction opens.
+
+        apply_merge writes an alias row (upsert_merge_alias_query) inside
+        this transaction; without the constraint in place first, MERGE on
+        merge_key would not be atomic under concurrent writers.
+        """
+        store = _store()
+        async with store.transaction():
+            pass
+        writes = store._driver.last_session.execute_write.call_args_list
+        assert any("agragmergealias" in c.args[1].lower() for c in writes)

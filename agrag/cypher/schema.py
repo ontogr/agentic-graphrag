@@ -7,7 +7,7 @@ identifier-validation contract shared by every Cypher builder.
 from typing import Any
 
 from agrag.common.data_models.vector_record import Distance
-from agrag.cypher.entities import filter_clause, validate_identifier
+from agrag.cypher.entities import MERGE_ALIAS_LABEL, filter_clause, validate_identifier
 
 
 _VECTOR_SIMILARITY: dict[Distance, str] = {
@@ -75,6 +75,47 @@ def plain_index_query(label: str) -> str:
     return (
         f"CREATE INDEX {safe_label}_id_index IF NOT EXISTS "
         f"FOR (n:{safe_label}) ON (n.id)"
+    )
+
+
+def merge_key_constraint_query(label: str) -> str:
+    """Build a CREATE CONSTRAINT query making ``merge_key`` unique per label.
+
+    Backs the concurrent-ingestion safety tier: two concurrent ``add()`` calls
+    for the same ``(label, normalized name)`` cannot both create a canonical
+    node; the second fails the constraint and is resolved to the canonical via
+    the merge path. A node absorbed by a merge has its ``merge_key`` cleared
+    before it is marked ``merged_into``, so the constraint permits one live
+    survivor per key plus any number of tombstones.
+
+    Args:
+        label: The node label. Must already be validated.
+
+    Returns:
+        A Cypher query creating the uniqueness constraint if absent.
+    """
+    safe_label = validate_identifier(label)
+    name = f"node_{len(safe_label)}_{safe_label}_merge_key_unique"
+    return (
+        f"CREATE CONSTRAINT {name} IF NOT EXISTS "
+        f"FOR (n:{safe_label}) REQUIRE n.merge_key IS UNIQUE"
+    )
+
+
+def merge_alias_constraint_query() -> str:
+    """Build a CREATE CONSTRAINT query making the merge-key alias table unique.
+
+    One global constraint, not per label: ``MERGE_ALIAS_LABEL`` is shared
+    across every entity type, and ``merge_key`` already embeds the label
+    (see ``Entity.merge_key``), so a single uniqueness constraint on it is
+    sufficient.
+
+    Returns:
+        A Cypher query creating the uniqueness constraint if absent.
+    """
+    return (
+        f"CREATE CONSTRAINT {MERGE_ALIAS_LABEL.lower()}_merge_key_unique IF NOT EXISTS "
+        f"FOR (a:{MERGE_ALIAS_LABEL}) REQUIRE a.merge_key IS UNIQUE"
     )
 
 

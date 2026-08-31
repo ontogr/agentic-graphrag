@@ -44,7 +44,7 @@ def _describe_collection(dim: int = 4, *, fields: list[str] | None = None) -> di
     }
 
 
-class FakeMilvusClient:
+class MockMilvusClient:
     """A stand-in for AsyncMilvusClient that records calls and returns stubs."""
 
     def __init__(self) -> None:
@@ -72,13 +72,13 @@ class FakeMilvusClient:
 
 
 @pytest.fixture
-def client() -> FakeMilvusClient:
+def client() -> MockMilvusClient:
     """A fresh fake Milvus client."""
-    return FakeMilvusClient()
+    return MockMilvusClient()
 
 
 @pytest.fixture
-def store(client: FakeMilvusClient) -> MilvusVectorStore:
+def store(client: MockMilvusClient) -> MilvusVectorStore:
     """A MilvusVectorStore backed by the fake client."""
     return MilvusVectorStore(settings=MilvusSettings(), client=client)
 
@@ -520,13 +520,13 @@ class TestEnsureClientConcurrency:
         """Concurrent first calls build exactly one Milvus client, not one each."""
         build_calls = 0
 
-        def fake_client_ctor(*args, **kwargs):
+        def mock_client_ctor(*args, **kwargs):
             nonlocal build_calls
             build_calls += 1
             return object()
 
         store = MilvusVectorStore(settings=MilvusSettings())
-        with mock.patch("pymilvus.AsyncMilvusClient", side_effect=fake_client_ctor):
+        with mock.patch("pymilvus.AsyncMilvusClient", side_effect=mock_client_ctor):
             first, second = await asyncio.gather(
                 store._ensure_client(), store._ensure_client()
             )

@@ -12,7 +12,7 @@ from agrag.embedding.fastembed_bm25 import DEFAULT_BM25_MODEL, FastEmbedBM25Embe
 from agrag.embedding.sparse_base import SparseVector
 
 
-class FakeSparseModel:
+class MockSparseModel:
     """A stand-in for a FastEmbed sparse model in tests."""
 
     model_name = DEFAULT_BM25_MODEL
@@ -48,7 +48,7 @@ class TestFastEmbedBM25Construction:
 
     def test_model_not_loaded_on_construct(self) -> None:
         """Construction does not import or build the model."""
-        embedder = FastEmbedBM25Embedder(model=FakeSparseModel.model_name)
+        embedder = FastEmbedBM25Embedder(model=MockSparseModel.model_name)
         assert embedder._model is None
 
 
@@ -57,8 +57,8 @@ class TestFastEmbedBM25Embed:
 
     async def test_embed_returns_sparse_vectors(self) -> None:
         """Embed returns one SparseVector per text in order."""
-        embedder = FastEmbedBM25Embedder(model=FakeSparseModel.model_name)
-        embedder._model = FakeSparseModel()
+        embedder = FastEmbedBM25Embedder(model=MockSparseModel.model_name)
+        embedder._model = MockSparseModel()
         vectors = await embedder.embed(["a", "b"])
         assert len(vectors) == 2
         assert all(isinstance(v, SparseVector) for v in vectors)
@@ -73,8 +73,8 @@ class TestFastEmbedBM25Embed:
         query text through that path instead of the model's query-side
         method would rank matches incorrectly.
         """
-        embedder = FastEmbedBM25Embedder(model=FakeSparseModel.model_name)
-        model = FakeSparseModel()
+        embedder = FastEmbedBM25Embedder(model=MockSparseModel.model_name)
+        model = MockSparseModel()
         embedder._model = model
         vectors = await embedder.query_embed(["a", "b"])
         assert len(vectors) == 2
@@ -95,12 +95,12 @@ class TestFastEmbedBM25ConcurrentLoad:
         entered = threading.Event()
         release = threading.Event()
 
-        def slow_build(_self: FastEmbedBM25Embedder) -> FakeSparseModel:
+        def slow_build(_self: FastEmbedBM25Embedder) -> MockSparseModel:
             nonlocal build_calls
             build_calls += 1
             entered.set()
             release.wait(timeout=5)
-            return FakeSparseModel()
+            return MockSparseModel()
 
         embedder = FastEmbedBM25Embedder()
         with mock.patch.object(

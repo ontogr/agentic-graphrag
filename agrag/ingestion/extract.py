@@ -15,7 +15,7 @@ from agrag.common.data_models.extraction import (
     ExtractedRelation,
     ExtractionResult,
 )
-from agrag.common.data_models.graph_schema import GraphSchema
+from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
 from agrag.llm.retry import NO_RETRY, call_with_retry
 from agrag.loaders.corpus.errors import IngestionError
@@ -104,6 +104,30 @@ def _relation_patterns(schema: GraphSchema) -> dict[str, set[tuple[str, str]]]:
     return allowed
 
 
+def _describe_entity_type(entity_type: EntityType) -> str:
+    """Return prompt guidance for one entity type, its declared properties included.
+
+    ``BAMLExtractedEntity.properties`` has no per-label schema of its own --
+    a BAML class field is static, while ``EntityType.properties`` varies by
+    label -- so the declared property names travel to the model through this
+    description instead, the same extension point already carrying
+    ``entity_type.description``.
+
+    Args:
+        entity_type: The entity type to describe.
+
+    Returns:
+        The type's own description, followed by its declared property names
+        and type hints when it declares any.
+    """
+    if not entity_type.properties:
+        return entity_type.description
+    declared = ", ".join(
+        f"{name} ({type_name})" for name, type_name in entity_type.properties.items()
+    )
+    return f"{entity_type.description} Properties to extract when stated: {declared}."
+
+
 def _resolve_relation_pair(
     relation: object,
     text_index: dict[str, list[int]],
@@ -140,12 +164,16 @@ def _normalize_extraction_result(
 ) -> ExtractionResult:
     """Drop entities and relations schema does not declare.
 
-    An entity survives only when its label is a declared EntityType. A
-    relation survives only when its label is a declared RelationType and the
-    resolved (source label, target label) pair — checked against the
-    surviving entities — is one of that type's ``patterns``; a relation
-    pointing at a dropped entity is dropped too. Surviving relation indices
-    are remapped to the filtered entity list.
+    An entity survives only when its label is a declared EntityType, and
+    keeps only the property keys that EntityType declares -- an extractor
+    can report a property the schema never defined (an LLM inventing a
+    field, or a schema that dropped a property after the model was
+    prompted), and compute_merge has no schema of its own to filter against
+    later. A relation survives only when its label is a declared
+    RelationType and the resolved (source label, target label) pair —
+    checked against the surviving entities — is one of that type's
+    ``patterns``; a relation pointing at a dropped entity is dropped too.
+    Surviving relation indices are remapped to the filtered entity list.
 
     Args:
         result: The extractor's raw result, before schema validation.
@@ -153,16 +181,29 @@ def _normalize_extraction_result(
 
     Returns:
         A new ExtractionResult holding only schema-declared entities and
-        relations, with relation indices remapped to the filtered entities.
+        relations, with relation indices remapped to the filtered entities
+        and each entity's properties limited to its declared keys.
     """
-    entity_labels = {entity_type.label for entity_type in schema.entities}
+    entity_types_by_label = {
+        entity_type.label: entity_type for entity_type in schema.entities
+    }
     valid_entities: list[ExtractedEntity] = []
     index_remap: dict[int, int] = {}
     for old_index, entity in enumerate(result.entities):
-        if entity.label not in entity_labels:
+        entity_type = entity_types_by_label.get(entity.label)
+        if entity_type is None:
             continue
         index_remap[old_index] = len(valid_entities)
-        valid_entities.append(entity)
+        valid_entity = entity
+        if entity.properties:
+            declared = {
+                key: value
+                for key, value in entity.properties.items()
+                if key in entity_type.properties
+            }
+            if declared != entity.properties:
+                valid_entity = entity.model_copy(update={"properties": declared})
+        valid_entities.append(valid_entity)
 
     allowed_pairs = _relation_patterns(schema)
     valid_relations: list[ExtractedRelation] = []
@@ -380,9 +421,10 @@ class GlinerExtractor(Extractor):
         """Return an ExtractionResult built from gliner2's raw output.
 
         Called with ``include_spans=True``, GLiNER2.5's extract() returns a dict
-        with ``entities`` (label -> list of ``{"text", "start", "end"}`` mention
-        dicts) and ``relation_extraction`` (label -> list of ``{"head", "tail"}``
-        dicts, each endpoint shaped like a mention dict). Every reported span is
+        with ``entities`` (label -> list of mention dicts each having the keys
+        text, start, end) and ``relation_extraction`` (label -> list of relation
+        dicts each having the keys head, tail, with endpoints shaped like mention
+        dicts). Every reported span is
         verified against chunk.text via ``_resolve_span``: a mention whose text
         does not occur in chunk.text at all is dropped, an off-by-a-few span is
         corrected. Relation endpoints are matched back to entities by their
@@ -393,6 +435,10 @@ class GlinerExtractor(Extractor):
         with its declared endpoint patterns. A relation whose endpoints both
         resolve to the same entity is dropped, not raised, so one malformed
         relation does not abort the whole chunk.
+
+        GLiNER2.5 is used here as a span extractor only, so every entity's
+        ``properties`` is empty; it never claims a schema-declared property
+        value it did not actually extract.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
@@ -556,6 +602,9 @@ class BAMLExtractor(Extractor):
 
         Each value's ``description`` is attached to its enum value, so it
         reaches the model as extraction guidance instead of being dropped.
+        An entity type's declared property names travel the same way, via
+        ``_describe_entity_type``: ``BAMLExtractedEntity.properties`` has no
+        per-label schema of its own to carry them.
 
         Returns ``None`` when the ``llm`` extra is not installed and an
         injected client is being used, so callers can skip the ``tb`` option.
@@ -570,7 +619,7 @@ class BAMLExtractor(Extractor):
         builder = TypeBuilder()
         for entity_type in schema.entities:
             builder.ExtractedEntityLabel.add_value(entity_type.label).description(
-                entity_type.description
+                _describe_entity_type(entity_type)
             )
         for relation_type in schema.relations:
             builder.ExtractedRelationLabel.add_value(relation_type.label).description(
@@ -606,6 +655,10 @@ class BAMLExtractor(Extractor):
         dropped as a true duplicate. Two entities with different labels on
         the same span (e.g. "Apple" as both Product and Organization) are
         both kept, so relations that need the second label survive.
+
+        Each entity's ``properties`` pass through as reported; schema
+        validation of the property keys happens later, in
+        ``_normalize_extraction_result``.
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
@@ -634,6 +687,7 @@ class BAMLExtractor(Extractor):
                 text=entity.text,
                 char_start=start,
                 char_end=end,
+                properties=dict(entity.properties),
             )
             for entity, start, end in valid_raw_entities
         ]

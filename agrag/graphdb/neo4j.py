@@ -1,9 +1,10 @@
 """Neo4j graph-store backend."""
 
 import asyncio
+import contextlib
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
-from contextlib import AbstractAsyncContextManager
+from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -18,6 +19,8 @@ from agrag.cypher.entities import (
 )
 from agrag.cypher.relations import upsert_relation_query
 from agrag.cypher.schema import (
+    merge_alias_constraint_query,
+    merge_key_constraint_query,
     node_id_constraint_query,
     plain_index_query,
     relation_id_constraint_query,
@@ -25,8 +28,11 @@ from agrag.cypher.schema import (
     vector_index_query,
     vector_search_query,
 )
-from agrag.graphdb.base import GraphStore
-from agrag.graphdb.errors import GraphStoreMissingExtraError
+from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+from agrag.graphdb.errors import (
+    GraphStoreConstraintViolationError,
+    GraphStoreMissingExtraError,
+)
 from agrag.graphdb.serialize import node_params, relation_params
 from agrag.graphdb.settings import Neo4jSettings
 
@@ -42,6 +48,71 @@ if TYPE_CHECKING:
 # Neo4j's own practical limit on a single vector query's k.
 _VECTOR_SEARCH_OVERFETCH_MULTIPLIER = 4
 _VECTOR_SEARCH_MAX_K = 1000
+
+
+class _Neo4jTransaction(GraphStoreTransaction):
+    """A ``GraphStoreTransaction`` bound to one open Neo4j explicit transaction.
+
+    Every ``execute_read``/``execute_write``/``upsert_nodes`` call here runs
+    against the same underlying transaction, so they all commit or roll back
+    together when the owning ``Neo4jGraphStore.transaction()`` block exits.
+    """
+
+    def __init__(self, tx: Any, *, store: "Neo4jGraphStore") -> None:
+        """Bind this handle to an open transaction and its owning store.
+
+        Args:
+            tx: The open Neo4j ``AsyncTransaction``.
+            store: The store this transaction belongs to, used only for
+                label bookkeeping (``register_labels``) that upserts inside a
+                transaction still need.
+        """
+        self._tx = tx
+        self._store = store
+
+    async def execute_read(
+        self, query: str, parameters: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Run a read against this transaction and return its rows."""
+        result = await self._tx.run(query, parameters or {})
+        return await result.data()
+
+    async def execute_write(
+        self, query: str, parameters: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Run a write against this transaction and return its rows."""
+        result = await self._tx.run(query, parameters or {})
+        return await result.data()
+
+    async def upsert_nodes(
+        self,
+        label: str,
+        nodes: Sequence[NodeRecord],
+        *,
+        batch_size: int = 256,
+    ) -> None:
+        """Write or merge nodes against this transaction.
+
+        Mirrors ``Neo4jGraphStore.upsert_nodes``, minus the identity
+        constraint check: ``transaction()`` ensures that once before opening
+        the transaction, so no write inside it needs to repeat the check.
+
+        Raises:
+            ValueError: ``batch_size`` is not positive.
+        """
+        require_positive_batch_size(batch_size)
+        await self._store.register_labels([label])
+        groups: dict[tuple[str, ...], list[NodeRecord]] = defaultdict(list)
+        for node in nodes:
+            labels = tuple(sorted(set(node.labels)))
+            groups[labels].append(node)
+        for labels, group_nodes in groups.items():
+            await self._store.register_labels(labels)
+            query = upsert_node_query(labels)
+            records = [node_params(n) for n in group_nodes]
+            for start in range(0, len(records), batch_size):
+                batch = records[start : start + batch_size]
+                await self.execute_write(query, {"records": batch})
 
 
 class Neo4jGraphStore(GraphStore):
@@ -73,6 +144,8 @@ class Neo4jGraphStore(GraphStore):
         self._known_relation_types: set[str] = set()
         self._identity_constraint_ready = False
         self._identity_constraint_lock = asyncio.Lock()
+        self._merge_alias_constraint_ready = False
+        self._merge_alias_constraint_lock = asyncio.Lock()
         self._relation_type_constraints_ready: set[str] = set()
         self._relation_constraint_lock = asyncio.Lock()
 
@@ -136,9 +209,20 @@ class Neo4jGraphStore(GraphStore):
     async def execute_write(
         self, query: str, parameters: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Run a write transaction and return its rows."""
+        """Run a write transaction and return its rows.
+
+        Raises:
+            GraphStoreConstraintViolationError: The write violated a uniqueness
+                constraint, translated from the driver's own exception so
+                callers do not need a hard dependency on it.
+        """
+        from neo4j.exceptions import ConstraintError  # noqa: PLC0415
+
         async with self.session() as s:
-            return await s.execute_write(self._run, query, parameters or {})
+            try:
+                return await s.execute_write(self._run, query, parameters or {})
+            except ConstraintError as exc:
+                raise GraphStoreConstraintViolationError(str(exc)) from exc
 
     @staticmethod
     async def _run(
@@ -147,6 +231,40 @@ class Neo4jGraphStore(GraphStore):
         """Run a single query inside a managed transaction and read its rows."""
         result = await tx.run(query, parameters)
         return await result.data()
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[GraphStoreTransaction]:
+        """Open one Neo4j explicit transaction spanning multiple writes.
+
+        Commits when the ``async with`` block exits cleanly; rolls back and
+        re-raises when it raises. The identity constraint is ensured before
+        opening the transaction, the same way ``upsert_nodes`` ensures it
+        before writing, since ``_Neo4jTransaction.upsert_nodes`` skips that
+        check to avoid a nested write racing the transaction it belongs to.
+
+        Raises:
+            GraphStoreConstraintViolationError: A write inside the block, or the
+                commit itself, violated a uniqueness constraint -- Neo4j
+                validates some constraints only at commit time for an
+                explicit transaction, so this can surface here even when
+                every individual write appeared to succeed.
+        """
+        from neo4j.exceptions import ConstraintError  # noqa: PLC0415
+
+        await self._ensure_identity_constraint()
+        await self._ensure_merge_alias_constraint()
+        async with self.session() as session:
+            tx = await session.begin_transaction()
+            try:
+                yield _Neo4jTransaction(tx, store=self)
+                await tx.commit()
+            except ConstraintError as exc:
+                with contextlib.suppress(Exception):
+                    await tx.rollback()
+                raise GraphStoreConstraintViolationError(str(exc)) from exc
+            except Exception:
+                await tx.rollback()
+                raise
 
     async def setup_constraints(self) -> None:
         """Create a uniqueness constraint on ``id`` for every known label.
@@ -162,8 +280,12 @@ class Neo4jGraphStore(GraphStore):
         endpoint changes.
         """
         await self._ensure_identity_constraint()
+        await self._ensure_merge_alias_constraint()
         for label in await self._all_labels():
             await self.execute_write(node_id_constraint_query(label))
+            # Merge-key uniqueness backs concurrent add() safety: two writers for
+            # the same (label, normalized name) cannot both create a canonical.
+            await self.execute_write(merge_key_constraint_query(label))
         for rel_type in await self._all_relation_types():
             await self._ensure_relation_constraint(rel_type)
 
@@ -185,6 +307,22 @@ class Neo4jGraphStore(GraphStore):
                 return
             await self.execute_write(node_id_constraint_query(NODE_IDENTITY_LABEL))
             self._identity_constraint_ready = True
+
+    async def _ensure_merge_alias_constraint(self) -> None:
+        """Create the merge-key alias table's uniqueness constraint once.
+
+        Backs ``upsert_merge_alias_query``'s ``MERGE`` the same way
+        ``_ensure_identity_constraint`` backs node upserts: without it, two
+        concurrent writers recording an alias for the same merge_key for the
+        first time could each find no match and create separate alias nodes.
+        """
+        if self._merge_alias_constraint_ready:
+            return
+        async with self._merge_alias_constraint_lock:
+            if self._merge_alias_constraint_ready:
+                return
+            await self.execute_write(merge_alias_constraint_query())
+            self._merge_alias_constraint_ready = True
 
     async def _ensure_relation_constraint(self, rel_type: str) -> None:
         """Create a relationship type's ``id`` uniqueness constraint once.
@@ -211,6 +349,34 @@ class Neo4jGraphStore(GraphStore):
             await self.execute_write(relation_id_constraint_query(rel_type))
             self._relation_type_constraints_ready.add(rel_type)
 
+    async def register_labels(self, labels: Sequence[str]) -> None:
+        """Add labels to this instance's known-label set.
+
+        Args:
+            labels: The labels to register. Each must be a safe Cypher
+                identifier.
+
+        Raises:
+            ValueError: Any label is not a safe identifier.
+        """
+        for label in labels:
+            validate_identifier(label)
+        self._known_labels.update(labels)
+
+    async def register_relation_types(self, types: Sequence[str]) -> None:
+        """Add types to this instance's known-relation-type set.
+
+        Args:
+            types: The relationship types to register. Each must be a safe
+                Cypher identifier.
+
+        Raises:
+            ValueError: Any type is not a safe identifier.
+        """
+        for rel_type in types:
+            validate_identifier(rel_type)
+        self._known_relation_types.update(types)
+
     async def setup_indexes(self) -> None:
         """Create a range index on ``id`` for every known label.
 
@@ -220,6 +386,14 @@ class Neo4jGraphStore(GraphStore):
         """
         for label in await self._all_labels():
             await self.execute_write(plain_index_query(label))
+            try:
+                from agrag.cypher import entities as _cypher_entities  # noqa: PLC0415
+
+                merge_key_fn = getattr(_cypher_entities, "merge_key_index_query", None)
+                if merge_key_fn is not None:
+                    await self.execute_write(merge_key_fn(label))
+            except ImportError:
+                pass
 
     async def _all_labels(self) -> set[str]:
         """Return every node label this instance knows about.
