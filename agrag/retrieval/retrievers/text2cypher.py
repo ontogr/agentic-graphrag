@@ -134,11 +134,13 @@ class Text2CypherRetriever(Retriever):
                     return UUID(val)
                 except ValueError:
                     continue
-            if isinstance(val, dict):
+            try:
                 inner_id = val.get("id")
-                if inner_id is not None:
-                    try:
-                        return UUID(str(inner_id))
-                    except ValueError:
-                        continue
+            except (AttributeError, TypeError):
+                continue
+            if inner_id is not None:
+                try:
+                    return UUID(str(inner_id))
+                except ValueError:
+                    continue
         return None
