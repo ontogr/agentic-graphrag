@@ -1,6 +1,7 @@
 """Retrieval's public entry point, independent of Graph (ADR 0035)."""
 
 import asyncio
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -34,6 +35,7 @@ class SearchEngine:
         embedder: Embedder,
         vector_store: VectorStore | None = None,
         settings: RetrievalSettings | None = None,
+        entity_labels: Sequence[str] | None = None,
     ) -> None:
         """Construct a SearchEngine.
 
@@ -48,11 +50,22 @@ class SearchEngine:
                 change gets an empty result set, not an error.
             settings: Retrieval configuration; defaults from
                 environment.
+            entity_labels: The schema entity labels native entity
+                search runs against, one vector index each, as
+                provisioned by ``Graph.open``. Pass
+                ``[entity.label for entity in schema.entities]``.
+                None uses settings.entity_labels. Ignored when a
+                vector_store is configured.
         """
         self._graph_store = graph_store
         self._embedder = embedder
         self._vector_store = vector_store
         self._settings = settings or RetrievalSettings()
+        self._entity_labels = (
+            list(entity_labels)
+            if entity_labels is not None
+            else list(self._settings.entity_labels)
+        )
 
     async def search(
         self,
@@ -130,18 +143,30 @@ class SearchEngine:
         # First fusion pass.
         fused = fuse(results_by_method, rrf_k=self._settings.rrf_k)
 
+        # Entities the recipe's own methods found, before any BFS
+        # expansion adds neighbours. These seed both BFS and the
+        # node-distance reranker, which needs seeds that are not
+        # themselves the candidates it is ordering.
+        search_seed_ids = self._extract_entity_ids(fused)
+
         # BFS expansion as sequential follow-up.
         if recipe.bfs:
-            seed_ids = self._extract_entity_ids(fused)
             bfs_retriever = BFSRetriever(
                 graph_store=self._graph_store, settings=self._settings
             )
-            bfs_filters = filters if filters and filters.relation_types else None
+            bfs_filters = (
+                SearchFilters(
+                    relation_types=filters.relation_types,
+                    properties=filters.properties,
+                )
+                if filters and (filters.relation_types or filters.properties)
+                else None
+            )
             bfs_kwargs: dict[str, Any] = {
                 "query": query,
                 "filters": bfs_filters,
                 "limit": recipe.limit,
-                "seed_ids": seed_ids,
+                "seed_ids": search_seed_ids,
             }
             if recipe.bfs_depth is not None:
                 bfs_kwargs["depth"] = recipe.bfs_depth
@@ -160,11 +185,10 @@ class SearchEngine:
                 min_score=self._settings.reranker_min_score,
             )
         elif recipe.reranker == "node_distance":
-            seed_ids = self._extract_entity_ids(fused)
             fused = await node_distance_rerank(
                 fused,
                 graph_store=self._graph_store,
-                seed_ids=seed_ids,
+                seed_ids=search_seed_ids[: self._settings.node_distance_seed_top_k],
             )
 
         return fused[: recipe.limit]
@@ -201,6 +225,7 @@ class SearchEngine:
                 embedder=self._embedder,
                 vector_store=self._vector_store,
                 settings=self._settings,
+                entity_labels=self._entity_labels,
             ),
             "chunk": ChunkRetriever(
                 graph_store=self._graph_store,

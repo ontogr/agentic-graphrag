@@ -69,7 +69,7 @@ class TestBFSRetriever:
         gs = AsyncMock()
         gs.execute_read.return_value = []
         retriever = BFSRetriever(graph_store=gs)
-        filters = SearchFilters(labels=["Person"])
+        filters = SearchFilters(properties={"status": "active"})
         await retriever.retrieve(
             "test",
             seed_ids=[uuid4()],
@@ -79,8 +79,22 @@ class TestBFSRetriever:
         call_args = gs.execute_read.call_args
         query = call_args.args[0]
         params = call_args.args[1]
-        assert "filter_label" in query
-        assert params["filter_label"] == ["Person"]
+        assert "filter_status" in query
+        assert params["filter_status"] == "active"
+
+    async def test_relation_types_restrict_traversal(self) -> None:
+        """relation_types reach the Cypher relationship pattern."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        retriever = BFSRetriever(graph_store=gs)
+        await retriever.retrieve(
+            "test",
+            seed_ids=[uuid4()],
+            filters=SearchFilters(relation_types=["TREATS", "CAUSES"]),
+        )
+
+        query = gs.execute_read.call_args.args[0]
+        assert "[:TREATS|CAUSES*1.." in query
 
     async def test_filters_empty_when_none(self) -> None:
         """No filters produces no filter params."""

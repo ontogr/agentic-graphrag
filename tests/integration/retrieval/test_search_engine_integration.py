@@ -80,8 +80,7 @@ class TestSearchEngineIntegration:
         self.chunk_label = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
         self.embedder = _FixedEmbedder()
         self.settings = RetrievalSettings(
-            entity_collection=self.label,
-            chunk_collection=self.label,
+            entity_labels=[self.label],
             entity_top_k=10,
             chunk_top_k=10,
         )
@@ -156,6 +155,12 @@ class TestSearchEngineIntegration:
             for ch in chunks
         ]
         await self.store.upsert_nodes(CHUNK_LABEL, records)
+        await self.store.ensure_vector_index(
+            label=CHUNK_LABEL,
+            vector_property="embedding",
+            dimensions=4,
+            distance=Distance.COSINE,
+        )
         return chunks
 
     async def test_entity_search_returns_results(self) -> None:

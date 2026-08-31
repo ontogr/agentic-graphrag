@@ -34,6 +34,7 @@ async def main():
     engine = SearchEngine(
         graph_store=graph_store,
         embedder=embedder,
+        entity_labels=[entity.label for entity in GENERIC.entities],
     )
 
     results = await engine.search(
@@ -92,8 +93,15 @@ asyncio.run(main())
 Set environment variables with the `RETRIEVAL_` prefix:
 
 ```bash
+RETRIEVAL_ENTITY_LABELS='["Drug","Condition"]'
 RETRIEVAL_ENTITY_TOP_K=10
 RETRIEVAL_CHUNK_TOP_K=10
 RETRIEVAL_HYBRID_ALPHA=0.5
 RETRIEVAL_TRAVERSAL_DEPTH=2
 ```
+
+`RETRIEVAL_ENTITY_LABELS` (or the `entity_labels` argument) names the schema
+entity labels that entity search runs against. Ingestion creates one native
+vector index per label, so search needs the labels themselves, not the
+`RETRIEVAL_ENTITY_COLLECTION` name, which applies only when a `VectorStore`
+is configured.

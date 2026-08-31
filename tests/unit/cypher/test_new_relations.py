@@ -1,5 +1,7 @@
 """Tests for new Cypher relation builders: BFS and MENTIONED_IN."""
 
+import pytest
+
 from agrag.cypher.relations import (
     bfs_expand_query,
     chunks_mentioning_entities_query,
@@ -34,6 +36,21 @@ class TestBfsExpandQuery:
         """Without filters the params dict is empty."""
         _, params = bfs_expand_query()
         assert params == {}
+
+    def test_relation_types_restrict_the_pattern(self) -> None:
+        """relation_types become the relationship type pattern."""
+        q, _ = bfs_expand_query(depth=2, relation_types=["TREATS", "CAUSES"])
+        assert "[:TREATS|CAUSES*1..2]" in q
+
+    def test_no_relation_types_crosses_every_type(self) -> None:
+        """Without relation_types the pattern stays untyped."""
+        q, _ = bfs_expand_query(depth=2)
+        assert "[*1..2]" in q
+
+    def test_unsafe_relation_type_raises(self) -> None:
+        """An injection attempt in a relation type is rejected."""
+        with pytest.raises(ValueError):
+            bfs_expand_query(relation_types=["TREATS]-() MATCH (x) DETACH DELETE x //"])
 
     def test_filters_add_where_clause(self) -> None:
         """Filters append a WHERE clause for the neighbor node."""

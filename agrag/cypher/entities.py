@@ -386,35 +386,22 @@ def clear_chunk_embedding_query(vector_property: str) -> str:
     )
 
 
-def resolve_merged_into_query(*, max_hops: int = 10) -> str:
-    """Return current data for a node, following any merged_into chain.
+def resolve_merged_into_query() -> str:
+    """Return a node and the id of the node it was merged into.
 
-    A tombstoned node is never deleted; it only gains a merged_into
-    pointer to its survivor (ADR 0033). A chain longer than max_hops is
-    a data integrity bug, so it raises instead of silently truncating.
-
-    ``max_hops`` is formatted into the query text, not passed as a
-    parameter, because Neo4j does not accept a parameter for a
-    variable-length relationship bound. It must be a small, trusted
-    constant from code, never from user input.
-
-    Args:
-        max_hops: The maximum merged_into hops to follow. Must be a
-            small, trusted constant.
+    A tombstoned node is never deleted; it only gains a ``merged_into``
+    property pointing at its survivor (ADR 0033). The pointer is a
+    property, not a relationship, so a chain is followed one hop per
+    call: ``merged_into`` is null on a live node and holds the next id
+    on a tombstone.
 
     Returns:
         A parameterized query expecting an $id parameter, returning the
-        live node's properties and the hop count.
+        node as ``node`` and its survivor id as ``merged_into``.
     """
-    # max_hops is a small, trusted constant from code, not an
-    # identifier. No validation needed; just ensure it's positive.
-    if max_hops < 1:
-        raise ValueError("max_hops must be at least 1")
     return (
-        f"MATCH (start:{NODE_IDENTITY_LABEL} {{id: $id}}) "
-        f"MATCH path = (start)-[:MERGED_INTO*0..{max_hops}]->(live) "
-        f"WHERE NOT EXISTS((live)-[:MERGED_INTO]->()) "
-        f"RETURN live, length(path) AS hops"
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) "
+        f"RETURN n AS node, n.merged_into AS merged_into"
     )
 
 

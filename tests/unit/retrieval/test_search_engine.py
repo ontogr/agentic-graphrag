@@ -11,6 +11,7 @@ from agrag.common.data_models.vector_record import VectorHit
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.recipes import ENTITY, HYBRID, Recipe
 from agrag.retrieval.search_engine import SearchEngine
+from agrag.retrieval.settings import RetrievalSettings
 
 
 class MockEmbedder:
@@ -407,3 +408,109 @@ class TestSearchEngine:
             # Only the entity id should be in seeds, not the chunk id.
             assert ent.id in seed_ids
             assert ch.id not in seed_ids
+
+    async def test_node_distance_seeds_are_not_every_candidate(self) -> None:
+        """Seeds are the top-k direct hits, so distances can differ."""
+        entities = [Entity(id=uuid4(), label="Person", name=f"E{i}") for i in range(4)]
+        gs = AsyncMock()
+        engine = SearchEngine(
+            graph_store=gs,
+            embedder=MockEmbedder(),
+            settings=RetrievalSettings(node_distance_seed_top_k=2),
+        )
+        recipe = Recipe(methods=["entity"], reranker="node_distance")
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_ev,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_er,
+            patch(
+                "agrag.retrieval.search_engine.node_distance_rerank",
+                new_callable=AsyncMock,
+            ) as mock_ndr,
+        ):
+            mock_ev.return_value = [
+                VectorHit(id=e.id, score=0.9 - i / 10, payload={})
+                for i, e in enumerate(entities)
+            ]
+            mock_er.side_effect = entities
+            mock_ndr.return_value = []
+
+            await engine.search("test", recipe)
+
+            seed_ids = mock_ndr.call_args.kwargs["seed_ids"]
+            candidate_ids = [r.item.id for r in mock_ndr.call_args.args[0]]
+            assert seed_ids == [entities[0].id, entities[1].id]
+            assert set(seed_ids) != set(candidate_ids)
+
+    async def test_bfs_seeds_exclude_bfs_neighbours_for_rerank(self) -> None:
+        """Reranker seeds stay the pre-BFS hits after BFS expansion."""
+        seed_ent = Entity(id=uuid4(), label="Person", name="Seed")
+        neighbour = Entity(id=uuid4(), label="Person", name="Neighbour")
+        gs = AsyncMock()
+        engine = SearchEngine(graph_store=gs, embedder=MockEmbedder())
+        recipe = Recipe(methods=["entity"], bfs=True, reranker="node_distance")
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_ev,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_er,
+            patch(
+                "agrag.retrieval.search_engine.BFSRetriever",
+                new_callable=MagicMock,
+            ) as mock_bfs,
+            patch(
+                "agrag.retrieval.search_engine.node_distance_rerank",
+                new_callable=AsyncMock,
+            ) as mock_ndr,
+        ):
+            mock_ev.return_value = [VectorHit(id=seed_ent.id, score=0.9, payload={})]
+            mock_er.return_value = seed_ent
+            bfs_inst = mock_bfs.return_value
+            bfs_inst.retrieve = AsyncMock(
+                return_value=[SearchResult(item=neighbour, score=1.0, method="bfs")]
+            )
+            mock_ndr.return_value = []
+
+            await engine.search("test", recipe)
+
+            seed_ids = mock_ndr.call_args.kwargs["seed_ids"]
+            assert seed_ids == [seed_ent.id]
+
+    async def test_entity_labels_reach_native_entity_search(self) -> None:
+        """Schema labels, not the collection name, drive native search."""
+        ent = Entity(id=uuid4(), label="Drug", name="Aspirin")
+        gs = AsyncMock()
+        engine = SearchEngine(
+            graph_store=gs,
+            embedder=MockEmbedder(),
+            entity_labels=["Drug", "Disease"],
+        )
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_ev,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_er,
+        ):
+            mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
+            mock_er.return_value = ent
+
+            await engine.search("test", ENTITY)
+
+            assert mock_ev.call_args.kwargs["labels"] == ["Drug", "Disease"]
+            assert mock_ev.call_args.kwargs["collection"] == "agrag_entities"

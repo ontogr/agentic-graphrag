@@ -4,6 +4,7 @@ Leaf module: imports nothing from ``agrag.graphdb``. See ``entities.py`` for the
 identifier-validation contract shared by every Cypher builder.
 """
 
+from collections.abc import Sequence
 from typing import Any
 
 from agrag.cypher.entities import validate_identifier
@@ -14,6 +15,7 @@ def bfs_expand_query(
     depth: int = 2,
     limit: int = 50,
     filters: dict[str, Any] | None = None,
+    relation_types: Sequence[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Build Cypher for BFS expansion from seed entity ids.
 
@@ -22,6 +24,10 @@ def bfs_expand_query(
     formatted into the query text (not a parameter) because Neo4j does
     not accept a parameter for a variable-length relationship bound. It
     must come from ``RetrievalSettings``, never from user input.
+
+    ``relation_types`` restricts which relationships a traversal may
+    cross. Neo4j does not accept a parameter for relationship types
+    either, so each type is validated and formatted into the pattern.
 
     ``depth`` is clamped to [1, 10] and ``limit`` to [1, 1000] so
     misconfigured or malicious settings cannot produce unbounded
@@ -37,10 +43,15 @@ def bfs_expand_query(
         limit: The maximum number of result nodes. Clamped to [1, 1000].
         filters: Optional flat-dict filter applied to neighbor nodes.
             A scalar value means exact match, a list means any of.
+        relation_types: Optional relationship types the traversal may
+            cross. None or empty crosses every type.
 
     Returns:
         A ``(query, params)`` tuple. The query expects ``$seed_ids``
         (list of string ids) plus any filter parameters.
+
+    Raises:
+        ValueError: A relation type is not a safe Cypher identifier.
     """
     from agrag.cypher.entities import filter_clause  # noqa: PLC0415
 
@@ -53,10 +64,15 @@ def bfs_expand_query(
         "neighbor:_AgragNode AND NOT neighbor:Chunk AND NOT neighbor.id IN $seed_ids"
     )
     where = f"{base_where}{filter_suffix}"
+    type_pattern = (
+        ":" + "|".join(validate_identifier(rel_type) for rel_type in relation_types)
+        if relation_types
+        else ""
+    )
     query = (
         f"UNWIND $seed_ids AS seed_id "
         f"MATCH (start:_AgragNode {{id: seed_id}}) "
-        f"MATCH path = (start)-[*1..{safe_depth}]-(neighbor) "
+        f"MATCH path = (start)-[{type_pattern}*1..{safe_depth}]-(neighbor) "
         f"WHERE {where} "
         f"RETURN DISTINCT neighbor, neighbor.id AS id "
         f"LIMIT {safe_limit}"

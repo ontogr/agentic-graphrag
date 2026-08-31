@@ -17,7 +17,9 @@ class ChunkRetriever(Retriever):
 
     Chunks are never tombstoned, so no merged_into resolution is
     needed. Embeds the query, searches via the GraphStore-native or
-    VectorStore path, then hydrates each hit into a Chunk.
+    VectorStore path, then hydrates each hit into a Chunk. The native
+    path searches the ``Chunk`` vector index ingestion provisions; the
+    VectorStore path searches ``chunk_collection``.
     """
 
     name = "chunk"
@@ -63,13 +65,13 @@ class ChunkRetriever(Retriever):
             Ranked SearchResults with hydrated Chunk items.
         """
         effective_limit = limit or self._settings.chunk_top_k
-        label = self._settings.chunk_collection
         hits = await vector_search(
             query,
             embedder=self._embedder,
             graph_store=self._graph_store,
             vector_store=self._vector_store,
-            label_or_collection=label,
+            collection=self._settings.chunk_collection,
+            labels=[CHUNK_LABEL],
             limit=effective_limit,
             filters=filters,
             settings=self._settings,

@@ -11,24 +11,18 @@ from agrag.cypher.entities import (
 
 
 class TestResolveMergedIntoQuery:
-    """resolve_merged_into_query follows merged_into chains."""
+    """resolve_merged_into_query reads the merged_into property."""
 
-    def test_contains_variable_length_pattern(self) -> None:
-        """The query uses a variable-length path pattern."""
-        q = resolve_merged_into_query(max_hops=5)
-        assert "*0..5" in q
-        assert "MERGED_INTO" in q
-
-    def test_returns_live_node(self) -> None:
-        """The query returns the live node at the end of the chain."""
+    def test_reads_merged_into_property(self) -> None:
+        """The query returns the merged_into property, not a path."""
         q = resolve_merged_into_query()
-        assert "RETURN live" in q
-        assert "hops" in q
+        assert "n.merged_into AS merged_into" in q
+        assert "MERGED_INTO" not in q
 
-    def test_default_max_hops(self) -> None:
-        """Default max_hops is 10."""
+    def test_returns_node(self) -> None:
+        """The query returns the matched node."""
         q = resolve_merged_into_query()
-        assert "*0..10" in q
+        assert "RETURN n AS node" in q
 
     def test_expects_id_parameter(self) -> None:
         """The query expects an $id parameter."""

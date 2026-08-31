@@ -29,6 +29,12 @@ class SearchFilters(BaseModel):
     def to_payload_filter(self) -> dict[str, Any]:
         """Return a flat-dict filter for VectorStore search calls.
 
+        Labels become a ``label`` payload key, which is how a
+        VectorStore records the graph label a record came from. A
+        GraphStore holds labels on the node itself, not as a property,
+        so the native path uses ``to_property_filter`` instead and
+        selects labels by the index it searches.
+
         Returns:
             A dict suitable for VectorStore.search/hybrid_search
             filters parameter.
@@ -36,6 +42,20 @@ class SearchFilters(BaseModel):
         result: dict[str, Any] = {}
         if self.labels:
             result["label"] = self.labels
+        result.update(self.to_property_filter())
+        return result
+
+    def to_property_filter(self) -> dict[str, Any]:
+        """Return a flat-dict filter over node properties only.
+
+        Excludes ``labels``, which are node labels rather than
+        properties on every graph backend this project supports.
+
+        Returns:
+            A dict of property name to expected value, where a list
+            value means any of.
+        """
+        result: dict[str, Any] = {}
         if self.document_ids:
             result["document_id"] = self.document_ids
         for key, value in self.properties.items():

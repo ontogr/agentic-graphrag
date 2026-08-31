@@ -20,6 +20,16 @@ class TestSearchFilters:
         pf = f.to_payload_filter()
         assert pf["label"] == ["Person"]
 
+    def test_labels_absent_from_property_filter(self) -> None:
+        """Labels are node labels, never a node property."""
+        f = SearchFilters(labels=["Person"], properties={"status": "active"})
+        assert f.to_property_filter() == {"status": "active"}
+
+    def test_document_ids_in_property_filter(self) -> None:
+        """Document ids stay a property filter."""
+        f = SearchFilters(document_ids=["doc1"])
+        assert f.to_property_filter() == {"document_id": ["doc1"]}
+
     def test_document_ids_in_payload(self) -> None:
         """Document ids appear in payload filter."""
         f = SearchFilters(document_ids=["doc1"])

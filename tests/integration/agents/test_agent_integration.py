@@ -107,10 +107,7 @@ class TestToolsIntegration:
         await self.store.connect()
         self.label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         self.embedder = _FixedEmbedder()
-        self.settings = RetrievalSettings(
-            entity_collection=self.label,
-            chunk_collection=self.label,
-        )
+        self.settings = RetrievalSettings(entity_labels=[self.label])
         self.engine = SearchEngine(
             graph_store=self.store,
             embedder=self.embedder,
@@ -152,10 +149,7 @@ class TestAgentBuildIntegration:
         await self.store.connect()
         self.label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         self.embedder = _FixedEmbedder()
-        self.settings = RetrievalSettings(
-            entity_collection=self.label,
-            chunk_collection=self.label,
-        )
+        self.settings = RetrievalSettings(entity_labels=[self.label])
         self.engine = SearchEngine(
             graph_store=self.store,
             embedder=self.embedder,

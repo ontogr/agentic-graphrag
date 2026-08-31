@@ -24,7 +24,10 @@ async def node_distance_rerank(
     Args:
         results: The fused results to rerank.
         graph_store: The graph store for shortest-path queries.
-        seed_ids: The seed entity ids to measure distance from.
+        seed_ids: The seed entity ids to measure distance from. Seeds
+            are the query's direct hits, not the whole candidate list:
+            a candidate that is its own seed measures distance zero,
+            so seeding with every candidate leaves the order unchanged.
 
     Returns:
         Results reranked by proximity, closest first.
@@ -51,10 +54,10 @@ async def node_distance_rerank(
                 f"RETURN length(path) AS dist",
                 {"seed_ids": seed_strs, "target_id": str(item.id)},
             )
-            if rows and rows[0].get("dist") is not None:
-                dist = float(rows[0]["dist"])
-            else:
-                dist = 999999.0
+            distances = [
+                float(row["dist"]) for row in rows if row.get("dist") is not None
+            ]
+            dist = min(distances) if distances else 999999.0
         except Exception:
             dist = 999999.0
 

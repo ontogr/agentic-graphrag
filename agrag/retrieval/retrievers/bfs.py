@@ -53,7 +53,9 @@ class BFSRetriever(Retriever):
         Args:
             query: The natural-language query text (unused for BFS,
                 kept for interface consistency).
-            filters: Constraints applied to traversal.
+            filters: Constraints applied to traversal. relation_types
+                restrict which relationships the traversal crosses;
+                property filters apply to neighbor nodes.
             limit: Maximum results. None uses traversal_limit.
             seed_ids: The entity ids to expand from. If None, BFS
                 returns empty.
@@ -69,11 +71,11 @@ class BFSRetriever(Retriever):
         effective_limit = limit or self._settings.traversal_limit
         effective_depth = depth if depth is not None else self._settings.traversal_depth
 
-        filter_dict = filters.to_payload_filter() if filters else None
         query, filter_params = bfs_expand_query(
             depth=effective_depth,
             limit=effective_limit,
-            filters=filter_dict,
+            filters=filters.to_property_filter() if filters else None,
+            relation_types=filters.relation_types if filters else None,
         )
         params = {"seed_ids": [str(sid) for sid in seed_ids], **filter_params}
 

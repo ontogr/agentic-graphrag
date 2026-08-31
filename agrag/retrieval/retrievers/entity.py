@@ -1,5 +1,7 @@
 """Entity retriever: dense vector search over entities."""
 
+from collections.abc import Sequence
+
 from agrag.common.data_models.search_result import SearchResult
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
@@ -17,6 +19,10 @@ class EntityRetriever(Retriever):
     Embeds the query, searches via the GraphStore-native or
     VectorStore path, then resolves every hit through
     ``resolve_entity`` so the caller can trust ``item.id`` is live.
+
+    The native path searches one vector index per entity label, so it
+    needs the labels ingestion provisioned indexes for: the label
+    filter when the caller sets one, otherwise ``entity_labels``.
     """
 
     name = "entity"
@@ -28,6 +34,7 @@ class EntityRetriever(Retriever):
         embedder: Embedder,
         vector_store: VectorStore | None = None,
         settings: RetrievalSettings | None = None,
+        entity_labels: Sequence[str] | None = None,
     ) -> None:
         """Construct an EntityRetriever.
 
@@ -38,11 +45,18 @@ class EntityRetriever(Retriever):
             vector_store: Optional VectorStore for hybrid search.
             settings: Retrieval configuration; defaults from
                 environment.
+            entity_labels: The schema entity labels native search runs
+                against. None uses settings.entity_labels.
         """
         self._graph_store = graph_store
         self._embedder = embedder
         self._vector_store = vector_store
         self._settings = settings or RetrievalSettings()
+        self._entity_labels = (
+            list(entity_labels)
+            if entity_labels is not None
+            else list(self._settings.entity_labels)
+        )
 
     async def retrieve(
         self,
@@ -60,15 +74,20 @@ class EntityRetriever(Retriever):
 
         Returns:
             Ranked SearchResults with resolved entity ids.
+
+        Raises:
+            ValueError: Native search was selected and neither the
+                filter nor the configuration names an entity label.
         """
         effective_limit = limit or self._settings.entity_top_k
-        label = self._settings.entity_collection
+        labels = filters.labels if filters and filters.labels else self._entity_labels
         hits = await vector_search(
             query,
             embedder=self._embedder,
             graph_store=self._graph_store,
             vector_store=self._vector_store,
-            label_or_collection=label,
+            collection=self._settings.entity_collection,
+            labels=labels,
             limit=effective_limit,
             filters=filters,
             settings=self._settings,

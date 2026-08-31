@@ -109,8 +109,7 @@ class TestRetrievalE2E:
         self.condition_label = validate_identifier(f"Condition_{uuid4().hex[:8]}")
         self.embedder = _FixedEmbedder()
         self.settings = RetrievalSettings(
-            entity_collection=self.drug_label,
-            chunk_collection=self.drug_label,
+            entity_labels=[self.drug_label, self.condition_label],
             entity_top_k=10,
             chunk_top_k=10,
         )
