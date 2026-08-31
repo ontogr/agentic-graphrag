@@ -35,6 +35,7 @@ from agrag.ingestion.merge import (
     compute_merge,
     mentioned_in_id,
 )
+from agrag.loaders.corpus.types import ErrorPolicy
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -382,6 +383,112 @@ class TestMentionedInTransferIntegration:
                 await store.execute_write(
                     "MATCH (c:Chunk {id: $id}) DETACH DELETE c", {"id": str(chunk_id)}
                 )
+            await store.close()
+
+
+@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+class TestReingestAbsorbedNameAliasIntegration:
+    """Regression coverage for reingesting a name an earlier merge absorbed."""
+
+    async def test_reingesting_absorbed_name_does_not_raise_false_conflict(
+        self,
+    ) -> None:
+        """A mention of a long-absorbed name resolves instead of false-conflicting.
+
+        Merge 1 creates a canonical entity "Bob" with a merge-key alias
+        pointing at its own id. Merge 2 absorbs "Bob" into a separate
+        survivor "Robert"; ``upsert_merge_alias_query`` never rewrites an
+        existing alias, so "bob"'s alias still points at the now-tombstoned
+        "Bob" id. Reingesting a "Bob" mention afterward resolves, through
+        that stale alias and its ``merged_into`` chain, straight to
+        "Robert" -- and must accept "bob" as one of this merge's own
+        accepted keys rather than reading the stale alias owner as a
+        foreign conflict.
+        """
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Person_{uuid4().hex[:8]}")
+        schema = GraphSchema(
+            name="test",
+            version="1",
+            entities=[EntityType(label=label, description="test")],
+            relations=[],
+        )
+        try:
+            await store.execute_write(merge_key_constraint_query(label))
+
+            bob_mention = ExtractedEntity(
+                chunk_id=uuid4(), label=label, text="Bob", char_start=0, char_end=3
+            )
+            plan_bob, _ = await compute_merge(
+                existing_entities=[], mentions=[bob_mention], schema=schema
+            )
+            await apply_merge(plan_bob, graph_store=store, schema=schema)
+
+            entity_robert = Entity(
+                id=uuid4(),
+                label=label,
+                name="Robert",
+                created_at=plan_bob.survivor.created_at - timedelta(minutes=5),
+            )
+            await store.upsert_nodes(label, [entity_robert.to_node_record()])
+
+            absorb_plan, _ = await compute_merge(
+                existing_entities=[entity_robert, plan_bob.survivor],
+                mentions=[],
+                schema=schema,
+            )
+            assert absorb_plan.survivor.id == entity_robert.id
+            assert absorb_plan.tombstone_ids == [plan_bob.survivor.id]
+            await apply_merge(absorb_plan, graph_store=store, schema=schema)
+
+            class BobAgainExtractor(Extractor):
+                async def extract(
+                    self, chunk: ChunkModel, schema: GraphSchema
+                ) -> ExtractionResult:
+                    return ExtractionResult(
+                        entities=[
+                            ExtractedEntity(
+                                chunk_id=chunk.id,
+                                label=label,
+                                text="Bob",
+                                char_start=0,
+                                char_end=3,
+                            )
+                        ],
+                        relations=[],
+                        extractor_name="fake",
+                    )  # type: ignore[arg-type]
+
+            graph = Graph(
+                schema=schema,
+                graph_store=store,
+                embedder=_StubEmbedder(),
+                extractor=BobAgainExtractor(),
+            )
+            result = await graph.add(
+                text="Bob mentioned again.", error_policy=ErrorPolicy.RAISE
+            )
+            assert not result.merge.failures
+            # Resolved onto the existing survivor, not a fresh duplicate
+            # "Bob" node that happened to reconcile afterward.
+            assert result.merge.nodes_created == 0
+
+            survivor_rows = await store.execute_read(
+                f"MATCH (n:{label} {{id: $id}}) "
+                f"RETURN n.merge_count AS merge_count, "
+                f"n.merged_into AS merged_into",
+                {"id": str(entity_robert.id)},
+            )
+            assert survivor_rows[0]["merged_into"] is None
+            assert survivor_rows[0]["merge_count"] >= 2
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.execute_write(
+                "MATCH (a:_AgragMergeAlias) "
+                "WHERE a.merge_key STARTS WITH $prefix DELETE a",
+                {"prefix": f"{label}:"},
+            )
             await store.close()
 
 

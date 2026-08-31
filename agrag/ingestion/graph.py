@@ -307,9 +307,10 @@ async def _resolve_tombstone_chain(
 
     Raises:
         GraphStoreDataIntegrityError: The chain cycles, points at a missing
-            node, contains a node that cannot be parsed as an Entity, or
-            exceeds ``_MAX_TOMBSTONE_CHAIN_HOPS`` hops without reaching a
-            live node. A store read failure propagates as-is, unwrapped.
+            node, the live node at its end cannot be parsed as an Entity, or
+            the chain exceeds ``_MAX_TOMBSTONE_CHAIN_HOPS`` hops without
+            reaching a live node. A store read failure propagates as-is,
+            unwrapped.
     """
     visited: set[str] = set()
     current_id = start_merged_into
@@ -333,16 +334,22 @@ async def _resolve_tombstone_chain(
         node = (
             row.get("n") if isinstance(row, dict) and "n" in row else row  # type: ignore[union-attr]
         )
+        # An intermediate tombstone's own node is never parsed: a real
+        # driver row carries no "labels" key for a plain RETURN n, and
+        # clear_tombstone_merge_keys_query already stripped merge_key --
+        # _parse_entity_node's label fallbacks both come up empty, even
+        # though this hop is not what the caller ultimately needs.
+        next_id = _extract_merged_into(node, row)
+        if next_id is not None:
+            current_id = next_id
+            continue
         entity = _parse_entity_node(node) or _parse_entity_node(row)  # type: ignore[arg-type]
         if entity is None:
             raise GraphStoreDataIntegrityError(
                 f"tombstone chain from {start_merged_into!r} reached "
                 f"unparsable node {current_id!r}"
             )
-        next_id = _extract_merged_into(node, row)
-        if next_id is None:
-            return entity
-        current_id = next_id
+        return entity
     raise GraphStoreDataIntegrityError(
         f"tombstone chain from {start_merged_into!r} exceeded "
         f"{_MAX_TOMBSTONE_CHAIN_HOPS} hops without reaching a live node"
@@ -395,14 +402,21 @@ async def _global_exact_match(
         )
         for row in rows:
             node = row.get("n") if isinstance(row, dict) and "n" in row else row
-            entity = _parse_entity_node(node) or _parse_entity_node(row)
-            if entity is None:
-                continue
+            # A tombstone's own node is never parsed: a real driver row
+            # carries no "labels" key for a plain RETURN n, and
+            # clear_tombstone_merge_keys_query already stripped merge_key --
+            # _parse_entity_node's label fallbacks both come up empty, even
+            # though the alias lookup only needs the live entity at the end
+            # of merged_into, not this row's own node.
             merged_into = _extract_merged_into(node, row)
             if merged_into is not None:
                 entity = await _resolve_tombstone_chain(
                     start_merged_into=merged_into, graph_store=graph_store
                 )
+            else:
+                entity = _parse_entity_node(node) or _parse_entity_node(row)
+                if entity is None:
+                    continue
             queried_mk = row.get("merge_key") if isinstance(row, dict) else None
             mk = queried_mk if isinstance(queried_mk, str) else entity.merge_key
             for idx in mk_to_indices.get(mk, []):

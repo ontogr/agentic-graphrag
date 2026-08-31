@@ -968,15 +968,25 @@ class TestPlanRelationshipDedup:
         assert deletes == [{"id": str(extra.new_relationship_id), "rel_type": "KNOWS"}]
 
 
-def _store_with_transaction(execute_write: AsyncMock) -> AsyncMock:
+def _store_with_transaction(
+    execute_write: AsyncMock, execute_read: AsyncMock | None = None
+) -> AsyncMock:
     """Build a store AsyncMock whose transaction() yields a fake handle.
 
     The handle's execute_write is the given mock. Its upsert_nodes mock is
     exposed as store.txn_upsert_nodes, kept separate from the store's own
     upsert_nodes so a test can tell which one apply_merge actually used.
+    execute_read defaults to reporting every queried id as a live node (no
+    merged_into), for tests that never resolve an alias-owner chain.
     """
     upsert_nodes = AsyncMock()
-    handle = SimpleNamespace(execute_write=execute_write, upsert_nodes=upsert_nodes)
+    if execute_read is None:
+        execute_read = AsyncMock(return_value=[{"merged_into": None}])
+    handle = SimpleNamespace(
+        execute_write=execute_write,
+        execute_read=execute_read,
+        upsert_nodes=upsert_nodes,
+    )
 
     @asynccontextmanager
     async def _transaction():
@@ -985,6 +995,7 @@ def _store_with_transaction(execute_write: AsyncMock) -> AsyncMock:
     store = AsyncMock()
     store.transaction = _transaction
     store.txn_upsert_nodes = upsert_nodes
+    store.txn_execute_read = execute_read
     return store
 
 
@@ -1243,6 +1254,52 @@ class TestApplyMerge:
         with pytest.raises(GraphStoreAliasConflictError) as exc_info:
             await apply_merge(plan, graph_store=store, schema=_schema())
         assert exc_info.value.conflicts == {"Person:bob": str(foreign_owner_id)}
+
+    async def test_historical_alias_owner_resolving_to_survivor_is_not_a_conflict(
+        self,
+    ) -> None:
+        """An alias claimed by an earlier, unrelated merge is not a false conflict.
+
+        Regression test: upsert_merge_alias_query never rewrites an alias
+        once created, so a merge_key an earlier merge accepted still points
+        at that merge's own survivor id even after that entity is itself
+        later absorbed by this merge's own survivor. Without following the
+        owner's merged_into chain, apply_merge misreads that historical
+        owner as belonging to a genuinely foreign entity and raises every
+        time the absorbed name is reingested.
+        """
+        survivor = _entity(name="Robert")
+        historical_owner_id = uuid4()
+        plan = MergePlan(
+            survivor=survivor,
+            tombstone_ids=[],
+            conflicts=[],
+            accepted_merge_keys=["Person:robert", "Person:bob"],
+        )
+
+        async def _exec_write(query, params=None):
+            if params and set(params) == {"merge_keys", "entity_id"}:
+                return [
+                    {"merge_key": "Person:robert", "entity_id": str(survivor.id)},
+                    {
+                        "merge_key": "Person:bob",
+                        "entity_id": str(historical_owner_id),
+                    },
+                ]
+            return []
+
+        async def _exec_read(query, params=None):
+            if params and params.get("id") == str(historical_owner_id):
+                return [{"merged_into": str(survivor.id)}]
+            return [{"merged_into": None}]
+
+        execute_write = AsyncMock(side_effect=_exec_write)
+        execute_read = AsyncMock(side_effect=_exec_read)
+        store = _store_with_transaction(execute_write, execute_read)
+
+        await apply_merge(plan, graph_store=store, schema=_schema())
+
+        assert execute_read.await_count == 2
 
     async def test_tombstones_own_alias_is_not_a_conflict(self) -> None:
         """A tombstone's own pre-existing alias does not trigger a conflict.

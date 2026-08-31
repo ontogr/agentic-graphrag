@@ -542,6 +542,59 @@ class TestGlobalExactMatch:
         assert result[0].id == survivor_id
         assert result[0].name == "Robert"
 
+    async def test_reingest_resolves_with_driver_shaped_tombstone_row(self) -> None:
+        """Reingest still resolves when the tombstone row has no ``labels`` key.
+
+        Regression test: a real Neo4j driver's ``RETURN n`` never carries a
+        ``labels`` key -- only ``_tombstone_row``'s mock form did, masking a
+        bug where the tombstone's own node was parsed into an Entity (to
+        learn its label) before its merged_into chain was ever checked.
+        With merge_key already stripped by clear_tombstone_merge_keys_query,
+        a driver-shaped tombstone row has neither a labels list nor a
+        merge_key to derive a label from, so that parse always failed and
+        the mention was silently dropped instead of resolving to the
+        survivor.
+        """
+        store = MockStore()
+        cid = uuid4()
+        m = ExtractedEntity(
+            chunk_id=cid, label="Person", text="Bob", char_start=0, char_end=3
+        )
+        tombstone_id = uuid4()
+        survivor_id = uuid4()
+        store.execute_read_responses = [
+            [
+                {
+                    "merge_key": "Person:bob",
+                    "n": {
+                        "id": str(tombstone_id),
+                        "name": "Bob",
+                        "merged_from": [],
+                        "merge_count": 1,
+                        "source_chunk_ids": [],
+                        "created_at": "2020-01-01T00:00:00+00:00",
+                        "merged_into": str(survivor_id),
+                    },
+                }
+            ],
+            [
+                {
+                    "n": {
+                        "id": str(survivor_id),
+                        "name": "Robert",
+                        "merge_key": "Person:robert",
+                        "merged_from": [str(tombstone_id)],
+                        "merge_count": 2,
+                        "source_chunk_ids": [],
+                        "created_at": "2020-01-01T00:00:00+00:00",
+                    }
+                }
+            ],
+        ]
+        result = await _global_exact_match([m], graph_store=store)
+        assert result[0].id == survivor_id
+        assert result[0].name == "Robert"
+
     async def test_accepted_alias_with_different_name_resolves_to_entity(self) -> None:
         """A mention resolves via an alias even when it never was the entity's name.
 
@@ -725,6 +778,71 @@ class TestResolveTombstoneChain:
         store.execute_read_responses = [
             _tombstone_row(tombstone_id, name="Bob", merged_into=survivor_id),
             _tombstone_row(survivor_id, name="Robert", merge_key="Person:robert"),
+        ]
+        entity = await _resolve_tombstone_chain(
+            start_merged_into=tombstone_id, graph_store=store
+        )
+        assert str(entity.id) == survivor_id
+        assert entity.name == "Robert"
+
+    async def test_driver_shaped_intermediate_hop_without_labels_resolves(
+        self,
+    ) -> None:
+        """A two-hop chain resolves when neither row carries a ``labels`` key.
+
+        Regression test: a real Neo4j driver's ``RETURN n`` never returns
+        ``labels``, and clear_tombstone_merge_keys_query has already
+        stripped merge_key from every tombstone in the chain. The
+        intermediate hop used to be parsed into an Entity purely to check
+        its own merged_into, with neither label source available -- raising
+        "unparsable node" instead of continuing to the live survivor.
+        """
+        store = MockStore()
+        tombstone_id, intermediate_id, survivor_id = (
+            str(uuid4()),
+            str(uuid4()),
+            str(uuid4()),
+        )
+        store.execute_read_responses = [
+            [
+                {
+                    "n": {
+                        "id": tombstone_id,
+                        "name": "Bob",
+                        "merged_from": [],
+                        "merge_count": 1,
+                        "source_chunk_ids": [],
+                        "created_at": "2020-01-01T00:00:00+00:00",
+                        "merged_into": intermediate_id,
+                    }
+                }
+            ],
+            [
+                {
+                    "n": {
+                        "id": intermediate_id,
+                        "name": "Bobby",
+                        "merged_from": [tombstone_id],
+                        "merge_count": 2,
+                        "source_chunk_ids": [],
+                        "created_at": "2020-01-01T00:00:00+00:00",
+                        "merged_into": survivor_id,
+                    }
+                }
+            ],
+            [
+                {
+                    "n": {
+                        "id": survivor_id,
+                        "name": "Robert",
+                        "merge_key": "Person:robert",
+                        "merged_from": [intermediate_id],
+                        "merge_count": 3,
+                        "source_chunk_ids": [],
+                        "created_at": "2020-01-01T00:00:00+00:00",
+                    }
+                }
+            ],
         ]
         entity = await _resolve_tombstone_chain(
             start_merged_into=tombstone_id, graph_store=store

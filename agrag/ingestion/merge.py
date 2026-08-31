@@ -22,7 +22,7 @@ from agrag.common.text import normalize_text
 
 
 if TYPE_CHECKING:
-    from agrag.graphdb.base import GraphStore
+    from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 
 
 class PropertyStrategy(StrEnum):
@@ -599,6 +599,65 @@ def relation_id(source_id: UUID, target_id: UUID, rel_type: str) -> UUID:
     return uuid5(NAMESPACE_OID, f"{rel_type}:{source_id}:{target_id}")
 
 
+_MAX_ALIAS_OWNER_CHAIN_HOPS = 32
+
+
+async def _resolve_alias_owner(owner_id: str, *, txn: GraphStoreTransaction) -> str:
+    """Follow a merge-key alias owner's ``merged_into`` chain to its live id.
+
+    ``upsert_merge_alias_query`` never rewrites an alias once created: if the
+    entity it names is later absorbed by a separate, earlier-committed
+    merge, the alias still points at that now-tombstoned id. Comparing an
+    alias owner's raw id against a merge's own survivor and tombstone ids
+    would then read that historical alias as a foreign conflict even though
+    it resolves, through ``merged_into``, to the very entity this merge is
+    writing.
+
+    Args:
+        owner_id: The alias row's raw ``entity_id``, possibly a tombstone.
+        txn: The transaction to read within.
+
+    Returns:
+        The id of the live entity at the end of the chain. Returns
+        ``owner_id`` unchanged when it already names a live node.
+
+    Raises:
+        GraphStoreDataIntegrityError: The chain cycles, points at a missing
+            node, or exceeds ``_MAX_ALIAS_OWNER_CHAIN_HOPS`` hops without
+            reaching a live node.
+    """
+    from agrag.cypher.entities import NODE_IDENTITY_LABEL  # noqa: PLC0415
+    from agrag.graphdb.errors import GraphStoreDataIntegrityError  # noqa: PLC0415
+
+    visited: set[str] = set()
+    current_id = owner_id
+    for _ in range(_MAX_ALIAS_OWNER_CHAIN_HOPS):
+        if current_id in visited:
+            raise GraphStoreDataIntegrityError(
+                f"merged_into cycle detected resolving alias owner "
+                f"{owner_id!r} (revisited {current_id!r})"
+            )
+        visited.add(current_id)
+        rows = await txn.execute_read(
+            f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) "
+            f"RETURN n.merged_into AS merged_into",
+            {"id": current_id},
+        )
+        if not rows:
+            raise GraphStoreDataIntegrityError(
+                f"alias owner chain from {owner_id!r} points at missing "
+                f"node {current_id!r}"
+            )
+        next_id = rows[0].get("merged_into")
+        if not next_id:
+            return current_id
+        current_id = str(next_id)
+    raise GraphStoreDataIntegrityError(
+        f"alias owner chain from {owner_id!r} exceeded "
+        f"{_MAX_ALIAS_OWNER_CHAIN_HOPS} hops without reaching a live node"
+    )
+
+
 async def apply_merge(
     plan: MergePlan, *, graph_store: GraphStore, schema: GraphSchema
 ) -> None:
@@ -629,6 +688,9 @@ async def apply_merge(
             by a live entity outside this merge's own survivor and tombstone
             ids -- a concurrent writer accepted that name as an alias of, or
             created it as the canonical name of, a different entity.
+        GraphStoreDataIntegrityError: A candidate conflicting alias owner's
+            merged_into chain cycles, points at a missing node, or does not
+            reach a live node within the hop limit.
     """
     from agrag.common.data_models.graph_record import NodeRecord  # noqa: PLC0415
     from agrag.cypher.entities import (  # noqa: PLC0415
@@ -686,16 +748,25 @@ async def apply_merge(
         )
         # A tombstone's own historical merge_key legitimately still names
         # it, not the survivor -- fetch_by_merge_keys_query's caller follows
-        # merged_into to reach the survivor from there. Only an owner
-        # outside this merge's own survivor/tombstone ids is a real
-        # conflict: some other, unrelated entity already claimed a name
-        # this merge also accepted.
+        # merged_into to reach the survivor from there. An owner outside
+        # this merge's own survivor/tombstone ids is only a real conflict
+        # once its own merged_into chain is followed: upsert_merge_alias_query
+        # never rewrites an alias once created, so an alias an earlier,
+        # unrelated merge accepted still points at that merge's own survivor
+        # id even after that entity is itself later absorbed here. Resolving
+        # the chain first tells that historical owner apart from a
+        # genuinely different live entity that claimed the same name.
         known_ids = {survivor_id, *tombstone_ids}
-        conflicts = {
+        candidate_conflicts = {
             row["merge_key"]: row["entity_id"]
             for row in alias_rows
             if isinstance(row, dict) and row.get("entity_id") not in known_ids
         }
+        conflicts = {}
+        for merge_key, owner_id in candidate_conflicts.items():
+            live_owner_id = await _resolve_alias_owner(owner_id, txn=txn)
+            if live_owner_id not in known_ids:
+                conflicts[merge_key] = live_owner_id
         if conflicts:
             raise GraphStoreAliasConflictError(conflicts)
 
