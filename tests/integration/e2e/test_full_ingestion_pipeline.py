@@ -1,6 +1,6 @@
 """Skeleton e2e pipeline tests.
 
-Full pipeline scenarios requiring a live Neo4j instance are covered by the 
+Full pipeline scenarios requiring a live Neo4j instance are covered by the
 integration suite under tests/integration/.
 This module provides a minimal check that the e2e marker and collection
 are configured and that the schema fixture is available.
