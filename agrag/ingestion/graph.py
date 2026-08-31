@@ -1302,10 +1302,28 @@ class Graph:
             chunk_id = entities[idx].chunk_id
             mentioned_pairs.add((chunk_id, entity_id))
 
+        # Look up by endpoint rather than trusting mentioned_in_id() alone:
+        # an entity merge transfers a MENTIONED_IN edge onto a new endpoint
+        # but keeps its old, tombstone-derived id (transfer_relationships_
+        # query copies the edge's existing properties, including id, as-is).
+        # Recomputing the id from the current (chunk, entity) pair would
+        # then miss that edge and create a parallel one on re-ingest.
+        existing_mentioned_map = await _global_relation_lookup(
+            [
+                (chunk_id, entity_id, "MENTIONED_IN")
+                for chunk_id, entity_id in mentioned_pairs
+            ],
+            graph_store=self._graph_store,
+        )
+
         mentioned_in_records: list[RelationRecord] = []
         for chunk_id, entity_id in mentioned_pairs:
-            # Deterministic id
-            edge_id = mentioned_in_id(chunk_id, entity_id)
+            existing = existing_mentioned_map.get((chunk_id, entity_id, "MENTIONED_IN"))
+            edge_id = (
+                existing[0]
+                if existing is not None
+                else mentioned_in_id(chunk_id, entity_id)
+            )
             # Build record directly
             rec = RelationRecord(
                 id=edge_id,

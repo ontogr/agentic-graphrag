@@ -745,7 +745,13 @@ async def apply_merge(
 
 
 def mentioned_in_id(chunk_id: UUID, entity_id: UUID) -> UUID:
-    """Return the deterministic id for a Chunk -[:MENTIONED_IN]-> Entity edge.
+    """Return the deterministic id for a new Chunk -[:MENTIONED_IN]-> Entity edge.
+
+    Only a fresh id for a pair with no persisted edge yet is guaranteed to equal
+    this. An entity merge can transfer an existing edge onto a new entity id
+    while keeping its old id (see ``transfer_relationships_query``), so a
+    caller writing to an already-persisted pair should look up the edge by
+    its endpoints first and fall back to this id only when none is found.
 
     Args:
         chunk_id: The Chunk's id.

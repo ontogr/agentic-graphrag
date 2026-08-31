@@ -1792,6 +1792,97 @@ class TestGraphAddPipeline:
             or len(domain_rels[0].properties["source_chunk_ids"]) >= 1
         )
 
+    async def test_mentioned_in_reuses_transferred_edge_id(self) -> None:
+        """A MENTIONED_IN edge transferred by a merge keeps its id on re-ingest.
+
+        Regression test: transfer_relationships_query preserves a transferred
+        edge's tombstone-derived id rather than recomputing it for the
+        survivor. Without an endpoint lookup before writing, Graph.add would
+        blindly compute a fresh mentioned_in_id() for the same (chunk,
+        entity) pair and create a second, parallel edge instead of reusing
+        the one already there.
+        """
+        store = MockStore()
+        survivor_id = uuid4()
+        stale_edge_id = uuid4()
+        captured_chunk_id: dict[str, Any] = {}
+
+        class AliceExtractor(Extractor):
+            async def extract(
+                self, chunk: ChunkModel, schema: GraphSchema
+            ) -> ExtractionResult:
+                captured_chunk_id["id"] = str(chunk.id)
+                return ExtractionResult(
+                    entities=[
+                        ExtractedEntity(
+                            chunk_id=chunk.id,
+                            label="Person",
+                            text="Alice",
+                            char_start=0,
+                            char_end=5,
+                        )
+                    ],
+                    relations=[],
+                    extractor_name="fake",
+                )  # type: ignore[arg-type]
+
+        async def fake_read(
+            query: str, params: Mapping[str, Any] | None = None
+        ) -> list[dict[str, Any]]:
+            if "merge_key" in query:
+                return []
+            if "UNWIND $pairs" in query:
+                pairs = params.get("pairs", []) if params else []
+                for pair in pairs:
+                    matches_chunk = pair["source_id"] == captured_chunk_id.get("id")
+                    matches_survivor = pair["target_id"] == str(survivor_id)
+                    if matches_chunk and matches_survivor:
+                        return [
+                            {
+                                "source_id": pair["source_id"],
+                                "target_id": pair["target_id"],
+                                "id": str(stale_edge_id),
+                                "source_chunk_ids": [],
+                            }
+                        ]
+                return []
+            return []
+
+        store.execute_read = fake_read  # type: ignore[method-assign]
+
+        survivor = Entity(id=survivor_id, label="Person", name="Alice", properties={})
+
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=store,
+            embedder=MockEmbedder(),
+            extractor=AliceExtractor(),
+        )
+
+        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+
+        async def fake_compute(  # type: ignore[no-untyped-def]
+            *, existing_entities, mentions, schema, **kw
+        ):
+            from agrag.ingestion.merge import MergePlan  # noqa: PLC0415
+
+            return MergePlan(survivor=survivor, tombstone_ids=[], conflicts=[]), []
+
+        with (
+            mock.patch.object(gmod, "compute_merge", side_effect=fake_compute),
+            mock.patch.object(gmod, "apply_merge", new_callable=mock.AsyncMock),
+        ):
+            await graph.add(text="Alice")
+
+        mentioned = [
+            r
+            for batch in store.upsert_relations_calls
+            for r in batch
+            if r.type == "MENTIONED_IN"
+        ]
+        assert len(mentioned) == 1
+        assert mentioned[0].id == stale_edge_id
+
     async def test_storage_and_embedding(self) -> None:
         """Embedding stage assigns vectors and upserts."""
         store, embed = MockStore(), MockEmbedder()

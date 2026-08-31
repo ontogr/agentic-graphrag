@@ -7,24 +7,30 @@ reachable Neo4j at the default ``NEO4J_URI``.
 """
 
 import importlib.util
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
+from agrag.common.data_models.chunk import Chunk as ChunkModel
 from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.extraction import ExtractedEntity
+from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
+from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.cypher.entities import validate_identifier
 from agrag.cypher.schema import merge_key_constraint_query
+from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.errors import GraphStoreAliasConflictError
-from agrag.ingestion.graph import _apply_merge_with_conflict_retry
+from agrag.ingestion.extract import Extractor
+from agrag.ingestion.graph import Graph, _apply_merge_with_conflict_retry
 from agrag.ingestion.merge import (
     PropertyRules,
     PropertyStrategy,
     apply_merge,
     compute_merge,
+    mentioned_in_id,
 )
 
 
@@ -193,4 +199,162 @@ class TestApplyMergeAliasConflictIntegration:
                 "WHERE a.merge_key STARTS WITH $prefix DELETE a",
                 {"prefix": f"{label}:"},
             )
+            await store.close()
+
+
+class _StubEmbedder(Embedder):
+    """Embedder that returns a fixed vector, for tests that never search."""
+
+    model = "stub"
+
+    async def dimensions(self) -> int:
+        """Return a fixed dimension count."""
+        return 3
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """Return a constant vector for each input text."""
+        return [[1.0, 2.0, 3.0] for _ in texts]
+
+
+@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+class TestMentionedInTransferIntegration:
+    """Regression coverage for a MENTIONED_IN edge transferred by a merge."""
+
+    async def test_reingesting_after_merge_does_not_duplicate_mentioned_in(
+        self,
+    ) -> None:
+        """Re-ingesting a chunk after its mentioned entity was merged away.
+
+        ``transfer_relationships_query`` preserves a transferred edge's
+        tombstone-derived id rather than recomputing it for the survivor.
+        Without an endpoint lookup before writing, ``Graph.add``'s
+        MENTIONED_IN upsert would recompute a fresh id for the same (chunk,
+        entity) pair and create a second, parallel edge instead of
+        converging onto the one the merge already transferred.
+        """
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Person_{uuid4().hex[:8]}")
+        schema = GraphSchema(
+            name="test",
+            version="1",
+            entities=[EntityType(label=label, description="test")],
+            relations=[],
+        )
+        text = "Ada Lovelace wrote the first algorithm."
+        chunk_ids: list[UUID] = []
+
+        class NoEntitiesExtractor(Extractor):
+            """Chunks the text without extracting anything, to learn its id."""
+
+            async def extract(
+                self, chunk: ChunkModel, schema: GraphSchema
+            ) -> ExtractionResult:
+                chunk_ids.append(chunk.id)
+                return ExtractionResult(
+                    entities=[], relations=[], extractor_name="fake"
+                )
+
+        class AdaExtractor(Extractor):
+            async def extract(
+                self, chunk: ChunkModel, schema: GraphSchema
+            ) -> ExtractionResult:
+                chunk_ids.append(chunk.id)
+                return ExtractionResult(
+                    entities=[
+                        ExtractedEntity(
+                            chunk_id=chunk.id,
+                            label=label,
+                            text="Ada Lovelace",
+                            char_start=0,
+                            char_end=12,
+                        )
+                    ],
+                    relations=[],
+                    extractor_name="fake",
+                )  # type: ignore[arg-type]
+
+        # Graph() directly, not Graph.open(): open() runs setup_constraints(),
+        # which sweeps every label this whole shared Neo4j instance has ever
+        # seen, not just this test's own randomly suffixed label. Nothing
+        # this test exercises depends on that constraint existing.
+        graph = Graph(
+            schema=schema,
+            graph_store=store,
+            embedder=_StubEmbedder(),
+            extractor=NoEntitiesExtractor(),
+        )
+        try:
+            # A priming ingest that writes only the Chunk node, so its id is
+            # the real, deterministic id chunking gives this text -- without
+            # involving entity resolution or the merge-key alias table yet.
+            await graph.add(text=text)
+            chunk_id = chunk_ids[0]
+
+            entity_a = Entity(id=uuid4(), label=label, name="Ada Lovelace")
+            # Earlier created_at wins canonical selection, so this becomes
+            # the merge survivor and entity_a is tombstoned into it.
+            entity_b = Entity(
+                id=uuid4(),
+                label=label,
+                name="A. Lovelace",
+                created_at=entity_a.created_at - timedelta(minutes=5),
+            )
+            await store.upsert_nodes(
+                label, [entity_a.to_node_record(), entity_b.to_node_record()]
+            )
+            await store.execute_write(merge_key_constraint_query(label))
+
+            # The edge an earlier, real ingest of this chunk would have
+            # written: Chunk -[:MENTIONED_IN]-> entity_a.
+            await store.upsert_relations(
+                [
+                    RelationRecord(
+                        id=mentioned_in_id(chunk_id, entity_a.id),
+                        type="MENTIONED_IN",
+                        start_id=chunk_id,
+                        end_id=entity_a.id,
+                        properties={"created_at": datetime.now(UTC).isoformat()},
+                    )
+                ]
+            )
+
+            plan, _ = await compute_merge(
+                existing_entities=[entity_a, entity_b], mentions=[], schema=schema
+            )
+            assert plan.survivor.id == entity_b.id
+            assert plan.tombstone_ids == [entity_a.id]
+            await apply_merge(plan, graph_store=store, schema=schema)
+
+            mentioned_before = await store.execute_read(
+                "MATCH (:Chunk)-[r:MENTIONED_IN]->(n {id: $id}) RETURN r.id AS id",
+                {"id": str(entity_b.id)},
+            )
+            assert len(mentioned_before) == 1
+
+            # Re-ingest the same chunk: same text hashes to the same chunk
+            # id, and the mention resolves straight to the survivor, since
+            # neither name had a merge-key alias before this merge created
+            # one -- no tombstone chain to follow.
+            graph._extractor = AdaExtractor()
+            await graph.add(text=text)
+            assert chunk_ids[1] == chunk_id
+
+            mentioned_after = await store.execute_read(
+                "MATCH (:Chunk)-[r:MENTIONED_IN]->(n {id: $id}) RETURN r.id AS id",
+                {"id": str(entity_b.id)},
+            )
+            assert len(mentioned_after) == 1
+            assert mentioned_after[0]["id"] == mentioned_before[0]["id"]
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.execute_write(
+                "MATCH (a:_AgragMergeAlias) "
+                "WHERE a.merge_key STARTS WITH $prefix DELETE a",
+                {"prefix": f"{label}:"},
+            )
+            for chunk_id in set(chunk_ids):
+                await store.execute_write(
+                    "MATCH (c:Chunk {id: $id}) DETACH DELETE c", {"id": str(chunk_id)}
+                )
             await store.close()
