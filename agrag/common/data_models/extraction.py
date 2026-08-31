@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class ExtractedEntity(BaseModel):
@@ -18,6 +18,10 @@ class ExtractedEntity(BaseModel):
         char_start: The start character offset within the chunk's text.
         char_end: The end character offset within the chunk's text.
         confidence: The extractor's confidence in this mention, when available.
+        properties: Schema-declared property values this mention carries,
+            keyed by property name. Empty for an extractor that only reports
+            spans -- normalize_extraction_result drops any key the schema
+            does not declare for this mention's label.
     """
 
     chunk_id: UUID
@@ -26,6 +30,7 @@ class ExtractedEntity(BaseModel):
     char_start: int
     char_end: int
     confidence: float | None = None
+    properties: dict[str, object] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_span(self) -> "ExtractedEntity":

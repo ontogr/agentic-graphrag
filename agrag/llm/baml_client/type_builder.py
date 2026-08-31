@@ -165,7 +165,7 @@ class BAMLExtractedEntityAst:
     def __init__(self, tb: type_builder.TypeBuilder):
         _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("BAMLExtractedEntity")
-        self._properties: typing.Set[str] = set([  "label",  "text",  "char_start",  "char_end",  ])
+        self._properties: typing.Set[str] = set([  "label",  "text",  "char_start",  "char_end",  "properties",  ])
         self._props = BAMLExtractedEntityProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -208,6 +208,10 @@ class BAMLExtractedEntityProperties:
     @property
     def char_end(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("char_end"))
+    
+    @property
+    def properties(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("properties"))
     
     
 

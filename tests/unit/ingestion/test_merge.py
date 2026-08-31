@@ -60,6 +60,7 @@ def _mention(
     text: str = "Ada",
     label: str = "Person",
     chunk_id: UUID | None = None,
+    properties: dict[str, object] | None = None,
 ) -> ExtractedEntity:
     """Build a minimal ExtractedEntity."""
     return ExtractedEntity(
@@ -68,6 +69,7 @@ def _mention(
         text=text,
         char_start=0,
         char_end=len(text) or 1,
+        properties=properties or {},
     )
 
 
@@ -607,6 +609,22 @@ class TestComputeMerge:
         )
         assert plan.survivor.id == e2.id
         assert plan.tombstone_ids == [e1.id]
+
+    async def test_mention_properties_reach_the_survivor(self) -> None:
+        """A fresh mention's schema-declared properties reach the survivor.
+
+        Regression test: field_sources used to build a mention's row from
+        only its text, so a property an extractor reported on the mention
+        itself (not on any existing entity) was silently dropped before
+        field-level merge ever saw it.
+        """
+        mention = _mention(text="Ada", properties={"role": "engineer"})
+        plan, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[mention],
+            schema=_schema(properties={"role": "str"}),
+        )
+        assert plan.survivor.properties["role"] == "engineer"
 
     async def test_mismatched_labels_raise(self) -> None:
         """Mismatched labels raise ValueError."""

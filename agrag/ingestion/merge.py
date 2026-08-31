@@ -363,10 +363,10 @@ async def compute_merge(  # noqa: PLR0912
 
     field_sources = [
         {"name": entity.name, **entity.properties} for entity in existing_entities
-    ] + [{"name": mention.text} for mention in mentions]
+    ] + [{"name": mention.text, **mention.properties} for mention in mentions]
 
     resolved_fields, conflicts, desc_failures = await _merge_properties(
-        field_sources,  # ty: ignore[invalid-argument-type]
+        field_sources,
         rules,
         description_settings=description_settings,
         description_client=description_client,
