@@ -31,6 +31,32 @@ class GraphStoreConstraintViolationError(GraphStoreError):
     """
 
 
+class GraphStoreAliasConflictError(GraphStoreConstraintViolationError):
+    """A merge-key alias a merge tried to claim already names another entity.
+
+    Unlike the base class, this is not surfaced by the backend's own
+    uniqueness constraint -- claiming an already-owned alias is a silent
+    no-op at the database level (see ``upsert_merge_alias_query``) -- so
+    ``apply_merge`` detects it itself from the claim's own return rows and
+    raises this instead. For example, one writer creates a canonical entity
+    named "Bob" while a concurrent writer separately resolves "Bob" as an
+    accepted alias of a different canonical entity named "Robert": neither
+    writer's own node merge_key collides, so recovery must come from here,
+    not from a constraint violation.
+
+    Attributes:
+        conflicts: Every accepted merge_key this claim found already owned,
+            mapped to the entity id that owns it.
+    """
+
+    def __init__(self, conflicts: dict[str, str]) -> None:
+        """Bind the conflicting merge_key -> owning-entity-id map."""
+        super().__init__(
+            f"merge_key alias already claimed by another entity: {conflicts}"
+        )
+        self.conflicts = conflicts
+
+
 class GraphStoreDataIntegrityError(GraphStoreError):
     """A read found the graph store in a state its own invariants forbid.
 
@@ -43,6 +69,7 @@ class GraphStoreDataIntegrityError(GraphStoreError):
 
 
 __all__ = [
+    "GraphStoreAliasConflictError",
     "GraphStoreConstraintViolationError",
     "GraphStoreDataIntegrityError",
     "GraphStoreError",

@@ -257,6 +257,28 @@ class TestGraphAdd:
 class TestGraphOpen:
     """Graph.open provisioning failure handling."""
 
+    async def test_connect_failure_closes_store(self) -> None:
+        """A failure inside connect() itself still closes the store.
+
+        Regression test: connect() can build and cache a driver before
+        connectivity verification fails, so a failure here must still reach
+        close() instead of leaking that driver's connection pool.
+        """
+
+        class _FailingStore(_MockGraphStore):
+            async def connect(self) -> None:
+                raise RuntimeError("boom")
+
+        store = _FailingStore()
+        with pytest.raises(RuntimeError, match="boom"):
+            await Graph.open(
+                schema=GENERIC,
+                graph_store=store,
+                embedder=_MockEmbedder(),
+                extractor=_MockExtractor(),
+            )
+        assert store.close_calls == 1
+
     async def test_setup_constraints_failure_closes_store(self) -> None:
         """A provisioning failure after connect() still closes the store.
 

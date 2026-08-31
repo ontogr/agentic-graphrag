@@ -35,6 +35,7 @@ from agrag.cypher.entities import (
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.errors import (
+    GraphStoreAliasConflictError,
     GraphStoreConstraintViolationError,
     GraphStoreDataIntegrityError,
 )
@@ -509,6 +510,48 @@ def _union_groups_by_existing_entity(
     ]
 
 
+def _synthesize_consolidation_mentions(
+    entities: list[Entity],
+) -> tuple[list[ExtractedEntity], dict[UUID, Chunk]]:
+    """Build resolver mentions and per-entity dummy chunks for consolidate().
+
+    consolidate() has no real chunk text to compare persisted entities
+    against, so each gets a synthetic mention and a dummy chunk carrying its
+    own name as LLMVerify context. Each entity's dummy chunk id is its own,
+    independent of its real source_chunk_ids: two entities commonly share a
+    first source chunk (they were extracted from the same passage), and
+    keying the dummy chunk by that shared id would let the first entity
+    processed silently stand in as every later entity's own context.
+
+    Args:
+        entities: The persisted entities to synthesize mentions for.
+
+    Returns:
+        One ExtractedEntity mention per entity and the dummy Chunk each
+        mention's chunk_id resolves to, both index-aligned with entities.
+    """
+    synthetic_mentions: list[ExtractedEntity] = []
+    dummy_chunks_by_id: dict[UUID, Chunk] = {}
+    for ent in entities:
+        dummy_cid = uuid4()
+        dummy_chunks_by_id[dummy_cid] = Chunk(
+            document_id=dummy_cid,
+            index=0,
+            text=ent.name,
+            provenance=TextProvenance(char_start=0, char_end=len(ent.name)),
+        )
+        synthetic_mentions.append(
+            ExtractedEntity(
+                chunk_id=dummy_cid,
+                label=ent.label,
+                text=ent.name,
+                char_start=0,
+                char_end=len(ent.name),
+            )
+        )
+    return synthetic_mentions, dummy_chunks_by_id
+
+
 def _embedding_guard_fields(entity: Entity) -> dict[str, str]:
     """Return the id/name/description fields the embedding writes guard on.
 
@@ -612,29 +655,52 @@ async def _apply_merge_with_conflict_retry(
     *,
     graph_store: GraphStore,
     schema: GraphSchema,
+    existing_entities: list[Entity],
     mentions: list[ExtractedEntity],
     is_new_entity: bool,
 ) -> tuple[MergePlan, list[Any]]:
-    """Apply a merge plan, recovering once from a concurrent create race.
+    """Apply a merge plan, recovering once from a concurrent race.
 
-    A brand-new entity's write can lose a race: two concurrent add() calls
-    resolving the same normalized name each run their exact-match lookup
-    before either has written anything, so neither sees the other, and both
-    then try to create a live node for the same merge_key. Rather than
-    silently letting a duplicate through, merge_key_constraint_query rejects
-    whichever write lands second; this recovers by re-resolving the name to
-    whichever entity won the race and merging into it instead, the way a
-    normal update would have if the exact-match lookup had seen it in time.
+    Two distinct races can surface here, both as a
+    GraphStoreConstraintViolationError:
+
+    - A brand-new entity's write can lose a create race: two concurrent
+      add() calls resolving the same normalized name each run their
+      exact-match lookup before either has written anything, so neither
+      sees the other, and both then try to create a live node for the same
+      merge_key. merge_key_constraint_query rejects whichever write lands
+      second; this recovers by re-resolving the name to whichever entity
+      won the race and merging into it instead, the way a normal update
+      would have if the exact-match lookup had seen it in time. Only
+      possible when is_new_entity, since updating an already-known
+      canonical entity writes that entity's own already-established
+      merge_key, which cannot newly collide.
+    - An accepted merge_key -- one of the group's mention- or
+      absorbed-entity-derived names, not necessarily the survivor's own --
+      can be claimed, mid-transaction, by a live entity outside this
+      merge's own survivor/tombstone set: for example, one writer creates a
+      canonical entity named "Bob" while this call separately resolves
+      "Bob" as an accepted alias of a different canonical entity named
+      "Robert". Neither writer's own node merge_key collides in that case,
+      so apply_merge raises GraphStoreAliasConflictError itself instead of
+      relying on the backend's constraint. This recovers by re-resolving
+      every conflicting merge_key to its real owner and recomputing the
+      merge with those owners folded into existing_entities. Possible
+      whether or not is_new_entity, since it is unrelated to whether the
+      survivor's own node is new.
 
     Args:
         plan: The merge to apply.
         graph_store: Where the merge is written.
         schema: The schema the survivor's label belongs to.
+        existing_entities: The persisted entities plan was originally
+            computed from, needed to recompute the merge with a
+            newly-discovered conflicting entity folded in.
         mentions: The mentions compute_merge originally folded into plan,
             needed to recompute the merge against the real canonical entity.
         is_new_entity: Whether plan was building a brand-new entity (no
-            existing_entities) -- the only case a constraint violation here
-            means a create race rather than a genuine error.
+            existing_entities) -- gates recovery from a bare create-race
+            constraint violation, the only case that can mean.
 
     Returns:
         The plan that was actually applied (plan itself, or the recomputed
@@ -642,13 +708,41 @@ async def _apply_merge_with_conflict_retry(
         failures the recovery's own compute_merge call raised.
 
     Raises:
-        GraphStoreConstraintViolationError: The violation was not a create race
-            this can recover from (not a new-entity write, or the entity
-            still cannot be found by merge_key after the retry).
+        GraphStoreConstraintViolationError: The violation was not a race
+            this can recover from (a create-race violation on a non-new
+            entity, or an owner that still cannot be found after retry).
     """
     try:
         await apply_merge(plan, graph_store=graph_store, schema=schema)
         return plan, []
+    except GraphStoreAliasConflictError as exc:
+        label = plan.survivor.label
+        synthetics = []
+        for merge_key in exc.conflicts:
+            name = merge_key.removeprefix(f"{label}:")
+            synthetics.append(
+                ExtractedEntity(
+                    chunk_id=uuid4(),
+                    label=label,
+                    text=name,
+                    char_start=0,
+                    char_end=len(name),
+                )
+            )
+        resolved = await _global_exact_match(synthetics, graph_store=graph_store)
+        if len(resolved) != len(synthetics):
+            raise
+        owners = {entity.id: entity for entity in resolved.values()}
+        merged_existing = list(
+            {
+                entity.id: entity for entity in [*existing_entities, *owners.values()]
+            }.values()
+        )
+        retried_plan, desc_failures = await compute_merge(
+            existing_entities=merged_existing, mentions=mentions, schema=schema
+        )
+        await apply_merge(retried_plan, graph_store=graph_store, schema=schema)
+        return retried_plan, desc_failures
     except GraphStoreConstraintViolationError:
         if not is_new_entity:
             raise
@@ -735,12 +829,12 @@ class Graph:
             A graph connected to graph_store and ready to accept add() calls.
 
         Raises:
-            Exception: Whatever registration, constraint/index setup, or
-                vector-index provisioning raises. graph_store is closed
-                first, so a failed open() never leaks a connection.
+            Exception: Whatever connect(), registration, constraint/index
+                setup, or vector-index provisioning raises. graph_store is
+                closed first, so a failed open() never leaks a connection.
         """
-        await graph_store.connect()
         try:
+            await graph_store.connect()
             entity_labels = [entity_type.label for entity_type in schema.entities]
             relation_types = [relation_type.label for relation_type in schema.relations]
             await graph_store.register_labels([*entity_labels, CHUNK_LABEL])
@@ -1114,6 +1208,7 @@ class Graph:
                     plan,
                     graph_store=self._graph_store,
                     schema=self._schema,
+                    existing_entities=existing_for_group,
                     mentions=group_mentions,
                     is_new_entity=not existing_for_group,
                 )
@@ -1449,30 +1544,9 @@ class Graph:
             all_entities = await self._all_entities_by_label(label)
             if len(all_entities) < 2:
                 continue
-            # Synthesize mentions from persisted entities for resolver.
-            synthetic_mentions: list[ExtractedEntity] = []
-            # Dummy chunks for LLMVerify context.
-            dummy_chunks_by_id: dict[UUID, Chunk] = {}
-            for ent in all_entities:
-                # Use first source chunk id if available, else new uuid
-                dummy_cid = ent.source_chunk_ids[0] if ent.source_chunk_ids else uuid4()
-                # Create dummy chunk if not exists
-                if dummy_cid not in dummy_chunks_by_id:
-                    dummy_chunks_by_id[dummy_cid] = Chunk(
-                        document_id=dummy_cid,  # reuse
-                        index=0,
-                        text=ent.name,
-                        provenance=TextProvenance(char_start=0, char_end=len(ent.name)),
-                    )
-                synthetic_mentions.append(
-                    ExtractedEntity(
-                        chunk_id=dummy_cid,
-                        label=ent.label,
-                        text=ent.name,
-                        char_start=0,
-                        char_end=len(ent.name),
-                    )
-                )
+            synthetic_mentions, dummy_chunks_by_id = _synthesize_consolidation_mentions(
+                all_entities
+            )
 
             resolver = Resolver(
                 comparators=[

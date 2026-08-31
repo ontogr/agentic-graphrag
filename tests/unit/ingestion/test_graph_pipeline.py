@@ -29,6 +29,7 @@ from agrag.common.data_models.vector_record import VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.errors import (
+    GraphStoreAliasConflictError,
     GraphStoreConstraintViolationError,
     GraphStoreDataIntegrityError,
 )
@@ -43,6 +44,7 @@ from agrag.ingestion.graph import (
     _parse_entity_node,
     _resolve_paths,
     _resolve_tombstone_chain,
+    _synthesize_consolidation_mentions,
     _union_groups_by_existing_entity,
 )
 from agrag.ingestion.merge import MergePlan
@@ -795,6 +797,52 @@ class TestUnionGroupsByExistingEntity:
         assert result[0].entity_indices == [0, 1, 2, 3]
 
 
+class TestSynthesizeConsolidationMentions:
+    """_synthesize_consolidation_mentions builds per-entity dummy context."""
+
+    def test_shared_source_chunk_does_not_cross_contaminate_context(self) -> None:
+        """Two entities sharing a first source chunk still get independent context.
+
+        Regression test: keying the dummy chunk by an entity's own first
+        source_chunk_id let a second entity sharing that same first chunk
+        silently reuse whichever entity had already registered a dummy
+        chunk under that id, corrupting the LLMVerify comparison context.
+        """
+        shared_chunk_id = uuid4()
+        alice = Entity(
+            id=uuid4(),
+            label="Person",
+            name="Alice",
+            properties={},
+            source_chunk_ids=[shared_chunk_id],
+        )
+        bob = Entity(
+            id=uuid4(),
+            label="Person",
+            name="Bob",
+            properties={},
+            source_chunk_ids=[shared_chunk_id],
+        )
+
+        mentions, dummy_chunks_by_id = _synthesize_consolidation_mentions([alice, bob])
+
+        assert len(mentions) == 2
+        assert mentions[0].chunk_id != mentions[1].chunk_id
+        assert dummy_chunks_by_id[mentions[0].chunk_id].text == "Alice"
+        assert dummy_chunks_by_id[mentions[1].chunk_id].text == "Bob"
+
+    def test_mentions_are_index_aligned_with_entities(self) -> None:
+        """Each mention carries its own entity's label and name."""
+        alice = Entity(id=uuid4(), label="Person", name="Alice", properties={})
+        acme = Entity(id=uuid4(), label="Organization", name="Acme", properties={})
+
+        mentions, dummy_chunks_by_id = _synthesize_consolidation_mentions([alice, acme])
+
+        assert [m.label for m in mentions] == ["Person", "Organization"]
+        assert [m.text for m in mentions] == ["Alice", "Acme"]
+        assert len(dummy_chunks_by_id) == 2
+
+
 class TestApplyMergeWithConflictRetry:
     """_apply_merge_with_conflict_retry recovers from a concurrent create race."""
 
@@ -855,6 +903,7 @@ class TestApplyMergeWithConflictRetry:
                 losing_plan,
                 graph_store=store,
                 schema=GENERIC,
+                existing_entities=[],
                 mentions=[mention],
                 is_new_entity=True,
             )
@@ -884,6 +933,7 @@ class TestApplyMergeWithConflictRetry:
                 plan,
                 graph_store=store,
                 schema=GENERIC,
+                existing_entities=[],
                 mentions=[],
                 is_new_entity=False,
             )
@@ -910,6 +960,108 @@ class TestApplyMergeWithConflictRetry:
                 plan,
                 graph_store=store,
                 schema=GENERIC,
+                existing_entities=[],
+                mentions=[],
+                is_new_entity=True,
+            )
+
+    async def test_alias_conflict_merges_into_the_true_owner(self) -> None:
+        """A merge-key alias claimed by another entity re-resolves and retries.
+
+        Regression test: canonical "Bob" is created by one writer while this
+        call separately resolves mentions "Robert" and "Bob" as the same
+        entity, accepting "Bob" as an alias of "Robert". Neither writer's
+        own node merge_key collides -- apply_merge raises
+        GraphStoreAliasConflictError itself instead of a backend constraint
+        -- so recovery must fold the real "Bob" owner into existing_entities
+        and merge both mentions into it, rather than leaving two live
+        entities that both believe they own the name "Bob".
+        """
+        bob_owner_id = uuid4()
+        robert_mention = ExtractedEntity(
+            chunk_id=uuid4(), label="Person", text="Robert", char_start=0, char_end=6
+        )
+        bob_mention = ExtractedEntity(
+            chunk_id=uuid4(), label="Person", text="Bob", char_start=0, char_end=3
+        )
+        losing_plan = MergePlan(
+            survivor=Entity(id=uuid4(), label="Person", name="Robert", properties={}),
+            tombstone_ids=[],
+            conflicts=[],
+            accepted_merge_keys=["Person:robert", "Person:bob"],
+        )
+
+        store = MockStore()
+        store.execute_read_responses = [
+            [
+                {
+                    "n": {
+                        "id": str(bob_owner_id),
+                        "labels": ["Person"],
+                        "properties": {
+                            "name": "Bob",
+                            "merge_key": "Person:bob",
+                            "merged_from": [],
+                            "merge_count": 1,
+                            "source_chunk_ids": [],
+                            "created_at": "2020-01-01T00:00:00+00:00",
+                        },
+                    }
+                }
+            ]
+        ]
+
+        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+
+        call_count = 0
+
+        async def fake_apply_merge(
+            plan: MergePlan, *, graph_store: object, schema: object
+        ) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise GraphStoreAliasConflictError({"Person:bob": str(bob_owner_id)})
+
+        with mock.patch.object(gmod, "apply_merge", side_effect=fake_apply_merge):
+            plan, desc_failures = await _apply_merge_with_conflict_retry(
+                losing_plan,
+                graph_store=store,
+                schema=GENERIC,
+                existing_entities=[],
+                mentions=[robert_mention, bob_mention],
+                is_new_entity=True,
+            )
+
+        assert call_count == 2
+        assert plan.survivor.id == bob_owner_id
+        assert plan.tombstone_ids == []
+        assert desc_failures == []
+
+    async def test_alias_conflict_reraises_when_owner_cannot_be_found(self) -> None:
+        """If the alias claim reports an owner re-resolution cannot find, reraise."""
+        plan = MergePlan(
+            survivor=Entity(id=uuid4(), label="Person", name="Robert", properties={}),
+            tombstone_ids=[],
+            conflicts=[],
+            accepted_merge_keys=["Person:robert", "Person:bob"],
+        )
+        store = MockStore()
+        store.execute_read_responses = [[]]
+        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+
+        async def fake_apply_merge(*args: object, **kwargs: object) -> None:
+            raise GraphStoreAliasConflictError({"Person:bob": str(uuid4())})
+
+        with (
+            mock.patch.object(gmod, "apply_merge", side_effect=fake_apply_merge),
+            pytest.raises(GraphStoreAliasConflictError),
+        ):
+            await _apply_merge_with_conflict_retry(
+                plan,
+                graph_store=store,
+                schema=GENERIC,
+                existing_entities=[],
                 mentions=[],
                 is_new_entity=True,
             )

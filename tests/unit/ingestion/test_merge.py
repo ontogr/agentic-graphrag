@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.graphdb.errors import GraphStoreAliasConflictError
 from agrag.ingestion.merge import (
     MergePlan,
     PropertyRules,
@@ -1205,6 +1206,68 @@ class TestApplyMerge:
         delete_calls = [c for c in calls if "delete_ids" in c.args[1]]
         assert update_calls
         assert delete_calls
+
+    async def test_foreign_alias_owner_raises_conflict(self) -> None:
+        """An accepted merge_key already owned elsewhere raises, not silently drops.
+
+        Regression test: one writer creates a canonical entity named "Bob"
+        while this merge separately accepts "Bob" as an alias of a
+        different canonical entity. Neither node's own merge_key collides,
+        so ON CREATE SET alone would let both commit with the alias table
+        silently still pointing at the other writer's entity.
+        """
+        survivor = _entity(name="Robert")
+        foreign_owner_id = uuid4()
+        plan = MergePlan(
+            survivor=survivor,
+            tombstone_ids=[],
+            conflicts=[],
+            accepted_merge_keys=["Person:robert", "Person:bob"],
+        )
+
+        async def _exec_write(query, params=None):
+            if params and set(params) == {"merge_keys", "entity_id"}:
+                return [
+                    {"merge_key": "Person:robert", "entity_id": str(survivor.id)},
+                    {"merge_key": "Person:bob", "entity_id": str(foreign_owner_id)},
+                ]
+            return []
+
+        execute_write = AsyncMock(side_effect=_exec_write)
+        store = _store_with_transaction(execute_write)
+
+        with pytest.raises(GraphStoreAliasConflictError) as exc_info:
+            await apply_merge(plan, graph_store=store, schema=_schema())
+        assert exc_info.value.conflicts == {"Person:bob": str(foreign_owner_id)}
+
+    async def test_tombstones_own_alias_is_not_a_conflict(self) -> None:
+        """A tombstone's own pre-existing alias does not trigger a conflict.
+
+        An absorbed entity's original merge_key alias legitimately still
+        points at its own (now-tombstoned) id; callers follow merged_into
+        from there. That must not be mistaken for a foreign conflict.
+        """
+        survivor = _entity(name="Ada")
+        tombstone_id = uuid4()
+        plan = MergePlan(
+            survivor=survivor,
+            tombstone_ids=[tombstone_id],
+            conflicts=[],
+            accepted_merge_keys=["Person:ada", "Person:old-name"],
+        )
+
+        async def _exec_write(query, params=None):
+            if params and set(params) == {"merge_keys", "entity_id"}:
+                return [
+                    {"merge_key": "Person:ada", "entity_id": str(survivor.id)},
+                    {"merge_key": "Person:old-name", "entity_id": str(tombstone_id)},
+                ]
+            return []
+
+        execute_write = AsyncMock(side_effect=_exec_write)
+        store = _store_with_transaction(execute_write)
+
+        await apply_merge(plan, graph_store=store, schema=_schema())
 
 
 class TestRelationId:

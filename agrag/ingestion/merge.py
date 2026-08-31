@@ -623,6 +623,12 @@ async def apply_merge(
         plan: The merge to write.
         graph_store: Where the merge is written.
         schema: The schema the survivor's label belongs to.
+
+    Raises:
+        GraphStoreAliasConflictError: An accepted merge_key is already owned
+            by a live entity outside this merge's own survivor and tombstone
+            ids -- a concurrent writer accepted that name as an alias of, or
+            created it as the canonical name of, a different entity.
     """
     from agrag.common.data_models.graph_record import NodeRecord  # noqa: PLC0415
     from agrag.cypher.entities import (  # noqa: PLC0415
@@ -639,6 +645,7 @@ async def apply_merge(
         tombstone_query,
         transfer_relationships_query,
     )
+    from agrag.graphdb.errors import GraphStoreAliasConflictError  # noqa: PLC0415
     from agrag.graphdb.serialize import node_params  # noqa: PLC0415
 
     validate_identifier(plan.survivor.label)
@@ -673,10 +680,24 @@ async def apply_merge(
             upsert_survivor_query(plan.survivor.label), {"records": [params]}
         )
         accepted_merge_keys = plan.accepted_merge_keys or [plan.survivor.merge_key]
-        await txn.execute_write(
+        alias_rows = await txn.execute_write(
             upsert_merge_alias_query(),
             {"merge_keys": accepted_merge_keys, "entity_id": survivor_id},
         )
+        # A tombstone's own historical merge_key legitimately still names
+        # it, not the survivor -- fetch_by_merge_keys_query's caller follows
+        # merged_into to reach the survivor from there. Only an owner
+        # outside this merge's own survivor/tombstone ids is a real
+        # conflict: some other, unrelated entity already claimed a name
+        # this merge also accepted.
+        known_ids = {survivor_id, *tombstone_ids}
+        conflicts = {
+            row["merge_key"]: row["entity_id"]
+            for row in alias_rows
+            if isinstance(row, dict) and row.get("entity_id") not in known_ids
+        }
+        if conflicts:
+            raise GraphStoreAliasConflictError(conflicts)
 
         if not tombstone_ids:
             return

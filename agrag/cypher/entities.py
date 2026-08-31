@@ -168,14 +168,24 @@ def upsert_merge_alias_query() -> str:
     caller follows that entity's ``merged_into`` chain from here instead of
     this table being kept in sync with every later merge.
 
+    The returned rows are what let a caller detect the case ``ON CREATE
+    SET`` alone cannot: an accepted merge_key already owned by some other
+    live entity, not one this same merge is writing or absorbing. Neither
+    entity's own node merge_key collides in that case, so nothing at the
+    database level rejects the write; the caller must compare each row's
+    entity_id against its own survivor and tombstone ids itself.
+
     Returns:
         Parameterized Cypher expecting $merge_keys (list of strings) and
-        $entity_id.
+        $entity_id. Returns each merge_key alongside the entity_id that now
+        owns it -- $entity_id when this call claimed or already owned it,
+        another entity's id when a different one claimed it first.
     """
     return (
         f"UNWIND $merge_keys AS merge_key "
         f"MERGE (a:{MERGE_ALIAS_LABEL} {{merge_key: merge_key}}) "
-        f"ON CREATE SET a.entity_id = $entity_id"
+        f"ON CREATE SET a.entity_id = $entity_id "
+        f"RETURN merge_key, a.entity_id AS entity_id"
     )
 
 
