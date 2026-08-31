@@ -5,7 +5,7 @@ real SearchEngine and GraphStore.
 """
 
 import importlib.util
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
 from uuid import uuid4
 
 import pytest
@@ -101,7 +101,7 @@ class TestToolsIntegration:
     """Agent tools work with real SearchEngine."""
 
     @pytest.fixture(autouse=True)
-    async def setup_engine(self) -> None:
+    async def setup_engine(self) -> AsyncGenerator[None, None]:
         """Set up a SearchEngine with real stores."""
         self.store = build_graph_store("neo4j")
         await self.store.connect()
@@ -143,7 +143,7 @@ class TestAgentBuildIntegration:
     """Agent build with real stores and mocked LLM."""
 
     @pytest.fixture(autouse=True)
-    async def setup_engine(self) -> None:
+    async def setup_engine(self) -> AsyncGenerator[None, None]:
         """Set up a SearchEngine."""
         self.store = build_graph_store("neo4j")
         await self.store.connect()

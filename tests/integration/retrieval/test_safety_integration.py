@@ -5,7 +5,7 @@ read Cypher executes successfully through execute_read.
 """
 
 import importlib.util
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
 from uuid import uuid4
 
 import pytest
@@ -44,7 +44,7 @@ class TestSafetyGateIntegration:
     """Safety gate behavior against real Neo4j."""
 
     @pytest.fixture(autouse=True)
-    async def setup_store(self) -> None:
+    async def setup_store(self) -> AsyncGenerator[None, None]:
         """Set up a fresh store."""
         self.store = build_graph_store("neo4j")
         await self.store.connect()

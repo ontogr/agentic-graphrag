@@ -7,6 +7,7 @@ from uuid import UUID
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.safety import UnsafeCypherError, reject_write_cypher
 from agrag.graphdb.base import GraphStore
+from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.identity import resolve_entity
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
@@ -43,7 +44,7 @@ class Text2CypherRetriever(Retriever):
         self,
         query: str,
         *,
-        filters: None = None,
+        filters: SearchFilters | None = None,
         limit: int = 10,
     ) -> list[SearchResult]:
         """Generate and execute a Cypher query for the question.

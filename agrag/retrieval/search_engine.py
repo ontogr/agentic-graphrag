@@ -136,7 +136,7 @@ class SearchEngine:
 
         results_by_method: dict[str, list[SearchResult]] = {}
         for name, result in zip(method_names, method_results, strict=True):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 continue
             results_by_method[name] = result
 

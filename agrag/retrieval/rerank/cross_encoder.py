@@ -1,5 +1,7 @@
 """Cross-encoder reranker using sentence-transformers."""
 
+from typing import Any, cast
+
 from agrag.common.data_models.search_result import SearchResult
 
 
@@ -37,7 +39,7 @@ async def cross_encoder_rerank(
 
     model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
     pairs = [(query, _text_of(result)) for result in results]
-    scores = model.predict(pairs)
+    scores = model.predict(cast(list[Any], pairs))
 
     reranked: list[SearchResult] = []
     for result, score in zip(results, scores, strict=True):

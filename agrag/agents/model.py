@@ -59,12 +59,12 @@ def build_chat_model(config: LLMClientConfig) -> Any:
     if config.provider == "openai-generic":
         from langchain_openai import ChatOpenAI  # noqa: PLC0415
 
-        kwargs = {"model": config.model}
+        generic_kwargs: dict[str, Any] = {"model": config.model}
         if config.base_url:
-            kwargs["base_url"] = config.base_url
+            generic_kwargs["base_url"] = config.base_url
         if config.api_key:
-            kwargs["api_key"] = config.api_key
-        return ChatOpenAI(**kwargs)
+            generic_kwargs["api_key"] = config.api_key
+        return ChatOpenAI(**generic_kwargs)
 
     if config.provider == "google-ai":
         from langchain_google_genai import (  # noqa: PLC0415

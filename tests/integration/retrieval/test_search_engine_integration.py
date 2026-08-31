@@ -5,7 +5,7 @@ Run against the Docker Compose Neo4j instance from
 """
 
 import importlib.util
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
 from uuid import uuid4
 
 import pytest
@@ -72,7 +72,7 @@ class TestSearchEngineIntegration:
     """SearchEngine searches a real Neo4j graph store."""
 
     @pytest.fixture(autouse=True)
-    async def setup_store(self) -> None:
+    async def setup_store(self) -> AsyncGenerator[None, None]:
         """Set up a fresh store for each test."""
         self.store = build_graph_store("neo4j")
         await self.store.connect()

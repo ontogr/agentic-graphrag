@@ -1,5 +1,8 @@
 """Chunk retriever: dense vector search over chunks."""
 
+from collections.abc import Mapping
+from typing import Any, cast
+
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
@@ -118,10 +121,9 @@ class ChunkRetriever(Retriever):
                 props = dict(node)
                 node_id = props.get("id")
             else:
-                try:
-                    props = dict(node)  # type: ignore[arg-type]
-                except Exception:
+                if not hasattr(node, "keys"):
                     return None
+                props = dict(cast(Mapping[str, Any], node))
                 node_id = props.get("id")
 
             if node_id is None:
@@ -136,6 +138,7 @@ class ChunkRetriever(Retriever):
             )
 
             prov_raw = props.get("provenance")
+            prov_data: dict[str, Any]
             if isinstance(prov_raw, str):
                 prov_data = json.loads(prov_raw)
             elif isinstance(prov_raw, dict):

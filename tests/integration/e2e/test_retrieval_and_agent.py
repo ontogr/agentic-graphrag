@@ -7,7 +7,7 @@ and the agent build/invoke path works.
 """
 
 import importlib.util
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -101,7 +101,7 @@ class TestRetrievalE2E:
     """Full end-to-end test: ingest, merge, retrieve, verify."""
 
     @pytest.fixture(autouse=True)
-    async def setup_store(self) -> None:
+    async def setup_store(self) -> AsyncGenerator[None, None]:
         """Set up a fresh store for each test."""
         self.store = build_graph_store("neo4j")
         await self.store.connect()

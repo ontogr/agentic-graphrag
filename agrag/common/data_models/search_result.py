@@ -28,5 +28,15 @@ class SearchResult(BaseModel):
 
     @property
     def identity_key(self) -> tuple[str, UUID]:
-        """Return the (type, id) key Fusion deduplicates on."""
-        return (type(self.item).__name__, self.item.id)
+        """Return the (type, id) key Fusion deduplicates on.
+
+        Raises:
+            ValueError: The item has no id, so it cannot be
+                deduplicated.
+        """
+        item_id = self.item.id
+        if item_id is None:
+            raise ValueError(
+                f"{type(self.item).__name__} has no id and cannot be deduplicated."
+            )
+        return (type(self.item).__name__, item_id)
