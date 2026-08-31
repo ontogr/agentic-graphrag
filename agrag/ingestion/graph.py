@@ -1249,7 +1249,7 @@ class Graph:
         for rel in relations:
             src_id = mention_to_entity.get(rel.source_index)
             tgt_id = mention_to_entity.get(rel.target_index)
-            if src_id is None or tgt_id is None:
+            if src_id is None or tgt_id is None or src_id == tgt_id:
                 continue
             key = (src_id, tgt_id, rel.label)
             # Collect chunk ids for this triple (within-call dedup union)
