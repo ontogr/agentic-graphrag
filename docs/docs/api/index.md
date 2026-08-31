@@ -329,24 +329,55 @@ the dependency points one way (store -> cypher).
 
 **Functions:**
 
+- [**clear_property_query**](#agrag.cypher.entities.clear_property_query) – Build Cypher removing one property from a batch of nodes by id.
 - [**fetch_all_by_label_query**](#agrag.cypher.entities.fetch_all_by_label_query) – Build Cypher paginating every node with label, for consolidate().
 - [**fetch_by_merge_keys_query**](#agrag.cypher.entities.fetch_by_merge_keys_query) – Build Cypher for a batched exact-match lookup by merge key.
 - [**fetch_relations_between_query**](#agrag.cypher.entities.fetch_relations_between_query) – Build Cypher for batched lookup of existing relations by endpoints.
 - [**filter_clause**](#agrag.cypher.entities.filter_clause) – Build a Cypher WHERE clause and parameters from a flat-dict filter.
 - [**is_safe_identifier**](#agrag.cypher.entities.is_safe_identifier) – Report whether a label or relationship type is a safe Cypher identifier.
 - [**merge_key_index_query**](#agrag.cypher.entities.merge_key_index_query) – Build a CREATE INDEX query on the node merge_key property.
+- [**set_embedding_query**](#agrag.cypher.entities.set_embedding_query) – Build Cypher setting one vector property per node, by id.
+- [**upsert_merge_alias_query**](#agrag.cypher.entities.upsert_merge_alias_query) – Build Cypher recording every accepted merge_key's owning entity id.
 - [**upsert_node_query**](#agrag.cypher.entities.upsert_node_query) – Build the Cypher for an UNWIND-batched node upsert.
+- [**upsert_survivor_query**](#agrag.cypher.entities.upsert_survivor_query) – Build Cypher upserting a merge survivor with atomic accumulation.
 - [**validate_identifier**](#agrag.cypher.entities.validate_identifier) – Check that a label or relationship type is a safe Cypher identifier.
 
 **Attributes:**
 
+- [**MERGE_ALIAS_LABEL**](#agrag.cypher.entities.MERGE_ALIAS_LABEL) –
 - [**NODE_IDENTITY_LABEL**](#agrag.cypher.entities.NODE_IDENTITY_LABEL) –
+
+##### `agrag.cypher.entities.MERGE_ALIAS_LABEL`
+
+```python
+MERGE_ALIAS_LABEL = '_AgragMergeAlias'
+```
 
 ##### `agrag.cypher.entities.NODE_IDENTITY_LABEL`
 
 ```python
 NODE_IDENTITY_LABEL = '_AgragNode'
 ```
+
+##### `agrag.cypher.entities.clear_property_query`
+
+```python
+clear_property_query(property_name:str) -> str
+```
+
+Build Cypher removing one property from a batch of nodes by id.
+
+Used to drop a stale value rather than leave it readable after a write
+that was supposed to replace it fails partway through, such as an
+embedding vector left over from before an entity's text changed.
+
+**Parameters:**
+
+- **property_name** (<code>[str](#str)</code>) – The property to remove. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of strings).
 
 ##### `agrag.cypher.entities.fetch_all_by_label_query`
 
@@ -367,14 +398,25 @@ Build Cypher paginating every node with label, for consolidate().
 ##### `agrag.cypher.entities.fetch_by_merge_keys_query`
 
 ```python
-fetch_by_merge_keys_query(label:str) -> str
+fetch_by_merge_keys_query() -> str
 ```
 
 Build Cypher for a batched exact-match lookup by merge key.
 
-**Parameters:**
+Resolves through the merge-key alias table (`MERGE_ALIAS_LABEL`)
+rather than matching each node's own `merge_key` property directly:
+that property is cleared when a node is tombstoned (see
+`tombstone_query`), so a name it once held would otherwise become
+unreachable. The alias always points at the entity id that first held
+the key, which may itself now be a tombstone; the caller follows its
+`merged_into` chain to the live survivor.
 
-- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+`merge_key` is returned alongside `n` so the caller can map a row
+back to the mention(s) that queried it without re-deriving a key from
+the resolved entity's current name: an accepted alias (see
+`upsert_merge_alias_query`) can name an entity by something other
+than its current canonical name, so re-deriving would silently fail to
+map those mentions back.
 
 **Returns:**
 
@@ -395,7 +437,7 @@ Build Cypher for batched lookup of existing relations by endpoints.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $pairs (list of
-- <code>[str](#str)</code> – {source_id, target_id}). Returns each match's id and
+- <code>[str](#str)</code> – `{source_id, target_id}`). Returns each match's id and
 - <code>[str](#str)</code> – source_chunk_ids alongside the pair it matched.
 
 ##### `agrag.cypher.entities.filter_clause`
@@ -456,6 +498,56 @@ Backs the global exact-match lookup.
 
 - <code>[str](#str)</code> – A Cypher query creating the range index if absent.
 
+##### `agrag.cypher.entities.set_embedding_query`
+
+```python
+set_embedding_query(vector_property:str) -> str
+```
+
+Build Cypher setting one vector property per node, by id.
+
+Touches only `vector_property`, unlike a full node upsert: another
+write can update an entity's provenance or properties while its new
+embedding is being computed, and overwriting the whole node from a
+snapshot taken before that update would discard it along with
+delivering the vector.
+
+**Parameters:**
+
+- **vector_property** (<code>[str](#str)</code>) – The property to set. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $records (list of `{id, vector}`).
+
+##### `agrag.cypher.entities.upsert_merge_alias_query`
+
+```python
+upsert_merge_alias_query() -> str
+```
+
+Build Cypher recording every accepted merge_key's owning entity id.
+
+Every `apply_merge` call writes one of these for each merge_key the
+merge accepted -- the survivor's own current name, but also every other
+name (mention text or absorbed entity's name) resolution folded into
+it -- so a later mention of any of those names resolves back to this
+entity instead of creating a duplicate. `ON CREATE SET` only claims a
+merge_key that has no alias yet: if resolution in some other merge
+already accepted this same key for a different entity, that entity
+keeps it. Without this, a resolution decision in one `add()` call
+could silently steal a name an unrelated entity already owns.
+
+Once created, an alias is never rewritten to point elsewhere: if the
+entity it names is later itself absorbed, `fetch_by_merge_keys_query`'s
+caller follows that entity's `merged_into` chain from here instead of
+this table being kept in sync with every later merge.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $merge_keys (list of strings) and
+- <code>[str](#str)</code> – $entity_id.
+
 ##### `agrag.cypher.entities.upsert_node_query`
 
 ```python
@@ -494,6 +586,38 @@ orphan the node from later upserts of the same record.
 - <code>[ValueError](#ValueError)</code> – `labels` is empty, or any label is not a safe
   identifier.
 
+##### `agrag.cypher.entities.upsert_survivor_query`
+
+```python
+upsert_survivor_query(label:str) -> str
+```
+
+Build Cypher upserting a merge survivor with atomic accumulation.
+
+Unlike `upsert_node_query`'s plain `SET n += record.properties`
+overwrite, `source_chunk_ids` and `merged_from` are unioned against
+whatever the node currently has, and `merge_count` is incremented by a
+delta, all read and written inside this one query. Two concurrent
+callers merging into the same entity each read the node's current
+accumulator values fresh here, so neither's contribution is lost to
+whichever write lands second -- unlike overwriting from a full snapshot
+taken before either write landed. Every other property is still applied
+as-is (last write wins); resolving a conflict there needs the candidate
+values, which only a Python-side read can gather, so making that
+atomic too is out of scope here.
+
+**Parameters:**
+
+- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – A parameterized Cypher query expecting a `$records` list
+- <code>[str](#str)</code> – parameter whose items carry `id`, `properties` (every survivor
+- <code>[str](#str)</code> – field except `source_chunk_ids`, `merged_from`, and
+- <code>[str](#str)</code> – `merge_count`), `new_source_chunk_ids`, `new_merged_from`, and
+- <code>[str](#str)</code> – `merge_count_delta`.
+
 ##### `agrag.cypher.entities.validate_identifier`
 
 ```python
@@ -518,13 +642,12 @@ Check that a label or relationship type is a safe Cypher identifier.
 
 Cypher for the tombstone/transfer/dedup merge path.
 
-Only the two-or-more-existing-entities case needs this — a brand-new or
-single-updated entity is a plain upsert.
-
 **Functions:**
 
 - [**apply_relationship_dedup_delete_query**](#agrag.cypher.merge.apply_relationship_dedup_delete_query) – Build Cypher deleting relationships a dedup pass superseded.
-- [**apply_relationship_dedup_update_query**](#agrag.cypher.merge.apply_relationship_dedup_update_query) – Build Cypher applying kept relationships' merged source_chunk_ids.
+- [**apply_relationship_dedup_update_query**](#agrag.cypher.merge.apply_relationship_dedup_update_query) – Build Cypher applying a kept relationship's merged properties.
+- [**delete_internal_relationships_query**](#agrag.cypher.merge.delete_internal_relationships_query) – Build Cypher deleting edges that would become meaningless self-links.
+- [**fetch_node_relationships_query**](#agrag.cypher.merge.fetch_node_relationships_query) – Build Cypher fetching one direction of a node's own relationships.
 - [**tombstone_query**](#agrag.cypher.merge.tombstone_query) – Build Cypher marking one or more nodes as merged, never deleting them.
 - [**transfer_relationships_query**](#agrag.cypher.merge.transfer_relationships_query) – Build Cypher moving one direction of a tombstoned node's relationships.
 
@@ -538,7 +661,8 @@ Build Cypher deleting relationships a dedup pass superseded.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $delete_ids (list of relationship ids).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $delete_ids (list of
+- <code>[str](#str)</code> – `{id, rel_type}`).
 
 ##### `agrag.cypher.merge.apply_relationship_dedup_update_query`
 
@@ -546,11 +670,60 @@ Build Cypher deleting relationships a dedup pass superseded.
 apply_relationship_dedup_update_query() -> str
 ```
 
-Build Cypher applying kept relationships' merged source_chunk_ids.
+Build Cypher applying a kept relationship's merged properties.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $updates (list of {id, source_chunk_ids}).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $updates (list of
+- <code>[str](#str)</code> – `{id, rel_type, properties}`), where properties is the full merged
+- <code>[str](#str)</code> – property map -- not just source_chunk_ids -- so a duplicate's other
+- <code>[str](#str)</code> – fields are not silently dropped when its edge is deleted.
+
+##### `agrag.cypher.merge.delete_internal_relationships_query`
+
+```python
+delete_internal_relationships_query() -> str
+```
+
+Build Cypher deleting edges that would become meaningless self-links.
+
+Covers two cases, both before any transfer runs, inside the same
+transaction as the merge:
+
+- An edge between two absorbed nodes: left untransferred, it would
+  become a stale `survivor->tombstone` edge after the first transfer.
+- An edge directly between an absorbed node and its own survivor:
+  `transfer_relationships_query` excludes these (`other.id <> $survivor_id`), since transferring one would create a
+  `survivor->survivor` self-loop that no relation type's semantics
+  call for. Deleting them here, in both directions, is what keeps them
+  from being silently orphaned on the tombstone instead.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $tombstone_ids (list of strings) and
+- <code>[str](#str)</code> – $survivor_id.
+
+##### `agrag.cypher.merge.fetch_node_relationships_query`
+
+```python
+fetch_node_relationships_query(*, outgoing:bool) -> str
+```
+
+Build Cypher fetching one direction of a node's own relationships.
+
+Run against the survivor after every transfer completes, so the dedup
+pass that follows sees the survivor's whole neighbourhood in that
+direction -- both freshly transferred edges and ones it already had --
+rather than only what one transfer call happened to move.
+
+**Parameters:**
+
+- **outgoing** (<code>[bool](#bool)</code>) – True fetches (node)-[r]->(other) edges. False fetches
+  (other)-[r]->(node) edges.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $node_id.
 
 ##### `agrag.cypher.merge.tombstone_query`
 
@@ -617,6 +790,15 @@ after applying properties, so a caller-supplied `properties["id"]`
 cannot overwrite the `id` used to `MERGE` and orphan the relationship
 from later upserts of the same record.
 
+`source_chunk_ids` is unioned against whatever is already on the
+relationship at write time, inside this same query, rather than blindly
+overwritten: two concurrent callers upserting the same relationship each
+compute their own union from a read taken before either write lands, so
+without this, whichever caller's write commits second would silently
+discard the chunk ids the other one contributed. Reading the current
+value here, inside the same MERGE, keeps the union correct regardless of
+which caller's read was stale.
+
 **Parameters:**
 
 - **rel_type** (<code>[str](#str)</code>) – The relationship type. Must already be validated.
@@ -625,6 +807,8 @@ from later upserts of the same record.
 
 - <code>[str](#str)</code> – A parameterized Cypher query expecting a `$records` list parameter whose
 - <code>[str](#str)</code> – items carry `id`, `start_id`, `end_id`, and `properties` keys.
+- <code>[str](#str)</code> – `properties` may include `source_chunk_ids`; other keys are
+- <code>[str](#str)</code> – applied as-is.
 
 #### `agrag.cypher.schema`
 
@@ -635,12 +819,54 @@ identifier-validation contract shared by every Cypher builder.
 
 **Functions:**
 
+- [**merge_alias_constraint_query**](#agrag.cypher.schema.merge_alias_constraint_query) – Build a CREATE CONSTRAINT query making the merge-key alias table unique.
+- [**merge_key_constraint_query**](#agrag.cypher.schema.merge_key_constraint_query) – Build a CREATE CONSTRAINT query making `merge_key` unique per label.
 - [**node_id_constraint_query**](#agrag.cypher.schema.node_id_constraint_query) – Build a CREATE CONSTRAINT query making `id` unique per node.
 - [**plain_index_query**](#agrag.cypher.schema.plain_index_query) – Build a CREATE INDEX query on the node `id` property.
 - [**relation_id_constraint_query**](#agrag.cypher.schema.relation_id_constraint_query) – Build a CREATE CONSTRAINT query making `id` unique per relationship type.
 - [**vector_index_name**](#agrag.cypher.schema.vector_index_name) – Derive the deterministic name a vector index is created under.
 - [**vector_index_query**](#agrag.cypher.schema.vector_index_query) – Build a CREATE VECTOR INDEX query for native vector search.
 - [**vector_search_query**](#agrag.cypher.schema.vector_search_query) – Build a native vector search query and its filter parameters.
+
+##### `agrag.cypher.schema.merge_alias_constraint_query`
+
+```python
+merge_alias_constraint_query() -> str
+```
+
+Build a CREATE CONSTRAINT query making the merge-key alias table unique.
+
+One global constraint, not per label: `MERGE_ALIAS_LABEL` is shared
+across every entity type, and `merge_key` already embeds the label
+(see `Entity.merge_key`), so a single uniqueness constraint on it is
+sufficient.
+
+**Returns:**
+
+- <code>[str](#str)</code> – A Cypher query creating the uniqueness constraint if absent.
+
+##### `agrag.cypher.schema.merge_key_constraint_query`
+
+```python
+merge_key_constraint_query(label:str) -> str
+```
+
+Build a CREATE CONSTRAINT query making `merge_key` unique per label.
+
+Backs the concurrent-ingestion safety tier: two concurrent `add()` calls
+for the same `(label, normalized name)` cannot both create a canonical
+node; the second fails the constraint and is resolved to the canonical via
+the merge path. Tombstoned nodes clear their `merge_key` when marked
+`merged_into`, so the constraint permits one live survivor per key plus
+any number of tombstones.
+
+**Parameters:**
+
+- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – A Cypher query creating the uniqueness constraint if absent.
 
 ##### `agrag.cypher.schema.node_id_constraint_query`
 
@@ -810,6 +1036,7 @@ A component that turns text into dense embedding vectors.
 
 **Attributes:**
 
+- [**distance**](#agrag.embedding.Embedder.distance) (<code>[Distance](#agrag.common.data_models.vector_record.Distance)</code>) – Return the distance metric for vector indexes created for this embedder.
 - [**model**](#agrag.embedding.Embedder.model) (<code>[str](#str)</code>) –
 
 ##### `agrag.embedding.Embedder.dimensions`
@@ -823,6 +1050,18 @@ Return the dimension of the vectors this embedder produces.
 Async because a lazily-loaded embedder may need to load its model to
 answer, and that load must go through the same worker-thread/lock
 path `embed` uses rather than blocking the event loop.
+
+##### `agrag.embedding.Embedder.distance`
+
+```python
+distance: Distance
+```
+
+Return the distance metric for vector indexes created for this embedder.
+
+Defaults to cosine, which matches normalized sentence-transformer models.
+Concrete embedders may override when their vectors use a different
+metric.
 
 ##### `agrag.embedding.Embedder.embed`
 
@@ -1021,6 +1260,7 @@ stays free for other work while a large batch encodes.
 
 **Attributes:**
 
+- [**distance**](#agrag.embedding.SentenceTransformerEmbedder.distance) (<code>[Distance](#agrag.common.data_models.vector_record.Distance)</code>) – Return the distance metric for vector indexes created for this embedder.
 - [**model**](#agrag.embedding.SentenceTransformerEmbedder.model) (<code>[str](#str)</code>) – The configured model name.
 
 **Parameters:**
@@ -1047,6 +1287,18 @@ loading a second copy of the model.
 **Raises:**
 
 - <code>[EmbeddingMissingExtraError](#agrag.embedding.errors.EmbeddingMissingExtraError)</code> – sentence-transformers is not installed.
+
+##### `agrag.embedding.SentenceTransformerEmbedder.distance`
+
+```python
+distance: Distance
+```
+
+Return the distance metric for vector indexes created for this embedder.
+
+Defaults to cosine, which matches normalized sentence-transformer models.
+Concrete embedders may override when their vectors use a different
+metric.
 
 ##### `agrag.embedding.SentenceTransformerEmbedder.embed`
 
@@ -1195,6 +1447,7 @@ A component that turns text into dense embedding vectors.
 
 **Attributes:**
 
+- [**distance**](#agrag.embedding.base.Embedder.distance) (<code>[Distance](#agrag.common.data_models.vector_record.Distance)</code>) – Return the distance metric for vector indexes created for this embedder.
 - [**model**](#agrag.embedding.base.Embedder.model) (<code>[str](#str)</code>) –
 
 ###### `agrag.embedding.base.Embedder.dimensions`
@@ -1208,6 +1461,18 @@ Return the dimension of the vectors this embedder produces.
 Async because a lazily-loaded embedder may need to load its model to
 answer, and that load must go through the same worker-thread/lock
 path `embed` uses rather than blocking the event loop.
+
+###### `agrag.embedding.base.Embedder.distance`
+
+```python
+distance: Distance
+```
+
+Return the distance metric for vector indexes created for this embedder.
+
+Defaults to cosine, which matches normalized sentence-transformer models.
+Concrete embedders may override when their vectors use a different
+metric.
 
 ###### `agrag.embedding.base.Embedder.embed`
 
@@ -1522,6 +1787,7 @@ stays free for other work while a large batch encodes.
 
 **Attributes:**
 
+- [**distance**](#agrag.embedding.sentence_transformers.SentenceTransformerEmbedder.distance) (<code>[Distance](#agrag.common.data_models.vector_record.Distance)</code>) – Return the distance metric for vector indexes created for this embedder.
 - [**model**](#agrag.embedding.sentence_transformers.SentenceTransformerEmbedder.model) (<code>[str](#str)</code>) – The configured model name.
 
 **Parameters:**
@@ -1548,6 +1814,18 @@ loading a second copy of the model.
 **Raises:**
 
 - <code>[EmbeddingMissingExtraError](#agrag.embedding.errors.EmbeddingMissingExtraError)</code> – sentence-transformers is not installed.
+
+###### `agrag.embedding.sentence_transformers.SentenceTransformerEmbedder.distance`
+
+```python
+distance: Distance
+```
+
+Return the distance metric for vector indexes created for this embedder.
+
+Defaults to cosine, which matches normalized sentence-transformer models.
+Concrete embedders may override when their vectors use a different
+metric.
 
 ###### `agrag.embedding.sentence_transformers.SentenceTransformerEmbedder.embed`
 
@@ -1792,6 +2070,7 @@ A graph database backend: schema, writes, and native vector search.
 - [**session**](#agrag.graphdb.GraphStore.session) – Open a session as an async context manager.
 - [**setup_constraints**](#agrag.graphdb.GraphStore.setup_constraints) – Create per-label and per-relation-type uniqueness constraints.
 - [**setup_indexes**](#agrag.graphdb.GraphStore.setup_indexes) – Create per-label property indexes.
+- [**transaction**](#agrag.graphdb.GraphStore.transaction) – Start an explicit transaction spanning multiple writes.
 - [**upsert_nodes**](#agrag.graphdb.GraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag.graphdb.GraphStore.upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag.graphdb.GraphStore.vector_search) – Search nodes by dense vector.
@@ -1941,6 +2220,30 @@ Covers every node label written through this instance or already
 present in the database, so a fresh instance can set up an existing
 database without first rewriting every record.
 
+##### `agrag.graphdb.GraphStore.transaction`
+
+```python
+transaction() -> AsyncIterator[GraphStoreTransaction]
+```
+
+Start an explicit transaction spanning multiple writes.
+
+Every call through the yielded handle should join one backend
+transaction, committing as a whole on clean exit from the
+`async with` block and rolling back as a whole if the block raises.
+The default here simply yields `self` and gives no atomicity beyond
+what each individual call already provides; a backend that can offer
+real atomicity, such as `Neo4jGraphStore`, overrides this with a
+driver transaction.
+
+Use this when a caller must guarantee several writes either all apply
+or none do, such as `apply_merge`'s tombstone, relationship
+transfer, and dedup steps.
+
+**Returns:**
+
+- <code>[AsyncIterator](#collections.abc.AsyncIterator)\[[GraphStoreTransaction](#agrag.graphdb.base.GraphStoreTransaction)\]</code> – An async context manager yielding the transactional handle.
+
 ##### `agrag.graphdb.GraphStore.upsert_nodes`
 
 ```python
@@ -2059,6 +2362,7 @@ driver's managed transactions with no added retry loop, per ADR 0027.
 - [**session**](#agrag.graphdb.Neo4jGraphStore.session) – Open a session to the configured database.
 - [**setup_constraints**](#agrag.graphdb.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every known label.
 - [**setup_indexes**](#agrag.graphdb.Neo4jGraphStore.setup_indexes) – Create a range index on `id` for every known label.
+- [**transaction**](#agrag.graphdb.Neo4jGraphStore.transaction) – Open one Neo4j explicit transaction spanning multiple writes.
 - [**upsert_nodes**](#agrag.graphdb.Neo4jGraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag.graphdb.Neo4jGraphStore.upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag.graphdb.Neo4jGraphStore.vector_search) – Search nodes by dense vector using the native vector index.
@@ -2109,6 +2413,12 @@ execute_write(query:str, parameters:Mapping[str, Any] | None = None) -> list[dic
 ```
 
 Run a write transaction and return its rows.
+
+**Raises:**
+
+- <code>[GraphStoreConstraintViolationError](#agrag.graphdb.errors.GraphStoreConstraintViolationError)</code> – The write violated a uniqueness
+  constraint, translated from the driver's own exception so
+  callers do not need a hard dependency on it.
 
 ##### `agrag.graphdb.Neo4jGraphStore.register_labels`
 
@@ -2181,6 +2491,28 @@ Create a range index on `id` for every known label.
 "Known" means written by this instance or already present in the
 database, so a fresh store can set up indexes for an existing
 database without first rewriting every record.
+
+##### `agrag.graphdb.Neo4jGraphStore.transaction`
+
+```python
+transaction() -> AsyncIterator[GraphStoreTransaction]
+```
+
+Open one Neo4j explicit transaction spanning multiple writes.
+
+Commits when the `async with` block exits cleanly; rolls back and
+re-raises when it raises. The identity constraint is ensured before
+opening the transaction, the same way `upsert_nodes` ensures it
+before writing, since `_Neo4jTransaction.upsert_nodes` skips that
+check to avoid a nested write racing the transaction it belongs to.
+
+**Raises:**
+
+- <code>[GraphStoreConstraintViolationError](#agrag.graphdb.errors.GraphStoreConstraintViolationError)</code> – A write inside the block, or the
+  commit itself, violated a uniqueness constraint -- Neo4j
+  validates some constraints only at commit time for an
+  explicit transaction, so this can surface here even when
+  every individual write appeared to succeed.
 
 ##### `agrag.graphdb.Neo4jGraphStore.upsert_nodes`
 
@@ -2307,6 +2639,7 @@ The GraphStore abstraction and its build shortcut helpers.
 **Classes:**
 
 - [**GraphStore**](#agrag.graphdb.base.GraphStore) – A graph database backend: schema, writes, and native vector search.
+- [**GraphStoreTransaction**](#agrag.graphdb.base.GraphStoreTransaction) – The read/write/upsert surface available inside a `transaction()` block.
 
 ##### `agrag.graphdb.base.GraphStore`
 
@@ -2326,6 +2659,7 @@ A graph database backend: schema, writes, and native vector search.
 - [**session**](#agrag.graphdb.base.GraphStore.session) – Open a session as an async context manager.
 - [**setup_constraints**](#agrag.graphdb.base.GraphStore.setup_constraints) – Create per-label and per-relation-type uniqueness constraints.
 - [**setup_indexes**](#agrag.graphdb.base.GraphStore.setup_indexes) – Create per-label property indexes.
+- [**transaction**](#agrag.graphdb.base.GraphStore.transaction) – Start an explicit transaction spanning multiple writes.
 - [**upsert_nodes**](#agrag.graphdb.base.GraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag.graphdb.base.GraphStore.upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag.graphdb.base.GraphStore.vector_search) – Search nodes by dense vector.
@@ -2475,6 +2809,30 @@ Covers every node label written through this instance or already
 present in the database, so a fresh instance can set up an existing
 database without first rewriting every record.
 
+###### `agrag.graphdb.base.GraphStore.transaction`
+
+```python
+transaction() -> AsyncIterator[GraphStoreTransaction]
+```
+
+Start an explicit transaction spanning multiple writes.
+
+Every call through the yielded handle should join one backend
+transaction, committing as a whole on clean exit from the
+`async with` block and rolling back as a whole if the block raises.
+The default here simply yields `self` and gives no atomicity beyond
+what each individual call already provides; a backend that can offer
+real atomicity, such as `Neo4jGraphStore`, overrides this with a
+driver transaction.
+
+Use this when a caller must guarantee several writes either all apply
+or none do, such as `apply_merge`'s tombstone, relationship
+transfer, and dedup steps.
+
+**Returns:**
+
+- <code>[AsyncIterator](#collections.abc.AsyncIterator)\[[GraphStoreTransaction](#agrag.graphdb.base.GraphStoreTransaction)\]</code> – An async context manager yielding the transactional handle.
+
 ###### `agrag.graphdb.base.GraphStore.upsert_nodes`
 
 ```python
@@ -2535,6 +2893,47 @@ Search nodes by dense vector.
 
 - <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – The matched hits, highest score first.
 
+##### `agrag.graphdb.base.GraphStoreTransaction`
+
+Bases: <code>[Protocol](#typing.Protocol)</code>
+
+The read/write/upsert surface available inside a `transaction()` block.
+
+A structural type, not a base class: `GraphStore` itself satisfies it
+(the default `transaction()` yields `self`), and a backend's own
+transaction handle, such as Neo4j's, satisfies it without inheriting from
+anything here.
+
+**Functions:**
+
+- [**execute_read**](#agrag.graphdb.base.GraphStoreTransaction.execute_read) – Run a read inside the surrounding transaction.
+- [**execute_write**](#agrag.graphdb.base.GraphStoreTransaction.execute_write) – Run a write inside the surrounding transaction.
+- [**upsert_nodes**](#agrag.graphdb.base.GraphStoreTransaction.upsert_nodes) – Write or merge nodes inside the surrounding transaction.
+
+###### `agrag.graphdb.base.GraphStoreTransaction.execute_read`
+
+```python
+execute_read(query:str, parameters:Mapping[str, Any] | None = None) -> list[dict[str, Any]]
+```
+
+Run a read inside the surrounding transaction.
+
+###### `agrag.graphdb.base.GraphStoreTransaction.execute_write`
+
+```python
+execute_write(query:str, parameters:Mapping[str, Any] | None = None) -> list[dict[str, Any]]
+```
+
+Run a write inside the surrounding transaction.
+
+###### `agrag.graphdb.base.GraphStoreTransaction.upsert_nodes`
+
+```python
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> None
+```
+
+Write or merge nodes inside the surrounding transaction.
+
 #### `agrag.graphdb.build_graph_store`
 
 ```python
@@ -2557,8 +2956,21 @@ Errors that the graph-store layer raises.
 
 **Classes:**
 
+- [**GraphStoreConstraintViolationError**](#agrag.graphdb.errors.GraphStoreConstraintViolationError) – A write violated a uniqueness constraint the backend enforces.
 - [**GraphStoreError**](#agrag.graphdb.errors.GraphStoreError) – The base class for every graph-store error.
 - [**GraphStoreMissingExtraError**](#agrag.graphdb.errors.GraphStoreMissingExtraError) – A graph store exists, but its package extra is not installed.
+
+##### `agrag.graphdb.errors.GraphStoreConstraintViolationError`
+
+Bases: <code>[GraphStoreError](#agrag.graphdb.errors.GraphStoreError)</code>
+
+A write violated a uniqueness constraint the backend enforces.
+
+Raised instead of letting the backend's own driver exception propagate,
+so callers can recognize this specific case -- for example, two
+concurrent writers both missing an exact-match lookup and racing to
+create the same `merge_key` -- and recover by re-resolving to
+whichever write landed first, rather than treating it as a fatal error.
 
 ##### `agrag.graphdb.errors.GraphStoreError`
 
@@ -2620,6 +3032,7 @@ driver's managed transactions with no added retry loop, per ADR 0027.
 - [**session**](#agrag.graphdb.neo4j.Neo4jGraphStore.session) – Open a session to the configured database.
 - [**setup_constraints**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every known label.
 - [**setup_indexes**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_indexes) – Create a range index on `id` for every known label.
+- [**transaction**](#agrag.graphdb.neo4j.Neo4jGraphStore.transaction) – Open one Neo4j explicit transaction spanning multiple writes.
 - [**upsert_nodes**](#agrag.graphdb.neo4j.Neo4jGraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag.graphdb.neo4j.Neo4jGraphStore.upsert_relations) – Write or merge relationships between existing nodes.
 - [**vector_search**](#agrag.graphdb.neo4j.Neo4jGraphStore.vector_search) – Search nodes by dense vector using the native vector index.
@@ -2670,6 +3083,12 @@ execute_write(query:str, parameters:Mapping[str, Any] | None = None) -> list[dic
 ```
 
 Run a write transaction and return its rows.
+
+**Raises:**
+
+- <code>[GraphStoreConstraintViolationError](#agrag.graphdb.errors.GraphStoreConstraintViolationError)</code> – The write violated a uniqueness
+  constraint, translated from the driver's own exception so
+  callers do not need a hard dependency on it.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.register_labels`
 
@@ -2742,6 +3161,28 @@ Create a range index on `id` for every known label.
 "Known" means written by this instance or already present in the
 database, so a fresh store can set up indexes for an existing
 database without first rewriting every record.
+
+###### `agrag.graphdb.neo4j.Neo4jGraphStore.transaction`
+
+```python
+transaction() -> AsyncIterator[GraphStoreTransaction]
+```
+
+Open one Neo4j explicit transaction spanning multiple writes.
+
+Commits when the `async with` block exits cleanly; rolls back and
+re-raises when it raises. The identity constraint is ensured before
+opening the transaction, the same way `upsert_nodes` ensures it
+before writing, since `_Neo4jTransaction.upsert_nodes` skips that
+check to avoid a nested write racing the transaction it belongs to.
+
+**Raises:**
+
+- <code>[GraphStoreConstraintViolationError](#agrag.graphdb.errors.GraphStoreConstraintViolationError)</code> – A write inside the block, or the
+  commit itself, violated a uniqueness constraint -- Neo4j
+  validates some constraints only at commit time for an
+  explicit transaction, so this can surface here even when
+  every individual write appeared to succeed.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.upsert_nodes`
 
@@ -2943,19 +3384,11 @@ A knowledge graph that a caller can open and add content to.
 **Parameters:**
 
 - **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The entity/relation types this graph validates every
-  extraction against. Fixed for this instance; not resuppliable
-  per add() call.
+  extraction against.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where entities, relations, chunks, and MENTIONED_IN
-  edges are written. Required: a graph with nowhere to write is
-  not a useful default for a library built around producing a
-  queryable graph.
+  edges are written.
 - **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Populates entity embeddings for native vector search.
-  Required, feeding both storage and resolution's fuzzy tier.
-- **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs against each chunk. Required, with no default —
-  the natural default needs two package extras a core install
-  won't have, so a defaulted extractor would surface a
-  MissingExtraError deep inside a later add() call instead of
-  here at open().
+- **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs against each chunk.
 - **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every step. Pass None for none.
 
 ##### `agrag.ingestion.Graph.add`
@@ -3011,8 +3444,7 @@ node is touched. Pass apply=True to write the merges.
 For each EntityType label in self.\_schema, fetches every persisted
 entity with that label and runs the same comparator sequence add() uses
 in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
-them — O(n^2) within each label's population, which ADR 0032 already
-accepted as the cost of not yet having blocking/ANN infrastructure.
+them — O(n^2) within each label's population.
 Confirmed matches become MergePlans via compute_merge.
 
 **Parameters:**
@@ -3034,14 +3466,16 @@ Open a graph, connecting and fully provisioning graph_store.
 Provisioning order: connect, then register every label/relation type
 this graph will ever write (schema's own labels/types plus the fixed
 system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
-setup_constraints(), then setup_indexes() — so a brand-new database is
-fully ready, including the merge_key index the global exact-match tier
-needs, before this call returns.
+setup_constraints(), then setup_indexes(), then vector indexes for
+every schema entity label — so a brand-new database is fully ready,
+including the merge_key index the global exact-match tier needs and
+the embedding vector indexes native search needs, before this call
+returns.
 
 **Parameters:**
 
 - **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The entity/relation types this graph validates every
-  extraction against. Fixed for this instance.
+  extraction against.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where entities, relations, chunks, and MENTIONED_IN
   edges are written.
 - **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Populates entity embeddings for native vector search.
@@ -3051,6 +3485,12 @@ needs, before this call returns.
 **Returns:**
 
 - <code>[Graph](#agrag.ingestion.graph.Graph)</code> – A graph connected to graph_store and ready to accept add() calls.
+
+**Raises:**
+
+- <code>[Exception](#Exception)</code> – Whatever registration, constraint/index setup, or
+  vector-index provisioning raises. graph_store is closed
+  first, so a failed open() never leaks a connection.
 
 #### `agrag.ingestion.extract`
 
@@ -3349,7 +3789,7 @@ The public Graph API for ingestion.
 
 **Attributes:**
 
-- [**SYSTEM_RELATION_TYPES**](#agrag.ingestion.graph.SYSTEM_RELATION_TYPES) – Relationship types Graph.open() always registers, outside any GraphSchema.
+- [**SYSTEM_RELATION_TYPES**](#agrag.ingestion.graph.SYSTEM_RELATION_TYPES) –
 - [**SourceType**](#agrag.ingestion.graph.SourceType) –
 - [**SourcesType**](#agrag.ingestion.graph.SourcesType) –
 
@@ -3370,19 +3810,11 @@ A knowledge graph that a caller can open and add content to.
 **Parameters:**
 
 - **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The entity/relation types this graph validates every
-  extraction against. Fixed for this instance; not resuppliable
-  per add() call.
+  extraction against.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where entities, relations, chunks, and MENTIONED_IN
-  edges are written. Required: a graph with nowhere to write is
-  not a useful default for a library built around producing a
-  queryable graph.
+  edges are written.
 - **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Populates entity embeddings for native vector search.
-  Required, feeding both storage and resolution's fuzzy tier.
-- **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs against each chunk. Required, with no default —
-  the natural default needs two package extras a core install
-  won't have, so a defaulted extractor would surface a
-  MissingExtraError deep inside a later add() call instead of
-  here at open().
+- **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs against each chunk.
 - **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every step. Pass None for none.
 
 ###### `agrag.ingestion.graph.Graph.add`
@@ -3438,8 +3870,7 @@ node is touched. Pass apply=True to write the merges.
 For each EntityType label in self.\_schema, fetches every persisted
 entity with that label and runs the same comparator sequence add() uses
 in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
-them — O(n^2) within each label's population, which ADR 0032 already
-accepted as the cost of not yet having blocking/ANN infrastructure.
+them — O(n^2) within each label's population.
 Confirmed matches become MergePlans via compute_merge.
 
 **Parameters:**
@@ -3461,14 +3892,16 @@ Open a graph, connecting and fully provisioning graph_store.
 Provisioning order: connect, then register every label/relation type
 this graph will ever write (schema's own labels/types plus the fixed
 system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
-setup_constraints(), then setup_indexes() — so a brand-new database is
-fully ready, including the merge_key index the global exact-match tier
-needs, before this call returns.
+setup_constraints(), then setup_indexes(), then vector indexes for
+every schema entity label — so a brand-new database is fully ready,
+including the merge_key index the global exact-match tier needs and
+the embedding vector indexes native search needs, before this call
+returns.
 
 **Parameters:**
 
 - **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The entity/relation types this graph validates every
-  extraction against. Fixed for this instance.
+  extraction against.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where entities, relations, chunks, and MENTIONED_IN
   edges are written.
 - **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Populates entity embeddings for native vector search.
@@ -3479,13 +3912,17 @@ needs, before this call returns.
 
 - <code>[Graph](#agrag.ingestion.graph.Graph)</code> – A graph connected to graph_store and ready to accept add() calls.
 
+**Raises:**
+
+- <code>[Exception](#Exception)</code> – Whatever registration, constraint/index setup, or
+  vector-index provisioning raises. graph_store is closed
+  first, so a failed open() never leaks a connection.
+
 ##### `agrag.ingestion.graph.SYSTEM_RELATION_TYPES`
 
 ```python
 SYSTEM_RELATION_TYPES = ['MENTIONED_IN']
 ```
-
-Relationship types Graph.open() always registers, outside any GraphSchema.
 
 ##### `agrag.ingestion.graph.SourceType`
 
@@ -3519,6 +3956,7 @@ separate step.
 - [**apply_merge**](#agrag.ingestion.merge.apply_merge) – Write a computed MergePlan to storage.
 - [**compute_merge**](#agrag.ingestion.merge.compute_merge) – Compute how existing_entities and mentions combine into one Entity.
 - [**mentioned_in_id**](#agrag.ingestion.merge.mentioned_in_id) – Return the deterministic id for a Chunk -[:MENTIONED_IN]-> Entity edge.
+- [**relation_id**](#agrag.ingestion.merge.relation_id) – Return the deterministic id for a domain relationship triple.
 
 **Attributes:**
 
@@ -3562,14 +4000,48 @@ Computed result of merging zero or more entities and mentions.
 
 **Attributes:**
 
-- [**survivor**](#agrag.ingestion.merge.MergePlan.survivor) (<code>[Entity](#agrag.common.data_models.entity.Entity)</code>) – The resulting Entity.
-- [**tombstone_ids**](#agrag.ingestion.merge.MergePlan.tombstone_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of entities absorbed into survivor.
+- [**survivor**](#agrag.ingestion.merge.MergePlan.survivor) (<code>[Entity](#agrag.common.data_models.entity.Entity)</code>) – The resulting Entity. Its merge_count, source_chunk_ids,
+  and merged_from are this call's best local computation, for
+  reporting; apply_merge writes new_source_chunk_ids and
+  merge_count_delta atomically instead, so a concurrent writer's
+  own contribution to the same node is never overwritten.
+- [**tombstone_ids**](#agrag.ingestion.merge.MergePlan.tombstone_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of entities absorbed into survivor. Also this
+  call's new contribution to the survivor's merged_from, applied
+  atomically.
 - [**conflicts**](#agrag.ingestion.merge.MergePlan.conflicts) (<code>[list](#list)\[[ConflictRecord](#agrag.ingestion.merge.ConflictRecord)\]</code>) – Every field that had more than one candidate value.
+- [**accepted_merge_keys**](#agrag.ingestion.merge.MergePlan.accepted_merge_keys) (<code>[list](#list)\[[str](#str)\]</code>) – Every normalized merge_key this merge
+  accepted -- from existing_entities and mentions alike, not only
+  the survivor's own chosen name -- so a later mention of any
+  accepted name resolves back to this entity instead of creating
+  a duplicate.
+- [**new_source_chunk_ids**](#agrag.ingestion.merge.MergePlan.new_source_chunk_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – The chunk ids this call's mentions and
+  absorbed entities contribute, applied as an atomic union
+  against whatever the survivor's node currently has.
+- [**merge_count_delta**](#agrag.ingestion.merge.MergePlan.merge_count_delta) (<code>[int](#int)</code>) – The amount to atomically add to whatever
+  merge_count the survivor's node currently has.
+
+###### `agrag.ingestion.merge.MergePlan.accepted_merge_keys`
+
+```python
+accepted_merge_keys: list[str] = []
+```
 
 ###### `agrag.ingestion.merge.MergePlan.conflicts`
 
 ```python
 conflicts: list[ConflictRecord] = []
+```
+
+###### `agrag.ingestion.merge.MergePlan.merge_count_delta`
+
+```python
+merge_count_delta: int = 0
+```
+
+###### `agrag.ingestion.merge.MergePlan.new_source_chunk_ids`
+
+```python
+new_source_chunk_ids: list[UUID] = []
 ```
 
 ###### `agrag.ingestion.merge.MergePlan.survivor`
@@ -3658,10 +4130,14 @@ apply_merge(plan:MergePlan, *, graph_store:GraphStore, schema:GraphSchema) -> No
 
 Write a computed MergePlan to storage.
 
-Upserts the survivor unconditionally. When tombstone_ids is non-empty,
-marks each tombstoned id merged, transfers its relationships in both
-directions, groups the returned rows with \_plan_relationship_dedup, and
-applies the result.
+Every call runs inside one GraphStore transaction: it always upserts the
+survivor and records a merge-key alias for its current name, and, when
+tombstone_ids is non-empty, also tombstones, deletes edges that would
+become meaningless self-links, transfers what remains, and dedupes the
+survivor's resulting neighbourhood. A failure partway through leaves no
+half-written state: no survivor without its alias, no tombstone without
+its edges transferred, no transferred edge without its duplicate cleaned
+up.
 
 **Parameters:**
 
@@ -3716,6 +4192,30 @@ Return the deterministic id for a Chunk -[:MENTIONED_IN]-> Entity edge.
 **Returns:**
 
 - <code>[UUID](#uuid.UUID)</code> – The edge id. Deterministic: same pair always returns same id.
+
+##### `agrag.ingestion.merge.relation_id`
+
+```python
+relation_id(source_id:UUID, target_id:UUID, rel_type:str) -> UUID
+```
+
+Return the deterministic id for a domain relationship triple.
+
+Two concurrent `add()` calls resolving the same `(source_id, target_id, rel_type)` triple can both miss the existing-relation lookup
+and each try to create it; since this id depends only on the triple, both
+writers compute the same one, so `upsert_relation_query`'s `MERGE`
+converges to a single edge instead of two parallel ones with unrelated
+random ids. Mirrors `mentioned_in_id`.
+
+**Parameters:**
+
+- **source_id** (<code>[UUID](#uuid.UUID)</code>) – The relationship's source Entity id.
+- **target_id** (<code>[UUID](#uuid.UUID)</code>) – The relationship's target Entity id.
+- **rel_type** (<code>[str](#str)</code>) – The relationship's type.
+
+**Returns:**
+
+- <code>[UUID](#uuid.UUID)</code> – The relationship id. Same triple always returns the same id.
 
 #### `agrag.ingestion.resolve`
 
@@ -4153,11 +4653,19 @@ Report from Graph.consolidate().
 
 - [**would_merge**](#agrag.ingestion.types.ConsolidationReport.would_merge) (<code>[list](#list)\[[MergePlan](#agrag.ingestion.merge.MergePlan)\]</code>) – The merge plans found, whether applied or not.
 - [**applied**](#agrag.ingestion.types.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the plans were applied.
+- [**failures**](#agrag.ingestion.types.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.types.StageFailure)\]</code>) – Failures re-embedding an applied survivor's final text.
+  Always empty when apply is False.
 
 ###### `agrag.ingestion.types.ConsolidationReport.applied`
 
 ```python
 applied: bool = False
+```
+
+###### `agrag.ingestion.types.ConsolidationReport.failures`
+
+```python
+failures: list[StageFailure] = Field(default_factory=list)
 ```
 
 ###### `agrag.ingestion.types.ConsolidationReport.would_merge`

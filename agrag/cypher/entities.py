@@ -226,45 +226,58 @@ def upsert_survivor_query(label: str) -> str:
 
 
 def set_embedding_query(vector_property: str) -> str:
-    """Build Cypher setting one vector property per node, by id.
+    """Build Cypher setting one vector property per node, guarded by its text.
 
     Touches only ``vector_property``, unlike a full node upsert: another
     write can update an entity's provenance or properties while its new
     embedding is being computed, and overwriting the whole node from a
     snapshot taken before that update would discard it along with
-    delivering the vector.
+    delivering the vector. The ``name``/``description`` match is an
+    optimistic-concurrency guard: a record only applies if the node's text
+    still matches what its vector was computed from, so a slower write from
+    an older call cannot overwrite a newer one's vector with a stale one.
 
     Args:
         vector_property: The property to set. Must already be validated.
 
     Returns:
-        Parameterized Cypher expecting $records (list of {id, vector}).
+        Parameterized Cypher expecting $records (list of ``{id, vector,
+        expected_name, expected_description}``).
     """
     safe_property = validate_identifier(vector_property)
     return (
         f"UNWIND $records AS record "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"WHERE n.name = record.expected_name "
+        f"AND coalesce(n.description, '') = record.expected_description "
         f"SET n.{safe_property} = record.vector"
     )
 
 
 def clear_property_query(property_name: str) -> str:
-    """Build Cypher removing one property from a batch of nodes by id.
+    """Build Cypher removing one property from a batch of nodes, guarded by text.
 
     Used to drop a stale value rather than leave it readable after a write
     that was supposed to replace it fails partway through, such as an
-    embedding vector left over from before an entity's text changed.
+    embedding vector left over from before an entity's text changed. The
+    same ``name``/``description`` guard as ``set_embedding_query`` applies:
+    a record only clears the property if the node's text still matches what
+    this call started with, so it cannot wipe a vector a newer, still-in-
+    flight call has already written for different text.
 
     Args:
         property_name: The property to remove. Must already be validated.
 
     Returns:
-        Parameterized Cypher expecting $ids (list of strings).
+        Parameterized Cypher expecting $records (list of ``{id,
+        expected_name, expected_description}``).
     """
     safe_property = validate_identifier(property_name)
     return (
-        f"UNWIND $ids AS entity_id "
-        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: entity_id}}) "
+        f"UNWIND $records AS record "
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"WHERE n.name = record.expected_name "
+        f"AND coalesce(n.description, '') = record.expected_description "
         f"REMOVE n.{safe_property}"
     )
 
@@ -292,7 +305,7 @@ def fetch_relations_between_query(rel_type: str) -> str:
 
     Returns:
         Parameterized Cypher expecting $pairs (list of
-        {source_id, target_id}). Returns each match's id and
+        ``{source_id, target_id}``). Returns each match's id and
         source_chunk_ids alongside the pair it matched.
     """
     safe_type = validate_identifier(rel_type)

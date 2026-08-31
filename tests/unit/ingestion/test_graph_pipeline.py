@@ -28,15 +28,21 @@ from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.errors import GraphStoreConstraintViolationError
+from agrag.graphdb.errors import (
+    GraphStoreConstraintViolationError,
+    GraphStoreDataIntegrityError,
+)
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import (
     Graph,
     _apply_merge_with_conflict_retry,
+    _embed_and_upsert_survivors,
+    _extract_merged_into,
     _global_exact_match,
     _global_relation_lookup,
     _parse_entity_node,
     _resolve_paths,
+    _resolve_tombstone_chain,
     _union_groups_by_existing_entity,
 )
 from agrag.ingestion.merge import MergePlan
@@ -184,6 +190,28 @@ def _doc(text: str = "hello world") -> Document:
 def _chunk(text: str = "hello", provenance: TextProvenance | None = None) -> ChunkModel:
     prov = provenance or TextProvenance(char_start=0, char_end=len(text))
     return ChunkModel(document_id=uuid4(), index=0, text=text, provenance=prov)
+
+
+def _tombstone_row(
+    node_id: str,
+    *,
+    name: str,
+    merge_key: str | None = None,
+    merged_into: str | None = None,
+) -> list[dict[str, Any]]:
+    """Build one execute_read response for a single node in a merged_into chain."""
+    properties: dict[str, Any] = {
+        "name": name,
+        "merged_from": [],
+        "merge_count": 1,
+        "source_chunk_ids": [],
+        "created_at": "2020-01-01T00:00:00+00:00",
+    }
+    if merge_key is not None:
+        properties["merge_key"] = merge_key
+    if merged_into is not None:
+        properties["merged_into"] = merged_into
+    return [{"n": {"id": node_id, "labels": ["Person"], "properties": properties}}]
 
 
 class TestParseEntityNode:
@@ -552,6 +580,156 @@ class TestGlobalExactMatch:
         assert result[0].id == entity_id
         assert result[0].name == "Robert"
 
+    async def test_transient_chain_read_failure_propagates(self) -> None:
+        """A transient error resolving a tombstone chain must not be swallowed.
+
+        Regression test: _resolve_tombstone_chain used to catch every
+        exception from its chain-follow read and return whatever survivor it
+        had so far (None on the first hop). _global_exact_match then treated
+        that as "no match" and the caller would create a duplicate entity for
+        an already-known name instead of surfacing the failure.
+        """
+        store = MockStore()
+        tombstone_id = uuid4()
+        survivor_id = uuid4()
+        mention = ExtractedEntity(
+            chunk_id=uuid4(), label="Person", text="Bob", char_start=0, char_end=3
+        )
+        store.execute_read_responses = [
+            [
+                {
+                    "merge_key": "Person:bob",
+                    "n": {
+                        "id": str(tombstone_id),
+                        "labels": ["Person"],
+                        "properties": {
+                            "name": "Bob",
+                            "merged_from": [],
+                            "merge_count": 1,
+                            "source_chunk_ids": [],
+                            "created_at": "2020-01-01T00:00:00+00:00",
+                            "merged_into": str(survivor_id),
+                        },
+                    },
+                }
+            ]
+        ]
+        with (
+            mock.patch.object(
+                store,
+                "execute_read",
+                mock.AsyncMock(
+                    side_effect=[
+                        store.execute_read_responses[0],
+                        ConnectionError("simulated transient DB error"),
+                    ]
+                ),
+            ),
+            pytest.raises(ConnectionError, match="simulated transient DB error"),
+        ):
+            await _global_exact_match([mention], graph_store=store)
+
+
+class TestExtractMergedInto:
+    """_extract_merged_into never turns a genuine failure into "not a tombstone"."""
+
+    def test_plain_dict_node_reads_merged_into(self) -> None:
+        """The plain-dict mock form (used throughout this file) still works."""
+        survivor_id = str(uuid4())
+        node = {
+            "labels": ["Person"],
+            "properties": {"name": "Bob", "merged_into": survivor_id},
+        }
+        assert _extract_merged_into(node, {}) == survivor_id
+
+    def test_no_merged_into_returns_none(self) -> None:
+        """A live node with no merged_into is a genuine negative, not a failure."""
+        node = {"labels": ["Person"], "properties": {"name": "Bob"}}
+        assert _extract_merged_into(node, {}) is None
+
+    def test_unstringifiable_candidate_propagates(self) -> None:
+        """A failure while reading merged_into must not be read as "live".
+
+        Regression test: this used to be wrapped in a blanket
+        ``except Exception: return None``, so any failure here -- not just
+        an absent merged_into -- looked identical to a live node to every
+        caller. The only step past the two per-representation probes (each
+        already narrowly suppressed on its own) that can still raise is
+        stringifying the candidate id, so that is what this test exercises.
+        """
+
+        class _Unstringifiable:
+            def __str__(self) -> str:
+                raise RuntimeError("cannot stringify")
+
+        node = {
+            "labels": ["Person"],
+            "properties": {"name": "Bob", "merged_into": _Unstringifiable()},
+        }
+        with pytest.raises(RuntimeError, match="cannot stringify"):
+            _extract_merged_into(node, {})
+
+
+class TestResolveTombstoneChain:
+    """_resolve_tombstone_chain never returns a tombstone; every failure raises."""
+
+    async def test_chain_over_max_hops_raises(self) -> None:
+        """A chain longer than the hop cap raises instead of returning a tombstone.
+
+        Regression test: the resolver used to run a fixed 32-iteration loop
+        and return whatever node it last parsed, even though that node still
+        had merged_into set -- silently handing back a tombstone rather than
+        the true live entity.
+        """
+        store = MockStore()
+        hop_count = 40  # more than _MAX_TOMBSTONE_CHAIN_HOPS
+        ids = [str(uuid4()) for _ in range(hop_count)]
+        store.execute_read_responses = [
+            _tombstone_row(
+                ids[i],
+                name=f"Name{i}",
+                merged_into=ids[i + 1] if i < hop_count - 1 else None,
+            )
+            for i in range(hop_count)
+        ]
+        with pytest.raises(GraphStoreDataIntegrityError, match="exceeded"):
+            await _resolve_tombstone_chain(start_merged_into=ids[0], graph_store=store)
+
+    async def test_cycle_raises(self) -> None:
+        """A merged_into cycle raises instead of returning the last node visited."""
+        store = MockStore()
+        id_a, id_b = str(uuid4()), str(uuid4())
+        store.execute_read_responses = [
+            _tombstone_row(id_a, name="A", merged_into=id_b),
+            _tombstone_row(id_b, name="B", merged_into=id_a),
+        ]
+        with pytest.raises(GraphStoreDataIntegrityError, match="cycle"):
+            await _resolve_tombstone_chain(start_merged_into=id_a, graph_store=store)
+
+    async def test_missing_node_raises(self) -> None:
+        """A merged_into pointer to a node that no longer exists raises."""
+        store = MockStore()
+        missing_id = str(uuid4())
+        store.execute_read_responses = [[]]
+        with pytest.raises(GraphStoreDataIntegrityError, match="missing"):
+            await _resolve_tombstone_chain(
+                start_merged_into=missing_id, graph_store=store
+            )
+
+    async def test_short_chain_returns_live_entity(self) -> None:
+        """A short chain still resolves to the live entity at its end."""
+        store = MockStore()
+        tombstone_id, survivor_id = str(uuid4()), str(uuid4())
+        store.execute_read_responses = [
+            _tombstone_row(tombstone_id, name="Bob", merged_into=survivor_id),
+            _tombstone_row(survivor_id, name="Robert", merge_key="Person:robert"),
+        ]
+        entity = await _resolve_tombstone_chain(
+            start_merged_into=tombstone_id, graph_store=store
+        )
+        assert str(entity.id) == survivor_id
+        assert entity.name == "Robert"
+
 
 class TestUnionGroupsByExistingEntity:
     """_union_groups_by_existing_entity merges groups sharing an exact match."""
@@ -793,6 +971,144 @@ class TestGlobalRelationLookup:
             )
             == 1
         )
+
+
+class _GuardedNodeStore(MockStore):
+    """MockStore whose execute_write honors the embedding write/clear guard.
+
+    set_embedding_query and clear_property_query only apply a record when
+    the target node's current name/description match the record's
+    expected_name/expected_description. Real Neo4j enforces that WHERE
+    clause; this fake reproduces it in memory so a concurrent-write test can
+    prove a stale record is rejected without a live database.
+    """
+
+    def __init__(self, nodes: dict[str, dict[str, Any]]) -> None:
+        super().__init__()
+        self.nodes = nodes
+
+    async def execute_write(
+        self, query: str, parameters: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        await super().execute_write(query, parameters)
+        records = (parameters or {}).get("records", [])
+        for record in records:
+            node = self.nodes.get(record["id"])
+            if node is None:
+                continue
+            if node["name"] != record["expected_name"]:
+                continue
+            if (node.get("description") or "") != record["expected_description"]:
+                continue
+            if "REMOVE n.embedding" in query:
+                node["embedding"] = None
+            elif "SET n.embedding" in query:
+                node["embedding"] = record["vector"]
+        return []
+
+
+class TestEmbedAndUpsertSurvivors:
+    """Regression tests for the name/description guard on embedding writes."""
+
+    async def test_slower_stale_write_does_not_overwrite_newer_vector(self) -> None:
+        """An older call's write must not clobber a newer call's fresh vector.
+
+        Regression test: set_embedding_query used to key only by id, so an
+        older, slower embed call finishing after a newer one could silently
+        overwrite the newer vector with one computed from stale text. Here
+        the node's persisted text ("NewText") no longer matches the stale
+        entity ("OldText") this call is embedding, so the write must be a
+        no-op.
+        """
+        entity_id = uuid4()
+        store = _GuardedNodeStore(
+            {
+                str(entity_id): {
+                    "name": "NewText",
+                    "description": None,
+                    "embedding": None,
+                }
+            }
+        )
+        stale_entity = Entity(id=entity_id, label="Person", name="OldText")
+
+        await _embed_and_upsert_survivors(
+            {entity_id: stale_entity},
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.SKIP,
+        )
+
+        assert store.nodes[str(entity_id)]["embedding"] is None
+
+    async def test_stale_write_rejected_on_description_alone(self) -> None:
+        """The guard rejects a stale write on description even when name matches.
+
+        Regression test: embedding_text is name plus an optional
+        "description" property (see Entity.embedding_text), so the guard
+        must compare both -- a race that only changes description (the
+        common case: merge recomputes descriptions, names are stable) would
+        slip through a name-only guard.
+        """
+        entity_id = uuid4()
+        store = _GuardedNodeStore(
+            {
+                str(entity_id): {
+                    "name": "Ada",
+                    "description": "new description",
+                    "embedding": None,
+                }
+            }
+        )
+        stale_entity = Entity(
+            id=entity_id,
+            label="Person",
+            name="Ada",
+            properties={"description": "old description"},
+        )
+
+        await _embed_and_upsert_survivors(
+            {entity_id: stale_entity},
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.SKIP,
+        )
+
+        assert store.nodes[str(entity_id)]["embedding"] is None
+
+    async def test_failure_clear_does_not_wipe_newer_vector(self) -> None:
+        """A failing call's clear must not wipe a different, newer vector.
+
+        Regression test: clear_property_query used to key only by id, so a
+        call whose embed() failed for stale text could wipe a vector a
+        different, newer call had already written for the node's current
+        text.
+        """
+
+        class _FailingEmbedder(MockEmbedder):
+            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+                raise RuntimeError("embed backend down")
+
+        entity_id = uuid4()
+        store = _GuardedNodeStore(
+            {
+                str(entity_id): {
+                    "name": "NewText",
+                    "description": None,
+                    "embedding": [0.9, 0.9],
+                }
+            }
+        )
+        stale_entity = Entity(id=entity_id, label="Person", name="OldText")
+
+        await _embed_and_upsert_survivors(
+            {entity_id: stale_entity},
+            embedder=_FailingEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.SKIP,
+        )
+
+        assert store.nodes[str(entity_id)]["embedding"] == [0.9, 0.9]
 
 
 class TestGraphOpen:

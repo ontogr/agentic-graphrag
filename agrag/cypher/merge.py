@@ -55,7 +55,7 @@ def apply_relationship_dedup_update_query() -> str:
 
     Returns:
         Parameterized Cypher expecting $updates (list of
-        {id, rel_type, properties}), where properties is the full merged
+        ``{id, rel_type, properties}``), where properties is the full merged
         property map -- not just source_chunk_ids -- so a duplicate's other
         fields are not silently dropped when its edge is deleted.
     """
@@ -72,7 +72,7 @@ def apply_relationship_dedup_delete_query() -> str:
 
     Returns:
         Parameterized Cypher expecting $delete_ids (list of
-        {id, rel_type}).
+        ``{id, rel_type}``).
     """
     return (
         "UNWIND $delete_ids AS delete_id "

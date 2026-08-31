@@ -34,7 +34,10 @@ from agrag.cypher.entities import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.errors import GraphStoreConstraintViolationError
+from agrag.graphdb.errors import (
+    GraphStoreConstraintViolationError,
+    GraphStoreDataIntegrityError,
+)
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.merge import (
     MergePlan,
@@ -247,68 +250,102 @@ def _parse_entity_node(node: object) -> Entity | None:  # noqa: PLR0912,PLR0915
 
 
 def _extract_merged_into(node: object, row: object) -> str | None:
-    """Return a tombstone's ``merged_into`` id if present, else ``None``."""
-    try:
-        candidates: list[object] = []
-        if isinstance(node, dict):
-            props = node.get("properties") if "properties" in node else None
+    """Return a tombstone's ``merged_into`` id if present, else ``None``.
+
+    Callers read ``None`` as "this node is live" -- so, unlike the two
+    inner probes below, nothing here is allowed to turn a genuine failure
+    into ``None``. Each probe tries one node representation (plain dict
+    properties, a dict-convertible driver object, an attribute-bearing
+    driver object) and is individually suppressed only because failing to
+    apply does not mean the node lacks ``merged_into``, just that this
+    particular representation does not match; there is always another probe
+    or the final "no candidates found" fallthrough to answer that. Nothing
+    past those probes suppresses errors, so a genuine bug -- for example an
+    id that cannot be stringified -- propagates instead of being silently
+    read as "live".
+    """
+    candidates: list[object] = []
+    if isinstance(node, dict):
+        props = node.get("properties") if "properties" in node else None
+        if isinstance(props, dict) and props.get("merged_into"):
+            candidates.append(props["merged_into"])
+        if node.get("merged_into"):
+            candidates.append(node["merged_into"])
+    else:
+        with contextlib.suppress(Exception):
+            props = dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
             if isinstance(props, dict) and props.get("merged_into"):
                 candidates.append(props["merged_into"])
-            if node.get("merged_into"):
-                candidates.append(node["merged_into"])
-        else:
-            with contextlib.suppress(Exception):
-                props = dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
-                if isinstance(props, dict) and props.get("merged_into"):
-                    candidates.append(props["merged_into"])
-            with contextlib.suppress(Exception):
-                val = getattr(node, "merged_into", None)
-                if val:
-                    candidates.append(val)
-        if isinstance(row, dict) and row.get("merged_into"):
-            candidates.append(row["merged_into"])
-        if candidates:
-            return str(candidates[0])
-    except Exception:
-        return None
+        with contextlib.suppress(Exception):
+            val = getattr(node, "merged_into", None)
+            if val:
+                candidates.append(val)
+    if isinstance(row, dict) and row.get("merged_into"):
+        candidates.append(row["merged_into"])
+    if candidates:
+        return str(candidates[0])
     return None
+
+
+_MAX_TOMBSTONE_CHAIN_HOPS = 32
 
 
 async def _resolve_tombstone_chain(
     *,
     start_merged_into: str,
     graph_store: GraphStore,
-) -> Entity | None:
-    """Follow ``merged_into`` pointers until the live survivor is reached."""
+) -> Entity:
+    """Follow ``merged_into`` pointers until the live survivor is reached.
+
+    Args:
+        start_merged_into: The id the first tombstone points at.
+        graph_store: Where the chain is read from.
+
+    Returns:
+        The live entity at the end of the chain -- never a tombstone.
+
+    Raises:
+        GraphStoreDataIntegrityError: The chain cycles, points at a missing
+            node, contains a node that cannot be parsed as an Entity, or
+            exceeds ``_MAX_TOMBSTONE_CHAIN_HOPS`` hops without reaching a
+            live node. A store read failure propagates as-is, unwrapped.
+    """
     visited: set[str] = set()
-    current_id: str | None = start_merged_into
-    survivor: Entity | None = None
-    for _ in range(32):
-        if current_id is None or current_id in visited:
-            break
-        visited.add(current_id)
-        try:
-            rows = await graph_store.execute_read(
-                f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) RETURN n",
-                {"id": current_id},
+    current_id = start_merged_into
+    for _ in range(_MAX_TOMBSTONE_CHAIN_HOPS):
+        if current_id in visited:
+            raise GraphStoreDataIntegrityError(
+                f"merged_into cycle detected resolving tombstone chain from "
+                f"{start_merged_into!r} (revisited {current_id!r})"
             )
-        except Exception:
-            break
+        visited.add(current_id)
+        rows = await graph_store.execute_read(
+            f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) RETURN n",
+            {"id": current_id},
+        )
         if not rows:
-            break
+            raise GraphStoreDataIntegrityError(
+                f"tombstone chain from {start_merged_into!r} points at "
+                f"missing node {current_id!r}"
+            )
         row = rows[0]
         node = (
             row.get("n") if isinstance(row, dict) and "n" in row else row  # type: ignore[union-attr]
         )
         entity = _parse_entity_node(node) or _parse_entity_node(row)  # type: ignore[arg-type]
         if entity is None:
-            break
-        survivor = entity
+            raise GraphStoreDataIntegrityError(
+                f"tombstone chain from {start_merged_into!r} reached "
+                f"unparsable node {current_id!r}"
+            )
         next_id = _extract_merged_into(node, row)
-        if next_id is None or next_id in visited:
-            break
+        if next_id is None:
+            return entity
         current_id = next_id
-    return survivor
+    raise GraphStoreDataIntegrityError(
+        f"tombstone chain from {start_merged_into!r} exceeded "
+        f"{_MAX_TOMBSTONE_CHAIN_HOPS} hops without reaching a live node"
+    )
 
 
 async def _global_exact_match(
@@ -333,6 +370,10 @@ async def _global_exact_match(
 
     Returns:
         A map from mention index to its matching Entity.
+
+    Raises:
+        GraphStoreDataIntegrityError: A matched row's merged_into chain
+            could not be resolved to a live entity.
     """
     if not mentions:
         return {}
@@ -358,12 +399,9 @@ async def _global_exact_match(
                 continue
             merged_into = _extract_merged_into(node, row)
             if merged_into is not None:
-                survivor = await _resolve_tombstone_chain(
+                entity = await _resolve_tombstone_chain(
                     start_merged_into=merged_into, graph_store=graph_store
                 )
-                if survivor is None:
-                    continue
-                entity = survivor
             queried_mk = row.get("merge_key") if isinstance(row, dict) else None
             mk = queried_mk if isinstance(queried_mk, str) else entity.merge_key
             for idx in mk_to_indices.get(mk, []):
@@ -471,6 +509,22 @@ def _union_groups_by_existing_entity(
     ]
 
 
+def _embedding_guard_fields(entity: Entity) -> dict[str, str]:
+    """Return the id/name/description fields the embedding writes guard on.
+
+    set_embedding_query and clear_property_query only apply a record when a
+    node's current name/description still match these values, so a slower
+    call cannot overwrite or clear a newer call's vector for different text.
+    Mirrors ``coalesce(n.description, '')`` on the Cypher side.
+    """
+    description = entity.properties.get("description")
+    return {
+        "id": str(entity.id),
+        "expected_name": entity.name,
+        "expected_description": str(description) if description else "",
+    }
+
+
 async def _embed_and_upsert_survivors(
     survivors: dict[UUID, Entity],
     *,
@@ -488,6 +542,15 @@ async def _embed_and_upsert_survivors(
     same entity's provenance or properties while this call's embed() is in
     flight, and a full overwrite from a snapshot taken before that update
     would discard it, not just deliver the new vector.
+
+    Both the write and the failure-path clear below are guarded by
+    _embedding_guard_fields: a record only applies when the node's current
+    name/description still match what this call started with. add() and
+    consolidate(apply=True) can run concurrently against the same entity
+    (see _apply_merge_with_conflict_retry), so without this guard an older,
+    slower call's write or clear can land after a newer call's and leave a
+    vector computed for stale text, or wipe a vector the newer call just
+    wrote.
 
     On failure, clears any embedding already on the survivor nodes rather
     than leaving one computed for their prior text in place: vector search
@@ -517,7 +580,7 @@ async def _embed_and_upsert_survivors(
         records = []
         for ent, vec in zip(survivors.values(), vectors, strict=True):
             ent.embedding = vec
-            records.append({"id": str(ent.id), "vector": vec})
+            records.append({**_embedding_guard_fields(ent), "vector": vec})
         await graph_store.execute_write(
             set_embedding_query("embedding"), {"records": records}
         )
@@ -526,7 +589,11 @@ async def _embed_and_upsert_survivors(
         with contextlib.suppress(Exception):
             await graph_store.execute_write(
                 clear_property_query("embedding"),
-                {"ids": [str(entity_id) for entity_id in survivors]},
+                {
+                    "records": [
+                        _embedding_guard_fields(ent) for ent in survivors.values()
+                    ]
+                },
             )
         if error_policy is ErrorPolicy.RAISE:
             raise
