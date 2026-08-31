@@ -307,19 +307,12 @@ class TestSearchEngineIntegration:
             # Filter for Person label only.
             filters = SearchFilters(labels=[person_label])
             where, params = filters.to_cypher_where(node_var="n")
-            query = (
-                f"MATCH (n:_AgragNode) {where} "
-                f"RETURN n.id AS id, n.name AS name"
-            )
+            query = f"MATCH (n:_AgragNode) {where} RETURN n.id AS id, n.name AS name"
             rows = await self.store.execute_read(query, params)
             ids = {row["id"] for row in rows}
 
             assert str(person_id) in ids
             assert str(org_id) not in ids
         finally:
-            await self.store.execute_write(
-                f"MATCH (n:{person_label}) DETACH DELETE n"
-            )
-            await self.store.execute_write(
-                f"MATCH (n:{org_label}) DETACH DELETE n"
-            )
+            await self.store.execute_write(f"MATCH (n:{person_label}) DETACH DELETE n")
+            await self.store.execute_write(f"MATCH (n:{org_label}) DETACH DELETE n")
