@@ -1,5 +1,6 @@
 """Tests for merge mechanics."""
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -778,16 +779,17 @@ class TestPlanRelationshipDedup:
             new_relationship_id=uuid4(),
             source_chunk_ids=[c2, c3],
         )
-        updates, delete_ids = _plan_relationship_dedup([r1, r2])
+        updates, deletes = _plan_relationship_dedup([r1, r2])
         assert len(updates) == 1
         assert updates[0]["id"] == str(r1.new_relationship_id)
+        assert updates[0]["rel_type"] == "KNOWS"
         # deduped, order preserved: c1, c2, c3
         assert updates[0]["source_chunk_ids"] == [
             str(c1),
             str(c2),
             str(c3),
         ]
-        assert delete_ids == [r2.new_relationship_id]
+        assert deletes == [{"id": str(r2.new_relationship_id), "rel_type": "KNOWS"}]
 
     def test_separate_groups_by_type(self) -> None:
         """Different rel_type creates separate groups."""
@@ -890,6 +892,26 @@ class TestPlanRelationshipDedup:
         assert updates_in == []
 
 
+def _store_with_transaction(execute_write: AsyncMock) -> AsyncMock:
+    """Build a store AsyncMock whose transaction() yields a fake handle.
+
+    The handle's execute_write is the given mock. Its upsert_nodes mock is
+    exposed as store.txn_upsert_nodes, kept separate from the store's own
+    upsert_nodes so a test can tell which one apply_merge actually used.
+    """
+    upsert_nodes = AsyncMock()
+    handle = SimpleNamespace(execute_write=execute_write, upsert_nodes=upsert_nodes)
+
+    @asynccontextmanager
+    async def _transaction():
+        yield handle
+
+    store = AsyncMock()
+    store.transaction = _transaction
+    store.txn_upsert_nodes = upsert_nodes
+    return store
+
+
 class TestApplyMerge:
     """apply_merge writes to GraphStore."""
 
@@ -917,75 +939,50 @@ class TestApplyMerge:
         store.upsert_nodes.assert_awaited_once()
         store.execute_write.assert_not_awaited()
 
-    async def test_two_plus_does_tombstone_and_transfer(self) -> None:
-        """Two-plus performs tombstone, transfer, and dedup."""
+    async def test_two_plus_runs_in_one_transaction(self) -> None:
+        """Two-plus tombstones, deletes internal edges, transfers, and re-fetches.
+
+        Every write for the multi-entity path goes through the yielded
+        transaction handle, never the store's own execute_write/upsert_nodes,
+        since apply_merge must be able to roll the whole thing back as one
+        unit.
+        """
         survivor = _entity(name="Ada")
         tombstone = uuid4()
-        other = uuid4()
-        c1, c2 = uuid4(), uuid4()
-        new_r1 = uuid4()
-        new_r2 = uuid4()
         plan = MergePlan(survivor=survivor, tombstone_ids=[tombstone], conflicts=[])
-        store = AsyncMock()
-        store.upsert_nodes = AsyncMock()
+        execute_write = AsyncMock(return_value=[])
+        store = _store_with_transaction(execute_write)
 
-        async def _exec_write(query, params=None):
-            # tombstone query
-            if "merged_into" in query:
-                return []
-            # transfer queries
-            if (
-                ("CREATE (survivor)" in query or "CREATE (other)" in query)
-                and params
-                and params.get("tombstone_id") == str(tombstone)
-            ):
-                # Outgoing has "MATCH (tombstone" first
-                if "MATCH (tombstone" in query:
-                    return [
-                        {
-                            "other_id": str(other),
-                            "rel_type": "KNOWS",
-                            "new_relationship_id": str(new_r1),
-                            "source_chunk_ids": [str(c1)],
-                        },
-                        {
-                            "other_id": str(other),
-                            "rel_type": "KNOWS",
-                            "new_relationship_id": str(new_r2),
-                            "source_chunk_ids": [str(c2)],
-                        },
-                    ]
-                return []
-            if "UNWIND $updates" in query:
-                return []
-            if "UNWIND $delete_ids" in query:
-                return []
-            return []
-
-        store.execute_write = AsyncMock(side_effect=_exec_write)
         await apply_merge(plan, graph_store=store, schema=_schema())
-        # upsert + tombstone + 2 transfers + dedup update + dedup delete
-        assert store.upsert_nodes.await_count == 1
-        # At least tombstone and one transfer should have been called
-        assert store.execute_write.await_count >= 3
-        # Check tombstone called with correct ids
-        calls = [c.args[1] for c in store.execute_write.call_args_list]
-        tombstone_call = next((p for p in calls if "tombstone_ids" in p), None)
-        assert tombstone_call is not None
-        assert tombstone_call["tombstone_ids"] == [str(tombstone)]
+
+        store.upsert_nodes.assert_not_awaited()
+        store.execute_write.assert_not_awaited()
+        store.txn_upsert_nodes.assert_awaited_once()
+        args, _ = store.txn_upsert_nodes.call_args
+        assert args[0] == survivor.label
+        param_sets = [set(c.args[1]) for c in execute_write.call_args_list]
+        tombstone_calls = [
+            c.args[1]
+            for c in execute_write.call_args_list
+            if set(c.args[1]) == {"tombstone_ids", "survivor_id"}
+        ]
+        assert len(tombstone_calls) == 1
+        assert tombstone_calls[0]["tombstone_ids"] == [str(tombstone)]
+        # Internal-edge cleanup, once, before any transfer.
+        assert param_sets.count({"tombstone_ids"}) == 1
+        # Both transfer directions, once per tombstone.
+        assert param_sets.count({"tombstone_id", "survivor_id"}) == 2
+        # Both post-transfer neighbourhood fetches.
+        assert param_sets.count({"node_id"}) == 2
 
     async def test_handles_row_parsing_errors(self) -> None:
-        """Malformed rows are skipped."""
+        """Malformed neighbourhood rows are skipped, and no dedup call follows."""
         survivor = _entity(name="Ada")
         tombstone = uuid4()
         plan = MergePlan(survivor=survivor, tombstone_ids=[tombstone], conflicts=[])
-        store = AsyncMock()
-        store.upsert_nodes = AsyncMock()
 
         async def _exec_write(query, params=None):
-            if "merged_into" in query:
-                return []
-            if "MATCH (tombstone" in query or "MATCH (other)" in query:
+            if params and "node_id" in params:
                 return [
                     {"bad": "row"},
                     {
@@ -1000,32 +997,29 @@ class TestApplyMerge:
                         "source_chunk_ids": ["not-a-uuid"],
                     },
                 ]
-            if "UNWIND $updates" in query:
-                return []
-            if "UNWIND $delete_ids" in query:
-                return []
             return []
 
-        store.execute_write = AsyncMock(side_effect=_exec_write)
+        execute_write = AsyncMock(side_effect=_exec_write)
+        store = _store_with_transaction(execute_write)
         await apply_merge(plan, graph_store=store, schema=_schema())
-        # Should not raise, and no dedup updates because all rows bad
-        assert store.upsert_nodes.await_count == 1
+        dedup_calls = [
+            c
+            for c in execute_write.call_args_list
+            if "updates" in c.args[1] or "delete_ids" in c.args[1]
+        ]
+        assert dedup_calls == []
 
     async def test_transfer_handles_partial_bad_rows(self) -> None:
-        """One good row and one bad row results in single-row group (no dedup)."""
+        """One good row and one bad row leave a single-row group: no dedup."""
         survivor = _entity(name="Ada")
         tombstone = uuid4()
         plan = MergePlan(survivor=survivor, tombstone_ids=[tombstone], conflicts=[])
-        store = AsyncMock()
-        store.upsert_nodes = AsyncMock()
         other = uuid4()
         good_id = uuid4()
         c1 = uuid4()
 
         async def _exec_write(query, params=None):
-            if "merged_into" in query:
-                return []
-            if "CREATE (survivor)" in query:
+            if params and "node_id" in params:
                 return [
                     {
                         "other_id": str(other),
@@ -1040,37 +1034,29 @@ class TestApplyMerge:
                         "source_chunk_ids": [],
                     },
                 ]
-            if "CREATE (other)" in query:
-                return []
-            if "UNWIND" in query:
-                return []
             return []
 
-        store.execute_write = AsyncMock(side_effect=_exec_write)
+        execute_write = AsyncMock(side_effect=_exec_write)
+        store = _store_with_transaction(execute_write)
         await apply_merge(plan, graph_store=store, schema=_schema())
-        # Only one good row -> no dedup
         dedup_calls = [
             c
-            for c in store.execute_write.call_args_list
-            if "UNWIND $updates" in c.args[0] or "UNWIND $delete_ids" in c.args[0]
+            for c in execute_write.call_args_list
+            if "updates" in c.args[1] or "delete_ids" in c.args[1]
         ]
         assert dedup_calls == []
 
     async def test_dedup_update_and_delete_called(self) -> None:
-        """Dedup with two good rows triggers both update and delete."""
+        """Two duplicate neighbours trigger a type-scoped dedup update and delete."""
         survivor = _entity(name="Ada")
         tombstone = uuid4()
         other = uuid4()
         c1, c2 = uuid4(), uuid4()
         r1, r2 = uuid4(), uuid4()
         plan = MergePlan(survivor=survivor, tombstone_ids=[tombstone], conflicts=[])
-        store = AsyncMock()
-        store.upsert_nodes = AsyncMock()
 
         async def _exec_write(query, params=None):
-            if "merged_into" in query:
-                return []
-            if "MATCH (tombstone" in query:
+            if params and "node_id" in params:
                 return [
                     {
                         "other_id": str(other),
@@ -1085,22 +1071,21 @@ class TestApplyMerge:
                         "source_chunk_ids": [str(c2)],
                     },
                 ]
-            if "MATCH (other)" in query:
-                return []
-            if "UNWIND $updates" in query:
+            if params and "updates" in params:
                 assert params["updates"][0]["id"] == str(r1)
-                return []
-            if "UNWIND $delete_ids" in query:
-                assert params["delete_ids"] == [str(r2)]
-                return []
+                assert params["updates"][0]["rel_type"] == "KNOWS"
+            if params and "delete_ids" in params:
+                assert params["delete_ids"] == [{"id": str(r2), "rel_type": "KNOWS"}]
             return []
 
-        store.execute_write = AsyncMock(side_effect=_exec_write)
+        execute_write = AsyncMock(side_effect=_exec_write)
+        store = _store_with_transaction(execute_write)
         await apply_merge(plan, graph_store=store, schema=_schema())
-        # Verify update and delete were called
-        calls = [c.args[0] for c in store.execute_write.call_args_list]
-        assert any("UNWIND $updates" in q for q in calls)
-        assert any("UNWIND $delete_ids" in q for q in calls)
+        calls = execute_write.call_args_list
+        update_calls = [c for c in calls if "updates" in c.args[1]]
+        delete_calls = [c for c in calls if "delete_ids" in c.args[1]]
+        assert update_calls
+        assert delete_calls
 
 
 class TestMentionedInId:

@@ -3,6 +3,8 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 
+from agrag.common.data_models.vector_record import Distance
+
 
 class EmbeddingCache(ABC):
     """A content-addressed cache for embedding vectors.
@@ -51,6 +53,16 @@ class Embedder(ABC):
     """A component that turns text into dense embedding vectors."""
 
     model: str
+
+    @property
+    def distance(self) -> Distance:
+        """Return the distance metric for vector indexes created for this embedder.
+
+        Defaults to cosine, which matches normalized sentence-transformer models.
+        Concrete embedders may override when their vectors use a different
+        metric.
+        """
+        return Distance.COSINE
 
     @abstractmethod
     async def dimensions(self) -> int:

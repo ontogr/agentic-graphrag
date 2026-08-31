@@ -66,6 +66,7 @@ SourcesType = Union[SourceType, Sequence[SourceType]]
 # Relationship types Graph.open() always registers
 SYSTEM_RELATION_TYPES = ["MENTIONED_IN"]
 
+
 def _resolve_paths(source: SourcesType) -> tuple[list[Path], bool]:
     """Expand a source argument into concrete file paths.
 
@@ -235,12 +236,103 @@ def _parse_entity_node(node: object) -> Entity | None:  # noqa: PLR0912,PLR0915
         return None
 
 
-async def _global_exact_match(  # noqa: PLR0912
+def _extract_merged_into(node: object, row: object) -> str | None:
+    """Return a tombstone's ``merged_into`` id if present, else ``None``."""
+    try:
+        candidates: list[object] = []
+        if isinstance(node, dict):
+            props = node.get("properties") if "properties" in node else None
+            if isinstance(props, dict) and props.get("merged_into"):
+                candidates.append(props["merged_into"])
+            if node.get("merged_into"):
+                candidates.append(node["merged_into"])
+        else:
+            with contextlib.suppress(Exception):
+                props = dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
+                if isinstance(props, dict) and props.get("merged_into"):
+                    candidates.append(props["merged_into"])
+            with contextlib.suppress(Exception):
+                val = getattr(node, "merged_into", None)
+                if val:
+                    candidates.append(val)
+        if isinstance(row, dict) and row.get("merged_into"):
+            candidates.append(row["merged_into"])
+        if candidates:
+            return str(candidates[0])
+    except Exception:
+        return None
+    return None
+
+
+def _extract_raw_merge_key(node: object) -> str | None:
+    """Return the raw ``merge_key`` from a node dict without parsing."""
+    try:
+        if isinstance(node, dict):
+            if "properties" in node and isinstance(node["properties"], dict):
+                val = node["properties"].get("merge_key")
+                if isinstance(val, str):
+                    return val
+            val = node.get("merge_key")
+            if isinstance(val, str):
+                return val
+        else:
+            with contextlib.suppress(Exception):
+                props = dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
+                if isinstance(props, dict):
+                    val = props.get("merge_key")
+                    if isinstance(val, str):
+                        return val
+    except Exception:
+        return None
+    return None
+
+
+async def _resolve_tombstone_chain(
+    *,
+    start_merged_into: str,
+    graph_store: GraphStore,
+) -> Entity | None:
+    """Follow ``merged_into`` pointers until the live survivor is reached."""
+    visited: set[str] = set()
+    current_id: str | None = start_merged_into
+    survivor: Entity | None = None
+    for _ in range(32):
+        if current_id is None or current_id in visited:
+            break
+        visited.add(current_id)
+        try:
+            rows = await graph_store.execute_read(
+                f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) RETURN n",
+                {"id": current_id},
+            )
+        except Exception:
+            break
+        if not rows:
+            break
+        row = rows[0]
+        node = (
+            row.get("n") if isinstance(row, dict) and "n" in row else row  # type: ignore[union-attr]
+        )
+        entity = _parse_entity_node(node) or _parse_entity_node(row)  # type: ignore[arg-type]
+        if entity is None:
+            break
+        survivor = entity
+        next_id = _extract_merged_into(node, row)
+        if next_id is None or next_id in visited:
+            break
+        current_id = next_id
+    return survivor
+
+
+async def _global_exact_match(  # noqa: PLR0912,PLR0915
     mentions: list[ExtractedEntity], *, graph_store: GraphStore
 ) -> dict[int, Entity]:
     """Return each mention index's matching persisted Entity, if it has one.
 
-    One batched read per distinct label present in mentions.
+    One batched read per distinct label present in mentions. Tombstoned
+    nodes are never returned — if the matched row is a tombstone (older data
+    where ``merge_key`` was not yet cleared), the ``merged_into`` chain is
+    followed to its live survivor.
 
     Args:
         mentions: The entity mentions to look up.
@@ -280,6 +372,31 @@ async def _global_exact_match(  # noqa: PLR0912
                 entity = _parse_entity_node(row)
             if entity is None:
                 continue
+            # If this row is a tombstone, follow its merged_into chain to
+            # the live survivor. The new query filters tombstones, but this
+            # handles data written before REMOVE merge_key was added.
+            merged_into = _extract_merged_into(node, row)
+            raw_mk = _extract_raw_merge_key(node)
+            if merged_into is not None:
+                raw_for_mapping = raw_mk or entity.merge_key
+                survivor = await _resolve_tombstone_chain(
+                    start_merged_into=merged_into, graph_store=graph_store
+                )
+                if survivor is None:
+                    continue
+                entity = survivor
+                # Map via the original tombstone's merge_key first so exact-
+                # match tier resolves re-ingest of the absorbed name to its
+                # survivor even when survivor's own merge_key differs.
+                if raw_for_mapping in mk_to_indices:
+                    for idx in mk_to_indices[raw_for_mapping]:
+                        if mentions[idx].label == entity.label:
+                            result[idx] = entity
+                mk = entity.merge_key
+                for idx in mk_to_indices.get(mk, []):
+                    if mentions[idx].label == entity.label:
+                        result[idx] = entity
+                continue
             mk = entity.merge_key
             for idx in mk_to_indices.get(mk, []):
                 # Only map if mention label matches entity label (should)
@@ -292,14 +409,14 @@ async def _global_exact_match(  # noqa: PLR0912
             if mk not in mk_to_indices:
                 # Try to extract merge_key from props directly
                 try:
-                    raw_mk = None
-                    if isinstance(node, dict):
+                    raw_mk2 = raw_mk
+                    if raw_mk2 is None and isinstance(node, dict):
                         if "properties" in node:
-                            raw_mk = node["properties"].get("merge_key")
+                            raw_mk2 = node["properties"].get("merge_key")
                         else:
-                            raw_mk = node.get("merge_key") or node.get("merge_key")
-                    if raw_mk:
-                        for idx in mk_to_indices.get(str(raw_mk), []):
+                            raw_mk2 = node.get("merge_key") or node.get("merge_key")
+                    if raw_mk2:
+                        for idx in mk_to_indices.get(str(raw_mk2), []):
                             if idx not in result:
                                 result[idx] = entity
                 except Exception:
@@ -395,9 +512,11 @@ class Graph:
         Provisioning order: connect, then register every label/relation type
         this graph will ever write (schema's own labels/types plus the fixed
         system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
-        setup_constraints(), then setup_indexes() — so a brand-new database is
-        fully ready, including the merge_key index the global exact-match tier
-        needs, before this call returns.
+        setup_constraints(), then setup_indexes(), then vector indexes for
+        every schema entity label — so a brand-new database is fully ready,
+        including the merge_key index the global exact-match tier needs and
+        the embedding vector indexes native search needs, before this call
+        returns.
 
         Args:
             schema: The entity/relation types this graph validates every
@@ -420,6 +539,15 @@ class Graph:
         )
         await graph_store.setup_constraints()
         await graph_store.setup_indexes()
+        dimensions = await embedder.dimensions()
+        distance = embedder.distance
+        for label in entity_labels:
+            await graph_store.ensure_vector_index(
+                label=label,
+                vector_property="embedding",
+                dimensions=dimensions,
+                distance=distance,
+            )
         return cls(
             schema=schema,
             graph_store=graph_store,

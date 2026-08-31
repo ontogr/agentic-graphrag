@@ -116,6 +116,10 @@ def merge_key_index_query(label: str) -> str:
 def fetch_by_merge_keys_query(label: str) -> str:
     """Build Cypher for a batched exact-match lookup by merge key.
 
+    Tombstones clear their ``merge_key`` on absorption, but the filter on
+    ``merged_into`` remains as defence for data written before that change
+    and for chains where a survivor was itself merged later.
+
     Args:
         label: The node label. Must already be validated.
 
@@ -125,6 +129,7 @@ def fetch_by_merge_keys_query(label: str) -> str:
     return (
         f"UNWIND $merge_keys AS merge_key "
         f"MATCH (n:{validate_identifier(label)} {{merge_key: merge_key}}) "
+        f"WHERE n.merged_into IS NULL "
         f"RETURN n"
     )
 

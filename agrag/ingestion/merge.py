@@ -23,6 +23,7 @@ from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 if TYPE_CHECKING:
     from agrag.graphdb.base import GraphStore
 
+
 class PropertyStrategy(StrEnum):
     """Fallback rule for a property with no entry in PropertyRules."""
 
@@ -397,7 +398,11 @@ async def compute_merge(  # noqa: PLR0912
 
 @dataclass
 class _TransferredRelationship:
-    """One row from transfer_relationships_query's RETURN clause."""
+    """One relationship row eligible for the post-merge dedup pass.
+
+    Rows come from either ``fetch_node_relationships_query`` (the survivor's
+    neighbourhood after all transfers land) or, in tests, directly.
+    """
 
     other_id: UUID
     rel_type: str
@@ -405,24 +410,63 @@ class _TransferredRelationship:
     source_chunk_ids: list[UUID]
 
 
-def _plan_relationship_dedup(
-    rows: list[_TransferredRelationship],
-) -> tuple[list[dict[str, object]], list[UUID]]:
-    """Group transferred relationships by (type, other_id) and plan dedup.
+def _parse_relationship_rows(
+    rows: list[dict[str, object]],
+) -> list[_TransferredRelationship]:
+    """Parse relationship-query rows, skipping any that fail to parse.
 
     Args:
-        rows: Every relationship transfer_relationships_query moved, for one
-            direction, one tombstoned entity.
+        rows: Rows from ``fetch_node_relationships_query``, each carrying one
+            edge's other-end id, type, id, and source_chunk_ids.
 
     Returns:
-        Updates and delete_ids ready for the dedup queries.
+        The rows that parsed successfully.
+    """
+    parsed: list[_TransferredRelationship] = []
+    for row in rows:
+        try:
+            other_id = UUID(str(row["other_id"]))
+            rel_type = str(row["rel_type"])
+            new_id = UUID(str(row["new_relationship_id"]))
+            raw_chunk_ids = row.get("source_chunk_ids") or []
+            if not isinstance(raw_chunk_ids, list):
+                raise TypeError("source_chunk_ids must be a list")
+            chunk_ids = [UUID(str(cid)) for cid in raw_chunk_ids]
+        except (KeyError, ValueError, TypeError):
+            continue
+        parsed.append(
+            _TransferredRelationship(
+                other_id=other_id,
+                rel_type=rel_type,
+                new_relationship_id=new_id,
+                source_chunk_ids=chunk_ids,
+            )
+        )
+    return parsed
+
+
+def _plan_relationship_dedup(
+    rows: list[_TransferredRelationship],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Group relationships by (type, other_id) and plan dedup within one direction.
+
+    Args:
+        rows: Every relationship currently linking the survivor to another
+            node in one direction. Constraints are per relationship type
+            (see ``relation_id_constraint_query``), so an id collision across
+            types is possible and each returned item carries its type to keep
+            the dedup queries scoped to the right one.
+
+    Returns:
+        Updates and deletes ready for the dedup queries, each item keyed by
+        relationship id and type.
     """
     groups: dict[tuple[str, UUID], list[_TransferredRelationship]] = {}
     for row in rows:
         groups.setdefault((row.rel_type, row.other_id), []).append(row)
 
     updates: list[dict[str, object]] = []
-    delete_ids: list[UUID] = []
+    deletes: list[dict[str, object]] = []
     for group in groups.values():
         if len(group) == 1:
             continue
@@ -436,11 +480,15 @@ def _plan_relationship_dedup(
         updates.append(
             {
                 "id": str(keeper.new_relationship_id),
+                "rel_type": keeper.rel_type,
                 "source_chunk_ids": [str(cid) for cid in merged_chunk_ids],
             }
         )
-        delete_ids.extend(extra.new_relationship_id for extra in extras)
-    return updates, delete_ids
+        deletes.extend(
+            {"id": str(extra.new_relationship_id), "rel_type": extra.rel_type}
+            for extra in extras
+        )
+    return updates, deletes
 
 
 async def apply_merge(
@@ -449,9 +497,12 @@ async def apply_merge(
     """Write a computed MergePlan to storage.
 
     Upserts the survivor unconditionally. When tombstone_ids is non-empty,
-    marks each tombstoned id merged, transfers its relationships in both
-    directions, groups the returned rows with _plan_relationship_dedup, and
-    applies the result.
+    the rest of the write -- tombstoning, deleting edges wholly internal to
+    the absorbed set, transferring what remains, and deduping the survivor's
+    resulting neighbourhood -- runs inside one GraphStore transaction, so a
+    failure partway through leaves no half-merged state: no tombstone without
+    its edges transferred, no transferred edge without its duplicate cleaned
+    up.
 
     Args:
         plan: The merge to write.
@@ -462,72 +513,61 @@ async def apply_merge(
     from agrag.cypher.merge import (  # noqa: PLC0415
         apply_relationship_dedup_delete_query,
         apply_relationship_dedup_update_query,
+        delete_internal_relationships_query,
+        fetch_node_relationships_query,
         tombstone_query,
         transfer_relationships_query,
     )
 
-    # Upsert survivor.
-    await graph_store.upsert_nodes(
-        plan.survivor.label, [plan.survivor.to_node_record()]
-    )
-
     if not plan.tombstone_ids:
+        await graph_store.upsert_nodes(
+            plan.survivor.label, [plan.survivor.to_node_record()]
+        )
         return
 
-    # Ensure label is safe for tombstone query (validate once).
     validate_identifier(plan.survivor.label)
+    tombstone_ids = [str(tid) for tid in plan.tombstone_ids]
+    survivor_id = str(plan.survivor.id)
 
-    # Tombstone: mark absorbed nodes as merged.
-    await graph_store.execute_write(
-        tombstone_query(plan.survivor.label),
-        {
-            "tombstone_ids": [str(tid) for tid in plan.tombstone_ids],
-            "survivor_id": str(plan.survivor.id),
-        },
-    )
+    async with graph_store.transaction() as txn:
+        await txn.upsert_nodes(plan.survivor.label, [plan.survivor.to_node_record()])
 
-    # Transfer relationships for each tombstoned node, both directions.
-    for tombstone_id in plan.tombstone_ids:
+        await txn.execute_write(
+            tombstone_query(plan.survivor.label),
+            {"tombstone_ids": tombstone_ids, "survivor_id": survivor_id},
+        )
+
+        # Edges between two absorbed nodes must go before any transfer runs,
+        # or the first tombstone's transfer would re-anchor them as a stale
+        # survivor -> tombstone edge instead of dropping them.
+        await txn.execute_write(
+            delete_internal_relationships_query(), {"tombstone_ids": tombstone_ids}
+        )
+
+        for tombstone_id in tombstone_ids:
+            for outgoing in (True, False):
+                await txn.execute_write(
+                    transfer_relationships_query(outgoing=outgoing),
+                    {"tombstone_id": tombstone_id, "survivor_id": survivor_id},
+                )
+
+        # Re-fetch the survivor's whole neighbourhood, one direction at a
+        # time, rather than deduping each transfer's own return rows: a
+        # duplicate can pair a freshly transferred edge against one the
+        # survivor already had, or against another tombstone's transfer.
         for outgoing in (True, False):
-            query = transfer_relationships_query(outgoing=outgoing)
-            rows = await graph_store.execute_write(
-                query,
-                {
-                    "tombstone_id": str(tombstone_id),
-                    "survivor_id": str(plan.survivor.id),
-                },
+            rows = await txn.execute_write(
+                fetch_node_relationships_query(outgoing=outgoing),
+                {"node_id": survivor_id},
             )
-            # Parse rows into _TransferredRelationship.
-            transferred: list[_TransferredRelationship] = []
-            for row in rows:
-                try:
-                    other_id = UUID(str(row["other_id"]))
-                    rel_type = str(row["rel_type"])
-                    new_id = UUID(str(row["new_relationship_id"]))
-                    raw_cids = row.get("source_chunk_ids") or []
-                    cids = [UUID(str(cid)) for cid in raw_cids]
-                except Exception:
-                    continue
-                transferred.append(
-                    _TransferredRelationship(
-                        other_id=other_id,
-                        rel_type=rel_type,
-                        new_relationship_id=new_id,
-                        source_chunk_ids=cids,
-                    )
-                )
-            if not transferred:
-                continue
-            updates, delete_ids = _plan_relationship_dedup(transferred)
+            updates, deletes = _plan_relationship_dedup(_parse_relationship_rows(rows))
             if updates:
-                await graph_store.execute_write(
-                    apply_relationship_dedup_update_query(),
-                    {"updates": updates},
+                await txn.execute_write(
+                    apply_relationship_dedup_update_query(), {"updates": updates}
                 )
-            if delete_ids:
-                await graph_store.execute_write(
-                    apply_relationship_dedup_delete_query(),
-                    {"delete_ids": [str(did) for did in delete_ids]},
+            if deletes:
+                await txn.execute_write(
+                    apply_relationship_dedup_delete_query(), {"delete_ids": deletes}
                 )
 
 

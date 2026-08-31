@@ -1,12 +1,44 @@
 """The GraphStore abstraction and its build shortcut helpers."""
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
-from contextlib import AbstractAsyncContextManager
-from typing import Any
+from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import Any, Protocol
 
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.vector_record import Distance, VectorHit
+
+
+class GraphStoreTransaction(Protocol):
+    """The read/write/upsert surface available inside a ``transaction()`` block.
+
+    A structural type, not a base class: ``GraphStore`` itself satisfies it
+    (the default ``transaction()`` yields ``self``), and a backend's own
+    transaction handle, such as Neo4j's, satisfies it without inheriting from
+    anything here.
+    """
+
+    async def execute_read(
+        self, query: str, parameters: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Run a read inside the surrounding transaction."""
+        ...
+
+    async def execute_write(
+        self, query: str, parameters: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Run a write inside the surrounding transaction."""
+        ...
+
+    async def upsert_nodes(
+        self,
+        label: str,
+        nodes: Sequence[NodeRecord],
+        *,
+        batch_size: int = 256,
+    ) -> None:
+        """Write or merge nodes inside the surrounding transaction."""
+        ...
 
 
 class GraphStore(ABC):
@@ -184,6 +216,27 @@ class GraphStore(ABC):
         Returns:
             The matched hits, highest score first.
         """
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[GraphStoreTransaction]:
+        """Start an explicit transaction spanning multiple writes.
+
+        Every call through the yielded handle should join one backend
+        transaction, committing as a whole on clean exit from the
+        ``async with`` block and rolling back as a whole if the block raises.
+        The default here simply yields ``self`` and gives no atomicity beyond
+        what each individual call already provides; a backend that can offer
+        real atomicity, such as ``Neo4jGraphStore``, overrides this with a
+        driver transaction.
+
+        Use this when a caller must guarantee several writes either all apply
+        or none do, such as ``apply_merge``'s tombstone, relationship
+        transfer, and dedup steps.
+
+        Returns:
+            An async context manager yielding the transactional handle.
+        """
+        yield self
 
     async def __aenter__(self) -> "GraphStore":
         """Open the store and verify connectivity.

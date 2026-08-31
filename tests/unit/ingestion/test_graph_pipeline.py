@@ -413,7 +413,7 @@ class TestGlobalExactMatch:
         assert len(store.execute_read_calls) == 2
 
     async def test_handles_flat_row_and_missing(self) -> None:
-        """Handles flat row form and skips unparseable rows."""
+        """Handles flat row form and skips unparsable rows."""
         store = MockStore()
         cid = uuid4()
         m = ExtractedEntity(
@@ -1044,11 +1044,13 @@ class TestGraphAddPipeline:
         )  # type: ignore[arg-type]
 
         class BobExtractor(Extractor):
-            async def extract(self, c: ChunkModel, s: GraphSchema) -> ExtractionResult:
+            async def extract(
+                self, chunk: ChunkModel, schema: GraphSchema
+            ) -> ExtractionResult:
                 return ExtractionResult(
                     entities=[
                         ExtractedEntity(
-                            chunk_id=c.id,
+                            chunk_id=chunk.id,
                             label="Person",
                             text="Bob",
                             char_start=0,

@@ -78,6 +78,30 @@ def plain_index_query(label: str) -> str:
     )
 
 
+def merge_key_constraint_query(label: str) -> str:
+    """Build a CREATE CONSTRAINT query making ``merge_key`` unique per label.
+
+    Backs the concurrent-ingestion safety tier: two concurrent ``add()`` calls
+    for the same ``(label, normalized name)`` cannot both create a canonical
+    node; the second fails the constraint and is resolved to the canonical via
+    the merge path. Tombstoned nodes clear their ``merge_key`` when marked
+    ``merged_into``, so the constraint permits one live survivor per key plus
+    any number of tombstones.
+
+    Args:
+        label: The node label. Must already be validated.
+
+    Returns:
+        A Cypher query creating the uniqueness constraint if absent.
+    """
+    safe_label = validate_identifier(label)
+    name = f"node_{len(safe_label)}_{safe_label}_merge_key_unique"
+    return (
+        f"CREATE CONSTRAINT {name} IF NOT EXISTS "
+        f"FOR (n:{safe_label}) REQUIRE n.merge_key IS UNIQUE"
+    )
+
+
 def vector_index_name(label: str, vector_property: str) -> str:
     """Derive the deterministic name a vector index is created under.
 
