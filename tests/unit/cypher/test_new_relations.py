@@ -41,8 +41,8 @@ class TestBfsExpandQuery:
         assert "filter_label" in q
         assert params["filter_label"] == ["Person"]
 
-    def test_filters_are_ANDed(self) -> None:
-        """Multiple filters are AND-ed together."""
+    def test_multiple_filters_use_and_logic(self) -> None:
+        """Multiple filters are combined with AND logic."""
         q, params = bfs_expand_query(filters={"label": ["Person"], "name": "Alice"})
         assert "AND" in q
         assert "filter_label" in params

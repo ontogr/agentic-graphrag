@@ -1,5 +1,8 @@
 """Tests for cross_encoder_rerank."""
 
+import sys
+from types import ModuleType
+from unittest.mock import patch
 from uuid import uuid4
 
 from agrag.common.data_models.entity import Entity
@@ -22,7 +25,8 @@ class TestCrossEncoderRerank:
         """Without sentence-transformers, returns results unchanged."""
         r1 = _make_result(score=0.9)
         r2 = _make_result(score=0.8)
-        reranked = await cross_encoder_rerank("test query", [r1, r2])
+        with patch.dict(sys.modules, {"sentence_transformers": ModuleType("fake")}):
+            reranked = await cross_encoder_rerank("test query", [r1, r2])
         # Without the extra, results come back unchanged.
         assert len(reranked) == 2
 
@@ -35,5 +39,6 @@ class TestCrossEncoderRerank:
         """Results below min_score are dropped when available."""
         r1 = _make_result(score=0.9)
         # Without the model, min_score filtering is not applied.
-        reranked = await cross_encoder_rerank("query", [r1], min_score=0.5)
+        with patch.dict(sys.modules, {"sentence_transformers": ModuleType("fake")}):
+            reranked = await cross_encoder_rerank("query", [r1], min_score=0.5)
         assert len(reranked) >= 1
