@@ -10,6 +10,7 @@ from agrag.common.data_models.data_point import DataPoint
 from agrag.common.data_models.graph_record import NodeRecord
 from agrag.common.data_models.provenance import PageProvenance, TextProvenance
 
+
 # The fixed system label every Chunk node is written with.
 CHUNK_LABEL = "Chunk"
 """"""
