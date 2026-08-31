@@ -6,7 +6,9 @@ from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
     filter_clause,
     is_safe_identifier,
+    upsert_merge_alias_query,
     upsert_node_query,
+    upsert_survivor_query,
     validate_identifier,
 )
 
@@ -89,6 +91,74 @@ class TestUpsertNodeQuery:
         """An empty label set raises rather than building a labelless MERGE."""
         with pytest.raises(ValueError):
             upsert_node_query([])
+
+
+class TestUpsertSurvivorQuery:
+    """upsert_survivor_query accumulates atomically instead of overwriting."""
+
+    def test_unions_source_chunk_ids_and_merged_from(self) -> None:
+        """The accumulator fields are read and unioned/incremented in-query.
+
+        Regression test: two concurrent callers merging into the same
+        entity each compute their update from a snapshot taken before
+        either write lands. Reading source_chunk_ids/merged_from/
+        merge_count fresh inside this same query, rather than trusting a
+        Python-computed absolute value, is what keeps neither writer's
+        contribution from being lost to the other landing second.
+        """
+        q = upsert_survivor_query("Person")
+        assert "coalesce(n.source_chunk_ids, [])" in q
+        assert "coalesce(n.merged_from, [])" in q
+        assert "coalesce(n.merge_count, 0)" in q
+        assert "SET n.source_chunk_ids =" in q
+        assert "record.new_source_chunk_ids" in q
+        assert "SET n.merged_from =" in q
+        assert "record.new_merged_from" in q
+        assert "existing_merge_count + record.merge_count_delta" in q
+
+    def test_reads_accumulators_before_the_blind_property_set(self) -> None:
+        """The accumulator read happens before SET n += record.properties.
+
+        Otherwise it would read back the value this same write just
+        overwrote instead of whatever another writer already committed.
+        """
+        q = upsert_survivor_query("Person")
+        assert q.index("existing_source_chunk_ids") < q.index(
+            "SET n += record.properties"
+        )
+
+    def test_merge_identity_is_independent_of_content_label(self) -> None:
+        """MERGE anchors on NODE_IDENTITY_LABEL, matching upsert_node_query."""
+        q = upsert_survivor_query("Person")
+        assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in q
+        assert "SET n:Person" in q
+
+    def test_validates_label(self) -> None:
+        """An unsafe label raises before the query is built."""
+        with pytest.raises(ValueError):
+            upsert_survivor_query("Bad Label")
+
+
+class TestUpsertMergeAliasQuery:
+    """upsert_merge_alias_query claims a name without stealing an existing one."""
+
+    def test_batches_over_merge_keys(self) -> None:
+        """The query is UNWIND-batched over $merge_keys, not a single key."""
+        q = upsert_merge_alias_query()
+        assert "UNWIND $merge_keys AS merge_key" in q
+        assert "MERGE (a:_AgragMergeAlias {merge_key: merge_key})" in q
+
+    def test_only_claims_an_unclaimed_key(self) -> None:
+        """ON CREATE SET means an existing alias keeps its owner.
+
+        Regression test: without this, one merge's accepted names could
+        overwrite an alias a different, unrelated entity already owns.
+        """
+        q = upsert_merge_alias_query()
+        assert "ON CREATE SET a.entity_id = $entity_id" in q
+        assert "SET a.entity_id = $entity_id" not in q.replace(
+            "ON CREATE SET a.entity_id = $entity_id", ""
+        )
 
 
 class TestFilterClause:

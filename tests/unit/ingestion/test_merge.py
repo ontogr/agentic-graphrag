@@ -788,6 +788,67 @@ class TestComputeMerge:
         )
         assert plan.survivor.id == e_full.id
 
+    async def test_accepted_merge_keys_includes_every_accepted_name(self) -> None:
+        """accepted_merge_keys covers every name this merge folded in.
+
+        Regression test: apply_merge only wrote an alias for the survivor's
+        own chosen name. When resolution joins two different names (for
+        example "Bob" and "Robert" fuzzy/LLM-matched into one group), a
+        later mention of the non-canonical name found no alias and created
+        a duplicate entity instead of resolving back to the same one.
+        """
+        mention = _mention(text="Bob")
+        plan, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[_mention(text="Robert"), mention],
+            schema=_schema(),
+        )
+        assert "Person:robert" in plan.accepted_merge_keys
+        assert "Person:bob" in plan.accepted_merge_keys
+
+    async def test_accepted_merge_keys_includes_absorbed_entities_names(self) -> None:
+        """Absorbed existing entities' own names are also accepted keys."""
+        e1 = _entity(name="Ada")
+        e2 = _entity(name="Ada Lovelace")
+        plan, _ = await compute_merge(
+            existing_entities=[e1, e2], mentions=[], schema=_schema()
+        )
+        assert e1.merge_key in plan.accepted_merge_keys
+        assert e2.merge_key in plan.accepted_merge_keys
+
+    async def test_new_source_chunk_ids_excludes_survivor_bases_own(self) -> None:
+        """new_source_chunk_ids is this call's contribution, not the full union.
+
+        apply_merge writes this atomically against whatever the survivor's
+        node currently has, so it must not include the existing entity's own
+        chunk ids -- those are already persisted and would be double-applied
+        (harmlessly, since the DB union is idempotent, but the value should
+        still reflect only what is new).
+        """
+        existing_cid = uuid4()
+        new_cid = uuid4()
+        existing = _entity(name="Ada", source_chunk_ids=[existing_cid])
+        mention = _mention(text="Ada", chunk_id=new_cid)
+        plan, _ = await compute_merge(
+            existing_entities=[existing], mentions=[mention], schema=_schema()
+        )
+        assert plan.new_source_chunk_ids == [new_cid]
+        assert existing_cid not in plan.new_source_chunk_ids
+        # The survivor's own field still reports the full union, for reporting.
+        assert existing_cid in plan.survivor.source_chunk_ids
+
+    async def test_merge_count_delta_is_the_new_contribution_only(self) -> None:
+        """merge_count_delta is what this call adds, not the resulting total."""
+        existing = _entity(name="Ada", merge_count=5)
+        plan, _ = await compute_merge(
+            existing_entities=[existing],
+            mentions=[_mention(text="Ada"), _mention(text="Ada")],
+            schema=_schema(),
+        )
+        assert plan.merge_count_delta == 2
+        # The survivor's own field still reports the full total, for reporting.
+        assert plan.survivor.merge_count == 7
+
 
 def _transferred(
     *,
@@ -930,7 +991,12 @@ class TestApplyMerge:
     """apply_merge writes to GraphStore."""
 
     async def test_zero_tombstones_upserts_survivor_and_alias(self) -> None:
-        """No tombstones still runs in a transaction: upsert survivor + alias."""
+        """No tombstones still runs in a transaction: upsert survivor + alias.
+
+        The survivor write goes through upsert_survivor_query's atomic
+        accumulation, not txn.upsert_nodes, so a concurrent writer's own
+        contribution to the same node is never lost to a full overwrite.
+        """
         survivor = _entity(name="Ada")
         plan = MergePlan(survivor=survivor, tombstone_ids=[], conflicts=[])
         execute_write = AsyncMock(return_value=[])
@@ -940,13 +1006,21 @@ class TestApplyMerge:
 
         store.upsert_nodes.assert_not_awaited()
         store.execute_write.assert_not_awaited()
-        store.txn_upsert_nodes.assert_awaited_once()
-        args, _ = store.txn_upsert_nodes.call_args
-        assert args[0] == survivor.label
-        execute_write.assert_awaited_once()
-        alias_params = execute_write.call_args.args[1]
-        assert alias_params == {
-            "merge_key": survivor.merge_key,
+        store.txn_upsert_nodes.assert_not_awaited()
+        calls = execute_write.call_args_list
+        survivor_calls = [c for c in calls if set(c.args[1]) == {"records"}]
+        assert len(survivor_calls) == 1
+        record = survivor_calls[0].args[1]["records"][0]
+        assert record["id"] == str(survivor.id)
+        assert "source_chunk_ids" not in record["properties"]
+        assert "merged_from" not in record["properties"]
+        assert "merge_count" not in record["properties"]
+        alias_calls = [
+            c for c in calls if set(c.args[1]) == {"merge_keys", "entity_id"}
+        ]
+        assert len(alias_calls) == 1
+        assert alias_calls[0].args[1] == {
+            "merge_keys": [survivor.merge_key],
             "entity_id": str(survivor.id),
         }
 
@@ -968,13 +1042,17 @@ class TestApplyMerge:
 
         store.upsert_nodes.assert_not_awaited()
         store.execute_write.assert_not_awaited()
-        store.txn_upsert_nodes.assert_awaited_once()
-        args, _ = store.txn_upsert_nodes.call_args
-        assert args[0] == survivor.label
+        store.txn_upsert_nodes.assert_not_awaited()
 
         calls = execute_write.call_args_list
+        # Survivor write, via upsert_survivor_query's atomic accumulation.
+        survivor_calls = [c for c in calls if set(c.args[1]) == {"records"}]
+        assert len(survivor_calls) == 1
+        assert survivor_calls[0].args[1]["records"][0]["id"] == str(survivor.id)
         # Merge-key alias for the survivor's own current name.
-        alias_calls = [c for c in calls if set(c.args[1]) == {"merge_key", "entity_id"}]
+        alias_calls = [
+            c for c in calls if set(c.args[1]) == {"merge_keys", "entity_id"}
+        ]
         assert len(alias_calls) == 1
         assert alias_calls[0].args[1]["entity_id"] == str(survivor.id)
         # Tombstone: marks the absorbed id merged, distinguished from the

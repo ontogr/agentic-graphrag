@@ -30,6 +30,7 @@ from agrag.cypher.entities import (
     fetch_all_by_label_query,
     fetch_by_merge_keys_query,
     fetch_relations_between_query,
+    set_embedding_query,
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
@@ -47,6 +48,7 @@ from agrag.ingestion.resolve import (
     FuzzyMatch,
     InBatchCandidateSource,
     LLMVerify,
+    ResolutionGroup,
     Resolver,
 )
 from agrag.ingestion.types import (
@@ -272,29 +274,6 @@ def _extract_merged_into(node: object, row: object) -> str | None:
     return None
 
 
-def _extract_raw_merge_key(node: object) -> str | None:
-    """Return the raw ``merge_key`` from a node dict without parsing."""
-    try:
-        if isinstance(node, dict):
-            if "properties" in node and isinstance(node["properties"], dict):
-                val = node["properties"].get("merge_key")
-                if isinstance(val, str):
-                    return val
-            val = node.get("merge_key")
-            if isinstance(val, str):
-                return val
-        else:
-            with contextlib.suppress(Exception):
-                props = dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
-                if isinstance(props, dict):
-                    val = props.get("merge_key")
-                    if isinstance(val, str):
-                        return val
-    except Exception:
-        return None
-    return None
-
-
 async def _resolve_tombstone_chain(
     *,
     start_merged_into: str,
@@ -332,15 +311,21 @@ async def _resolve_tombstone_chain(
     return survivor
 
 
-async def _global_exact_match(  # noqa: PLR0912,PLR0915
+async def _global_exact_match(
     mentions: list[ExtractedEntity], *, graph_store: GraphStore
 ) -> dict[int, Entity]:
     """Return each mention index's matching persisted Entity, if it has one.
 
-    One batched read per distinct label present in mentions. Tombstoned
-    nodes are never returned — if the matched row is a tombstone (older data
-    where ``merge_key`` was not yet cleared), the ``merged_into`` chain is
-    followed to its live survivor.
+    One batched read per distinct label present in mentions. A row is
+    mapped back to its mention(s) by the merge_key the row's alias was
+    matched on -- returned alongside the node by fetch_by_merge_keys_query
+    -- rather than by re-deriving a key from the resolved entity's current
+    name: an accepted alias can name an entity by something other than its
+    current canonical name (see upsert_merge_alias_query), so re-deriving
+    would silently fail to map those mentions back. A row that turns out to
+    be a tombstone has its merged_into chain followed to the live survivor
+    first; older rows without a returned merge_key (plain mocks) fall back
+    to the resolved entity's own merge_key.
 
     Args:
         mentions: The entity mentions to look up.
@@ -351,14 +336,11 @@ async def _global_exact_match(  # noqa: PLR0912,PLR0915
     """
     if not mentions:
         return {}
-    # Group merge keys by label.
     grouped: dict[str, list[str]] = defaultdict(list)
-    mk_for_index: dict[int, str] = {}
     mk_to_indices: dict[str, list[int]] = defaultdict(list)
     for idx, mention in enumerate(mentions):
         mk = f"{mention.label}:{normalize_text(mention.text)}"
         grouped[mention.label].append(mk)
-        mk_for_index[idx] = mk
         mk_to_indices[mk].append(idx)
 
     result: dict[int, Entity] = {}
@@ -370,66 +352,23 @@ async def _global_exact_match(  # noqa: PLR0912,PLR0915
             fetch_by_merge_keys_query(), {"merge_keys": unique_mks}
         )
         for row in rows:
-            # Row may be {"n": Node} or {"n": {...}} or just node dict
             node = row.get("n") if isinstance(row, dict) and "n" in row else row
-            # In some mocks, row is {"n": {...}} where inner has properties
-            # _parse handles both.
-            entity = _parse_entity_node(node)
-            if entity is None:
-                # Try alternative: row itself may be node props flat
-                # e.g. row = {"id": "...", "merge_key": "...", ...}
-                entity = _parse_entity_node(row)
+            entity = _parse_entity_node(node) or _parse_entity_node(row)
             if entity is None:
                 continue
-            # If this row is a tombstone, follow its merged_into chain to
-            # the live survivor. The new query filters tombstones, but this
-            # handles data written before REMOVE merge_key was added.
             merged_into = _extract_merged_into(node, row)
-            raw_mk = _extract_raw_merge_key(node)
             if merged_into is not None:
-                raw_for_mapping = raw_mk or entity.merge_key
                 survivor = await _resolve_tombstone_chain(
                     start_merged_into=merged_into, graph_store=graph_store
                 )
                 if survivor is None:
                     continue
                 entity = survivor
-                # Map via the original tombstone's merge_key first so exact-
-                # match tier resolves re-ingest of the absorbed name to its
-                # survivor even when survivor's own merge_key differs.
-                if raw_for_mapping in mk_to_indices:
-                    for idx in mk_to_indices[raw_for_mapping]:
-                        if mentions[idx].label == entity.label:
-                            result[idx] = entity
-                mk = entity.merge_key
-                for idx in mk_to_indices.get(mk, []):
-                    if mentions[idx].label == entity.label:
-                        result[idx] = entity
-                continue
-            mk = entity.merge_key
+            queried_mk = row.get("merge_key") if isinstance(row, dict) else None
+            mk = queried_mk if isinstance(queried_mk, str) else entity.merge_key
             for idx in mk_to_indices.get(mk, []):
-                # Only map if mention label matches entity label (should)
                 if mentions[idx].label == entity.label:
                     result[idx] = entity
-            # Also handle case where row's merge_key directly maps
-            # For mocks that return merge_key without normalized parsing,
-            # try to map via raw mk.
-            # If entity.merge_key not in map, try row's merge_key
-            if mk not in mk_to_indices:
-                # Try to extract merge_key from props directly
-                try:
-                    raw_mk2 = raw_mk
-                    if raw_mk2 is None and isinstance(node, dict):
-                        if "properties" in node:
-                            raw_mk2 = node["properties"].get("merge_key")
-                        else:
-                            raw_mk2 = node.get("merge_key") or node.get("merge_key")
-                    if raw_mk2:
-                        for idx in mk_to_indices.get(str(raw_mk2), []):
-                            if idx not in result:
-                                result[idx] = entity
-                except Exception:
-                    pass
     return result
 
 
@@ -475,6 +414,63 @@ async def _global_relation_lookup(
     return result
 
 
+def _union_groups_by_existing_entity(
+    groups: list[ResolutionGroup], exact_matches: dict[int, Entity]
+) -> list[ResolutionGroup]:
+    """Union resolver groups that exact-match the same persisted entity.
+
+    Two mentions can land in separate resolver groups -- in-batch fuzzy/LLM
+    resolution never compared them directly -- while each independently
+    exact-matches the same persisted entity through a different accepted
+    alias (see upsert_merge_alias_query). Computing and applying one merge
+    plan per resolver group in that case would have the second group's
+    apply_merge overwrite the first's contribution: each computes against
+    the same snapshot with no knowledge of the other's changes. Unioning
+    first means one plan is computed per canonical persisted entity,
+    folding in every mention that resolves to it.
+
+    Args:
+        groups: The resolver's own groups.
+        exact_matches: Mention index to persisted Entity, from
+            _global_exact_match.
+
+    Returns:
+        Groups covering the same entity_indices, but any two resolver
+        groups that shared an exact-matched entity id merged into one.
+    """
+    parent = list(range(len(groups)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(a: int, b: int) -> None:
+        root_a, root_b = find(a), find(b)
+        if root_a != root_b:
+            parent[root_a] = root_b
+
+    entity_to_group: dict[UUID, int] = {}
+    for group_index, group in enumerate(groups):
+        for idx in group.entity_indices:
+            entity = exact_matches.get(idx)
+            if entity is None:
+                continue
+            if entity.id in entity_to_group:
+                union(group_index, entity_to_group[entity.id])
+            else:
+                entity_to_group[entity.id] = group_index
+
+    merged: dict[int, list[int]] = defaultdict(list)
+    for group_index, group in enumerate(groups):
+        merged[find(group_index)].extend(group.entity_indices)
+
+    return [
+        ResolutionGroup(entity_indices=sorted(indices)) for indices in merged.values()
+    ]
+
+
 async def _embed_and_upsert_survivors(
     survivors: dict[UUID, Entity],
     *,
@@ -482,11 +478,16 @@ async def _embed_and_upsert_survivors(
     graph_store: GraphStore,
     error_policy: ErrorPolicy,
 ) -> list[StageFailure]:
-    """Embed every survivor's current text and upsert the result.
+    """Embed every survivor's current text and write only the vector.
 
     Shared by add() and consolidate(apply=True): both write a survivor's
     node before this call, so its embedding must be refreshed for whatever
-    text that write left it with.
+    text that write left it with. Writing only the embedding property
+    (set_embedding_query), rather than a full node upsert from the in-memory
+    Entity, matters here specifically: a concurrent writer could update this
+    same entity's provenance or properties while this call's embed() is in
+    flight, and a full overwrite from a snapshot taken before that update
+    would discard it, not just deliver the new vector.
 
     On failure, clears any embedding already on the survivor nodes rather
     than leaving one computed for their prior text in place: vector search
@@ -498,7 +499,7 @@ async def _embed_and_upsert_survivors(
     Args:
         survivors: The entities to embed, keyed by id.
         embedder: Computes one vector per entity's embedding_text.
-        graph_store: Where the updated nodes, and on failure the cleared
+        graph_store: Where the embedding, and on failure the cleared
             embedding property, are written.
         error_policy: RAISE propagates the failure after clearing; any
             other policy returns it instead.
@@ -507,21 +508,19 @@ async def _embed_and_upsert_survivors(
         A single-item list with the failure, or empty on success.
 
     Raises:
-        Exception: Whatever embed() or the upsert raised, when error_policy
+        Exception: Whatever embed() or the write raised, when error_policy
             is RAISE.
     """
     try:
         texts = [ent.embedding_text for ent in survivors.values()]
         vectors = await embedder.embed(texts)
-        updated_records = []
+        records = []
         for ent, vec in zip(survivors.values(), vectors, strict=True):
             ent.embedding = vec
-            updated_records.append(ent.to_node_record())
-        by_label: dict[str, list] = defaultdict(list)
-        for rec in updated_records:
-            by_label[survivors[rec.id].label].append(rec)
-        for label, recs in by_label.items():
-            await graph_store.upsert_nodes(label, recs)
+            records.append({"id": str(ent.id), "vector": vec})
+        await graph_store.execute_write(
+            set_embedding_query("embedding"), {"records": records}
+        )
     except Exception as exc:  # noqa: BLE001
         # Best-effort: a failure here must not mask error_policy.
         with contextlib.suppress(Exception):
@@ -970,6 +969,14 @@ class Graph:
             in_batch_groups=len(groups) if groups else 0,
             ambiguous_count=0,
         )
+
+        # In-batch resolution alone can leave two mentions of the same
+        # persisted entity in separate groups (each reached it through a
+        # different accepted alias). Union those before computing plans, or
+        # the second group's apply_merge would overwrite the first's
+        # contribution.
+        if groups:
+            groups = _union_groups_by_existing_entity(groups, exact_matches)
 
         # Phase 3: Merge and write
         merge_stats = MergeStats()

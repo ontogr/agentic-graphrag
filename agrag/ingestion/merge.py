@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.text import normalize_text
 
 
 if TYPE_CHECKING:
@@ -71,14 +72,33 @@ class MergePlan(BaseModel):
     """Computed result of merging zero or more entities and mentions.
 
     Attributes:
-        survivor: The resulting Entity.
-        tombstone_ids: Ids of entities absorbed into survivor.
+        survivor: The resulting Entity. Its merge_count, source_chunk_ids,
+            and merged_from are this call's best local computation, for
+            reporting; apply_merge writes new_source_chunk_ids and
+            merge_count_delta atomically instead, so a concurrent writer's
+            own contribution to the same node is never overwritten.
+        tombstone_ids: Ids of entities absorbed into survivor. Also this
+            call's new contribution to the survivor's merged_from, applied
+            atomically.
         conflicts: Every field that had more than one candidate value.
+        accepted_merge_keys: Every normalized merge_key this merge
+            accepted -- from existing_entities and mentions alike, not only
+            the survivor's own chosen name -- so a later mention of any
+            accepted name resolves back to this entity instead of creating
+            a duplicate.
+        new_source_chunk_ids: The chunk ids this call's mentions and
+            absorbed entities contribute, applied as an atomic union
+            against whatever the survivor's node currently has.
+        merge_count_delta: The amount to atomically add to whatever
+            merge_count the survivor's node currently has.
     """
 
     survivor: Entity
     tombstone_ids: list[UUID] = []
     conflicts: list[ConflictRecord] = []
+    accepted_merge_keys: list[str] = []
+    new_source_chunk_ids: list[UUID] = []
+    merge_count_delta: int = 0
 
 
 def _select_canonical(
@@ -384,6 +404,26 @@ async def compute_merge(  # noqa: PLR0912
         source_ids.append(mention.chunk_id)
     source_chunk_ids = list(dict.fromkeys(source_ids))
 
+    # This call's own contribution, as opposed to source_chunk_ids above
+    # (the full local union, kept on the Entity for reporting): apply_merge
+    # writes this atomically against whatever the node currently has, so a
+    # concurrent writer's own contribution is never lost to a full
+    # overwrite from a snapshot taken before either write landed.
+    new_source_ids: list[UUID] = []
+    for entity in absorbed:
+        new_source_ids.extend(entity.source_chunk_ids)
+    for mention in mentions:
+        new_source_ids.append(mention.chunk_id)
+    new_source_chunk_ids = list(dict.fromkeys(new_source_ids))
+    merge_count_delta = sum(entity.merge_count for entity in absorbed) + len(mentions)
+
+    accepted_merge_keys = list(
+        dict.fromkeys(
+            [entity.merge_key for entity in existing_entities]
+            + [f"{label}:{normalize_text(mention.text)}" for mention in mentions]
+        )
+    )
+
     # Preserve created_at from survivor_base if exists.
     created_at = survivor_base.created_at if survivor_base is not None else None
     if created_at is not None:
@@ -412,6 +452,9 @@ async def compute_merge(  # noqa: PLR0912
         survivor=survivor,
         tombstone_ids=[entity.id for entity in absorbed],
         conflicts=conflicts,
+        accepted_merge_keys=accepted_merge_keys,
+        new_source_chunk_ids=new_source_chunk_ids,
+        merge_count_delta=merge_count_delta,
     )
     return plan, desc_failures
 
@@ -575,8 +618,10 @@ async def apply_merge(
         graph_store: Where the merge is written.
         schema: The schema the survivor's label belongs to.
     """
+    from agrag.common.data_models.graph_record import NodeRecord  # noqa: PLC0415
     from agrag.cypher.entities import (  # noqa: PLC0415
         upsert_merge_alias_query,
+        upsert_survivor_query,
         validate_identifier,
     )
     from agrag.cypher.merge import (  # noqa: PLC0415
@@ -587,15 +632,36 @@ async def apply_merge(
         tombstone_query,
         transfer_relationships_query,
     )
+    from agrag.graphdb.serialize import node_params  # noqa: PLC0415
 
     validate_identifier(plan.survivor.label)
     survivor_id = str(plan.survivor.id)
 
     async with graph_store.transaction() as txn:
-        await txn.upsert_nodes(plan.survivor.label, [plan.survivor.to_node_record()])
+        # Everything except source_chunk_ids/merged_from/merge_count is
+        # applied as-is; those three go through upsert_survivor_query's
+        # atomic accumulation instead, using node_params only to get their
+        # driver-safe encoding, not their values.
+        record = plan.survivor.to_node_record()
+        survivor_properties = dict(record.properties)
+        survivor_properties.pop("source_chunk_ids", None)
+        survivor_properties.pop("merged_from", None)
+        survivor_properties.pop("merge_count", None)
+        params = node_params(
+            NodeRecord(
+                id=record.id, labels=record.labels, properties=survivor_properties
+            )
+        )
+        params["new_source_chunk_ids"] = [str(cid) for cid in plan.new_source_chunk_ids]
+        params["new_merged_from"] = [str(tid) for tid in plan.tombstone_ids]
+        params["merge_count_delta"] = plan.merge_count_delta
+        await txn.execute_write(
+            upsert_survivor_query(plan.survivor.label), {"records": [params]}
+        )
+        accepted_merge_keys = plan.accepted_merge_keys or [plan.survivor.merge_key]
         await txn.execute_write(
             upsert_merge_alias_query(),
-            {"merge_key": plan.survivor.merge_key, "entity_id": survivor_id},
+            {"merge_keys": accepted_merge_keys, "entity_id": survivor_id},
         )
 
         if not plan.tombstone_ids:

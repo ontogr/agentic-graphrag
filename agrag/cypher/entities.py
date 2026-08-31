@@ -132,6 +132,13 @@ def fetch_by_merge_keys_query() -> str:
     the key, which may itself now be a tombstone; the caller follows its
     ``merged_into`` chain to the live survivor.
 
+    ``merge_key`` is returned alongside ``n`` so the caller can map a row
+    back to the mention(s) that queried it without re-deriving a key from
+    the resolved entity's current name: an accepted alias (see
+    ``upsert_merge_alias_query``) can name an entity by something other
+    than its current canonical name, so re-deriving would silently fail to
+    map those mentions back.
+
     Returns:
         Parameterized Cypher expecting $merge_keys (list of strings).
     """
@@ -139,27 +146,105 @@ def fetch_by_merge_keys_query() -> str:
         f"UNWIND $merge_keys AS merge_key "
         f"MATCH (a:{MERGE_ALIAS_LABEL} {{merge_key: merge_key}}) "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: a.entity_id}}) "
-        f"RETURN n"
+        f"RETURN merge_key, n"
     )
 
 
 def upsert_merge_alias_query() -> str:
-    """Build Cypher recording one merge_key's originating entity id.
+    """Build Cypher recording every accepted merge_key's owning entity id.
 
-    Every ``apply_merge`` call writes this for the survivor's current
-    merge_key, so a name an entity has ever held keeps resolving to that
-    entity even after the entity's own node clears ``merge_key`` on
-    absorption. The alias is never rewritten to point elsewhere: if the
+    Every ``apply_merge`` call writes one of these for each merge_key the
+    merge accepted -- the survivor's own current name, but also every other
+    name (mention text or absorbed entity's name) resolution folded into
+    it -- so a later mention of any of those names resolves back to this
+    entity instead of creating a duplicate. ``ON CREATE SET`` only claims a
+    merge_key that has no alias yet: if resolution in some other merge
+    already accepted this same key for a different entity, that entity
+    keeps it. Without this, a resolution decision in one ``add()`` call
+    could silently steal a name an unrelated entity already owns.
+
+    Once created, an alias is never rewritten to point elsewhere: if the
     entity it names is later itself absorbed, ``fetch_by_merge_keys_query``'s
     caller follows that entity's ``merged_into`` chain from here instead of
     this table being kept in sync with every later merge.
 
     Returns:
-        Parameterized Cypher expecting $merge_key and $entity_id.
+        Parameterized Cypher expecting $merge_keys (list of strings) and
+        $entity_id.
     """
     return (
-        f"MERGE (a:{MERGE_ALIAS_LABEL} {{merge_key: $merge_key}}) "
-        f"SET a.entity_id = $entity_id"
+        f"UNWIND $merge_keys AS merge_key "
+        f"MERGE (a:{MERGE_ALIAS_LABEL} {{merge_key: merge_key}}) "
+        f"ON CREATE SET a.entity_id = $entity_id"
+    )
+
+
+def upsert_survivor_query(label: str) -> str:
+    """Build Cypher upserting a merge survivor with atomic accumulation.
+
+    Unlike ``upsert_node_query``'s plain ``SET n += record.properties``
+    overwrite, ``source_chunk_ids`` and ``merged_from`` are unioned against
+    whatever the node currently has, and ``merge_count`` is incremented by a
+    delta, all read and written inside this one query. Two concurrent
+    callers merging into the same entity each read the node's current
+    accumulator values fresh here, so neither's contribution is lost to
+    whichever write lands second -- unlike overwriting from a full snapshot
+    taken before either write landed. Every other property is still applied
+    as-is (last write wins); resolving a conflict there needs the candidate
+    values, which only a Python-side read can gather, so making that
+    atomic too is out of scope here.
+
+    Args:
+        label: The node label. Must already be validated.
+
+    Returns:
+        A parameterized Cypher query expecting a ``$records`` list
+        parameter whose items carry ``id``, ``properties`` (every survivor
+        field except ``source_chunk_ids``, ``merged_from``, and
+        ``merge_count``), ``new_source_chunk_ids``, ``new_merged_from``, and
+        ``merge_count_delta``.
+    """
+    safe_label = validate_identifier(label)
+    return (
+        f"UNWIND $records AS record "
+        f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"SET n:{safe_label} "
+        f"WITH n, record, "
+        f"coalesce(n.source_chunk_ids, []) AS existing_source_chunk_ids, "
+        f"coalesce(n.merged_from, []) AS existing_merged_from, "
+        f"coalesce(n.merge_count, 0) AS existing_merge_count "
+        f"SET n += record.properties "
+        f"SET n.source_chunk_ids = "
+        f"[x IN existing_source_chunk_ids "
+        f"WHERE NOT x IN record.new_source_chunk_ids] + record.new_source_chunk_ids "
+        f"SET n.merged_from = "
+        f"[x IN existing_merged_from "
+        f"WHERE NOT x IN record.new_merged_from] + record.new_merged_from "
+        f"SET n.merge_count = existing_merge_count + record.merge_count_delta "
+        f"SET n.id = record.id"
+    )
+
+
+def set_embedding_query(vector_property: str) -> str:
+    """Build Cypher setting one vector property per node, by id.
+
+    Touches only ``vector_property``, unlike a full node upsert: another
+    write can update an entity's provenance or properties while its new
+    embedding is being computed, and overwriting the whole node from a
+    snapshot taken before that update would discard it along with
+    delivering the vector.
+
+    Args:
+        vector_property: The property to set. Must already be validated.
+
+    Returns:
+        Parameterized Cypher expecting $records (list of {id, vector}).
+    """
+    safe_property = validate_identifier(vector_property)
+    return (
+        f"UNWIND $records AS record "
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"SET n.{safe_property} = record.vector"
     )
 
 

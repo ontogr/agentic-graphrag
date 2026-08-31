@@ -37,8 +37,10 @@ from agrag.ingestion.graph import (
     _global_relation_lookup,
     _parse_entity_node,
     _resolve_paths,
+    _union_groups_by_existing_entity,
 )
 from agrag.ingestion.merge import MergePlan
+from agrag.ingestion.resolve import ResolutionGroup
 from agrag.ingestion.types import AddResult
 from agrag.loaders.corpus.types import ErrorPolicy
 
@@ -466,10 +468,13 @@ class TestGlobalExactMatch:
         survivor_id = uuid4()
         store.execute_read_responses = [
             # fetch_by_merge_keys_query resolves the alias to the original
-            # (now-tombstoned) "Bob" entity; merge_key is absent, matching
-            # what REMOVE n.merge_key leaves behind.
+            # (now-tombstoned) "Bob" entity; merge_key is absent from its
+            # own properties, matching what REMOVE n.merge_key leaves
+            # behind, but the query returns the queried key alongside the
+            # row regardless, which is what mapping now relies on.
             [
                 {
+                    "merge_key": "Person:bob",
                     "n": {
                         "id": str(tombstone_id),
                         "labels": ["Person"],
@@ -481,7 +486,7 @@ class TestGlobalExactMatch:
                             "created_at": "2020-01-01T00:00:00+00:00",
                             "merged_into": str(survivor_id),
                         },
-                    }
+                    },
                 }
             ],
             # _resolve_tombstone_chain follows merged_into to the live
@@ -506,6 +511,110 @@ class TestGlobalExactMatch:
         result = await _global_exact_match([m], graph_store=store)
         assert result[0].id == survivor_id
         assert result[0].name == "Robert"
+
+    async def test_accepted_alias_with_different_name_resolves_to_entity(self) -> None:
+        """A mention resolves via an alias even when it never was the entity's name.
+
+        Regression test: when resolution joins "Bob" and "Robert" into one
+        survivor named "Robert", an alias for "Person:bob" is written
+        pointing at that entity even though the entity's own name was never
+        "Bob". Mapping the returned row back to the "Bob" mention must use
+        the merge_key the row's alias was queried on, not one re-derived
+        from the entity's current name -- re-deriving would compute
+        "Person:robert" and silently fail to map "Bob" at all.
+        """
+        store = MockStore()
+        cid = uuid4()
+        mention = ExtractedEntity(
+            chunk_id=cid, label="Person", text="Bob", char_start=0, char_end=3
+        )
+        entity_id = uuid4()
+        store.execute_read_responses = [
+            [
+                {
+                    "merge_key": "Person:bob",
+                    "n": {
+                        "id": str(entity_id),
+                        "labels": ["Person"],
+                        "properties": {
+                            "name": "Robert",
+                            "merge_key": "Person:robert",
+                            "merged_from": [],
+                            "merge_count": 2,
+                            "source_chunk_ids": [],
+                            "created_at": "2020-01-01T00:00:00+00:00",
+                        },
+                    },
+                }
+            ]
+        ]
+        result = await _global_exact_match([mention], graph_store=store)
+        assert result[0].id == entity_id
+        assert result[0].name == "Robert"
+
+
+class TestUnionGroupsByExistingEntity:
+    """_union_groups_by_existing_entity merges groups sharing an exact match."""
+
+    def test_two_groups_matching_the_same_entity_are_unioned(self) -> None:
+        """Two singleton groups that alias to the same entity become one group.
+
+        Regression test: in-batch comparators never compared "Bob" and
+        "Robert" directly, so the resolver kept them in separate groups.
+        Both independently exact-match the same persisted entity through
+        different accepted aliases; without unioning, computing and
+        applying one plan per resolver group would have the second
+        group's apply_merge overwrite the first's contribution.
+        """
+        entity = Entity(id=uuid4(), label="Person", name="Robert", properties={})
+        groups = [
+            ResolutionGroup(entity_indices=[0]),
+            ResolutionGroup(entity_indices=[1]),
+        ]
+        exact_matches = {0: entity, 1: entity}
+        result = _union_groups_by_existing_entity(groups, exact_matches)
+        assert len(result) == 1
+        assert result[0].entity_indices == [0, 1]
+
+    def test_groups_matching_different_entities_stay_separate(self) -> None:
+        """Groups exact-matching different entities are not unioned."""
+        e1 = Entity(id=uuid4(), label="Person", name="Ada", properties={})
+        e2 = Entity(id=uuid4(), label="Person", name="Bob", properties={})
+        groups = [
+            ResolutionGroup(entity_indices=[0]),
+            ResolutionGroup(entity_indices=[1]),
+        ]
+        exact_matches = {0: e1, 1: e2}
+        result = _union_groups_by_existing_entity(groups, exact_matches)
+        assert len(result) == 2
+
+    def test_groups_with_no_exact_match_stay_separate(self) -> None:
+        """A group with no exact-matched entity at all is left alone."""
+        groups = [
+            ResolutionGroup(entity_indices=[0]),
+            ResolutionGroup(entity_indices=[1]),
+        ]
+        result = _union_groups_by_existing_entity(groups, {})
+        assert len(result) == 2
+
+    def test_transitively_unions_three_groups(self) -> None:
+        """A -- entity -- B and B -- entity -- C unions A, B, and C together."""
+        e1 = Entity(id=uuid4(), label="Person", name="X", properties={})
+        e2 = Entity(id=uuid4(), label="Person", name="Y", properties={})
+        groups = [
+            ResolutionGroup(entity_indices=[0]),
+            ResolutionGroup(entity_indices=[1]),
+            ResolutionGroup(entity_indices=[2]),
+        ]
+        # Group 0 and group 1 share e1; group 1 and group 2 share e2 via
+        # entity_indices 1 and 2 both resolving to e2.
+        exact_matches = {0: e1, 1: e1, 2: e2}
+        # Make group 1 also touch e2 so it bridges groups 0 and 2.
+        groups[1] = ResolutionGroup(entity_indices=[1, 3])
+        exact_matches[3] = e2
+        result = _union_groups_by_existing_entity(groups, exact_matches)
+        assert len(result) == 1
+        assert result[0].entity_indices == [0, 1, 2, 3]
 
 
 class TestApplyMergeWithConflictRetry:
@@ -1246,10 +1355,20 @@ class TestGraphAddPipeline:
 
         graph._extractor = BobExtractor()
         result = await graph.add(text="Bob")
-        person_upserts = [
-            call for call in store.upsert_nodes_calls if call[0] == "Person"
+        survivor_write_calls = [
+            call
+            for call in store.execute_write_calls
+            if call[1]
+            and "records" in call[1]
+            and "properties" in call[1]["records"][0]
         ]
-        assert len(person_upserts) >= 2
+        assert len(survivor_write_calls) >= 1
+        embedding_calls = [
+            call
+            for call in store.execute_write_calls
+            if call[1] and "records" in call[1] and "vector" in call[1]["records"][0]
+        ]
+        assert len(embedding_calls) == 1
         assert result.storage.nodes_written >= 1
 
     async def test_embedding_failure_clears_stale_embedding(self) -> None:
@@ -1564,14 +1683,12 @@ class TestGraphAddPipeline:
                         report = await graph.consolidate(apply=True)
 
         assert report.failures == []
-        embed_upserts = [
+        embedding_calls = [
             call
-            for call in store.upsert_nodes_calls
-            if call[0] == "Person"
-            and call[1]
-            and call[1][0].properties.get("embedding") is not None
+            for call in store.execute_write_calls
+            if call[1] and "records" in call[1] and "vector" in call[1]["records"][0]
         ]
-        assert len(embed_upserts) == 1
+        assert len(embedding_calls) == 1
 
     async def test_consolidate_apply_clears_embedding_on_failure(self) -> None:
         """A failed re-embed during apply clears the stale embedding and reports it."""
