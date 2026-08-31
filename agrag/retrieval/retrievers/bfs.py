@@ -71,7 +71,9 @@ class BFSRetriever(Retriever):
 
         filter_dict = filters.to_payload_filter() if filters else None
         query, filter_params = bfs_expand_query(
-            depth=effective_depth, limit=effective_limit, filters=filter_dict,
+            depth=effective_depth,
+            limit=effective_limit,
+            filters=filter_dict,
         )
         params = {"seed_ids": [str(sid) for sid in seed_ids], **filter_params}
 

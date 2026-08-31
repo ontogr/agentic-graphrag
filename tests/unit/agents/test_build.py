@@ -48,12 +48,8 @@ class TestBuildAgent:
             settings=AgentSettings(),
         )
 
-        r1 = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": "first"}]}
-        )
-        r2 = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": "second"}]}
-        )
+        r1 = await agent.ainvoke({"messages": [{"role": "user", "content": "first"}]})
+        r2 = await agent.ainvoke({"messages": [{"role": "user", "content": "second"}]})
 
         # Both runs should start citation numbering from E1.
         assert "[E1]" in r1["messages"][0]["content"]

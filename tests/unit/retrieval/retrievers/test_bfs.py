@@ -71,7 +71,9 @@ class TestBFSRetriever:
         retriever = BFSRetriever(graph_store=gs)
         filters = SearchFilters(labels=["Person"])
         await retriever.retrieve(
-            "test", seed_ids=[uuid4()], filters=filters,
+            "test",
+            seed_ids=[uuid4()],
+            filters=filters,
         )
 
         call_args = gs.execute_read.call_args
