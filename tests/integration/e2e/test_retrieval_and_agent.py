@@ -676,7 +676,7 @@ class TestRetrievalE2E:
             else last_message.content
         )
         # The answer should reference Aspirin or citation keys.
-        assert "Aspirin" in answer or "[E" in answer or "[C" in answer
+        assert "aspirin" in answer.lower() or "[E" in answer or "[C" in answer
 
     # ---- Tombstone chain tests ----
 
