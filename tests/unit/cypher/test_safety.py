@@ -49,14 +49,20 @@ class TestRejectWriteCypher:
         """A pure MATCH...RETURN query is accepted."""
         reject_write_cypher("MATCH (n:Person) WHERE n.name = $name RETURN n")
 
-    def test_rejects_call(self) -> None:
-        """A query containing CALL is rejected."""
-        with pytest.raises(UnsafeCypherError, match="CALL"):
+    def test_accepts_read_only_vector_call(self) -> None:
+        """CALL db.index.vector.queryNodes is accepted (read Cypher)."""
+        reject_write_cypher(
+            "CALL db.index.vector.queryNodes("
+            "'my_index', 10, $vector) "
+            "YIELD node, score "
+            "RETURN node, score"
+        )
+
+    def test_rejects_unknown_procedure_call(self) -> None:
+        """A CALL to a procedure outside the read-only allowlist is rejected."""
+        with pytest.raises(UnsafeCypherError, match="disallowed procedure"):
             reject_write_cypher(
-                "CALL db.index.vector.queryNodes("
-                "'my_index', 10, $vector) "
-                "YIELD node, score "
-                "RETURN node, score"
+                "CALL apoc.export.csv.all('out.csv', {}) YIELD file RETURN file"
             )
 
     def test_rejects_call_in_subquery(self) -> None:

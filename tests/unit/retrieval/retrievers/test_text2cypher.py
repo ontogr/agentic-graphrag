@@ -47,7 +47,7 @@ class TestText2CypherRetriever:
             results = await retriever.retrieve("who is Alice?")
             assert isinstance(results, list)
 
-    async def test_rejects_call_in_write_shape(self) -> None:
+    async def test_accepts_vector_query_call(self) -> None:
         """CALL db.index.vector.queryNodes is accepted (read Cypher)."""
         gs = AsyncMock()
         gs.execute_read.return_value = []

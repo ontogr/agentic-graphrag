@@ -295,18 +295,30 @@ class TestSearchEngineIntegration:
         person_label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         org_label = validate_identifier(f"Org_{uuid4().hex[:8]}")
         try:
-            # Seed nodes with distinct native labels.
+            # Seed nodes with distinct native labels through the store, so
+            # they carry the _AgragNode identity anchor like every node this
+            # project writes.
             person_id = uuid4()
             org_id = uuid4()
-            await self.store.execute_write(
-                f"CREATE (p:{person_label} {{id: $id, name: $name}}) "
-                f"CREATE (o:{org_label} {{id: $id2, name: $name2}})",
-                {
-                    "id": str(person_id),
-                    "name": "Alice",
-                    "id2": str(org_id),
-                    "name2": "Acme",
-                },
+            await self.store.upsert_nodes(
+                person_label,
+                [
+                    NodeRecord(
+                        id=person_id,
+                        labels=[person_label],
+                        properties={"name": "Alice"},
+                    )
+                ],
+            )
+            await self.store.upsert_nodes(
+                org_label,
+                [
+                    NodeRecord(
+                        id=org_id,
+                        labels=[org_label],
+                        properties={"name": "Acme"},
+                    )
+                ],
             )
 
             # Filter for Person label only.

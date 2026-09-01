@@ -605,6 +605,41 @@ class TestVectorSearch:
         last_params = store._driver.last_session.execute_read.call_args.args[2]
         assert last_params["k"] == _VECTOR_SEARCH_MAX_K
 
+    async def test_missing_index_returns_empty(self) -> None:
+        """A label with no vector index returns no hits instead of raising.
+
+        A filter naming a label that was never ingested has no index to
+        search; that is an empty result set, not a retrieval failure.
+        """
+        store = _store()
+        store._driver.last_session.execute_read.side_effect = RuntimeError(
+            "Failed to invoke procedure `db.index.vector.queryNodes`: "
+            "Caused by: java.lang.IllegalArgumentException: "
+            "There is no such vector schema index: "
+            "idx_6_Bogus_9_embedding_vector"
+        )
+        hits = await store.vector_search(
+            label="Bogus",
+            vector_property="embedding",
+            query_vector=[0.1, 0.2, 0.3, 0.4],
+            limit=5,
+        )
+        assert hits == []
+
+    async def test_unrelated_driver_error_still_raises(self) -> None:
+        """A driver error other than a missing index keeps propagating."""
+        store = _store()
+        store._driver.last_session.execute_read.side_effect = RuntimeError(
+            "connection lost"
+        )
+        with pytest.raises(RuntimeError, match="connection lost"):
+            await store.vector_search(
+                label="Chunk",
+                vector_property="embedding",
+                query_vector=[0.1, 0.2, 0.3, 0.4],
+                limit=5,
+            )
+
 
 class TestMissingExtra:
     """Without the extra installed, use raises, not ImportError."""

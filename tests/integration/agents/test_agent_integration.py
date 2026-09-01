@@ -1,14 +1,19 @@
 """Integration tests for agent components against real stores.
 
-Tests the Ledger, tools, and agent build with mocked LLM but
-real SearchEngine and GraphStore.
+Tests the Ledger, tools, and agent build with real SearchEngine and
+GraphStore. The agent-invocation test needs a real OpenAI-compatible
+LLM endpoint; like the LLM ingestion tests, it reads its config from
+``AGENT_LLM_*`` (or the shared ``LLM_*``) env vars and skips when none
+is configured.
 """
 
 import importlib.util
+import os
 from collections.abc import AsyncGenerator, Sequence
 from uuid import uuid4
 
 import pytest
+from dotenv import load_dotenv
 
 from agrag.agents.build import build_agent
 from agrag.agents.ledger import Ledger
@@ -25,6 +30,18 @@ from agrag.retrieval.settings import RetrievalSettings
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
+
+
+def _agent_llm_configured() -> bool:
+    """Return True when an agent LLM endpoint is configured.
+
+    Checks ``AGENT_LLM_*`` then the shared ``LLM_*`` vars after loading
+    ``.env``, matching ``AgentLLMSettings.from_openai_compatible_env``.
+    """
+    load_dotenv()
+    base_url = os.environ.get("AGENT_LLM_BASE_URL") or os.environ.get("LLM_BASE_URL")
+    api_key = os.environ.get("AGENT_LLM_API_KEY") or os.environ.get("LLM_API_KEY")
+    return bool(base_url and api_key)
 
 
 class _FixedEmbedder(Embedder):
@@ -177,18 +194,12 @@ class TestAgentBuildIntegration:
         assert hasattr(agent, "ainvoke")
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+    @pytest.mark.skipif(
+        not _agent_llm_configured(), reason="LLM endpoint not configured"
+    )
     async def test_simple_agent_ainvoke(self) -> None:
-        """_SimpleAgent.ainvoke returns a response."""
-        settings = AgentLLMSettings(
-            clients=[
-                LLMClientConfig(
-                    name="test",
-                    provider="openai",
-                    model="gpt-4o-mini",
-                    api_key="test-key",
-                )
-            ]
-        )
+        """The agent graph returns a response via the configured LLM."""
+        settings = AgentLLMSettings.from_openai_compatible_env()
         agent = build_agent(engine=self.engine, llm_settings=settings)
         result = await agent.ainvoke(
             {"messages": [{"role": "user", "content": "test"}]}

@@ -550,6 +550,10 @@ class Neo4jGraphStore(GraphStore):
     ) -> list[VectorHit]:
         """Search nodes by dense vector using the native vector index.
 
+        A label with no provisioned vector index has nothing to search,
+        so an absent index returns an empty result list rather than a
+        driver error.
+
         When ``filters`` is set, Neo4j's vector procedure applies the filter
         only after selecting its top ``k`` candidates, so a plain ``k=limit``
         call can return fewer matches than actually exist. This escalates
@@ -577,7 +581,16 @@ class Neo4jGraphStore(GraphStore):
                 "k": k,
                 "vector": list(query_vector),
             }
-            rows = await self.execute_read(query, params)
+            try:
+                rows = await self.execute_read(query, params)
+            except Exception as exc:
+                # A label with no provisioned vector index (for example a
+                # filter naming a label that was never ingested) has nothing
+                # to search, so return empty instead of failing the whole
+                # retrieval. Any other driver error keeps propagating.
+                if "no such vector schema index" not in str(exc):
+                    raise
+                return []
             if not filters or len(rows) >= limit or k >= _VECTOR_SEARCH_MAX_K:
                 break
             k = min(k * _VECTOR_SEARCH_OVERFETCH_MULTIPLIER, _VECTOR_SEARCH_MAX_K)

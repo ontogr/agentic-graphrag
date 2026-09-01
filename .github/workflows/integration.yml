@@ -21,12 +21,37 @@ concurrency:
 env:
   PYTHONUNBUFFERED: "1"
   FORCE_COLOR: "1"
+  # LLM endpoint for the agent/ingestion tests that talk to a real model.
+  # Same secrets the former standalone llm-integration job used; set at the
+  # workflow level so every job that runs LLM-backed tests sees them, and
+  # unset (empty) on fork PRs so those tests simply skip.
+  LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+  LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+  LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
 
 jobs:
   integration:
-    name: Integration Tests
+    name: Integration Tests (${{ matrix.suite.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # Module groups run as separate jobs, each on its own runner and own
+        # ephemeral backend stack, so the integration suite's wall time is the
+        # slowest group instead of the whole suite. Grouped by test count to
+        # balance load; every group still starts the full Compose stack because
+        # the Loaders/Embedding tests can talk to any of the backends and the
+        # cost of an idle container is lower than a per-group Compose split.
+        # The agents-ingestion-embedding group also runs the LLM-backed agent
+        # and ingestion tests, fed by the workflow-level LLM_* secrets.
+        suite:
+          - name: retrieval-graphdb
+            paths: "tests/integration/retrieval tests/integration/graphdb"
+          - name: agents-ingestion-embedding
+            paths: "tests/integration/agents tests/integration/ingestion tests/integration/embedding"
+          - name: vectordb-loaders
+            paths: "tests/integration/vectordb tests/integration/loaders"
     env:
       UV_PYTHON: "3.12"
       # Backend credentials below are fixed, throwaway values scoped to this ephemeral job's
@@ -68,14 +93,19 @@ jobs:
       - name: Wait for backend services to be healthy
         run: make dev-services-up
 
-      - name: Run integration tests
-        run: make test-integration
+      - name: Run integration tests (${{ matrix.suite.name }})
+        run: >-
+          uv run pytest ${{ matrix.suite.paths }}
+          -v
+          -n auto --dist loadscope
+          -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+          --junitxml=pytest-integration-results.xml
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: integration-test-results
+          name: integration-test-results-${{ matrix.suite.name }}
           path: pytest-integration-results.xml
           retention-days: 30
 
@@ -132,44 +162,3 @@ jobs:
       - name: Stop Neo4j
         if: always()
         run: docker compose -f docker/docker-compose.ci.yml down -v
-
-  llm-integration:
-    name: LLM Integration Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      UV_PYTHON: "3.12"
-      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
-      LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
-      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies with LLM and extract extras
-        run: uv sync --extra llm --extra extract
-
-      - name: Run LLM integration tests
-        run: >-
-          uv run pytest tests/integration/ingestion/
-          -v
-          --junitxml=pytest-llm-integration-results.xml
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: llm-integration-test-results
-          path: pytest-llm-integration-results.xml
-          retention-days: 30

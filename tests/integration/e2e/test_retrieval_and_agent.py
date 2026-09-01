@@ -7,11 +7,13 @@ and the agent build/invoke path works.
 """
 
 import importlib.util
+import os
 from collections.abc import AsyncGenerator, Sequence
 from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
+from dotenv import load_dotenv
 
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.entity import Entity
@@ -35,6 +37,18 @@ from agrag.retrieval.settings import RetrievalSettings
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
+
+
+def _agent_llm_configured() -> bool:
+    """Return True when an agent LLM endpoint is configured.
+
+    Checks ``AGENT_LLM_*`` then the shared ``LLM_*`` vars after loading
+    ``.env``, matching ``AgentLLMSettings.from_openai_compatible_env``.
+    """
+    load_dotenv()
+    base_url = os.environ.get("AGENT_LLM_BASE_URL") or os.environ.get("LLM_BASE_URL")
+    api_key = os.environ.get("AGENT_LLM_API_KEY") or os.environ.get("LLM_API_KEY")
+    return bool(base_url and api_key)
 
 
 class _FixedEmbedder(Embedder):
@@ -548,6 +562,9 @@ class TestRetrievalE2E:
 
     # ---- Agent build tests ----
 
+    @pytest.mark.skipif(
+        not _agent_llm_configured(), reason="LLM endpoint not configured"
+    )
     async def test_agent_build_and_invoke(self) -> None:
         """build_agent constructs an agent that can be invoked."""
         await self._seed_graph_with_merge()
@@ -556,7 +573,6 @@ class TestRetrievalE2E:
         from agrag.agents.settings import (  # noqa: PLC0415
             AgentLLMSettings,
         )
-        from agrag.llm.client_config import LLMClientConfig  # noqa: PLC0415
 
         engine = SearchEngine(
             graph_store=self.store,
@@ -564,16 +580,7 @@ class TestRetrievalE2E:
             settings=self.settings,
         )
 
-        settings = AgentLLMSettings(
-            clients=[
-                LLMClientConfig(
-                    name="test",
-                    provider="openai",
-                    model="gpt-4o-mini",
-                    api_key="test-key",
-                )
-            ]
-        )
+        settings = AgentLLMSettings.from_openai_compatible_env()
         agent = build_agent(engine=engine, llm_settings=settings)
         assert agent is not None
         assert hasattr(agent, "ainvoke")
@@ -591,6 +598,9 @@ class TestRetrievalE2E:
         assert "messages" in result
         assert len(result["messages"]) >= 1
 
+    @pytest.mark.skipif(
+        not _agent_llm_configured(), reason="LLM endpoint not configured"
+    )
     async def test_agent_answer_contains_evidence(self) -> None:
         """The agent's answer contains evidence from the graph."""
         await self._seed_graph_with_merge()
@@ -599,7 +609,6 @@ class TestRetrievalE2E:
         from agrag.agents.settings import (  # noqa: PLC0415
             AgentLLMSettings,
         )
-        from agrag.llm.client_config import LLMClientConfig  # noqa: PLC0415
 
         engine = SearchEngine(
             graph_store=self.store,
@@ -607,16 +616,7 @@ class TestRetrievalE2E:
             settings=self.settings,
         )
 
-        settings = AgentLLMSettings(
-            clients=[
-                LLMClientConfig(
-                    name="test",
-                    provider="openai",
-                    model="gpt-4o-mini",
-                    api_key="test-key",
-                )
-            ]
-        )
+        settings = AgentLLMSettings.from_openai_compatible_env()
         agent = build_agent(engine=engine, llm_settings=settings)
 
         result = await agent.ainvoke(

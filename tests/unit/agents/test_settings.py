@@ -25,6 +25,21 @@ class TestAgentLLMSettings:
             del os.environ["AGENT_LLM_API_KEY"]
             del os.environ["AGENT_LLM_MODEL_ID"]
 
+    def test_falls_back_to_shared_llm_env(self) -> None:
+        """Shared LLM_* vars configure the agent when AGENT_LLM_* is unset."""
+        os.environ["LLM_BASE_URL"] = "http://localhost:9000/v1"
+        os.environ["LLM_API_KEY"] = "shared-key"
+        os.environ["LLM_MODEL_ID"] = "shared-model"
+        try:
+            settings = AgentLLMSettings.from_openai_compatible_env()
+            assert settings.clients[0].base_url == "http://localhost:9000/v1"
+            assert settings.clients[0].api_key == "shared-key"
+            assert settings.clients[0].model == "shared-model"
+        finally:
+            del os.environ["LLM_BASE_URL"]
+            del os.environ["LLM_API_KEY"]
+            del os.environ["LLM_MODEL_ID"]
+
     def test_direct_construction(self) -> None:
         """Settings can be constructed directly."""
         settings = AgentLLMSettings(

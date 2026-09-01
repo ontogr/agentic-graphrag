@@ -2,6 +2,7 @@
 
 from typing import Literal
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agrag.llm.client_config import LLMClientConfig
@@ -39,17 +40,31 @@ class AgentLLMSettings(BaseSettings):
     def from_openai_compatible_env(cls) -> "AgentLLMSettings":
         """Build settings from OpenAI-compatible env vars.
 
-        Reads ``AGENT_LLM_BASE_URL``, ``AGENT_LLM_API_KEY``, and
-        ``AGENT_LLM_MODEL_ID`` from the environment.
+        Loads ``.env`` first, then reads ``AGENT_LLM_BASE_URL``,
+        ``AGENT_LLM_API_KEY``, and ``AGENT_LLM_MODEL_ID``. When the
+        agent-specific variables are unset, the shared ``LLM_*``
+        convenience variables used by the extraction role stand in, so
+        one ``.env`` can configure every LLM-backed role. The model
+        name defaults to ``gpt-4o-mini`` when neither variable names
+        one.
 
         Returns:
             AgentLLMSettings with one openai-generic client.
         """
         import os  # noqa: PLC0415
 
-        base_url = os.environ.get("AGENT_LLM_BASE_URL", "")
-        api_key = os.environ.get("AGENT_LLM_API_KEY", "")
-        model = os.environ.get("AGENT_LLM_MODEL_ID", "gpt-4o-mini")
+        load_dotenv()
+        base_url = (
+            os.environ.get("AGENT_LLM_BASE_URL") or os.environ.get("LLM_BASE_URL") or ""
+        )
+        api_key = (
+            os.environ.get("AGENT_LLM_API_KEY") or os.environ.get("LLM_API_KEY") or ""
+        )
+        model = (
+            os.environ.get("AGENT_LLM_MODEL_ID")
+            or os.environ.get("LLM_MODEL_ID")
+            or "gpt-4o-mini"
+        )
 
         return cls(
             clients=[
