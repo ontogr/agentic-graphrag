@@ -11,7 +11,10 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import VectorHit
-from agrag.retrieval.errors import AllRetrievalMethodsFailedError
+from agrag.retrieval.errors import (
+    AllRetrievalMethodsFailedError,
+    UnknownRecipeMethodError,
+)
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.recipes import ENTITY, HYBRID, Recipe
 from agrag.retrieval.search_engine import SearchEngine
@@ -581,3 +584,36 @@ class TestSearchEngine:
 
         assert [r.item.id for r in results] == [ch.id]
         assert any("entity" in record.message for record in caplog.records)
+
+    async def test_unknown_recipe_method_raises(self) -> None:
+        """A misspelled method name raises instead of returning no hits.
+
+        Silently skipping an unknown method would let an empty
+        successful search hide a typo. A configuration error must
+        surface at search time.
+        """
+        gs = AsyncMock()
+        engine = SearchEngine(graph_store=gs, embedder=MockEmbedder())
+
+        recipe = Recipe(methods=["enttiy"], limit=10)
+        with pytest.raises(UnknownRecipeMethodError) as excinfo:
+            await engine.search("test", recipe)
+
+        assert excinfo.value.unknown == ["enttiy"]
+        assert "entity" in excinfo.value.known
+
+    async def test_known_methods_still_run(self) -> None:
+        """A recipe of only known methods runs without the new error."""
+        gs = AsyncMock()
+        engine = SearchEngine(graph_store=gs, embedder=MockEmbedder())
+
+        # The default ENTITY recipe lists only "entity"; this should
+        # run, not raise UnknownRecipeMethodError.
+        with patch(
+            "agrag.retrieval.retrievers.entity.vector_search",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            results = await engine.search("test", ENTITY)
+
+        assert results == []

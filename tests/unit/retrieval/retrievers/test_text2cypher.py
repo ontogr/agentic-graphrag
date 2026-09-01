@@ -1,7 +1,14 @@
 """Tests for Text2CypherRetriever."""
 
+import json
+import logging
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
+import pytest
+
+from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.relation import Relation
 from agrag.retrieval.retrievers.text2cypher import (
     Text2CypherRetriever,
 )
@@ -133,3 +140,127 @@ class TestText2CypherBounds:
         assert gs.execute_read.await_count == 2
         for call in gs.execute_read.await_args_list:
             assert call.kwargs["timeout"] == 2.5
+
+
+class TestText2CypherRowShapes:
+    """Structured rows are surfaced as Entity/Relation/Chunk results."""
+
+    async def test_relation_row_becomes_search_result(self) -> None:
+        """A relationship row is wrapped in a Relation, not dropped."""
+        gs = AsyncMock()
+        rel_id = uuid4()
+        src_id = uuid4()
+        tgt_id = uuid4()
+        rel = {
+            "id": str(rel_id),
+            "type": "KNOWS",
+            "start_id": str(src_id),
+            "end_id": str(tgt_id),
+            "source_chunk_ids": [],
+        }
+        gs.execute_read.return_value = [{"r": rel}]
+        retriever = Text2CypherRetriever(graph_store=gs)
+
+        with patch.object(
+            retriever,
+            "_generate_cypher",
+            return_value="MATCH ()-[r:KNOWS]->() RETURN r",
+        ):
+            results = await retriever.retrieve("who knows who?")
+
+        assert len(results) == 1
+        assert isinstance(results[0].item, Relation)
+        assert results[0].item.id == rel_id
+        assert results[0].item.type == "KNOWS"
+        assert results[0].item.source_id == src_id
+        assert results[0].item.target_id == tgt_id
+
+    async def test_chunk_row_becomes_search_result(self) -> None:
+        """A chunk node row is wrapped in a Chunk, not dropped."""
+        gs = AsyncMock()
+        chunk_id = uuid4()
+        doc_id = uuid4()
+        provenance = {
+            "kind": "text",
+            "char_start": 0,
+            "char_end": 9,
+        }
+        chunk = {
+            "id": str(chunk_id),
+            "document_id": str(doc_id),
+            "index": 0,
+            "text": "Hello world",
+            "provenance": json.dumps(provenance),
+            "heading_path": [],
+            "content_kind": "text",
+        }
+        gs.execute_read.return_value = [{"c": chunk}]
+        retriever = Text2CypherRetriever(graph_store=gs)
+
+        with patch.object(
+            retriever,
+            "_generate_cypher",
+            return_value="MATCH (c:Chunk) RETURN c LIMIT 5",
+        ):
+            results = await retriever.retrieve("hello world")
+
+        assert len(results) == 1
+        assert isinstance(results[0].item, Chunk)
+        assert results[0].item.id == chunk_id
+        assert results[0].item.text == "Hello world"
+
+    async def test_scalar_row_is_logged_not_dropped_silently(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A scalar row is logged as a warning, not silently dropped.
+
+        A query like ``RETURN count(p)`` cannot become a SearchResult
+        (count is not an Entity, Relation, or Chunk). The retriever
+        must not pretend there were no results; it must log the row
+        so the caller can see a structured answer was returned.
+        """
+        gs = AsyncMock()
+        gs.execute_read.return_value = [{"count(p)": 42}]
+        retriever = Text2CypherRetriever(graph_store=gs)
+
+        with (
+            patch.object(
+                retriever,
+                "_generate_cypher",
+                return_value="MATCH (p:Person) RETURN count(p)",
+            ),
+            caplog.at_level(
+                logging.WARNING, logger="agrag.retrieval.retrievers.text2cypher"
+            ),
+        ):
+            results = await retriever.retrieve("how many people?")
+
+        assert results == []
+        assert any("count(p)" in record.message for record in caplog.records)
+
+    async def test_relation_with_embedded_start_end(self) -> None:
+        """A relationship row carrying embedded start/end nodes is parsed."""
+        gs = AsyncMock()
+        rel_id = uuid4()
+        src_id = uuid4()
+        tgt_id = uuid4()
+        rel = {
+            "id": str(rel_id),
+            "type": "MENTIONED_IN",
+            "start": {"id": str(src_id)},
+            "end": {"id": str(tgt_id)},
+        }
+        gs.execute_read.return_value = [{"r": rel}]
+        retriever = Text2CypherRetriever(graph_store=gs)
+
+        with patch.object(
+            retriever,
+            "_generate_cypher",
+            return_value="MATCH ()-[r]->() RETURN r",
+        ):
+            results = await retriever.retrieve("edges")
+
+        assert len(results) == 1
+        assert isinstance(results[0].item, Relation)
+        assert results[0].item.source_id == src_id
+        assert results[0].item.target_id == tgt_id

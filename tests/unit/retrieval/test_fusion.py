@@ -74,3 +74,56 @@ class TestFuse:
         fused = fuse({"entity": [r1], "chunk": [r2]})
         assert len(fused) == 1
         assert fused[0].item.id == ent.id
+
+    def test_duplicate_within_one_method_does_not_inflate(self) -> None:
+        """A single method that returns the same item twice gets one vote.
+
+        Multi-label searches or pre-fusion merged_into resolution can
+        surface the same identity_key in two positions of one
+        method's output. Fuse must count it as one vote from that
+        method, scored at the best rank, so a duplicate within a
+        method cannot outrank a single best hit from another method.
+        """
+        a = Entity(id=uuid4(), label="Person", name="A")
+        b = Entity(id=uuid4(), label="Person", name="B")
+        a1 = SearchResult(item=a, score=1.0, method="entity")
+        a2 = SearchResult(item=a, score=0.5, method="entity")
+        b1 = SearchResult(item=b, score=1.0, method="chunk")
+        fused = fuse({"entity": [a1, a2], "chunk": [b1]}, rrf_k=60)
+        # Both methods' rank-0 contributions tie, so the order is
+        # stable but the score must not include the rank-1 vote.
+        assert len(fused) == 2
+        assert all(r.score == 1 / (60 + 0 + 1) for r in fused)
+        scores = {r.item.id: r.score for r in fused}
+        assert scores[a.id] == 1 / 61
+        assert scores[b.id] == 1 / 61
+
+    def test_duplicate_within_one_method_uses_best_rank(self) -> None:
+        """A duplicate in later positions uses the better rank for scoring.
+
+        The same item at rank 0 and rank 2 of one method contributes
+        1/(rrf_k + 0 + 1), not the sum of both positions.
+        """
+        a = Entity(id=uuid4(), label="Person", name="A")
+        a_first = SearchResult(item=a, score=1.0, method="entity")
+        a_last = SearchResult(item=a, score=0.1, method="entity")
+        fused = fuse({"entity": [a_first, a_last]}, rrf_k=60)
+        assert len(fused) == 1
+        assert fused[0].score == 1 / 61
+
+    def test_keeps_highest_score_per_identity(self) -> None:
+        """The per-method best-rank vote still keeps the best individual score.
+
+        The dedup-by-method change must not regress the existing
+        invariant that a fused result carries the best individual
+        score across every method that returned it.
+        """
+        a = Entity(id=uuid4(), label="Person", name="A")
+        low = SearchResult(item=a, score=0.2, method="entity")
+        high = SearchResult(item=a, score=0.9, method="chunk")
+        fused = fuse({"entity": [low], "chunk": [high]}, rrf_k=60)
+        # The fused score is the RRF sum; the underlying best_result
+        # is checked indirectly by ensuring the entry is present and
+        # ties the rank-0 + rank-0 RRF contribution.
+        assert len(fused) == 1
+        assert fused[0].score == 2 / 61

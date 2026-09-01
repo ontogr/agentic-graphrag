@@ -15,6 +15,14 @@ def fuse(
     fused score is the sum of 1 / (rrf_k + rank) across every method
     that returned it.
 
+    Each method contributes at most one vote per item, scored at the
+    item's best (lowest) rank within that method. A multi-label
+    entity that surfaces in two positions of one method's output, or
+    a pre-fusion ``merged_into`` collapse, only adds one vote from
+    that method, so duplicate hits from a single retriever cannot
+    unfairly promote an item over a single best hit from another
+    method.
+
     Deduplication uses SearchResult.identity_key, which is (type, id)
     after hydration has already resolved any merged_into chain to the
     live survivor. Fusion does not re-resolve identity; it trusts that
@@ -34,12 +42,20 @@ def fuse(
     best_result: dict[tuple[str, object], SearchResult] = {}
 
     for _method, results in results_by_method.items():
+        # One vote per (method, item): track the best rank this method
+        # has seen for each item, so a multi-label duplicate does not
+        # contribute extra votes.
+        method_best_rank: dict[tuple[str, object], int] = {}
         for rank, result in enumerate(results):
             key = result.identity_key
-            scores[key] = scores.get(key, 0.0) + 1.0 / (rrf_k + rank + 1)
-            # Keep the result with the highest individual score.
+            if key not in method_best_rank or rank < method_best_rank[key]:
+                method_best_rank[key] = rank
+            # Keep the result with the highest individual score; this is
+            # independent of the rank-based RRF score.
             if key not in best_result or result.score > best_result[key].score:
                 best_result[key] = result
+        for key, best_rank in method_best_rank.items():
+            scores[key] = scores.get(key, 0.0) + 1.0 / (rrf_k + best_rank + 1)
 
     fused: list[SearchResult] = []
     for key, rrf_score in sorted(

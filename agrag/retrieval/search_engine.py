@@ -9,12 +9,16 @@ from uuid import UUID
 from agrag.common.data_models.search_result import SearchResult
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.retrieval.errors import AllRetrievalMethodsFailedError
+from agrag.retrieval.errors import (
+    AllRetrievalMethodsFailedError,
+    UnknownRecipeMethodError,
+)
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.fusion import fuse
 from agrag.retrieval.recipes import Recipe
 from agrag.retrieval.rerank.cross_encoder import cross_encoder_rerank
 from agrag.retrieval.rerank.node_distance import node_distance_rerank
+from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.retrievers.bfs import BFSRetriever
 from agrag.retrieval.retrievers.chunk import ChunkRetriever
 from agrag.retrieval.retrievers.entity import EntityRetriever
@@ -102,8 +106,14 @@ class SearchEngine:
             AllRetrievalMethodsFailedError: Every method the recipe
                 names failed. A method failing while others succeed
                 is logged and its results are simply absent.
+            UnknownRecipeMethodError: The recipe names one or more
+                methods that are not in the retriever registry. A
+                misspelled method name is a configuration error and
+                is reported instead of silently returning no
+                results.
         """
         retrievers = self._build_retrievers()
+        self._validate_recipe_methods(recipe, retrievers)
 
         # Project SearchFilters per retriever: labels only go to entity
         # search, document_ids only to chunk search, while property
@@ -244,6 +254,22 @@ class SearchEngine:
                 seen.add(item_id)
                 ids.append(item_id)
         return ids
+
+    @staticmethod
+    def _validate_recipe_methods(
+        recipe: Recipe, retrievers: dict[str, Retriever]
+    ) -> None:
+        """Raise ``UnknownRecipeMethodError`` for any name not in the registry.
+
+        A recipe that names only registered methods runs unchanged.
+        A name that matches none is treated as a configuration error
+        rather than silently dropped, so a typo is not hidden by an
+        empty successful search.
+        """
+        known = list(retrievers)
+        unknown = [name for name in recipe.methods if name not in retrievers]
+        if unknown:
+            raise UnknownRecipeMethodError(unknown, known)
 
     def _build_retrievers(self) -> dict:
         """Build the retriever map from current stores."""
