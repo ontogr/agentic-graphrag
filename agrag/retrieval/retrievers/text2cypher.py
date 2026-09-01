@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from uuid import UUID
 
 from agrag.common.data_models.search_result import SearchResult
@@ -13,13 +14,35 @@ from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
 
 
+def _append_row_limit(query: str, max_rows: int) -> str:
+    """Append a LIMIT clause when the query declares none.
+
+    String literals are stripped before the LIMIT scan, matching
+    ``reject_write_cypher``, so a quoted "LIMIT" inside a predicate
+    cannot suppress the bound.
+
+    Args:
+        query: The generated read query.
+        max_rows: Maximum rows the query may return.
+
+    Returns:
+        The query, bounded to at most ``max_rows`` rows.
+    """
+    stripped = re.sub(r"'[^']*'", "", query)
+    stripped = re.sub(r'"[^"]*"', "", stripped)
+    if "LIMIT" in re.findall(r"\b[A-Z]+\b", stripped):
+        return query
+    return f"{query} LIMIT {max_rows}"
+
+
 class Text2CypherRetriever(Retriever):
     """Let the agent ask structured questions via generated Cypher.
 
     Calls a BAML function to generate a read-only Cypher query,
-    runs reject_write_cypher as a safety pre-filter, then EXPLAIN
-    and executes. Any entity id in the result is resolved through
-    resolve_entity before becoming a SearchResult.
+    runs reject_write_cypher as a safety pre-filter, then bounds the
+    query with a row limit and a server-side transaction timeout
+    before EXPLAIN and execution. Any entity id in the result is
+    resolved through resolve_entity before becoming a SearchResult.
     """
 
     name = "text2cypher"
@@ -68,15 +91,27 @@ class Text2CypherRetriever(Retriever):
         except UnsafeCypherError:
             return []
 
+        # Bound the query: a server-side timeout caps how long a
+        # pathological traversal can run, and the row limit caps what
+        # the database returns.
+        bounded_query = _append_row_limit(
+            cypher_query, self._settings.text2cypher_max_rows
+        )
+        timeout = self._settings.text2cypher_timeout_seconds
+
         # EXPLAIN (read transaction, so a write would fail here too).
+        # Runs on the bounded query so a bad LIMIT placement fails here
+        # instead of at execution time.
         try:
-            await self._graph_store.execute_read(f"EXPLAIN {cypher_query}")
+            await self._graph_store.execute_read(
+                f"EXPLAIN {bounded_query}", timeout=timeout
+            )
         except Exception:
             return []
 
         # Execute for real.
         try:
-            rows = await self._graph_store.execute_read(cypher_query)
+            rows = await self._graph_store.execute_read(bounded_query, timeout=timeout)
         except Exception:
             return []
 

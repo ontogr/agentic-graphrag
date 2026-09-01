@@ -7,6 +7,7 @@ from agrag.agents.ledger import Ledger
 from agrag.agents.tools import make_tools
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.search_result import SearchResult
+from agrag.retrieval.filters import SearchFilters
 
 
 class TestMakeTools:
@@ -46,3 +47,30 @@ class TestMakeTools:
         result = await tools[0].ainvoke({"query": "test query"})
         engine.search.assert_called_once()
         assert "Alice" in result
+
+    async def test_tool_run_passes_no_filters_by_default(self) -> None:
+        """Without filters, tools search with filters=None."""
+        engine = AsyncMock()
+        engine.search.return_value = []
+        tools = make_tools(engine, Ledger())
+        await tools[0].ainvoke({"query": "test query"})
+        _, kwargs = engine.search.await_args
+        assert kwargs["filters"] is None
+
+    async def test_tool_run_passes_filters(self) -> None:
+        """make_tools scopes every tool's search with the given filters."""
+        engine = AsyncMock()
+        engine.search.return_value = [
+            SearchResult(
+                item=Entity(id=uuid4(), label="Person", name="Alice"),
+                score=0.9,
+                method="entity",
+            )
+        ]
+        filters = SearchFilters(document_ids=["doc-1"])
+        tools = make_tools(engine, Ledger(), filters=filters)
+        for tool in tools:
+            engine.search.reset_mock()
+            await tool.ainvoke({"query": "test query"})
+            _, kwargs = engine.search.await_args
+            assert kwargs["filters"] is filters

@@ -33,6 +33,14 @@ class RetrievalSettings(BaseSettings):
             are dropped. None disables the threshold.
         text2cypher_max_retries: Maximum retry attempts for a
             text2cypher generation that produces invalid Cypher.
+        text2cypher_timeout_seconds: Server-side transaction timeout
+            applied to generated read queries. The database terminates
+            a generated query that runs longer, so a pathological
+            query cannot hold server resources indefinitely. None
+            uses the server's default timeout.
+        text2cypher_max_rows: Maximum rows a generated read query may
+            return. Appended as a LIMIT clause when the generated
+            query declares none of its own.
 
     Env prefix: ``RETRIEVAL_``.
     """
@@ -53,3 +61,5 @@ class RetrievalSettings(BaseSettings):
     rrf_k: int = 60
     reranker_min_score: float | None = None
     text2cypher_max_retries: int = 3
+    text2cypher_timeout_seconds: float | None = 10.0
+    text2cypher_max_rows: int = 1000

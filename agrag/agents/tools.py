@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from agrag.agents.ledger import Ledger
+    from agrag.retrieval.filters import SearchFilters
     from agrag.retrieval.search_engine import SearchEngine
 
 
@@ -20,6 +21,7 @@ def _make_tool_fn(
     ledger: "Ledger",
     recipe: Any,
     tool_name: str,
+    filters: "SearchFilters | None" = None,
 ) -> Any:
     """Create a LangChain tool function wrapping SearchEngine.
 
@@ -28,6 +30,8 @@ def _make_tool_fn(
         ledger: The citation ledger for one run.
         recipe: The fixed Recipe this tool uses.
         tool_name: The name for the tool.
+        filters: Retrieval scope applied to every search, e.g.
+            document or tenant constraints. None searches unfiltered.
 
     Returns:
         A decorated tool function.
@@ -37,7 +41,7 @@ def _make_tool_fn(
     @tool(tool_name)
     async def _tool_fn(query: str) -> str:
         """Search the knowledge graph and return cited results."""
-        results = await engine.search(query, recipe)
+        results = await engine.search(query, recipe, filters=filters)
         if not results:
             return "No results found."
         lines = [ledger.render(r) for r in results]
@@ -46,8 +50,21 @@ def _make_tool_fn(
     return _tool_fn
 
 
-def make_tools(engine: "SearchEngine", ledger: "Ledger") -> list[Any]:
+def make_tools(
+    engine: "SearchEngine",
+    ledger: "Ledger",
+    *,
+    filters: "SearchFilters | None" = None,
+) -> list[Any]:
     """Build the agent's tool set over one SearchEngine and Ledger.
+
+    Args:
+        engine: The SearchEngine every tool calls.
+        ledger: The citation ledger for one run.
+        filters: Retrieval scope applied to every tool's search.
+            Pass document or tenant constraints here so the agent
+            cannot surface graph data outside them; the LLM never
+            sees or chooses the scope.
 
     Returns:
         A list of LangChain tool instances: search_source_text,
@@ -63,14 +80,15 @@ def make_tools(engine: "SearchEngine", ledger: "Ledger") -> list[Any]:
     )
 
     return [
-        _make_tool_fn(engine, ledger, CHUNK, "search_source_text"),
-        _make_tool_fn(engine, ledger, ENTITY, "look_up_entity"),
-        _make_tool_fn(engine, ledger, GRAPH_EXPAND, "find_connection"),
-        _make_tool_fn(engine, ledger, HYBRID, "explore_related"),
+        _make_tool_fn(engine, ledger, CHUNK, "search_source_text", filters),
+        _make_tool_fn(engine, ledger, ENTITY, "look_up_entity", filters),
+        _make_tool_fn(engine, ledger, GRAPH_EXPAND, "find_connection", filters),
+        _make_tool_fn(engine, ledger, HYBRID, "explore_related", filters),
         _make_tool_fn(
             engine,
             ledger,
             HYBRID_RERANKED,
             "answer_from_graph_structure",
+            filters,
         ),
     ]

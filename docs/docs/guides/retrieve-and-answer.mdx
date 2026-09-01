@@ -78,6 +78,25 @@ async def main():
 asyncio.run(main())
 ```
 
+### Scoping agent retrieval
+
+Without extra arguments, the agent's tools search the whole graph. Pass
+`SearchFilters` to restrict every tool search to a document set,
+tenant, or label scope:
+
+```python
+from agrag.retrieval.filters import SearchFilters
+
+agent = build_agent(
+    engine=engine,
+    llm_settings=AgentLLMSettings.from_openai_compatible_env(),
+    filters=SearchFilters(document_ids=["doc-1", "doc-2"]),
+)
+```
+
+The filters are fixed at build time and applied inside the tools; the
+model cannot see or override them.
+
 ## Available Recipes
 
 | Recipe | Methods | BFS | Reranker |

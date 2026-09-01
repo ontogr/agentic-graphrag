@@ -200,11 +200,35 @@ class Neo4jGraphStore(GraphStore):
         return self._driver.session(database=self._settings.database)
 
     async def execute_read(
-        self, query: str, parameters: Mapping[str, Any] | None = None
+        self,
+        query: str,
+        parameters: Mapping[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Run a read transaction and return its rows."""
+        """Run a read transaction and return its rows.
+
+        Args:
+            query: The Cypher query to run.
+            parameters: The query parameters.
+            timeout: Server-side transaction timeout in seconds,
+                applied through the driver's ``unit_of_work`` so the
+                database terminates the transaction when it runs
+                longer. None uses the server's default timeout.
+
+        Returns:
+            The result rows as dicts.
+        """
         async with self.session() as s:
-            return await s.execute_read(self._run, query, parameters or {})
+            if timeout is None:
+                return await s.execute_read(self._run, query, parameters or {})
+            from neo4j import unit_of_work  # noqa: PLC0415
+
+            return await s.execute_read(
+                unit_of_work(timeout=timeout)(self._run),
+                query,
+                parameters or {},
+            )
 
     async def execute_write(
         self, query: str, parameters: Mapping[str, Any] | None = None

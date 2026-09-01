@@ -1,6 +1,7 @@
 """Retrieval's public entry point, independent of Graph (ADR 0035)."""
 
 import asyncio
+import logging
 from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
@@ -8,6 +9,7 @@ from uuid import UUID
 from agrag.common.data_models.search_result import SearchResult
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.retrieval.errors import AllRetrievalMethodsFailedError
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.fusion import fuse
 from agrag.retrieval.recipes import Recipe
@@ -16,8 +18,12 @@ from agrag.retrieval.rerank.node_distance import node_distance_rerank
 from agrag.retrieval.retrievers.bfs import BFSRetriever
 from agrag.retrieval.retrievers.chunk import ChunkRetriever
 from agrag.retrieval.retrievers.entity import EntityRetriever
+from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
+
+
+logger = logging.getLogger(__name__)
 
 
 class SearchEngine:
@@ -91,6 +97,11 @@ class SearchEngine:
         Returns:
             Up to recipe.limit results, ranked highest-relevance
             first.
+
+        Raises:
+            AllRetrievalMethodsFailedError: Every method the recipe
+                names failed. A method failing while others succeed
+                is logged and its results are simply absent.
         """
         retrievers = self._build_retrievers()
 
@@ -135,10 +146,27 @@ class SearchEngine:
         method_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         results_by_method: dict[str, list[SearchResult]] = {}
+        failures: dict[str, BaseException] = {}
         for name, result in zip(method_names, method_results, strict=True):
+            # Cancellation must propagate; only retriever errors are
+            # tolerated here.
+            if isinstance(result, asyncio.CancelledError):
+                raise result
             if isinstance(result, BaseException):
+                failures[name] = result
                 continue
             results_by_method[name] = result
+
+        if failures and not results_by_method:
+            raise AllRetrievalMethodsFailedError(failures) from next(
+                iter(failures.values())
+            )
+        if failures:
+            logger.warning(
+                "Retrieval methods %s failed; continuing with %s.",
+                sorted(failures),
+                sorted(results_by_method),
+            )
 
         # First fusion pass.
         fused = fuse(results_by_method, rrf_k=self._settings.rrf_k)
@@ -220,12 +248,12 @@ class SearchEngine:
     def _build_retrievers(self) -> dict:
         """Build the retriever map from current stores."""
         return {
-        return {
             "entity": EntityRetriever(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
                 vector_store=self._vector_store,
                 settings=self._settings,
+                entity_labels=self._entity_labels,
             ),
             "chunk": ChunkRetriever(
                 graph_store=self._graph_store,
@@ -237,5 +265,4 @@ class SearchEngine:
                 graph_store=self._graph_store,
                 settings=self._settings,
             ),
-        }
         }

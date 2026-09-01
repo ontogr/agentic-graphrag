@@ -21,6 +21,8 @@ class TestRetrievalSettings:
         assert s.rrf_k == 60
         assert s.reranker_min_score is None
         assert s.text2cypher_max_retries == 3
+        assert s.text2cypher_timeout_seconds == 10.0
+        assert s.text2cypher_max_rows == 1000
 
     def test_custom_values(self) -> None:
         """Custom values override defaults."""

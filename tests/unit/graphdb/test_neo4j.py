@@ -687,3 +687,33 @@ class TestTransaction:
             pass
         writes = store._driver.last_session.execute_write.call_args_list
         assert any("agragmergealias" in c.args[1].lower() for c in writes)
+
+
+class TestExecuteReadTimeout:
+    """execute_read applies the server-side transaction timeout."""
+
+    async def test_wraps_transaction_function_with_timeout(self) -> None:
+        """A requested timeout rides on the transaction function."""
+        pytest.importorskip("neo4j")
+        store = _store()
+        await store.execute_read("MATCH (n) RETURN n", timeout=7.5)
+        session = store._driver.last_session
+        tx_function = session.execute_read.call_args.args[0]
+        assert tx_function.timeout == 7.5
+
+    async def test_no_timeout_by_default(self) -> None:
+        """Without a timeout, the transaction function carries none."""
+        store = _store()
+        await store.execute_read("MATCH (n) RETURN n")
+        session = store._driver.last_session
+        tx_function = session.execute_read.call_args.args[0]
+        assert getattr(tx_function, "timeout", None) is None
+
+    async def test_timeout_reads_rows_normally(self) -> None:
+        """A timed read still returns the transaction function's rows."""
+        pytest.importorskip("neo4j")
+        store = _store()
+        session = store._driver.last_session
+        session.execute_read = mock.AsyncMock(return_value=[{"n": 1}])
+        rows = await store.execute_read("MATCH (n) RETURN n", timeout=7.5)
+        assert rows == [{"n": 1}]

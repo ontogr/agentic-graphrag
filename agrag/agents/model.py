@@ -1,6 +1,6 @@
 """Translate LLMClientConfig into the matching LangChain chat model."""
 
-from typing import Any
+from typing import Any, Literal
 
 from agrag.llm.client_config import LLMClientConfig
 
@@ -79,3 +79,47 @@ def build_chat_model(config: LLMClientConfig) -> Any:
     raise UnsupportedAgentProviderError(
         f"Provider '{config.provider}' has no agent-side mapping."
     )
+
+
+def build_model_middleware(
+    clients: list[LLMClientConfig],
+    *,
+    strategy: Literal["single", "fallback", "round_robin"] = "single",
+) -> list[Any]:
+    """Build agent middleware composing multiple clients per strategy.
+
+    The agent calls ``clients[0]`` as its primary model. With more than
+    one client, the returned middleware teaches the agent loop to use
+    the rest: ``"fallback"`` tries the other clients in order when the
+    primary model call fails, and ``"round_robin"`` rotates across
+    every client per model call.
+
+    Args:
+        clients: The configured clients, in priority order.
+        strategy: How to compose ``clients``. ``"single"`` ignores all
+            but the first client.
+
+    Returns:
+        Middleware for create_deep_agent/create_agent; empty when there
+        is nothing to compose.
+
+    Raises:
+        UnsupportedAgentProviderError: a client's provider has no
+            agent-side mapping.
+    """
+    if strategy == "single" or len(clients) <= 1:
+        return []
+
+    models = [build_chat_model(client) for client in clients]
+    if strategy == "fallback":
+        from langchain.agents.middleware import (  # noqa: PLC0415
+            ModelFallbackMiddleware,
+        )
+
+        return [ModelFallbackMiddleware(*models[1:])]
+
+    from agrag.agents.middleware import (  # noqa: PLC0415
+        RoundRobinModelMiddleware,
+    )
+
+    return [RoundRobinModelMiddleware(models)]

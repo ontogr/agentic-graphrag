@@ -18,9 +18,12 @@ class AgentLLMSettings(BaseSettings):
 
     Attributes:
         clients: The LLM client(s) to use. One element for a single
-            provider; more than one composed per strategy.
-        strategy: How to compose multiple clients. Ignored with one
-            client.
+            provider; more than one composed per strategy through
+            agent middleware.
+        strategy: How to compose multiple clients. ``"fallback"``
+            tries the other clients in order when a model call fails;
+            ``"round_robin"`` rotates across all clients per call.
+            Ignored with one client.
 
     Env prefix: ``AGENT_LLM_``.
     """

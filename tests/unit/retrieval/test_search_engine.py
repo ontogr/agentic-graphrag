@@ -1,13 +1,17 @@
 """Tests for SearchEngine."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
+
+import pytest
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import VectorHit
+from agrag.retrieval.errors import AllRetrievalMethodsFailedError
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.recipes import ENTITY, HYBRID, Recipe
 from agrag.retrieval.search_engine import SearchEngine
@@ -514,3 +518,66 @@ class TestSearchEngine:
 
             assert mock_ev.call_args.kwargs["labels"] == ["Drug", "Disease"]
             assert mock_ev.call_args.kwargs["collection"] == "agrag_entities"
+
+    async def test_raises_when_every_method_fails(self) -> None:
+        """A total retriever outage raises instead of returning no hits."""
+        gs = AsyncMock()
+        engine = SearchEngine(graph_store=gs, embedder=MockEmbedder())
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("graph store down"),
+            ),
+            patch(
+                "agrag.retrieval.retrievers.chunk.vector_search",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("vector store down"),
+            ),
+            pytest.raises(AllRetrievalMethodsFailedError) as excinfo,
+        ):
+            await engine.search("test", HYBRID)
+
+        assert set(excinfo.value.failures) == {"entity", "chunk"}
+        assert isinstance(excinfo.value.__cause__, RuntimeError)
+
+    async def test_partial_failure_keeps_surviving_methods(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """One failing method does not sink the others or pass silently."""
+        ch = Chunk(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Some text",
+            provenance=TextProvenance(char_start=0, char_end=9),
+        )
+        gs = AsyncMock()
+        engine = SearchEngine(graph_store=gs, embedder=MockEmbedder())
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("graph store down"),
+            ),
+            patch(
+                "agrag.retrieval.retrievers.chunk.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_cv,
+            patch(
+                "agrag.retrieval.retrievers.chunk.ChunkRetriever._parse_chunk_node",
+            ) as mock_cp,
+        ):
+            mock_cv.return_value = [VectorHit(id=ch.id, score=0.8, payload={})]
+            mock_cp.return_value = ch
+            gs.execute_read.return_value = [{"n": {"id": str(ch.id)}}]
+
+            with caplog.at_level(
+                logging.WARNING, logger="agrag.retrieval.search_engine"
+            ):
+                results = await engine.search("test", HYBRID)
+
+        assert [r.item.id for r in results] == [ch.id]
+        assert any("entity" in record.message for record in caplog.records)
