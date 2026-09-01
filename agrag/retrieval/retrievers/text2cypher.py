@@ -385,8 +385,7 @@ class Text2CypherRetriever(Retriever):
                 "and RELATED_TO, MENTIONED_IN relations.",
             )
         except ImportError:
-            # BAML client not available; return a trivial query.
-            return "MATCH (n) RETURN n LIMIT 1"
+            return []
 
     @staticmethod
     def _extract_relation(row: dict) -> Relation | None:
