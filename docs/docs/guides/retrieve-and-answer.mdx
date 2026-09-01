@@ -1,0 +1,126 @@
+---
+title: Retrieve and Answer
+sidebar_position: 4
+---
+
+# Retrieve and Answer
+
+This guide shows how to use `SearchEngine` to retrieve entities and chunks from a knowledge graph, and how to use `build_agent` to get cited answers.
+
+## Prerequisites
+
+Install the retrieval and agent extras:
+
+```bash
+pip install 'agentic-graphrag[neo4j,llm]'
+# For the agent layer:
+pip install 'agentic-graphrag[agents]'
+```
+
+## Direct SearchEngine Usage
+
+```python
+import asyncio
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.graphdb.neo4j import Neo4jGraphStore, Neo4jSettings
+from agrag.embedding.sentence_transformer import SentenceTransformerEmbedder
+from agrag.retrieval.search_engine import SearchEngine
+from agrag.retrieval.recipes import HYBRID
+
+async def main():
+    graph_store = Neo4jGraphStore(settings=Neo4jSettings())
+    embedder = SentenceTransformerEmbedder()
+
+    engine = SearchEngine(
+        graph_store=graph_store,
+        embedder=embedder,
+        entity_labels=[entity.label for entity in GENERIC.entities],
+    )
+
+    results = await engine.search(
+        "What treats headaches?",
+        HYBRID,
+    )
+
+    for result in results:
+        print(f"{result.item} (score={result.score:.3f})")
+
+asyncio.run(main())
+```
+
+## Using build_agent
+
+```python
+import asyncio
+from agrag.agents.build import build_agent
+from agrag.agents.settings import AgentLLMSettings
+from agrag.retrieval.search_engine import SearchEngine
+
+async def main():
+    engine = SearchEngine(
+        graph_store=graph_store,
+        embedder=embedder,
+    )
+
+    agent = build_agent(
+        engine=engine,
+        llm_settings=AgentLLMSettings.from_openai_compatible_env(),
+    )
+
+    result = await agent.ainvoke({
+        "messages": [
+            {"role": "user", "content": "What treats headaches?"}
+        ]
+    })
+
+    print(result["messages"][-1]["content"])
+
+asyncio.run(main())
+```
+
+### Scoping agent retrieval
+
+Without extra arguments, the agent's tools search the whole graph. Pass
+`SearchFilters` to restrict every tool search to a document set,
+tenant, or label scope:
+
+```python
+from agrag.retrieval.filters import SearchFilters
+
+agent = build_agent(
+    engine=engine,
+    llm_settings=AgentLLMSettings.from_openai_compatible_env(),
+    filters=SearchFilters(document_ids=["doc-1", "doc-2"]),
+)
+```
+
+The filters are fixed at build time and applied inside the tools; the
+model cannot see or override them.
+
+## Available Recipes
+
+| Recipe | Methods | BFS | Reranker |
+|--------|---------|-----|----------|
+| `ENTITY` | entity | No | None |
+| `CHUNK` | chunk | No | None |
+| `HYBRID` | entity, chunk | No | None |
+| `HYBRID_RERANKED` | entity, chunk | No | cross_encoder |
+| `GRAPH_EXPAND` | entity | Yes | None |
+
+## Configuration
+
+Set environment variables with the `RETRIEVAL_` prefix:
+
+```bash
+RETRIEVAL_ENTITY_LABELS='["Drug","Condition"]'
+RETRIEVAL_ENTITY_TOP_K=10
+RETRIEVAL_CHUNK_TOP_K=10
+RETRIEVAL_HYBRID_ALPHA=0.5
+RETRIEVAL_TRAVERSAL_DEPTH=2
+```
+
+`RETRIEVAL_ENTITY_LABELS` (or the `entity_labels` argument) names the schema
+entity labels that entity search runs against. Ingestion creates one native
+vector index per label, so search needs the labels themselves, not the
+`RETRIEVAL_ENTITY_COLLECTION` name, which applies only when a `VectorStore`
+is configured.

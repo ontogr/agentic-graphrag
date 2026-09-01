@@ -41,6 +41,7 @@ class Chunk(DataPoint):
     provenance: TextProvenance | PageProvenance = Field(discriminator="kind")
     heading_path: list[str] = Field(default_factory=list)
     content_kind: Literal["text", "table_row", "code", "heading"] = "text"
+    embedding: list[float] | None = None
 
     @model_validator(mode="after")
     def _resolve_id(self) -> "Chunk":
@@ -108,4 +109,6 @@ class Chunk(DataPoint):
             "content_kind": self.content_kind,
             "created_at": self.created_at.isoformat(),
         }
+        if self.embedding is not None:
+            properties["embedding"] = self.embedding
         return NodeRecord(id=self.id, labels=[CHUNK_LABEL], properties=properties)

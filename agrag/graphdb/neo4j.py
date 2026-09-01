@@ -200,11 +200,35 @@ class Neo4jGraphStore(GraphStore):
         return self._driver.session(database=self._settings.database)
 
     async def execute_read(
-        self, query: str, parameters: Mapping[str, Any] | None = None
+        self,
+        query: str,
+        parameters: Mapping[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Run a read transaction and return its rows."""
+        """Run a read transaction and return its rows.
+
+        Args:
+            query: The Cypher query to run.
+            parameters: The query parameters.
+            timeout: Server-side transaction timeout in seconds,
+                applied through the driver's ``unit_of_work`` so the
+                database terminates the transaction when it runs
+                longer. None uses the server's default timeout.
+
+        Returns:
+            The result rows as dicts.
+        """
         async with self.session() as s:
-            return await s.execute_read(self._run, query, parameters or {})
+            if timeout is None:
+                return await s.execute_read(self._run, query, parameters or {})
+            from neo4j import unit_of_work  # noqa: PLC0415
+
+            return await s.execute_read(
+                unit_of_work(timeout=timeout)(self._run),
+                query,
+                parameters or {},
+            )
 
     async def execute_write(
         self, query: str, parameters: Mapping[str, Any] | None = None
@@ -526,6 +550,10 @@ class Neo4jGraphStore(GraphStore):
     ) -> list[VectorHit]:
         """Search nodes by dense vector using the native vector index.
 
+        A label with no provisioned vector index has nothing to search,
+        so an absent index returns an empty result list rather than a
+        driver error.
+
         When ``filters`` is set, Neo4j's vector procedure applies the filter
         only after selecting its top ``k`` candidates, so a plain ``k=limit``
         call can return fewer matches than actually exist. This escalates
@@ -553,7 +581,16 @@ class Neo4jGraphStore(GraphStore):
                 "k": k,
                 "vector": list(query_vector),
             }
-            rows = await self.execute_read(query, params)
+            try:
+                rows = await self.execute_read(query, params)
+            except Exception as exc:
+                # A label with no provisioned vector index (for example a
+                # filter naming a label that was never ingested) has nothing
+                # to search, so return empty instead of failing the whole
+                # retrieval. Any other driver error keeps propagating.
+                if "no such vector schema index" not in str(exc):
+                    raise
+                return []
             if not filters or len(rows) >= limit or k >= _VECTOR_SEARCH_MAX_K:
                 break
             k = min(k * _VECTOR_SEARCH_OVERFETCH_MULTIPLIER, _VECTOR_SEARCH_MAX_K)

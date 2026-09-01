@@ -605,6 +605,41 @@ class TestVectorSearch:
         last_params = store._driver.last_session.execute_read.call_args.args[2]
         assert last_params["k"] == _VECTOR_SEARCH_MAX_K
 
+    async def test_missing_index_returns_empty(self) -> None:
+        """A label with no vector index returns no hits instead of raising.
+
+        A filter naming a label that was never ingested has no index to
+        search; that is an empty result set, not a retrieval failure.
+        """
+        store = _store()
+        store._driver.last_session.execute_read.side_effect = RuntimeError(
+            "Failed to invoke procedure `db.index.vector.queryNodes`: "
+            "Caused by: java.lang.IllegalArgumentException: "
+            "There is no such vector schema index: "
+            "idx_6_Bogus_9_embedding_vector"
+        )
+        hits = await store.vector_search(
+            label="Bogus",
+            vector_property="embedding",
+            query_vector=[0.1, 0.2, 0.3, 0.4],
+            limit=5,
+        )
+        assert hits == []
+
+    async def test_unrelated_driver_error_still_raises(self) -> None:
+        """A driver error other than a missing index keeps propagating."""
+        store = _store()
+        store._driver.last_session.execute_read.side_effect = RuntimeError(
+            "connection lost"
+        )
+        with pytest.raises(RuntimeError, match="connection lost"):
+            await store.vector_search(
+                label="Chunk",
+                vector_property="embedding",
+                query_vector=[0.1, 0.2, 0.3, 0.4],
+                limit=5,
+            )
+
 
 class TestMissingExtra:
     """Without the extra installed, use raises, not ImportError."""
@@ -687,3 +722,33 @@ class TestTransaction:
             pass
         writes = store._driver.last_session.execute_write.call_args_list
         assert any("agragmergealias" in c.args[1].lower() for c in writes)
+
+
+class TestExecuteReadTimeout:
+    """execute_read applies the server-side transaction timeout."""
+
+    async def test_wraps_transaction_function_with_timeout(self) -> None:
+        """A requested timeout rides on the transaction function."""
+        pytest.importorskip("neo4j")
+        store = _store()
+        await store.execute_read("MATCH (n) RETURN n", timeout=7.5)
+        session = store._driver.last_session
+        tx_function = session.execute_read.call_args.args[0]
+        assert tx_function.timeout == 7.5
+
+    async def test_no_timeout_by_default(self) -> None:
+        """Without a timeout, the transaction function carries none."""
+        store = _store()
+        await store.execute_read("MATCH (n) RETURN n")
+        session = store._driver.last_session
+        tx_function = session.execute_read.call_args.args[0]
+        assert getattr(tx_function, "timeout", None) is None
+
+    async def test_timeout_reads_rows_normally(self) -> None:
+        """A timed read still returns the transaction function's rows."""
+        pytest.importorskip("neo4j")
+        store = _store()
+        session = store._driver.last_session
+        session.execute_read = mock.AsyncMock(return_value=[{"n": 1}])
+        rows = await store.execute_read("MATCH (n) RETURN n", timeout=7.5)
+        assert rows == [{"n": 1}]

@@ -337,6 +337,106 @@ def fetch_relations_between_query(rel_type: str) -> str:
     )
 
 
+def set_chunk_embedding_query(vector_property: str) -> str:
+    """Build Cypher setting a vector property on Chunk nodes.
+
+    Similar to ``set_embedding_query`` but guards on ``text`` instead of
+    ``name``/``description``, since chunks have no name field. The text
+    guard prevents a stale write from overwriting a newer vector.
+
+    Args:
+        vector_property: The property to set. Must already be validated.
+
+    Returns:
+        Parameterized Cypher expecting $records, a list of dicts with the
+        keys id, vector, and expected_text.
+    """
+    safe_property = validate_identifier(vector_property)
+    return (
+        f"UNWIND $records AS record "
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"WHERE n.text = record.expected_text "
+        f"AND n.merged_into IS NULL "
+        f"SET n.{safe_property} = record.vector"
+    )
+
+
+def clear_chunk_embedding_query(vector_property: str) -> str:
+    """Build Cypher removing a vector property from Chunk nodes.
+
+    Guards on ``text`` the same way ``set_chunk_embedding_query`` does,
+    so a concurrent update that changed a chunk's text between this
+    call's embed and its clear does not accidentally wipe a newer
+    vector.
+
+    Args:
+        vector_property: The property to remove. Must already be
+            validated.
+
+    Returns:
+        Parameterized Cypher expecting $records, a list of dicts with
+        the keys id and expected_text.
+    """
+    safe_property = validate_identifier(vector_property)
+    return (
+        f"UNWIND $records AS record "
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"WHERE n.text = record.expected_text "
+        f"REMOVE n.{safe_property}"
+    )
+
+
+def resolve_merged_into_query() -> str:
+    """Return a node and the id of the node it was merged into.
+
+    A tombstoned node is never deleted; it only gains a ``merged_into``
+    property pointing at its survivor (ADR 0033). The pointer is a
+    property, not a relationship, so a chain is followed one hop per
+    call: ``merged_into`` is null on a live node and holds the next id
+    on a tombstone.
+
+    Returns:
+        A parameterized query expecting an $id parameter, returning the
+        node as ``node`` and its survivor id as ``merged_into``.
+    """
+    return (
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) "
+        f"RETURN n AS node, n.merged_into AS merged_into"
+    )
+
+
+def hydrate_entities_by_id_query() -> str:
+    """Build Cypher fetching entities by id, excluding tombstones.
+
+    A tombstoned node is never deleted (ADR 0033) so a naive
+    ``MATCH (n) WHERE n.id IN $ids`` would surface one. This query
+    filters on ``merged_into IS NULL`` to return only live nodes.
+
+    Returns:
+        Parameterized Cypher expecting $ids (list of string ids).
+    """
+    return (
+        f"UNWIND $ids AS id "
+        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: id}}) "
+        f"WHERE n.merged_into IS NULL "
+        f"RETURN n"
+    )
+
+
+def hydrate_chunks_by_id_query() -> str:
+    """Build Cypher fetching chunks by id.
+
+    Chunks are never tombstoned, so no merged_into guard is needed.
+    The query filters on the Chunk label for type safety.
+
+    Returns:
+        Parameterized Cypher expecting $ids (list of string ids).
+    """
+    return (
+        f"UNWIND $ids AS id MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) RETURN n"
+    )
+
+
 def filter_clause(
     filters: dict[str, Any], node_var: str = "node"
 ) -> tuple[str, dict[str, Any]]:

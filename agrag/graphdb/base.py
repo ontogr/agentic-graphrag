@@ -62,13 +62,21 @@ class GraphStore(ABC):
 
     @abstractmethod
     async def execute_read(
-        self, query: str, parameters: Mapping[str, Any] | None = None
+        self,
+        query: str,
+        parameters: Mapping[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> list[dict[str, Any]]:
         """Run a read transaction.
 
         Args:
             query: The Cypher query to run.
             parameters: The query parameters.
+            timeout: Server-side transaction timeout in seconds. The
+                database terminates the transaction when it runs
+                longer. None uses the server's default timeout.
+                Backends that cannot enforce a timeout ignore it.
 
         Returns:
             The result rows as dicts.

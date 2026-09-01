@@ -26,10 +26,12 @@ from agrag.common.data_models.relation import Relation
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
+    clear_chunk_embedding_query,
     clear_property_query,
     fetch_all_by_label_query,
     fetch_by_merge_keys_query,
     fetch_relations_between_query,
+    set_chunk_embedding_query,
     set_embedding_query,
 )
 from agrag.embedding.base import Embedder
@@ -582,6 +584,76 @@ def _embedding_guard_fields(entity: Entity) -> dict[str, str]:
     }
 
 
+async def _embed_and_upsert_chunks(
+    chunks: list[Chunk],
+    *,
+    embedder: Embedder,
+    graph_store: GraphStore,
+    error_policy: ErrorPolicy,
+) -> list[StageFailure]:
+    """Embed every chunk's text and write the vectors back onto their nodes.
+
+    On failure, clears any embedding already written to the chunk nodes
+    rather than leaving one computed for stale text in place: vector
+    search must not keep ranking a chunk by outdated content just because
+    this re-embed failed. The clear is guarded by ``expected_text`` the
+    same way the write is, so a concurrent update that changed a chunk's
+    text between this call's embed and its clear does not accidentally
+    wipe a newer vector.
+
+    Args:
+        chunks: The chunks this call wrote to graph_store already.
+        embedder: Produces one vector per chunk text.
+        graph_store: Where the embedding, and on failure the cleared
+            embedding property, are written.
+        error_policy: RAISE propagates the failure after clearing; any
+            other policy returns it instead.
+
+    Returns:
+        One StageFailure per chunk whose embed or write step raised.
+
+    Raises:
+        Exception: Whatever embed() or the write raised, when
+            error_policy is RAISE.
+    """
+    try:
+        texts = [ch.text for ch in chunks]
+        vectors = await embedder.embed(texts)
+        records = []
+        for ch, vec in zip(chunks, vectors, strict=True):
+            ch.embedding = vec
+            records.append(
+                {
+                    "id": str(ch.id),
+                    "vector": vec,
+                    "expected_text": ch.text,
+                }
+            )
+        await graph_store.execute_write(
+            set_chunk_embedding_query("embedding"), {"records": records}
+        )
+    except Exception as exc:  # noqa: BLE001
+        with contextlib.suppress(Exception):
+            await graph_store.execute_write(
+                clear_chunk_embedding_query("embedding"),
+                {
+                    "records": [
+                        {"id": str(ch.id), "expected_text": ch.text} for ch in chunks
+                    ]
+                },
+            )
+        if error_policy is ErrorPolicy.RAISE:
+            raise
+        return [
+            StageFailure(
+                item_id="chunk_embeddings",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+        ]
+    return []
+
+
 async def _embed_and_upsert_survivors(
     survivors: dict[UUID, Entity],
     *,
@@ -866,6 +938,12 @@ class Graph:
                     dimensions=dimensions,
                     distance=distance,
                 )
+            await graph_store.ensure_vector_index(
+                label=CHUNK_LABEL,
+                vector_property="embedding",
+                dimensions=dimensions,
+                distance=distance,
+            )
         except Exception:
             await graph_store.close()
             raise
@@ -1383,6 +1461,17 @@ class Graph:
                     item_id="chunks",
                     error_type=type(exc).__name__,
                     error_message=str(exc),
+                )
+            )
+
+        # Chunk embedding stage: embed chunks and write vectors.
+        if chunk_records:
+            storage_failures.extend(
+                await _embed_and_upsert_chunks(
+                    chunks,
+                    embedder=self._embedder,
+                    graph_store=self._graph_store,
+                    error_policy=error_policy,
                 )
             )
 
