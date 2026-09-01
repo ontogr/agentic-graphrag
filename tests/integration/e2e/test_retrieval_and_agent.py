@@ -79,14 +79,24 @@ class _FixedEmbedder(Embedder):
 class _DrugExtractor(Extractor):
     """Extractor that pulls drug-condition pairs from text."""
 
-    def __init__(self) -> None:
-        """Initialize with known drug-condition pairs."""
+    def __init__(
+        self,
+        *,
+        drug_label: str,
+        condition_label: str,
+    ) -> None:
+        """Initialize with known drug-condition pairs.
+
+        Args:
+            drug_label: The graph label drug mentions extract to.
+            condition_label: The graph label condition mentions extract to.
+        """
         self._pairs = {
-            "aspirin": ("Drug", "Aspirin"),
-            "ibuprofen": ("Drug", "Ibuprofen"),
-            "headache": ("Condition", "Headache"),
-            "fever": ("Condition", "Fever"),
-            "inflammation": ("Condition", "Inflammation"),
+            "aspirin": (drug_label, "Aspirin"),
+            "ibuprofen": (drug_label, "Ibuprofen"),
+            "headache": (condition_label, "Headache"),
+            "fever": (condition_label, "Fever"),
+            "inflammation": (condition_label, "Inflammation"),
         }
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
@@ -131,9 +141,12 @@ class TestRetrievalE2E:
             name="e2e",
             version="1",
             entities=[
-                EntityType(label="Drug", description="A medication."),
                 EntityType(
-                    label="Condition",
+                    label=self.drug_label,
+                    description="A medication.",
+                ),
+                EntityType(
+                    label=self.condition_label,
                     description="A medical condition.",
                 ),
             ],
@@ -146,6 +159,21 @@ class TestRetrievalE2E:
         )
         await self.store.execute_write(f"MATCH (n:{CHUNK_LABEL}) DETACH DELETE n")
         await self.store.close()
+
+    async def _ensure_retrieval_indexes(self) -> None:
+        """Provision the vector indexes retrieval searches.
+
+        ``Graph.open`` provisions these while opening a graph; the
+        tests here construct stores directly, so each test creates the
+        indexes ``SearchEngine.search`` searches itself.
+        """
+        for label in (self.drug_label, self.condition_label, CHUNK_LABEL):
+            await self.store.ensure_vector_index(
+                label=label,
+                vector_property="embedding",
+                dimensions=4,
+                distance=Distance.COSINE,
+            )
 
     async def _seed_graph_with_merge(
         self,
@@ -233,12 +261,7 @@ class TestRetrievalE2E:
             ]
         )
 
-        await self.store.ensure_vector_index(
-            label=self.drug_label,
-            vector_property="embedding",
-            dimensions=4,
-            distance=Distance.COSINE,
-        )
+        await self._ensure_retrieval_indexes()
 
         survivor.embedding = await self.embedder.embed_one(survivor.name)
         await self.store.execute_write(
@@ -463,7 +486,10 @@ class TestRetrievalE2E:
             schema=self.schema,
             graph_store=self.store,
             embedder=self.embedder,
-            extractor=_DrugExtractor(),
+            extractor=_DrugExtractor(
+                drug_label=self.drug_label,
+                condition_label=self.condition_label,
+            ),
         )
 
         result = await graph.add(
@@ -472,6 +498,8 @@ class TestRetrievalE2E:
         )
 
         assert result.extraction.entities_extracted >= 1
+
+        await self._ensure_retrieval_indexes()
 
         engine = SearchEngine(
             graph_store=self.store,
@@ -491,7 +519,10 @@ class TestRetrievalE2E:
             schema=self.schema,
             graph_store=self.store,
             embedder=self.embedder,
-            extractor=_DrugExtractor(),
+            extractor=_DrugExtractor(
+                drug_label=self.drug_label,
+                condition_label=self.condition_label,
+            ),
         )
 
         await graph.add(
@@ -515,7 +546,10 @@ class TestRetrievalE2E:
             schema=self.schema,
             graph_store=self.store,
             embedder=self.embedder,
-            extractor=_DrugExtractor(),
+            extractor=_DrugExtractor(
+                drug_label=self.drug_label,
+                condition_label=self.condition_label,
+            ),
         )
 
         await graph.add(
@@ -538,7 +572,10 @@ class TestRetrievalE2E:
             schema=self.schema,
             graph_store=self.store,
             embedder=self.embedder,
-            extractor=_DrugExtractor(),
+            extractor=_DrugExtractor(
+                drug_label=self.drug_label,
+                condition_label=self.condition_label,
+            ),
         )
 
         await graph.add(
@@ -549,6 +586,8 @@ class TestRetrievalE2E:
             text="Ibuprofen reduces inflammation.",
             error_policy="skip",
         )
+
+        await self._ensure_retrieval_indexes()
 
         engine = SearchEngine(
             graph_store=self.store,
@@ -630,7 +669,12 @@ class TestRetrievalE2E:
             }
         )
 
-        answer = result["messages"][-1]["content"]
+        last_message = result["messages"][-1]
+        answer = (
+            last_message["content"]
+            if isinstance(last_message, dict)
+            else last_message.content
+        )
         # The answer should reference Aspirin or citation keys.
         assert "Aspirin" in answer or "[E" in answer or "[C" in answer
 
