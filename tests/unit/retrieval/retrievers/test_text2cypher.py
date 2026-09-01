@@ -2,6 +2,7 @@
 
 import json
 import logging
+import sys
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -26,6 +27,17 @@ class TestText2CypherRetriever:
         with patch.object(retriever, "_generate_cypher", side_effect=Exception("fail")):
             results = await retriever.retrieve("what is X?")
             assert results == []
+
+    async def test_returns_empty_without_baml_client(self) -> None:
+        """A missing BAML client yields no results and no query."""
+        gs = AsyncMock()
+        retriever = Text2CypherRetriever(graph_store=gs)
+
+        with patch.dict(sys.modules, {"agrag.llm.baml_client": None}):
+            results = await retriever.retrieve("what is X?")
+
+        assert results == []
+        gs.execute_read.assert_not_awaited()
 
     async def test_rejects_write_cypher(self) -> None:
         """Generated Cypher with write clauses returns empty."""

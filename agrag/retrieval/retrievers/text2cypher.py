@@ -374,18 +374,20 @@ class Text2CypherRetriever(Retriever):
 
         Returns:
             The generated Cypher query string.
-        """
-        try:
-            from agrag.llm.baml_client import b as baml_client  # noqa: PLC0415
 
-            return await baml_client.GenerateCypherQuery(
-                question=question,
-                schema_description="Generic schema with Person, "
-                "Organization, Location, Event, Product entities "
-                "and RELATED_TO, MENTIONED_IN relations.",
-            )
-        except ImportError:
-            return []
+        Raises:
+            ImportError: The BAML client is not installed, so no query
+                can be generated. ``retrieve`` turns this into an empty
+                result set.
+        """
+        from agrag.llm.baml_client import b as baml_client  # noqa: PLC0415
+
+        return await baml_client.GenerateCypherQuery(
+            question=question,
+            schema_description="Generic schema with Person, "
+            "Organization, Location, Event, Product entities "
+            "and RELATED_TO, MENTIONED_IN relations.",
+        )
 
     @staticmethod
     def _extract_relation(row: dict) -> Relation | None:
