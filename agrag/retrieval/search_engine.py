@@ -220,12 +220,12 @@ class SearchEngine:
     def _build_retrievers(self) -> dict:
         """Build the retriever map from current stores."""
         return {
+        return {
             "entity": EntityRetriever(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
                 vector_store=self._vector_store,
                 settings=self._settings,
-                entity_labels=self._entity_labels,
             ),
             "chunk": ChunkRetriever(
                 graph_store=self._graph_store,
@@ -233,4 +233,9 @@ class SearchEngine:
                 vector_store=self._vector_store,
                 settings=self._settings,
             ),
+            "text2cypher": Text2CypherRetriever(
+                graph_store=self._graph_store,
+                settings=self._settings,
+            ),
+        }
         }
