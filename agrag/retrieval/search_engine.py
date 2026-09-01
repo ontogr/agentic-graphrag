@@ -16,6 +16,7 @@ from agrag.retrieval.rerank.node_distance import node_distance_rerank
 from agrag.retrieval.retrievers.bfs import BFSRetriever
 from agrag.retrieval.retrievers.chunk import ChunkRetriever
 from agrag.retrieval.retrievers.entity import EntityRetriever
+from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 
@@ -220,12 +221,12 @@ class SearchEngine:
     def _build_retrievers(self) -> dict:
         """Build the retriever map from current stores."""
         return {
-        return {
             "entity": EntityRetriever(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
                 vector_store=self._vector_store,
                 settings=self._settings,
+                entity_labels=self._entity_labels,
             ),
             "chunk": ChunkRetriever(
                 graph_store=self._graph_store,
@@ -237,5 +238,4 @@ class SearchEngine:
                 graph_store=self._graph_store,
                 settings=self._settings,
             ),
-        }
         }
