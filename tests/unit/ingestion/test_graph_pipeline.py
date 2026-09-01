@@ -92,9 +92,14 @@ class MockStore(GraphStore):
         return S()  # type: ignore[return-value]
 
     async def execute_read(
-        self, query: str, parameters: Mapping[str, Any] | None = None
+        self,
+        query: str,
+        parameters: Mapping[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> list[dict[str, Any]]:
         """Record the read and return the next canned response."""
+        del timeout
         self.execute_read_calls.append((query, parameters))
         if self._read_index < len(self.execute_read_responses):
             response = self.execute_read_responses[self._read_index]

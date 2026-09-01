@@ -55,7 +55,11 @@ class _MockGraphStore(GraphStore):
         return _MockSession()  # type: ignore[return-value]
 
     async def execute_read(
-        self, query: str, parameters: Mapping[str, Any] | None = None
+        self,
+        query: str,
+        parameters: Mapping[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> list[dict[str, Any]]:
         return []
 
