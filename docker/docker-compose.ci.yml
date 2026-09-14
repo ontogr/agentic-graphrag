@@ -72,10 +72,13 @@ services:
 
   # Milvus standalone needs etcd (metadata) and MinIO (object storage) as sidecars, per Milvus's
   # own official standalone docker-compose reference — mirrored here rather than hand-invented.
-  # Verify these three image tags against Milvus's current release docs before relying on this
-  # in CI; they were not executable in the environment that authored this file.
+  # This project targets Milvus 3.0 and above. The milvus image major version and the pymilvus
+  # bound in pyproject.toml must move together.
+  # Changing the milvus image's major version against an existing milvus-data volume makes the
+  # container exit 1 within a second with no useful log output. Run `down -v`, not just `down`,
+  # before switching versions locally.
   milvus-etcd:
-    image: quay.io/coreos/etcd:v3.5.18
+    image: quay.io/coreos/etcd:v3.5.25
     environment:
       ETCD_AUTO_COMPACTION_MODE: revision
       ETCD_AUTO_COMPACTION_RETENTION: "1000"
@@ -111,8 +114,10 @@ services:
       start_period: 15s
 
   milvus:
-    image: milvusdb/milvus:v2.5.6
+    image: milvusdb/milvus:v3.0.1
     command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
     environment:
       ETCD_ENDPOINTS: milvus-etcd:2379
       MINIO_ADDRESS: milvus-minio:9000

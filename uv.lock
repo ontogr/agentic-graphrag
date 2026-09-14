@@ -137,7 +137,7 @@ requires-dist = [
     { name = "protobuf", marker = "extra == 'extract'" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "pymilvus", marker = "extra == 'milvus'", specifier = ">=2.5.3" },
+    { name = "pymilvus", marker = "extra == 'milvus'", specifier = ">=3.0.0,<4" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "qdrant-client", marker = "extra == 'qdrant'", specifier = ">=1.12" },
     { name = "rapidfuzz", specifier = ">=3.0" },
