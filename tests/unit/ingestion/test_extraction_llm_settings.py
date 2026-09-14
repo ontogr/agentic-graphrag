@@ -4,8 +4,10 @@ Covers reading ``EXTRACTION_LLM_CLIENTS``/``_STRATEGY``/``_RETRY`` and their
 defaults, and ``from_openai_compatible_env`` building a single
 openai-generic client from ``LLM_BASE_URL``, ``LLM_API_KEY``, and
 ``LLM_MODEL_ID``. Uses ``monkeypatch.setenv``/``delenv`` for environment
-variables and patches ``load_dotenv`` to a no-op so tests do not read a real
-``.env`` file.
+variables. The ``from_openai_compatible_env`` tests patch its explicit
+``load_dotenv()`` call to a no-op; the ``ExtractionLLMSettings()`` tests
+rely on pydantic-settings' own ``env_file`` loading and are not protected
+by that patch.
 """
 
 import pytest

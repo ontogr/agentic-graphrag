@@ -7,7 +7,7 @@ back to empty results on generation failure or a missing BAML client
 accepting read queries and vector index CALLs, appending a configured row
 LIMIT when the generated query lacks one (without being fooled by a quoted
 "LIMIT" inside a string literal), forwarding the configured timeout to every
-execute_read call, and parsing result rows into Entity/Relation/Chunk
+execute_read call, and parsing result rows into Relation/Chunk
 SearchResults, including relations with embedded start/end nodes and a
 scalar row (e.g. ``count(p)``) being logged as a warning rather than
 silently dropped.

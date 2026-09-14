@@ -1,10 +1,12 @@
 """Tests for cross_encoder_rerank in agrag.retrieval.rerank.cross_encoder.
 
-Simulates the ``sentence_transformers`` extra being present but unusable by
-patching ``sys.modules`` with a bare ``ModuleType`` stand-in, so no real
-cross-encoder model loads. Covers falling back to unchanged results when no
-usable model is available, an empty input list, and that min_score filtering
-only applies when a real model is present.
+Simulates the ``sentence_transformers`` extra by patching ``sys.modules``: a
+bare ``ModuleType`` stand-in models the extra being present but unusable, and
+a fake module exposing a working ``CrossEncoder`` class models a real model
+being available. Covers falling back to unchanged results when no usable
+model is available, an empty input list, that min_score filtering is skipped
+without a model, and that it actually drops low-scoring results when a model
+is present.
 """
 
 import sys
@@ -23,6 +25,21 @@ def _make_result(score: float = 1.0) -> SearchResult:
         score=score,
         method="test",
     )
+
+
+def _fake_cross_encoder_module(scores: list[float]) -> ModuleType:
+    """Build a fake sentence_transformers module with a working CrossEncoder."""
+
+    class FakeCrossEncoder:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
+            return scores
+
+    module = ModuleType("fake")
+    module.CrossEncoder = FakeCrossEncoder
+    return module
 
 
 class TestCrossEncoderRerank:
@@ -49,3 +66,13 @@ class TestCrossEncoderRerank:
         with patch.dict(sys.modules, {"sentence_transformers": ModuleType("fake")}):
             reranked = await cross_encoder_rerank("query", [r1], min_score=0.5)
         assert len(reranked) >= 1
+
+    async def test_min_score_filters_when_model_present(self) -> None:
+        """A present model drops results below min_score, keeps the rest."""
+        r1 = _make_result(score=0.1)
+        r2 = _make_result(score=0.1)
+        fake_module = _fake_cross_encoder_module([0.9, 0.2])
+        with patch.dict(sys.modules, {"sentence_transformers": fake_module}):
+            reranked = await cross_encoder_rerank("query", [r1, r2], min_score=0.5)
+        assert len(reranked) == 1
+        assert reranked[0].score == 0.9

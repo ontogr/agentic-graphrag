@@ -14,6 +14,7 @@ from agrag.agents.tools import make_tools
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.retrieval.filters import SearchFilters
+from agrag.retrieval.recipes import CHUNK
 
 
 class TestMakeTools:
@@ -51,7 +52,7 @@ class TestMakeTools:
         ledger = Ledger()
         tools = make_tools(engine, ledger)
         result = await tools[0].ainvoke({"query": "test query"})
-        engine.search.assert_called_once()
+        engine.search.assert_awaited_once_with("test query", CHUNK, filters=None)
         assert "Alice" in result
 
     async def test_tool_run_passes_no_filters_by_default(self) -> None:
