@@ -61,6 +61,8 @@ For the full project map and component responsibilities, read
 
 ## Critical rules
 
+- Do not add any documentation or comments that would not reside in a production codebase. Comments should be developer/user friendly not intermediate findings when performing a task.
+- Do not include comments referring to internal plans, notes, or comments written by agents while performing a task.
 - Keep the flat layout: `agrag/` lives at the repository root. Do not add
   `src/`.
 - Use `uv run` for Python commands and Makefile targets for standard checks.
@@ -278,6 +280,7 @@ errors.
 - Never use the passive where you can use the active.
 - Never use a foreign phrase, a scientific word, or a jargon word if you can think of an everyday English equivalent.
 - Break any of these rules sooner than say anything outright barbarous.
+- Use the ASD-STE100 Simplified Technical English (STE) standard writing style.
 
 ## Docstrings and comments
 

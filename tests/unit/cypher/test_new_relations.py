@@ -1,4 +1,15 @@
-"""Tests for new Cypher relation builders: BFS and MENTIONED_IN."""
+"""Tests for bfs_expand_query and the MENTIONED_IN walk builders in cypher.relations.
+
+Covers bfs_expand_query's variable-length path pattern, result LIMIT,
+seed-id exclusion, relation_types restricting (or, when absent, leaving
+untyped) the relationship pattern, rejecting an injection attempt in a
+relation type, filter-to-WHERE-clause translation with AND-combined
+multiple filters, excluding Chunk-labeled neighbors, and clamping depth to
+[1, 10] and limit to [1, 1000] rather than passing extreme values through.
+Also covers chunks_mentioning_entities_query and
+entities_mentioned_in_chunks_query traversing MENTIONED_IN in each
+direction while filtering tombstoned nodes.
+"""
 
 import pytest
 

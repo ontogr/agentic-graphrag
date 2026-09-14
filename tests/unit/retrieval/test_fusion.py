@@ -1,4 +1,12 @@
-"""Tests for Reciprocal Rank Fusion."""
+"""Tests for the Reciprocal Rank Fusion implementation in agrag.retrieval.fusion.
+
+Covers single-method passthrough, deduplication of the same entity returned
+by multiple methods, the effect of the rrf_k parameter on rank spread, and
+several regressions around within-method duplicates: a repeated item from one
+method must contribute a single best-rank vote rather than inflating the
+score or summing multiple positions, while still keeping the highest
+individual score across methods.
+"""
 
 from uuid import uuid4
 

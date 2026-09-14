@@ -1,4 +1,11 @@
-"""Tests for build_graph_store and the backend lookup table."""
+"""Tests for build_graph_store and the backend lookup table.
+
+Covers building a Neo4jGraphStore from the "neo4j" name with matching
+Neo4jSettings, passthrough of an already-constructed GraphStore instance,
+and a reflection check that every ``Literal`` backend name in
+``build_graph_store``'s type annotation has a matching entry in
+``_GRAPH_STORE_FACTORIES``.
+"""
 
 import typing
 from typing import get_args, get_origin

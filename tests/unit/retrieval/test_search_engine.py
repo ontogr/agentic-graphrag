@@ -1,4 +1,20 @@
-"""Tests for SearchEngine."""
+"""Tests for SearchEngine in agrag.retrieval.search_engine.
+
+Patches retriever-level ``vector_search``/``resolve_entity``/
+``_parse_chunk_node`` functions and BFSRetriever/node_distance_rerank with
+AsyncMock/MagicMock, using an AsyncMock graph store, so no real database or
+embedding call is made. Covers single-method and HYBRID (fused entity+chunk)
+recipes, forwarding a recipe's bfs_depth to BFSRetriever (or omitting it when
+None), that SearchFilters route to only the retrievers they apply to
+(relation_types to BFS, labels to entity search, document_ids to chunk
+search), that BFS fusion uses one "bfs" key rather than one per prior result,
+that node-distance rerank seeds are the pre-BFS top-k entity ids only (never
+chunk ids or every candidate), that entity_labels (not the collection name)
+drive native entity search, and error handling: every method failing raises
+AllRetrievalMethodsFailedError, a partial failure keeps surviving results and
+logs a warning, and an unknown recipe method name raises
+UnknownRecipeMethodError instead of silently returning no hits.
+"""
 
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch

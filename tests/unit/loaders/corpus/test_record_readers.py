@@ -1,4 +1,16 @@
-"""Tests for the record readers: CSV, TSV, JSON Lines, and JSON."""
+"""Tests for CsvLoader, JsonlLoader, and JsonLoader.
+
+Reads fixtures from the local ``fixtures/`` directory. Covers per-row/line/
+element document splitting, unique ids per record, resume via start_at
+(including JSON Lines counting logical records rather than physical lines
+across blank lines), id/title/text column configuration, CSV table mode
+producing a single prose document, TSV delimiter handling, storing raw
+records, hiding text under ``store_text=False``, JSON array-versus-object
+disambiguation and DOCUMENT mode, and malformed input raising
+MalformedRecordError (missing/empty text or id column, unterminated CSV
+quoting, non-JSON JSON-Lines row) or DocumentTooLargeError for an oversized
+source with an unknown byte size.
+"""
 
 from io import BytesIO
 

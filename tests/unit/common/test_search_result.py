@@ -1,4 +1,10 @@
-"""Tests for the SearchResult data model."""
+"""Tests for the SearchResult data model's identity_key property.
+
+Covers the ``(kind, id)`` identity key shape for Entity, Chunk, and Relation
+items, and that two results wrapping the same entity share a key while
+results for different entities do not — the invariant fusion and the
+citation ledger both rely on to deduplicate across retrieval methods.
+"""
 
 from uuid import uuid4
 

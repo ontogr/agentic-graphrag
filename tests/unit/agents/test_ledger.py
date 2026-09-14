@@ -1,4 +1,11 @@
-"""Tests for Ledger citation tracking."""
+"""Tests for Ledger in agrag.agents.ledger.
+
+Covers stable key assignment (the same entity across two SearchResults gets
+one key, different entities get different keys), the "E" key prefix,
+resolve() round-tripping a key back to its SearchResult (and returning None
+for an unknown key), markdown rendering via render(), and the keys property
+listing every citation assigned so far.
+"""
 
 from uuid import uuid4
 

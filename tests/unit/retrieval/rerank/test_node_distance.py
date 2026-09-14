@@ -1,4 +1,10 @@
-"""Tests for node_distance_rerank."""
+"""Tests for node_distance_rerank in agrag.retrieval.rerank.node_distance.
+
+Uses a MockGraphStore whose execute_read returns a preset shortest-path
+distance per target id, so no real Neo4j query runs. Covers empty input,
+no seed ids leaving results unchanged, and that entities closer to the seed
+set rank ahead of farther ones.
+"""
 
 from uuid import uuid4
 

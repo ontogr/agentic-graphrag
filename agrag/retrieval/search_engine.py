@@ -1,4 +1,4 @@
-"""Retrieval's public entry point, independent of Graph (ADR 0035)."""
+"""Retrieval's public entry point, independent of Graph."""
 
 import asyncio
 import logging

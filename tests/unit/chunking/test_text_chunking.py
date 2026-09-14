@@ -1,4 +1,11 @@
-"""Tests for the text chunker and default chunker builder."""
+"""Tests for chunk_document and default_chunker in agrag.chunking.
+
+Verifies character-span and line-number provenance on produced chunks, index
+ordering, heading-path tracking from a document's heading outline, and the
+character-based recursive default chunker's size limit. One test calls the
+private ``_heading_path_for`` helper directly to isolate a stale-heading bug
+from chonkie's tokenizer-dependent chunk boundaries.
+"""
 
 from agrag.chunking import default_chunker
 from agrag.chunking.text import chunk_document

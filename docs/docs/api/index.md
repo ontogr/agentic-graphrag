@@ -9,13 +9,496 @@ Agentic GraphRAG: graph-based RAG with agentic reasoning.
 
 **Modules:**
 
+- [**agents**](#agrag.agents) – Agentic layer: planner/researcher/verifier over SearchEngine.
 - [**chunking**](#agrag.chunking) – Chunking helpers for the ingestion layer.
 - [**cypher**](#agrag.cypher) – Cypher query builders for graph stores.
 - [**embedding**](#agrag.embedding) – Text embedding: turn strings into dense vectors.
 - [**graphdb**](#agrag.graphdb) – Graph storage backends and the build shortcut.
 - [**ingestion**](#agrag.ingestion) – The ingestion package.
 - [**observability**](#agrag.observability) – OpenTelemetry wiring for the ingestion layer.
+- [**retrieval**](#agrag.retrieval) – Retrieval package: search engine, fusion, reranking, and retrievers.
 - [**vectordb**](#agrag.vectordb) – Vector storage backends and the build shortcut.
+
+### `agrag.agents`
+
+Agentic layer: planner/researcher/verifier over SearchEngine.
+
+**Modules:**
+
+- [**build**](#agrag.agents.build) – Build the planner/researcher/verifier agent graph.
+- [**ledger**](#agrag.agents.ledger) – Citation ledger: assigns and tracks stable keys for one agent run.
+- [**middleware**](#agrag.agents.middleware) – Agent middleware for composing multiple chat models per strategy.
+- [**model**](#agrag.agents.model) – Translate LLMClientConfig into the matching LangChain chat model.
+- [**prompts**](#agrag.agents.prompts) – Agent prompt templates for planner, researcher, verifier.
+- [**settings**](#agrag.agents.settings) – Env-backed LLM and loop config for the agent layer.
+- [**subagents**](#agrag.agents.subagents) – Subagent definitions: planner, researcher, verifier.
+- [**tools**](#agrag.agents.tools) – Agent tools: thin wrappers calling SearchEngine with fixed Recipes.
+
+#### `agrag.agents.build`
+
+Build the planner/researcher/verifier agent graph.
+
+**Functions:**
+
+- [**build_agent**](#agrag.agents.build.build_agent) – Build the planner/researcher/verifier agent graph.
+
+##### `agrag.agents.build.build_agent`
+
+```python
+build_agent(*, engine:SearchEngine, llm_settings:AgentLLMSettings, agent_settings:AgentSettings | None = None, filters:SearchFilters | None = None) -> Any
+```
+
+Build the planner/researcher/verifier agent graph.
+
+Constructs a LangGraph-based agent with three roles:
+planner (decomposes the question), researcher (has tools),
+and verifier (judges evidence sufficiency).
+
+Each call to `ainvoke` creates a fresh `Ledger` so
+citation numbering, identity mappings, and retrieved evidence
+do not leak across runs.
+
+**Parameters:**
+
+- **engine** (<code>[SearchEngine](#agrag.retrieval.search_engine.SearchEngine)</code>) – Retrieval to expose to the researcher subagent's
+  tools.
+- **llm_settings** (<code>[AgentLLMSettings](#agrag.agents.settings.AgentLLMSettings)</code>) – The model every subagent role calls, via
+  build_chat_model. With several clients, the remaining
+  ones compose per strategy through agent middleware.
+- **agent_settings** (<code>[AgentSettings](#agrag.agents.settings.AgentSettings) | None</code>) – Loop-level configuration; defaults from
+  environment. The recursion limit is enforced as the
+  LangGraph `recursion_limit` in the invoke config.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Retrieval scope applied to every tool search,
+  e.g. document or tenant constraints. None searches
+  unfiltered.
+
+**Returns:**
+
+- <code>[Any](#typing.Any)</code> – A compiled agent graph ready for invoke/ainvoke, or a
+- <code>[Any](#typing.Any)</code> – simple single-search fallback when deepagents is not
+- <code>[Any](#typing.Any)</code> – installed.
+
+#### `agrag.agents.ledger`
+
+Citation ledger: assigns and tracks stable keys for one agent run.
+
+**Classes:**
+
+- [**Ledger**](#agrag.agents.ledger.Ledger) – Assigns and tracks stable citation keys for one agent run.
+
+##### `agrag.agents.ledger.Ledger`
+
+```python
+Ledger() -> None
+```
+
+Assigns and tracks stable citation keys for one agent run.
+
+A key (E1, R1, C1 for entities, relations, and chunks) is
+assigned the first time this run encounters that item, by
+SearchResult.identity_key, and never reassigned within the run.
+The agent is shown rendered evidence carrying these keys, never
+raw SearchResults.
+
+**Functions:**
+
+- [**cite**](#agrag.agents.ledger.Ledger.cite) – Return this result's citation key, assigning one if new.
+- [**render**](#agrag.agents.ledger.Ledger.render) – Return the markdown-with-key text the agent sees.
+- [**resolve**](#agrag.agents.ledger.Ledger.resolve) – Return the SearchResult behind a citation key.
+
+**Attributes:**
+
+- [**keys**](#agrag.agents.ledger.Ledger.keys) (<code>[list](#list)\[[str](#str)\]</code>) – Return all citation keys assigned so far.
+
+###### `agrag.agents.ledger.Ledger.cite`
+
+```python
+cite(result:SearchResult) -> str
+```
+
+Return this result's citation key, assigning one if new.
+
+**Parameters:**
+
+- **result** (<code>[SearchResult](#agrag.common.data_models.search_result.SearchResult)</code>) – The SearchResult to assign a key to.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The citation key (e.g. `E1`, `C3`).
+
+###### `agrag.agents.ledger.Ledger.keys`
+
+```python
+keys: list[str]
+```
+
+Return all citation keys assigned so far.
+
+###### `agrag.agents.ledger.Ledger.render`
+
+```python
+render(result:SearchResult) -> str
+```
+
+Return the markdown-with-key text the agent sees.
+
+**Parameters:**
+
+- **result** (<code>[SearchResult](#agrag.common.data_models.search_result.SearchResult)</code>) – The SearchResult to render.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Markdown text with the citation key and item summary.
+
+###### `agrag.agents.ledger.Ledger.resolve`
+
+```python
+resolve(key:str) -> SearchResult | None
+```
+
+Return the SearchResult behind a citation key.
+
+**Parameters:**
+
+- **key** (<code>[str](#str)</code>) – The citation key to look up.
+
+**Returns:**
+
+- <code>[SearchResult](#agrag.common.data_models.search_result.SearchResult) | None</code> – The SearchResult, or None if the key is unknown.
+
+#### `agrag.agents.middleware`
+
+Agent middleware for composing multiple chat models per strategy.
+
+**Classes:**
+
+- [**RoundRobinModelMiddleware**](#agrag.agents.middleware.RoundRobinModelMiddleware) – Rotate across the configured chat models, one model per call.
+
+##### `agrag.agents.middleware.RoundRobinModelMiddleware`
+
+```python
+RoundRobinModelMiddleware(models:list[Any]) -> None
+```
+
+Bases: <code>[AgentMiddleware](#langchain.agents.middleware.types.AgentMiddleware)</code>
+
+Rotate across the configured chat models, one model per call.
+
+Overrides the request's model on every model call so requests are
+distributed across all configured clients in order.
+
+**Functions:**
+
+- [**awrap_model_call**](#agrag.agents.middleware.RoundRobinModelMiddleware.awrap_model_call) – Run the call against the next model in rotation.
+- [**wrap_model_call**](#agrag.agents.middleware.RoundRobinModelMiddleware.wrap_model_call) – Run the call against the next model in rotation.
+
+**Parameters:**
+
+- **models** (<code>[list](#list)\[[Any](#typing.Any)\]</code>) – Chat models to rotate across, in configuration
+  order. Must be non-empty.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – models is empty.
+
+###### `agrag.agents.middleware.RoundRobinModelMiddleware.awrap_model_call`
+
+```python
+awrap_model_call(request:ModelRequest, handler:Callable[[ModelRequest], Awaitable[ModelResponse]]) -> Any
+```
+
+Run the call against the next model in rotation.
+
+###### `agrag.agents.middleware.RoundRobinModelMiddleware.wrap_model_call`
+
+```python
+wrap_model_call(request:ModelRequest, handler:Callable[[ModelRequest], ModelResponse]) -> Any
+```
+
+Run the call against the next model in rotation.
+
+#### `agrag.agents.model`
+
+Translate LLMClientConfig into the matching LangChain chat model.
+
+**Classes:**
+
+- [**UnsupportedAgentProviderError**](#agrag.agents.model.UnsupportedAgentProviderError) – Raised when a provider has no agent-side mapping yet.
+
+**Functions:**
+
+- [**build_chat_model**](#agrag.agents.model.build_chat_model) – Translate one LLMClientConfig into a LangChain chat model.
+- [**build_model_middleware**](#agrag.agents.model.build_model_middleware) – Build agent middleware composing multiple clients per strategy.
+
+##### `agrag.agents.model.UnsupportedAgentProviderError`
+
+Bases: <code>[Exception](#Exception)</code>
+
+Raised when a provider has no agent-side mapping yet.
+
+##### `agrag.agents.model.build_chat_model`
+
+```python
+build_chat_model(config:LLMClientConfig) -> Any
+```
+
+Translate one LLMClientConfig into a LangChain chat model.
+
+Covers anthropic, openai, openai-generic (mapped to ChatOpenAI
+with base_url set), and google-ai. The remaining LLMProvider
+values are valid for BAML but have no agent-side mapping yet.
+
+**Parameters:**
+
+- **config** (<code>[LLMClientConfig](#agrag.llm.client_config.LLMClientConfig)</code>) – The provider, model, api_key, and base_url to use.
+
+**Returns:**
+
+- <code>[Any](#typing.Any)</code> – A constructed, ready-to-call BaseChatModel.
+
+**Raises:**
+
+- <code>[UnsupportedAgentProviderError](#agrag.agents.model.UnsupportedAgentProviderError)</code> – config.provider has no
+  agent-side mapping.
+
+##### `agrag.agents.model.build_model_middleware`
+
+```python
+build_model_middleware(clients:list[LLMClientConfig], *, strategy:Literal['single', 'fallback', 'round_robin'] = 'single') -> list[Any]
+```
+
+Build agent middleware composing multiple clients per strategy.
+
+The agent calls `clients[0]` as its primary model. With more than
+one client, the returned middleware teaches the agent loop to use
+the rest: `"fallback"` tries the other clients in order when the
+primary model call fails, and `"round_robin"` rotates across
+every client per model call.
+
+**Parameters:**
+
+- **clients** (<code>[list](#list)\[[LLMClientConfig](#agrag.llm.client_config.LLMClientConfig)\]</code>) – The configured clients, in priority order.
+- **strategy** (<code>[Literal](#typing.Literal)['single', 'fallback', 'round_robin']</code>) – How to compose `clients`. `"single"` ignores all
+  but the first client.
+
+**Returns:**
+
+- <code>[list](#list)\[[Any](#typing.Any)\]</code> – Middleware for create_deep_agent/create_agent; empty when there
+- <code>[list](#list)\[[Any](#typing.Any)\]</code> – is nothing to compose.
+
+**Raises:**
+
+- <code>[UnsupportedAgentProviderError](#agrag.agents.model.UnsupportedAgentProviderError)</code> – a client's provider has no
+  agent-side mapping.
+
+#### `agrag.agents.prompts`
+
+Agent prompt templates for planner, researcher, verifier.
+
+**Attributes:**
+
+- [**PLANNER_SYSTEM**](#agrag.agents.prompts.PLANNER_SYSTEM) –
+- [**RESEARCHER_SYSTEM**](#agrag.agents.prompts.RESEARCHER_SYSTEM) –
+- [**VERIFIER_SYSTEM**](#agrag.agents.prompts.VERIFIER_SYSTEM) –
+
+##### `agrag.agents.prompts.PLANNER_SYSTEM`
+
+```python
+PLANNER_SYSTEM = 'You are a research planner. Given a user question, decompose it into 2-4 focused sub-questions that a researcher can answer by searching a knowledge graph. Each sub-question should be specific and answerable independently.\n\nReturn your sub-questions as a numbered list.'
+```
+
+##### `agrag.agents.prompts.RESEARCHER_SYSTEM`
+
+```python
+RESEARCHER_SYSTEM = 'You are a researcher with access to a knowledge graph. Use the available tools to find evidence for each sub-question. Cite every claim with the citation keys (E1, C3, etc.) returned by tools. Base your answer only on evidence found through tools, not on general knowledge.\n\nWhen you have gathered enough evidence, provide a concise answer with citations.'
+```
+
+##### `agrag.agents.prompts.VERIFIER_SYSTEM`
+
+```python
+VERIFIER_SYSTEM = "You are an evidence verifier. Given a question, a set of sub-questions, and the researcher's evidence, check:\n1. Every sub-question has at least one citation.\n2. Every citation key resolves to real evidence.\n3. The answer directly addresses the original question.\n\nIf evidence is sufficient, say PASS. If not, list what is missing."
+```
+
+#### `agrag.agents.settings`
+
+Env-backed LLM and loop config for the agent layer.
+
+**Classes:**
+
+- [**AgentLLMSettings**](#agrag.agents.settings.AgentLLMSettings) – LLM client config for the agent's own reasoning turns.
+- [**AgentSettings**](#agrag.agents.settings.AgentSettings) – Configuration for the agent loop itself.
+
+##### `agrag.agents.settings.AgentLLMSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+LLM client config for the agent's own reasoning turns.
+
+Mirrors ExtractionLLMSettings for the agent role: same shape,
+same from_openai_compatible_env() convention, because the
+agent's model and the extraction model are configured the same
+way even though the agent calls its model through LangChain,
+not BAML.
+
+**Attributes:**
+
+- [**clients**](#agrag.agents.settings.AgentLLMSettings.clients) (<code>[list](#list)\[[LLMClientConfig](#agrag.llm.client_config.LLMClientConfig)\]</code>) – The LLM client(s) to use. One element for a single
+  provider; more than one composed per strategy through
+  agent middleware.
+- [**strategy**](#agrag.agents.settings.AgentLLMSettings.strategy) (<code>[Literal](#typing.Literal)['single', 'fallback', 'round_robin']</code>) – How to compose multiple clients. `"fallback"`
+  tries the other clients in order when a model call fails;
+  `"round_robin"` rotates across all clients per call.
+  Ignored with one client.
+
+Env prefix: `AGENT_LLM_`.
+
+**Functions:**
+
+- [**from_openai_compatible_env**](#agrag.agents.settings.AgentLLMSettings.from_openai_compatible_env) – Build settings from OpenAI-compatible env vars.
+
+###### `agrag.agents.settings.AgentLLMSettings.clients`
+
+```python
+clients: list[LLMClientConfig]
+```
+
+###### `agrag.agents.settings.AgentLLMSettings.from_openai_compatible_env`
+
+```python
+from_openai_compatible_env() -> AgentLLMSettings
+```
+
+Build settings from OpenAI-compatible env vars.
+
+Loads `.env` first, then reads `AGENT_LLM_BASE_URL`,
+`AGENT_LLM_API_KEY`, and `AGENT_LLM_MODEL_ID`. When the
+agent-specific variables are unset, the shared `LLM_*`
+convenience variables used by the extraction role stand in, so
+one `.env` can configure every LLM-backed role. The model
+name defaults to `gpt-4o-mini` when neither variable names
+one.
+
+**Returns:**
+
+- <code>[AgentLLMSettings](#agrag.agents.settings.AgentLLMSettings)</code> – AgentLLMSettings with one openai-generic client.
+
+###### `agrag.agents.settings.AgentLLMSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='AGENT_LLM_', env_file='.env', extra='ignore')
+```
+
+###### `agrag.agents.settings.AgentLLMSettings.strategy`
+
+```python
+strategy: Literal['single', 'fallback', 'round_robin'] = 'single'
+```
+
+##### `agrag.agents.settings.AgentSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+Configuration for the agent loop itself.
+
+**Attributes:**
+
+- [**recursion_limit**](#agrag.agents.settings.AgentSettings.recursion_limit) (<code>[int](#int)</code>) – The maximum LangGraph step count before
+  the loop stops and reports incomplete progress.
+
+Env prefix: `AGENT_`.
+
+###### `agrag.agents.settings.AgentSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='AGENT_', env_file='.env', extra='ignore')
+```
+
+###### `agrag.agents.settings.AgentSettings.recursion_limit`
+
+```python
+recursion_limit: int = 50
+```
+
+#### `agrag.agents.subagents`
+
+Subagent definitions: planner, researcher, verifier.
+
+**Functions:**
+
+- [**make_planner_prompt**](#agrag.agents.subagents.make_planner_prompt) – Return the planner subagent config.
+- [**make_researcher_prompt**](#agrag.agents.subagents.make_researcher_prompt) – Return the researcher subagent config.
+- [**make_verifier_prompt**](#agrag.agents.subagents.make_verifier_prompt) – Return the verifier subagent config.
+
+##### `agrag.agents.subagents.make_planner_prompt`
+
+```python
+make_planner_prompt() -> dict[str, Any]
+```
+
+Return the planner subagent config.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict with system_prompt key for the planner role.
+
+##### `agrag.agents.subagents.make_researcher_prompt`
+
+```python
+make_researcher_prompt() -> dict[str, Any]
+```
+
+Return the researcher subagent config.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict with system_prompt key for the researcher role.
+
+##### `agrag.agents.subagents.make_verifier_prompt`
+
+```python
+make_verifier_prompt() -> dict[str, Any]
+```
+
+Return the verifier subagent config.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict with system_prompt key for the verifier role.
+
+#### `agrag.agents.tools`
+
+Agent tools: thin wrappers calling SearchEngine with fixed Recipes.
+
+Each tool is a LangChain-compatible callable that deepagents can
+register. Tools are named for what the agent is trying to find
+out, not for the retrieval method they use.
+
+**Functions:**
+
+- [**make_tools**](#agrag.agents.tools.make_tools) – Build the agent's tool set over one SearchEngine and Ledger.
+
+##### `agrag.agents.tools.make_tools`
+
+```python
+make_tools(engine:'SearchEngine', ledger:'Ledger', *, filters:'SearchFilters | None' = None) -> list[Any]
+```
+
+Build the agent's tool set over one SearchEngine and Ledger.
+
+**Parameters:**
+
+- **engine** (<code>'SearchEngine'</code>) – The SearchEngine every tool calls.
+- **ledger** (<code>'Ledger'</code>) – The citation ledger for one run.
+- **filters** (<code>'SearchFilters | None'</code>) – Retrieval scope applied to every tool's search.
+  Pass document or tenant constraints here so the agent
+  cannot surface graph data outside them; the LLM never
+  sees or chooses the scope.
+
+**Returns:**
+
+- <code>[list](#list)\[[Any](#typing.Any)\]</code> – A list of LangChain tool instances: search_source_text,
+- <code>[list](#list)\[[Any](#typing.Any)\]</code> – look_up_entity, find_connection, explore_related, and
+- <code>[list](#list)\[[Any](#typing.Any)\]</code> – answer_from_graph_structure.
 
 ### `agrag.chunking`
 
@@ -317,7 +800,8 @@ points one way (store -> cypher).
 
 - [**entities**](#agrag.cypher.entities) – Cypher builders for node writes and filters.
 - [**merge**](#agrag.cypher.merge) – Cypher for the tombstone/transfer/dedup merge path.
-- [**relations**](#agrag.cypher.relations) – Cypher builders for relationship writes.
+- [**relations**](#agrag.cypher.relations) – Cypher builders for relationship writes and graph traversal.
+- [**safety**](#agrag.cypher.safety) – Safety gate for generated Cypher queries.
 - [**schema**](#agrag.cypher.schema) – Cypher builders for constraints and native vector indexes.
 
 #### `agrag.cypher.entities`
@@ -329,13 +813,18 @@ the dependency points one way (store -> cypher).
 
 **Functions:**
 
+- [**clear_chunk_embedding_query**](#agrag.cypher.entities.clear_chunk_embedding_query) – Build Cypher removing a vector property from Chunk nodes.
 - [**clear_property_query**](#agrag.cypher.entities.clear_property_query) – Build Cypher removing one property from a batch of nodes, guarded by text.
 - [**fetch_all_by_label_query**](#agrag.cypher.entities.fetch_all_by_label_query) – Build Cypher paginating every node with label, for consolidate().
 - [**fetch_by_merge_keys_query**](#agrag.cypher.entities.fetch_by_merge_keys_query) – Build Cypher for a batched exact-match lookup by merge key.
 - [**fetch_relations_between_query**](#agrag.cypher.entities.fetch_relations_between_query) – Build Cypher for batched lookup of existing relations by endpoints.
 - [**filter_clause**](#agrag.cypher.entities.filter_clause) – Build a Cypher WHERE clause and parameters from a flat-dict filter.
+- [**hydrate_chunks_by_id_query**](#agrag.cypher.entities.hydrate_chunks_by_id_query) – Build Cypher fetching chunks by id.
+- [**hydrate_entities_by_id_query**](#agrag.cypher.entities.hydrate_entities_by_id_query) – Build Cypher fetching entities by id, excluding tombstones.
 - [**is_safe_identifier**](#agrag.cypher.entities.is_safe_identifier) – Report whether a label or relationship type is a safe Cypher identifier.
 - [**merge_key_index_query**](#agrag.cypher.entities.merge_key_index_query) – Build a CREATE INDEX query on the node merge_key property.
+- [**resolve_merged_into_query**](#agrag.cypher.entities.resolve_merged_into_query) – Return a node and the id of the node it was merged into.
+- [**set_chunk_embedding_query**](#agrag.cypher.entities.set_chunk_embedding_query) – Build Cypher setting a vector property on Chunk nodes.
 - [**set_embedding_query**](#agrag.cypher.entities.set_embedding_query) – Build Cypher setting one vector property per node, guarded by its text.
 - [**upsert_merge_alias_query**](#agrag.cypher.entities.upsert_merge_alias_query) – Build Cypher recording every accepted merge_key's owning entity id.
 - [**upsert_node_query**](#agrag.cypher.entities.upsert_node_query) – Build the Cypher for an UNWIND-batched node upsert.
@@ -358,6 +847,29 @@ MERGE_ALIAS_LABEL = '_AgragMergeAlias'
 ```python
 NODE_IDENTITY_LABEL = '_AgragNode'
 ```
+
+##### `agrag.cypher.entities.clear_chunk_embedding_query`
+
+```python
+clear_chunk_embedding_query(vector_property:str) -> str
+```
+
+Build Cypher removing a vector property from Chunk nodes.
+
+Guards on `text` the same way `set_chunk_embedding_query` does,
+so a concurrent update that changed a chunk's text between this
+call's embed and its clear does not accidentally wipe a newer
+vector.
+
+**Parameters:**
+
+- **vector_property** (<code>[str](#str)</code>) – The property to remove. Must already be
+  validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $records, a list of dicts with
+- <code>[str](#str)</code> – the keys id and expected_text.
 
 ##### `agrag.cypher.entities.clear_property_query`
 
@@ -465,6 +977,37 @@ Build a Cypher WHERE clause and parameters from a flat-dict filter.
 - <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – non-empty, otherwise an empty string) and the parameter dict to pass
 - <code>[tuple](#tuple)\[[str](#str), [dict](#dict)\[[str](#str), [Any](#typing.Any)\]\]</code> – with it.
 
+##### `agrag.cypher.entities.hydrate_chunks_by_id_query`
+
+```python
+hydrate_chunks_by_id_query() -> str
+```
+
+Build Cypher fetching chunks by id.
+
+Chunks are never tombstoned, so no merged_into guard is needed.
+The query filters on the Chunk label for type safety.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids).
+
+##### `agrag.cypher.entities.hydrate_entities_by_id_query`
+
+```python
+hydrate_entities_by_id_query() -> str
+```
+
+Build Cypher fetching entities by id, excluding tombstones.
+
+A tombstoned node is never deleted, so a naive
+`MATCH (n) WHERE n.id IN $ids` would surface one. This query
+filters on `merged_into IS NULL` to return only live nodes.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids).
+
 ##### `agrag.cypher.entities.is_safe_identifier`
 
 ```python
@@ -503,6 +1046,45 @@ Backs the global exact-match lookup.
 
 - <code>[str](#str)</code> – A Cypher query creating the range index if absent.
 
+##### `agrag.cypher.entities.resolve_merged_into_query`
+
+```python
+resolve_merged_into_query() -> str
+```
+
+Return a node and the id of the node it was merged into.
+
+A tombstoned node is never deleted; it only gains a `merged_into`
+property pointing at its survivor. The pointer is a property, not a
+relationship, so a chain is followed one hop per call: `merged_into`
+is null on a live node and holds the next id on a tombstone.
+
+**Returns:**
+
+- <code>[str](#str)</code> – A parameterized query expecting an $id parameter, returning the
+- <code>[str](#str)</code> – node as `node` and its survivor id as `merged_into`.
+
+##### `agrag.cypher.entities.set_chunk_embedding_query`
+
+```python
+set_chunk_embedding_query(vector_property:str) -> str
+```
+
+Build Cypher setting a vector property on Chunk nodes.
+
+Similar to `set_embedding_query` but guards on `text` instead of
+`name`/`description`, since chunks have no name field. The text
+guard prevents a stale write from overwriting a newer vector.
+
+**Parameters:**
+
+- **vector_property** (<code>[str](#str)</code>) – The property to set. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $records, a list of dicts with the
+- <code>[str](#str)</code> – keys id, vector, and expected_text.
+
 ##### `agrag.cypher.entities.set_embedding_query`
 
 ```python
@@ -519,6 +1101,15 @@ delivering the vector. The `name`/`description` match is an
 optimistic-concurrency guard: a record only applies if the node's text
 still matches what its vector was computed from, so a slower write from
 an older call cannot overwrite a newer one's vector with a stale one.
+
+Also requires `merged_into IS NULL`: a concurrent merge can tombstone
+the node -- clearing this same property -- after this call already read
+its text and started embedding, but before this write lands. Without
+this guard, the write would restore a vector on an absorbed entity
+purely because its name/description happened not to change, putting it
+back in native vector search. `tombstone_query` sets `merged_into`
+and removes the embedding in the same write, so this guard racing that
+one always sees them change together.
 
 **Parameters:**
 
@@ -552,10 +1143,18 @@ entity it names is later itself absorbed, `fetch_by_merge_keys_query`'s
 caller follows that entity's `merged_into` chain from here instead of
 this table being kept in sync with every later merge.
 
+The returned rows are what let a caller detect the case `ON CREATE SET` alone cannot: an accepted merge_key already owned by some other
+live entity, not one this same merge is writing or absorbing. Neither
+entity's own node merge_key collides in that case, so nothing at the
+database level rejects the write; the caller must compare each row's
+entity_id against its own survivor and tombstone ids itself.
+
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $merge_keys (list of strings) and
-- <code>[str](#str)</code> – $entity_id.
+- <code>[str](#str)</code> – $entity_id. Returns each merge_key alongside the entity_id that now
+- <code>[str](#str)</code> – owns it -- $entity_id when this call claimed or already owned it,
+- <code>[str](#str)</code> – another entity's id when a different one claimed it first.
 
 ##### `agrag.cypher.entities.upsert_node_query`
 
@@ -762,14 +1361,21 @@ rather than only what one transfer call happened to move.
 ##### `agrag.cypher.merge.tombstone_query`
 
 ```python
-tombstone_query(label:str) -> str
+tombstone_query(label:str, *, vector_property:str) -> str
 ```
 
 Build Cypher marking one or more nodes as merged, never deleting them.
 
+Also removes `vector_property`: a native Neo4j vector index only covers
+nodes that currently carry the indexed property, so dropping it takes the
+tombstone out of vector search immediately, with no query-time filter and
+no dependency on a later re-embed ever running against it.
+
 **Parameters:**
 
 - **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+- **vector_property** (<code>[str](#str)</code>) – The embedding property to remove. Must already be
+  validated.
 
 **Returns:**
 
@@ -794,14 +1400,92 @@ Build Cypher moving one direction of a tombstoned node's relationships.
 
 #### `agrag.cypher.relations`
 
-Cypher builders for relationship writes.
+Cypher builders for relationship writes and graph traversal.
 
 Leaf module: imports nothing from `agrag.graphdb`. See `entities.py` for the
 identifier-validation contract shared by every Cypher builder.
 
 **Functions:**
 
+- [**bfs_expand_query**](#agrag.cypher.relations.bfs_expand_query) – Build Cypher for BFS expansion from seed entity ids.
+- [**chunks_mentioning_entities_query**](#agrag.cypher.relations.chunks_mentioning_entities_query) – Build Cypher finding chunks that mention given entities.
+- [**entities_mentioned_in_chunks_query**](#agrag.cypher.relations.entities_mentioned_in_chunks_query) – Build Cypher finding entities mentioned by given chunks.
 - [**upsert_relation_query**](#agrag.cypher.relations.upsert_relation_query) – Build the Cypher for an UNWIND-batched relationship upsert.
+
+##### `agrag.cypher.relations.bfs_expand_query`
+
+```python
+bfs_expand_query(*, depth:int = 2, limit:int = 50, filters:dict[str, Any] | None = None, relation_types:Sequence[str] | None = None) -> tuple[str, dict[str, Any]]
+```
+
+Build Cypher for BFS expansion from seed entity ids.
+
+Traverses outgoing relationships from a set of seed entities, bounded
+by `depth` hops and `limit` total result nodes. The depth is
+formatted into the query text (not a parameter) because Neo4j does
+not accept a parameter for a variable-length relationship bound. It
+must come from `RetrievalSettings`, never from user input.
+
+`relation_types` restricts which relationships a traversal may
+cross. Neo4j does not accept a parameter for relationship types
+either, so each type is validated and formatted into the pattern.
+
+`depth` is clamped to [1, 10] and `limit` to [1, 1000] so
+misconfigured or malicious settings cannot produce unbounded
+traversals. The clamp is applied here, closest to the Cypher
+interpolation, so every caller benefits.
+
+Result nodes are restricted to `_AgragNode` entities that are
+**not** `Chunk` nodes: chunks are intermediate path nodes only,
+never returned as BFS results.
+
+**Parameters:**
+
+- **depth** (<code>[int](#int)</code>) – The maximum BFS hops. Clamped to [1, 10].
+- **limit** (<code>[int](#int)</code>) – The maximum number of result nodes. Clamped to [1, 1000].
+- **filters** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – Optional flat-dict filter applied to neighbor nodes.
+  A scalar value means exact match, a list means any of.
+- **relation_types** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – Optional relationship types the traversal may
+  cross. None or empty crosses every type.
+
+**Returns:**
+
+- <code>[str](#str)</code> – A `(query, params)` tuple. The query expects `$seed_ids`
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – (list of string ids) plus any filter parameters.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – A relation type is not a safe Cypher identifier.
+
+##### `agrag.cypher.relations.chunks_mentioning_entities_query`
+
+```python
+chunks_mentioning_entities_query() -> str
+```
+
+Build Cypher finding chunks that mention given entities.
+
+Walks the MENTIONED_IN edge from Chunk to Entity. Returns chunks
+that reference any of the given entity ids.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids).
+
+##### `agrag.cypher.relations.entities_mentioned_in_chunks_query`
+
+```python
+entities_mentioned_in_chunks_query() -> str
+```
+
+Build Cypher finding entities mentioned by given chunks.
+
+Walks the MENTIONED_IN edge from Chunk to Entity in reverse. Returns
+entities referenced by any of the given chunk ids.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $chunk_ids (list of string ids).
 
 ##### `agrag.cypher.relations.upsert_relation_query`
 
@@ -843,6 +1527,79 @@ which caller's read was stale.
 - <code>[str](#str)</code> – items carry `id`, `start_id`, `end_id`, and `properties` keys.
 - <code>[str](#str)</code> – `properties` may include `source_chunk_ids`; other keys are
 - <code>[str](#str)</code> – applied as-is.
+
+#### `agrag.cypher.safety`
+
+Safety gate for generated Cypher queries.
+
+**Classes:**
+
+- [**UnsafeCypherError**](#agrag.cypher.safety.UnsafeCypherError) – Raised when a generated Cypher query contains a write clause.
+
+**Functions:**
+
+- [**reject_write_cypher**](#agrag.cypher.safety.reject_write_cypher) – Raise fast on an obvious write clause, ahead of EXPLAIN.
+- [**strip_cypher_syntax**](#agrag.cypher.safety.strip_cypher_syntax) – Blank string literals, comments, and backtick identifiers.
+
+##### `agrag.cypher.safety.UnsafeCypherError`
+
+Bases: <code>[Exception](#Exception)</code>
+
+Raised when a generated Cypher query contains a write clause.
+
+##### `agrag.cypher.safety.reject_write_cypher`
+
+```python
+reject_write_cypher(query:str) -> None
+```
+
+Raise fast on an obvious write clause, ahead of EXPLAIN.
+
+This is a cheap pre-filter, not the safety boundary:
+execute_read's read transaction is what actually prevents a
+write from running, since Neo4j itself rejects one there. This
+check exists so a write-shaped generated query fails immediately
+instead of spending an EXPLAIN round trip first.
+
+Keywords are matched case-insensitively, and only outside string
+literals, comments, and backtick identifiers, so a lowercase
+`delete` or a quote inside a comment cannot desync the scan.
+The check is conservative: a write keyword used as a property
+name (e.g. `RETURN n.set`) is also rejected, acceptable for a
+pre-filter that guards model-generated text.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The Cypher text a BAML call produced.
+
+**Raises:**
+
+- <code>[UnsafeCypherError](#agrag.cypher.safety.UnsafeCypherError)</code> – The query contains a write keyword outside
+  a string literal, comment, or backtick identifier.
+
+##### `agrag.cypher.safety.strip_cypher_syntax`
+
+```python
+strip_cypher_syntax(query:str) -> str
+```
+
+Blank string literals, comments, and backtick identifiers.
+
+Replaces the contents of string literals, `//` and `/* */`
+comments, and backtick-quoted identifiers with spaces, keeping every
+other character intact so token boundaries survive. Scans char by
+char and honors backslash and doubled-quote escapes, so an escaped
+quote inside a literal cannot close the scan early and let a real
+keyword after it hide inside a bogus "string".
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The Cypher text to scrub.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The query with literal, comment, and identifier content blanked,
+- <code>[str](#str)</code> – layout otherwise unchanged.
 
 #### `agrag.cypher.schema`
 
@@ -2143,7 +2900,7 @@ Create a native vector index if it does not exist.
 ##### `agrag.graphdb.GraphStore.execute_read`
 
 ```python
-execute_read(query:str, parameters:Mapping[str, Any] | None = None) -> list[dict[str, Any]]
+execute_read(query:str, parameters:Mapping[str, Any] | None = None, *, timeout:float | None = None) -> list[dict[str, Any]]
 ```
 
 Run a read transaction.
@@ -2152,6 +2909,10 @@ Run a read transaction.
 
 - **query** (<code>[str](#str)</code>) – The Cypher query to run.
 - **parameters** (<code>[Mapping](#collections.abc.Mapping)\[[str](#str), [Any](#typing.Any)\] | None</code>) – The query parameters.
+- **timeout** (<code>[float](#float) | None</code>) – Server-side transaction timeout in seconds. The
+  database terminates the transaction when it runs
+  longer. None uses the server's default timeout.
+  Backends that cannot enforce a timeout ignore it.
 
 **Returns:**
 
@@ -2382,7 +3143,7 @@ A `GraphStore` backed by Neo4j, using native vector indexes.
 
 The driver connects lazily on first use, so constructing the store does not
 open a network connection. `execute_read`/`execute_write` wrap the
-driver's managed transactions with no added retry loop, per ADR 0027.
+driver's managed transactions with no added retry loop.
 
 **Functions:**
 
@@ -2435,10 +3196,23 @@ Create a native vector index if it does not exist.
 ##### `agrag.graphdb.Neo4jGraphStore.execute_read`
 
 ```python
-execute_read(query:str, parameters:Mapping[str, Any] | None = None) -> list[dict[str, Any]]
+execute_read(query:str, parameters:Mapping[str, Any] | None = None, *, timeout:float | None = None) -> list[dict[str, Any]]
 ```
 
 Run a read transaction and return its rows.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The Cypher query to run.
+- **parameters** (<code>[Mapping](#collections.abc.Mapping)\[[str](#str), [Any](#typing.Any)\] | None</code>) – The query parameters.
+- **timeout** (<code>[float](#float) | None</code>) – Server-side transaction timeout in seconds,
+  applied through the driver's `unit_of_work` so the
+  database terminates the transaction when it runs
+  longer. None uses the server's default timeout.
+
+**Returns:**
+
+- <code>[list](#list)\[[dict](#dict)\[[str](#str), [Any](#typing.Any)\]\]</code> – The result rows as dicts.
 
 ##### `agrag.graphdb.Neo4jGraphStore.execute_write`
 
@@ -2593,6 +3367,10 @@ vector_search(*, label:str, vector_property:str, query_vector:Sequence[float], l
 
 Search nodes by dense vector using the native vector index.
 
+A label with no provisioned vector index has nothing to search,
+so an absent index returns an empty result list rather than a
+driver error.
+
 When `filters` is set, Neo4j's vector procedure applies the filter
 only after selecting its top `k` candidates, so a plain `k=limit`
 call can return fewer matches than actually exist. This escalates
@@ -2732,7 +3510,7 @@ Create a native vector index if it does not exist.
 ###### `agrag.graphdb.base.GraphStore.execute_read`
 
 ```python
-execute_read(query:str, parameters:Mapping[str, Any] | None = None) -> list[dict[str, Any]]
+execute_read(query:str, parameters:Mapping[str, Any] | None = None, *, timeout:float | None = None) -> list[dict[str, Any]]
 ```
 
 Run a read transaction.
@@ -2741,6 +3519,10 @@ Run a read transaction.
 
 - **query** (<code>[str](#str)</code>) – The Cypher query to run.
 - **parameters** (<code>[Mapping](#collections.abc.Mapping)\[[str](#str), [Any](#typing.Any)\] | None</code>) – The query parameters.
+- **timeout** (<code>[float](#float) | None</code>) – Server-side transaction timeout in seconds. The
+  database terminates the transaction when it runs
+  longer. None uses the server's default timeout.
+  Backends that cannot enforce a timeout ignore it.
 
 **Returns:**
 
@@ -2990,10 +3772,42 @@ Errors that the graph-store layer raises.
 
 **Classes:**
 
+- [**GraphStoreAliasConflictError**](#agrag.graphdb.errors.GraphStoreAliasConflictError) – A merge-key alias a merge tried to claim already names another entity.
 - [**GraphStoreConstraintViolationError**](#agrag.graphdb.errors.GraphStoreConstraintViolationError) – A write violated a uniqueness constraint the backend enforces.
 - [**GraphStoreDataIntegrityError**](#agrag.graphdb.errors.GraphStoreDataIntegrityError) – A read found the graph store in a state its own invariants forbid.
 - [**GraphStoreError**](#agrag.graphdb.errors.GraphStoreError) – The base class for every graph-store error.
 - [**GraphStoreMissingExtraError**](#agrag.graphdb.errors.GraphStoreMissingExtraError) – A graph store exists, but its package extra is not installed.
+
+##### `agrag.graphdb.errors.GraphStoreAliasConflictError`
+
+```python
+GraphStoreAliasConflictError(conflicts:dict[str, str]) -> None
+```
+
+Bases: <code>[GraphStoreConstraintViolationError](#agrag.graphdb.errors.GraphStoreConstraintViolationError)</code>
+
+A merge-key alias a merge tried to claim already names another entity.
+
+Unlike the base class, this is not surfaced by the backend's own
+uniqueness constraint -- claiming an already-owned alias is a silent
+no-op at the database level (see `upsert_merge_alias_query`) -- so
+`apply_merge` detects it itself from the claim's own return rows and
+raises this instead. For example, one writer creates a canonical entity
+named "Bob" while a concurrent writer separately resolves "Bob" as an
+accepted alias of a different canonical entity named "Robert": neither
+writer's own node merge_key collides, so recovery must come from here,
+not from a constraint violation.
+
+**Attributes:**
+
+- [**conflicts**](#agrag.graphdb.errors.GraphStoreAliasConflictError.conflicts) – Every accepted merge_key this claim found already owned,
+  mapped to the entity id that owns it.
+
+###### `agrag.graphdb.errors.GraphStoreAliasConflictError.conflicts`
+
+```python
+conflicts = conflicts
+```
 
 ##### `agrag.graphdb.errors.GraphStoreConstraintViolationError`
 
@@ -3065,7 +3879,7 @@ A `GraphStore` backed by Neo4j, using native vector indexes.
 
 The driver connects lazily on first use, so constructing the store does not
 open a network connection. `execute_read`/`execute_write` wrap the
-driver's managed transactions with no added retry loop, per ADR 0027.
+driver's managed transactions with no added retry loop.
 
 **Functions:**
 
@@ -3118,10 +3932,23 @@ Create a native vector index if it does not exist.
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.execute_read`
 
 ```python
-execute_read(query:str, parameters:Mapping[str, Any] | None = None) -> list[dict[str, Any]]
+execute_read(query:str, parameters:Mapping[str, Any] | None = None, *, timeout:float | None = None) -> list[dict[str, Any]]
 ```
 
 Run a read transaction and return its rows.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The Cypher query to run.
+- **parameters** (<code>[Mapping](#collections.abc.Mapping)\[[str](#str), [Any](#typing.Any)\] | None</code>) – The query parameters.
+- **timeout** (<code>[float](#float) | None</code>) – Server-side transaction timeout in seconds,
+  applied through the driver's `unit_of_work` so the
+  database terminates the transaction when it runs
+  longer. None uses the server's default timeout.
+
+**Returns:**
+
+- <code>[list](#list)\[[dict](#dict)\[[str](#str), [Any](#typing.Any)\]\]</code> – The result rows as dicts.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.execute_write`
 
@@ -3275,6 +4102,10 @@ vector_search(*, label:str, vector_property:str, query_vector:Sequence[float], l
 ```
 
 Search nodes by dense vector using the native vector index.
+
+A label with no provisioned vector index has nothing to search,
+so an absent index returns an empty result list rather than a
+driver error.
 
 When `filters` is set, Neo4j's vector procedure applies the filter
 only after selecting its top `k` candidates, so a plain `k=limit`
@@ -3535,9 +4366,9 @@ returns.
 
 **Raises:**
 
-- <code>[Exception](#Exception)</code> – Whatever registration, constraint/index setup, or
-  vector-index provisioning raises. graph_store is closed
-  first, so a failed open() never leaks a connection.
+- <code>[Exception](#Exception)</code> – Whatever connect(), registration, constraint/index
+  setup, or vector-index provisioning raises. graph_store is
+  closed first, so a failed open() never leaks a connection.
 
 #### `agrag.ingestion.extract`
 
@@ -3961,9 +4792,9 @@ returns.
 
 **Raises:**
 
-- <code>[Exception](#Exception)</code> – Whatever registration, constraint/index setup, or
-  vector-index provisioning raises. graph_store is closed
-  first, so a failed open() never leaks a connection.
+- <code>[Exception](#Exception)</code> – Whatever connect(), registration, constraint/index
+  setup, or vector-index provisioning raises. graph_store is
+  closed first, so a failed open() never leaks a connection.
 
 ##### `agrag.ingestion.graph.SYSTEM_RELATION_TYPES`
 
@@ -4002,7 +4833,7 @@ separate step.
 
 - [**apply_merge**](#agrag.ingestion.merge.apply_merge) – Write a computed MergePlan to storage.
 - [**compute_merge**](#agrag.ingestion.merge.compute_merge) – Compute how existing_entities and mentions combine into one Entity.
-- [**mentioned_in_id**](#agrag.ingestion.merge.mentioned_in_id) – Return the deterministic id for a Chunk -[:MENTIONED_IN]-> Entity edge.
+- [**mentioned_in_id**](#agrag.ingestion.merge.mentioned_in_id) – Return the deterministic id for a new Chunk -[:MENTIONED_IN]-> Entity edge.
 - [**relation_id**](#agrag.ingestion.merge.relation_id) – Return the deterministic id for a domain relationship triple.
 
 **Attributes:**
@@ -4198,6 +5029,16 @@ without its duplicate cleaned up.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where the merge is written.
 - **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The schema the survivor's label belongs to.
 
+**Raises:**
+
+- <code>[GraphStoreAliasConflictError](#GraphStoreAliasConflictError)</code> – An accepted merge_key is already owned
+  by a live entity outside this merge's own survivor and tombstone
+  ids -- a concurrent writer accepted that name as an alias of, or
+  created it as the canonical name of, a different entity.
+- <code>[GraphStoreDataIntegrityError](#GraphStoreDataIntegrityError)</code> – A candidate conflicting alias owner's
+  merged_into chain cycles, points at a missing node, or does not
+  reach a live node within the hop limit.
+
 ##### `agrag.ingestion.merge.compute_merge`
 
 ```python
@@ -4235,7 +5076,13 @@ canonical survivor and marks the rest for tombstoning.
 mentioned_in_id(chunk_id:UUID, entity_id:UUID) -> UUID
 ```
 
-Return the deterministic id for a Chunk -[:MENTIONED_IN]-> Entity edge.
+Return the deterministic id for a new Chunk -[:MENTIONED_IN]-> Entity edge.
+
+Only a fresh id for a pair with no persisted edge yet is guaranteed to equal
+this. An entity merge can transfer an existing edge onto a new entity id
+while keeping its old id (see `transfer_relationships_query`), so a
+caller writing to an already-persisted pair should look up the edge by
+its endpoints first and fall back to this id only when none is found.
 
 **Parameters:**
 
@@ -4595,7 +5442,7 @@ Graph.add()'s result and per-stage observability types.
 - [**AddResult**](#agrag.ingestion.types.AddResult) – Graph.add()'s return type — one summary per pipeline stage.
 - [**ConsolidationReport**](#agrag.ingestion.types.ConsolidationReport) – Report from Graph.consolidate().
 - [**ExtractionStats**](#agrag.ingestion.types.ExtractionStats) – Extraction-stage results.
-- [**IngestStats**](#agrag.ingestion.types.IngestStats) – Ingestion-stage results. Renamed from IngestResult (ADR 0031).
+- [**IngestStats**](#agrag.ingestion.types.IngestStats) – Ingestion-stage results.
 - [**MergeStats**](#agrag.ingestion.types.MergeStats) – Merge-stage results.
 - [**ResolutionStats**](#agrag.ingestion.types.ResolutionStats) – Resolution-stage results.
 - [**StageFailure**](#agrag.ingestion.types.StageFailure) – One item's failure within a pipeline stage.
@@ -4768,7 +5615,7 @@ relations_extracted: int = 0
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
 
-Ingestion-stage results. Renamed from IngestResult (ADR 0031).
+Ingestion-stage results.
 
 **Attributes:**
 
@@ -4823,8 +5670,8 @@ Merge-stage results.
 - [**conflicts_resolved**](#agrag.ingestion.types.MergeStats.conflicts_resolved) (<code>[int](#int)</code>) – Total property/description conflicts resolved
   across every merge this call performed.
 - [**failures**](#agrag.ingestion.types.MergeStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.types.StageFailure)\]</code>) – Includes an LLM failure during description
-  summarization (ADR 0033's fallback-to-concatenation path still
-  records one here, even though it didn't block the merge).
+  summarization. The merge still falls back to concatenation and
+  completes, but the failure is recorded here.
 
 ###### `agrag.ingestion.types.MergeStats.conflicts_resolved`
 
@@ -4869,7 +5716,7 @@ Resolution-stage results.
 - [**in_batch_groups**](#agrag.ingestion.types.ResolutionStats.in_batch_groups) (<code>[int](#int)</code>) – Resolution groups the in-batch fuzzy/LLM tier
   found.
 - [**ambiguous_count**](#agrag.ingestion.types.ResolutionStats.ambiguous_count) (<code>[int](#int)</code>) – Comparisons no comparator could confidently
-  decide (ADR 0013's fail-safe: never merged).
+  decide. These pairs are never merged.
 
 ###### `agrag.ingestion.types.ResolutionStats.ambiguous_count`
 
@@ -5022,6 +5869,1100 @@ qualified name.
 **Returns:**
 
 - <code>[Callable](#typing.Callable)\[\[[Callable](#typing.Callable)\], [Callable](#typing.Callable)\]</code> – A decorator that wraps the target callable in a span.
+
+### `agrag.retrieval`
+
+Retrieval package: search engine, fusion, reranking, and retrievers.
+
+**Modules:**
+
+- [**errors**](#agrag.retrieval.errors) – Errors that the retrieval layer raises.
+- [**filters**](#agrag.retrieval.filters) – Constraints applied across every retrieval method in one call.
+- [**fusion**](#agrag.retrieval.fusion) – Reciprocal Rank Fusion: combine ranked results from multiple methods.
+- [**identity**](#agrag.retrieval.identity) – Shared identity resolution for merged_into chains.
+- [**methods**](#agrag.retrieval.methods) – Low-level search method helpers shared by retrievers.
+- [**recipes**](#agrag.retrieval.recipes) – Named, data-only configurations of what SearchEngine runs.
+- [**rerank**](#agrag.retrieval.rerank) – Rerankers that reorder fused search results.
+- [**retrievers**](#agrag.retrieval.retrievers) – Retriever implementations for entity, chunk, BFS, and text2cypher search.
+- [**search_engine**](#agrag.retrieval.search_engine) – Retrieval's public entry point, independent of Graph.
+- [**settings**](#agrag.retrieval.settings) – Env-backed configuration for retrieval methods and fusion.
+
+#### `agrag.retrieval.errors`
+
+Errors that the retrieval layer raises.
+
+**Classes:**
+
+- [**AllRetrievalMethodsFailedError**](#agrag.retrieval.errors.AllRetrievalMethodsFailedError) – Every retrieval method a Recipe named failed.
+- [**RetrievalError**](#agrag.retrieval.errors.RetrievalError) – The base class for every retrieval error.
+- [**UnknownRecipeMethodError**](#agrag.retrieval.errors.UnknownRecipeMethodError) – A Recipe named a method SearchEngine does not know how to run.
+
+##### `agrag.retrieval.errors.AllRetrievalMethodsFailedError`
+
+```python
+AllRetrievalMethodsFailedError(failures:dict[str, BaseException]) -> None
+```
+
+Bases: <code>[RetrievalError](#agrag.retrieval.errors.RetrievalError)</code>
+
+Every retrieval method a Recipe named failed.
+
+Raised instead of returning an empty result list so a total
+retrieval outage is not mistaken for a query with no matches.
+
+**Attributes:**
+
+- [**failures**](#agrag.retrieval.errors.AllRetrievalMethodsFailedError.failures) – Each failed method name mapped to the exception it
+  raised.
+
+###### `agrag.retrieval.errors.AllRetrievalMethodsFailedError.failures`
+
+```python
+failures = failures
+```
+
+##### `agrag.retrieval.errors.RetrievalError`
+
+Bases: <code>[Exception](#Exception)</code>
+
+The base class for every retrieval error.
+
+##### `agrag.retrieval.errors.UnknownRecipeMethodError`
+
+```python
+UnknownRecipeMethodError(unknown:list[str], known:list[str]) -> None
+```
+
+Bases: <code>[RetrievalError](#agrag.retrieval.errors.RetrievalError)</code>
+
+A Recipe named a method SearchEngine does not know how to run.
+
+A misspelled method name is a configuration error and must be
+raised at search time so an empty successful search cannot
+silently hide a typo.
+
+**Attributes:**
+
+- [**unknown**](#agrag.retrieval.errors.UnknownRecipeMethodError.unknown) – The method names the recipe listed that are not in
+  the retriever registry.
+- [**known**](#agrag.retrieval.errors.UnknownRecipeMethodError.known) – The method names this SearchEngine can run.
+
+###### `agrag.retrieval.errors.UnknownRecipeMethodError.known`
+
+```python
+known = list(known)
+```
+
+###### `agrag.retrieval.errors.UnknownRecipeMethodError.unknown`
+
+```python
+unknown = list(unknown)
+```
+
+#### `agrag.retrieval.filters`
+
+Constraints applied across every retrieval method in one call.
+
+**Classes:**
+
+- [**SearchFilters**](#agrag.retrieval.filters.SearchFilters) – Constraints applied across every retrieval method in one call.
+
+##### `agrag.retrieval.filters.SearchFilters`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Constraints applied across every retrieval method in one call.
+
+**Attributes:**
+
+- [**labels**](#agrag.retrieval.filters.SearchFilters.labels) (<code>[list](#list)\[[str](#str)\]</code>) – Entity labels a result must have, when searching
+  entities.
+- [**relation_types**](#agrag.retrieval.filters.SearchFilters.relation_types) (<code>[list](#list)\[[str](#str)\]</code>) – Relation types a traversal may cross.
+- [**document_ids**](#agrag.retrieval.filters.SearchFilters.document_ids) (<code>[list](#list)\[[str](#str)\]</code>) – Restrict chunk results to these source
+  documents.
+- [**properties**](#agrag.retrieval.filters.SearchFilters.properties) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – Exact-match property filters, applied
+  identically to vector-store payload filters and Cypher
+  WHERE clauses.
+
+**Functions:**
+
+- [**to_cypher_where**](#agrag.retrieval.filters.SearchFilters.to_cypher_where) – Return a parameterized WHERE clause fragment.
+- [**to_payload_filter**](#agrag.retrieval.filters.SearchFilters.to_payload_filter) – Return a flat-dict filter for VectorStore search calls.
+- [**to_property_filter**](#agrag.retrieval.filters.SearchFilters.to_property_filter) – Return a flat-dict filter over node properties only.
+
+###### `agrag.retrieval.filters.SearchFilters.document_ids`
+
+```python
+document_ids: list[str] = Field(default_factory=list)
+```
+
+###### `agrag.retrieval.filters.SearchFilters.labels`
+
+```python
+labels: list[str] = Field(default_factory=list)
+```
+
+###### `agrag.retrieval.filters.SearchFilters.properties`
+
+```python
+properties: dict[str, Any] = Field(default_factory=dict)
+```
+
+###### `agrag.retrieval.filters.SearchFilters.relation_types`
+
+```python
+relation_types: list[str] = Field(default_factory=list)
+```
+
+###### `agrag.retrieval.filters.SearchFilters.to_cypher_where`
+
+```python
+to_cypher_where(node_var:str = 'node') -> tuple[str, dict[str, Any]]
+```
+
+Return a parameterized WHERE clause fragment.
+
+Labels are emitted as native Cypher node labels (`node:Label`)
+rather than property filters, since Neo4j represents entity types
+as labels on nodes. Document-id and property filters go through
+`filter_clause` as before.
+
+**Parameters:**
+
+- **node_var** (<code>[str](#str)</code>) – The Cypher variable bound to the node.
+
+**Returns:**
+
+- <code>[tuple](#tuple)\[[str](#str), [dict](#dict)\[[str](#str), [Any](#typing.Any)\]\]</code> – The WHERE clause text and parameters dict.
+
+###### `agrag.retrieval.filters.SearchFilters.to_payload_filter`
+
+```python
+to_payload_filter() -> dict[str, Any]
+```
+
+Return a flat-dict filter for VectorStore search calls.
+
+Labels become a `label` payload key, which is how a
+VectorStore records the graph label a record came from. A
+GraphStore holds labels on the node itself, not as a property,
+so the native path uses `to_property_filter` instead and
+selects labels by the index it searches.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict suitable for VectorStore.search/hybrid_search
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – filters parameter.
+
+###### `agrag.retrieval.filters.SearchFilters.to_property_filter`
+
+```python
+to_property_filter() -> dict[str, Any]
+```
+
+Return a flat-dict filter over node properties only.
+
+Excludes `labels`, which are node labels rather than
+properties on every graph backend this project supports.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict of property name to expected value, where a list
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – value means any of.
+
+#### `agrag.retrieval.fusion`
+
+Reciprocal Rank Fusion: combine ranked results from multiple methods.
+
+**Functions:**
+
+- [**fuse**](#agrag.retrieval.fusion.fuse) – Combine every method's ranked results into one deduplicated list.
+
+##### `agrag.retrieval.fusion.fuse`
+
+```python
+fuse(results_by_method:dict[str, list[SearchResult]], *, rrf_k:int = 60) -> list[SearchResult]
+```
+
+Combine every method's ranked results into one deduplicated list.
+
+Runs unconditionally, even for a single method, so a Rerank pass
+never sees duplicates. Uses Reciprocal Rank Fusion: an item's
+fused score is the sum of 1 / (rrf_k + rank) across every method
+that returned it.
+
+Each method contributes at most one vote per item, scored at the
+item's best (lowest) rank within that method. A multi-label
+entity that surfaces in two positions of one method's output, or
+a pre-fusion `merged_into` collapse, only adds one vote from
+that method, so duplicate hits from a single retriever cannot
+unfairly promote an item over a single best hit from another
+method.
+
+Deduplication uses SearchResult.identity_key, which is (type, id)
+after hydration has already resolved any merged_into chain to the
+live survivor. Fusion does not re-resolve identity; it trusts that
+every SearchResult it receives already carries a live id.
+
+**Parameters:**
+
+- **results_by_method** (<code>[dict](#dict)\[[str](#str), [list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]\]</code>) – Each method's own ranked output, keyed by
+  method name.
+- **rrf_k** (<code>[int](#int)</code>) – The RRF constant; higher values flatten the influence
+  of rank position.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – One list, ranked by fused score descending, one entry per
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – distinct identity_key.
+
+#### `agrag.retrieval.identity`
+
+Shared identity resolution for merged_into chains.
+
+**Functions:**
+
+- [**resolve_entity**](#agrag.retrieval.identity.resolve_entity) – Return the live Entity behind an id, following merged_into.
+
+**Attributes:**
+
+- [**MAX_MERGE_HOPS**](#agrag.retrieval.identity.MAX_MERGE_HOPS) –
+
+##### `agrag.retrieval.identity.MAX_MERGE_HOPS`
+
+```python
+MAX_MERGE_HOPS = 32
+```
+
+##### `agrag.retrieval.identity.resolve_entity`
+
+```python
+resolve_entity(graph_store:GraphStore, entity_id:UUID) -> Entity
+```
+
+Return the live Entity behind an id, following merged_into.
+
+Every retrieval path that can produce an entity id must call
+this before wrapping the id in a SearchResult. This is the
+single place the merged_into invariant is enforced.
+
+A merge writes a `merged_into` property on the tombstone rather
+than a relationship, so the chain is walked one hop per query.
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where the entity and its possible tombstone
+  chain live.
+- **entity_id** (<code>[UUID](#uuid.UUID)</code>) – The id a retrieval method found, which may or
+  may not still be live.
+
+**Returns:**
+
+- <code>[Entity](#agrag.common.data_models.entity.Entity)</code> – The live Entity, after resolving zero or more hops.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – The id does not exist, its node cannot be parsed,
+  the chain points at a missing node, the chain cycles, or it
+  is longer than `MAX_MERGE_HOPS`.
+
+#### `agrag.retrieval.methods`
+
+Low-level search method helpers shared by retrievers.
+
+**Modules:**
+
+- [**vector**](#agrag.retrieval.methods.vector) – Shared vector search helper for GraphStore and VectorStore.
+
+##### `agrag.retrieval.methods.vector`
+
+Shared vector search helper for GraphStore and VectorStore.
+
+**Functions:**
+
+- [**vector_search**](#agrag.retrieval.methods.vector.vector_search) – Embed query and search on whichever store is configured.
+
+###### `agrag.retrieval.methods.vector.vector_search`
+
+```python
+vector_search(query:str, *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, collection:str, labels:Sequence[str], limit:int, filters:SearchFilters | None, settings:RetrievalSettings) -> list[VectorHit]
+```
+
+Embed query and search on whichever store is configured.
+
+When vector_store is set, runs hybrid_search there (dense plus
+BM25, blended by settings.hybrid_alpha) against `collection`.
+When it is None, runs GraphStore's native vector_search once per
+label in `labels` and merges the hits, ignoring hybrid_alpha
+since that path is dense-only. One native vector index exists per
+label, so a search over several labels is several searches.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language query text to embed.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Produces the query's dense vector.
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – The GraphStore-native fallback target.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – The optional VectorStore target; None selects
+  the GraphStore-native path.
+- **collection** (<code>[str](#str)</code>) – The VectorStore collection name.
+- **labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The node labels to search on the GraphStore-native
+  path, each backed by its own vector index.
+- **limit** (<code>[int](#int)</code>) – Maximum hits to return.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints translated to whichever store is
+  searched. Labels are a payload key on the VectorStore
+  path and choose the searched indexes on the native path,
+  so they are not sent as node property filters.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings)</code>) – Supplies hybrid_alpha for the VectorStore path.
+
+**Returns:**
+
+- <code>[list](#list)\[[VectorHit](#agrag.common.data_models.vector_record.VectorHit)\]</code> – Ranked VectorHits, from whichever store was searched.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – The native path was selected with no labels to
+  search.
+
+#### `agrag.retrieval.recipes`
+
+Named, data-only configurations of what SearchEngine runs.
+
+**Classes:**
+
+- [**Recipe**](#agrag.retrieval.recipes.Recipe) – A named configuration of what SearchEngine runs for a query.
+
+**Attributes:**
+
+- [**CHUNK**](#agrag.retrieval.recipes.CHUNK) –
+- [**ENTITY**](#agrag.retrieval.recipes.ENTITY) –
+- [**GRAPH_EXPAND**](#agrag.retrieval.recipes.GRAPH_EXPAND) –
+- [**HYBRID**](#agrag.retrieval.recipes.HYBRID) –
+- [**HYBRID_RERANKED**](#agrag.retrieval.recipes.HYBRID_RERANKED) –
+
+##### `agrag.retrieval.recipes.CHUNK`
+
+```python
+CHUNK = Recipe(methods=['chunk'], limit=10)
+```
+
+##### `agrag.retrieval.recipes.ENTITY`
+
+```python
+ENTITY = Recipe(methods=['entity'], limit=10)
+```
+
+##### `agrag.retrieval.recipes.GRAPH_EXPAND`
+
+```python
+GRAPH_EXPAND = Recipe(methods=['entity'], bfs=True, limit=20)
+```
+
+##### `agrag.retrieval.recipes.HYBRID`
+
+```python
+HYBRID = Recipe(methods=['entity', 'chunk'], limit=10)
+```
+
+##### `agrag.retrieval.recipes.HYBRID_RERANKED`
+
+```python
+HYBRID_RERANKED = Recipe(methods=['entity', 'chunk'], reranker='cross_encoder', limit=10)
+```
+
+##### `agrag.retrieval.recipes.Recipe`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+A named configuration of what SearchEngine runs for a query.
+
+**Attributes:**
+
+- [**methods**](#agrag.retrieval.recipes.Recipe.methods) (<code>[list](#list)\[[str](#str)\]</code>) – Which retrieval methods to fan out to
+  concurrently, by name.
+- [**bfs**](#agrag.retrieval.recipes.Recipe.bfs) (<code>[bool](#bool)</code>) – Whether to run a BFS expansion after methods
+  complete, seeded from their entity results. BFS
+  needs seed ids methods produce, so it cannot run
+  concurrently with them.
+- [**bfs_depth**](#agrag.retrieval.recipes.Recipe.bfs_depth) (<code>[int](#int) | None</code>) – Traversal depth when bfs is true. None uses
+  RetrievalSettings.traversal_depth.
+- [**reranker**](#agrag.retrieval.recipes.Recipe.reranker) (<code>[Literal](#typing.Literal)['cross_encoder', 'node_distance'] | None</code>) – The optional Rerank pass to run after Fusion.
+  None skips reranking.
+- [**limit**](#agrag.retrieval.recipes.Recipe.limit) (<code>[int](#int)</code>) – The maximum number of results SearchEngine
+  returns.
+
+###### `agrag.retrieval.recipes.Recipe.bfs`
+
+```python
+bfs: bool = False
+```
+
+###### `agrag.retrieval.recipes.Recipe.bfs_depth`
+
+```python
+bfs_depth: int | None = None
+```
+
+###### `agrag.retrieval.recipes.Recipe.limit`
+
+```python
+limit: int = 10
+```
+
+###### `agrag.retrieval.recipes.Recipe.methods`
+
+```python
+methods: list[str]
+```
+
+###### `agrag.retrieval.recipes.Recipe.reranker`
+
+```python
+reranker: Literal['cross_encoder', 'node_distance'] | None = None
+```
+
+#### `agrag.retrieval.rerank`
+
+Rerankers that reorder fused search results.
+
+**Modules:**
+
+- [**cross_encoder**](#agrag.retrieval.rerank.cross_encoder) – Cross-encoder reranker using sentence-transformers.
+- [**node_distance**](#agrag.retrieval.rerank.node_distance) – Node distance reranker: reorder by graph proximity to seeds.
+
+##### `agrag.retrieval.rerank.cross_encoder`
+
+Cross-encoder reranker using sentence-transformers.
+
+**Functions:**
+
+- [**cross_encoder_rerank**](#agrag.retrieval.rerank.cross_encoder.cross_encoder_rerank) – Rerank results using a cross-encoder model.
+
+###### `agrag.retrieval.rerank.cross_encoder.cross_encoder_rerank`
+
+```python
+cross_encoder_rerank(query:str, results:list[SearchResult], *, min_score:float | None = None) -> list[SearchResult]
+```
+
+Rerank results using a cross-encoder model.
+
+Requires the `embed-local` extra (sentence-transformers).
+Scores (query, text) pairs and reorders by relevance. Drops
+results scoring below min_score when set.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language query text.
+- **results** (<code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code>) – The fused results to rerank.
+- **min_score** (<code>[float](#float) | None</code>) – Optional minimum score threshold. Results below
+  this are dropped.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Results reranked by cross-encoder score, descending.
+
+##### `agrag.retrieval.rerank.node_distance`
+
+Node distance reranker: reorder by graph proximity to seeds.
+
+**Functions:**
+
+- [**node_distance_rerank**](#agrag.retrieval.rerank.node_distance.node_distance_rerank) – Rerank results by graph proximity to seed entity ids.
+
+###### `agrag.retrieval.rerank.node_distance.node_distance_rerank`
+
+```python
+node_distance_rerank(results:list[SearchResult], *, graph_store:GraphStore, seed_ids:list[UUID]) -> list[SearchResult]
+```
+
+Rerank results by graph proximity to seed entity ids.
+
+Uses shortest-path distance from each result entity to the
+closest seed entity. Entities closer to seeds rank higher.
+Results without an entity item (chunks, relations) are placed
+at the end with a high distance penalty.
+
+**Parameters:**
+
+- **results** (<code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code>) – The fused results to rerank.
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – The graph store for shortest-path queries.
+- **seed_ids** (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – The seed entity ids to measure distance from. Seeds
+  are the query's direct hits, not the whole candidate list:
+  a candidate that is its own seed measures distance zero,
+  so seeding with every candidate leaves the order unchanged.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Results reranked by proximity, closest first.
+
+#### `agrag.retrieval.retrievers`
+
+Retriever implementations for entity, chunk, BFS, and text2cypher search.
+
+**Modules:**
+
+- [**base**](#agrag.retrieval.retrievers.base) – Abstract base class for retrieval methods.
+- [**bfs**](#agrag.retrieval.retrievers.bfs) – BFS retriever: graph traversal from seed entity ids.
+- [**chunk**](#agrag.retrieval.retrievers.chunk) – Chunk retriever: dense vector search over chunks.
+- [**entity**](#agrag.retrieval.retrievers.entity) – Entity retriever: dense vector search over entities.
+- [**text2cypher**](#agrag.retrieval.retrievers.text2cypher) – Text2Cypher retriever: generate Cypher from natural language.
+
+##### `agrag.retrieval.retrievers.base`
+
+Abstract base class for retrieval methods.
+
+**Classes:**
+
+- [**Retriever**](#agrag.retrieval.retrievers.base.Retriever) – One retrieval method: given a query, return SearchResults.
+
+###### `agrag.retrieval.retrievers.base.Retriever`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+One retrieval method: given a query, return SearchResults.
+
+Subclasses own exactly one strategy (dense entity search, chunk
+search, BFS expansion). SearchEngine fans a query out to every
+Retriever a Recipe names and hands the combined output to Fusion.
+
+**Functions:**
+
+- [**retrieve**](#agrag.retrieval.retrievers.base.Retriever.retrieve) – Run this retrieval method and return hydrated results.
+
+**Attributes:**
+
+- [**name**](#agrag.retrieval.retrievers.base.Retriever.name) (<code>[str](#str)</code>) –
+
+####### `agrag.retrieval.retrievers.base.Retriever.name`
+
+```python
+name: str
+```
+
+####### `agrag.retrieval.retrievers.base.Retriever.retrieve`
+
+```python
+retrieve(query:str, *, filters:SearchFilters | None = None, limit:int = 10) -> list[SearchResult]
+```
+
+Run this retrieval method and return hydrated results.
+
+##### `agrag.retrieval.retrievers.bfs`
+
+BFS retriever: graph traversal from seed entity ids.
+
+**Classes:**
+
+- [**BFSRetriever**](#agrag.retrieval.retrievers.bfs.BFSRetriever) – Graph traversal from seed entity ids.
+
+###### `agrag.retrieval.retrievers.bfs.BFSRetriever`
+
+```python
+BFSRetriever(*, graph_store:GraphStore, settings:RetrievalSettings | None = None) -> None
+```
+
+Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
+
+Graph traversal from seed entity ids.
+
+Takes seed entity ids (from a prior EntityRetriever call, or
+supplied directly), runs bfs_expand_query, and hydrates the
+returned entities through resolve_entity and relations directly.
+Degree-capped by RetrievalSettings.traversal_limit.
+
+**Functions:**
+
+- [**retrieve**](#agrag.retrieval.retrievers.bfs.BFSRetriever.retrieve) – Run BFS expansion from seed entity ids.
+
+**Attributes:**
+
+- [**name**](#agrag.retrieval.retrievers.bfs.BFSRetriever.name) –
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – The graph store to traverse.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
+  environment.
+
+####### `agrag.retrieval.retrievers.bfs.BFSRetriever.name`
+
+```python
+name = 'bfs'
+```
+
+####### `agrag.retrieval.retrievers.bfs.BFSRetriever.retrieve`
+
+```python
+retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None, seed_ids:list[UUID] | None = None, depth:int | None = None) -> list[SearchResult]
+```
+
+Run BFS expansion from seed entity ids.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language query text (unused for BFS,
+  kept for interface consistency).
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied to traversal. relation_types
+  restrict which relationships the traversal crosses;
+  property filters apply to neighbor nodes.
+- **limit** (<code>[int](#int) | None</code>) – Maximum results. None uses traversal_limit.
+- **seed_ids** (<code>[list](#list)\[[UUID](#uuid.UUID)\] | None</code>) – The entity ids to expand from. If None, BFS
+  returns empty.
+- **depth** (<code>[int](#int) | None</code>) – BFS hops. None uses
+  RetrievalSettings.traversal_depth.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – SearchResults with entities and relations found via BFS.
+
+##### `agrag.retrieval.retrievers.chunk`
+
+Chunk retriever: dense vector search over chunks.
+
+**Classes:**
+
+- [**ChunkRetriever**](#agrag.retrieval.retrievers.chunk.ChunkRetriever) – Dense chunk search via vector similarity.
+
+###### `agrag.retrieval.retrievers.chunk.ChunkRetriever`
+
+```python
+ChunkRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None) -> None
+```
+
+Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
+
+Dense chunk search via vector similarity.
+
+Chunks are never tombstoned, so no merged_into resolution is
+needed. Embeds the query, searches via the GraphStore-native or
+VectorStore path, then hydrates each hit into a Chunk. The native
+path searches the `Chunk` vector index ingestion provisions; the
+VectorStore path searches `chunk_collection`.
+
+**Functions:**
+
+- [**retrieve**](#agrag.retrieval.retrievers.chunk.ChunkRetriever.retrieve) – Run chunk search and return hydrated results.
+
+**Attributes:**
+
+- [**name**](#agrag.retrieval.retrievers.chunk.ChunkRetriever.name) –
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Backs chunk search when vector_store is
+  absent.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Produces query vectors.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional VectorStore for hybrid search.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
+  environment.
+
+####### `agrag.retrieval.retrievers.chunk.ChunkRetriever.name`
+
+```python
+name = 'chunk'
+```
+
+####### `agrag.retrieval.retrievers.chunk.ChunkRetriever.retrieve`
+
+```python
+retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None) -> list[SearchResult]
+```
+
+Run chunk search and return hydrated results.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language query text.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied to the search.
+- **limit** (<code>[int](#int) | None</code>) – Maximum results. None uses settings.chunk_top_k.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Ranked SearchResults with hydrated Chunk items.
+
+##### `agrag.retrieval.retrievers.entity`
+
+Entity retriever: dense vector search over entities.
+
+**Classes:**
+
+- [**EntityRetriever**](#agrag.retrieval.retrievers.entity.EntityRetriever) – Dense entity search via vector similarity.
+
+###### `agrag.retrieval.retrievers.entity.EntityRetriever`
+
+```python
+EntityRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None) -> None
+```
+
+Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
+
+Dense entity search via vector similarity.
+
+Embeds the query, searches via the GraphStore-native or
+VectorStore path, then resolves every hit through
+`resolve_entity` so the caller can trust `item.id` is live.
+
+The native path searches one vector index per entity label, so it
+needs the labels ingestion provisioned indexes for: the label
+filter when the caller sets one, otherwise `entity_labels`.
+
+**Functions:**
+
+- [**retrieve**](#agrag.retrieval.retrievers.entity.EntityRetriever.retrieve) – Run entity search and return hydrated results.
+
+**Attributes:**
+
+- [**name**](#agrag.retrieval.retrievers.entity.EntityRetriever.name) –
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Backs entity search when vector_store is
+  absent.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Produces query vectors.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional VectorStore for hybrid search.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
+  environment.
+- **entity_labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – The schema entity labels native search runs
+  against. None uses settings.entity_labels.
+
+####### `agrag.retrieval.retrievers.entity.EntityRetriever.name`
+
+```python
+name = 'entity'
+```
+
+####### `agrag.retrieval.retrievers.entity.EntityRetriever.retrieve`
+
+```python
+retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None) -> list[SearchResult]
+```
+
+Run entity search and return hydrated results.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language query text.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied to the search.
+- **limit** (<code>[int](#int) | None</code>) – Maximum results. None uses settings.entity_top_k.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Ranked SearchResults with resolved entity ids.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – Native search was selected and neither the
+  filter nor the configuration names an entity label.
+
+##### `agrag.retrieval.retrievers.text2cypher`
+
+Text2Cypher retriever: generate Cypher from natural language.
+
+**Classes:**
+
+- [**Text2CypherRetriever**](#agrag.retrieval.retrievers.text2cypher.Text2CypherRetriever) – Let the agent ask structured questions via generated Cypher.
+
+**Attributes:**
+
+- [**logger**](#agrag.retrieval.retrievers.text2cypher.logger) –
+
+###### `agrag.retrieval.retrievers.text2cypher.Text2CypherRetriever`
+
+```python
+Text2CypherRetriever(*, graph_store:GraphStore, settings:RetrievalSettings | None = None) -> None
+```
+
+Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
+
+Let the agent ask structured questions via generated Cypher.
+
+Calls a BAML function to generate a read-only Cypher query,
+runs reject_write_cypher as a safety pre-filter, then bounds the
+query with a row limit and a server-side transaction timeout
+before EXPLAIN and execution. Rows that carry an entity id are
+resolved through resolve_entity before becoming a SearchResult;
+relationship and chunk rows are parsed directly. Scalar rows (for
+example counts or property values) cannot become a SearchResult
+and are logged instead of being silently dropped.
+
+**Functions:**
+
+- [**retrieve**](#agrag.retrieval.retrievers.text2cypher.Text2CypherRetriever.retrieve) – Generate and execute a Cypher query for the question.
+
+**Attributes:**
+
+- [**name**](#agrag.retrieval.retrievers.text2cypher.Text2CypherRetriever.name) –
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where the generated query runs.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
+  environment.
+
+####### `agrag.retrieval.retrievers.text2cypher.Text2CypherRetriever.name`
+
+```python
+name = 'text2cypher'
+```
+
+####### `agrag.retrieval.retrievers.text2cypher.Text2CypherRetriever.retrieve`
+
+```python
+retrieve(query:str, *, filters:SearchFilters | None = None, limit:int = 10) -> list[SearchResult]
+```
+
+Generate and execute a Cypher query for the question.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language question.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Ignored; text2cypher applies its own filters.
+- **limit** (<code>[int](#int)</code>) – Maximum results to return.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – SearchResults from the generated query: entity results
+  resolved through `resolve_entity`; relation and chunk
+  rows parsed directly. Rows with no entity, relation, or
+  chunk item are logged and skipped.
+
+###### `agrag.retrieval.retrievers.text2cypher.logger`
+
+```python
+logger = logging.getLogger(__name__)
+```
+
+#### `agrag.retrieval.search_engine`
+
+Retrieval's public entry point, independent of Graph.
+
+**Classes:**
+
+- [**SearchEngine**](#agrag.retrieval.search_engine.SearchEngine) – Retrieval's public entry point, independent of Graph.
+
+**Attributes:**
+
+- [**logger**](#agrag.retrieval.search_engine.logger) –
+
+##### `agrag.retrieval.search_engine.SearchEngine`
+
+```python
+SearchEngine(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None) -> None
+```
+
+Retrieval's public entry point, independent of Graph.
+
+Fans a query out to every method a Recipe names, fuses the
+results, and optionally reranks them. Constructed from its own
+stores; does not depend on a Graph instance existing.
+
+**Functions:**
+
+- [**search**](#agrag.retrieval.search_engine.SearchEngine.search) – Run recipe's methods, fuse, expand, and optionally rerank.
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Always required; backs entity/chunk search
+  when vector_store is absent, and always backs BFS.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Produces query vectors for dense and hybrid
+  search.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional. When set, entity and chunk search
+  run hybrid_search there instead of GraphStore's native
+  search. Configuring one without a dual-write ingestion
+  change gets an empty result set, not an error.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
+  environment.
+- **entity_labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – The schema entity labels native entity
+  search runs against, one vector index each, as
+  provisioned by `Graph.open`. Pass
+  `[entity.label for entity in schema.entities]`.
+  None uses settings.entity_labels. Ignored when a
+  vector_store is configured.
+
+###### `agrag.retrieval.search_engine.SearchEngine.search`
+
+```python
+search(query:str, recipe:Recipe, *, filters:SearchFilters | None = None) -> list[SearchResult]
+```
+
+Run recipe's methods, fuse, expand, and optionally rerank.
+
+Runs recipe.methods concurrently and fuses their output
+first. When recipe.bfs is set, BFS runs as a second,
+sequential step seeded from the fused entity results. BFS
+results are fused into the same list a second time before
+reranking.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language query text.
+- **recipe** (<code>[Recipe](#agrag.retrieval.recipes.Recipe)</code>) – Which methods to run, whether to expand via BFS
+  afterward, and which reranker, if any, follows.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied identically to every method.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Up to recipe.limit results, ranked highest-relevance
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – first.
+
+**Raises:**
+
+- <code>[AllRetrievalMethodsFailedError](#agrag.retrieval.errors.AllRetrievalMethodsFailedError)</code> – Every method the recipe
+  names failed. A method failing while others succeed
+  is logged and its results are simply absent.
+- <code>[UnknownRecipeMethodError](#agrag.retrieval.errors.UnknownRecipeMethodError)</code> – The recipe names one or more
+  methods that are not in the retriever registry. A
+  misspelled method name is a configuration error and
+  is reported instead of silently returning no
+  results.
+
+##### `agrag.retrieval.search_engine.logger`
+
+```python
+logger = logging.getLogger(__name__)
+```
+
+#### `agrag.retrieval.settings`
+
+Env-backed configuration for retrieval methods and fusion.
+
+**Classes:**
+
+- [**RetrievalSettings**](#agrag.retrieval.settings.RetrievalSettings) – Configuration for retrieval methods and fusion.
+
+##### `agrag.retrieval.settings.RetrievalSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+Configuration for retrieval methods and fusion.
+
+**Attributes:**
+
+- [**entity_collection**](#agrag.retrieval.settings.RetrievalSettings.entity_collection) (<code>[str](#str)</code>) – The VectorStore collection name for entity
+  search. Only read when a VectorStore is configured on
+  SearchEngine; ignored on the GraphStore-native path.
+- [**chunk_collection**](#agrag.retrieval.settings.RetrievalSettings.chunk_collection) (<code>[str](#str)</code>) – The VectorStore collection name for chunk
+  search. Same condition as entity_collection.
+- [**entity_labels**](#agrag.retrieval.settings.RetrievalSettings.entity_labels) (<code>[list](#list)\[[str](#str)\]</code>) – The graph labels native entity search runs
+  against, one vector index each. These are the schema's
+  entity labels, never a VectorStore collection name. Only
+  read when no VectorStore is configured and the caller
+  passes no label filter.
+- [**node_distance_seed_top_k**](#agrag.retrieval.settings.RetrievalSettings.node_distance_seed_top_k) (<code>[int](#int)</code>) – How many of the highest-ranked
+  entity hits seed the node-distance reranker. Candidates
+  are ordered by graph distance to those seeds.
+- [**entity_top_k**](#agrag.retrieval.settings.RetrievalSettings.entity_top_k) (<code>[int](#int)</code>) – Results requested per entity search call.
+- [**chunk_top_k**](#agrag.retrieval.settings.RetrievalSettings.chunk_top_k) (<code>[int](#int)</code>) – Results requested per chunk search call.
+- [**hybrid_alpha**](#agrag.retrieval.settings.RetrievalSettings.hybrid_alpha) (<code>[float](#float)</code>) – Dense-versus-keyword blend for hybrid search,
+  0 to 1. Only meaningful on the VectorStore path;
+  GraphStore-native search is dense-only and ignores this.
+- [**traversal_depth**](#agrag.retrieval.settings.RetrievalSettings.traversal_depth) (<code>[int](#int)</code>) – Maximum BFS hops from a seed entity.
+- [**traversal_limit**](#agrag.retrieval.settings.RetrievalSettings.traversal_limit) (<code>[int](#int)</code>) – Maximum nodes a BFS expansion can return.
+- [**rrf_k**](#agrag.retrieval.settings.RetrievalSettings.rrf_k) (<code>[int](#int)</code>) – The RRF constant controlling how much rank position
+  matters.
+- [**reranker_min_score**](#agrag.retrieval.settings.RetrievalSettings.reranker_min_score) (<code>[float](#float) | None</code>) – Results scoring below this after rerank
+  are dropped. None disables the threshold.
+- [**text2cypher_max_retries**](#agrag.retrieval.settings.RetrievalSettings.text2cypher_max_retries) (<code>[int](#int)</code>) – Maximum retry attempts for a
+  text2cypher generation that produces invalid Cypher.
+- [**text2cypher_timeout_seconds**](#agrag.retrieval.settings.RetrievalSettings.text2cypher_timeout_seconds) (<code>[float](#float) | None</code>) – Server-side transaction timeout
+  applied to generated read queries. The database terminates
+  a generated query that runs longer, so a pathological
+  query cannot hold server resources indefinitely. None
+  uses the server's default timeout.
+- [**text2cypher_max_rows**](#agrag.retrieval.settings.RetrievalSettings.text2cypher_max_rows) (<code>[int](#int)</code>) – Maximum rows a generated read query may
+  return. Appended as a LIMIT clause when the generated
+  query declares none of its own.
+
+Env prefix: `RETRIEVAL_`.
+
+###### `agrag.retrieval.settings.RetrievalSettings.chunk_collection`
+
+```python
+chunk_collection: str = 'agrag_chunks'
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.chunk_top_k`
+
+```python
+chunk_top_k: int = 10
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.entity_collection`
+
+```python
+entity_collection: str = 'agrag_entities'
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.entity_labels`
+
+```python
+entity_labels: list[str] = []
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.entity_top_k`
+
+```python
+entity_top_k: int = 10
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.hybrid_alpha`
+
+```python
+hybrid_alpha: float = 0.5
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='RETRIEVAL_', env_file='.env', extra='ignore')
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.node_distance_seed_top_k`
+
+```python
+node_distance_seed_top_k: int = 3
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.reranker_min_score`
+
+```python
+reranker_min_score: float | None = None
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.rrf_k`
+
+```python
+rrf_k: int = 60
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.text2cypher_max_retries`
+
+```python
+text2cypher_max_retries: int = 3
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.text2cypher_max_rows`
+
+```python
+text2cypher_max_rows: int = 1000
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.text2cypher_timeout_seconds`
+
+```python
+text2cypher_timeout_seconds: float | None = 10.0
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.traversal_depth`
+
+```python
+traversal_depth: int = 2
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.traversal_limit`
+
+```python
+traversal_limit: int = 50
+```
 
 ### `agrag.vectordb`
 

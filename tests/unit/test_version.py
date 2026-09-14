@@ -1,4 +1,9 @@
-"""Tests for the package version exposed by :mod:`agrag`."""
+"""Tests for the package version exposed by :mod:`agrag`.
+
+Guards against the flat-layout shadowing trap where ``agrag`` imports because
+the repo root is on ``sys.path``, not because the package is actually
+installed; that case reports the ``0.0.0.dev0`` placeholder version.
+"""
 
 import re
 

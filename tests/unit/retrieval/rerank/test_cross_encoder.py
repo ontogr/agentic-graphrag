@@ -1,4 +1,13 @@
-"""Tests for cross_encoder_rerank."""
+"""Tests for cross_encoder_rerank in agrag.retrieval.rerank.cross_encoder.
+
+Simulates the ``sentence_transformers`` extra by patching ``sys.modules``: a
+bare ``ModuleType`` stand-in models the extra being present but unusable, and
+a fake module exposing a working ``CrossEncoder`` class models a real model
+being available. Covers falling back to unchanged results when no usable
+model is available, an empty input list, that min_score filtering is skipped
+without a model, and that it actually drops low-scoring results when a model
+is present.
+"""
 
 import sys
 from types import ModuleType
@@ -10,12 +19,27 @@ from agrag.common.data_models.search_result import SearchResult
 from agrag.retrieval.rerank.cross_encoder import cross_encoder_rerank
 
 
-def _make_result(score: float = 1.0) -> SearchResult:
+def _make_result(score: float = 1.0, name: str = "Test Entity") -> SearchResult:
     return SearchResult(
-        item=Entity(id=uuid4(), label="Person", name="Test Entity"),
+        item=Entity(id=uuid4(), label="Person", name=name),
         score=score,
         method="test",
     )
+
+
+def _fake_cross_encoder_module(scores: list[float]) -> ModuleType:
+    """Build a fake sentence_transformers module with a working CrossEncoder."""
+
+    class FakeCrossEncoder:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
+            return scores
+
+    module = ModuleType("fake")
+    module.CrossEncoder = FakeCrossEncoder
+    return module
 
 
 class TestCrossEncoderRerank:
@@ -42,3 +66,19 @@ class TestCrossEncoderRerank:
         with patch.dict(sys.modules, {"sentence_transformers": ModuleType("fake")}):
             reranked = await cross_encoder_rerank("query", [r1], min_score=0.5)
         assert len(reranked) >= 1
+
+    async def test_min_score_filters_when_model_present(self) -> None:
+        """A present model scores each result, drops low ones, and sorts."""
+        r1 = _make_result(name="Entity A")
+        r2 = _make_result(name="Entity B")
+        r3 = _make_result(name="Entity C")
+        # r1 is filtered out; r2 and r3 survive but arrive in ascending score
+        # order, so only a real descending sort puts r3 ahead of r2.
+        fake_module = _fake_cross_encoder_module([0.3, 0.6, 0.9])
+        with patch.dict(sys.modules, {"sentence_transformers": fake_module}):
+            reranked = await cross_encoder_rerank("query", [r1, r2, r3], min_score=0.5)
+        assert len(reranked) == 2
+        assert reranked[0].item.name == "Entity C"
+        assert reranked[0].score == 0.9
+        assert reranked[1].item.name == "Entity B"
+        assert reranked[1].score == 0.6

@@ -1,4 +1,11 @@
-"""Tests for build_vector_store and the backend lookup table."""
+"""Tests for build_vector_store and the backend lookup table.
+
+Covers building each named backend (qdrant, weaviate, milvus) with its
+matching settings class, passthrough of an already-constructed VectorStore
+instance, and a reflection check that every ``Literal`` backend name in
+``build_vector_store``'s type annotation has a matching entry in
+``_VECTOR_STORE_FACTORIES``.
+"""
 
 import typing
 from typing import get_args, get_origin

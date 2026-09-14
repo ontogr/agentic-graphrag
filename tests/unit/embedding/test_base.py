@@ -1,4 +1,12 @@
-"""Tests for the Embedder protocol, cache seam, and base behavior."""
+"""Tests for Embedder, EmbeddingCache, and NullEmbeddingCache in embedding.base.
+
+Uses a _RecordingCache (an EmbeddingCache that records get/set calls) and a
+_StubEmbedder returning fixed per-text vectors. Covers NullEmbeddingCache
+always missing and no-op-ing on set, a real cache's (text, model, normalize)
+key contract including that model or normalize differences produce distinct
+cache entries, and that Embedder.embed_one delegates to embed with a
+single-item batch and returns the first vector.
+"""
 
 from collections.abc import Sequence
 

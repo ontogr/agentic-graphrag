@@ -1,4 +1,11 @@
-"""Tests for the GraphSchema contract and the GENERIC schema."""
+"""Tests for the GraphSchema, EntityType, RelationType models and GENERIC.
+
+Verifies the shipped GENERIC schema is internally consistent (every relation
+pattern references a declared entity label) and has its expected five entity
+types and one relation, that a GraphSchema survives a JSON dump/validate
+round trip unchanged, and that EntityType defaults to empty properties and
+subtypes.
+"""
 
 from agrag.common.data_models.graph_schema import (
     GENERIC,
