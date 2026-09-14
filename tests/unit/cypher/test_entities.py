@@ -1,4 +1,17 @@
-"""Tests for the Cypher node builders and identifier validation."""
+"""Tests for the node-focused Cypher query builders in agrag.cypher.entities.
+
+Covers identifier validation and its non-raising counterpart
+(is_safe_identifier), parametrized over injection-shaped inputs (spaces,
+backticks, semicolons, leading digits, dots, hyphens). Verifies
+upsert_node_query and upsert_survivor_query always MERGE on
+NODE_IDENTITY_LABEL rather than the content labels being set, so that adding
+a label to an existing node updates it instead of creating a duplicate.
+Also covers upsert_survivor_query's atomic accumulator fields
+(source_chunk_ids, merged_from, merge_count) being read before the
+property SET rather than after, upsert_merge_alias_query's ON CREATE-only
+alias claiming, and filter_clause building WHERE clauses from a flat filter
+dict.
+"""
 
 import pytest
 

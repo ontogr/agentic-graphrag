@@ -1,4 +1,20 @@
-"""Tests for the entity resolution pipeline."""
+"""Tests for the comparator, candidate source, and Resolver in ingestion.resolve.
+
+Covers ExactMatch (case/whitespace-insensitive match, otherwise UNCERTAIN,
+never NO_MATCH), FuzzyMatch's three verdict bands under custom thresholds,
+and LLMVerify's fail-safe NO_MATCH on a raising injected client, working
+without settings when a client is injected directly, raising
+ExtractorMissingExtraError when no client is available (simulated by
+patching ``agrag.llm.baml_client`` out of ``sys.modules``), and
+retry-with-backoff behavior driven by ExtractionLLMSettings.retry (sleep is
+patched to record delays instead of actually sleeping).
+
+Also covers InBatchCandidateSource restricting candidates to same-label,
+non-self entities; the union-find _group_matches helper clustering
+transitively connected indices; and Resolver combining a comparator with a
+candidate source to group matching entities while respecting label
+boundaries.
+"""
 
 from uuid import UUID, uuid4
 

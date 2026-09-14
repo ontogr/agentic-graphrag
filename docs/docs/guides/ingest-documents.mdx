@@ -122,8 +122,7 @@ print(result.quarantined_items)   # list of (uri, reason) tuples
 
 An unknown format raises `UnsupportedFormatError`; a format that needs docling
 without the extra installed raises `MissingExtraError`. With `SKIP` or
-`QUARANTINE`, those sources are handled by the policy instead of stopping the
-run.
+`QUARANTINE`, the policy handles those sources instead of stopping the run.
 
 ## Track progress
 
@@ -161,12 +160,12 @@ loaders require the docling extra.
 | XML | `.xml` | docling |
 
 For `.md`, `.html`, and `.csv`, docling registers a loader but the core loader
-wins by default. For `.adoc` and `.asciidoc`, it is the other way around:
-docling's structural parser wins when the docling extra is installed, and the
-core regex-based reader is the fallback when it is not. To customize
-per-source reading (encoding, size limits, column mapping, and more), build
-`Document` objects through the lower-level loaders with `ReadOptions` from
-`agrag.loaders.corpus.types`.
+wins by default. For `.adoc` and `.asciidoc`, docling takes precedence
+instead: docling's structural parser wins when the docling extra is
+installed, and the core regex-based reader is the fallback when it is not.
+To customize per-source reading (encoding, size limits, column mapping, and
+more), build `Document` objects through the lower-level loaders with
+`ReadOptions` from `agrag.loaders.corpus.types`.
 
 ## Next steps
 

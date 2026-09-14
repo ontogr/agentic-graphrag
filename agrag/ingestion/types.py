@@ -39,7 +39,7 @@ _MAX_FAILURES_PER_STAGE = 200
 
 
 class IngestStats(BaseModel):
-    """Ingestion-stage results. Renamed from IngestResult (ADR 0031)."""
+    """Ingestion-stage results."""
 
     documents: int = 0
     sources: int = 0
@@ -66,7 +66,7 @@ class ResolutionStats(BaseModel):
         in_batch_groups: Resolution groups the in-batch fuzzy/LLM tier
             found.
         ambiguous_count: Comparisons no comparator could confidently
-            decide (ADR 0013's fail-safe: never merged).
+            decide. These pairs are never merged.
     """
 
     exact_match_hits: int = 0
@@ -85,8 +85,8 @@ class MergeStats(BaseModel):
         conflicts_resolved: Total property/description conflicts resolved
             across every merge this call performed.
         failures: Includes an LLM failure during description
-            summarization (ADR 0033's fallback-to-concatenation path still
-            records one here, even though it didn't block the merge).
+            summarization. The merge still falls back to concatenation and
+            completes, but the failure is recorded here.
     """
 
     nodes_created: int = 0

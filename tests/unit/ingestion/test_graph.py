@@ -1,4 +1,13 @@
-"""Tests for the public Graph ingestion API."""
+"""Tests for the public Graph ingestion API (agrag.ingestion.Graph).
+
+Graph.open and Graph.add are exercised against fake GraphStore, Embedder, and
+Extractor implementations, so no real database or LLM calls are made. Covers
+adding from a directory, raw text, and prebuilt documents; the mutually
+exclusive input validation; error policies (raise, skip, quarantine) for
+unsupported sources; progress callbacks; and that Graph.open closes the store
+when provisioning fails at any stage (connect, setup_constraints,
+ensure_vector_index).
+"""
 
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager

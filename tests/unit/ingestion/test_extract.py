@@ -1,4 +1,20 @@
-"""Tests for the Extractor implementations and ExtractorMissingExtraError."""
+"""Tests for GlinerExtractor, BAMLExtractor, EscalatingExtractor, and errors.
+
+Uses hand-built GraphSchema fixtures (one-pair, multi-label, symmetric
+KNOWS, duplicate-label, overwrite-label, and property schemas) to exercise
+entity/relation normalization edge cases: label-pattern filtering,
+duplicate mention disambiguation, self-referencing and hallucinated
+relations, undeclared labels and properties, index remapping after a
+dropped entity, and multiple valid labels sharing one text span.
+
+GlinerExtractor and BAMLExtractor are driven with hand-rolled mock model or
+client objects (no real gliner2 or LLM calls); missing-extra behavior is
+verified by patching ``sys.modules`` entries to ``None``. Concurrency tests
+use ``threading.Event`` pairs to prove a model loads exactly once across
+overlapping or cancelled concurrent extract() calls. EscalatingExtractor
+tests use fake primary/escalate extractors to verify escalation triggers on
+low yield or low mean confidence, and never merges results from both.
+"""
 
 import asyncio
 import threading

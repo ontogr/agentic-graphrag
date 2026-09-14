@@ -1,4 +1,12 @@
-"""Tests for EntityRetriever."""
+"""Tests for EntityRetriever in agrag.retrieval.retrievers.entity.
+
+Patches ``agrag.retrieval.retrievers.entity.vector_search`` and
+``resolve_entity`` with AsyncMock, using an AsyncMock graph store and a
+minimal MockEmbedder. Covers returning entities resolved through
+resolve_entity, skipping hits that fail to resolve (ValueError), and a
+regression proving the retriever returns the live survivor entity rather
+than a tombstoned id when the vector store's hit has since been merged.
+"""
 
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4

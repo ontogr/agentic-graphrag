@@ -1,4 +1,9 @@
-"""Tests for the sparse embedder protocol and SparseVector model."""
+"""Tests for the SparseEmbedder base class and SparseVector model.
+
+Uses a minimal _StubSparseEmbedder subclass to verify the abstract base
+cannot be instantiated directly, and that concrete embed/query_embed
+implementations return one SparseVector per input text.
+"""
 
 from collections.abc import Sequence
 

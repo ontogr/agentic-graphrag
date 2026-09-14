@@ -1,4 +1,10 @@
-"""Tests for agent tools."""
+"""Tests for make_tools in agrag.agents.tools.
+
+Covers the five expected tools and their names, that a tool's ainvoke calls
+SearchEngine.search with the query, and that SearchFilters passed to
+make_tools reach every tool's search call (or None by default). The search
+engine is a MagicMock/AsyncMock; no real retrieval backend is used.
+"""
 
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4

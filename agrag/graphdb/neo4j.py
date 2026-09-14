@@ -120,7 +120,7 @@ class Neo4jGraphStore(GraphStore):
 
     The driver connects lazily on first use, so constructing the store does not
     open a network connection. ``execute_read``/``execute_write`` wrap the
-    driver's managed transactions with no added retry loop, per ADR 0027.
+    driver's managed transactions with no added retry loop.
     """
 
     def __init__(

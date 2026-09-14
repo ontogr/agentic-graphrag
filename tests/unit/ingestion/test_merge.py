@@ -1,4 +1,13 @@
-"""Tests for merge mechanics."""
+"""Tests for entity merge planning and application in agrag.ingestion.merge.
+
+Covers canonical-name selection, per-property resolution strategies and
+rules, LLM-assisted description resolution (mocked with ``AsyncMock``),
+property merging, full merge-plan computation, relationship-dedup planning
+with alias transfer, and applying a merge plan against a mocked graph store
+transaction. ``apply_merge`` tests build an ``AsyncMock`` store whose
+``transaction()`` context manager yields a fake handle wrapping
+``execute_write``/``execute_read`` mocks, so no real Neo4j session is used.
+"""
 
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta

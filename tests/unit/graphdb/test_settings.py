@@ -1,4 +1,11 @@
-"""Tests for Neo4j settings."""
+"""Tests for Neo4jSettings in agrag.graphdb.settings.
+
+Covers reading the NEO4J_ env prefix (uri, username, password as a Pydantic
+SecretStr, database), defaults for a local instance, and the validator
+rejecting a plaintext bolt/neo4j scheme against a non-local host while
+allowing plaintext localhost and encrypted remote schemes (neo4j+s,
+neo4j+ssc).
+"""
 
 import pytest
 

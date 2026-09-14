@@ -1,4 +1,12 @@
-"""Tests for the core corpus registration precedence."""
+"""Tests for default loader precedence between core readers and docling.
+
+Verifies core loaders (csv, markdown, html) win over docling's registrations
+for their formats, docling wins for formats with no core loader (pdf, xml)
+and for AsciiDoc's structural parser when docling is installed, and that the
+regex-based AsciiDocLoader is used as a fallback on an isolated
+LoaderRegistry when docling is absent. Docling-dependent tests use
+``pytest.importorskip("docling")``.
+"""
 
 import pytest
 

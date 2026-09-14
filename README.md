@@ -15,7 +15,7 @@
 
 </div>
 
-Agentic GraphRAG is a modular, schema-driven system for building knowledge graphs from unstructured and structured data, retrieving evidence across graph and vector indexes, and answering questions with agentic reasoning.
+Agentic GraphRAG is a modular, schema-driven system. It builds knowledge graphs from unstructured and structured data. It retrieves evidence across graph and vector indexes. It answers questions with agentic reasoning.
 
 <p align="center">
   <img src="img/agentic_graphrag_pipeline.png" alt="Agentic GraphRAG pipeline from data loading through graph construction, storage, retrieval, and agentic reasoning" width="1200">
@@ -67,7 +67,7 @@ Documents keep their source URI, format, loader, content hash, and record identi
 
 Extraction produces mentions first, not graph nodes. Each mention keeps its source chunk, label, text span, confidence, and extractor provenance. Resolution then assigns canonical identities and merges aliases before storage.
 
-Relations are directed subject–predicate–object triples. The active schema constrains valid source type, relation type, and target type combinations, so invalid triples are removed before they reach the graph.
+Relations are directed subject–predicate–object triples. The active schema constrains valid source type, relation type, and target type combinations. The validation stage removes invalid triples before they reach the graph.
 
 ### Communities
 
@@ -97,12 +97,12 @@ Query:     question -> plan -> parallel retrieval -> verify -> cited answer
 
 `Graph.add()` is the single entry point for adding content. The complete pipeline is organized into these stages:
 
-1. **Load:** Select a loader by format, decode or parse the source, preserve source metadata, and apply `RAISE`, `SKIP`, or `QUARANTINE` per-source error handling.
+1. **Load:** Select a loader by format. Decode or parse the source. Preserve source metadata. Apply `RAISE`, `SKIP`, or `QUARANTINE` as the error policy for each source.
 2. **Chunk:** Use Docling's layout-aware chunking before flattening rich documents; use Chonkie for text and record documents.
 3. **Extract:** Run GLiNER locally against the active schema. Escalate weak results to a typed BAML extraction function when configured.
 4. **Validate:** Drop entities and triples that do not conform to the schema.
 5. **Resolve:** Apply exact, fuzzy, embedding, and LLM-verified comparison tiers. Ambiguous or failed comparisons do not merge.
-6. **Merge:** Resolve properties field by field, combine provenance, deduplicate repointed relations, and retain an audit trail.
+6. **Merge:** Resolve properties field by field. Combine provenance. Deduplicate repointed relations. Retain an audit trail.
 7. **Store:** Upsert canonical nodes and relations, then populate graph-native or dedicated vector indexes.
 
 The extraction cascade replaces a weak local result with the LLM result instead of combining two conflicting outputs. Exact matches use global store-backed lookup; more expensive fuzzy and LLM comparisons are blocked to a smaller candidate set.
@@ -122,7 +122,7 @@ The async `Embedder`, `GraphStore`, and `VectorStore` interfaces keep model and 
 
 ### Graph storage
 
-The Neo4j backend supports local Neo4j and Aura over Bolt, managed read/write transactions, node and relation upserts, constraints, indexes, and native dense vector search. Dynamic labels and relation types are validated before Cypher interpolation.
+The Neo4j backend supports local Neo4j and Aura over Bolt, managed read/write transactions, node and relation upserts, constraints, indexes, and native dense vector search. The query builders validate dynamic labels and relation types before they interpolate them into Cypher.
 
 ### Vector storage
 

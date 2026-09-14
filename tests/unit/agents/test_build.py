@@ -1,4 +1,12 @@
-"""Tests for build_agent."""
+"""Tests for build_agent and the _SimpleAgent/_RunScopedAgent fallbacks.
+
+Patches ``importlib.util.find_spec`` to simulate ``deepagents`` being absent
+and stubs the ``deepagents`` module in ``sys.modules`` to capture the tools,
+middleware, and recursion limit passed to ``create_deep_agent`` without
+installing the real dependency. The retrieval engine and LLM are mocked with
+``MagicMock``/``AsyncMock``. Covers per-run citation ledger isolation and
+that search filters reach the engine through both agent implementations.
+"""
 
 import importlib.util
 import sys

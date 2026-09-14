@@ -1,4 +1,10 @@
-"""Tests for build_embedder and EmbeddingSettings."""
+"""Tests for build_embedder and EmbeddingSettings.
+
+Covers building a SentenceTransformerEmbedder from a model name, passthrough
+of an existing Embedder instance, EmbeddingSettings' planned defaults
+(model, normalize, batch_size, device, cache_folder), and overriding fields
+via the EMBEDDING_ env prefix using ``pytest.MonkeyPatch.context()``.
+"""
 
 import pytest
 

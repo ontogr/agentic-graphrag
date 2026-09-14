@@ -1,4 +1,17 @@
-"""Tests for the sentence-transformers embedder implementation."""
+"""Tests for SentenceTransformerEmbedder in agrag.embedding.sentence_transformers.
+
+Uses a MockSentenceTransformer (records which thread ``encode`` ran on and
+the texts it received) injected via the ``model`` parameter, and a
+_RecordingCache implementing EmbeddingCache, so no real model is downloaded.
+Covers lazy model loading, that embedding without the ``sentence_transformers``
+extra installed raises EmbeddingMissingExtraError (simulated via
+``sys.modules`` patching), that ``encode`` runs off the event-loop thread via
+``asyncio.to_thread``, that concurrent first-time embed/dimensions calls
+share one model build rather than racing it (using ``threading.Event`` pairs
+and ``mock.patch.object(..., autospec=True)``), that a failed build can be
+retried, and cache read/write behavior including that embedders differing
+only in ``normalize`` do not share cache entries.
+"""
 
 import asyncio
 import sys

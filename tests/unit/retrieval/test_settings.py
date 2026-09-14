@@ -1,4 +1,10 @@
-"""Tests for RetrievalSettings."""
+"""Tests for RetrievalSettings in agrag.retrieval.settings.
+
+Covers default values across all fields (collection names, top_k, hybrid
+alpha, traversal depth/limit, RRF k, text2cypher limits), explicit overrides,
+and reading a field from the RETRIEVAL_ env prefix via real environment
+variables rather than monkeypatch.
+"""
 
 import os
 

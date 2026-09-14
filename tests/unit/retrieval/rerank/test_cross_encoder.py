@@ -1,4 +1,11 @@
-"""Tests for cross_encoder_rerank."""
+"""Tests for cross_encoder_rerank in agrag.retrieval.rerank.cross_encoder.
+
+Simulates the ``sentence_transformers`` extra being present but unusable by
+patching ``sys.modules`` with a bare ``ModuleType`` stand-in, so no real
+cross-encoder model loads. Covers falling back to unchanged results when no
+usable model is available, an empty input list, and that min_score filtering
+only applies when a real model is present.
+"""
 
 import sys
 from types import ModuleType

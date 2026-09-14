@@ -1,4 +1,13 @@
-"""Tests for the extension-to-loader registry."""
+"""Tests for LoaderRegistry in agrag.loaders.corpus.registry.
+
+Uses a minimal _StubLoader to cover prefer=True precedence (including that
+the last preferred registration wins), idempotent re-registration, an
+unsupported extension raising UnsupportedFormatError, a loader with a
+missing optional extra raising MissingExtraError (and falling back to a
+non-preferred loader for the same extension when the preferred one's extra
+is unavailable), and scoping a loader to a subset of its declared
+extensions.
+"""
 
 from agrag.common.data_models.document import DocumentFamily
 from agrag.loaders.corpus.base import Loader

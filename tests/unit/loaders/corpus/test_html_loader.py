@@ -1,4 +1,10 @@
-"""Tests for the HTML reader."""
+"""Tests for HtmlLoader in agrag.loaders.corpus.readers.html.
+
+Covers extracting main content while dropping navigation, a custom CSS
+selector overriding the default extraction target, and that a source with an
+unknown byte size still honors ``max_document_bytes`` instead of buffering
+fully. Reads fixtures from the local ``fixtures/`` directory.
+"""
 
 from io import BytesIO
 

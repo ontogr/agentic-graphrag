@@ -1,4 +1,12 @@
-"""Tests for the Cypher relationship builders."""
+"""Tests for upsert_relation_query in agrag.cypher.relations.
+
+Covers the base match-and-merge shape keyed by relationship id, deleting a
+stale relationship found at different endpoints under the same id,
+relationship-type validation, and that ``source_chunk_ids`` is read and
+unioned inside the query (via ``coalesce``) rather than overwritten, with
+the read happening before the blind ``SET r += record.properties`` so a
+concurrent writer's contribution is not lost.
+"""
 
 import pytest
 

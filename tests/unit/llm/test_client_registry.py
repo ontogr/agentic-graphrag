@@ -1,4 +1,12 @@
-"""Tests for building a BAML ClientRegistry from LLMClientConfig."""
+"""Tests for build_client_registry in agrag.llm.client_registry.
+
+Patches ``baml_py.ClientRegistry`` with a MockClientRegistry that records
+added clients and the chosen primary, so no real BAML runtime is needed.
+Covers the "single" strategy setting the one client as primary, "fallback"
+and "round_robin" both registering a composite client over every name and
+making it primary, an empty client list raising ValueError, and that an
+openai-generic client's base_url and api_key reach the registered options.
+"""
 
 import pytest
 

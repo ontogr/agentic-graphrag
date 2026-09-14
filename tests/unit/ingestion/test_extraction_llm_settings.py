@@ -1,4 +1,12 @@
-"""Tests for ExtractionLLMSettings env loading and the OpenAI env bridge."""
+"""Tests for ExtractionLLMSettings env loading and the OpenAI env bridge.
+
+Covers reading ``EXTRACTION_LLM_CLIENTS``/``_STRATEGY``/``_RETRY`` and their
+defaults, and ``from_openai_compatible_env`` building a single
+openai-generic client from ``LLM_BASE_URL``, ``LLM_API_KEY``, and
+``LLM_MODEL_ID``. Uses ``monkeypatch.setenv``/``delenv`` for environment
+variables and patches ``load_dotenv`` to a no-op so tests do not read a real
+``.env`` file.
+"""
 
 import pytest
 

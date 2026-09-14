@@ -1,4 +1,11 @@
-"""Tests for SearchFilters."""
+"""Tests for SearchFilters in agrag.retrieval.filters.
+
+Covers the empty case, and that labels, document ids, and arbitrary
+properties route correctly across the three output shapes: the vector-store
+payload filter, the property-only filter, and the generated Cypher WHERE
+clause with its parameters. Verifies labels are treated as node labels
+(native Cypher label checks), never as a node property.
+"""
 
 from agrag.retrieval.filters import SearchFilters
 

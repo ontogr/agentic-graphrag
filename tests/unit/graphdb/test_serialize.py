@@ -1,4 +1,9 @@
-"""Tests for graph-record serialization to driver params."""
+"""Tests for node_params and relation_params in agrag.graphdb.serialize.
+
+Covers converting NodeRecord/RelationRecord UUID fields (including a nested
+UUID inside a node's properties) to strings for the Neo4j driver, while
+leaving other scalar property values unchanged.
+"""
 
 from uuid import uuid4
 

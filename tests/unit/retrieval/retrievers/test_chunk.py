@@ -1,4 +1,11 @@
-"""Tests for ChunkRetriever."""
+"""Tests for ChunkRetriever in agrag.retrieval.retrievers.chunk.
+
+Patches ``agrag.retrieval.retrievers.chunk.vector_search`` with an AsyncMock
+to control the returned VectorHits, and uses an AsyncMock graph store
+returning raw node properties (including JSON-encoded provenance) to build
+Chunk objects. Covers parsing a hit into a Chunk and skipping hits whose
+node id is not found in the store.
+"""
 
 import json
 from unittest.mock import AsyncMock, patch

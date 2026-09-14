@@ -390,10 +390,9 @@ def resolve_merged_into_query() -> str:
     """Return a node and the id of the node it was merged into.
 
     A tombstoned node is never deleted; it only gains a ``merged_into``
-    property pointing at its survivor (ADR 0033). The pointer is a
-    property, not a relationship, so a chain is followed one hop per
-    call: ``merged_into`` is null on a live node and holds the next id
-    on a tombstone.
+    property pointing at its survivor. The pointer is a property, not a
+    relationship, so a chain is followed one hop per call: ``merged_into``
+    is null on a live node and holds the next id on a tombstone.
 
     Returns:
         A parameterized query expecting an $id parameter, returning the
@@ -408,7 +407,7 @@ def resolve_merged_into_query() -> str:
 def hydrate_entities_by_id_query() -> str:
     """Build Cypher fetching entities by id, excluding tombstones.
 
-    A tombstoned node is never deleted (ADR 0033) so a naive
+    A tombstoned node is never deleted, so a naive
     ``MATCH (n) WHERE n.id IN $ids`` would surface one. This query
     filters on ``merged_into IS NULL`` to return only live nodes.
 

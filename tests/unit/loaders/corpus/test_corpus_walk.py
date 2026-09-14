@@ -1,4 +1,13 @@
-"""Tests for the corpus walk, batching, and resume."""
+"""Tests for _CorpusWalk and _InMemoryWalk in agrag.loaders.corpus._walk.
+
+Covers ordered batching over fixture files, resume via LoaderCursor
+(mid-source and past a record index), and that batching splits a single
+record source across multiple batches. Stub Loader subclasses
+(_RaisingLoader, _PartiallyRaisingLoader, _OverflowsBatchThenFailsLoader)
+simulate decode and malformed-record failures to verify that the RAISE and
+SKIP error policies propagate or count errors without leaking partially
+yielded documents or double-counting stats.
+"""
 
 from collections.abc import Iterator
 from pathlib import Path

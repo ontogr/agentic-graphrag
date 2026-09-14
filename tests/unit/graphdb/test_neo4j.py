@@ -1,6 +1,6 @@
 """Unit tests for the Neo4j graph-store backend, with a fake driver.
 
-The driver is injected as a fake, per ADR 0027, so no real Neo4j is required.
+The driver is injected as a fake, so no real Neo4j is required.
 """
 
 import asyncio

@@ -1,4 +1,12 @@
-"""Tests for new Cypher entity builders: hydration and resolve."""
+"""Tests for hydration and merge-resolution query builders in cypher.entities.
+
+Covers resolve_merged_into_query reading the merged_into property (not
+following a MERGED_INTO relationship) and expecting an $id parameter,
+hydrate_entities_by_id_query and hydrate_chunks_by_id_query UNWINDing over
+$ids while filtering tombstoned nodes, and set_chunk_embedding_query
+guarding the write on a matching text value and validating its vector
+property name.
+"""
 
 import pytest
 

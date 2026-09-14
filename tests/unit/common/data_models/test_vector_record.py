@@ -1,4 +1,9 @@
-"""Tests for the shared vector storage record shapes."""
+"""Tests for the Distance enum, VectorRecord, and VectorHit data models.
+
+Covers Distance resolving from its string value and round-tripping through
+``str()``, and VectorRecord/VectorHit's minimal construction, required id
+field, and JSON dump/validate round trips.
+"""
 
 from uuid import uuid4
 
