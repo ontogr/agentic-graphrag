@@ -49,8 +49,8 @@ from agrag.ingestion.graph import (
     _union_groups_by_existing_entity,
 )
 from agrag.ingestion.merge import MergePlan
+from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolve import ResolutionGroup
-from agrag.ingestion.types import AddResult
 from agrag.loaders.corpus.types import ErrorPolicy
 
 

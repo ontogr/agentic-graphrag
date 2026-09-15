@@ -35,7 +35,7 @@ from agrag.ingestion import Graph
 async def main():
     graph = await Graph.open()
     result = await graph.add(source="path/to/file.pdf")
-    print(result.documents)  # number of documents ingested
+    print(result.ingestion.documents)  # number of documents ingested
 
 asyncio.run(main())
 ```
@@ -103,21 +103,21 @@ from agrag.ingestion import Graph
 from agrag.loaders.corpus.types import ErrorPolicy
 
 result = await graph.add(source="./corpus", error_policy=ErrorPolicy.SKIP)
-print(result.skipped, result.quarantined)
+print(result.ingestion.skipped, result.ingestion.quarantined)
 ```
 
 - `ErrorPolicy.RAISE` — stop and raise on the first failure (default).
 - `ErrorPolicy.SKIP` — drop the failing source and continue.
 - `ErrorPolicy.QUARANTINE` — isolate the failing source and continue.
 
-Read the outcome from the returned `IngestResult`:
+Read the outcome from the returned `AddResult`:
 
 ```python
-print(result.documents)          # count of documents ingested
-print(result.sources)            # count of sources processed
-print(result.skipped)            # count of skipped sources
-print(result.quarantined)        # count of quarantined sources
-print(result.quarantined_items)   # list of (uri, reason) tuples
+print(result.ingestion.documents)  # count of documents ingested
+print(result.ingestion.sources)    # count of sources processed
+print(result.ingestion.skipped)    # count of skipped sources
+print(result.ingestion.quarantined)  # count of quarantined sources
+print(result.ingestion.quarantined_items)  # one StageFailure per quarantined source
 ```
 
 An unknown format raises `UnsupportedFormatError`; a format that needs docling

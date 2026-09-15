@@ -6,9 +6,11 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
+from agrag.common.data_models.community import Community
 from agrag.common.data_models.search_result import SearchResult
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.retrieval.community_context import community_context
 from agrag.retrieval.errors import (
     AllRetrievalMethodsFailedError,
     UnknownRecipeMethodError,
@@ -21,6 +23,7 @@ from agrag.retrieval.rerank.node_distance import node_distance_rerank
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.retrievers.bfs import BFSRetriever
 from agrag.retrieval.retrievers.chunk import ChunkRetriever
+from agrag.retrieval.retrievers.community import CommunityRetriever
 from agrag.retrieval.retrievers.entity import EntityRetriever
 from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from agrag.retrieval.settings import RetrievalSettings
@@ -77,7 +80,7 @@ class SearchEngine:
             else list(self._settings.entity_labels)
         )
 
-    async def search(
+    async def search(  # noqa: PLR0912
         self,
         query: str,
         recipe: Recipe,
@@ -134,9 +137,15 @@ class SearchEngine:
             if filters and (filters.document_ids or filters.properties)
             else None
         )
+        community_filters = (
+            SearchFilters(properties=filters.properties)
+            if filters and filters.properties
+            else None
+        )
         retriever_filters: dict[str, SearchFilters | None] = {
             "entity": entity_filters,
             "chunk": chunk_filters,
+            "community": community_filters,
         }
 
         # Fan out recipe.methods concurrently.
@@ -215,12 +224,33 @@ class SearchEngine:
                     rrf_k=self._settings.rrf_k,
                 )
 
+        if recipe.community_expand:
+            community_seed_ids = self._extract_entity_ids(fused)
+            community_results = await community_context(
+                community_seed_ids,
+                graph_store=self._graph_store,
+                top_k=recipe.community_top_k,
+            )
+            if community_results:
+                fused = fuse(
+                    {"methods": fused, "community": community_results},
+                    rrf_k=self._settings.rrf_k,
+                )
+
         # Rerank.
         if recipe.reranker == "cross_encoder":
-            fused = await cross_encoder_rerank(
+            community_items = [r for r in fused if isinstance(r.item, Community)]
+            other_items = [r for r in fused if not isinstance(r.item, Community)]
+            reranked_other = await cross_encoder_rerank(
                 query,
-                fused,
+                other_items,
+                model=self._settings.cross_encoder_model,
                 min_score=self._settings.reranker_min_score,
+            )
+            reserved = min(len(community_items), recipe.community_top_k)
+            fused = (
+                reranked_other[: max(0, recipe.limit - reserved)]
+                + community_items[:reserved]
             )
         elif recipe.reranker == "node_distance":
             fused = await node_distance_rerank(
@@ -282,6 +312,12 @@ class SearchEngine:
                 entity_labels=self._entity_labels,
             ),
             "chunk": ChunkRetriever(
+                graph_store=self._graph_store,
+                embedder=self._embedder,
+                vector_store=self._vector_store,
+                settings=self._settings,
+            ),
+            "community": CommunityRetriever(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
                 vector_store=self._vector_store,

@@ -47,7 +47,7 @@ class ExtractedRelationLabel(str, Enum):
     PLACEHOLDER = "PLACEHOLDER"
 
 # #########################################################################
-# Generated classes (3)
+# Generated classes (5)
 # #########################################################################
 
 class BAMLExtractedEntity(BaseModel):
@@ -66,13 +66,23 @@ class BAMLExtractionResult(BaseModel):
     entities: typing.List["BAMLExtractedEntity"]
     relations: typing.List["BAMLExtractedRelation"]
 
+class CommunityInput(BaseModel):
+    entity_summaries: typing.List[str]
+
+class CommunityReport(BaseModel):
+    title: str
+    summary: str
+    rating: float = Field(description='Importance or relevance of this community to the corpus, 0-10.')
+    rating_explanation: str
+    findings: typing.List[str] = Field(description='Distinct factual claims this community\'s members support.')
+
 # #########################################################################
 # Generated type aliases (0)
 # #########################################################################
 
 
 # #########################################################################
-# Model rebuilds (3)
+# Model rebuilds (5)
 # #########################################################################
 # Resolve string forward references now that every model above is defined so
 # class declaration order never breaks Pydantic construction (issue #793).
@@ -81,3 +91,5 @@ class BAMLExtractionResult(BaseModel):
 BAMLExtractedEntity.model_rebuild()
 BAMLExtractedRelation.model_rebuild()
 BAMLExtractionResult.model_rebuild()
+CommunityInput.model_rebuild()
+CommunityReport.model_rebuild()

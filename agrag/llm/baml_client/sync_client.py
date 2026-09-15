@@ -122,6 +122,20 @@ class BamlSyncClient:
                 "question": question,"schema_description": schema_description,
             })
             return typing.cast(str, __result__.cast_to(types, types, stream_types, False, __runtime__))
+    def SummarizeCommunities(self, communities: typing.List["types.CommunityInput"],
+        baml_options: BamlCallOptions = {},
+    ) -> typing.List["types.CommunityReport"]:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            __stream__ = self.stream.SummarizeCommunities(communities=communities,
+                baml_options=baml_options)
+            return __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="SummarizeCommunities", args={
+                "communities": communities,
+            })
+            return typing.cast(typing.List["types.CommunityReport"], __result__.cast_to(types, types, stream_types, False, __runtime__))
     def VerifyEntityMatch(self, entity_a: str,context_a: str,entity_b: str,context_b: str,
         baml_options: BamlCallOptions = {},
     ) -> bool:
@@ -169,6 +183,18 @@ class BamlStreamClient:
           lambda x: typing.cast(str, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
+    def SummarizeCommunities(self, communities: typing.List["types.CommunityInput"],
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlSyncStream[typing.List["stream_types.CommunityReport"], typing.List["types.CommunityReport"]]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="SummarizeCommunities", args={
+            "communities": communities,
+        })
+        return baml_py.BamlSyncStream[typing.List["stream_types.CommunityReport"], typing.List["types.CommunityReport"]](
+          __result__,
+          lambda x: typing.cast(typing.List["stream_types.CommunityReport"], x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(typing.List["types.CommunityReport"], x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
     def VerifyEntityMatch(self, entity_a: str,context_a: str,entity_b: str,context_b: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[bool, bool]:
@@ -203,6 +229,13 @@ class BamlHttpRequestClient:
             "question": question,"schema_description": schema_description,
         }, mode="request")
         return __result__
+    def SummarizeCommunities(self, communities: typing.List["types.CommunityInput"],
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="SummarizeCommunities", args={
+            "communities": communities,
+        }, mode="request")
+        return __result__
     def VerifyEntityMatch(self, entity_a: str,context_a: str,entity_b: str,context_b: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
@@ -230,6 +263,13 @@ class BamlHttpStreamRequestClient:
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="GenerateCypherQuery", args={
             "question": question,"schema_description": schema_description,
+        }, mode="stream")
+        return __result__
+    def SummarizeCommunities(self, communities: typing.List["types.CommunityInput"],
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="SummarizeCommunities", args={
+            "communities": communities,
         }, mode="stream")
         return __result__
     def VerifyEntityMatch(self, entity_a: str,context_a: str,entity_b: str,context_b: str,

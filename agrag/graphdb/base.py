@@ -40,6 +40,15 @@ class GraphStoreTransaction(Protocol):
         """Write or merge nodes inside the surrounding transaction."""
         ...
 
+    async def upsert_relations(
+        self,
+        relations: Sequence[RelationRecord],
+        *,
+        batch_size: int = 256,
+    ) -> None:
+        """Write or merge relationships inside the surrounding transaction."""
+        ...
+
 
 class GraphStore(ABC):
     """A graph database backend: schema, writes, and native vector search."""

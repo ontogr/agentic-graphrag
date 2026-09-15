@@ -61,6 +61,7 @@ agents = [
     "deepagents>=0.7",
     "langchain-openai>=1.0",
 ]
+community = ["graspologic-native>=1.2.5"]
 
 [project.urls]
 Documentation = "https://ontogr.github.io/agentic-graphrag/"

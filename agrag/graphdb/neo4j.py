@@ -114,6 +114,33 @@ class _Neo4jTransaction(GraphStoreTransaction):
                 batch = records[start : start + batch_size]
                 await self.execute_write(query, {"records": batch})
 
+    async def upsert_relations(
+        self,
+        relations: Sequence[RelationRecord],
+        *,
+        batch_size: int = 256,
+    ) -> None:
+        """Write or merge relationships against this transaction.
+
+        Mirrors ``Neo4jGraphStore.upsert_relations`` but via
+        ``self.execute_write`` so every write joins the surrounding explicit
+        transaction.
+
+        Raises:
+            ValueError: ``batch_size`` is not positive.
+        """
+        require_positive_batch_size(batch_size)
+        by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for rel in relations:
+            validate_identifier(rel.type)
+            by_type[rel.type].append(relation_params(rel))
+        for rel_type, params in by_type.items():
+            await self._store.register_relation_types([rel_type])
+            query = upsert_relation_query(rel_type)
+            for start in range(0, len(params), batch_size):
+                batch = params[start : start + batch_size]
+                await self.execute_write(query, {"records": batch})
+
 
 class Neo4jGraphStore(GraphStore):
     """A ``GraphStore`` backed by Neo4j, using native vector indexes.

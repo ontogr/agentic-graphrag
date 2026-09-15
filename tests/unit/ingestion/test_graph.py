@@ -157,15 +157,15 @@ class TestGraphAdd:
         """Add directory reads all sources."""
         graph = await _open_graph()
         result = await graph.add(_FIXTURES)
-        assert result.documents > 0
-        assert result.sources > 0
+        assert result.ingestion.documents > 0
+        assert result.ingestion.sources > 0
 
     async def test_add_single_text(self) -> None:
         """Add single text."""
         graph = await _open_graph()
         result = await graph.add(text="a short note")
-        assert result.documents == 1
-        assert result.sources == 1
+        assert result.ingestion.documents == 1
+        assert result.ingestion.sources == 1
 
     async def test_add_prebuilt_documents(self) -> None:
         """Add prebuilt documents."""
@@ -182,7 +182,7 @@ class TestGraphAdd:
             line_count=1,
         )
         result = await graph.add(documents=[doc])
-        assert result.documents == 1
+        assert result.ingestion.documents == 1
 
     async def test_add_exposes_the_chunks_it_produced(self) -> None:
         """Add returns the chunks it computed, not just counts."""
@@ -222,8 +222,8 @@ class TestGraphAdd:
         bad.write_text("x")
         graph = await _open_graph()
         result = await graph.add(bad, error_policy=ErrorPolicy.SKIP)
-        assert result.skipped == 1
-        assert result.documents == 0
+        assert result.ingestion.skipped == 1
+        assert result.ingestion.documents == 0
 
     async def test_quarantine_policy_counts_quarantined(self, tmp_path: Path) -> None:
         """Quarantine policy counts quarantined."""
@@ -231,8 +231,8 @@ class TestGraphAdd:
         bad.write_text("x")
         graph = await _open_graph()
         result = await graph.add(bad, error_policy=ErrorPolicy.QUARANTINE)
-        assert result.quarantined == 1
-        assert result.quarantined_items
+        assert result.ingestion.quarantined == 1
+        assert result.ingestion.quarantined_items
 
     async def test_loader_override_with_text_raises(self) -> None:
         """A loader override has no effect on ``text`` and must be rejected."""
@@ -263,8 +263,8 @@ class TestGraphAdd:
         (tmp_path / "a.txt").write_text("hello")
         graph = await _open_graph()
         result = await graph.add(str(tmp_path / "*"))
-        assert result.documents == 1
-        assert result.sources == 1
+        assert result.ingestion.documents == 1
+        assert result.ingestion.sources == 1
 
 
 class TestGraphOpen:

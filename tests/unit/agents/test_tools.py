@@ -21,11 +21,11 @@ class TestMakeTools:
     """make_tools builds the agent's tool set."""
 
     def test_returns_five_tools(self) -> None:
-        """make_tools returns 5 tools."""
+        """make_tools returns 6 tools."""
         engine = MagicMock()
         ledger = Ledger()
         tools = make_tools(engine, ledger)
-        assert len(tools) == 5
+        assert len(tools) == 6
 
     def test_tool_names(self) -> None:
         """Tools have the expected names."""
@@ -38,6 +38,7 @@ class TestMakeTools:
         assert "find_connection" in names
         assert "explore_related" in names
         assert "answer_from_graph_structure" in names
+        assert "answer_thematic_question" in names
 
     async def test_tool_run_calls_engine(self) -> None:
         """A tool's ainvoke() calls SearchEngine.search()."""

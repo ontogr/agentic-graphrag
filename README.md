@@ -225,8 +225,8 @@ async def main() -> None:
     files = await graph.add(source="./corpus/**/*.md")
     text = await graph.add(text="Agentic GraphRAG turns evidence into a graph.")
 
-    print(files.documents, len(files.chunks))
-    print(text.documents, len(text.chunks))
+    print(files.ingestion.documents, len(files.chunks))
+    print(text.ingestion.documents, len(text.chunks))
 
 
 asyncio.run(main())
@@ -248,8 +248,8 @@ result = await graph.add(
     error_policy=ErrorPolicy.QUARANTINE,
 )
 
-for uri, reason in result.quarantined_items:
-    print(uri, reason)
+for item in result.ingestion.quarantined_items:
+    print(item.item_id, item.error_message)
 ```
 
 See the [documentation](https://ontogr.github.io/agentic-graphrag/) for guides and the generated API reference.

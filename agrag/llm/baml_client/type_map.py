@@ -25,6 +25,12 @@ type_map = {
     "types.BAMLExtractionResult": types.BAMLExtractionResult,
     "stream_types.BAMLExtractionResult": stream_types.BAMLExtractionResult,
 
+    "types.CommunityInput": types.CommunityInput,
+    "stream_types.CommunityInput": stream_types.CommunityInput,
+
+    "types.CommunityReport": types.CommunityReport,
+    "stream_types.CommunityReport": stream_types.CommunityReport,
+
 
     "types.ExtractedEntityLabel": types.ExtractedEntityLabel,
 

@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.relation import Relation
 
@@ -22,7 +23,7 @@ class SearchResult(BaseModel):
             this result.
     """
 
-    item: Union[Entity, Relation, Chunk]
+    item: Union[Entity, Relation, Chunk, Community]
     score: float
     method: str
 

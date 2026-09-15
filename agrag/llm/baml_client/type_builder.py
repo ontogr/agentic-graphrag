@@ -20,7 +20,7 @@ from .globals import DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIM
 class TypeBuilder(type_builder.TypeBuilder):
     def __init__(self):
         super().__init__(classes=set(
-          ["BAMLExtractedEntity","BAMLExtractedRelation","BAMLExtractionResult",]
+          ["BAMLExtractedEntity","BAMLExtractedRelation","BAMLExtractionResult","CommunityInput","CommunityReport",]
         ), enums=set(
           ["ExtractedEntityLabel","ExtractedRelationLabel",]
         ), runtime=DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIME)
@@ -39,7 +39,7 @@ class TypeBuilder(type_builder.TypeBuilder):
 
 
     # #########################################################################
-    # Generated classes 3
+    # Generated classes 5
     # #########################################################################
 
     @property
@@ -53,6 +53,14 @@ class TypeBuilder(type_builder.TypeBuilder):
     @property
     def BAMLExtractionResult(self) -> "BAMLExtractionResultViewer":
         return BAMLExtractionResultViewer(self)
+
+    @property
+    def CommunityInput(self) -> "CommunityInputViewer":
+        return CommunityInputViewer(self)
+
+    @property
+    def CommunityReport(self) -> "CommunityReportViewer":
+        return CommunityReportViewer(self)
 
 
 
@@ -158,7 +166,7 @@ class ExtractedRelationLabelValues:
 
 
 # #########################################################################
-# Generated classes 3
+# Generated classes 5
 # #########################################################################
 
 class BAMLExtractedEntityAst:
@@ -302,6 +310,100 @@ class BAMLExtractionResultProperties:
     @property
     def relations(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("relations"))
+    
+    
+
+
+class CommunityInputAst:
+    def __init__(self, tb: type_builder.TypeBuilder):
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        self._bldr = _tb.class_("CommunityInput")
+        self._properties: typing.Set[str] = set([  "entity_summaries",  ])
+        self._props = CommunityInputProperties(self._bldr, self._properties)
+
+    def type(self) -> baml_py.FieldType:
+        return self._bldr.field()
+
+    @property
+    def props(self) -> "CommunityInputProperties":
+        return self._props
+
+
+class CommunityInputViewer(CommunityInputAst):
+    def __init__(self, tb: type_builder.TypeBuilder):
+        super().__init__(tb)
+
+    
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+    
+
+
+class CommunityInputProperties:
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+        self.__bldr = bldr
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+    
+    
+    @property
+    def entity_summaries(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("entity_summaries"))
+    
+    
+
+
+class CommunityReportAst:
+    def __init__(self, tb: type_builder.TypeBuilder):
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        self._bldr = _tb.class_("CommunityReport")
+        self._properties: typing.Set[str] = set([  "title",  "summary",  "rating",  "rating_explanation",  "findings",  ])
+        self._props = CommunityReportProperties(self._bldr, self._properties)
+
+    def type(self) -> baml_py.FieldType:
+        return self._bldr.field()
+
+    @property
+    def props(self) -> "CommunityReportProperties":
+        return self._props
+
+
+class CommunityReportViewer(CommunityReportAst):
+    def __init__(self, tb: type_builder.TypeBuilder):
+        super().__init__(tb)
+
+    
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+    
+
+
+class CommunityReportProperties:
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+        self.__bldr = bldr
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+    
+    
+    @property
+    def title(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("title"))
+    
+    @property
+    def summary(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("summary"))
+    
+    @property
+    def rating(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("rating"))
+    
+    @property
+    def rating_explanation(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("rating_explanation"))
+    
+    @property
+    def findings(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("findings"))
     
     
 

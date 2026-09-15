@@ -1,0 +1,444 @@
+"""Community detection: hierarchical Leiden over the entity graph."""
+
+import asyncio
+from collections import defaultdict
+from uuid import UUID, uuid4
+
+from agrag.common.data_models.community import Community
+from agrag.common.data_models.entity import Entity
+from agrag.cypher.community import delete_communities_batch_query
+from agrag.cypher.relations import (
+    fetch_all_relations_query,
+    fetch_all_relations_query_cursor,
+)
+from agrag.embedding.base import Embedder
+from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+from agrag.ingestion.stats import StageFailure
+from agrag.loaders.corpus.types import ErrorPolicy
+
+
+class CommunityDetectionMissingExtraError(Exception):
+    """Raised when graspologic-native is not installed."""
+
+    def __init__(self, extra: str = "community") -> None:
+        """Bind the missing extra's name to the error."""
+        super().__init__(
+            f"Community detection needs the '{extra}' extra: "
+            f"pip install 'agentic-graphrag[{extra}]'"
+        )
+
+
+async def fetch_relation_edges(
+    graph_store: GraphStore, *, page_size: int = 5000, use_cursor: bool = True
+) -> list[tuple[str, str, float]]:
+    """Return every live domain relation as a weighted edge tuple.
+
+    Weight is len(source_chunk_ids) (attestation count), or 1.0 when that
+    list is empty -- frequency-based weighting. Two entities
+    connected by more than one distinct relation type contribute one edge
+    tuple per type; graspologic_native sums parallel-edge weights building
+    its own adjacency.
+
+    Supports cursor (keyset) pagination for large graphs where ``SKIP``
+    is expensive, and legacy ``SKIP`` pagination for callers that need
+    it.
+
+    Args:
+        graph_store: Where the relations are read from.
+        page_size: Rows fetched per page.
+        use_cursor: When True uses keyset pagination on ``(a.id, b.id)``;
+            when False uses ``SKIP`` pagination.
+
+    Returns:
+        Edge tuples as (source_id_str, target_id_str, weight).
+    """
+    edges: list[tuple[str, str, float]] = []
+    if use_cursor:
+        last_a = ""
+        last_b = ""
+        while True:
+            rows = await graph_store.execute_read(
+                fetch_all_relations_query_cursor(),
+                {"last_a": last_a, "last_b": last_b, "limit": page_size},
+            )
+            if not rows:
+                break
+            for row in rows:
+                scids = row.get("source_chunk_ids") or []
+                weight = float(len(scids)) if scids else 1.0
+                edges.append((str(row["source_id"]), str(row["target_id"]), weight))
+            if len(rows) < page_size:
+                break
+            last_a = str(rows[-1]["source_id"])
+            last_b = str(rows[-1]["target_id"])
+        return edges
+    skip = 0
+    while True:
+        rows = await graph_store.execute_read(
+            fetch_all_relations_query(), {"skip": skip, "limit": page_size}
+        )
+        if not rows:
+            break
+        for row in rows:
+            scids = row.get("source_chunk_ids") or []
+            weight = float(len(scids)) if scids else 1.0
+            edges.append((str(row["source_id"]), str(row["target_id"]), weight))
+        if len(rows) < page_size:
+            break
+        skip += page_size
+    return edges
+
+
+def compute_communities(
+    edges: list[tuple[str, str, float]],
+    *,
+    max_cluster_size: int = 10,
+    resolution: float = 1.0,
+    seed: int | None = 0xDEADBEEF,
+) -> list[Community]:
+    """Run hierarchical Leiden and return level-0 communities.
+
+    CPU-bound and synchronous; callers on the event loop should run this via
+    asyncio.to_thread (see Graph._chunk_documents for the same pattern with
+    chunking). Only level 0 is kept -- higher levels are computed for
+    max_cluster_size capping but never persisted.
+
+    After clustering, one extra pass over the same edge list computes a
+    structural-importance signal, entirely from data already in memory --
+    no new dependency (graspologic exposes no general centrality function;
+    see the follow-up research this refinement is based on), no new query:
+
+    - Each community's internal_weight (total weight of edges where both
+       endpoints are its members) -- signal for which communities get a
+       real LLM report instead of a heuristic one.
+    - Each member's local weight (weight of its own internal edges) --
+      used to order member_ids highest-first, so the "most representative"
+      members lead the list for both a large qualifying community's
+      (token-budget-truncated) LLM prompt and a heuristic report's
+      few-name summary.
+
+    Args:
+        edges: The weighted edge list from fetch_relation_edges.
+        max_cluster_size: The size ceiling a cluster is split past, at every
+            level.
+        resolution: Leiden's resolution parameter.
+        seed: Random seed for reproducibility. None uses the native
+            default.
+
+    Returns:
+        One Community per level-0 cluster with two or more members, with
+        member_ids ordered by local weight descending and internal_weight
+        set. Reports (title/summary/rating/findings) are left empty; report
+        generation fills them.
+
+    Raises:
+        CommunityDetectionMissingExtraError: graspologic-native is not
+            installed.
+    """
+    try:
+        import graspologic_native  # noqa: PLC0415
+    except ImportError as exc:
+        raise CommunityDetectionMissingExtraError from exc
+
+    clusters = graspologic_native.hierarchical_leiden(  # ty: ignore[unresolved-attribute]
+        edges=edges,
+        max_cluster_size=max_cluster_size,
+        resolution=resolution,
+        seed=seed,
+        use_modularity=True,
+    )
+
+    cluster_of: dict[str, int] = {c.node: c.cluster for c in clusters if c.level == 0}
+
+    member_weight: dict[str, float] = defaultdict(float)
+    community_weight: dict[int, float] = defaultdict(float)
+    for source, target, weight in edges:
+        source_cluster = cluster_of.get(source)
+        target_cluster = cluster_of.get(target)
+        if source_cluster is None or target_cluster is None:
+            continue
+        if source_cluster != target_cluster:
+            continue
+        community_weight[source_cluster] += weight
+        member_weight[source] += weight
+        member_weight[target] += weight
+
+    members_by_cluster: dict[int, list[str]] = defaultdict(list)
+    for node, cluster in cluster_of.items():
+        members_by_cluster[cluster].append(node)
+
+    return [
+        Community(
+            id=uuid4(),
+            title="",
+            summary="",
+            rating=0.0,
+            rating_explanation="",
+            member_ids=[
+                UUID(n)
+                for n in sorted(
+                    member_nodes, key=lambda n: member_weight[n], reverse=True
+                )
+            ],
+            internal_weight=community_weight[cluster],
+        )
+        for cluster, member_nodes in members_by_cluster.items()
+        if len(member_nodes) >= 2
+    ]
+
+
+_DEFAULT_DELETE_BATCH_SIZE = 1000
+
+
+async def delete_all_communities(
+    graph_store: GraphStore | GraphStoreTransaction,
+    *,
+    batch_size: int = _DEFAULT_DELETE_BATCH_SIZE,
+) -> None:
+    """Delete every Community node and its edges, in batches.
+
+    Repeats the bounded delete until a batch reports fewer than
+    batch_size rows deleted.
+
+    Args:
+        graph_store: Where the delete runs. Accepts either a
+            ``GraphStore`` or a ``GraphStoreTransaction`` handle so a
+            caller inside ``store.transaction()`` can delete and rewrite
+            communities atomically.
+        batch_size: Community nodes deleted per statement.
+    """
+    while True:
+        rows = await graph_store.execute_write(
+            delete_communities_batch_query(), {"limit": batch_size}
+        )
+        deleted = rows[0]["deleted"] if rows else 0
+        if deleted < batch_size:
+            break
+
+
+_DEFAULT_MIN_IMPORTANCE_FOR_LLM_REPORT = 5.0
+_DEFAULT_REPORT_BATCH_SIZE = 8
+_DEFAULT_MAX_MEMBERS_PER_PROMPT = 20
+
+
+def _apply_heuristic_report(
+    community: Community, entities_by_id: dict[UUID, Entity]
+) -> None:
+    """Fill in a cheap, deterministic report with no LLM call.
+
+    Used for communities below min_importance_for_llm_report, and as the
+    fallback for any community a batch LLM call did not return a report
+    for. member_ids is already ordered by local internal weight descending
+    (compute_communities), so the first few really are the community's
+    most central, most representative members -- this path is still free
+    (no new computation here), it just reuses an ordering already
+    produced.
+    """
+    names = [
+        entities_by_id[m].name for m in community.member_ids[:3] if m in entities_by_id
+    ]
+    community.title = ", ".join(names) or f"Community of {len(community.member_ids)}"
+    community.summary = (
+        f"A community of {len(community.member_ids)} entities including "
+        f"{', '.join(names)}."
+    )
+    community.rating = min(10.0, community.internal_weight / 2)
+    community.rating_explanation = (
+        "Rated by internal edge weight; no LLM summary generated."
+    )
+    community.findings = []
+
+
+async def generate_community_reports(
+    communities: list[Community],
+    entities_by_id: dict[UUID, Entity],
+    *,
+    min_importance_for_llm_report: float = _DEFAULT_MIN_IMPORTANCE_FOR_LLM_REPORT,
+    batch_size: int = _DEFAULT_REPORT_BATCH_SIZE,
+    max_members_per_prompt: int = _DEFAULT_MAX_MEMBERS_PER_PROMPT,
+    max_concurrency: int = 4,
+    error_policy: ErrorPolicy = ErrorPolicy.SKIP,
+) -> list[StageFailure]:
+    """Generate a report for each community, in place.
+
+    Communities at or above min_importance_for_llm_report (internal_weight
+    -- total weight of edges internal to the community, set by
+    compute_communities) get a real LLM-generated report, batch_size per
+    call, bounding total call count at scale. internal_weight, not raw
+    member count, decides this: a small but
+    densely-attested community can matter more than a larger sparse one.
+    Communities below the threshold -- most of a large graph's communities,
+    which sit near the max_cluster_size floor -- get
+    _apply_heuristic_report's deterministic report instead, no LLM call at
+    all.
+
+    A qualifying community's member list is truncated to its top
+    max_members_per_prompt members (already ordered by local weight
+    descending) before it enters the batch prompt, protecting the batch
+    call's token budget from one oversized community without an arbitrary
+    cut -- the members dropped are the least central ones.
+
+    A batch call failure does not block other batches: it is recorded as
+    one StageFailure per community in that batch, each of which then falls
+    back to the heuristic report, matching the failure-tolerance shape
+    merge.py's description-summarization step already uses. A batch
+    response with fewer reports than communities (a malformed or truncated
+    response) falls back to the heuristic report for whatever is left over,
+    rather than discarding the reports that did come back.
+
+    Args:
+        communities: The communities to summarize, mutated in place.
+        entities_by_id: Every entity in the graph, keyed by id, for
+            building each community's member-summary context.
+        min_importance_for_llm_report: The internal_weight floor a
+            community must meet to get a real LLM report instead of the
+            heuristic one.
+        batch_size: Communities summarized per LLM call.
+        max_members_per_prompt: Members per community fed into the LLM
+            prompt, highest-centrality first.
+        max_concurrency: Max concurrent SummarizeCommunities calls.
+        error_policy: RAISE propagates a batch call failure; anything else
+            records it and continues.
+
+    Returns:
+        One StageFailure per community whose batch call failed.
+    """
+    llm_candidates = []
+    for community in communities:
+        if community.internal_weight >= min_importance_for_llm_report:
+            llm_candidates.append(community)
+        else:
+            _apply_heuristic_report(community, entities_by_id)
+
+    failures: list[StageFailure] = []
+    if not llm_candidates:
+        return failures
+
+    from agrag.llm.baml_client import b as baml_client  # noqa: PLC0415
+    from agrag.llm.baml_client.types import CommunityInput  # noqa: PLC0415
+
+    sem = asyncio.Semaphore(max_concurrency)
+
+    async def _batch(batch: list[Community]) -> None:
+        async with sem:
+            inputs = [
+                CommunityInput(
+                    entity_summaries=[
+                        entities_by_id[m].embedding_text
+                        for m in c.member_ids[:max_members_per_prompt]
+                        if m in entities_by_id
+                    ]
+                )
+                for c in batch
+            ]
+            try:
+                reports = await baml_client.SummarizeCommunities(communities=inputs)
+            except Exception as exc:  # noqa: BLE001
+                if error_policy is ErrorPolicy.RAISE:
+                    raise
+                for community in batch:
+                    failures.append(
+                        StageFailure(
+                            item_id=str(community.id),
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
+                    )
+                    _apply_heuristic_report(community, entities_by_id)
+            else:
+                for community, report in zip(batch, reports, strict=False):
+                    community.title = report.title
+                    community.summary = report.summary
+                    community.rating = report.rating
+                    community.rating_explanation = report.rating_explanation
+                    community.findings = report.findings
+                for community in batch[len(reports) :]:
+                    _apply_heuristic_report(community, entities_by_id)
+
+    batches = [
+        llm_candidates[i : i + batch_size]
+        for i in range(0, len(llm_candidates), batch_size)
+    ]
+    await asyncio.gather(*(_batch(b) for b in batches))
+
+    return failures
+
+
+_DEFAULT_EMBED_BATCH_SIZE = 256
+
+
+async def embed_communities(
+    communities: list[Community],
+    *,
+    embedder: Embedder,
+    batch_size: int = _DEFAULT_EMBED_BATCH_SIZE,
+    max_concurrency: int = 4,
+) -> None:
+    """Compute each community's embedding from its report text, in place.
+
+    Called after generate_community_reports and before to_node_record(), so
+    the vector is already present on the very first (and only) write a
+    replace cycle makes.
+
+    Embedder.embed's contract makes no chunking guarantee (see
+    agrag/embedding/base.py), so at 1M+ entity scale, where a full recompute
+    can produce 100,000+ communities, this batches the embed() calls itself
+    rather than passing every community's text in one call.
+
+    Args:
+        communities: The communities to embed, mutated in place.
+        embedder: Computes one vector per community's embedding_text.
+        batch_size: Communities embedded per embed() call.
+        max_concurrency: Max concurrent embed calls.
+    """
+    if not communities:
+        return
+    sem = asyncio.Semaphore(max_concurrency)
+
+    async def _batch(batch: list[Community]) -> None:
+        async with sem:
+            vectors = await embedder.embed([c.embedding_text for c in batch])
+            for community, vector in zip(batch, vectors, strict=True):
+                community.embedding = vector
+
+    batches = [
+        communities[i : i + batch_size] for i in range(0, len(communities), batch_size)
+    ]
+    await asyncio.gather(*(_batch(b) for b in batches))
+
+
+def required_member_ids(
+    communities: list[Community],
+    *,
+    min_importance_for_llm_report: float = _DEFAULT_MIN_IMPORTANCE_FOR_LLM_REPORT,
+    max_members_per_prompt: int = _DEFAULT_MAX_MEMBERS_PER_PROMPT,
+) -> set[UUID]:
+    """Return the member ids generate_community_reports will actually read.
+
+    An LLM-qualifying community only needs its top max_members_per_prompt
+    members (already ordered by local weight, highest first); a
+    heuristic-report community only needs its top 3. Since level-0
+    clusters are capped by max_cluster_size and typically much smaller
+    than max_members_per_prompt, this mainly saves by excluding isolated
+    entities and any entity type detect_communities() never touches, not
+    by truncating within a community.
+
+    Args:
+        communities: The communities generate_community_reports will run
+            over.
+        min_importance_for_llm_report: Must match the value
+            generate_community_reports is called with, or the two
+            functions disagree about which communities are LLM-qualifying.
+        max_members_per_prompt: Must match the value
+            generate_community_reports is called with.
+
+    Returns:
+        The union of every community's needed member ids.
+    """
+    needed: set[UUID] = set()
+    for community in communities:
+        if community.internal_weight >= min_importance_for_llm_report:
+            needed.update(community.member_ids[:max_members_per_prompt])
+        else:
+            needed.update(community.member_ids[:3])
+    return needed

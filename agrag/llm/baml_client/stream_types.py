@@ -23,7 +23,7 @@ class StreamState(BaseModel, typing.Generic[StreamStateValueT]):
     value: StreamStateValueT
     state: typing_extensions.Literal["Pending", "Incomplete", "Complete"]
 # #########################################################################
-# Generated classes (3)
+# Generated classes (5)
 # #########################################################################
 
 class BAMLExtractedEntity(BaseModel):
@@ -42,13 +42,23 @@ class BAMLExtractionResult(BaseModel):
     entities: typing.List["BAMLExtractedEntity"]
     relations: typing.List["BAMLExtractedRelation"]
 
+class CommunityInput(BaseModel):
+    entity_summaries: typing.List[str]
+
+class CommunityReport(BaseModel):
+    title: typing.Optional[str] = None
+    summary: typing.Optional[str] = None
+    rating: typing.Optional[float] = Field(default=None, description='Importance or relevance of this community to the corpus, 0-10.')
+    rating_explanation: typing.Optional[str] = None
+    findings: typing.List[str] = Field(description='Distinct factual claims this community\'s members support.')
+
 # #########################################################################
 # Generated type aliases (0)
 # #########################################################################
 
 
 # #########################################################################
-# Model rebuilds (3)
+# Model rebuilds (5)
 # #########################################################################
 # Resolve string forward references now that every model above is defined so
 # class declaration order never breaks Pydantic construction (issue #793).
@@ -57,3 +67,5 @@ class BAMLExtractionResult(BaseModel):
 BAMLExtractedEntity.model_rebuild()
 BAMLExtractedRelation.model_rebuild()
 BAMLExtractionResult.model_rebuild()
+CommunityInput.model_rebuild()
+CommunityReport.model_rebuild()

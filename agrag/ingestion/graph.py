@@ -16,6 +16,7 @@ import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
 from agrag.chunking import default_chunker
 from agrag.chunking.text import chunk_document
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
+from agrag.common.data_models.community import COMMUNITY_LABEL, MEMBER_OF_RELATION
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
@@ -49,6 +50,7 @@ from agrag.ingestion.merge import (
     mentioned_in_id,
     relation_id,
 )
+from agrag.ingestion.reports import AddResult, ConsolidationReport
 from agrag.ingestion.resolve import (
     ExactMatch,
     FuzzyMatch,
@@ -57,9 +59,7 @@ from agrag.ingestion.resolve import (
     ResolutionGroup,
     Resolver,
 )
-from agrag.ingestion.types import (
-    AddResult,
-    ConsolidationReport,
+from agrag.ingestion.stats import (
     ExtractionStats,
     IngestStats,
     MergeStats,
@@ -80,7 +80,7 @@ SourceType = Union[str, Path]
 SourcesType = Union[SourceType, Sequence[SourceType]]
 
 # Relationship types Graph.open() always registers
-SYSTEM_RELATION_TYPES = ["MENTIONED_IN"]
+SYSTEM_RELATION_TYPES = ["MENTIONED_IN", MEMBER_OF_RELATION]
 
 
 def _resolve_paths(source: SourcesType) -> tuple[list[Path], bool]:
@@ -923,7 +923,9 @@ class Graph:
             await graph_store.connect()
             entity_labels = [entity_type.label for entity_type in schema.entities]
             relation_types = [relation_type.label for relation_type in schema.relations]
-            await graph_store.register_labels([*entity_labels, CHUNK_LABEL])
+            await graph_store.register_labels(
+                [*entity_labels, CHUNK_LABEL, COMMUNITY_LABEL]
+            )
             await graph_store.register_relation_types(
                 [*relation_types, *SYSTEM_RELATION_TYPES]
             )
@@ -940,6 +942,12 @@ class Graph:
                 )
             await graph_store.ensure_vector_index(
                 label=CHUNK_LABEL,
+                vector_property="embedding",
+                dimensions=dimensions,
+                distance=distance,
+            )
+            await graph_store.ensure_vector_index(
+                label=COMMUNITY_LABEL,
                 vector_property="embedding",
                 dimensions=dimensions,
                 distance=distance,
@@ -1091,7 +1099,7 @@ class Graph:
                     continue
                 relations.append(new_rel)
 
-        # Phase 1: Stream ingestion + extraction per walk-batch, collecting all mentions
+        # Stream ingestion + extraction per walk-batch, collecting all mentions
         if documents is not None:
             # Single synthetic batch from provided documents
             docs_list = list(documents)
@@ -1191,7 +1199,7 @@ class Graph:
                     on_progress(result)
             return result
 
-        # Phase 2: Global exact-match + in-batch resolution (buffered over whole call)
+        # Global exact-match + in-batch resolution (buffered over whole call)
         exact_matches = await _global_exact_match(
             entities, graph_store=self._graph_store
         )
@@ -1231,7 +1239,7 @@ class Graph:
         if groups:
             groups = _union_groups_by_existing_entity(groups, exact_matches)
 
-        # Phase 3: Merge and write
+        # Merge and write
         merge_stats = MergeStats()
         storage_stats = StorageStats()
         merge_failures: list[StageFailure] = []
@@ -1719,4 +1727,139 @@ class Graph:
             would_merge=would_merge,
             applied=apply and bool(would_merge),
             failures=consolidation_failures,
+        )
+
+    async def detect_communities(
+        self,
+        *,
+        apply: bool = False,
+        max_cluster_size: int = 10,
+        resolution: float = 1.0,
+        seed: int | None = 0xDEADBEEF,
+    ) -> Any:
+        """Detect entity communities via hierarchical Leiden.
+
+        Dry-run by default: produces a report of the communities that would be
+        written before any node is touched. Pass apply=True to write them.
+
+        Fetches every live domain relation across the whole graph (not scoped
+        by entity label the way consolidate() is -- community structure spans
+        entity types), builds a weighted edge list, and runs hierarchical
+        Leiden off the event loop. Every prior run's Community nodes and
+        MEMBER_OF edges are deleted before the new ones are written when
+        apply=True: this is a full recompute, not an incremental update,
+        so there is no notion of merging this run's output with a
+        previous one's.
+
+        Args:
+            apply: Write the computed communities. False produces a report only.
+            max_cluster_size: Forwarded to compute_communities.
+            resolution: Forwarded to compute_communities.
+            seed: Forwarded to compute_communities.
+
+        Returns:
+            A report of every community this call found, applied or not.
+
+        Raises:
+            CommunityDetectionMissingExtraError: graspologic-native is not
+                installed.
+        """
+        from agrag.common.data_models.community import (  # noqa: PLC0415
+            COMMUNITY_LABEL,
+            MEMBER_OF_RELATION,
+        )
+        from agrag.common.data_models.relation import Relation  # noqa: PLC0415
+        from agrag.cypher.entities import hydrate_entities_by_id_query  # noqa: PLC0415
+        from agrag.ingestion.community import (  # noqa: PLC0415
+            compute_communities,
+            delete_all_communities,
+            embed_communities,
+            fetch_relation_edges,
+            generate_community_reports,
+            required_member_ids,
+        )
+        from agrag.ingestion.reports import (  # noqa: PLC0415
+            CommunityDetectionReport,
+        )
+
+        edges = await fetch_relation_edges(self._graph_store)
+        if not edges:
+            if apply:
+                async with self._graph_store.transaction() as tx:
+                    await delete_all_communities(tx)
+                return CommunityDetectionReport(
+                    communities=[], applied=True, failures=[]
+                )
+            return CommunityDetectionReport(communities=[], applied=False, failures=[])
+
+        communities = await asyncio.to_thread(
+            compute_communities,
+            edges,
+            max_cluster_size=max_cluster_size,
+            resolution=resolution,
+            seed=seed,
+        )
+
+        report_failures: list[Any] = []
+        if apply:
+            if not communities:
+                async with self._graph_store.transaction() as tx:
+                    await delete_all_communities(tx)
+                return CommunityDetectionReport(
+                    communities=[], applied=True, failures=report_failures
+                )
+            needed_ids = required_member_ids(communities)
+            entities_by_id: dict[UUID, Entity] = {}
+            ids = list(needed_ids)
+            HYDRATE_BATCH = 1000  # noqa: N806
+            for i in range(0, len(ids), HYDRATE_BATCH):
+                chunk_ids = ids[i : i + HYDRATE_BATCH]
+                rows = await self._graph_store.execute_read(
+                    hydrate_entities_by_id_query(),
+                    {"ids": [str(x) for x in chunk_ids]},
+                )
+                entities_by_id.update(
+                    {
+                        ent.id: ent
+                        for row in rows
+                        if (
+                            ent := _parse_entity_node(row.get("n", row))  # type: ignore[arg-type]
+                        )
+                        is not None
+                    }
+                )
+            report_failures = await generate_community_reports(
+                communities, entities_by_id, error_policy=ErrorPolicy.SKIP
+            )
+            await embed_communities(communities, embedder=self._embedder)
+
+            async with self._graph_store.transaction() as tx:
+                await delete_all_communities(tx)
+                for i in range(0, len(communities), 5000):
+                    batch = communities[i : i + 5000]
+                    await tx.upsert_nodes(
+                        COMMUNITY_LABEL,
+                        [c.to_node_record() for c in batch],
+                    )
+                buf: list[Any] = []
+                for community in communities:
+                    for member_id in community.member_ids:
+                        buf.append(
+                            Relation(
+                                id=uuid4(),
+                                type=MEMBER_OF_RELATION,
+                                source_id=member_id,
+                                target_id=community.id,
+                            ).to_relation_record()
+                        )
+                        if len(buf) >= 5000:
+                            await tx.upsert_relations(buf)
+                            buf = []
+                if buf:
+                    await tx.upsert_relations(buf)
+
+        return CommunityDetectionReport(
+            communities=communities,
+            applied=apply and bool(communities),
+            failures=report_failures,
         )
