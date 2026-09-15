@@ -10,7 +10,14 @@ from agrag.common.data_models.search_result import SearchResult
 _MODEL_CACHE: dict[str, Any] = {}
 
 
-def _load_cross_encoder(model: str) -> Any:
+def _build_cross_encoder(model: str) -> Any:
+    """Construct a new CrossEncoder instance for the given model name."""
+    from sentence_transformers import CrossEncoder  # noqa: PLC0415
+
+    return CrossEncoder(model)
+
+
+async def _load_cross_encoder(model: str) -> Any:
     """Return a cached CrossEncoder instance, loading it once per model name.
 
     A CrossEncoder holds real weights in memory; reloading it fresh on
@@ -18,12 +25,13 @@ def _load_cross_encoder(model: str) -> Any:
     but becomes the dominant cost for a larger one configured via
     RetrievalSettings.cross_encoder_model. Cached per name so switching
     models doesn't need a process restart, and doesn't evict whatever was
-    already loaded for a different name.
+    already loaded for a different name. Construction runs via
+    asyncio.to_thread, same as predict(), since it can do real
+    filesystem or network work (downloading weights) that would
+    otherwise block the event loop on a cache miss.
     """
     if model not in _MODEL_CACHE:
-        from sentence_transformers import CrossEncoder  # noqa: PLC0415
-
-        _MODEL_CACHE[model] = CrossEncoder(model)
+        _MODEL_CACHE[model] = await asyncio.to_thread(_build_cross_encoder, model)
     return _MODEL_CACHE[model]
 
 
@@ -58,7 +66,7 @@ async def cross_encoder_rerank(
         return []
 
     try:
-        cross_encoder = _load_cross_encoder(model)
+        cross_encoder = await _load_cross_encoder(model)
     except ImportError:
         # Without the extra, return results unchanged.
         return results

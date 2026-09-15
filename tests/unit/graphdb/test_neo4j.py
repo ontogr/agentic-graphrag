@@ -723,6 +723,63 @@ class TestTransaction:
         writes = store._driver.last_session.execute_write.call_args_list
         assert any("agragmergealias" in c.args[1].lower() for c in writes)
 
+    async def test_upsert_relations_creates_relation_constraint_before_first_write(
+        self,
+    ) -> None:
+        """A relation type's constraint is created before its first write in a tx.
+
+        Regression guard: ``_Neo4jTransaction.upsert_relations`` used to only
+        call ``register_relation_types``, which is documented bookkeeping
+        that issues no write, so a relationship type written only inside a
+        transaction never got its per-type identity constraint. Without it,
+        concurrent explicit transactions could create duplicate
+        relationships for the same id.
+        """
+        store = _store()
+        tx = store._driver.last_session.begin_transaction.return_value
+        events: list[tuple[str, str]] = []
+
+        async def record_session_write(
+            _run: object, query: str, _params: object
+        ) -> list[dict[str, object]]:
+            events.append(("constraint", query))
+            return []
+
+        store._driver.last_session.execute_write.side_effect = record_session_write
+
+        tx_result = tx.run.return_value
+
+        async def record_tx_run(query: str, _params: object) -> object:
+            events.append(("write", query))
+            return tx_result
+
+        tx.run.side_effect = record_tx_run
+
+        rel = RelationRecord(
+            id=uuid4(),
+            type="MENTIONS",
+            start_id=uuid4(),
+            end_id=uuid4(),
+            properties={},
+        )
+        async with store.transaction() as txn:
+            await txn.upsert_relations([rel])
+
+        constraint_name = _relation_constraint_name("MENTIONS")
+        constraint_indexes = [
+            i
+            for i, (kind, query) in enumerate(events)
+            if kind == "constraint" and constraint_name in query
+        ]
+        write_indexes = [
+            i
+            for i, (kind, query) in enumerate(events)
+            if kind == "write" and "-[r:MENTIONS {id: record.id}]->" in query
+        ]
+        assert constraint_indexes, f"no MENTIONS constraint write in {events}"
+        assert write_indexes, f"no MENTIONS relationship write in {events}"
+        assert constraint_indexes[0] < write_indexes[0]
+
 
 class TestExecuteReadTimeout:
     """execute_read applies the server-side transaction timeout."""

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 from pydantic import BaseModel
+
+
+logger = logging.getLogger(__name__)
 
 
 class StageFailure(BaseModel):
@@ -29,5 +34,16 @@ _MAX_FAILURES_PER_STAGE = 200
 
 
 def _capped(failures: list[StageFailure]) -> list[StageFailure]:
-    """Return failures truncated to _MAX_FAILURES_PER_STAGE entries."""
+    """Return failures truncated to _MAX_FAILURES_PER_STAGE entries.
+
+    Logs a warning with the true failure count when truncation occurs, since
+    the truncated list alone no longer reflects how many items actually
+    failed.
+    """
+    if len(failures) > _MAX_FAILURES_PER_STAGE:
+        logger.warning(
+            "Stage reported %d failures; truncating to %d in the report.",
+            len(failures),
+            _MAX_FAILURES_PER_STAGE,
+        )
     return failures[:_MAX_FAILURES_PER_STAGE]

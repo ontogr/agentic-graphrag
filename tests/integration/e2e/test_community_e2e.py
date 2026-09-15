@@ -323,16 +323,21 @@ async def test_community_via_graph_add_e2e(e2e_schema: GraphSchema) -> None:
         isolated = Entity(id=uuid4(), label=person_label, name="Isolated")
         isolated.embedding = [0.1] * dim
         await store.upsert_nodes(person_label, [isolated.to_node_record()])
-        # Spy hydration.
-        captured: dict[str, set[str] | None] = {"ids": None}
+        # Spy hydration: capture every id set requested via the "ids"
+        # parameter while detect_communities runs, to prove it only reads
+        # what required_member_ids says is needed (the public contract),
+        # not the whole entity graph. The spy is uninstalled again right
+        # after detect_communities finishes so the later chunk-hydration
+        # reads in engine.search (also keyed by "ids") do not fold into
+        # the same capture.
+        captured_ids: set[str] = set()
         orig_read = store.execute_read
 
         async def spy_read(query: str, parameters=None, **kw):  # type: ignore[no-untyped-def]
-            if parameters and "ids" in parameters and "merged_into IS NULL" in query:
-                captured["ids"] = set(parameters["ids"])
+            if parameters and "ids" in parameters:
+                captured_ids.update(parameters["ids"])
             return await orig_read(query, parameters, **kw)
 
-        store.execute_read = spy_read  # type: ignore[method-assign]
         fake_report = MagicMock(
             title="LLM Title",
             summary="LLM summary.",
@@ -352,11 +357,15 @@ async def test_community_via_graph_add_e2e(e2e_schema: GraphSchema) -> None:
                 side_effect=lambda q, results, **kw: results,
             ),
         ):
-            report = await graph.detect_communities(apply=True)
+            store.execute_read = spy_read  # type: ignore[method-assign]
+            try:
+                report = await graph.detect_communities(apply=True)
+            finally:
+                store.execute_read = orig_read  # type: ignore[method-assign]
             assert len(report.communities) >= 1
             needed = {str(i) for i in required_member_ids(report.communities)}
-            assert captured["ids"] == needed
-            assert str(isolated.id) not in (captured["ids"] or set())
+            assert captured_ids == needed
+            assert str(isolated.id) not in captured_ids
             # Both query paths.
             settings = RetrievalSettings(entity_labels=[person_label, org_label])
             engine = SearchEngine(

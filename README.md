@@ -195,6 +195,9 @@ uv pip install "agentic-graphrag[llm,embed-local]"
 
 # Neo4j with a dedicated Qdrant vector store and OTLP tracing
 uv pip install "agentic-graphrag[neo4j,qdrant,observability]"
+
+# Hierarchical community detection
+uv pip install "agentic-graphrag[community]"
 ```
 
 | Extra | Adds |
@@ -208,6 +211,7 @@ uv pip install "agentic-graphrag[neo4j,qdrant,observability]"
 | `weaviate` | Weaviate dense and hybrid search |
 | `milvus` | Milvus/Zilliz dense and hybrid search |
 | `observability` | OpenTelemetry SDK and OTLP export |
+| `community` | Hierarchical Leiden community detection |
 
 ## Usage
 
@@ -222,8 +226,11 @@ from agrag.ingestion import Graph
 async def main() -> None:
     graph = await Graph.open()
 
-    files = await graph.add(source="./corpus/**/*.md")
-    text = await graph.add(text="Agentic GraphRAG turns evidence into a graph.")
+    files = await graph.add(source="./corpus/**/*.md", return_chunks=True)
+    text = await graph.add(
+        text="Agentic GraphRAG turns evidence into a graph.",
+        return_chunks=True,
+    )
 
     print(files.ingestion.documents, len(files.chunks))
     print(text.ingestion.documents, len(text.chunks))

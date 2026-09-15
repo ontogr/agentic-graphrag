@@ -47,6 +47,48 @@ class TestParseCommunityNode:
         assert comm is not None
         assert comm.embedding is None
 
+    def test_non_dict_mapping_node_is_parsed(self) -> None:
+        """A Mapping-like node without dict identity still parses via keys()."""
+        cid = uuid4()
+
+        class KeysOnly:
+            def __init__(self, data: dict) -> None:
+                self._data = data
+
+            def keys(self):
+                return self._data.keys()
+
+            def __getitem__(self, key):
+                return self._data[key]
+
+        node = KeysOnly(
+            {
+                "id": str(cid),
+                "title": "T",
+                "summary": "S",
+                "rating": 5,
+                "rating_explanation": "e",
+            }
+        )
+        comm = _parse_community_node(node)
+        assert comm is not None
+        assert comm.title == "T"
+
+    def test_node_without_keys_returns_none(self) -> None:
+        """A node with no dict form and no keys() attribute returns None."""
+        assert _parse_community_node(object()) is None
+
+    def test_malformed_id_returns_none(self) -> None:
+        """An id that fails UUID parsing returns None instead of raising."""
+        node = {
+            "id": "not-a-uuid",
+            "title": "T",
+            "summary": "S",
+            "rating": 5,
+            "rating_explanation": "e",
+        }
+        assert _parse_community_node(node) is None
+
     def test_with_embedding(self) -> None:
         """Embedding property is preserved."""
         cid = uuid4()

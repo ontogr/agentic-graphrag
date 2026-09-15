@@ -40,7 +40,7 @@ class CommunityRetriever(Retriever):
         limit: int | None = None,
     ) -> list[SearchResult]:
         """Run community-report search and return hydrated results."""
-        effective_limit = limit or self._settings.community_top_k
+        effective_limit = limit if limit is not None else self._settings.community_top_k
         hits = await vector_search(
             query,
             embedder=self._embedder,

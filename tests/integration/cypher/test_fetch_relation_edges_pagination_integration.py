@@ -33,15 +33,17 @@ class TestFetchRelationEdgesPaginationIntegration:
         self.entity_label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
         yield
         await self.store.execute_write(f"MATCH (n:{self.entity_label}) DETACH DELETE n")
-        await self.store.execute_write("MATCH (n:Community) DETACH DELETE n")
         await self.store.close()
 
     async def test_pagination_with_page_size_two(self) -> None:
-        """Seeds 3 relations and asserts pagination uses 2 reads.
+        """Seeds 3 relations and asserts every page is bounded by page_size.
 
-        Uses ``page_size=2``: 3 rows require 2 ``execute_read`` calls
-        (2 + 1). Verified via a lightweight spy wrapping
-        ``execute_read``.
+        ``fetch_relation_edges`` paginates every live relation in the
+        database, not just this test's own, so a concurrently-running
+        test's relations can add extra pages. Asserts the pagination
+        contract instead of an exact call count: every page holds at
+        most ``page_size`` rows, and this test's own 3 relations alone
+        require more than one page.
         """
         node_ids = [uuid4() for _ in range(4)]
         try:
@@ -80,13 +82,13 @@ class TestFetchRelationEdgesPaginationIntegration:
                 ]
             )
 
-            calls = 0
+            page_sizes: list[int] = []
             original_read = self.store.execute_read
 
             async def counting_read(query, parameters=None, **kw):  # type: ignore[no-untyped-def]
-                nonlocal calls
-                calls += 1
-                return await original_read(query, parameters, **kw)
+                rows = await original_read(query, parameters, **kw)
+                page_sizes.append(len(rows))
+                return rows
 
             self.store.execute_read = counting_read  # type: ignore[method-assign]
             try:
@@ -97,6 +99,7 @@ class TestFetchRelationEdgesPaginationIntegration:
             our_ids = {str(nid) for nid in node_ids}
             relevant = [e for e in edges if e[0] in our_ids and e[1] in our_ids]
             assert len(relevant) == 3
-            assert calls == 2
+            assert len(page_sizes) >= 2
+            assert all(size <= 2 for size in page_sizes)
         finally:
             pass

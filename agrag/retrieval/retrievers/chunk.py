@@ -67,7 +67,7 @@ class ChunkRetriever(Retriever):
         Returns:
             Ranked SearchResults with hydrated Chunk items.
         """
-        effective_limit = limit or self._settings.chunk_top_k
+        effective_limit = limit if limit is not None else self._settings.chunk_top_k
         hits = await vector_search(
             query,
             embedder=self._embedder,

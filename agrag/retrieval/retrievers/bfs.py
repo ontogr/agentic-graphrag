@@ -68,7 +68,7 @@ class BFSRetriever(Retriever):
         if not seed_ids:
             return []
 
-        effective_limit = limit or self._settings.traversal_limit
+        effective_limit = limit if limit is not None else self._settings.traversal_limit
         effective_depth = depth if depth is not None else self._settings.traversal_depth
 
         query, filter_params = bfs_expand_query(

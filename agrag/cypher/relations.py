@@ -124,6 +124,13 @@ def fetch_all_relations_query() -> str:
     entity-graph topology) and any endpoint that is a Chunk, a Community,
     or a tombstone.
 
+    ``ORDER BY`` includes ``type(r)`` and ``r.id`` after ``(a.id, b.id)``
+    because two distinct relationships (different types, or the same type
+    with different ids) can share the same endpoints -- see
+    ``upsert_relation_query``. Without a total order, Neo4j does not
+    guarantee a stable row order across separate paged queries, so a page
+    boundary falling inside such a group can duplicate or drop rows.
+
     Returns:
         Parameterized Cypher expecting $skip and $limit.
     """
@@ -135,7 +142,7 @@ def fetch_all_relations_query() -> str:
         f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
         f"RETURN a.id AS source_id, b.id AS target_id, "
         f"r.source_chunk_ids AS source_chunk_ids "
-        f"ORDER BY a.id, b.id SKIP $skip LIMIT $limit"
+        f"ORDER BY a.id, b.id, type(r), coalesce(r.id, '') SKIP $skip LIMIT $limit"
     )
 
 
@@ -143,25 +150,38 @@ def fetch_all_relations_query_cursor() -> str:
     """Build Cypher paginating every live domain relationship via keyset.
 
     Keyset variant of :func:`fetch_all_relations_query` for large graphs
-    where ``SKIP`` becomes expensive. Orders by ``(a.id, b.id)`` and
-    pages by the last seen tuple; the first page uses ``last_a=""`` and
-    ``last_b=""``.
+    where ``SKIP`` becomes expensive. Orders by ``(a.id, b.id, type(r),
+    r.id)`` and pages by the last seen tuple; the first page uses
+    ``last_a=""``, ``last_b=""``, ``last_type=""`` and ``last_rel_id=""``.
+
+    The relationship type and id break ties on ``(a.id, b.id)``: two
+    distinct relationships (different types, or the same type with
+    different ids) can share the same endpoints -- see
+    ``upsert_relation_query``. Ordering by endpoints alone would let a
+    page boundary fall inside such a group, silently excluding the
+    remaining relationships for that pair from every later page.
 
     Returns:
-        Parameterized Cypher expecting ``$last_a``, ``$last_b`` and
-        ``$limit``.
+        Parameterized Cypher expecting ``$last_a``, ``$last_b``,
+        ``$last_type``, ``$last_rel_id`` and ``$limit``.
     """
     return (
         f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
-        f"WHERE (a.id > $last_a OR (a.id = $last_a AND b.id > $last_b) "
-        f'OR ($last_a = "" AND $last_b = "")) '
+        f"WHERE (a.id > $last_a "
+        f"OR (a.id = $last_a AND b.id > $last_b) "
+        f"OR (a.id = $last_a AND b.id = $last_b AND type(r) > $last_type) "
+        f"OR (a.id = $last_a AND b.id = $last_b AND type(r) = $last_type "
+        f"AND coalesce(r.id, '') > $last_rel_id) "
+        f'OR ($last_a = "" AND $last_b = "" AND $last_type = "" '
+        f'AND $last_rel_id = "")) '
         f"AND a.merged_into IS NULL AND b.merged_into IS NULL "
         f"AND NOT a:Chunk AND NOT b:Chunk "
         f"AND NOT a:Community AND NOT b:Community "
         f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
         f"RETURN a.id AS source_id, b.id AS target_id, "
-        f"r.source_chunk_ids AS source_chunk_ids "
-        f"ORDER BY a.id, b.id LIMIT $limit"
+        f"r.source_chunk_ids AS source_chunk_ids, "
+        f"type(r) AS rel_type, coalesce(r.id, '') AS rel_id "
+        f"ORDER BY a.id, b.id, type(r), coalesce(r.id, '') LIMIT $limit"
     )
 
 

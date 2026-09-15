@@ -45,13 +45,26 @@ jobs:
         # cost of an idle container is lower than a per-group Compose split.
         # The agents-ingestion-embedding group also runs the LLM-backed agent
         # and ingestion tests, fed by the workflow-level LLM_* secrets.
+        # dist picks the xdist scheduler per suite. loadgroup is only needed by
+        # retrieval-graphdb: its cypher and retrieval community tests write and
+        # delete Community nodes against the same shared label and are tagged
+        # xdist_group(name="community_label") to force them onto one worker.
+        # Every other suite keeps the default loadscope, which groups a test
+        # class's own methods onto one worker -- ingestion's community
+        # detection tests rely on that (detect_communities scans the whole
+        # entity graph, so its own test methods cannot run concurrently with
+        # each other either), and loadgroup would ungroup them since they
+        # carry no xdist_group marker.
         suite:
           - name: retrieval-graphdb
-            paths: "tests/integration/retrieval tests/integration/graphdb"
+            paths: "tests/integration/retrieval tests/integration/graphdb tests/integration/cypher"
+            dist: loadgroup
           - name: agents-ingestion-embedding
             paths: "tests/integration/agents tests/integration/ingestion tests/integration/embedding"
+            dist: loadscope
           - name: vectordb-loaders
             paths: "tests/integration/vectordb tests/integration/loaders"
+            dist: loadscope
     env:
       UV_PYTHON: "3.12"
       # Backend credentials below are fixed, throwaway values scoped to this ephemeral job's
@@ -97,7 +110,7 @@ jobs:
         run: >-
           uv run pytest ${{ matrix.suite.paths }}
           -v
-          -n auto --dist loadscope
+          -n auto --dist ${{ matrix.suite.dist }}
           -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
           --junitxml=pytest-integration-results.xml
 

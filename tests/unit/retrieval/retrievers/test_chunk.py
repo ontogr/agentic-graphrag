@@ -85,3 +85,78 @@ class TestChunkRetriever:
             results = await retriever.retrieve("test")
 
             assert len(results) == 0
+
+    async def test_hydration_query_raises_returns_empty(self) -> None:
+        """A hydration query failure returns no results, not an exception."""
+        gs = AsyncMock()
+        gs.execute_read.side_effect = RuntimeError("db down")
+        embedder = MockEmbedder()
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = [VectorHit(id=uuid4(), score=0.9, payload={})]
+
+            retriever = ChunkRetriever(graph_store=gs, embedder=embedder)
+            results = await retriever.retrieve("test")
+
+            assert results == []
+
+    async def test_unparsable_row_is_skipped(self) -> None:
+        """A row that fails to parse is skipped; other rows still hydrate."""
+        good_id = uuid4()
+        doc_id = uuid4()
+        bad_id = uuid4()
+        gs = AsyncMock()
+        gs.execute_read.return_value = [
+            {"n": {"id": str(bad_id), "properties": {}}},
+            {
+                "n": {
+                    "id": str(good_id),
+                    "properties": {
+                        "document_id": str(doc_id),
+                        "index": 0,
+                        "text": "Hello world",
+                        "provenance": json.dumps(
+                            {"kind": "text", "char_start": 0, "char_end": 11}
+                        ),
+                        "heading_path": [],
+                        "content_kind": "text",
+                    },
+                }
+            },
+        ]
+        embedder = MockEmbedder()
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = [
+                VectorHit(id=bad_id, score=0.5, payload={}),
+                VectorHit(id=good_id, score=0.9, payload={}),
+            ]
+
+            retriever = ChunkRetriever(graph_store=gs, embedder=embedder)
+            results = await retriever.retrieve("test")
+
+            assert len(results) == 1
+            assert results[0].item.text == "Hello world"
+
+    async def test_explicit_zero_limit_is_preserved(self) -> None:
+        """limit=0 is honored, not replaced by settings.chunk_top_k."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        embedder = MockEmbedder()
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = []
+
+            retriever = ChunkRetriever(graph_store=gs, embedder=embedder)
+            await retriever.retrieve("test", limit=0)
+
+            assert mock_vs.call_args.kwargs["limit"] == 0

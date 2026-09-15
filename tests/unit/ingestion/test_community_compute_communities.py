@@ -98,6 +98,27 @@ class TestComputeCommunities:
             comms = compute_communities(edges)
             assert [str(m) for m in comms[0].member_ids] == ids
 
+    def test_edge_to_unclustered_node_is_ignored(self) -> None:
+        """An edge whose endpoint never got a level-0 cluster is skipped.
+
+        Only weight for edges between two clustered endpoints should count;
+        an edge naming a node absent from the clustering output must not
+        raise or contribute weight anywhere.
+        """
+        ids = [str(uuid4()) for _ in range(3)]
+        a, b, unclustered = ids
+        mock_clusters = [
+            HC(node=a, cluster=0, parent_cluster=None, level=0, is_final_cluster=True),
+            HC(node=b, cluster=0, parent_cluster=None, level=0, is_final_cluster=True),
+        ]
+        edges = [(a, b, 2.0), (a, unclustered, 9.0)]
+        with patch.dict(
+            "sys.modules", {"graspologic_native": _mock_leiden(mock_clusters)}
+        ):
+            comms = compute_communities(edges)
+            assert len(comms) == 1
+            assert comms[0].internal_weight == 2.0
+
     def test_missing_extra(self) -> None:
         """Missing graspologic-native raises CommunityDetectionMissingExtraError."""
         with (

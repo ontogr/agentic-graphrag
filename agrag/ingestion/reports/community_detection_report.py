@@ -14,8 +14,10 @@ class CommunityDetectionReport(BaseModel):
     Attributes:
         communities: The communities this call found, whether applied or not.
         applied: Whether the communities were written.
-        failures: Failures embedding an applied community's report text.
-            Always empty when apply is False.
+        failures: Failures generating an applied community's LLM report or
+            embedding its report text. A failed community still gets
+            written, with a heuristic report or a missing embedding in
+            place of the failed step. Always empty when apply is False.
     """
 
     communities: list[Community] = Field(default_factory=list)

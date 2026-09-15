@@ -2,6 +2,9 @@
 
 from uuid import uuid4
 
+import pytest
+from pydantic import ValidationError
+
 from agrag.common.data_models.community import (
     COMMUNITY_LABEL,
     MEMBER_OF_RELATION,
@@ -38,6 +41,14 @@ class TestCommunity:
             id=uuid4(), title="T", summary="S", rating=1, rating_explanation="e"
         )
         assert comm.embedding_text == "T: S"
+
+    @pytest.mark.parametrize("rating", [-0.1, 10.1])
+    def test_rating_out_of_range_rejected(self, rating: float) -> None:
+        """Constructing a Community with rating outside 0-10 raises."""
+        with pytest.raises(ValidationError):
+            Community(
+                id=uuid4(), title="T", summary="S", rating=rating, rating_explanation=""
+            )
 
     def test_constants(self) -> None:
         """Label and relation constants have expected values."""

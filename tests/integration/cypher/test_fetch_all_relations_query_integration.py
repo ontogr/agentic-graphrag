@@ -53,10 +53,6 @@ class TestFetchAllRelationsQueryIntegration:
         self.embedder = _FixedEmbedder()
         yield
         await self.store.execute_write(f"MATCH (n:{self.entity_label}) DETACH DELETE n")
-        await self.store.execute_write("MATCH (n:Community) DETACH DELETE n")
-        # Chunk nodes use the fixed label; delete only those created here
-        # via their ids in each test's finally where needed, but also
-        # clear any leftover Community-bound chunks defensively.
         await self.store.close()
 
     async def test_excludes_mentioned_in_chunk_and_tombstone(self) -> None:

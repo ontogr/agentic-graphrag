@@ -8,6 +8,7 @@ from agrag.common.data_models.community import Community
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.community import communities_for_entities_query
 from agrag.graphdb.base import GraphStore
+from agrag.retrieval.filters import SearchFilters
 
 
 def _parse_community_node(node: object) -> Community | None:
@@ -48,7 +49,11 @@ def _parse_community_node(node: object) -> Community | None:
 
 
 async def community_context(
-    entity_ids: list[UUID], *, graph_store: GraphStore, top_k: int = 3
+    entity_ids: list[UUID],
+    *,
+    graph_store: GraphStore,
+    top_k: int = 3,
+    filters: SearchFilters | None = None,
 ) -> list[SearchResult]:
     """Return the top-overlapping communities' reports for a set of entities.
 
@@ -62,6 +67,14 @@ async def community_context(
             retrieval methods.
         graph_store: Where the overlap lookup runs.
         top_k: The maximum number of communities to return.
+        filters: Applied to the candidate community node via
+            ``document_ids``/``properties`` (``to_cypher_where``); labels
+            are not applied, since they check node labels and a Community
+            node never carries an entity label. Community nodes carry no
+            document or tenant scope of their own, so a filter naming a
+            property Community nodes never have matches no communities --
+            a document- or property-scoped search gets no community
+            enrichment rather than one drawn from outside its scope.
 
     Returns:
         Up to top_k SearchResults wrapping Community items, highest overlap
@@ -69,9 +82,20 @@ async def community_context(
     """
     if not entity_ids:
         return []
+    where_clause, where_params = (
+        SearchFilters(
+            document_ids=filters.document_ids, properties=filters.properties
+        ).to_cypher_where("c")
+        if filters
+        else ("", {})
+    )
     rows = await graph_store.execute_read(
-        communities_for_entities_query(),
-        {"entity_ids": [str(e) for e in entity_ids]},
+        communities_for_entities_query(where_clause),
+        {
+            "entity_ids": [str(e) for e in entity_ids],
+            "top_k": top_k,
+            **where_params,
+        },
     )
     results: list[SearchResult] = []
     for row in rows[:top_k]:

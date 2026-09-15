@@ -10,6 +10,7 @@ listing every citation assigned so far.
 from uuid import uuid4
 
 from agrag.agents.ledger import Ledger
+from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.search_result import SearchResult
 
@@ -79,6 +80,22 @@ class TestLedger:
         assert text.startswith("[")
         assert "Alice" in text
         assert "Person" in text
+
+    def test_render_community(self) -> None:
+        """render() returns markdown with title and summary for a community."""
+        comm = Community(
+            id=uuid4(),
+            title="Aspirin research",
+            summary="A community about headache treatments and dosage.",
+            rating=7.0,
+            rating_explanation="e",
+        )
+        ledger = Ledger()
+        r = SearchResult(item=comm, score=0.9, method="community")
+        text = ledger.render(r)
+        assert text.startswith("[")
+        assert "Aspirin research" in text
+        assert "headache treatments" in text
 
     def test_keys_property(self) -> None:
         """Keys returns all citation keys assigned."""

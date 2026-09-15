@@ -46,8 +46,8 @@ async def fetch_relation_edges(
     Args:
         graph_store: Where the relations are read from.
         page_size: Rows fetched per page.
-        use_cursor: When True uses keyset pagination on ``(a.id, b.id)``;
-            when False uses ``SKIP`` pagination.
+        use_cursor: When True uses keyset pagination on ``(a.id, b.id,
+            type(r), r.id)``; when False uses ``SKIP`` pagination.
 
     Returns:
         Edge tuples as (source_id_str, target_id_str, weight).
@@ -56,10 +56,18 @@ async def fetch_relation_edges(
     if use_cursor:
         last_a = ""
         last_b = ""
+        last_type = ""
+        last_rel_id = ""
         while True:
             rows = await graph_store.execute_read(
                 fetch_all_relations_query_cursor(),
-                {"last_a": last_a, "last_b": last_b, "limit": page_size},
+                {
+                    "last_a": last_a,
+                    "last_b": last_b,
+                    "last_type": last_type,
+                    "last_rel_id": last_rel_id,
+                    "limit": page_size,
+                },
             )
             if not rows:
                 break
@@ -71,6 +79,8 @@ async def fetch_relation_edges(
                 break
             last_a = str(rows[-1]["source_id"])
             last_b = str(rows[-1]["target_id"])
+            last_type = str(rows[-1]["rel_type"])
+            last_rel_id = str(rows[-1]["rel_id"])
         return edges
     skip = 0
     while True:
@@ -349,7 +359,10 @@ async def generate_community_reports(
                 for community, report in zip(batch, reports, strict=False):
                     community.title = report.title
                     community.summary = report.summary
-                    community.rating = report.rating
+                    # Field(ge=0.0, le=10.0) only validates at construction, not
+                    # on this plain attribute assignment, so an out-of-range
+                    # LLM rating must be clamped explicitly here.
+                    community.rating = max(0.0, min(10.0, report.rating))
                     community.rating_explanation = report.rating_explanation
                     community.findings = report.findings
                 for community in batch[len(reports) :]:
@@ -373,7 +386,7 @@ async def embed_communities(
     embedder: Embedder,
     batch_size: int = _DEFAULT_EMBED_BATCH_SIZE,
     max_concurrency: int = 4,
-) -> None:
+) -> list[StageFailure]:
     """Compute each community's embedding from its report text, in place.
 
     Called after generate_community_reports and before to_node_record(), so
@@ -385,19 +398,41 @@ async def embed_communities(
     can produce 100,000+ communities, this batches the embed() calls itself
     rather than passing every community's text in one call.
 
+    A batch embed() failure does not block other batches: it is recorded as
+    one StageFailure per community in that batch, matching the
+    failure-tolerance shape generate_community_reports already uses. Those
+    communities keep embedding=None and still get written by
+    Community.to_node_record(), which omits the embedding property when it
+    is None, rather than being dropped from the graph.
+
     Args:
         communities: The communities to embed, mutated in place.
         embedder: Computes one vector per community's embedding_text.
         batch_size: Communities embedded per embed() call.
         max_concurrency: Max concurrent embed calls.
+
+    Returns:
+        One StageFailure per community whose batch embed() call failed.
     """
     if not communities:
-        return
+        return []
     sem = asyncio.Semaphore(max_concurrency)
+    failures: list[StageFailure] = []
 
     async def _batch(batch: list[Community]) -> None:
         async with sem:
-            vectors = await embedder.embed([c.embedding_text for c in batch])
+            try:
+                vectors = await embedder.embed([c.embedding_text for c in batch])
+            except Exception as exc:  # noqa: BLE001
+                for community in batch:
+                    failures.append(
+                        StageFailure(
+                            item_id=str(community.id),
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
+                    )
+                return
             for community, vector in zip(batch, vectors, strict=True):
                 community.embedding = vector
 
@@ -405,6 +440,7 @@ async def embed_communities(
         communities[i : i + batch_size] for i in range(0, len(communities), batch_size)
     ]
     await asyncio.gather(*(_batch(b) for b in batches))
+    return failures
 
 
 def required_member_ids(

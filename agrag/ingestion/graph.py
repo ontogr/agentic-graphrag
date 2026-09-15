@@ -50,7 +50,11 @@ from agrag.ingestion.merge import (
     mentioned_in_id,
     relation_id,
 )
-from agrag.ingestion.reports import AddResult, ConsolidationReport
+from agrag.ingestion.reports import (
+    AddResult,
+    CommunityDetectionReport,
+    ConsolidationReport,
+)
 from agrag.ingestion.resolve import (
     ExactMatch,
     FuzzyMatch,
@@ -1736,7 +1740,7 @@ class Graph:
         max_cluster_size: int = 10,
         resolution: float = 1.0,
         seed: int | None = 0xDEADBEEF,
-    ) -> Any:
+    ) -> CommunityDetectionReport:
         """Detect entity communities via hierarchical Leiden.
 
         Dry-run by default: produces a report of the communities that would be
@@ -1761,8 +1765,8 @@ class Graph:
             A report of every community this call found, applied or not.
 
         Raises:
-            CommunityDetectionMissingExtraError: graspologic-native is not
-                installed.
+            agrag.ingestion.community.CommunityDetectionMissingExtraError:
+                graspologic-native is not installed.
         """
         from agrag.common.data_models.community import (  # noqa: PLC0415
             COMMUNITY_LABEL,
@@ -1777,9 +1781,6 @@ class Graph:
             fetch_relation_edges,
             generate_community_reports,
             required_member_ids,
-        )
-        from agrag.ingestion.reports import (  # noqa: PLC0415
-            CommunityDetectionReport,
         )
 
         edges = await fetch_relation_edges(self._graph_store)
@@ -1800,7 +1801,7 @@ class Graph:
             seed=seed,
         )
 
-        report_failures: list[Any] = []
+        report_failures: list[StageFailure] = []
         if apply:
             if not communities:
                 async with self._graph_store.transaction() as tx:
@@ -1831,7 +1832,9 @@ class Graph:
             report_failures = await generate_community_reports(
                 communities, entities_by_id, error_policy=ErrorPolicy.SKIP
             )
-            await embed_communities(communities, embedder=self._embedder)
+            report_failures += await embed_communities(
+                communities, embedder=self._embedder
+            )
 
             async with self._graph_store.transaction() as tx:
                 await delete_all_communities(tx)

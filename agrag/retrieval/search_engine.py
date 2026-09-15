@@ -138,8 +138,11 @@ class SearchEngine:
             else None
         )
         community_filters = (
-            SearchFilters(properties=filters.properties)
-            if filters and filters.properties
+            SearchFilters(
+                document_ids=filters.document_ids if filters else [],
+                properties=filters.properties if filters else {},
+            )
+            if filters and (filters.document_ids or filters.properties)
             else None
         )
         retriever_filters: dict[str, SearchFilters | None] = {
@@ -230,6 +233,7 @@ class SearchEngine:
                 community_seed_ids,
                 graph_store=self._graph_store,
                 top_k=recipe.community_top_k,
+                filters=community_filters,
             )
             if community_results:
                 fused = fuse(

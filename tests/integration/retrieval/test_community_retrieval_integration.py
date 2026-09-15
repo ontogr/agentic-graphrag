@@ -66,12 +66,28 @@ class _FixedEmbedder(Embedder):
 @pytest.mark.integration
 @pytest.mark.enable_socket
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+@pytest.mark.xdist_group(name="community_label")
 class TestCommunityRetrievalIntegration:
-    """Community retrieval against a real Neo4j graph store."""
+    """Community retrieval against a real Neo4j graph store.
+
+    Shares an ``xdist_group`` with the ``tests/integration/cypher``
+    community tests: several tests here write Community nodes and query
+    the shared native Community vector index directly, which a
+    concurrently-running test elsewhere (writing or deleting its own
+    Community nodes against the same index) can perturb. Keeping every
+    Community-writing test class on one worker avoids that.
+    """
 
     @pytest.fixture(autouse=True)
     async def setup_store(self) -> AsyncGenerator[None, None]:
-        """Set up a fresh store for each test."""
+        """Set up a fresh store for each test.
+
+        ``community_ids`` starts empty and ``_seed_communities`` appends
+        to it, so teardown deletes exactly this test's own Community
+        nodes by id instead of the shared ``Community`` label -- other
+        integration tests write Community nodes to the same database and
+        may be running concurrently.
+        """
         self.store = build_graph_store("neo4j")
         await self.store.connect()
         self.label = validate_identifier(f"Person_{uuid4().hex[:8]}")
@@ -82,9 +98,14 @@ class TestCommunityRetrievalIntegration:
             chunk_top_k=10,
             community_top_k=5,
         )
+        self.community_ids: list[UUID] = []
         yield
         await self.store.execute_write(f"MATCH (n:{self.label}) DETACH DELETE n")
-        await self.store.execute_write(f"MATCH (n:{COMMUNITY_LABEL}) DETACH DELETE n")
+        if self.community_ids:
+            await self.store.execute_write(
+                f"MATCH (n:{COMMUNITY_LABEL}) WHERE n.id IN $ids DETACH DELETE n",
+                {"ids": [str(cid) for cid in self.community_ids]},
+            )
         await self.store.close()
 
     async def _seed_entities(self, names: list[str]) -> list[Entity]:
@@ -122,6 +143,7 @@ class TestCommunityRetrievalIntegration:
 
     async def _seed_communities(self, communities: list[Community]) -> list[Community]:
         """Write communities and MEMBER_OF edges to the store."""
+        self.community_ids.extend(comm.id for comm in communities)
         for comm in communities:
             if comm.embedding is None:
                 comm.embedding = await self.embedder.embed_one(comm.embedding_text)
@@ -314,6 +336,7 @@ class TestCommunityRetrievalIntegration:
             *,
             graph_store: object = None,  # type: ignore[assignment]
             top_k: int = 3,
+            filters: SearchFilters | None = None,
         ) -> list[SearchResult]:
             """Capture entity_ids and delegate to real community_context."""
             captured["ids"] = list(entity_ids)
@@ -321,6 +344,7 @@ class TestCommunityRetrievalIntegration:
                 entity_ids,
                 graph_store=graph_store,
                 top_k=top_k,
+                filters=filters,
             )
 
         with patch(
@@ -335,6 +359,12 @@ class TestCommunityRetrievalIntegration:
     async def test_reserved_slice_not_cross_encoded_and_clamp(self) -> None:
         """Communities are not cross-encoded; reserved slice is clamped."""
         entities = await self._seed_entities(["Alice", "Bob", "Charlie", "Dave", "Eve"])
+        # entities[0] ("Alice") is a member of every community: it is an
+        # exact-vector match for the "Alice" query under _FixedEmbedder and
+        # so always ranks first, regardless of the hash-based (per-process,
+        # non-semantic) ranking of the other four entities. Community
+        # overlap must not depend on which of those four the query's
+        # top-`limit` slots happen to include.
         communities = [
             Community(
                 id=uuid4(),
@@ -342,7 +372,7 @@ class TestCommunityRetrievalIntegration:
                 summary=f"Summary {i} Alice Bob",
                 rating=5.0,
                 rating_explanation="e",
-                member_ids=[entities[i].id],
+                member_ids=[entities[0].id, entities[i + 1].id],
             )
             for i in range(3)
         ]
@@ -446,7 +476,15 @@ class TestCommunityRetrievalIntegration:
         assert all(not isinstance(r.item, Community) for r in results)
 
     async def test_filter_scoping(self) -> None:
-        """THEMATIC forwards only properties to CommunityRetriever."""
+        """THEMATIC forwards document_ids and properties, not labels.
+
+        Community nodes carry no document/tenant scope of their own, so
+        document_ids is forwarded deliberately: it makes a document- or
+        property-scoped search fail closed (no community results) rather
+        than return a report drawn from outside that scope. Labels are
+        never forwarded, since they check node labels and a Community
+        node never carries an entity label.
+        """
         engine = SearchEngine(
             graph_store=self.store,
             embedder=self.embedder,
@@ -479,7 +517,7 @@ class TestCommunityRetrievalIntegration:
         assert filt is not None
         assert filt.properties == {"rating": 5.0}
         assert filt.labels == []
-        assert filt.document_ids == []
+        assert filt.document_ids == filters.document_ids
 
     async def test_thematic_bounded(self) -> None:
         """THEMATIC respects its limit."""

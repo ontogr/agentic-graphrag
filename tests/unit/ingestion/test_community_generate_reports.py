@@ -3,9 +3,12 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+import pytest
+
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.ingestion.community import generate_community_reports
+from agrag.loaders.corpus.types import ErrorPolicy
 
 
 class TestGenerateCommunityReports:
@@ -115,6 +118,37 @@ class TestGenerateCommunityReports:
             )
             assert len(captured["inputs"][0].entity_summaries) == 3
 
+    async def test_out_of_range_rating_is_clamped(self) -> None:
+        """An LLM rating outside 0-10 is clamped, not persisted as-is."""
+        eids = [uuid4() for _ in range(2)]
+        entities_by_id = {
+            eid: Entity(id=eid, label="Person", name=f"N{i}", properties={})
+            for i, eid in enumerate(eids)
+        }
+        c1 = Community(
+            id=uuid4(),
+            title="",
+            summary="",
+            rating=0,
+            rating_explanation="",
+            member_ids=eids,
+            internal_weight=10.0,
+        )
+        with patch("agrag.llm.baml_client.b") as mock_b:
+            mock_b.SummarizeCommunities = AsyncMock(
+                return_value=[
+                    MagicMock(
+                        title="T1",
+                        summary="S1",
+                        rating=42.0,
+                        rating_explanation="e",
+                        findings=[],
+                    )
+                ]
+            )
+            await generate_community_reports([c1], entities_by_id)
+            assert c1.rating == 10.0
+
     async def test_batch_failure_falls_back(self) -> None:
         """Batch failure records StageFailure per community and falls back."""
         eids = [uuid4() for _ in range(2)]
@@ -136,6 +170,30 @@ class TestGenerateCommunityReports:
             failures = await generate_community_reports([c1], entities_by_id)
             assert len(failures) == 1
             assert c1.title  # heuristic fallback
+
+    async def test_batch_failure_raises_when_policy_is_raise(self) -> None:
+        """RAISE policy propagates a batch failure instead of falling back."""
+        eids = [uuid4() for _ in range(2)]
+        entities_by_id = {
+            eid: Entity(id=eid, label="Person", name=f"N{i}", properties={})
+            for i, eid in enumerate(eids)
+        }
+        c1 = Community(
+            id=uuid4(),
+            title="",
+            summary="",
+            rating=0,
+            rating_explanation="",
+            member_ids=eids,
+            internal_weight=10.0,
+        )
+        with patch("agrag.llm.baml_client.b") as mock_b:
+            mock_b.SummarizeCommunities = AsyncMock(side_effect=RuntimeError("down"))
+            with pytest.raises(RuntimeError, match="down"):
+                await generate_community_reports(
+                    [c1], entities_by_id, error_policy=ErrorPolicy.RAISE
+                )
+            assert not c1.title
 
     async def test_short_batch_response_fallback(self) -> None:
         """Short batch response falls back only for leftover communities."""

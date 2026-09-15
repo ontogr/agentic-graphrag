@@ -10,7 +10,7 @@ Covers the overlap ranking used by community enrichment.
 
 import importlib.util
 from collections.abc import AsyncGenerator
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -25,18 +25,38 @@ neo4j_missing = importlib.util.find_spec("neo4j") is None
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+@pytest.mark.xdist_group(name="community_label")
 class TestCommunitiesForEntitiesOverlapIntegration:
-    """``communities_for_entities_query`` ranks by overlap."""
+    """``communities_for_entities_query`` ranks by overlap.
+
+    Shares an ``xdist_group`` with ``TestDeleteCommunitiesBatchIntegration``:
+    that test's ``delete_all_communities`` call deletes every ``Community``
+    node in the database, so both classes must run on the same xdist
+    worker to keep this test's own Community nodes from being wiped
+    mid-run.
+    """
 
     @pytest.fixture(autouse=True)
     async def setup_store(self) -> AsyncGenerator[None, None]:
-        """Set up a fresh store with a unique entity label."""
+        """Set up a fresh store with a unique entity label.
+
+        ``community_ids`` starts empty and the test fills it in once it
+        creates its own Community nodes, so teardown can delete exactly
+        those nodes by id instead of the shared ``Community`` label --
+        other integration tests write ``Community`` nodes to the same
+        database and may be running concurrently.
+        """
         self.store = build_graph_store("neo4j")
         await self.store.connect()
         self.entity_label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
+        self.community_ids: list[UUID] = []
         yield
         await self.store.execute_write(f"MATCH (n:{self.entity_label}) DETACH DELETE n")
-        await self.store.execute_write("MATCH (n:Community) DETACH DELETE n")
+        if self.community_ids:
+            await self.store.execute_write(
+                "MATCH (n:Community) WHERE n.id IN $ids DETACH DELETE n",
+                {"ids": [str(cid) for cid in self.community_ids]},
+            )
         await self.store.close()
 
     async def test_overlap_ranking(self) -> None:
@@ -47,6 +67,7 @@ class TestCommunitiesForEntitiesOverlapIntegration:
         """
         e1, e2, e3 = uuid4(), uuid4(), uuid4()
         c1, c2, c3 = uuid4(), uuid4(), uuid4()
+        self.community_ids = [c1, c2, c3]
         try:
             await self.store.upsert_nodes(
                 self.entity_label,
@@ -151,32 +172,24 @@ class TestCommunitiesForEntitiesOverlapIntegration:
 
             rows = await self.store.execute_read(
                 communities_for_entities_query(),
-                {"entity_ids": [str(e2), str(e3)]},
+                {"entity_ids": [str(e2), str(e3)], "top_k": 10},
             )
 
             assert len(rows) == 3
             overlaps = [r["overlap"] for r in rows]
             assert overlaps == sorted(overlaps, reverse=True)
             assert overlaps[0] == 2
-            # Top community is C2 (the one with both e2 and e3).
+            # execute_read runs the driver's Result.data(), which renders a
+            # returned node as a plain dict of its properties (see
+            # agrag.graphdb.neo4j.Neo4jGraphStore._run), so "id" is a
+            # direct key.
             top_c = rows[0]["c"]
-            # Neo4j may return node as dict or Node object; handle both.
-            top_id = top_c["id"] if isinstance(top_c, dict) else top_c.get("id")  # type: ignore[union-attr]
-            if top_id is None and isinstance(top_c, dict):
-                # Some driver versions nest properties under 'properties'.
-                top_id = top_c.get("properties", {}).get("id", top_c.get("id"))
-            # Fallback: read id via property if driver returns Node.
-            if top_id is None:
-                try:
-                    top_id = top_c["id"]  # type: ignore[index]
-                except Exception:
-                    top_id = None
-            # If driver returns Node object with dict-like access, try id field.
-            if top_id is None:
-                # Last resort: query by overlap ordering check only.
-                assert overlaps[0] == 2
-            else:
-                assert str(top_id) == str(c2)
+            top_id = top_c["id"]
+            # Top community is C2 (the one with both e2 and e3).
+            assert str(top_id) == str(c2)
             assert overlaps.count(1) == 2
         finally:
-            await self.store.execute_write("MATCH (n:Community) DETACH DELETE n")
+            await self.store.execute_write(
+                "MATCH (n:Community) WHERE n.id IN $ids DETACH DELETE n",
+                {"ids": [str(cid) for cid in self.community_ids]},
+            )

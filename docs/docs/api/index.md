@@ -817,16 +817,28 @@ Cypher for the community-detection full-replace write path.
 ##### `agrag.cypher.community.communities_for_entities_query`
 
 ```python
-communities_for_entities_query() -> str
+communities_for_entities_query(where_clause:str = '') -> str
 ```
 
 Build Cypher finding communities overlapping given entity ids.
 
+**Parameters:**
+
+- **where_clause** (<code>[str](#str)</code>) – Optional parameterized Cypher `WHERE` clause
+  (including the `WHERE` keyword) applied to the candidate
+  community node `c`, e.g. from
+  `SearchFilters.to_cypher_where("c")`. Empty applies no
+  additional constraint. Community nodes carry no document or
+  tenant scope, so a document- or property-scoped filter that
+  names a property Community nodes never have makes this
+  clause match nothing, returning no communities rather than
+  an unscoped one.
+
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids).
-- <code>[str](#str)</code> – Returns each overlapping community node and its overlap count,
-- <code>[str](#str)</code> – highest overlap first.
+- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids)
+- <code>[str](#str)</code> – and $top_k (max rows to return). Returns each overlapping
+- <code>[str](#str)</code> – community node and its overlap count, highest overlap first.
 
 ##### `agrag.cypher.community.delete_communities_batch_query`
 
@@ -1544,6 +1556,13 @@ clustering. Excludes MENTIONED_IN and MEMBER_OF (system edges, not
 entity-graph topology) and any endpoint that is a Chunk, a Community,
 or a tombstone.
 
+`ORDER BY` includes `type(r)` and `r.id` after `(a.id, b.id)`
+because two distinct relationships (different types, or the same type
+with different ids) can share the same endpoints -- see
+`upsert_relation_query`. Without a total order, Neo4j does not
+guarantee a stable row order across separate paged queries, so a page
+boundary falling inside such a group can duplicate or drop rows.
+
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $skip and $limit.
@@ -1557,14 +1576,20 @@ fetch_all_relations_query_cursor() -> str
 Build Cypher paginating every live domain relationship via keyset.
 
 Keyset variant of :func:`fetch_all_relations_query` for large graphs
-where `SKIP` becomes expensive. Orders by `(a.id, b.id)` and
-pages by the last seen tuple; the first page uses `last_a=""` and
-`last_b=""`.
+where `SKIP` becomes expensive. Orders by `(a.id, b.id, type(r), r.id)` and pages by the last seen tuple; the first page uses
+`last_a=""`, `last_b=""`, `last_type=""` and `last_rel_id=""`.
+
+The relationship type and id break ties on `(a.id, b.id)`: two
+distinct relationships (different types, or the same type with
+different ids) can share the same endpoints -- see
+`upsert_relation_query`. Ordering by endpoints alone would let a
+page boundary fall inside such a group, silently excluding the
+remaining relationships for that pair from every later page.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting `$last_a`, `$last_b` and
-- <code>[str](#str)</code> – `$limit`.
+- <code>[str](#str)</code> – Parameterized Cypher expecting `$last_a`, `$last_b`,
+- <code>[str](#str)</code> – `$last_type`, `$last_rel_id` and `$limit`.
 
 ##### `agrag.cypher.relations.upsert_relation_query`
 
@@ -3228,6 +3253,7 @@ driver's managed transactions with no added retry loop.
 
 - [**close**](#agrag.graphdb.Neo4jGraphStore.close) – Close the driver, releasing its connection pool.
 - [**connect**](#agrag.graphdb.Neo4jGraphStore.connect) – Open the driver and verify connectivity.
+- [**ensure_relation_constraint**](#agrag.graphdb.Neo4jGraphStore.ensure_relation_constraint) – Create a relationship type's `id` uniqueness constraint once.
 - [**ensure_vector_index**](#agrag.graphdb.Neo4jGraphStore.ensure_vector_index) – Create a native vector index if it does not exist.
 - [**execute_read**](#agrag.graphdb.Neo4jGraphStore.execute_read) – Run a read transaction and return its rows.
 - [**execute_write**](#agrag.graphdb.Neo4jGraphStore.execute_write) – Run a write transaction and return its rows.
@@ -3263,6 +3289,24 @@ connect() -> None
 ```
 
 Open the driver and verify connectivity.
+
+##### `agrag.graphdb.Neo4jGraphStore.ensure_relation_constraint`
+
+```python
+ensure_relation_constraint(rel_type:str) -> None
+```
+
+Create a relationship type's `id` uniqueness constraint once.
+
+Public entry point onto `_ensure_relation_constraint` for
+`_Neo4jTransaction.upsert_relations`, which must give the same
+constraint-before-first-write guarantee inside an explicit
+transaction that the non-transactional `upsert_relations` gives.
+
+**Parameters:**
+
+- **rel_type** (<code>[str](#str)</code>) – The relationship type to ensure a constraint for. Must
+  already be validated.
 
 ##### `agrag.graphdb.Neo4jGraphStore.ensure_vector_index`
 
@@ -3973,6 +4017,7 @@ driver's managed transactions with no added retry loop.
 
 - [**close**](#agrag.graphdb.neo4j.Neo4jGraphStore.close) – Close the driver, releasing its connection pool.
 - [**connect**](#agrag.graphdb.neo4j.Neo4jGraphStore.connect) – Open the driver and verify connectivity.
+- [**ensure_relation_constraint**](#agrag.graphdb.neo4j.Neo4jGraphStore.ensure_relation_constraint) – Create a relationship type's `id` uniqueness constraint once.
 - [**ensure_vector_index**](#agrag.graphdb.neo4j.Neo4jGraphStore.ensure_vector_index) – Create a native vector index if it does not exist.
 - [**execute_read**](#agrag.graphdb.neo4j.Neo4jGraphStore.execute_read) – Run a read transaction and return its rows.
 - [**execute_write**](#agrag.graphdb.neo4j.Neo4jGraphStore.execute_write) – Run a write transaction and return its rows.
@@ -4008,6 +4053,24 @@ connect() -> None
 ```
 
 Open the driver and verify connectivity.
+
+###### `agrag.graphdb.neo4j.Neo4jGraphStore.ensure_relation_constraint`
+
+```python
+ensure_relation_constraint(rel_type:str) -> None
+```
+
+Create a relationship type's `id` uniqueness constraint once.
+
+Public entry point onto `_ensure_relation_constraint` for
+`_Neo4jTransaction.upsert_relations`, which must give the same
+constraint-before-first-write guarantee inside an explicit
+transaction that the non-transactional `upsert_relations` gives.
+
+**Parameters:**
+
+- **rel_type** (<code>[str](#str)</code>) – The relationship type to ensure a constraint for. Must
+  already be validated.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.ensure_vector_index`
 
@@ -4428,7 +4491,7 @@ Confirmed matches become MergePlans via compute_merge.
 ##### `agrag.ingestion.Graph.detect_communities`
 
 ```python
-detect_communities(*, apply:bool = False, max_cluster_size:int = 10, resolution:float = 1.0, seed:int | None = 3735928559) -> Any
+detect_communities(*, apply:bool = False, max_cluster_size:int = 10, resolution:float = 1.0, seed:int | None = 3735928559) -> CommunityDetectionReport
 ```
 
 Detect entity communities via hierarchical Leiden.
@@ -4454,12 +4517,12 @@ previous one's.
 
 **Returns:**
 
-- <code>[Any](#typing.Any)</code> – A report of every community this call found, applied or not.
+- <code>[CommunityDetectionReport](#agrag.ingestion.reports.CommunityDetectionReport)</code> – A report of every community this call found, applied or not.
 
 **Raises:**
 
-- <code>[CommunityDetectionMissingExtraError](#CommunityDetectionMissingExtraError)</code> – graspologic-native is not
-  installed.
+- <code>[CommunityDetectionMissingExtraError](#agrag.ingestion.community.CommunityDetectionMissingExtraError)</code> –
+  graspologic-native is not installed.
 
 ##### `agrag.ingestion.Graph.open`
 
@@ -4595,7 +4658,7 @@ batch_size rows deleted.
 ##### `agrag.ingestion.community.embed_communities`
 
 ```python
-embed_communities(communities:list[Community], *, embedder:Embedder, batch_size:int = _DEFAULT_EMBED_BATCH_SIZE, max_concurrency:int = 4) -> None
+embed_communities(communities:list[Community], *, embedder:Embedder, batch_size:int = _DEFAULT_EMBED_BATCH_SIZE, max_concurrency:int = 4) -> list[StageFailure]
 ```
 
 Compute each community's embedding from its report text, in place.
@@ -4609,12 +4672,23 @@ agrag/embedding/base.py), so at 1M+ entity scale, where a full recompute
 can produce 100,000+ communities, this batches the embed() calls itself
 rather than passing every community's text in one call.
 
+A batch embed() failure does not block other batches: it is recorded as
+one StageFailure per community in that batch, matching the
+failure-tolerance shape generate_community_reports already uses. Those
+communities keep embedding=None and still get written by
+Community.to_node_record(), which omits the embedding property when it
+is None, rather than being dropped from the graph.
+
 **Parameters:**
 
 - **communities** (<code>[list](#list)\[[Community](#agrag.common.data_models.community.Community)\]</code>) – The communities to embed, mutated in place.
 - **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Computes one vector per community's embedding_text.
 - **batch_size** (<code>[int](#int)</code>) – Communities embedded per embed() call.
 - **max_concurrency** (<code>[int](#int)</code>) – Max concurrent embed calls.
+
+**Returns:**
+
+- <code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code> – One StageFailure per community whose batch embed() call failed.
 
 ##### `agrag.ingestion.community.fetch_relation_edges`
 
@@ -4638,8 +4712,7 @@ it.
 
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where the relations are read from.
 - **page_size** (<code>[int](#int)</code>) – Rows fetched per page.
-- **use_cursor** (<code>[bool](#bool)</code>) – When True uses keyset pagination on `(a.id, b.id)`;
-  when False uses `SKIP` pagination.
+- **use_cursor** (<code>[bool](#bool)</code>) – When True uses keyset pagination on `(a.id, b.id, type(r), r.id)`; when False uses `SKIP` pagination.
 
 **Returns:**
 
@@ -5120,7 +5193,7 @@ Confirmed matches become MergePlans via compute_merge.
 ###### `agrag.ingestion.graph.Graph.detect_communities`
 
 ```python
-detect_communities(*, apply:bool = False, max_cluster_size:int = 10, resolution:float = 1.0, seed:int | None = 3735928559) -> Any
+detect_communities(*, apply:bool = False, max_cluster_size:int = 10, resolution:float = 1.0, seed:int | None = 3735928559) -> CommunityDetectionReport
 ```
 
 Detect entity communities via hierarchical Leiden.
@@ -5146,12 +5219,12 @@ previous one's.
 
 **Returns:**
 
-- <code>[Any](#typing.Any)</code> – A report of every community this call found, applied or not.
+- <code>[CommunityDetectionReport](#agrag.ingestion.reports.CommunityDetectionReport)</code> – A report of every community this call found, applied or not.
 
 **Raises:**
 
-- <code>[CommunityDetectionMissingExtraError](#CommunityDetectionMissingExtraError)</code> – graspologic-native is not
-  installed.
+- <code>[CommunityDetectionMissingExtraError](#agrag.ingestion.community.CommunityDetectionMissingExtraError)</code> –
+  graspologic-native is not installed.
 
 ###### `agrag.ingestion.graph.Graph.open`
 
@@ -5595,8 +5668,10 @@ Report from Graph.detect_communities().
 
 - [**communities**](#agrag.ingestion.reports.CommunityDetectionReport.communities) (<code>[list](#list)\[[Community](#agrag.common.data_models.community.Community)\]</code>) – The communities this call found, whether applied or not.
 - [**applied**](#agrag.ingestion.reports.CommunityDetectionReport.applied) (<code>[bool](#bool)</code>) – Whether the communities were written.
-- [**failures**](#agrag.ingestion.reports.CommunityDetectionReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures embedding an applied community's report text.
-  Always empty when apply is False.
+- [**failures**](#agrag.ingestion.reports.CommunityDetectionReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures generating an applied community's LLM report or
+  embedding its report text. A failed community still gets
+  written, with a heuristic report or a missing embedding in
+  place of the failed step. Always empty when apply is False.
 
 ###### `agrag.ingestion.reports.CommunityDetectionReport.applied`
 
@@ -5728,8 +5803,10 @@ Report from Graph.detect_communities().
 
 - [**communities**](#agrag.ingestion.reports.community_detection_report.CommunityDetectionReport.communities) (<code>[list](#list)\[[Community](#agrag.common.data_models.community.Community)\]</code>) – The communities this call found, whether applied or not.
 - [**applied**](#agrag.ingestion.reports.community_detection_report.CommunityDetectionReport.applied) (<code>[bool](#bool)</code>) – Whether the communities were written.
-- [**failures**](#agrag.ingestion.reports.community_detection_report.CommunityDetectionReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures embedding an applied community's report text.
-  Always empty when apply is False.
+- [**failures**](#agrag.ingestion.reports.community_detection_report.CommunityDetectionReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures generating an applied community's LLM report or
+  embedding its report text. A failed community still gets
+  written, with a heuristic report or a missing embedding in
+  place of the failed step. Always empty when apply is False.
 
 ####### `agrag.ingestion.reports.community_detection_report.CommunityDetectionReport.applied`
 
@@ -6576,6 +6653,10 @@ Per-stage failure record and its per-call cap.
 
 - [**StageFailure**](#agrag.ingestion.stats.stage_failure.StageFailure) – One item's failure within a pipeline stage.
 
+**Attributes:**
+
+- [**logger**](#agrag.ingestion.stats.stage_failure.logger) –
+
 ###### `agrag.ingestion.stats.stage_failure.StageFailure`
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
@@ -6620,6 +6701,12 @@ span_id: str | None = None
 
 ```python
 trace_id: str | None = None
+```
+
+###### `agrag.ingestion.stats.stage_failure.logger`
+
+```python
+logger = logging.getLogger(__name__)
 ```
 
 ##### `agrag.ingestion.stats.storage`
@@ -6755,7 +6842,7 @@ Community-report enrichment: local-search-style budget-capped context.
 ##### `agrag.retrieval.community_context.community_context`
 
 ```python
-community_context(entity_ids:list[UUID], *, graph_store:GraphStore, top_k:int = 3) -> list[SearchResult]
+community_context(entity_ids:list[UUID], *, graph_store:GraphStore, top_k:int = 3, filters:SearchFilters | None = None) -> list[SearchResult]
 ```
 
 Return the top-overlapping communities' reports for a set of entities.
@@ -6771,6 +6858,14 @@ machinery as any other result.
   retrieval methods.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where the overlap lookup runs.
 - **top_k** (<code>[int](#int)</code>) – The maximum number of communities to return.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Applied to the candidate community node via
+  `document_ids`/`properties` (`to_cypher_where`); labels
+  are not applied, since they check node labels and a Community
+  node never carries an entity label. Community nodes carry no
+  document or tenant scope of their own, so a filter naming a
+  property Community nodes never have matches no communities --
+  a document- or property-scoped search gets no community
+  enrichment rather than one drawn from outside its scope.
 
 **Returns:**
 

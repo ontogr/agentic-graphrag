@@ -411,14 +411,10 @@ class TestCommunityDetectionIntegration:
             COMMUNITY_LABEL, [c.to_node_record() for c in comms]
         )
         assert await _count_communities(self.store) == 5
-        # Patch default batch size to 2 and call without explicit arg.
-        with patch("agrag.ingestion.community._DEFAULT_DELETE_BATCH_SIZE", 2):
-            await delete_all_communities(self.store)
-        assert await _count_communities(self.store) == 0
-        # Also test explicit batch_size arg.
-        await self.store.upsert_nodes(
-            COMMUNITY_LABEL, [c.to_node_record() for c in comms]
-        )
+        # _DEFAULT_DELETE_BATCH_SIZE is bound into the batch_size default
+        # at function-definition time, so patching the module constant
+        # after import has no effect on delete_all_communities; pass
+        # batch_size explicitly to exercise the batching loop.
         await delete_all_communities(self.store, batch_size=2)
         assert await _count_communities(self.store) == 0
 
@@ -495,13 +491,7 @@ class TestCommunityDetectionIntegration:
                 for i in range(len(communities))
             ]
 
-        with (
-            patch("agrag.llm.baml_client.b.SummarizeCommunities", new=fake_summarize),
-            patch(
-                "agrag.ingestion.community.generate_community_reports",
-                wraps=generate_community_reports,
-            ) as _,
-        ):
+        with patch("agrag.llm.baml_client.b.SummarizeCommunities", new=fake_summarize):
             # Directly call to control batch_size.
             failures = await generate_community_reports(
                 all_comms,
@@ -513,9 +503,6 @@ class TestCommunityDetectionIntegration:
             # Verify truncation: each input should have max_members entries.
             for inp in captured["inputs"]:
                 assert len(inp.entity_summaries) == max_members
-            # Check call count via wrapper: we already captured single batch;
-            # for batch_size=1 and 2 qualifying, expect 2 calls. We
-            # re-count by patching with AsyncMock.
         # Re-verify call count with AsyncMock.
         mock = AsyncMock(
             side_effect=[

@@ -81,7 +81,7 @@ class EntityRetriever(Retriever):
             ValueError: Native search was selected and neither the
                 filter nor the configuration names an entity label.
         """
-        effective_limit = limit or self._settings.entity_top_k
+        effective_limit = limit if limit is not None else self._settings.entity_top_k
         labels = filters.labels if filters and filters.labels else self._entity_labels
         hits = await vector_search(
             query,
@@ -123,11 +123,11 @@ class EntityRetriever(Retriever):
                 if entity is None:
                     try:
                         entity = await resolve_entity(self._graph_store, hit.id)
-                    except (ValueError, Exception):
+                    except Exception:
                         continue
                 results.append(
                     SearchResult(item=entity, score=hit.score, method=self.name)
                 )
-            except (ValueError, Exception):
+            except Exception:
                 continue
         return results

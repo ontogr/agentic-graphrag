@@ -36,7 +36,7 @@ class Community(DataPoint):
 
     title: str
     summary: str
-    rating: float
+    rating: float = Field(ge=0.0, le=10.0)
     rating_explanation: str
     findings: list[str] = Field(default_factory=list)
     member_ids: list[UUID] = Field(default_factory=list)
