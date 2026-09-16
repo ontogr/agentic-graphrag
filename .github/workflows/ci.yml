@@ -159,7 +159,7 @@ jobs:
           header: docs-api
           hide_details: true
           message: |
-            ${{ needs.docs.result == 'success' && '**Documentation is up to date** -- `docs/docs/api/index.md` matches `make docs-api`.' || '**Documentation is stale**. Run `make docs-api` locally to update the docs and commit.' }}
+            ${{ needs.docs.result == 'success' && '**Documentation is up to date**.' || '**Documentation is stale**. Run `make docs-api` locally to update the docs and commit.' }}
 
   wheel:
     name: Test Packaging - wheel build & install
