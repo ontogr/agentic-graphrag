@@ -16,7 +16,7 @@ from opentelemetry.trace import Tracer
 
 
 def get_tracer(tracer: Tracer | None) -> Tracer:
-    """Return a usable tracer.
+    """Return a usable tracer for the pipeline.
 
     Args:
         tracer: A caller-supplied tracer, or ``None`` to use OpenTelemetry's
