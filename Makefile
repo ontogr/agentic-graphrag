@@ -36,7 +36,7 @@ sync:
 	uv sync --all-groups --all-extras
 
 sync-docs-pins:
-	uv run python tools/update_precommit_docs_pins.py
+	uv run python .github/scripts/update_precommit_docs_pins.py
 
 test:
 	uv run pytest tests/unit \

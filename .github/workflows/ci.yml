@@ -136,7 +136,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: make sync
-      - run: uv run python tools/update_precommit_docs_pins.py --check
+      - run: uv run python .github/scripts/update_precommit_docs_pins.py --check
       - run: make docs-api
       - name: Check for docs staleness
         id: docs-check
