@@ -66,7 +66,8 @@ async def community_context(
         entity_ids: The entity ids already found by a search's other
             retrieval methods.
         graph_store: Where the overlap lookup runs.
-        top_k: The maximum number of communities to return.
+        top_k: The maximum number of communities to return. Zero or
+            negative returns no results without querying.
         filters: Applied to the candidate community node via
             ``document_ids``/``properties`` (``to_cypher_where``); labels
             are not applied, since they check node labels and a Community
@@ -81,6 +82,8 @@ async def community_context(
         first. Empty when entity_ids is empty or no community overlaps.
     """
     if not entity_ids:
+        return []
+    if top_k <= 0:
         return []
     where_clause, where_params = (
         SearchFilters(

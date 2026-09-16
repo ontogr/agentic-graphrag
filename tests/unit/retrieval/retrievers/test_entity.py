@@ -221,8 +221,8 @@ class TestEntityRetriever:
             assert results[0].item.id == ent.id
             mock_resolve.assert_awaited_once()
 
-    async def test_explicit_zero_limit_is_preserved(self) -> None:
-        """limit=0 is honored, not replaced by settings.entity_top_k."""
+    async def test_zero_limit_returns_empty_without_searching(self) -> None:
+        """limit=0 returns no results and never reaches vector_search."""
         gs = AsyncMock()
         embedder = MockEmbedder()
 
@@ -232,9 +232,27 @@ class TestEntityRetriever:
                 new_callable=AsyncMock,
             ) as mock_vs,
         ):
-            mock_vs.return_value = []
-
             retriever = EntityRetriever(graph_store=gs, embedder=embedder)
-            await retriever.retrieve("test query", limit=0)
+            results = await retriever.retrieve("test query", limit=0)
 
-            assert mock_vs.call_args.kwargs["limit"] == 0
+            assert results == []
+            mock_vs.assert_not_called()
+            gs.execute_read.assert_not_called()
+
+    async def test_negative_limit_returns_empty_without_searching(self) -> None:
+        """A negative limit returns no results and never reaches vector_search."""
+        gs = AsyncMock()
+        embedder = MockEmbedder()
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_vs,
+        ):
+            retriever = EntityRetriever(graph_store=gs, embedder=embedder)
+            results = await retriever.retrieve("test query", limit=-2)
+
+            assert results == []
+            mock_vs.assert_not_called()
+            gs.execute_read.assert_not_called()

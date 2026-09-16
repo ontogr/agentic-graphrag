@@ -9,8 +9,10 @@ without a model, and that it actually drops low-scoring results when a model
 is present.
 """
 
+import asyncio
 import sys
 import threading
+import time
 from types import ModuleType
 from unittest.mock import patch
 from uuid import uuid4
@@ -204,3 +206,39 @@ class TestCrossEncoderRerank:
 
         assert construction_thread is not None
         assert construction_thread is not threading.main_thread()
+
+    async def test_concurrent_first_loads_construct_model_once(self) -> None:
+        """Concurrent first calls with the same model construct one instance.
+
+        Regression test: without per-model locking, a second caller could
+        pass the cache check while the first construction is still running
+        in its worker thread, building a duplicate CrossEncoder (and a
+        duplicate weight download) for the same name.
+        """
+        r1 = _make_result()
+        construction_count = 0
+
+        class CountingCrossEncoder:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                nonlocal construction_count
+                construction_count += 1
+                # Keep the first construction in flight long enough that a
+                # second caller can reach the cache check before it lands.
+                time.sleep(0.05)
+
+            def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
+                return [0.5 for _ in pairs]
+
+        module = ModuleType("fake")
+        module.CrossEncoder = CountingCrossEncoder
+        model_name = f"concurrent-model-{uuid4().hex}"
+
+        with patch.dict(sys.modules, {"sentence_transformers": module}):
+            first, second = await asyncio.gather(
+                cross_encoder_rerank("query", [r1], model=model_name),
+                cross_encoder_rerank("query", [r1], model=model_name),
+            )
+
+        assert construction_count == 1
+        assert len(first) == 1
+        assert len(second) == 1

@@ -63,11 +63,14 @@ class ChunkRetriever(Retriever):
             query: The natural-language query text.
             filters: Constraints applied to the search.
             limit: Maximum results. None uses settings.chunk_top_k.
+                Zero or negative returns no results without searching.
 
         Returns:
             Ranked SearchResults with hydrated Chunk items.
         """
         effective_limit = limit if limit is not None else self._settings.chunk_top_k
+        if effective_limit <= 0:
+            return []
         hits = await vector_search(
             query,
             embedder=self._embedder,

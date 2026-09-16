@@ -38,7 +38,8 @@ def communities_for_entities_query(where_clause: str = "") -> str:
 
     Returns:
         Parameterized Cypher expecting $entity_ids (list of string ids)
-        and $top_k (max rows to return). Returns each overlapping
+        and $top_k (max rows to return; must be non-negative, since
+        Neo4j rejects a negative LIMIT). Returns each overlapping
         community node and its overlap count, highest overlap first.
     """
     return (

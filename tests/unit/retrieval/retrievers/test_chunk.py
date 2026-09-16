@@ -144,8 +144,8 @@ class TestChunkRetriever:
             assert len(results) == 1
             assert results[0].item.text == "Hello world"
 
-    async def test_explicit_zero_limit_is_preserved(self) -> None:
-        """limit=0 is honored, not replaced by settings.chunk_top_k."""
+    async def test_zero_limit_returns_empty_without_searching(self) -> None:
+        """limit=0 returns no results and never reaches vector_search."""
         gs = AsyncMock()
         gs.execute_read.return_value = []
         embedder = MockEmbedder()
@@ -154,9 +154,26 @@ class TestChunkRetriever:
             "agrag.retrieval.retrievers.chunk.vector_search",
             new_callable=AsyncMock,
         ) as mock_vs:
-            mock_vs.return_value = []
-
             retriever = ChunkRetriever(graph_store=gs, embedder=embedder)
-            await retriever.retrieve("test", limit=0)
+            results = await retriever.retrieve("test", limit=0)
 
-            assert mock_vs.call_args.kwargs["limit"] == 0
+            assert results == []
+            mock_vs.assert_not_called()
+            gs.execute_read.assert_not_called()
+
+    async def test_negative_limit_returns_empty_without_searching(self) -> None:
+        """A negative limit returns no results and never reaches vector_search."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        embedder = MockEmbedder()
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            retriever = ChunkRetriever(graph_store=gs, embedder=embedder)
+            results = await retriever.retrieve("test", limit=-3)
+
+            assert results == []
+            mock_vs.assert_not_called()
+            gs.execute_read.assert_not_called()

@@ -18,6 +18,24 @@ class TestCommunityContext:
         assert res == []
         mock_store.execute_read.assert_not_called()
 
+    async def test_zero_top_k_returns_empty_without_querying(self) -> None:
+        """top_k=0 returns no results and never queries the store."""
+        mock_store = AsyncMock()
+        res = await community_context([uuid4()], graph_store=mock_store, top_k=0)
+        assert res == []
+        mock_store.execute_read.assert_not_called()
+
+    async def test_negative_top_k_returns_empty_without_querying(self) -> None:
+        """A negative top_k returns no results and never queries the store.
+
+        Regression test: a negative top_k reached Neo4j as a negative LIMIT,
+        which rejects the query.
+        """
+        mock_store = AsyncMock()
+        res = await community_context([uuid4()], graph_store=mock_store, top_k=-1)
+        assert res == []
+        mock_store.execute_read.assert_not_called()
+
     async def test_top_k_capping(self) -> None:
         """top_k limits returned communities."""
         mock_store = AsyncMock()

@@ -9,6 +9,10 @@ from agrag.common.data_models.search_result import SearchResult
 
 _MODEL_CACHE: dict[str, Any] = {}
 
+# One asyncio lock per model name; created inside _load_cross_encoder, which
+# always runs on the event loop, so the dict itself needs no thread safety.
+_MODEL_LOAD_LOCKS: dict[str, asyncio.Lock] = {}
+
 
 def _build_cross_encoder(model: str) -> Any:
     """Construct a new CrossEncoder instance for the given model name."""
@@ -30,8 +34,10 @@ async def _load_cross_encoder(model: str) -> Any:
     filesystem or network work (downloading weights) that would
     otherwise block the event loop on a cache miss.
     """
-    if model not in _MODEL_CACHE:
-        _MODEL_CACHE[model] = await asyncio.to_thread(_build_cross_encoder, model)
+    lock = _MODEL_LOAD_LOCKS.setdefault(model, asyncio.Lock())
+    async with lock:
+        if model not in _MODEL_CACHE:
+            _MODEL_CACHE[model] = await asyncio.to_thread(_build_cross_encoder, model)
     return _MODEL_CACHE[model]
 
 
@@ -49,7 +55,9 @@ async def cross_encoder_rerank(
     below min_score when set. The model is cached per name (see
     _load_cross_encoder), and the blocking predict() call runs via
     asyncio.to_thread so a larger configured model cannot stall the event
-    loop for other concurrent search() calls.
+    loop for other concurrent search() calls. Concurrent first loads of the
+    same model share one in-flight construction behind a per-model lock, so
+    only one instance (and one download) occurs.
 
     Args:
         query: The natural-language query text.

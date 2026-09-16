@@ -78,14 +78,29 @@ class TestCommunityRetriever:
             assert res == []
 
     async def test_unparsable_row_is_skipped(self) -> None:
-        """A row that fails to parse is skipped; other rows still hydrate."""
+        """A row that fails to parse is skipped; other rows still hydrate.
+
+        The bad row carries the bad hit's id, so the hit is dropped by its
+        row's parse failure rather than a by-id lookup miss.
+        """
         mock_store = AsyncMock()
         mock_embedder = AsyncMock()
         mock_embedder.embed.return_value = [[0.1]]
         good_id = uuid4()
         bad_id = uuid4()
         mock_store.execute_read.return_value = [
-            {"n": {"id": "not-a-uuid", "title": "Bad", "summary": "", "rating": 0}},
+            # A real UUID id matched to its hit, but a member_ids entry that
+            # cannot parse into a UUID, so _parse_community_node returns None.
+            {
+                "n": {
+                    "id": str(bad_id),
+                    "title": "Bad",
+                    "summary": "",
+                    "rating": 0,
+                    "rating_explanation": "e",
+                    "member_ids": ["not-a-uuid"],
+                }
+            },
             {
                 "n": {
                     "id": str(good_id),
@@ -109,8 +124,8 @@ class TestCommunityRetriever:
             assert len(res) == 1
             assert res[0].item.title == "Good"
 
-    async def test_explicit_zero_limit_is_preserved(self) -> None:
-        """limit=0 is honored, not replaced by community_top_k."""
+    async def test_zero_limit_returns_empty_without_searching(self) -> None:
+        """limit=0 returns no results and never reaches vector_search."""
         mock_store = AsyncMock()
         mock_embedder = AsyncMock()
         mock_embedder.embed.return_value = [[0.1]]
@@ -118,9 +133,10 @@ class TestCommunityRetriever:
         with patch(
             "agrag.retrieval.retrievers.community.vector_search", new_callable=AsyncMock
         ) as mock_vs:
-            mock_vs.return_value = []
             retr = CommunityRetriever(
                 graph_store=mock_store, embedder=mock_embedder, settings=settings
             )
-            await retr.retrieve("q", limit=0)
-            assert mock_vs.call_args[1]["limit"] == 0
+            res = await retr.retrieve("q", limit=0)
+            assert res == []
+            mock_vs.assert_not_called()
+            mock_store.execute_read.assert_not_called()

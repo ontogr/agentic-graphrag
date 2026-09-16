@@ -39,8 +39,17 @@ class CommunityRetriever(Retriever):
         filters: SearchFilters | None = None,
         limit: int | None = None,
     ) -> list[SearchResult]:
-        """Run community-report search and return hydrated results."""
+        """Run community-report search and return hydrated results.
+
+        Args:
+            query: The natural-language query text.
+            filters: Constraints applied to the search.
+            limit: Maximum results. None uses settings.community_top_k.
+                Zero or negative returns no results without searching.
+        """
         effective_limit = limit if limit is not None else self._settings.community_top_k
+        if effective_limit <= 0:
+            return []
         hits = await vector_search(
             query,
             embedder=self._embedder,

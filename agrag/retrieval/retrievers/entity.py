@@ -73,6 +73,7 @@ class EntityRetriever(Retriever):
             query: The natural-language query text.
             filters: Constraints applied to the search.
             limit: Maximum results. None uses settings.entity_top_k.
+                Zero or negative returns no results without searching.
 
         Returns:
             Ranked SearchResults with resolved entity ids.
@@ -82,6 +83,8 @@ class EntityRetriever(Retriever):
                 filter nor the configuration names an entity label.
         """
         effective_limit = limit if limit is not None else self._settings.entity_top_k
+        if effective_limit <= 0:
+            return []
         labels = filters.labels if filters and filters.labels else self._entity_labels
         hits = await vector_search(
             query,
