@@ -112,8 +112,8 @@ clean:
 	find . -type d -name .ruff_cache -exec rm -rf {} +
 	find . -type d -name .ty_cache -exec rm -rf {} +
 
-# Overridable so the pre-commit hook can run griffe2md from its own pinned
-# environment rather than a uv-managed one.
+# Overridable docs generator; defaults to the uv-managed environment so
+# versions resolve from uv.lock.
 DOCS_GRIPPE2MD ?= uv run --group docs griffe2md
 
 docs-api:

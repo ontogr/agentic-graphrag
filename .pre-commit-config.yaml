@@ -85,14 +85,11 @@ repos:
         exclude: '(^tests/.*/fixtures/)'
       - id: docs-api
         name: docs-api (griffe2md)
-        entry: "bash -c 'DOCS_GRIPPE2MD=griffe2md make docs-api || { echo \"make docs-api failed\" >&2; exit 1; }; git diff --exit-code -- docs/docs/api/index.md || { echo \"docs/docs/api/index.md is stale -- run: make docs-api && git add docs/docs/api/index.md\" >&2; git diff -- docs/docs/api/index.md >&2; exit 1; }'"
-        # pre-commit.ci runs hooks without network access, so the hook
-        # environment carries griffe2md and chonkie, which griffe needs to
-        # resolve the chunker base class. PRE-COMMIT-DOCS-PINS tracks the
-        # DOCS_DEPS_PINS list in tests/unit/test_docs_pins.py by package name;
-        # only the versions must stay aligned with uv.lock.
-        language: python
-        additional_dependencies: ["griffe2md==1.5.0", "chonkie==1.7.0"]
+        entry: "bash -c 'make docs-api || { echo \"make docs-api failed\" >&2; exit 1; }; git diff --exit-code -- docs/docs/api/index.md || { echo \"docs/docs/api/index.md is stale -- run: make docs-api && git add docs/docs/api/index.md\" >&2; git diff -- docs/docs/api/index.md >&2; exit 1; }'"
+        # Run through uv so griffe2md resolves from uv.lock; no pins here.
+        # Skipped on pre-commit.ci, which lacks uv; the CI docs job enforces
+        # staleness instead.
+        language: system
         pass_filenames: false
         files: '^(agrag/.*\.py|pyproject\.toml|uv\.lock|Makefile|docs/docs/api/index\.md)$'
 
@@ -102,4 +99,4 @@ ci:
   autofix_prs_limit: 5
   autoupdate_schedule: monthly
   autoupdate_commit_msg: "ci: Pre-commit autoupdate"
-  skip: [ty, pytest]
+  skip: [ty, pytest, docs-api]
