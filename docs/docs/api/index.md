@@ -4401,7 +4401,6 @@ The ingestion package.
 - [**reports**](#agrag.ingestion.reports) – Reports returned by Graph pipeline operations.
 - [**resolve**](#agrag.ingestion.resolve) – Entity resolution: deciding which ExtractedEntity mentions are the same thing.
 - [**stats**](#agrag.ingestion.stats) – Per-stage observability types for the ingestion pipeline.
-- [**types**](#agrag.ingestion.types) – Removed: the ingestion result types moved to their own modules.
 
 **Classes:**
 
@@ -5717,6 +5716,14 @@ Graph.add()'s return type — one summary per pipeline stage.
 chunks: list[Chunk] = Field(default_factory=list)
 ```
 
+###### `agrag.ingestion.reports.AddResult.documents`
+
+```python
+documents: int
+```
+
+Proxy to ingestion.documents for backward compatibility.
+
 ###### `agrag.ingestion.reports.AddResult.extraction`
 
 ```python
@@ -5735,11 +5742,43 @@ ingestion: IngestStats = Field(default_factory=IngestStats)
 merge: MergeStats = Field(default_factory=MergeStats)
 ```
 
+###### `agrag.ingestion.reports.AddResult.quarantined`
+
+```python
+quarantined: int
+```
+
+Proxy to ingestion.quarantined for backward compatibility.
+
+###### `agrag.ingestion.reports.AddResult.quarantined_items`
+
+```python
+quarantined_items: list[StageFailure]
+```
+
+Proxy to ingestion.quarantined_items for backward compatibility.
+
 ###### `agrag.ingestion.reports.AddResult.resolution`
 
 ```python
 resolution: ResolutionStats = Field(default_factory=ResolutionStats)
 ```
+
+###### `agrag.ingestion.reports.AddResult.skipped`
+
+```python
+skipped: int
+```
+
+Proxy to ingestion.skipped for backward compatibility.
+
+###### `agrag.ingestion.reports.AddResult.sources`
+
+```python
+sources: int
+```
+
+Proxy to ingestion.sources for backward compatibility.
 
 ###### `agrag.ingestion.reports.AddResult.storage`
 
@@ -5844,6 +5883,14 @@ Graph.add()'s return type — one summary per pipeline stage.
 chunks: list[Chunk] = Field(default_factory=list)
 ```
 
+####### `agrag.ingestion.reports.add_result.AddResult.documents`
+
+```python
+documents: int
+```
+
+Proxy to ingestion.documents for backward compatibility.
+
 ####### `agrag.ingestion.reports.add_result.AddResult.extraction`
 
 ```python
@@ -5862,11 +5909,43 @@ ingestion: IngestStats = Field(default_factory=IngestStats)
 merge: MergeStats = Field(default_factory=MergeStats)
 ```
 
+####### `agrag.ingestion.reports.add_result.AddResult.quarantined`
+
+```python
+quarantined: int
+```
+
+Proxy to ingestion.quarantined for backward compatibility.
+
+####### `agrag.ingestion.reports.add_result.AddResult.quarantined_items`
+
+```python
+quarantined_items: list[StageFailure]
+```
+
+Proxy to ingestion.quarantined_items for backward compatibility.
+
 ####### `agrag.ingestion.reports.add_result.AddResult.resolution`
 
 ```python
 resolution: ResolutionStats = Field(default_factory=ResolutionStats)
 ```
+
+####### `agrag.ingestion.reports.add_result.AddResult.skipped`
+
+```python
+skipped: int
+```
+
+Proxy to ingestion.skipped for backward compatibility.
+
+####### `agrag.ingestion.reports.add_result.AddResult.sources`
+
+```python
+sources: int
+```
+
+Proxy to ingestion.sources for backward compatibility.
 
 ####### `agrag.ingestion.reports.add_result.AddResult.storage`
 
@@ -7055,14 +7134,6 @@ nodes_written: int = 0
 ```python
 relationships_written: int = 0
 ```
-
-#### `agrag.ingestion.types`
-
-Removed: the ingestion result types moved to their own modules.
-
-Per-stage stats live in `agrag.ingestion.stats` and pipeline reports
-in `agrag.ingestion.reports`. Importing this module raises
-`ImportError` with the new paths.
 
 ### `agrag.observability`
 
