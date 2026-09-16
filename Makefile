@@ -1,4 +1,4 @@
-.PHONY: sync baml-gen lint-actions test test-integration test-e2e test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
+.PHONY: sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
 help:
 	@echo "Available make targets:"
@@ -34,6 +34,9 @@ baml-gen:
 
 sync:
 	uv sync --all-groups --all-extras
+
+sync-docs-pins:
+	uv run python .github/scripts/update_precommit_docs_pins.py
 
 test:
 	uv run pytest tests/unit \
@@ -112,8 +115,7 @@ clean:
 	find . -type d -name .ruff_cache -exec rm -rf {} +
 	find . -type d -name .ty_cache -exec rm -rf {} +
 
-# Overridable so the pre-commit hook can run griffe2md from its own pinned
-# environment rather than a uv-managed one.
+# Overridable so the pre-commit hook can use its isolated docs environment.
 DOCS_GRIPPE2MD ?= uv run --group docs griffe2md
 
 docs-api:
