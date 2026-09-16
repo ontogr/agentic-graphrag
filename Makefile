@@ -112,10 +112,14 @@ clean:
 	find . -type d -name .ruff_cache -exec rm -rf {} +
 	find . -type d -name .ty_cache -exec rm -rf {} +
 
+# Overridable so the pre-commit hook can run griffe2md from its own pinned
+# environment rather than a uv-managed one.
+DOCS_GRIPPE2MD ?= uv run --group docs griffe2md
+
 docs-api:
 	mkdir -p docs/docs/api
 	{ printf '%s\n' '---' 'title: API Reference' 'sidebar_position: 2' '---' ''; \
-	  uv run --group docs griffe2md agrag -f; } > docs/docs/api/index.md.tmp
+	  $(DOCS_GRIPPE2MD) agrag -f; } > docs/docs/api/index.md.tmp
 	mv docs/docs/api/index.md.tmp docs/docs/api/index.md
 
 docs-install:
