@@ -6,7 +6,7 @@ from uuid import UUID
 
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.search_result import SearchResult
-from agrag.cypher.community import communities_for_entities_query
+from agrag.cypher.community_read import communities_for_entities_query
 from agrag.graphdb.base import GraphStore
 from agrag.retrieval.filters import SearchFilters
 

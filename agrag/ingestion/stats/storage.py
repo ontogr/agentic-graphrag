@@ -21,8 +21,12 @@ class StorageStats(BaseModel):
             call. A GraphStore write is a single managed transaction, so
             a failure here means the whole batch did not land, not a
             partial subset of it.
+        failures_total: Failures recorded before capping.
+        failures_truncated: Whether ``failures`` was cut to the cap.
     """
 
     nodes_written: int = 0
     relationships_written: int = 0
     failures: list[StageFailure] = Field(default_factory=list)
+    failures_total: int = 0
+    failures_truncated: bool = False

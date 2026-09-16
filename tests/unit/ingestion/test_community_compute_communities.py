@@ -40,7 +40,7 @@ class TestComputeCommunities:
                 node=a, cluster=10, parent_cluster=None, level=1, is_final_cluster=False
             ),
         ]
-        edges = [(a, b, 2.0), (c, d, 1.0)]
+        edges = [(a, b, 2.0, "KNOWS"), (c, d, 1.0, "KNOWS")]
         with patch.dict(
             "sys.modules", {"graspologic_native": _mock_leiden(mock_clusters)}
         ):
@@ -57,7 +57,7 @@ class TestComputeCommunities:
             HC(node=c, cluster=1, parent_cluster=None, level=0, is_final_cluster=True),
             HC(node=d, cluster=1, parent_cluster=None, level=0, is_final_cluster=True),
         ]
-        edges = [(a, b, 2.0), (c, d, 1.0), (a, c, 5.0)]
+        edges = [(a, b, 2.0, "KNOWS"), (c, d, 1.0, "KNOWS"), (a, c, 5.0, "KNOWS")]
         with patch.dict(
             "sys.modules", {"graspologic_native": _mock_leiden(mock_clusters)}
         ):
@@ -77,7 +77,7 @@ class TestComputeCommunities:
             HC(node=n, cluster=5, parent_cluster=None, level=0, is_final_cluster=True)
             for n in ids
         ]
-        edges = [(x, y, 10.0), (x, z, 1.0)]
+        edges = [(x, y, 10.0, "KNOWS"), (x, z, 1.0, "KNOWS")]
         with patch.dict(
             "sys.modules", {"graspologic_native": _mock_leiden(mock_clusters)}
         ):
@@ -91,7 +91,11 @@ class TestComputeCommunities:
             HC(node=n, cluster=0, parent_cluster=None, level=0, is_final_cluster=True)
             for n in ids
         ]
-        edges = [(ids[0], ids[1], 1.0), (ids[1], ids[2], 1.0), (ids[2], ids[0], 1.0)]
+        edges = [
+            (ids[0], ids[1], 1.0, "KNOWS"),
+            (ids[1], ids[2], 1.0, "KNOWS"),
+            (ids[2], ids[0], 1.0, "KNOWS"),
+        ]
         with patch.dict(
             "sys.modules", {"graspologic_native": _mock_leiden(mock_clusters)}
         ):
@@ -111,7 +115,7 @@ class TestComputeCommunities:
             HC(node=a, cluster=0, parent_cluster=None, level=0, is_final_cluster=True),
             HC(node=b, cluster=0, parent_cluster=None, level=0, is_final_cluster=True),
         ]
-        edges = [(a, b, 2.0), (a, unclustered, 9.0)]
+        edges = [(a, b, 2.0, "KNOWS"), (a, unclustered, 9.0, "KNOWS")]
         with patch.dict(
             "sys.modules", {"graspologic_native": _mock_leiden(mock_clusters)}
         ):

@@ -24,6 +24,7 @@ from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
+from agrag.common.data_models.vector_record import VectorRecord
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
@@ -70,7 +71,7 @@ from agrag.ingestion.stats import (
     ResolutionStats,
     StageFailure,
     StorageStats,
-    _capped,
+    cap_failures,
 )
 from agrag.loaders.corpus import registry as _corpus_registry
 from agrag.loaders.corpus._walk import _CorpusWalk, _InMemoryWalk
@@ -78,6 +79,8 @@ from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions
 from agrag.loaders.docling.chunking import chunk_docling_document
 from agrag.observability import get_tracer, traced
+from agrag.retrieval.settings import RetrievalSettings
+from agrag.vectordb.base import VectorStore
 
 
 SourceType = Union[str, Path]
@@ -85,6 +88,68 @@ SourcesType = Union[SourceType, Sequence[SourceType]]
 
 # Relationship types Graph.open() always registers
 SYSTEM_RELATION_TYPES = ["MENTIONED_IN", MEMBER_OF_RELATION]
+
+
+def _vector_record(
+    record_id: UUID, vector: list[float], *, label: str, text: str
+) -> VectorRecord:
+    """Build a VectorRecord whose payload matches the retrievers' reads.
+
+    ``label`` lets SearchFilters.to_payload_filter scope a search;
+    ``text`` is the field the VectorStore backends sparse-embed for
+    hybrid_search's keyword arm.
+
+    Args:
+        record_id: The domain object's id.
+        vector: The dense embedding.
+        label: The graph label the domain object carries.
+        text: The embedding_text the vector was computed from.
+
+    Returns:
+        The record ready for VectorStore.upsert.
+    """
+    return VectorRecord(
+        id=record_id, vector=vector, payload={"label": label, "text": text}
+    )
+
+
+async def _upsert_vectors(
+    vector_store: VectorStore | None,
+    collection: str,
+    records: list[VectorRecord],
+) -> None:
+    """Upsert records to the VectorStore when one is configured.
+
+    Records whose vector is empty are skipped: an embed failure leaves
+    None on the domain object, and an empty vector cannot be searched, so
+    writing it would only corrupt the collection.
+
+    Args:
+        vector_store: The store to write to, or None to do nothing.
+        collection: The collection name to write into.
+        records: The records to upsert.
+    """
+    if vector_store is None:
+        return
+    writable = [record for record in records if record.vector]
+    if not writable:
+        return
+    await vector_store.upsert(collection, writable)
+
+
+async def _delete_vectors(
+    vector_store: VectorStore | None, collection: str, ids: Sequence[UUID]
+) -> None:
+    """Delete records from the VectorStore when one is configured.
+
+    Args:
+        vector_store: The store to delete from, or None to do nothing.
+        collection: The collection name to delete from.
+        ids: The record ids to delete.
+    """
+    if vector_store is None or not ids:
+        return
+    await vector_store.delete(collection, list(ids))
 
 
 def _resolve_paths(source: SourcesType) -> tuple[list[Path], bool]:
@@ -594,6 +659,8 @@ async def _embed_and_upsert_chunks(
     embedder: Embedder,
     graph_store: GraphStore,
     error_policy: ErrorPolicy,
+    vector_store: VectorStore | None = None,
+    vector_collection: str = "",
 ) -> list[StageFailure]:
     """Embed every chunk's text and write the vectors back onto their nodes.
 
@@ -605,11 +672,22 @@ async def _embed_and_upsert_chunks(
     text between this call's embed and its clear does not accidentally
     wipe a newer vector.
 
+    When vector_store is set, every successfully written vector is also
+    upserted there so SearchEngine's VectorStore path matches the
+    GraphStore-native path. A VectorStore failure is recorded as a
+    StageFailure but never raised: the primary store's write already
+    succeeded, and the native search path keeps working without it.
+
     Args:
         chunks: The chunks this call wrote to graph_store already.
         embedder: Produces one vector per chunk text.
         graph_store: Where the embedding, and on failure the cleared
             embedding property, are written.
+        error_policy: RAISE propagates the failure after clearing; any
+            other policy returns it instead.
+        vector_store: Optional second write target; None does nothing.
+        vector_collection: The VectorStore collection to write into.
+            Ignored when vector_store is None.
         error_policy: RAISE propagates the failure after clearing; any
             other policy returns it instead.
 
@@ -655,6 +733,24 @@ async def _embed_and_upsert_chunks(
                 error_message=str(exc),
             )
         ]
+    if vector_store is not None:
+        vector_records = []
+        for ch in chunks:
+            if ch.id is None or not ch.embedding:
+                continue
+            vector_records.append(
+                _vector_record(ch.id, ch.embedding, label=CHUNK_LABEL, text=ch.text)
+            )
+        try:
+            await _upsert_vectors(vector_store, vector_collection, vector_records)
+        except Exception as exc:  # noqa: BLE001
+            return [
+                StageFailure(
+                    item_id="chunk_vector_store",
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+            ]
     return []
 
 
@@ -664,6 +760,9 @@ async def _embed_and_upsert_survivors(
     embedder: Embedder,
     graph_store: GraphStore,
     error_policy: ErrorPolicy,
+    vector_store: VectorStore | None = None,
+    vector_collection: str = "",
+    labels_by_id: dict[UUID, str] | None = None,
 ) -> list[StageFailure]:
     """Embed every survivor's current text and write only the vector.
 
@@ -699,6 +798,13 @@ async def _embed_and_upsert_survivors(
             embedding property, are written.
         error_policy: RAISE propagates the failure after clearing; any
             other policy returns it instead.
+        vector_store: Optional second write target; None does nothing.
+        vector_collection: The VectorStore collection to write into.
+            Ignored when vector_store is None.
+        labels_by_id: Maps each survivor id to its label for the
+            VectorStore payload. Survivors missing from the map are
+            written with an empty label. Ignored when vector_store is
+            None.
 
     Returns:
         A single-item list with the failure, or empty on success.
@@ -737,6 +843,30 @@ async def _embed_and_upsert_survivors(
                 error_message=str(exc),
             )
         ]
+    if vector_store is not None:
+        label_map = labels_by_id or {}
+        try:
+            await _upsert_vectors(
+                vector_store,
+                vector_collection,
+                [
+                    _vector_record(
+                        ent.id,
+                        ent.embedding or [],
+                        label=label_map.get(ent.id, ""),
+                        text=ent.embedding_text,
+                    )
+                    for ent in survivors.values()
+                ],
+            )
+        except Exception as exc:  # noqa: BLE001
+            return [
+                StageFailure(
+                    item_id="entity_vector_store",
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+            ]
     return []
 
 
@@ -855,7 +985,14 @@ async def _apply_merge_with_conflict_retry(
 
 
 class Graph:
-    """A knowledge graph that a caller can open and add content to."""
+    """A knowledge graph that a caller can open and add content to.
+
+    When an optional VectorStore is configured, every embedding this
+    graph writes to graph_store is also upserted there, so SearchEngine's
+    VectorStore path finds the same vectors the GraphStore-native path
+    does. Collections follow RetrievalSettings' names and are provisioned
+    by ``open()`` when missing.
+    """
 
     def __init__(
         self,
@@ -865,6 +1002,8 @@ class Graph:
         embedder: Embedder,
         extractor: Extractor,
         tracer: Tracer | None = None,
+        vector_store: VectorStore | None = None,
+        retrieval_settings: RetrievalSettings | None = None,
     ) -> None:
         """Create a graph bound to a schema, store, embedder, and extractor.
 
@@ -876,6 +1015,16 @@ class Graph:
             embedder: Populates entity embeddings for native vector search.
             extractor: Runs against each chunk.
             tracer: A tracer to record spans for every step. Pass None for none.
+            vector_store: Optional second write target for embeddings. When
+                set, every embedding the pipeline writes to graph_store is
+                also upserted here, so SearchEngine's VectorStore path finds
+                the same vectors the GraphStore-native path does. Also gets
+                tombstoned entities deleted after merges and old community
+                vectors removed on each detect_communities(apply=True)
+                cycle.
+            retrieval_settings: Collection names for the VectorStore writes.
+                None uses RetrievalSettings defaults. Ignored when
+                vector_store is None.
         """
         self._schema = schema
         self._graph_store = graph_store
@@ -884,6 +1033,8 @@ class Graph:
         self._tracer = get_tracer(tracer)
         self._registry = _corpus_registry
         self._chunker = default_chunker()
+        self._vector_store = vector_store
+        self._retrieval_settings = retrieval_settings or RetrievalSettings()
 
     @classmethod
     async def open(
@@ -894,6 +1045,8 @@ class Graph:
         embedder: Embedder,
         extractor: Extractor,
         tracer: Tracer | None = None,
+        vector_store: VectorStore | None = None,
+        retrieval_settings: RetrievalSettings | None = None,
     ) -> "Graph":
         """Open a graph, connecting and fully provisioning graph_store.
 
@@ -904,7 +1057,9 @@ class Graph:
         every schema entity label — so a brand-new database is fully ready,
         including the merge_key index the global exact-match tier needs and
         the embedding vector indexes native search needs, before this call
-        returns.
+        returns. When vector_store is set, the entity, chunk, and community
+        collections are provisioned there too (created when missing) so the
+        dual writes never hit an absent collection.
 
         Args:
             schema: The entity/relation types this graph validates every
@@ -914,6 +1069,10 @@ class Graph:
             embedder: Populates entity embeddings for native vector search.
             extractor: Runs against each chunk.
             tracer: A tracer to record spans for every step. Pass None for none.
+            vector_store: Optional second write target for embeddings; see
+                __init__.
+            retrieval_settings: Collection names for the VectorStore writes.
+                None uses RetrievalSettings defaults.
 
         Returns:
             A graph connected to graph_store and ready to accept add() calls.
@@ -956,6 +1115,21 @@ class Graph:
                 dimensions=dimensions,
                 distance=distance,
             )
+            if vector_store is not None:
+                settings = retrieval_settings or RetrievalSettings()
+                await vector_store.initialize()
+                for collection in (
+                    settings.entity_collection,
+                    settings.chunk_collection,
+                    settings.community_collection,
+                ):
+                    if not await vector_store.collection_exists(collection):
+                        await vector_store.ensure_collection(
+                            collection,
+                            dimensions=dimensions,
+                            distance=distance,
+                            hybrid=True,
+                        )
         except Exception:
             await graph_store.close()
             raise
@@ -965,6 +1139,8 @@ class Graph:
             embedder=embedder,
             extractor=extractor,
             tracer=tracer,
+            vector_store=vector_store,
+            retrieval_settings=retrieval_settings,
         )
 
     async def add(  # noqa: PLR0912,PLR0915,PLR0913
@@ -1043,11 +1219,14 @@ class Graph:
                     for uri, reason in final_stats.quarantined_items
                 ],
             )
+            extraction_failures_capped = cap_failures(list(extraction_failures))
             extraction = ExtractionStats(
                 chunks_processed=len(chunks),
                 entities_extracted=len(entities),
                 relations_extracted=len(relations),
-                failures=_capped(list(extraction_failures)),
+                failures=extraction_failures_capped.items,
+                failures_total=extraction_failures_capped.total,
+                failures_truncated=extraction_failures_capped.truncated,
             )
             return AddResult(
                 ingestion=ingest,
@@ -1184,11 +1363,14 @@ class Graph:
                     for uri, reason in final_stats.quarantined_items
                 ],
             )
+            extraction_failures_capped = cap_failures(list(extraction_failures))
             extraction = ExtractionStats(
                 chunks_processed=0,
                 entities_extracted=0,
                 relations_extracted=0,
-                failures=_capped(list(extraction_failures)),
+                failures=extraction_failures_capped.items,
+                failures_total=extraction_failures_capped.total,
+                failures_truncated=extraction_failures_capped.truncated,
             )
             result = AddResult(
                 ingestion=ingestion,
@@ -1318,6 +1500,21 @@ class Graph:
                 )
                 if retry_desc_failures:
                     merge_failures.extend(retry_desc_failures)
+                if plan.tombstone_ids:
+                    try:
+                        await _delete_vectors(
+                            self._vector_store,
+                            self._retrieval_settings.entity_collection,
+                            list(plan.tombstone_ids),
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        merge_failures.append(
+                            StageFailure(
+                                item_id="tombstone_vector_store",
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                            )
+                        )
             except Exception as exc:  # noqa: BLE001
                 if error_policy is ErrorPolicy.RAISE:
                     raise
@@ -1337,12 +1534,15 @@ class Graph:
         # If there were no entities (empty corpus) we have no survivors
         # but we still need to write chunks
 
+        merge_failures_capped = cap_failures(merge_failures)
         merge_stats = MergeStats(
             nodes_created=nodes_created,
             nodes_updated=nodes_updated,
             nodes_merged=nodes_merged,
             conflicts_resolved=conflicts_resolved,
-            failures=_capped(merge_failures),
+            failures=merge_failures_capped.items,
+            failures_total=merge_failures_capped.total,
+            failures_truncated=merge_failures_capped.truncated,
         )
 
         # Domain relation dedup + MENTIONED_IN
@@ -1484,6 +1684,8 @@ class Graph:
                     embedder=self._embedder,
                     graph_store=self._graph_store,
                     error_policy=error_policy,
+                    vector_store=self._vector_store,
+                    vector_collection=self._retrieval_settings.chunk_collection,
                 )
             )
 
@@ -1529,13 +1731,19 @@ class Graph:
                     embedder=self._embedder,
                     graph_store=self._graph_store,
                     error_policy=error_policy,
+                    vector_store=self._vector_store,
+                    vector_collection=self._retrieval_settings.entity_collection,
+                    labels_by_id={ent.id: ent.label for ent in survivors.values()},
                 )
             )
 
+        storage_failures_capped = cap_failures(storage_failures)
         storage_stats = StorageStats(
             nodes_written=nodes_written,
             relationships_written=relationships_written_count,
-            failures=_capped(storage_failures),
+            failures=storage_failures_capped.items,
+            failures_total=storage_failures_capped.total,
+            failures_truncated=storage_failures_capped.truncated,
         )
 
         # Assemble final AddResult
@@ -1553,11 +1761,14 @@ class Graph:
                 for uri, reason in final_stats.quarantined_items
             ],
         )
+        extraction_failures_capped = cap_failures(list(extraction_failures))
         extraction = ExtractionStats(
             chunks_processed=len(chunks),
             entities_extracted=len(entities),
             relations_extracted=len(relations),
-            failures=_capped(list(extraction_failures)),
+            failures=extraction_failures_capped.items,
+            failures_total=extraction_failures_capped.total,
+            failures_truncated=extraction_failures_capped.truncated,
         )
 
         result = AddResult(
@@ -1715,6 +1926,13 @@ class Graph:
                     plan, graph_store=self._graph_store, schema=self._schema
                 )
                 survivors[plan.survivor.id] = plan.survivor
+                if plan.tombstone_ids:
+                    with contextlib.suppress(Exception):
+                        await _delete_vectors(
+                            self._vector_store,
+                            self._retrieval_settings.entity_collection,
+                            list(plan.tombstone_ids),
+                        )
             # Every survivor's node was just (re)written, possibly with a new
             # canonical name or description; its embedding must match that
             # final text, the same way add()'s embedding stage keeps one in
@@ -1725,6 +1943,9 @@ class Graph:
                     embedder=self._embedder,
                     graph_store=self._graph_store,
                     error_policy=ErrorPolicy.SKIP,
+                    vector_store=self._vector_store,
+                    vector_collection=self._retrieval_settings.entity_collection,
+                    labels_by_id={ent.id: ent.label for ent in survivors.values()},
                 )
 
         return ConsolidationReport(
@@ -1732,6 +1953,34 @@ class Graph:
             applied=apply and bool(would_merge),
             failures=consolidation_failures,
         )
+
+    async def _delete_stale_community_vectors(self) -> None:
+        """Remove every community vector from the VectorStore, then return.
+
+        detect_communities is a full recompute: every prior run's Community
+        nodes are deleted from the graph, so the matching vectors must go
+        too, or the VectorStore keeps serving communities the graph no
+        longer has. Best effort: a failure is logged and swallowed so it
+        never blocks the recompute itself.
+
+        Raises:
+            Exception: Whatever the VectorStore delete raises. Callers wrap
+                this; the method itself adds no suppression beyond logging.
+        """
+        if self._vector_store is None:
+            return
+        collection = self._retrieval_settings.community_collection
+        page_offset: str | None = None
+        while True:
+            records, page_offset = await self._vector_store.scroll(
+                collection, limit=1000, page_offset=page_offset
+            )
+            if records:
+                await self._vector_store.delete(
+                    collection, [record.id for record in records]
+                )
+            if page_offset is None:
+                break
 
     async def detect_communities(
         self,
@@ -1830,11 +2079,40 @@ class Graph:
                     }
                 )
             report_failures = await generate_community_reports(
-                communities, entities_by_id, error_policy=ErrorPolicy.SKIP
+                communities,
+                entities_by_id,
+                edges=edges,
+                error_policy=ErrorPolicy.SKIP,
             )
             report_failures += await embed_communities(
                 communities, embedder=self._embedder
             )
+
+            if self._vector_store is not None:
+                await self._delete_stale_community_vectors()
+                try:
+                    await _upsert_vectors(
+                        self._vector_store,
+                        self._retrieval_settings.community_collection,
+                        [
+                            _vector_record(
+                                c.id,
+                                c.embedding or [],
+                                label=COMMUNITY_LABEL,
+                                text=c.embedding_text,
+                            )
+                            for c in communities
+                            if c.embedding is not None
+                        ],
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    report_failures.append(
+                        StageFailure(
+                            item_id="community_vector_store",
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
+                    )
 
             async with self._graph_store.transaction() as tx:
                 await delete_all_communities(tx)

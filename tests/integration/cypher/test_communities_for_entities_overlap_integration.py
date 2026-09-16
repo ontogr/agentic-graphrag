@@ -16,7 +16,7 @@ import pytest
 
 from agrag.common.data_models.community import COMMUNITY_LABEL, MEMBER_OF_RELATION
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
-from agrag.cypher.community import communities_for_entities_query
+from agrag.cypher.community_read import communities_for_entities_query
 from agrag.cypher.entities import validate_identifier
 from agrag.graphdb import build_graph_store
 

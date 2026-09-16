@@ -1,12 +1,13 @@
 """Community detection: hierarchical Leiden over the entity graph."""
 
 import asyncio
+import logging
 from collections import defaultdict
 from uuid import UUID, uuid4
 
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
-from agrag.cypher.community import delete_communities_batch_query
+from agrag.cypher.community_write import delete_communities_batch_query
 from agrag.cypher.relations import (
     fetch_all_relations_query,
     fetch_all_relations_query_cursor,
@@ -15,6 +16,12 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion.stats import StageFailure
 from agrag.loaders.corpus.types import ErrorPolicy
+
+
+logger = logging.getLogger(__name__)
+
+WeightedEdge = tuple[str, str, float, str]
+"""One domain relation as (source_id, target_id, weight, relation_type)."""
 
 
 class CommunityDetectionMissingExtraError(Exception):
@@ -30,14 +37,15 @@ class CommunityDetectionMissingExtraError(Exception):
 
 async def fetch_relation_edges(
     graph_store: GraphStore, *, page_size: int = 5000, use_cursor: bool = True
-) -> list[tuple[str, str, float]]:
+) -> list[WeightedEdge]:
     """Return every live domain relation as a weighted edge tuple.
 
-    Weight is len(source_chunk_ids) (attestation count), or 1.0 when that
-    list is empty -- frequency-based weighting. Two entities
-    connected by more than one distinct relation type contribute one edge
-    tuple per type; graspologic_native sums parallel-edge weights building
-    its own adjacency.
+    Weight is len(source_chunk_ids) (attestation count). A relation with
+    no attested chunks contributes weight 0.0, so an unsupported edge
+    cannot inflate clustering or a community's report importance. Two
+    entities connected by more than one distinct relation type contribute
+    one edge tuple per type; graspologic_native sums parallel-edge
+    weights building its own adjacency.
 
     Supports cursor (keyset) pagination for large graphs where ``SKIP``
     is expensive, and legacy ``SKIP`` pagination for callers that need
@@ -50,9 +58,9 @@ async def fetch_relation_edges(
             type(r), r.id)``; when False uses ``SKIP`` pagination.
 
     Returns:
-        Edge tuples as (source_id_str, target_id_str, weight).
+        Edge tuples as (source_id_str, target_id_str, weight, rel_type).
     """
-    edges: list[tuple[str, str, float]] = []
+    edges: list[WeightedEdge] = []
     if use_cursor:
         last_a = ""
         last_b = ""
@@ -73,8 +81,14 @@ async def fetch_relation_edges(
                 break
             for row in rows:
                 scids = row.get("source_chunk_ids") or []
-                weight = float(len(scids)) if scids else 1.0
-                edges.append((str(row["source_id"]), str(row["target_id"]), weight))
+                edges.append(
+                    (
+                        str(row["source_id"]),
+                        str(row["target_id"]),
+                        float(len(scids)),
+                        str(row["rel_type"]),
+                    )
+                )
             if len(rows) < page_size:
                 break
             last_a = str(rows[-1]["source_id"])
@@ -91,8 +105,14 @@ async def fetch_relation_edges(
             break
         for row in rows:
             scids = row.get("source_chunk_ids") or []
-            weight = float(len(scids)) if scids else 1.0
-            edges.append((str(row["source_id"]), str(row["target_id"]), weight))
+            edges.append(
+                (
+                    str(row["source_id"]),
+                    str(row["target_id"]),
+                    float(len(scids)),
+                    str(row["rel_type"]),
+                )
+            )
         if len(rows) < page_size:
             break
         skip += page_size
@@ -100,7 +120,7 @@ async def fetch_relation_edges(
 
 
 def compute_communities(
-    edges: list[tuple[str, str, float]],
+    edges: list[WeightedEdge],
     *,
     max_cluster_size: int = 10,
     resolution: float = 1.0,
@@ -128,7 +148,8 @@ def compute_communities(
       few-name summary.
 
     Args:
-        edges: The weighted edge list from fetch_relation_edges.
+        edges: The weighted edge list from fetch_relation_edges, as
+            (source_id, target_id, weight, relation_type) tuples.
         max_cluster_size: The size ceiling a cluster is split past, at every
             level.
         resolution: Leiden's resolution parameter.
@@ -151,7 +172,7 @@ def compute_communities(
         raise CommunityDetectionMissingExtraError from exc
 
     clusters = graspologic_native.hierarchical_leiden(  # ty: ignore[unresolved-attribute]
-        edges=edges,
+        edges=[(source, target, weight) for source, target, weight, _ in edges],
         max_cluster_size=max_cluster_size,
         resolution=resolution,
         seed=seed,
@@ -162,7 +183,7 @@ def compute_communities(
 
     member_weight: dict[str, float] = defaultdict(float)
     community_weight: dict[int, float] = defaultdict(float)
-    for source, target, weight in edges:
+    for source, target, weight, _rel_type in edges:
         source_cluster = cluster_of.get(source)
         target_cluster = cluster_of.get(target)
         if source_cluster is None or target_cluster is None:
@@ -229,6 +250,38 @@ async def delete_all_communities(
 _DEFAULT_MIN_IMPORTANCE_FOR_LLM_REPORT = 5.0
 _DEFAULT_REPORT_BATCH_SIZE = 8
 _DEFAULT_MAX_MEMBERS_PER_PROMPT = 20
+_DEFAULT_MAX_RELATIONS_PER_PROMPT = 20
+
+
+def _relation_summaries_for(
+    community: Community,
+    edges: list[WeightedEdge],
+    entities_by_id: dict[UUID, Entity],
+    *,
+    max_relations: int,
+) -> list[str]:
+    """Return one "source REL_TYPE target" line per internal edge.
+
+    Only edges whose both endpoints are members of the community count.
+    An endpoint whose Entity was not hydrated (its name is unknown) drops
+    the line rather than showing the LLM a raw UUID. Lines are ordered by
+    attestation weight descending, most-attested relations first, and
+    truncated to max_relations to bound the batch prompt's token budget.
+    """
+    member_ids = set(community.member_ids)
+    summaries: list[tuple[float, str]] = []
+    for source, target, weight, rel_type in edges:
+        if source not in member_ids or target not in member_ids:
+            continue
+        source_entity = entities_by_id.get(UUID(source))
+        target_entity = entities_by_id.get(UUID(target))
+        if source_entity is None or target_entity is None:
+            continue
+        summaries.append(
+            (weight, f"{source_entity.name} {rel_type} {target_entity.name}")
+        )
+    summaries.sort(key=lambda item: item[0], reverse=True)
+    return [text for _, text in summaries[:max_relations]]
 
 
 def _apply_heuristic_report(
@@ -263,9 +316,11 @@ async def generate_community_reports(
     communities: list[Community],
     entities_by_id: dict[UUID, Entity],
     *,
+    edges: list[WeightedEdge] | None = None,
     min_importance_for_llm_report: float = _DEFAULT_MIN_IMPORTANCE_FOR_LLM_REPORT,
     batch_size: int = _DEFAULT_REPORT_BATCH_SIZE,
     max_members_per_prompt: int = _DEFAULT_MAX_MEMBERS_PER_PROMPT,
+    max_relations_per_prompt: int = _DEFAULT_MAX_RELATIONS_PER_PROMPT,
     max_concurrency: int = 4,
     error_policy: ErrorPolicy = ErrorPolicy.SKIP,
 ) -> list[StageFailure]:
@@ -286,7 +341,17 @@ async def generate_community_reports(
     max_members_per_prompt members (already ordered by local weight
     descending) before it enters the batch prompt, protecting the batch
     call's token budget from one oversized community without an arbitrary
-    cut -- the members dropped are the least central ones.
+    cut -- the members dropped are the least central ones. When edges is
+    given, each community's prompt also carries its internal
+    "source REL_TYPE target" lines (most-attested first, truncated to
+    max_relations_per_prompt), so the report can state connections the
+    evidence actually attests; a relation whose endpoint Entity was not
+    hydrated is omitted.
+
+    When the ``llm`` extra (baml-py) is not installed, qualifying
+    communities fall back to the heuristic report too: with ErrorPolicy
+    SKIP a warning is logged and the pipeline completes, with RAISE the
+    ImportError propagates.
 
     A batch call failure does not block other batches: it is recorded as
     one StageFailure per community in that batch, each of which then falls
@@ -298,17 +363,23 @@ async def generate_community_reports(
 
     Args:
         communities: The communities to summarize, mutated in place.
-        entities_by_id: Every entity in the graph, keyed by id, for
-            building each community's member-summary context.
+        entities_by_id: Every entity the reports will read, keyed by id,
+            for building each community's member-summary context.
+        edges: The weighted edge list from fetch_relation_edges, used to
+            build each community's attested-relation context. None omits
+            relation context from the prompts.
         min_importance_for_llm_report: The internal_weight floor a
             community must meet to get a real LLM report instead of the
             heuristic one.
         batch_size: Communities summarized per LLM call.
         max_members_per_prompt: Members per community fed into the LLM
             prompt, highest-centrality first.
+        max_relations_per_prompt: Attested-relation lines per community
+            fed into the LLM prompt, most-attested first.
         max_concurrency: Max concurrent SummarizeCommunities calls.
-        error_policy: RAISE propagates a batch call failure; anything else
-            records it and continues.
+        error_policy: RAISE propagates a batch call failure or a missing
+            ``llm`` extra; anything else records it or falls back and
+            continues.
 
     Returns:
         One StageFailure per community whose batch call failed.
@@ -324,8 +395,30 @@ async def generate_community_reports(
     if not llm_candidates:
         return failures
 
-    from agrag.llm.baml_client import b as baml_client  # noqa: PLC0415
-    from agrag.llm.baml_client.types import CommunityInput  # noqa: PLC0415
+    try:
+        from agrag.llm.baml_client import b as baml_client  # noqa: PLC0415
+        from agrag.llm.baml_client.types import CommunityInput  # noqa: PLC0415
+    except ImportError:
+        if error_policy is ErrorPolicy.RAISE:
+            raise
+        logger.warning(
+            "The 'llm' extra is not installed; communities fall back to "
+            "heuristic reports. Install agentic-graphrag[llm] for "
+            "LLM-generated community reports."
+        )
+        for community in llm_candidates:
+            _apply_heuristic_report(community, entities_by_id)
+        return failures
+
+    relation_context = {
+        community.id: _relation_summaries_for(
+            community,
+            edges or [],
+            entities_by_id,
+            max_relations=max_relations_per_prompt,
+        )
+        for community in llm_candidates
+    }
 
     sem = asyncio.Semaphore(max_concurrency)
 
@@ -337,7 +430,8 @@ async def generate_community_reports(
                         entities_by_id[m].embedding_text
                         for m in c.member_ids[:max_members_per_prompt]
                         if m in entities_by_id
-                    ]
+                    ],
+                    relation_summaries=relation_context[c.id],
                 )
                 for c in batch
             ]

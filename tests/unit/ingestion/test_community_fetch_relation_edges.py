@@ -9,7 +9,7 @@ class TestFetchRelationEdges:
     """fetch_relation_edges weight and pagination."""
 
     async def test_weight_attestation_and_fallback(self) -> None:
-        """Weight is len(source_chunk_ids) or 1.0."""
+        """Weight is len(source_chunk_ids); an unattested relation weighs 0.0."""
         mock_store = AsyncMock()
         mock_store.execute_read.return_value = [
             {
@@ -29,7 +29,7 @@ class TestFetchRelationEdges:
         ]
         edges = await fetch_relation_edges(mock_store, page_size=10)
         assert edges[0][2] == 2.0
-        assert edges[1][2] == 1.0
+        assert edges[1][2] == 0.0
 
     async def test_pagination(self) -> None:
         """Pagination loops until fewer than page_size.
@@ -77,6 +77,7 @@ class TestFetchRelationEdges:
                     "source_id": str(i),
                     "target_id": str(i + 1),
                     "source_chunk_ids": ["x"],
+                    "rel_type": "KNOWS",
                 }
                 for i in range(5)
             ],
@@ -85,12 +86,13 @@ class TestFetchRelationEdges:
                     "source_id": "done",
                     "target_id": "done2",
                     "source_chunk_ids": [],
+                    "rel_type": "KNOWS",
                 }
             ],
         ]
         edges = await fetch_relation_edges(mock_store, page_size=5, use_cursor=False)
         assert len(edges) == 6
-        assert edges[-1] == ("done", "done2", 1.0)
+        assert edges[-1] == ("done", "done2", 0.0, "KNOWS")
         assert mock_store.execute_read.call_count == 2
         first_call_params = mock_store.execute_read.call_args_list[0].args[1]
         assert first_call_params == {"skip": 0, "limit": 5}

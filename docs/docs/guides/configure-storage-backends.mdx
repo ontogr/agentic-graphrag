@@ -222,6 +222,36 @@ hits = await store.vector_search(
 `vector_search` returns the same hit type `VectorStore.search` returns. Code
 that reads hits does not need to know which store produced them.
 
+## Mirror ingestion into a vector store
+
+`Graph.open` accepts an optional `vector_store`. Pass one and every embedding
+ingestion writes to the graph store is also upserted to the vector store:
+entity, chunk, and community vectors all land in the collections
+`RetrievalSettings` names (`agrag_entities`, `agrag_chunks`,
+`agrag_communities` by default). `open()` creates a missing collection with
+your embedder's dimensions. After entity merges, the absorbed entities'
+vectors are deleted there, and each `detect_communities(apply=True)` run
+replaces the community vectors wholesale.
+
+```python
+from agrag.vectordb import build_vector_store
+
+vector_store = build_vector_store("qdrant")
+graph = await Graph.open(
+    schema=schema,
+    graph_store=graph_store,
+    embedder=embedder,
+    extractor=extractor,
+    vector_store=vector_store,
+)
+```
+
+A `SearchEngine` pointed at the same `vector_store` then searches the same
+data the graph-native path serves. Ingestion reports the vector-store writes
+in each stage's failures: a failed mirror is a `StageFailure` such as
+`chunk_vector_store`, never a raised error, because the graph write itself
+already succeeded.
+
 ## Next steps
 
 See the [API Reference](/api) for every parameter.

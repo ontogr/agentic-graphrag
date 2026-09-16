@@ -9,20 +9,22 @@ from agrag.ingestion.stats.ingest import IngestStats
 from agrag.ingestion.stats.merge import MergeStats
 from agrag.ingestion.stats.resolution import ResolutionStats
 from agrag.ingestion.stats.stage_failure import (
-    _MAX_FAILURES_PER_STAGE,
+    MAX_FAILURES_PER_STAGE,
+    CappedFailures,
     StageFailure,
-    _capped,
+    cap_failures,
 )
 from agrag.ingestion.stats.storage import StorageStats
 
 
 __all__ = [
+    "CappedFailures",
     "ExtractionStats",
     "IngestStats",
+    "MAX_FAILURES_PER_STAGE",
     "MergeStats",
     "ResolutionStats",
     "StageFailure",
     "StorageStats",
-    "_MAX_FAILURES_PER_STAGE",
-    "_capped",
+    "cap_failures",
 ]

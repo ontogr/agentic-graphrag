@@ -25,7 +25,7 @@ from agrag.common.data_models.graph_schema import (
     RelationType,
 )
 from agrag.common.data_models.provenance import TextProvenance
-from agrag.common.data_models.vector_record import VectorHit
+from agrag.common.data_models.vector_record import VectorHit, VectorRecord
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.errors import (
@@ -37,6 +37,7 @@ from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import (
     Graph,
     _apply_merge_with_conflict_retry,
+    _delete_vectors,
     _embed_and_upsert_chunks,
     _embed_and_upsert_survivors,
     _extract_merged_into,
@@ -47,11 +48,14 @@ from agrag.ingestion.graph import (
     _resolve_tombstone_chain,
     _synthesize_consolidation_mentions,
     _union_groups_by_existing_entity,
+    _upsert_vectors,
 )
 from agrag.ingestion.merge import MergePlan
 from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolve import ResolutionGroup
 from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.retrieval.settings import RetrievalSettings
+from agrag.vectordb.base import VectorStore
 
 
 class MockStore(GraphStore):
@@ -163,6 +167,90 @@ class MockEmbedder(Embedder):
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return a constant vector for each input text."""
         return [[1.0, 2.0, 3.0] for _ in texts]
+
+
+class RecordingVectorStore(VectorStore):
+    """VectorStore that records upserts and deletes, serving nothing back."""
+
+    def __init__(self) -> None:
+        """Start with empty call logs."""
+        self.upserts: list[tuple[str, list[VectorRecord]]] = []
+        self.deletes: list[tuple[str, list[object]]] = []
+        self.fail: Exception | None = None
+
+    async def initialize(self) -> None:
+        """No-op init."""
+
+    async def ensure_collection(
+        self, name: str, *, dimensions: int, distance: Any, hybrid: bool = False
+    ) -> None:
+        """No-op collection creation."""
+
+    async def collection_exists(self, name: str) -> bool:
+        """Every collection exists."""
+        return True
+
+    async def delete_collection(self, name: str) -> None:
+        """No-op collection deletion."""
+
+    async def upsert(
+        self,
+        collection: str,
+        records: Sequence[VectorRecord],
+        *,
+        batch_size: int = 256,
+    ) -> None:
+        """Record the upsert, or raise the injected failure."""
+        if self.fail is not None:
+            raise self.fail
+        self.upserts.append((collection, list(records)))
+
+    async def search(
+        self,
+        collection: str,
+        query_vector: Sequence[float],
+        *,
+        limit: int = 10,
+        filters: dict[str, Any] | None = None,
+    ) -> list[VectorHit]:
+        """Return no hits."""
+        return []
+
+    async def hybrid_search(
+        self,
+        collection: str,
+        query_vector: Sequence[float],
+        query_text: str,
+        *,
+        limit: int = 10,
+        filters: dict[str, Any] | None = None,
+        alpha: float = 0.5,
+    ) -> list[VectorHit]:
+        """Return no hits."""
+        return []
+
+    async def scroll(
+        self, collection: str, **kw: Any
+    ) -> tuple[list[VectorRecord], None]:
+        """Return no records."""
+        return ([], None)
+
+    async def retrieve(self, collection: str, ids: Sequence[Any]) -> list[VectorRecord]:
+        """Return no records."""
+        return []
+
+    async def count(self, collection: str, **kw: Any) -> int:
+        """Count nothing."""
+        return 0
+
+    async def delete(self, collection: str, ids: Sequence[Any]) -> None:
+        """Record the delete, or raise the injected failure."""
+        if self.fail is not None:
+            raise self.fail
+        self.deletes.append((collection, list(ids)))
+
+    async def close(self) -> None:
+        """No-op close."""
 
 
 class MockExtractor(Extractor):
@@ -1588,6 +1676,246 @@ class TestEmbedAndUpsertChunks:
         # The newer vector must be preserved because the guard rejected
         # the clear for stale text.
         assert store.nodes[str(ch.id)]["embedding"] == [0.9, 0.9]
+
+
+class TestVectorStoreHelpers:
+    """_upsert_vectors and _delete_vectors no-op on None and drop empties."""
+
+    async def test_upsert_none_store_is_noop(self) -> None:
+        """A None store writes nothing and raises nothing."""
+        record = VectorRecord(id=uuid4(), vector=[1.0], payload={})
+        await _upsert_vectors(None, "col", [record])
+
+    async def test_upsert_drops_empty_vectors(self) -> None:
+        """Records with an empty vector are skipped, populated ones kept."""
+        store = RecordingVectorStore()
+        empty = VectorRecord(id=uuid4(), vector=[], payload={})
+        good = VectorRecord(id=uuid4(), vector=[1.0, 2.0], payload={})
+        await _upsert_vectors(store, "col", [empty, good])
+        assert [r.id for _, records in store.upserts for r in records] == [good.id]
+
+    async def test_delete_none_store_is_noop(self) -> None:
+        """A None store deletes nothing and raises nothing."""
+        await _delete_vectors(None, "col", [uuid4()])
+
+    async def test_delete_empty_ids_is_noop(self) -> None:
+        """An empty id list calls delete exactly zero times."""
+        store = RecordingVectorStore()
+        await _delete_vectors(store, "col", [])
+        assert store.deletes == []
+
+
+class TestEmbedChunksDualWrite:
+    """_embed_and_upsert_chunks mirrors vectors into the VectorStore."""
+
+    async def test_success_upserts_chunk_vectors(self) -> None:
+        """A successful embed upserts one record per chunk with its text."""
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Hello world",
+            provenance=TextProvenance(char_start=0, char_end=11),
+        )
+        store = _GuardedNodeStore({})
+        vector_store = RecordingVectorStore()
+
+        failures = await _embed_and_upsert_chunks(
+            [ch],
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.RAISE,
+            vector_store=vector_store,
+            vector_collection="chunks",
+        )
+
+        assert failures == []
+        assert len(vector_store.upserts) == 1
+        collection, records = vector_store.upserts[0]
+        assert collection == "chunks"
+        assert [str(r.id) for r in records] == [str(ch.id)]
+        assert records[0].payload["text"] == "Hello world"
+
+    async def test_vector_store_failure_returns_stage_failure(self) -> None:
+        """A VectorStore failure is reported, never raised.
+
+        The GraphStore write already succeeded, so the primary path stays
+        intact; the failure is surfaced as a StageFailure instead.
+        """
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Hello world",
+            provenance=TextProvenance(char_start=0, char_end=11),
+        )
+        store = _GuardedNodeStore({})
+        vector_store = RecordingVectorStore()
+        vector_store.fail = RuntimeError("vector store down")
+
+        failures = await _embed_and_upsert_chunks(
+            [ch],
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.RAISE,
+            vector_store=vector_store,
+            vector_collection="chunks",
+        )
+
+        assert len(failures) == 1
+        assert failures[0].item_id == "chunk_vector_store"
+        assert failures[0].error_type == "RuntimeError"
+
+    async def test_embed_failure_skips_vector_upsert(self) -> None:
+        """When the embed itself fails, the VectorStore is never touched."""
+
+        class _FailingEmbedder(MockEmbedder):
+            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+                raise RuntimeError("embed backend down")
+
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Hello world",
+            provenance=TextProvenance(char_start=0, char_end=11),
+        )
+        store = _GuardedNodeStore({})
+        vector_store = RecordingVectorStore()
+
+        with pytest.raises(RuntimeError, match="embed backend down"):
+            await _embed_and_upsert_chunks(
+                [ch],
+                embedder=_FailingEmbedder(),
+                graph_store=store,
+                error_policy=ErrorPolicy.RAISE,
+                vector_store=vector_store,
+                vector_collection="chunks",
+            )
+
+        assert vector_store.upserts == []
+
+
+class TestEmbedSurvivorsDualWrite:
+    """_embed_and_upsert_survivors mirrors entity vectors and labels."""
+
+    def _entity(self, label: str = "Person") -> Entity:
+        """Build a minimal live entity with a description."""
+        return Entity(
+            id=uuid4(),
+            label=label,
+            name="Alice",
+            properties={"description": "A person"},
+        )
+
+    async def test_success_upserts_entity_vectors_with_labels(self) -> None:
+        """A successful embed upserts one record per survivor, label included."""
+        ent = self._entity()
+        store = _GuardedNodeStore({})
+        vector_store = RecordingVectorStore()
+
+        failures = await _embed_and_upsert_survivors(
+            {ent.id: ent},
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.RAISE,
+            vector_store=vector_store,
+            vector_collection="entities",
+            labels_by_id={ent.id: ent.label},
+        )
+
+        assert failures == []
+        collection, records = vector_store.upserts[0]
+        assert collection == "entities"
+        assert records[0].payload["label"] == "Person"
+        assert str(records[0].id) == str(ent.id)
+
+    async def test_vector_store_failure_returns_stage_failure(self) -> None:
+        """A VectorStore failure is reported as a StageFailure, not raised."""
+        ent = self._entity()
+        store = _GuardedNodeStore({})
+        vector_store = RecordingVectorStore()
+        vector_store.fail = RuntimeError("vector store down")
+
+        failures = await _embed_and_upsert_survivors(
+            {ent.id: ent},
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.RAISE,
+            vector_store=vector_store,
+            vector_collection="entities",
+            labels_by_id={ent.id: ent.label},
+        )
+
+        assert len(failures) == 1
+        assert failures[0].item_id == "entity_vector_store"
+
+    async def test_embed_failure_skips_vector_upsert(self) -> None:
+        """When the embed itself fails, the VectorStore is never touched."""
+
+        class _FailingEmbedder(MockEmbedder):
+            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+                raise RuntimeError("embed backend down")
+
+        ent = self._entity()
+        store = _GuardedNodeStore({})
+        vector_store = RecordingVectorStore()
+
+        with pytest.raises(RuntimeError, match="embed backend down"):
+            await _embed_and_upsert_survivors(
+                {ent.id: ent},
+                embedder=_FailingEmbedder(),
+                graph_store=store,
+                error_policy=ErrorPolicy.RAISE,
+                vector_store=vector_store,
+                vector_collection="entities",
+                labels_by_id={ent.id: ent.label},
+            )
+
+        assert vector_store.upserts == []
+
+
+class TestGraphOpenVectorStore:
+    """Graph.open provisions the VectorStore collections it will write to."""
+
+    async def test_open_provisions_vector_collections(self) -> None:
+        """open() initializes the store and ensures all three collections."""
+        ensured: list[str] = []
+
+        class RecordingStore(RecordingVectorStore):
+            async def collection_exists(self, name: str) -> bool:
+                return False
+
+            async def ensure_collection(
+                self, name: str, *, dimensions: int, distance: Any, hybrid: bool = False
+            ) -> None:
+                ensured.append(name)
+
+        vector_store = RecordingStore()
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=MockStore(),
+            embedder=MockEmbedder(),
+            extractor=MockExtractor(),
+            vector_store=vector_store,
+        )
+        settings = RetrievalSettings()
+        assert ensured == [
+            settings.entity_collection,
+            settings.chunk_collection,
+            settings.community_collection,
+        ]
+        assert graph._vector_store is vector_store
+
+    async def test_open_without_vector_store_skips_provisioning(self) -> None:
+        """No VectorStore means no collection provisioning and none stored."""
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=MockStore(),
+            embedder=MockEmbedder(),
+            extractor=MockExtractor(),
+        )
+        assert graph._vector_store is None
 
 
 class TestGraphOpen:

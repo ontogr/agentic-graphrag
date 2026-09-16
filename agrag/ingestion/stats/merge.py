@@ -20,6 +20,8 @@ class MergeStats(BaseModel):
         failures: Includes an LLM failure during description
             summarization. The merge still falls back to concatenation and
             completes, but the failure is recorded here.
+        failures_total: Failures recorded before capping.
+        failures_truncated: Whether ``failures`` was cut to the cap.
     """
 
     nodes_created: int = 0
@@ -27,3 +29,5 @@ class MergeStats(BaseModel):
     nodes_merged: int = 0
     conflicts_resolved: int = 0
     failures: list[StageFailure] = Field(default_factory=list)
+    failures_total: int = 0
+    failures_truncated: bool = False

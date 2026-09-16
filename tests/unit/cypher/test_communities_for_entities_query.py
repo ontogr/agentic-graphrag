@@ -1,7 +1,7 @@
 """Tests for communities_for_entities_query."""
 
 from agrag.common.data_models.community import COMMUNITY_LABEL, MEMBER_OF_RELATION
-from agrag.cypher.community import communities_for_entities_query
+from agrag.cypher.community_read import communities_for_entities_query
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 
 

@@ -798,23 +798,23 @@ points one way (store -> cypher).
 
 **Modules:**
 
-- [**community**](#agrag.cypher.community) – Cypher for the community-detection full-replace write path.
+- [**community_read**](#agrag.cypher.community_read) – Cypher for community retrieval reads.
+- [**community_write**](#agrag.cypher.community_write) – Cypher for the community-detection full-replace write path.
 - [**entities**](#agrag.cypher.entities) – Cypher builders for node writes and filters.
 - [**merge**](#agrag.cypher.merge) – Cypher for the tombstone/transfer/dedup merge path.
 - [**relations**](#agrag.cypher.relations) – Cypher builders for relationship writes and graph traversal.
 - [**safety**](#agrag.cypher.safety) – Safety gate for generated Cypher queries.
 - [**schema**](#agrag.cypher.schema) – Cypher builders for constraints and native vector indexes.
 
-#### `agrag.cypher.community`
+#### `agrag.cypher.community_read`
 
-Cypher for the community-detection full-replace write path.
+Cypher for community retrieval reads.
 
 **Functions:**
 
-- [**communities_for_entities_query**](#agrag.cypher.community.communities_for_entities_query) – Build Cypher finding communities overlapping given entity ids.
-- [**delete_communities_batch_query**](#agrag.cypher.community.delete_communities_batch_query) – Build Cypher deleting up to $limit Community nodes and their edges.
+- [**communities_for_entities_query**](#agrag.cypher.community_read.communities_for_entities_query) – Build Cypher finding communities overlapping given entity ids.
 
-##### `agrag.cypher.community.communities_for_entities_query`
+##### `agrag.cypher.community_read.communities_for_entities_query`
 
 ```python
 communities_for_entities_query(where_clause:str = '') -> str
@@ -837,10 +837,19 @@ Build Cypher finding communities overlapping given entity ids.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids)
-- <code>[str](#str)</code> – and $top_k (max rows to return). Returns each overlapping
+- <code>[str](#str)</code> – and $top_k (max rows to return; must be non-negative, since
+- <code>[str](#str)</code> – Neo4j rejects a negative LIMIT). Returns each overlapping
 - <code>[str](#str)</code> – community node and its overlap count, highest overlap first.
 
-##### `agrag.cypher.community.delete_communities_batch_query`
+#### `agrag.cypher.community_write`
+
+Cypher for the community-detection full-replace write path.
+
+**Functions:**
+
+- [**delete_communities_batch_query**](#agrag.cypher.community_write.delete_communities_batch_query) – Build Cypher deleting up to $limit Community nodes and their edges.
+
+##### `agrag.cypher.community_write.delete_communities_batch_query`
 
 ```python
 delete_communities_batch_query() -> str
@@ -850,9 +859,7 @@ Build Cypher deleting up to $limit Community nodes and their edges.
 
 Called repeatedly by the caller (see
 agrag.ingestion.community.delete_all_communities) until no rows are
-deleted, rather than a single unbatched DETACH DELETE -- see this
-file's module-level note on why CALL {} IN TRANSACTIONS is not an
-option here.
+deleted, rather than a single unbatched DETACH DELETE.
 
 **Returns:**
 
@@ -1565,7 +1572,8 @@ boundary falling inside such a group can duplicate or drop rows.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $skip and $limit.
+- <code>[str](#str)</code> – Parameterized Cypher expecting $skip and $limit. Returns each
+- <code>[str](#str)</code> – relation's source_id, target_id, source_chunk_ids, and rel_type.
 
 ##### `agrag.cypher.relations.fetch_all_relations_query_cursor`
 
@@ -4402,10 +4410,16 @@ The ingestion package.
 #### `agrag.ingestion.Graph`
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
+
+When an optional VectorStore is configured, every embedding this
+graph writes to graph_store is also upserted there, so SearchEngine's
+VectorStore path finds the same vectors the GraphStore-native path
+does. Collections follow RetrievalSettings' names and are provisioned
+by `open()` when missing.
 
 **Functions:**
 
@@ -4423,6 +4437,16 @@ A knowledge graph that a caller can open and add content to.
 - **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Populates entity embeddings for native vector search.
 - **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs against each chunk.
 - **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every step. Pass None for none.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional second write target for embeddings. When
+  set, every embedding the pipeline writes to graph_store is
+  also upserted here, so SearchEngine's VectorStore path finds
+  the same vectors the GraphStore-native path does. Also gets
+  tombstoned entities deleted after merges and old community
+  vectors removed on each detect_communities(apply=True)
+  cycle.
+- **retrieval_settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
+  None uses RetrievalSettings defaults. Ignored when
+  vector_store is None.
 
 ##### `agrag.ingestion.Graph.add`
 
@@ -4527,7 +4551,7 @@ previous one's.
 ##### `agrag.ingestion.Graph.open`
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -4539,7 +4563,9 @@ setup_constraints(), then setup_indexes(), then vector indexes for
 every schema entity label — so a brand-new database is fully ready,
 including the merge_key index the global exact-match tier needs and
 the embedding vector indexes native search needs, before this call
-returns.
+returns. When vector_store is set, the entity, chunk, and community
+collections are provisioned there too (created when missing) so the
+dual writes never hit an absent collection.
 
 **Parameters:**
 
@@ -4550,6 +4576,10 @@ returns.
 - **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Populates entity embeddings for native vector search.
 - **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs against each chunk.
 - **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every step. Pass None for none.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional second write target for embeddings; see
+  __init__.
+- **retrieval_settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
+  None uses RetrievalSettings defaults.
 
 **Returns:**
 
@@ -4578,6 +4608,11 @@ Community detection: hierarchical Leiden over the entity graph.
 - [**generate_community_reports**](#agrag.ingestion.community.generate_community_reports) – Generate a report for each community, in place.
 - [**required_member_ids**](#agrag.ingestion.community.required_member_ids) – Return the member ids generate_community_reports will actually read.
 
+**Attributes:**
+
+- [**WeightedEdge**](#agrag.ingestion.community.WeightedEdge) – One domain relation as (source_id, target_id, weight, relation_type).
+- [**logger**](#agrag.ingestion.community.logger) –
+
 ##### `agrag.ingestion.community.CommunityDetectionMissingExtraError`
 
 ```python
@@ -4588,10 +4623,18 @@ Bases: <code>[Exception](#Exception)</code>
 
 Raised when graspologic-native is not installed.
 
+##### `agrag.ingestion.community.WeightedEdge`
+
+```python
+WeightedEdge = tuple[str, str, float, str]
+```
+
+One domain relation as (source_id, target_id, weight, relation_type).
+
 ##### `agrag.ingestion.community.compute_communities`
 
 ```python
-compute_communities(edges:list[tuple[str, str, float]], *, max_cluster_size:int = 10, resolution:float = 1.0, seed:int | None = 3735928559) -> list[Community]
+compute_communities(edges:list[WeightedEdge], *, max_cluster_size:int = 10, resolution:float = 1.0, seed:int | None = 3735928559) -> list[Community]
 ```
 
 Run hierarchical Leiden and return level-0 communities.
@@ -4617,7 +4660,8 @@ see the follow-up research this refinement is based on), no new query:
 
 **Parameters:**
 
-- **edges** (<code>[list](#list)\[[tuple](#tuple)\[[str](#str), [str](#str), [float](#float)\]\]</code>) – The weighted edge list from fetch_relation_edges.
+- **edges** (<code>[list](#list)\[[WeightedEdge](#agrag.ingestion.community.WeightedEdge)\]</code>) – The weighted edge list from fetch_relation_edges, as
+  (source_id, target_id, weight, relation_type) tuples.
 - **max_cluster_size** (<code>[int](#int)</code>) – The size ceiling a cluster is split past, at every
   level.
 - **resolution** (<code>[float](#float)</code>) – Leiden's resolution parameter.
@@ -4693,16 +4737,17 @@ is None, rather than being dropped from the graph.
 ##### `agrag.ingestion.community.fetch_relation_edges`
 
 ```python
-fetch_relation_edges(graph_store:GraphStore, *, page_size:int = 5000, use_cursor:bool = True) -> list[tuple[str, str, float]]
+fetch_relation_edges(graph_store:GraphStore, *, page_size:int = 5000, use_cursor:bool = True) -> list[WeightedEdge]
 ```
 
 Return every live domain relation as a weighted edge tuple.
 
-Weight is len(source_chunk_ids) (attestation count), or 1.0 when that
-list is empty -- frequency-based weighting. Two entities
-connected by more than one distinct relation type contribute one edge
-tuple per type; graspologic_native sums parallel-edge weights building
-its own adjacency.
+Weight is len(source_chunk_ids) (attestation count). A relation with
+no attested chunks contributes weight 0.0, so an unsupported edge
+cannot inflate clustering or a community's report importance. Two
+entities connected by more than one distinct relation type contribute
+one edge tuple per type; graspologic_native sums parallel-edge
+weights building its own adjacency.
 
 Supports cursor (keyset) pagination for large graphs where `SKIP`
 is expensive, and legacy `SKIP` pagination for callers that need
@@ -4716,12 +4761,12 @@ it.
 
 **Returns:**
 
-- <code>[list](#list)\[[tuple](#tuple)\[[str](#str), [str](#str), [float](#float)\]\]</code> – Edge tuples as (source_id_str, target_id_str, weight).
+- <code>[list](#list)\[[WeightedEdge](#agrag.ingestion.community.WeightedEdge)\]</code> – Edge tuples as (source_id_str, target_id_str, weight, rel_type).
 
 ##### `agrag.ingestion.community.generate_community_reports`
 
 ```python
-generate_community_reports(communities:list[Community], entities_by_id:dict[UUID, Entity], *, min_importance_for_llm_report:float = _DEFAULT_MIN_IMPORTANCE_FOR_LLM_REPORT, batch_size:int = _DEFAULT_REPORT_BATCH_SIZE, max_members_per_prompt:int = _DEFAULT_MAX_MEMBERS_PER_PROMPT, max_concurrency:int = 4, error_policy:ErrorPolicy = ErrorPolicy.SKIP) -> list[StageFailure]
+generate_community_reports(communities:list[Community], entities_by_id:dict[UUID, Entity], *, edges:list[WeightedEdge] | None = None, min_importance_for_llm_report:float = _DEFAULT_MIN_IMPORTANCE_FOR_LLM_REPORT, batch_size:int = _DEFAULT_REPORT_BATCH_SIZE, max_members_per_prompt:int = _DEFAULT_MAX_MEMBERS_PER_PROMPT, max_relations_per_prompt:int = _DEFAULT_MAX_RELATIONS_PER_PROMPT, max_concurrency:int = 4, error_policy:ErrorPolicy = ErrorPolicy.SKIP) -> list[StageFailure]
 ```
 
 Generate a report for each community, in place.
@@ -4741,7 +4786,17 @@ A qualifying community's member list is truncated to its top
 max_members_per_prompt members (already ordered by local weight
 descending) before it enters the batch prompt, protecting the batch
 call's token budget from one oversized community without an arbitrary
-cut -- the members dropped are the least central ones.
+cut -- the members dropped are the least central ones. When edges is
+given, each community's prompt also carries its internal
+"source REL_TYPE target" lines (most-attested first, truncated to
+max_relations_per_prompt), so the report can state connections the
+evidence actually attests; a relation whose endpoint Entity was not
+hydrated is omitted.
+
+When the `llm` extra (baml-py) is not installed, qualifying
+communities fall back to the heuristic report too: with ErrorPolicy
+SKIP a warning is logged and the pipeline completes, with RAISE the
+ImportError propagates.
 
 A batch call failure does not block other batches: it is recorded as
 one StageFailure per community in that batch, each of which then falls
@@ -4754,21 +4809,33 @@ rather than discarding the reports that did come back.
 **Parameters:**
 
 - **communities** (<code>[list](#list)\[[Community](#agrag.common.data_models.community.Community)\]</code>) – The communities to summarize, mutated in place.
-- **entities_by_id** (<code>[dict](#dict)\[[UUID](#uuid.UUID), [Entity](#agrag.common.data_models.entity.Entity)\]</code>) – Every entity in the graph, keyed by id, for
-  building each community's member-summary context.
+- **entities_by_id** (<code>[dict](#dict)\[[UUID](#uuid.UUID), [Entity](#agrag.common.data_models.entity.Entity)\]</code>) – Every entity the reports will read, keyed by id,
+  for building each community's member-summary context.
+- **edges** (<code>[list](#list)\[[WeightedEdge](#agrag.ingestion.community.WeightedEdge)\] | None</code>) – The weighted edge list from fetch_relation_edges, used to
+  build each community's attested-relation context. None omits
+  relation context from the prompts.
 - **min_importance_for_llm_report** (<code>[float](#float)</code>) – The internal_weight floor a
   community must meet to get a real LLM report instead of the
   heuristic one.
 - **batch_size** (<code>[int](#int)</code>) – Communities summarized per LLM call.
 - **max_members_per_prompt** (<code>[int](#int)</code>) – Members per community fed into the LLM
   prompt, highest-centrality first.
+- **max_relations_per_prompt** (<code>[int](#int)</code>) – Attested-relation lines per community
+  fed into the LLM prompt, most-attested first.
 - **max_concurrency** (<code>[int](#int)</code>) – Max concurrent SummarizeCommunities calls.
-- **error_policy** (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – RAISE propagates a batch call failure; anything else
-  records it and continues.
+- **error_policy** (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – RAISE propagates a batch call failure or a missing
+  `llm` extra; anything else records it or falls back and
+  continues.
 
 **Returns:**
 
 - <code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code> – One StageFailure per community whose batch call failed.
+
+##### `agrag.ingestion.community.logger`
+
+```python
+logger = logging.getLogger(__name__)
+```
 
 ##### `agrag.ingestion.community.required_member_ids`
 
@@ -5104,10 +5171,16 @@ The public Graph API for ingestion.
 ##### `agrag.ingestion.graph.Graph`
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
+
+When an optional VectorStore is configured, every embedding this
+graph writes to graph_store is also upserted there, so SearchEngine's
+VectorStore path finds the same vectors the GraphStore-native path
+does. Collections follow RetrievalSettings' names and are provisioned
+by `open()` when missing.
 
 **Functions:**
 
@@ -5125,6 +5198,16 @@ A knowledge graph that a caller can open and add content to.
 - **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Populates entity embeddings for native vector search.
 - **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs against each chunk.
 - **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every step. Pass None for none.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional second write target for embeddings. When
+  set, every embedding the pipeline writes to graph_store is
+  also upserted here, so SearchEngine's VectorStore path finds
+  the same vectors the GraphStore-native path does. Also gets
+  tombstoned entities deleted after merges and old community
+  vectors removed on each detect_communities(apply=True)
+  cycle.
+- **retrieval_settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
+  None uses RetrievalSettings defaults. Ignored when
+  vector_store is None.
 
 ###### `agrag.ingestion.graph.Graph.add`
 
@@ -5229,7 +5312,7 @@ previous one's.
 ###### `agrag.ingestion.graph.Graph.open`
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -5241,7 +5324,9 @@ setup_constraints(), then setup_indexes(), then vector indexes for
 every schema entity label — so a brand-new database is fully ready,
 including the merge_key index the global exact-match tier needs and
 the embedding vector indexes native search needs, before this call
-returns.
+returns. When vector_store is set, the entity, chunk, and community
+collections are provisioned there too (created when missing) so the
+dual writes never hit an absent collection.
 
 **Parameters:**
 
@@ -5252,6 +5337,10 @@ returns.
 - **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Populates entity embeddings for native vector search.
 - **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs against each chunk.
 - **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A tracer to record spans for every step. Pass None for none.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional second write target for embeddings; see
+  __init__.
+- **retrieval_settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
+  None uses RetrievalSettings defaults.
 
 **Returns:**
 
@@ -6199,12 +6288,52 @@ One class per module under this package; this init re-exports them so
 
 **Classes:**
 
+- [**CappedFailures**](#agrag.ingestion.stats.CappedFailures) – A capped failure list plus the true count it was built from.
 - [**ExtractionStats**](#agrag.ingestion.stats.ExtractionStats) – Extraction-stage results.
 - [**IngestStats**](#agrag.ingestion.stats.IngestStats) – Ingestion-stage results.
 - [**MergeStats**](#agrag.ingestion.stats.MergeStats) – Merge-stage results.
 - [**ResolutionStats**](#agrag.ingestion.stats.ResolutionStats) – Resolution-stage results.
 - [**StageFailure**](#agrag.ingestion.stats.StageFailure) – One item's failure within a pipeline stage.
 - [**StorageStats**](#agrag.ingestion.stats.StorageStats) – Storage-write-stage results.
+
+**Functions:**
+
+- [**cap_failures**](#agrag.ingestion.stats.cap_failures) – Return failures capped per stage, with the untruncated true count.
+
+**Attributes:**
+
+- [**MAX_FAILURES_PER_STAGE**](#agrag.ingestion.stats.MAX_FAILURES_PER_STAGE) –
+
+##### `agrag.ingestion.stats.CappedFailures`
+
+Bases: <code>[NamedTuple](#typing.NamedTuple)</code>
+
+A capped failure list plus the true count it was built from.
+
+**Attributes:**
+
+- [**items**](#agrag.ingestion.stats.CappedFailures.items) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – The failure records, truncated to the per-stage cap.
+- [**total**](#agrag.ingestion.stats.CappedFailures.total) (<code>[int](#int)</code>) – How many failures the stage actually recorded, before any
+  truncation.
+- [**truncated**](#agrag.ingestion.stats.CappedFailures.truncated) (<code>[bool](#bool)</code>) – Whether `items` was cut to the per-stage cap.
+
+###### `agrag.ingestion.stats.CappedFailures.items`
+
+```python
+items: list[StageFailure]
+```
+
+###### `agrag.ingestion.stats.CappedFailures.total`
+
+```python
+total: int
+```
+
+###### `agrag.ingestion.stats.CappedFailures.truncated`
+
+```python
+truncated: bool
+```
 
 ##### `agrag.ingestion.stats.ExtractionStats`
 
@@ -6214,10 +6343,12 @@ Extraction-stage results.
 
 **Attributes:**
 
-- [**chunks_processed**](#agrag.ingestion.stats.ExtractionStats.chunks_processed) (<code>[int](#int)</code>) –
-- [**entities_extracted**](#agrag.ingestion.stats.ExtractionStats.entities_extracted) (<code>[int](#int)</code>) –
-- [**failures**](#agrag.ingestion.stats.ExtractionStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) –
-- [**relations_extracted**](#agrag.ingestion.stats.ExtractionStats.relations_extracted) (<code>[int](#int)</code>) –
+- [**chunks_processed**](#agrag.ingestion.stats.ExtractionStats.chunks_processed) (<code>[int](#int)</code>) – Chunks the stage ran the extractor on.
+- [**entities_extracted**](#agrag.ingestion.stats.ExtractionStats.entities_extracted) (<code>[int](#int)</code>) – Entities the extractor returned.
+- [**relations_extracted**](#agrag.ingestion.stats.ExtractionStats.relations_extracted) (<code>[int](#int)</code>) – Relations the extractor returned.
+- [**failures**](#agrag.ingestion.stats.ExtractionStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Per-item failures, capped per call.
+- [**failures_total**](#agrag.ingestion.stats.ExtractionStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
+- [**failures_truncated**](#agrag.ingestion.stats.ExtractionStats.failures_truncated) (<code>[bool](#bool)</code>) – Whether `failures` was cut to the cap.
 
 ###### `agrag.ingestion.stats.ExtractionStats.chunks_processed`
 
@@ -6235,6 +6366,18 @@ entities_extracted: int = 0
 
 ```python
 failures: list[StageFailure] = Field(default_factory=list)
+```
+
+###### `agrag.ingestion.stats.ExtractionStats.failures_total`
+
+```python
+failures_total: int = 0
+```
+
+###### `agrag.ingestion.stats.ExtractionStats.failures_truncated`
+
+```python
+failures_truncated: bool = False
 ```
 
 ###### `agrag.ingestion.stats.ExtractionStats.relations_extracted`
@@ -6287,6 +6430,12 @@ skipped: int = 0
 sources: int = 0
 ```
 
+##### `agrag.ingestion.stats.MAX_FAILURES_PER_STAGE`
+
+```python
+MAX_FAILURES_PER_STAGE = 200
+```
+
 ##### `agrag.ingestion.stats.MergeStats`
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
@@ -6304,6 +6453,8 @@ Merge-stage results.
 - [**failures**](#agrag.ingestion.stats.MergeStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Includes an LLM failure during description
   summarization. The merge still falls back to concatenation and
   completes, but the failure is recorded here.
+- [**failures_total**](#agrag.ingestion.stats.MergeStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
+- [**failures_truncated**](#agrag.ingestion.stats.MergeStats.failures_truncated) (<code>[bool](#bool)</code>) – Whether `failures` was cut to the cap.
 
 ###### `agrag.ingestion.stats.MergeStats.conflicts_resolved`
 
@@ -6315,6 +6466,18 @@ conflicts_resolved: int = 0
 
 ```python
 failures: list[StageFailure] = Field(default_factory=list)
+```
+
+###### `agrag.ingestion.stats.MergeStats.failures_total`
+
+```python
+failures_total: int = 0
+```
+
+###### `agrag.ingestion.stats.MergeStats.failures_truncated`
+
+```python
+failures_truncated: bool = False
 ```
 
 ###### `agrag.ingestion.stats.MergeStats.nodes_created`
@@ -6432,11 +6595,25 @@ Storage-write-stage results.
   call. A GraphStore write is a single managed transaction, so
   a failure here means the whole batch did not land, not a
   partial subset of it.
+- [**failures_total**](#agrag.ingestion.stats.StorageStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
+- [**failures_truncated**](#agrag.ingestion.stats.StorageStats.failures_truncated) (<code>[bool](#bool)</code>) – Whether `failures` was cut to the cap.
 
 ###### `agrag.ingestion.stats.StorageStats.failures`
 
 ```python
 failures: list[StageFailure] = Field(default_factory=list)
+```
+
+###### `agrag.ingestion.stats.StorageStats.failures_total`
+
+```python
+failures_total: int = 0
+```
+
+###### `agrag.ingestion.stats.StorageStats.failures_truncated`
+
+```python
+failures_truncated: bool = False
 ```
 
 ###### `agrag.ingestion.stats.StorageStats.nodes_written`
@@ -6450,6 +6627,26 @@ nodes_written: int = 0
 ```python
 relationships_written: int = 0
 ```
+
+##### `agrag.ingestion.stats.cap_failures`
+
+```python
+cap_failures(failures:list[StageFailure]) -> CappedFailures
+```
+
+Return failures capped per stage, with the untruncated true count.
+
+Logs a warning when truncation occurs, since the capped list alone no
+longer reflects how many items actually failed.
+
+**Parameters:**
+
+- **failures** (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Every failure the stage recorded.
+
+**Returns:**
+
+- <code>[CappedFailures](#agrag.ingestion.stats.stage_failure.CappedFailures)</code> – The capped list, the true failure count, and whether the list was
+- <code>[CappedFailures](#agrag.ingestion.stats.stage_failure.CappedFailures)</code> – truncated.
 
 ##### `agrag.ingestion.stats.extraction`
 
@@ -6467,10 +6664,12 @@ Extraction-stage results.
 
 **Attributes:**
 
-- [**chunks_processed**](#agrag.ingestion.stats.extraction.ExtractionStats.chunks_processed) (<code>[int](#int)</code>) –
-- [**entities_extracted**](#agrag.ingestion.stats.extraction.ExtractionStats.entities_extracted) (<code>[int](#int)</code>) –
-- [**failures**](#agrag.ingestion.stats.extraction.ExtractionStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) –
-- [**relations_extracted**](#agrag.ingestion.stats.extraction.ExtractionStats.relations_extracted) (<code>[int](#int)</code>) –
+- [**chunks_processed**](#agrag.ingestion.stats.extraction.ExtractionStats.chunks_processed) (<code>[int](#int)</code>) – Chunks the stage ran the extractor on.
+- [**entities_extracted**](#agrag.ingestion.stats.extraction.ExtractionStats.entities_extracted) (<code>[int](#int)</code>) – Entities the extractor returned.
+- [**relations_extracted**](#agrag.ingestion.stats.extraction.ExtractionStats.relations_extracted) (<code>[int](#int)</code>) – Relations the extractor returned.
+- [**failures**](#agrag.ingestion.stats.extraction.ExtractionStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Per-item failures, capped per call.
+- [**failures_total**](#agrag.ingestion.stats.extraction.ExtractionStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
+- [**failures_truncated**](#agrag.ingestion.stats.extraction.ExtractionStats.failures_truncated) (<code>[bool](#bool)</code>) – Whether `failures` was cut to the cap.
 
 ####### `agrag.ingestion.stats.extraction.ExtractionStats.chunks_processed`
 
@@ -6488,6 +6687,18 @@ entities_extracted: int = 0
 
 ```python
 failures: list[StageFailure] = Field(default_factory=list)
+```
+
+####### `agrag.ingestion.stats.extraction.ExtractionStats.failures_total`
+
+```python
+failures_total: int = 0
+```
+
+####### `agrag.ingestion.stats.extraction.ExtractionStats.failures_truncated`
+
+```python
+failures_truncated: bool = False
 ```
 
 ####### `agrag.ingestion.stats.extraction.ExtractionStats.relations_extracted`
@@ -6573,6 +6784,8 @@ Merge-stage results.
 - [**failures**](#agrag.ingestion.stats.merge.MergeStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Includes an LLM failure during description
   summarization. The merge still falls back to concatenation and
   completes, but the failure is recorded here.
+- [**failures_total**](#agrag.ingestion.stats.merge.MergeStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
+- [**failures_truncated**](#agrag.ingestion.stats.merge.MergeStats.failures_truncated) (<code>[bool](#bool)</code>) – Whether `failures` was cut to the cap.
 
 ####### `agrag.ingestion.stats.merge.MergeStats.conflicts_resolved`
 
@@ -6584,6 +6797,18 @@ conflicts_resolved: int = 0
 
 ```python
 failures: list[StageFailure] = Field(default_factory=list)
+```
+
+####### `agrag.ingestion.stats.merge.MergeStats.failures_total`
+
+```python
+failures_total: int = 0
+```
+
+####### `agrag.ingestion.stats.merge.MergeStats.failures_truncated`
+
+```python
+failures_truncated: bool = False
 ```
 
 ####### `agrag.ingestion.stats.merge.MergeStats.nodes_created`
@@ -6651,11 +6876,54 @@ Per-stage failure record and its per-call cap.
 
 **Classes:**
 
+- [**CappedFailures**](#agrag.ingestion.stats.stage_failure.CappedFailures) – A capped failure list plus the true count it was built from.
 - [**StageFailure**](#agrag.ingestion.stats.stage_failure.StageFailure) – One item's failure within a pipeline stage.
+
+**Functions:**
+
+- [**cap_failures**](#agrag.ingestion.stats.stage_failure.cap_failures) – Return failures capped per stage, with the untruncated true count.
 
 **Attributes:**
 
+- [**MAX_FAILURES_PER_STAGE**](#agrag.ingestion.stats.stage_failure.MAX_FAILURES_PER_STAGE) –
 - [**logger**](#agrag.ingestion.stats.stage_failure.logger) –
+
+###### `agrag.ingestion.stats.stage_failure.CappedFailures`
+
+Bases: <code>[NamedTuple](#typing.NamedTuple)</code>
+
+A capped failure list plus the true count it was built from.
+
+**Attributes:**
+
+- [**items**](#agrag.ingestion.stats.stage_failure.CappedFailures.items) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – The failure records, truncated to the per-stage cap.
+- [**total**](#agrag.ingestion.stats.stage_failure.CappedFailures.total) (<code>[int](#int)</code>) – How many failures the stage actually recorded, before any
+  truncation.
+- [**truncated**](#agrag.ingestion.stats.stage_failure.CappedFailures.truncated) (<code>[bool](#bool)</code>) – Whether `items` was cut to the per-stage cap.
+
+####### `agrag.ingestion.stats.stage_failure.CappedFailures.items`
+
+```python
+items: list[StageFailure]
+```
+
+####### `agrag.ingestion.stats.stage_failure.CappedFailures.total`
+
+```python
+total: int
+```
+
+####### `agrag.ingestion.stats.stage_failure.CappedFailures.truncated`
+
+```python
+truncated: bool
+```
+
+###### `agrag.ingestion.stats.stage_failure.MAX_FAILURES_PER_STAGE`
+
+```python
+MAX_FAILURES_PER_STAGE = 200
+```
 
 ###### `agrag.ingestion.stats.stage_failure.StageFailure`
 
@@ -6703,6 +6971,26 @@ span_id: str | None = None
 trace_id: str | None = None
 ```
 
+###### `agrag.ingestion.stats.stage_failure.cap_failures`
+
+```python
+cap_failures(failures:list[StageFailure]) -> CappedFailures
+```
+
+Return failures capped per stage, with the untruncated true count.
+
+Logs a warning when truncation occurs, since the capped list alone no
+longer reflects how many items actually failed.
+
+**Parameters:**
+
+- **failures** (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Every failure the stage recorded.
+
+**Returns:**
+
+- <code>[CappedFailures](#agrag.ingestion.stats.stage_failure.CappedFailures)</code> – The capped list, the true failure count, and whether the list was
+- <code>[CappedFailures](#agrag.ingestion.stats.stage_failure.CappedFailures)</code> – truncated.
+
 ###### `agrag.ingestion.stats.stage_failure.logger`
 
 ```python
@@ -6735,11 +7023,25 @@ Storage-write-stage results.
   call. A GraphStore write is a single managed transaction, so
   a failure here means the whole batch did not land, not a
   partial subset of it.
+- [**failures_total**](#agrag.ingestion.stats.storage.StorageStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
+- [**failures_truncated**](#agrag.ingestion.stats.storage.StorageStats.failures_truncated) (<code>[bool](#bool)</code>) – Whether `failures` was cut to the cap.
 
 ####### `agrag.ingestion.stats.storage.StorageStats.failures`
 
 ```python
 failures: list[StageFailure] = Field(default_factory=list)
+```
+
+####### `agrag.ingestion.stats.storage.StorageStats.failures_total`
+
+```python
+failures_total: int = 0
+```
+
+####### `agrag.ingestion.stats.storage.StorageStats.failures_truncated`
+
+```python
+failures_truncated: bool = False
 ```
 
 ####### `agrag.ingestion.stats.storage.StorageStats.nodes_written`
@@ -6857,7 +7159,8 @@ machinery as any other result.
 - **entity_ids** (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – The entity ids already found by a search's other
   retrieval methods.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where the overlap lookup runs.
-- **top_k** (<code>[int](#int)</code>) – The maximum number of communities to return.
+- **top_k** (<code>[int](#int)</code>) – The maximum number of communities to return. Zero or
+  negative returns no results without querying.
 - **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Applied to the candidate community node via
   `document_ids`/`properties` (`to_cypher_where`); labels
   are not applied, since they check node labels and a Community
@@ -7359,7 +7662,9 @@ Requires the `embed-local` extra (sentence-transformers). Scores
 below min_score when set. The model is cached per name (see
 \_load_cross_encoder), and the blocking predict() call runs via
 asyncio.to_thread so a larger configured model cannot stall the event
-loop for other concurrent search() calls.
+loop for other concurrent search() calls. Concurrent first loads of the
+same model share one in-flight construction behind a per-model lock, so
+only one instance (and one download) occurs.
 
 **Parameters:**
 
@@ -7589,6 +7894,7 @@ Run chunk search and return hydrated results.
 - **query** (<code>[str](#str)</code>) – The natural-language query text.
 - **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied to the search.
 - **limit** (<code>[int](#int) | None</code>) – Maximum results. None uses settings.chunk_top_k.
+  Zero or negative returns no results without searching.
 
 **Returns:**
 
@@ -7633,6 +7939,13 @@ retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = N
 ```
 
 Run community-report search and return hydrated results.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language query text.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied to the search.
+- **limit** (<code>[int](#int) | None</code>) – Maximum results. None uses settings.community_top_k.
+  Zero or negative returns no results without searching.
 
 ##### `agrag.retrieval.retrievers.entity`
 
@@ -7698,6 +8011,7 @@ Run entity search and return hydrated results.
 - **query** (<code>[str](#str)</code>) – The natural-language query text.
 - **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied to the search.
 - **limit** (<code>[int](#int) | None</code>) – Maximum results. None uses settings.entity_top_k.
+  Zero or negative returns no results without searching.
 
 **Returns:**
 
@@ -7820,10 +8134,13 @@ stores; does not depend on a Graph instance existing.
   when vector_store is absent, and always backs BFS.
 - **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Produces query vectors for dense and hybrid
   search.
-- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional. When set, entity and chunk search
-  run hybrid_search there instead of GraphStore's native
-  search. Configuring one without a dual-write ingestion
-  change gets an empty result set, not an error.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional. When set, entity, chunk, and
+  community search run hybrid_search there instead of
+  GraphStore's native search. `Graph.open(vector_store=...)`
+  provisions the collections and dual-writes every embedding
+  this package ingests, so the two paths see the same data;
+  pointing SearchEngine at a store no Graph writes to gets an
+  empty result set, not an error.
 - **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
   environment.
 - **entity_labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – The schema entity labels native entity

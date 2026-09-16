@@ -132,7 +132,8 @@ def fetch_all_relations_query() -> str:
     boundary falling inside such a group can duplicate or drop rows.
 
     Returns:
-        Parameterized Cypher expecting $skip and $limit.
+        Parameterized Cypher expecting $skip and $limit. Returns each
+        relation's source_id, target_id, source_chunk_ids, and rel_type.
     """
     return (
         f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
@@ -141,7 +142,8 @@ def fetch_all_relations_query() -> str:
         f"AND NOT a:Community AND NOT b:Community "
         f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
         f"RETURN a.id AS source_id, b.id AS target_id, "
-        f"r.source_chunk_ids AS source_chunk_ids "
+        f"r.source_chunk_ids AS source_chunk_ids, "
+        f"type(r) AS rel_type "
         f"ORDER BY a.id, b.id, type(r), coalesce(r.id, '') SKIP $skip LIMIT $limit"
     )
 

@@ -68,6 +68,7 @@ class BAMLExtractionResult(BaseModel):
 
 class CommunityInput(BaseModel):
     entity_summaries: typing.List[str]
+    relation_summaries: typing.List[str]
 
 class CommunityReport(BaseModel):
     title: str

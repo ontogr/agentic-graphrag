@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import NamedTuple
 
 from pydantic import BaseModel
 
@@ -30,20 +31,45 @@ class StageFailure(BaseModel):
     span_id: str | None = None
 
 
-_MAX_FAILURES_PER_STAGE = 200
+MAX_FAILURES_PER_STAGE = 200
 
 
-def _capped(failures: list[StageFailure]) -> list[StageFailure]:
-    """Return failures truncated to _MAX_FAILURES_PER_STAGE entries.
+class CappedFailures(NamedTuple):
+    """A capped failure list plus the true count it was built from.
 
-    Logs a warning with the true failure count when truncation occurs, since
-    the truncated list alone no longer reflects how many items actually
-    failed.
+    Attributes:
+        items: The failure records, truncated to the per-stage cap.
+        total: How many failures the stage actually recorded, before any
+            truncation.
+        truncated: Whether ``items`` was cut to the per-stage cap.
     """
-    if len(failures) > _MAX_FAILURES_PER_STAGE:
+
+    items: list[StageFailure]
+    total: int
+    truncated: bool
+
+
+def cap_failures(failures: list[StageFailure]) -> CappedFailures:
+    """Return failures capped per stage, with the untruncated true count.
+
+    Logs a warning when truncation occurs, since the capped list alone no
+    longer reflects how many items actually failed.
+
+    Args:
+        failures: Every failure the stage recorded.
+
+    Returns:
+        The capped list, the true failure count, and whether the list was
+        truncated.
+    """
+    total = len(failures)
+    if total > MAX_FAILURES_PER_STAGE:
         logger.warning(
             "Stage reported %d failures; truncating to %d in the report.",
-            len(failures),
-            _MAX_FAILURES_PER_STAGE,
+            total,
+            MAX_FAILURES_PER_STAGE,
         )
-    return failures[:_MAX_FAILURES_PER_STAGE]
+        return CappedFailures(
+            items=failures[:MAX_FAILURES_PER_STAGE], total=total, truncated=True
+        )
+    return CappedFailures(items=failures, total=total, truncated=False)

@@ -1,7 +1,7 @@
 """Tests for delete_communities_batch_query."""
 
 from agrag.common.data_models.community import COMMUNITY_LABEL
-from agrag.cypher.community import delete_communities_batch_query
+from agrag.cypher.community_write import delete_communities_batch_query
 
 
 class TestDeleteCommunitiesBatchQuery:
