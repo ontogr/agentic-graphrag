@@ -122,6 +122,8 @@ jobs:
       contents: read
     env:
       UV_PYTHON: "3.12"
+    outputs:
+      stale: ${{ steps.docs-check.outputs.stale }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -136,13 +138,20 @@ jobs:
       - run: make sync
       - run: make docs-api
       - name: Check for docs staleness
+        id: docs-check
         run: |
-          if ! git diff --exit-code HEAD -- docs/docs/api/index.md; then
-            echo "::error::docs/docs/api/index.md is stale. Run 'make docs-api' locally and commit."
-            git diff HEAD -- docs/docs/api/index.md | head -c 6500 > /tmp/docs.diff || true
-            cat /tmp/docs.diff || true
-            exit 1
+          if git diff --exit-code HEAD -- docs/docs/api/index.md > /dev/null; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          echo "stale=true" >> "$GITHUB_OUTPUT"
+          git diff HEAD -- docs/docs/api/index.md | head -c 6500 > /tmp/docs.diff || true
+          cat /tmp/docs.diff || true
+      - name: Fail on stale docs
+        if: steps.docs-check.outputs.stale == 'true'
+        run: |
+          echo "::error::docs/docs/api/index.md is stale. Run 'make docs-api' locally and commit."
+          exit 1
   docs-comment:
     name: docs-api comment
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -159,7 +168,7 @@ jobs:
           header: docs-api
           hide_details: true
           message: |
-            ${{ needs.docs.result == 'success' && '**Documentation is up to date**.' || '**Documentation is stale**. Run `make docs-api` locally to update the docs and commit.' }}
+            ${{ needs.docs.outputs.stale == 'true' && '**API Documentation is stale**. Run `make docs-api` locally to update the docs and commit.' || (needs.docs.result == 'success' && '**API Documentation is up to date**.' || '**The docs-api check did not complete**. Read the `docs-api up to date` job logs for the failure.') }}
 
   wheel:
     name: Test Packaging - wheel build & install
