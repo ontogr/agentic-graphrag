@@ -120,7 +120,6 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: write
     env:
       UV_PYTHON: "3.12"
     steps:
@@ -148,14 +147,23 @@ jobs:
             cat /tmp/docs.diff || true
             exit 1
           fi
+  docs-comment:
+    name: docs-api comment
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
       - name: Comment docs status
-        if: always() && github.event_name == 'pull_request'
         uses: marocchino/sticky-pull-request-comment@331e9760c81a9ffcc1d1d4c6219850577d76d6f2f # v3.0.5
         with:
           header: docs-api
           hide_details: true
           message: |
-            ${{ steps.docs-check.outputs.status == 'ok' && '**Documentation is up to date** -- `docs/docs/api/index.md` matches `make docs-api`.' || '**Documentation is stale**. Run 'make docs-api' locally to update the docs and commit.' }}
+            ${{ needs.docs.result == 'success' && '**Documentation is up to date** -- `docs/docs/api/index.md` matches `make docs-api`.' || '**Documentation is stale**. Run `make docs-api` locally to update the docs and commit.' }}
 
   wheel:
     name: Test Packaging - wheel build & install
