@@ -136,12 +136,8 @@ jobs:
       - run: make sync
       - run: make docs-api
       - name: Check for docs staleness
-        id: docs-check
         run: |
-          if git diff --exit-code HEAD -- docs/docs/api/index.md; then
-            echo "status=ok" >> "$GITHUB_OUTPUT"
-          else
-            echo "status=stale" >> "$GITHUB_OUTPUT"
+          if ! git diff --exit-code HEAD -- docs/docs/api/index.md; then
             echo "::error::docs/docs/api/index.md is stale. Run 'make docs-api' locally and commit."
             git diff HEAD -- docs/docs/api/index.md | head -c 6500 > /tmp/docs.diff || true
             cat /tmp/docs.diff || true
