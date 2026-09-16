@@ -7146,7 +7146,7 @@ ambient.
 
 **Functions:**
 
-- [**get_tracer**](#agrag.observability.get_tracer) – Return a usable tracer for the current pipeline.
+- [**get_tracer**](#agrag.observability.get_tracer) – Return a usable tracer.
 - [**traced**](#agrag.observability.traced) – Wrap a call in a span on the given tracer.
 
 #### `agrag.observability.get_tracer`
@@ -7155,7 +7155,7 @@ ambient.
 get_tracer(tracer:Tracer | None) -> Tracer
 ```
 
-Return a usable tracer for the current pipeline.
+Return a usable tracer.
 
 **Parameters:**
 
