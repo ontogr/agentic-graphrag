@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
 from pydantic import BaseModel, Field
 
 from agrag.common.data_models.chunk import Chunk
@@ -12,14 +10,9 @@ from agrag.ingestion.stats import (
     IngestStats,
     MergeStats,
     ResolutionStats,
+    StageFailure,
     StorageStats,
 )
-
-
-if TYPE_CHECKING:
-    from agrag.ingestion.merge import MergePlan
-else:
-    MergePlan = Any
 
 
 class AddResult(BaseModel):
@@ -44,3 +37,28 @@ class AddResult(BaseModel):
     merge: MergeStats = Field(default_factory=MergeStats)
     storage: StorageStats = Field(default_factory=StorageStats)
     chunks: list[Chunk] = Field(default_factory=list)
+
+    @property
+    def documents(self) -> int:
+        """Proxy to ingestion.documents for backward compatibility."""
+        return self.ingestion.documents
+
+    @property
+    def sources(self) -> int:
+        """Proxy to ingestion.sources for backward compatibility."""
+        return self.ingestion.sources
+
+    @property
+    def skipped(self) -> int:
+        """Proxy to ingestion.skipped for backward compatibility."""
+        return self.ingestion.skipped
+
+    @property
+    def quarantined(self) -> int:
+        """Proxy to ingestion.quarantined for backward compatibility."""
+        return self.ingestion.quarantined
+
+    @property
+    def quarantined_items(self) -> list[StageFailure]:
+        """Proxy to ingestion.quarantined_items for backward compatibility."""
+        return self.ingestion.quarantined_items

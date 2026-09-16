@@ -836,10 +836,6 @@ async def _embed_and_upsert_survivors(
                     ]
                 },
             )
-        with contextlib.suppress(Exception):
-            await _delete_vectors(
-                vector_store, vector_collection, list(survivors.keys())
-            )
         if error_policy is ErrorPolicy.RAISE:
             raise
         return [
@@ -866,10 +862,6 @@ async def _embed_and_upsert_survivors(
                 ],
             )
         except Exception as exc:  # noqa: BLE001
-            with contextlib.suppress(Exception):
-                await _delete_vectors(
-                    vector_store, vector_collection, list(survivors.keys())
-                )
             if error_policy is ErrorPolicy.RAISE:
                 raise
             return [
