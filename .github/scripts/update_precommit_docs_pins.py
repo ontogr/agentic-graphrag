@@ -32,9 +32,7 @@ def render() -> str:
     match = HOOK_RE.search(config)
     if match is None:
         raise RuntimeError("docs-api hook not found")
-    body, replacement_count = DEPENDENCIES_RE.subn(
-        replacement, match.group(0), count=1
-    )
+    body, replacement_count = DEPENDENCIES_RE.subn(replacement, match.group(0), count=1)
     if replacement_count != 1:
         raise RuntimeError("docs-api additional_dependencies not found")
     return config[: match.start()] + body + config[match.end() :]
