@@ -158,7 +158,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Comment docs status
-        uses: marocchino/sticky-pull-request-comment@331e9760c81a9ffcc1d1d4c6219850577d76d6f2f # v3.0.5
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: docs-api
           hide_details: true
