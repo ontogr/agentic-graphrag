@@ -86,7 +86,10 @@ repos:
       - id: docs-api
         name: docs-api (griffe2md)
         entry: "bash -c 'make docs-api || { echo \"make docs-api failed\" >&2; exit 1; }; git diff --exit-code -- docs/docs/api/index.md || { echo \"docs/docs/api/index.md is stale -- run: make docs-api && git add docs/docs/api/index.md\" >&2; git diff -- docs/docs/api/index.md >&2; exit 1; }'"
-        language: system
+        # uv comes from the hook environment so this hook also runs on CI
+        # runners that do not ship uv, such as pre-commit.ci.
+        language: python
+        additional_dependencies: ["uv"]
         pass_filenames: false
         files: '^(agrag/.*\.py|pyproject\.toml|uv\.lock|Makefile|docs/docs/api/index\.md)$'
 
@@ -96,4 +99,4 @@ ci:
   autofix_prs_limit: 5
   autoupdate_schedule: monthly
   autoupdate_commit_msg: "ci: Pre-commit autoupdate"
-  skip: [ty, pytest, docs-api]
+  skip: [ty, pytest]
