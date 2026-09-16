@@ -72,4 +72,6 @@ def cap_failures(failures: list[StageFailure]) -> CappedFailures:
         return CappedFailures(
             items=failures[:MAX_FAILURES_PER_STAGE], total=total, truncated=True
         )
-    return CappedFailures(items=failures, total=total, truncated=False)
+    return CappedFailures(
+        items=failures[:MAX_FAILURES_PER_STAGE], total=total, truncated=False
+    )

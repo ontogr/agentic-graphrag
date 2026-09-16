@@ -202,7 +202,7 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
                     start_id=p3.id,
                     end_id=o2.id,
                     properties={
-                        "source_chunk_ids": [],
+                        "source_chunk_ids": [str(c1)],
                         "created_at": "2020-01-01T00:00:00",
                     },
                 ),
@@ -212,7 +212,7 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
                     start_id=p4.id,
                     end_id=o2.id,
                     properties={
-                        "source_chunk_ids": [],
+                        "source_chunk_ids": [str(c1)],
                         "created_at": "2020-01-01T00:00:00",
                     },
                 ),

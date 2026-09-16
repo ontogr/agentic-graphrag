@@ -1737,11 +1737,7 @@ class TestEmbedChunksDualWrite:
         assert records[0].payload["text"] == "Hello world"
 
     async def test_vector_store_failure_returns_stage_failure(self) -> None:
-        """A VectorStore failure is reported, never raised.
-
-        The GraphStore write already succeeded, so the primary path stays
-        intact; the failure is surfaced as a StageFailure instead.
-        """
+        """A VectorStore failure is reported as StageFailure with SKIP."""
         ch = ChunkModel(
             id=uuid4(),
             document_id=uuid4(),
@@ -1757,7 +1753,7 @@ class TestEmbedChunksDualWrite:
             [ch],
             embedder=MockEmbedder(),
             graph_store=store,
-            error_policy=ErrorPolicy.RAISE,
+            error_policy=ErrorPolicy.SKIP,
             vector_store=vector_store,
             vector_collection="chunks",
         )
@@ -1831,7 +1827,7 @@ class TestEmbedSurvivorsDualWrite:
         assert str(records[0].id) == str(ent.id)
 
     async def test_vector_store_failure_returns_stage_failure(self) -> None:
-        """A VectorStore failure is reported as a StageFailure, not raised."""
+        """A VectorStore failure is reported as a StageFailure with SKIP."""
         ent = self._entity()
         store = _GuardedNodeStore({})
         vector_store = RecordingVectorStore()
@@ -1841,7 +1837,7 @@ class TestEmbedSurvivorsDualWrite:
             {ent.id: ent},
             embedder=MockEmbedder(),
             graph_store=store,
-            error_policy=ErrorPolicy.RAISE,
+            error_policy=ErrorPolicy.SKIP,
             vector_store=vector_store,
             vector_collection="entities",
             labels_by_id={ent.id: ent.label},

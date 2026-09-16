@@ -674,9 +674,9 @@ async def _embed_and_upsert_chunks(
 
     When vector_store is set, every successfully written vector is also
     upserted there so SearchEngine's VectorStore path matches the
-    GraphStore-native path. A VectorStore failure is recorded as a
-    StageFailure but never raised: the primary store's write already
-    succeeded, and the native search path keeps working without it.
+    GraphStore-native path. A VectorStore failure honors error_policy:
+    RAISE propagates, otherwise it is recorded as a StageFailure and the
+    native search path keeps working without it.
 
     Args:
         chunks: The chunks this call wrote to graph_store already.
@@ -744,6 +744,8 @@ async def _embed_and_upsert_chunks(
         try:
             await _upsert_vectors(vector_store, vector_collection, vector_records)
         except Exception as exc:  # noqa: BLE001
+            if error_policy is ErrorPolicy.RAISE:
+                raise
             return [
                 StageFailure(
                     item_id="chunk_vector_store",
@@ -834,6 +836,10 @@ async def _embed_and_upsert_survivors(
                     ]
                 },
             )
+        with contextlib.suppress(Exception):
+            await _delete_vectors(
+                vector_store, vector_collection, list(survivors.keys())
+            )
         if error_policy is ErrorPolicy.RAISE:
             raise
         return [
@@ -860,6 +866,12 @@ async def _embed_and_upsert_survivors(
                 ],
             )
         except Exception as exc:  # noqa: BLE001
+            with contextlib.suppress(Exception):
+                await _delete_vectors(
+                    vector_store, vector_collection, list(survivors.keys())
+                )
+            if error_policy is ErrorPolicy.RAISE:
+                raise
             return [
                 StageFailure(
                     item_id="entity_vector_store",
@@ -1123,15 +1135,17 @@ class Graph:
                     settings.chunk_collection,
                     settings.community_collection,
                 ):
-                    if not await vector_store.collection_exists(collection):
-                        await vector_store.ensure_collection(
-                            collection,
-                            dimensions=dimensions,
-                            distance=distance,
-                            hybrid=True,
-                        )
+                    await vector_store.ensure_collection(
+                        collection,
+                        dimensions=dimensions,
+                        distance=distance,
+                        hybrid=True,
+                    )
         except Exception:
             await graph_store.close()
+            if vector_store is not None:
+                with contextlib.suppress(Exception):
+                    await vector_store.close()
             raise
         return cls(
             schema=schema,
@@ -1508,6 +1522,8 @@ class Graph:
                             list(plan.tombstone_ids),
                         )
                     except Exception as exc:  # noqa: BLE001
+                        if error_policy is ErrorPolicy.RAISE:
+                            raise
                         merge_failures.append(
                             StageFailure(
                                 item_id="tombstone_vector_store",
@@ -1927,11 +1943,19 @@ class Graph:
                 )
                 survivors[plan.survivor.id] = plan.survivor
                 if plan.tombstone_ids:
-                    with contextlib.suppress(Exception):
+                    try:
                         await _delete_vectors(
                             self._vector_store,
                             self._retrieval_settings.entity_collection,
                             list(plan.tombstone_ids),
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        consolidation_failures.append(
+                            StageFailure(
+                                item_id="tombstone_vector_store",
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                            )
                         )
             # Every survivor's node was just (re)written, possibly with a new
             # canonical name or description; its embedding must match that
@@ -1982,7 +2006,7 @@ class Graph:
             if page_offset is None:
                 break
 
-    async def detect_communities(
+    async def detect_communities(  # noqa: PLR0912,PLR0915
         self,
         *,
         apply: bool = False,
@@ -2037,6 +2061,21 @@ class Graph:
             if apply:
                 async with self._graph_store.transaction() as tx:
                     await delete_all_communities(tx)
+                if self._vector_store is not None:
+                    try:
+                        await self._delete_stale_community_vectors()
+                    except Exception as exc:  # noqa: BLE001
+                        return CommunityDetectionReport(
+                            communities=[],
+                            applied=True,
+                            failures=[
+                                StageFailure(
+                                    item_id="community_vector_store",
+                                    error_type=type(exc).__name__,
+                                    error_message=str(exc),
+                                )
+                            ],
+                        )
                 return CommunityDetectionReport(
                     communities=[], applied=True, failures=[]
                 )
@@ -2055,6 +2094,17 @@ class Graph:
             if not communities:
                 async with self._graph_store.transaction() as tx:
                     await delete_all_communities(tx)
+                if self._vector_store is not None:
+                    try:
+                        await self._delete_stale_community_vectors()
+                    except Exception as exc:  # noqa: BLE001
+                        report_failures.append(
+                            StageFailure(
+                                item_id="community_vector_store",
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                            )
+                        )
                 return CommunityDetectionReport(
                     communities=[], applied=True, failures=report_failures
                 )
@@ -2088,32 +2138,6 @@ class Graph:
                 communities, embedder=self._embedder
             )
 
-            if self._vector_store is not None:
-                await self._delete_stale_community_vectors()
-                try:
-                    await _upsert_vectors(
-                        self._vector_store,
-                        self._retrieval_settings.community_collection,
-                        [
-                            _vector_record(
-                                c.id,
-                                c.embedding or [],
-                                label=COMMUNITY_LABEL,
-                                text=c.embedding_text,
-                            )
-                            for c in communities
-                            if c.embedding is not None
-                        ],
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    report_failures.append(
-                        StageFailure(
-                            item_id="community_vector_store",
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
-                        )
-                    )
-
             async with self._graph_store.transaction() as tx:
                 await delete_all_communities(tx)
                 for i in range(0, len(communities), 5000):
@@ -2138,6 +2162,41 @@ class Graph:
                             buf = []
                 if buf:
                     await tx.upsert_relations(buf)
+
+            if self._vector_store is not None:
+                try:
+                    await self._delete_stale_community_vectors()
+                except Exception as exc:  # noqa: BLE001
+                    report_failures.append(
+                        StageFailure(
+                            item_id="community_vector_store",
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
+                    )
+                try:
+                    await _upsert_vectors(
+                        self._vector_store,
+                        self._retrieval_settings.community_collection,
+                        [
+                            _vector_record(
+                                c.id,
+                                c.embedding or [],
+                                label=COMMUNITY_LABEL,
+                                text=c.embedding_text,
+                            )
+                            for c in communities
+                            if c.embedding is not None
+                        ],
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    report_failures.append(
+                        StageFailure(
+                            item_id="community_vector_store",
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
+                    )
 
         return CommunityDetectionReport(
             communities=communities,

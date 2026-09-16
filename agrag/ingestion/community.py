@@ -268,13 +268,18 @@ def _relation_summaries_for(
     attestation weight descending, most-attested relations first, and
     truncated to max_relations to bound the batch prompt's token budget.
     """
-    member_ids = set(community.member_ids)
+    member_ids = {str(m) for m in community.member_ids}
     summaries: list[tuple[float, str]] = []
     for source, target, weight, rel_type in edges:
         if source not in member_ids or target not in member_ids:
             continue
-        source_entity = entities_by_id.get(UUID(source))
-        target_entity = entities_by_id.get(UUID(target))
+        try:
+            source_id = UUID(source)
+            target_id = UUID(target)
+        except ValueError:
+            continue
+        source_entity = entities_by_id.get(source_id)
+        target_entity = entities_by_id.get(target_id)
         if source_entity is None or target_entity is None:
             continue
         summaries.append(

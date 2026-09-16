@@ -249,8 +249,7 @@ graph = await Graph.open(
 A `SearchEngine` pointed at the same `vector_store` then searches the same
 data the graph-native path serves. Ingestion reports the vector-store writes
 in each stage's failures: a failed mirror is a `StageFailure` such as
-`chunk_vector_store`, never a raised error, because the graph write itself
-already succeeded.
+`chunk_vector_store` and honors `ErrorPolicy.RAISE`.
 
 ## Next steps
 
