@@ -5354,7 +5354,7 @@ dual writes never hit an absent collection.
 ##### `agrag.ingestion.graph.SYSTEM_RELATION_TYPES`
 
 ```python
-SYSTEM_RELATION_TYPES = ['MENTIONED_IN', MEMBER_OF_RELATION]
+SYSTEM_RELATION_TYPES = ['MENTIONED_IN', MEMBER_OF_RELATION, 'PART_OF', 'NEXT_CHUNK']
 ```
 
 ##### `agrag.ingestion.graph.SourceType`
@@ -5389,6 +5389,8 @@ separate step.
 - [**apply_merge**](#agrag.ingestion.merge.apply_merge) – Write a computed MergePlan to storage.
 - [**compute_merge**](#agrag.ingestion.merge.compute_merge) – Compute how existing_entities and mentions combine into one Entity.
 - [**mentioned_in_id**](#agrag.ingestion.merge.mentioned_in_id) – Return the deterministic id for a new Chunk -[:MENTIONED_IN]-> Entity edge.
+- [**next_chunk_id**](#agrag.ingestion.merge.next_chunk_id) – Return the deterministic id for a Chunk -[:NEXT_CHUNK]-> Chunk edge.
+- [**part_of_id**](#agrag.ingestion.merge.part_of_id) – Return the deterministic id for a Document -[:PART_OF]-> Chunk edge.
 - [**relation_id**](#agrag.ingestion.merge.relation_id) – Return the deterministic id for a domain relationship triple.
 
 **Attributes:**
@@ -5647,6 +5649,40 @@ its endpoints first and fall back to this id only when none is found.
 **Returns:**
 
 - <code>[UUID](#uuid.UUID)</code> – The edge id. Deterministic: same pair always returns same id.
+
+##### `agrag.ingestion.merge.next_chunk_id`
+
+```python
+next_chunk_id(from_chunk_id:UUID, to_chunk_id:UUID) -> UUID
+```
+
+Return the deterministic id for a Chunk -[:NEXT_CHUNK]-> Chunk edge.
+
+**Parameters:**
+
+- **from_chunk_id** (<code>[UUID](#uuid.UUID)</code>) – The id of the earlier chunk in sequence.
+- **to_chunk_id** (<code>[UUID](#uuid.UUID)</code>) – The id of the chunk that follows it.
+
+**Returns:**
+
+- <code>[UUID](#uuid.UUID)</code> – The edge id. Same pair always returns the same id.
+
+##### `agrag.ingestion.merge.part_of_id`
+
+```python
+part_of_id(document_node_id:UUID, chunk_id:UUID) -> UUID
+```
+
+Return the deterministic id for a Document -[:PART_OF]-> Chunk edge.
+
+**Parameters:**
+
+- **document_node_id** (<code>[UUID](#uuid.UUID)</code>) – The id of the Document graph node.
+- **chunk_id** (<code>[UUID](#uuid.UUID)</code>) – The id of the Chunk.
+
+**Returns:**
+
+- <code>[UUID](#uuid.UUID)</code> – The edge id. Same pair always returns the same id.
 
 ##### `agrag.ingestion.merge.relation_id`
 
