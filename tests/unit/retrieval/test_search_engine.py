@@ -781,3 +781,35 @@ class TestSearchEngine:
             results = await engine.search("test", ENTITY)
 
         assert results == []
+
+    async def test_community_expand_failure_keeps_search_results(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A community lookup error does not discard successful search results."""
+        entity = Entity(id=uuid4(), label="Person", name="Ada", properties={})
+        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+        recipe = Recipe(methods=["entity"], community_expand=True)
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_search,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "agrag.retrieval.search_engine.community_context",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("community store unavailable"),
+            ),
+        ):
+            mock_search.return_value = [VectorHit(id=entity.id, score=0.9, payload={})]
+            mock_resolve.return_value = entity
+
+            with caplog.at_level(logging.WARNING):
+                results = await engine.search("Ada", recipe)
+
+        assert [result.item for result in results] == [entity]
+        assert "Community expansion failed" in caplog.text

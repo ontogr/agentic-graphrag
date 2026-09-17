@@ -3,12 +3,29 @@
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import pytest
+
 from agrag.common.data_models.community import Community
 from agrag.ingestion.community import embed_communities
 
 
 class TestEmbedCommunities:
     """embed_communities batches correctly."""
+
+    @pytest.mark.parametrize(
+        ("argument", "value"),
+        [("batch_size", 0), ("max_concurrency", 0)],
+    )
+    async def test_rejects_invalid_batch_arguments_without_communities(
+        self, argument: str, value: int
+    ) -> None:
+        """Reject invalid scheduling values before embedding communities."""
+        embedder = AsyncMock()
+
+        with pytest.raises(ValueError, match="must be positive"):
+            await embed_communities([], embedder=embedder, **{argument: value})
+
+        embedder.embed.assert_not_called()
 
     async def test_empty_communities_returns_empty_no_embed_calls(self) -> None:
         """An empty community list short-circuits without calling embed()."""
