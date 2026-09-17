@@ -245,6 +245,49 @@ class TestGraphAdd:
         assert result.chunks_closed == 2
         assert result.add_result is None
 
+    async def test_update_closes_edges_before_ingesting_changed_content(self) -> None:
+        """Update closes the old version before calling the add pipeline."""
+        graph = await _open_graph()
+        node_id = uuid4()
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[{"id": str(node_id), "current_content_hash": "old"}]
+        )
+        graph._graph_store.execute_write = AsyncMock(  # type: ignore[method-assign]
+            return_value=[{"closed": 3}]
+        )
+        add_result = await graph.add(text="seed")
+        graph.add = AsyncMock(return_value=add_result)  # type: ignore[method-assign]
+
+        result = await graph.update("memory://doc", text="new")
+
+        assert result.no_op is False
+        assert result.previous_content_hash == "old"
+        assert result.chunks_closed == 3
+        assert result.add_result is add_result
+        graph.add.assert_awaited_once()
+
+    async def test_update_rejects_multiple_inputs(self) -> None:
+        """Update requires exactly one replacement source."""
+        graph = await _open_graph()
+
+        with pytest.raises(ValueError, match="exactly one"):
+            await graph.update("memory://doc", text="new", source="other.txt")
+
+    async def test_delete_missing_document_is_a_no_op(self) -> None:
+        """Deleting an unknown document does not write graph state."""
+        graph = await _open_graph()
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[]
+        )
+        graph._graph_store.execute_write = AsyncMock(  # type: ignore[method-assign]
+            return_value=[{"closed": 1}]
+        )
+
+        result = await graph.delete_document("memory://missing")
+
+        assert result.no_op is True
+        graph._graph_store.execute_write.assert_not_awaited()
+
     async def test_on_progress_receives_stats(self) -> None:
         """On progress receives stats."""
         graph = await _open_graph()
