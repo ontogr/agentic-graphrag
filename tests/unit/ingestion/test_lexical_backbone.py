@@ -6,6 +6,8 @@ RelationRecord/NodeRecord out.
 
 from uuid import UUID, uuid4
 
+import pytest
+
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import (
     DOCUMENT_LABEL,
@@ -16,10 +18,11 @@ from agrag.common.data_models.document import (
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion._lexical_backbone import (
     build_document_record,
+    build_next_chunk_records,
     build_part_of_records,
     distinct_documents,
 )
-from agrag.ingestion.merge import part_of_id
+from agrag.ingestion.merge import next_chunk_id, part_of_id
 
 
 def _doc(*, uri: str = "u", document_key: str | None = None) -> Document:
@@ -39,10 +42,10 @@ def _doc(*, uri: str = "u", document_key: str | None = None) -> Document:
     )
 
 
-def _chunk(document_id: UUID, text: str = "hello") -> Chunk:
+def _chunk(document_id: UUID, text: str = "hello", index: int = 0) -> Chunk:
     return Chunk(
         document_id=document_id,
-        index=0,
+        index=index,
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
@@ -127,3 +130,30 @@ class TestBuildPartOfRecords:
         assert records_a[0].end_id == chunk_a.id
         assert records_b[0].start_id == node_b
         assert records_b[0].end_id == chunk_b.id
+
+
+class TestBuildNextChunkRecords:
+    """build_next_chunk_records links adjacent chunks per document."""
+
+    def test_orders_chunks_and_keeps_documents_separate(self) -> None:
+        """Edges follow chunk indexes and never cross document boundaries."""
+        first_document, second_document = uuid4(), uuid4()
+        first = _chunk(first_document, "first", index=1)
+        previous = _chunk(first_document, "previous", index=0)
+        other = _chunk(second_document, "other", index=0)
+
+        records = build_next_chunk_records([first, other, previous])
+
+        assert len(records) == 1
+        assert records[0].start_id == previous.id
+        assert records[0].end_id == first.id
+        assert records[0].id == next_chunk_id(previous.id, first.id)
+
+    def test_rejects_unresolved_chunk_ids(self) -> None:
+        """An unresolved adjacent chunk cannot produce a deterministic edge."""
+        document_id = uuid4()
+        chunk = _chunk(document_id, index=0)
+        chunk.id = None
+
+        with pytest.raises(ValueError, match="Chunk.id"):
+            build_next_chunk_records([chunk, _chunk(document_id, index=1)])

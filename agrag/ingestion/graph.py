@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import glob
+import hashlib
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from datetime import datetime
@@ -17,7 +18,12 @@ from agrag.chunking import default_chunker
 from agrag.chunking.text import chunk_document
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.community import COMMUNITY_LABEL, MEMBER_OF_RELATION
-from agrag.common.data_models.document import DOCUMENT_LABEL, Document
+from agrag.common.data_models.document import (
+    DOCUMENT_LABEL,
+    Document,
+    DocumentFamily,
+    SourceFormat,
+)
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.graph_record import RelationRecord
@@ -44,8 +50,13 @@ from agrag.graphdb.errors import (
     GraphStoreConstraintViolationError,
     GraphStoreDataIntegrityError,
 )
+from agrag.ingestion._document_lifecycle import (
+    close_open_part_of_edges,
+    find_document,
+)
 from agrag.ingestion._lexical_backbone import (
     build_document_record,
+    build_next_chunk_records,
     build_part_of_records,
     distinct_documents,
 )
@@ -61,6 +72,7 @@ from agrag.ingestion.reports import (
     AddResult,
     CommunityDetectionReport,
     ConsolidationReport,
+    UpdateResult,
 )
 from agrag.ingestion.resolve import (
     ExactMatch,
@@ -1450,6 +1462,14 @@ class Graph:
 
         # If no chunks/entities, we can early return with empty stages
         if not chunks:
+            if documents_seen:
+                await self._graph_store.upsert_nodes(
+                    DOCUMENT_LABEL,
+                    [
+                        build_document_record(document)
+                        for document in distinct_documents(documents_seen)
+                    ],
+                )
             # Build final result with zero stages
             ingestion = IngestStats(
                 documents=final_stats.documents,
@@ -1765,12 +1785,14 @@ class Graph:
 
         # Document nodes and PART_OF edges: one Document per distinct document
         # in this call, PART_OF linking it to the chunks written above.
+        distinct = distinct_documents(documents_seen)
+        documents_by_key = {doc.resolved_document_key: doc for doc in distinct}
+        selected_document_ids = {doc.resolved_id for doc in documents_by_key.values()}
         chunks_by_document_id: dict[UUID, list[Chunk]] = defaultdict(list)
         for ch in chunks:
-            chunks_by_document_id[ch.document_id].append(ch)
-        documents_by_id = {
-            doc.resolved_id: doc for doc in distinct_documents(documents_seen)
-        }
+            if ch.document_id in selected_document_ids:
+                chunks_by_document_id[ch.document_id].append(ch)
+        documents_by_id = {doc.resolved_id: doc for doc in documents_by_key.values()}
         document_records = [
             build_document_record(doc) for doc in documents_by_id.values()
         ]
@@ -1783,6 +1805,7 @@ class Graph:
                     document_node_id, chunks_by_document_id.get(document_id, [])
                 )
             )
+        relation_records.extend(build_next_chunk_records(chunks))
 
         # Write chunk nodes
         storage_failures: list[StageFailure] = list(relation_storage_failures)
@@ -1937,6 +1960,105 @@ class Graph:
                 on_progress(result)
 
         return result
+
+    async def update(
+        self,
+        document_key: str,
+        *,
+        text: str | None = None,
+        source: SourcesType | None = None,
+        loader: Loader | None = None,
+        error_policy: ErrorPolicy = ErrorPolicy.RAISE,
+    ) -> UpdateResult:
+        """Replace one document version, closing its former PART_OF edges.
+
+        An unchanged content hash is a no-op. The update path uses the same
+        ``add`` pipeline as fresh ingestion after it closes the old edges.
+        """
+        if (text is None) == (source is None):
+            raise ValueError("Provide exactly one of 'text' or 'source'.")
+
+        if text is not None:
+            normalized = text
+            content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+            document = Document(
+                text=normalized,
+                title="inline",
+                uri=document_key,
+                document_key=document_key,
+                source_format=SourceFormat.TXT,
+                family=DocumentFamily.PROSE,
+                content_hash=content_hash,
+                loader_name="inline",
+                encoding="utf-8",
+                char_count=len(normalized),
+                line_count=normalized.count("\n") + 1,
+            )
+        else:
+            assert source is not None
+            paths, single_file = _resolve_paths(source)
+            if loader is not None and not single_file:
+                raise ValueError(
+                    "A loader override requires a single-file source, not a directory, "
+                    "glob, or list of sources."
+                )
+            walk = _CorpusWalk(
+                paths,
+                registry=self._registry,
+                opts=ReadOptions(),
+                error_policy=error_policy,
+                loader=loader,
+                tracer=self._tracer,
+            )
+            batches = walk.iter_batches()
+            try:
+                batch, _cursor, _stats = await anext(batches)
+            except StopAsyncIteration as exc:
+                raise ValueError("The source produced no document.") from exc
+            if not batch:
+                raise ValueError("The source produced no document.")
+            document = batch[0].model_copy(update={"document_key": document_key})
+
+        found = await find_document(self._graph_store, document_key=document_key)
+        if found is not None and found.current_content_hash == document.content_hash:
+            return UpdateResult(
+                document_key=document_key,
+                no_op=True,
+                previous_content_hash=found.current_content_hash,
+                new_content_hash=document.content_hash,
+            )
+
+        chunks_closed = 0
+        if found is not None:
+            chunks_closed = await close_open_part_of_edges(
+                self._graph_store, document_node_id=found.document_node_id
+            )
+        add_result = await self.add(
+            documents=[document], error_policy=error_policy, return_chunks=False
+        )
+        return UpdateResult(
+            document_key=document_key,
+            no_op=False,
+            previous_content_hash=(found.current_content_hash if found else None),
+            new_content_hash=document.content_hash,
+            chunks_closed=chunks_closed,
+            add_result=add_result,
+        )
+
+    async def delete_document(self, document_key: str) -> UpdateResult:
+        """Soft-delete a document by closing its current PART_OF edges."""
+        found = await find_document(self._graph_store, document_key=document_key)
+        if found is None:
+            return UpdateResult(document_key=document_key, no_op=True)
+        chunks_closed = await close_open_part_of_edges(
+            self._graph_store, document_node_id=found.document_node_id
+        )
+        return UpdateResult(
+            document_key=document_key,
+            no_op=False,
+            previous_content_hash=found.current_content_hash,
+            chunks_closed=chunks_closed,
+        )
 
     def _chunk_documents(self, documents: list[Document]) -> list[Chunk]:
         """Chunk a batch of documents with the right chunker each.

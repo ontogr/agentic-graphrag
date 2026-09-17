@@ -10,7 +10,15 @@ concurrent writer's contribution is not lost.
 
 import pytest
 
-from agrag.cypher.relations import upsert_relation_query
+from agrag.cypher.relations import close_part_of_query, upsert_relation_query
+
+
+def test_close_part_of_query_only_closes_open_edges() -> None:
+    """The lifecycle query preserves superseded edge timestamps."""
+    query = close_part_of_query()
+    assert "$document_node_id" in query
+    assert "r.invalid_at IS NULL" in query
+    assert "RETURN count(r) AS closed" in query
 
 
 class TestUpsertRelationQuery:

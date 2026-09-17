@@ -1046,8 +1046,8 @@ hydrate_chunks_by_id_query() -> str
 
 Build Cypher fetching chunks by id.
 
-Chunks are never tombstoned, so no merged_into guard is needed.
-The query filters on the Chunk label for type safety.
+The query follows only currently valid PART_OF edges, so superseded
+document versions cannot surface in retrieval.
 
 **Returns:**
 
@@ -1470,6 +1470,7 @@ identifier-validation contract shared by every Cypher builder.
 
 - [**bfs_expand_query**](#agrag.cypher.relations.bfs_expand_query) – Build Cypher for BFS expansion from seed entity ids.
 - [**chunks_mentioning_entities_query**](#agrag.cypher.relations.chunks_mentioning_entities_query) – Build Cypher finding chunks that mention given entities.
+- [**close_part_of_query**](#agrag.cypher.relations.close_part_of_query) – Build Cypher that closes currently valid document-to-chunk edges.
 - [**entities_mentioned_in_chunks_query**](#agrag.cypher.relations.entities_mentioned_in_chunks_query) – Build Cypher finding entities mentioned by given chunks.
 - [**fetch_all_relations_query**](#agrag.cypher.relations.fetch_all_relations_query) – Build Cypher paginating every live domain relationship.
 - [**fetch_all_relations_query_cursor**](#agrag.cypher.relations.fetch_all_relations_query_cursor) – Build Cypher paginating every live domain relationship via keyset.
@@ -1534,6 +1535,14 @@ that reference any of the given entity ids.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids).
+
+##### `agrag.cypher.relations.close_part_of_query`
+
+```python
+close_part_of_query() -> str
+```
+
+Build Cypher that closes currently valid document-to-chunk edges.
 
 ##### `agrag.cypher.relations.entities_mentioned_in_chunks_query`
 
@@ -4424,8 +4433,10 @@ by `open()` when missing.
 
 - [**add**](#agrag.ingestion.Graph.add) – Add content to the graph.
 - [**consolidate**](#agrag.ingestion.Graph.consolidate) – Run full tiered resolution against everything persisted.
+- [**delete_document**](#agrag.ingestion.Graph.delete_document) – Soft-delete a document by closing its current PART_OF edges.
 - [**detect_communities**](#agrag.ingestion.Graph.detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag.ingestion.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
+- [**update**](#agrag.ingestion.Graph.update) – Replace one document version, closing its former PART_OF edges.
 
 **Parameters:**
 
@@ -4511,6 +4522,14 @@ Confirmed matches become MergePlans via compute_merge.
 
 - <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every group consolidate() found, applied or not.
 
+##### `agrag.ingestion.Graph.delete_document`
+
+```python
+delete_document(document_key:str) -> UpdateResult
+```
+
+Soft-delete a document by closing its current PART_OF edges.
+
 ##### `agrag.ingestion.Graph.detect_communities`
 
 ```python
@@ -4589,6 +4608,17 @@ dual writes never hit an absent collection.
 - <code>[Exception](#Exception)</code> – Whatever connect(), registration, constraint/index
   setup, or vector-index provisioning raises. graph_store is
   closed first, so a failed open() never leaks a connection.
+
+##### `agrag.ingestion.Graph.update`
+
+```python
+update(document_key:str, *, text:str | None = None, source:SourcesType | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE) -> UpdateResult
+```
+
+Replace one document version, closing its former PART_OF edges.
+
+An unchanged content hash is a no-op. The update path uses the same
+`add` pipeline as fresh ingestion after it closes the old edges.
 
 #### `agrag.ingestion.community`
 
@@ -5185,8 +5215,10 @@ by `open()` when missing.
 
 - [**add**](#agrag.ingestion.graph.Graph.add) – Add content to the graph.
 - [**consolidate**](#agrag.ingestion.graph.Graph.consolidate) – Run full tiered resolution against everything persisted.
+- [**delete_document**](#agrag.ingestion.graph.Graph.delete_document) – Soft-delete a document by closing its current PART_OF edges.
 - [**detect_communities**](#agrag.ingestion.graph.Graph.detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag.ingestion.graph.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
+- [**update**](#agrag.ingestion.graph.Graph.update) – Replace one document version, closing its former PART_OF edges.
 
 **Parameters:**
 
@@ -5272,6 +5304,14 @@ Confirmed matches become MergePlans via compute_merge.
 
 - <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every group consolidate() found, applied or not.
 
+###### `agrag.ingestion.graph.Graph.delete_document`
+
+```python
+delete_document(document_key:str) -> UpdateResult
+```
+
+Soft-delete a document by closing its current PART_OF edges.
+
 ###### `agrag.ingestion.graph.Graph.detect_communities`
 
 ```python
@@ -5350,6 +5390,17 @@ dual writes never hit an absent collection.
 - <code>[Exception](#Exception)</code> – Whatever connect(), registration, constraint/index
   setup, or vector-index provisioning raises. graph_store is
   closed first, so a failed open() never leaks a connection.
+
+###### `agrag.ingestion.graph.Graph.update`
+
+```python
+update(document_key:str, *, text:str | None = None, source:SourcesType | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE) -> UpdateResult
+```
+
+Replace one document version, closing its former PART_OF edges.
+
+An unchanged content hash is a no-op. The update path uses the same
+`add` pipeline as fresh ingestion after it closes the old edges.
 
 ##### `agrag.ingestion.graph.SYSTEM_RELATION_TYPES`
 
@@ -5720,12 +5771,14 @@ One class per module under this package; this init re-exports them so
 - [**add_result**](#agrag.ingestion.reports.add_result) – Graph.add()'s result type.
 - [**community_detection_report**](#agrag.ingestion.reports.community_detection_report) – Graph.detect_communities()'s result type.
 - [**consolidation_report**](#agrag.ingestion.reports.consolidation_report) – Graph.consolidate()'s result type.
+- [**update_result**](#agrag.ingestion.reports.update_result) – Result returned by document lifecycle operations.
 
 **Classes:**
 
 - [**AddResult**](#agrag.ingestion.reports.AddResult) – Graph.add()'s return type — one summary per pipeline stage.
 - [**CommunityDetectionReport**](#agrag.ingestion.reports.CommunityDetectionReport) – Report from Graph.detect_communities().
 - [**ConsolidationReport**](#agrag.ingestion.reports.ConsolidationReport) – Report from Graph.consolidate().
+- [**UpdateResult**](#agrag.ingestion.reports.UpdateResult) – Summary of an update or soft deletion.
 
 ##### `agrag.ingestion.reports.AddResult`
 
@@ -5884,6 +5937,57 @@ failures: list[StageFailure] = Field(default_factory=list)
 
 ```python
 would_merge: list[MergePlan] = Field(default_factory=list)
+```
+
+##### `agrag.ingestion.reports.UpdateResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Summary of an update or soft deletion.
+
+**Attributes:**
+
+- [**document_key**](#agrag.ingestion.reports.UpdateResult.document_key) (<code>[str](#str)</code>) – Stable identity used for the document node.
+- [**no_op**](#agrag.ingestion.reports.UpdateResult.no_op) (<code>[bool](#bool)</code>) – Whether no graph changes were needed.
+- [**previous_content_hash**](#agrag.ingestion.reports.UpdateResult.previous_content_hash) (<code>[str](#str) | None</code>) – Hash stored before the operation, if present.
+- [**new_content_hash**](#agrag.ingestion.reports.UpdateResult.new_content_hash) (<code>[str](#str) | None</code>) – Hash written by an update, or `None` on deletion.
+- [**chunks_closed**](#agrag.ingestion.reports.UpdateResult.chunks_closed) (<code>[int](#int)</code>) – Number of open PART_OF edges closed.
+- [**add_result**](#agrag.ingestion.reports.UpdateResult.add_result) (<code>[AddResult](#agrag.ingestion.reports.add_result.AddResult) | None</code>) – Ingestion details for changed content, if any.
+
+###### `agrag.ingestion.reports.UpdateResult.add_result`
+
+```python
+add_result: AddResult | None = None
+```
+
+###### `agrag.ingestion.reports.UpdateResult.chunks_closed`
+
+```python
+chunks_closed: int = 0
+```
+
+###### `agrag.ingestion.reports.UpdateResult.document_key`
+
+```python
+document_key: str
+```
+
+###### `agrag.ingestion.reports.UpdateResult.new_content_hash`
+
+```python
+new_content_hash: str | None = None
+```
+
+###### `agrag.ingestion.reports.UpdateResult.no_op`
+
+```python
+no_op: bool
+```
+
+###### `agrag.ingestion.reports.UpdateResult.previous_content_hash`
+
+```python
+previous_content_hash: str | None = None
 ```
 
 ##### `agrag.ingestion.reports.add_result`
@@ -6067,6 +6171,65 @@ failures: list[StageFailure] = Field(default_factory=list)
 
 ```python
 would_merge: list[MergePlan] = Field(default_factory=list)
+```
+
+##### `agrag.ingestion.reports.update_result`
+
+Result returned by document lifecycle operations.
+
+**Classes:**
+
+- [**UpdateResult**](#agrag.ingestion.reports.update_result.UpdateResult) – Summary of an update or soft deletion.
+
+###### `agrag.ingestion.reports.update_result.UpdateResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Summary of an update or soft deletion.
+
+**Attributes:**
+
+- [**document_key**](#agrag.ingestion.reports.update_result.UpdateResult.document_key) (<code>[str](#str)</code>) – Stable identity used for the document node.
+- [**no_op**](#agrag.ingestion.reports.update_result.UpdateResult.no_op) (<code>[bool](#bool)</code>) – Whether no graph changes were needed.
+- [**previous_content_hash**](#agrag.ingestion.reports.update_result.UpdateResult.previous_content_hash) (<code>[str](#str) | None</code>) – Hash stored before the operation, if present.
+- [**new_content_hash**](#agrag.ingestion.reports.update_result.UpdateResult.new_content_hash) (<code>[str](#str) | None</code>) – Hash written by an update, or `None` on deletion.
+- [**chunks_closed**](#agrag.ingestion.reports.update_result.UpdateResult.chunks_closed) (<code>[int](#int)</code>) – Number of open PART_OF edges closed.
+- [**add_result**](#agrag.ingestion.reports.update_result.UpdateResult.add_result) (<code>[AddResult](#agrag.ingestion.reports.add_result.AddResult) | None</code>) – Ingestion details for changed content, if any.
+
+####### `agrag.ingestion.reports.update_result.UpdateResult.add_result`
+
+```python
+add_result: AddResult | None = None
+```
+
+####### `agrag.ingestion.reports.update_result.UpdateResult.chunks_closed`
+
+```python
+chunks_closed: int = 0
+```
+
+####### `agrag.ingestion.reports.update_result.UpdateResult.document_key`
+
+```python
+document_key: str
+```
+
+####### `agrag.ingestion.reports.update_result.UpdateResult.new_content_hash`
+
+```python
+new_content_hash: str | None = None
+```
+
+####### `agrag.ingestion.reports.update_result.UpdateResult.no_op`
+
+```python
+no_op: bool
+```
+
+####### `agrag.ingestion.reports.update_result.UpdateResult.previous_content_hash`
+
+```python
+previous_content_hash: str | None = None
 ```
 
 #### `agrag.ingestion.resolve`

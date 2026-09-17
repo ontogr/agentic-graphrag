@@ -5,13 +5,13 @@ functions to turn already-built ``Document``/``Chunk`` objects into
 ``NodeRecord``/``RelationRecord`` writes. Nothing here touches ``GraphStore``.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
-from agrag.ingestion.merge import part_of_id
+from agrag.ingestion.merge import next_chunk_id, part_of_id
 
 
 def distinct_documents(documents: list[Document]) -> list[Document]:
@@ -22,14 +22,14 @@ def distinct_documents(documents: list[Document]) -> list[Document]:
             possibly repeating the same document across batches.
 
     Returns:
-        One entry per distinct ``Document.resolved_id``.
+        One entry per distinct stable document key.
     """
-    seen: set[UUID] = set()
+    seen: set[str] = set()
     result: list[Document] = []
     for document in documents:
-        if document.resolved_id in seen:
+        if document.resolved_document_key in seen:
             continue
-        seen.add(document.resolved_id)
+        seen.add(document.resolved_document_key)
         result.append(document)
     return result
 
@@ -56,7 +56,7 @@ def build_part_of_records(
     Raises:
         ValueError: A chunk's id is None.
     """
-    now = datetime.now().isoformat()
+    now = datetime.now(UTC).isoformat()
     records: list[RelationRecord] = []
     for chunk in chunks:
         if chunk.id is None:
@@ -70,4 +70,30 @@ def build_part_of_records(
                 properties={"valid_at": now, "invalid_at": None},
             )
         )
+    return records
+
+
+def build_next_chunk_records(chunks: list[Chunk]) -> list[RelationRecord]:
+    """Return untemporal edges joining adjacent chunks within each document."""
+    by_document: dict[UUID, list[Chunk]] = {}
+    for chunk in chunks:
+        by_document.setdefault(chunk.document_id, []).append(chunk)
+
+    records: list[RelationRecord] = []
+    for document_chunks in by_document.values():
+        ordered = sorted(document_chunks, key=lambda chunk: chunk.index)
+        for previous, current in zip(ordered, ordered[1:], strict=False):
+            if previous.id is None or current.id is None:
+                raise ValueError(
+                    "Chunk.id must be set before building NEXT_CHUNK records."
+                )
+            records.append(
+                RelationRecord(
+                    id=next_chunk_id(previous.id, current.id),
+                    type="NEXT_CHUNK",
+                    start_id=previous.id,
+                    end_id=current.id,
+                    properties={},
+                )
+            )
     return records
