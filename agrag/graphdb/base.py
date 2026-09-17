@@ -3,9 +3,13 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
-from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_record import (
+    NodeRecord,
+    RelationRecord,
+    UpsertResult,
+)
 from agrag.common.data_models.vector_record import Distance, VectorHit
 
 
@@ -164,7 +168,7 @@ class GraphStore(ABC):
         nodes: Sequence[NodeRecord],
         *,
         batch_size: int = 256,
-    ) -> None:
+    ) -> UpsertResult:
         """Write or merge nodes, honoring each record's full label set.
 
         Args:
@@ -177,6 +181,9 @@ class GraphStore(ABC):
                 distinct label set when ``nodes`` mixes more than one. Must
                 be positive.
 
+        Returns:
+            The number written and one failure entry for each isolated record.
+
         Raises:
             ValueError: ``batch_size`` is not positive.
         """
@@ -187,12 +194,15 @@ class GraphStore(ABC):
         relations: Sequence[RelationRecord],
         *,
         batch_size: int = 256,
-    ) -> None:
+    ) -> UpsertResult:
         """Write or merge relationships between existing nodes.
 
         Args:
             relations: The relation records to upsert.
             batch_size: Records per backend write call. Must be positive.
+
+        Returns:
+            The number written and one failure entry for each isolated record.
 
         Raises:
             ValueError: ``batch_size`` is not positive.
@@ -253,7 +263,7 @@ class GraphStore(ABC):
         Returns:
             An async context manager yielding the transactional handle.
         """
-        yield self
+        yield cast(GraphStoreTransaction, self)
 
     async def __aenter__(self) -> "GraphStore":
         """Open the store and verify connectivity.

@@ -17,7 +17,10 @@ from agrag.cypher.schema import (
     relation_id_constraint_query,
     vector_index_name,
 )
-from agrag.graphdb.errors import GraphStoreMissingExtraError
+from agrag.graphdb.errors import (
+    GraphStoreConstraintViolationError,
+    GraphStoreMissingExtraError,
+)
 from agrag.graphdb.neo4j import _VECTOR_SEARCH_MAX_K, Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
 
@@ -155,6 +158,116 @@ class TestUpsertNodes:
             "records": [{"id": str(node.id), "properties": {"text": "a"}}]
         }
 
+    async def test_isolates_record_specific_batch_failures(self) -> None:
+        """A bad node does not block other nodes in its batch or later batches."""
+        store = _store()
+        store._identity_constraint_ready = True
+        good, bad, later = (
+            NodeRecord(id=uuid4(), labels=["Chunk"], properties={"name": value})
+            for value in ("good", "bad", "later")
+        )
+
+        async def write(
+            query: str, parameters: dict[str, object]
+        ) -> list[dict[str, object]]:
+            records = parameters["records"]
+            assert isinstance(records, list)
+            if len(records) == 2:
+                raise GraphStoreConstraintViolationError("duplicate")
+            if records[0]["id"] == str(bad.id):
+                raise GraphStoreConstraintViolationError("duplicate")
+            return []
+
+        store.execute_write = mock.AsyncMock(side_effect=write)
+        result = await store.upsert_nodes("Chunk", [good, bad, later], batch_size=2)
+
+        assert result.written == 2
+        assert [failure.id for failure in result.failures] == [str(bad.id)]
+        assert store.execute_write.await_count == 4
+
+    async def test_validation_failure_is_reported_per_record(self) -> None:
+        """An unsafe content label only rejects its own node."""
+        store = _store()
+        store._identity_constraint_ready = True
+        good = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
+        bad = NodeRecord(id=uuid4(), labels=["not safe"], properties={})
+        store.execute_write = mock.AsyncMock()
+
+        result = await store.upsert_nodes("Chunk", [bad, good])
+
+        assert result.written == 1
+        assert result.failures[0].id == str(bad.id)
+        store.execute_write.assert_awaited_once()
+
+
+class TestBatchWritePerItemIsolation:
+    """Batch fallback isolates only errors tied to record data."""
+
+    async def test_unknown_batch_error_aborts_without_retry(self) -> None:
+        """An unknown error does not trigger individual retries."""
+        store = _store()
+        store.execute_write = mock.AsyncMock(side_effect=RuntimeError("outage"))
+        records = [{"id": "1"}, {"id": "2"}]
+
+        with pytest.raises(RuntimeError, match="outage"):
+            await store._batch_write("QUERY", records, batch_size=2)
+
+        store.execute_write.assert_awaited_once()
+
+    async def test_syntax_error_aborts_without_retry(self) -> None:
+        """A fixed query syntax error does not trigger individual retries."""
+        neo4j = pytest.importorskip("neo4j.exceptions")
+        store = _store()
+        store.execute_write = mock.AsyncMock(
+            side_effect=neo4j.CypherSyntaxError("invalid query")
+        )
+
+        with pytest.raises(neo4j.CypherSyntaxError):
+            await store._batch_write("QUERY", [{"id": "1"}], batch_size=1)
+
+        store.execute_write.assert_awaited_once()
+
+    async def test_non_isolatable_error_during_retry_propagates(self) -> None:
+        """A connection error during fallback is not captured as an item failure."""
+        neo4j = pytest.importorskip("neo4j.exceptions")
+        store = _store()
+        store.execute_write = mock.AsyncMock(
+            side_effect=[
+                GraphStoreConstraintViolationError("duplicate"),
+                neo4j.ServiceUnavailable("offline"),
+            ]
+        )
+
+        with pytest.raises(neo4j.ServiceUnavailable):
+            await store._batch_write("QUERY", [{"id": "1"}], batch_size=1)
+
+        assert store.execute_write.await_count == 2
+
+    async def test_all_individual_records_can_fail(self) -> None:
+        """Fallback visits every record even when each individual write fails."""
+        store = _store()
+        store.execute_write = mock.AsyncMock(
+            side_effect=GraphStoreConstraintViolationError("duplicate")
+        )
+        result = await store._batch_write(
+            "QUERY", [{"id": "1"}, {"id": "2"}], batch_size=2
+        )
+
+        assert result.written == 0
+        assert [failure.id for failure in result.failures] == ["1", "2"]
+        assert store.execute_write.await_count == 3
+
+    async def test_empty_records_do_not_write(self) -> None:
+        """An empty input returns an empty result without touching the driver."""
+        store = _store()
+        store.execute_write = mock.AsyncMock()
+
+        result = await store._batch_write("QUERY", [], batch_size=2)
+
+        assert result.written == 0
+        assert result.failures == []
+        store.execute_write.assert_not_awaited()
+
     async def test_tracks_every_label_on_multi_label_node(self) -> None:
         """A multi-label node tracks each of its labels, not only the call label."""
         store = _store()
@@ -290,6 +403,29 @@ class TestUpsertRelations:
         assert any("-[r:MENTIONS {id: record.id}]->" in q for q in queries)
         assert any("-[r:LINKS {id: record.id}]->" in q for q in queries)
         assert store._known_relation_types == {"MENTIONS", "LINKS"}
+
+    async def test_validation_failure_is_reported_per_relation(self) -> None:
+        """An unsafe relationship type only rejects its own relation."""
+        store = _store()
+        first = RelationRecord(
+            id=uuid4(),
+            type="not safe",
+            start_id=uuid4(),
+            end_id=uuid4(),
+            properties={},
+        )
+        second = RelationRecord(
+            id=uuid4(),
+            type="MENTIONS",
+            start_id=uuid4(),
+            end_id=uuid4(),
+            properties={},
+        )
+
+        result = await store.upsert_relations([first, second])
+
+        assert result.written == 1
+        assert [failure.id for failure in result.failures] == [str(first.id)]
 
     async def test_rejects_non_positive_batch_size(self) -> None:
         """A zero or negative batch_size raises instead of silently skipping."""
