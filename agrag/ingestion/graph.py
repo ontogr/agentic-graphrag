@@ -1780,9 +1780,12 @@ class Graph:
                 )
                 nodes_written += write_result.written
                 storage_failures.extend(_upsert_stage_failures(write_result))
-                chunk_failure_ids = {
-                    UUID(failure.id) for failure in write_result.failures
-                }
+                chunk_failure_ids = set()
+                for failure in write_result.failures:
+                    try:
+                        chunk_failure_ids.add(UUID(failure.id))
+                    except ValueError:
+                        continue
                 chunks_written = True
         except Exception as exc:  # noqa: BLE001
             if error_policy is ErrorPolicy.RAISE:

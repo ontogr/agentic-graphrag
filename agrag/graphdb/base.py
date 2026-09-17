@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Protocol, cast
+from typing import Any, Protocol
 
 from agrag.common.data_models.graph_record import (
     NodeRecord,
@@ -40,7 +40,7 @@ class GraphStoreTransaction(Protocol):
         nodes: Sequence[NodeRecord],
         *,
         batch_size: int = 256,
-    ) -> None:
+    ) -> UpsertResult | None:
         """Write or merge nodes inside the surrounding transaction."""
         ...
 
@@ -49,7 +49,7 @@ class GraphStoreTransaction(Protocol):
         relations: Sequence[RelationRecord],
         *,
         batch_size: int = 256,
-    ) -> None:
+    ) -> UpsertResult | None:
         """Write or merge relationships inside the surrounding transaction."""
         ...
 
@@ -263,7 +263,7 @@ class GraphStore(ABC):
         Returns:
             An async context manager yielding the transactional handle.
         """
-        yield cast(GraphStoreTransaction, self)
+        yield self
 
     async def __aenter__(self) -> "GraphStore":
         """Open the store and verify connectivity.

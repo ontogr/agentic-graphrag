@@ -17,9 +17,10 @@ class StorageStats(BaseModel):
             point.
         relationships_written: Domain Relation and MENTIONED_IN edges
             together, for the same reason.
-        failures: One record per write item that failed, capped per call.
-            Bulk graph writes can partially succeed. The counts include only
-            records that landed; each isolated failure is a ``StageFailure``.
+        failures: Isolated graph-write failures are reported per record and
+            capped per call. Conversion, embedding, vector-store, and other
+            non-isolatable graph failures can use one stage-level failure.
+            The counts include only records that landed.
         failures_total: Failures recorded before capping.
         failures_truncated: Whether ``failures`` was cut to the cap.
     """

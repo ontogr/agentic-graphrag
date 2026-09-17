@@ -11,6 +11,7 @@ Agentic GraphRAG: graph-based RAG with agentic reasoning.
 
 - [**agents**](#agrag.agents) – Agentic layer: planner/researcher/verifier over SearchEngine.
 - [**chunking**](#agrag.chunking) – Chunking helpers for the ingestion layer.
+- [**common**](#agrag.common) – Common utilities and data models shared across agrag.
 - [**cypher**](#agrag.cypher) – Cypher query builders for graph stores.
 - [**embedding**](#agrag.embedding) – Text embedding: turn strings into dense vectors.
 - [**graphdb**](#agrag.graphdb) – Graph storage backends and the build shortcut.
@@ -788,6 +789,1861 @@ Chunk a stream of documents into a flat stream of chunks.
 **Yields:**
 
 - <code>[Chunk](#agrag.common.data_models.chunk.Chunk)</code> – Each chunk, in document then chunk order.
+
+### `agrag.common`
+
+Common utilities and data models shared across agrag.
+
+**Modules:**
+
+- [**data_models**](#agrag.common.data_models) – Shared data models used by agrag components.
+- [**text**](#agrag.common.text) – Shared text normalization used across resolution and merge-key computation.
+- [**validation**](#agrag.common.validation) – Validation helpers shared across storage backends.
+
+#### `agrag.common.data_models`
+
+Shared data models used by agrag components.
+
+**Modules:**
+
+- [**chunk**](#agrag.common.data_models.chunk) – The Chunk model: one retrieval-sized piece of a Document.
+- [**community**](#agrag.common.data_models.community) – The Community model: a Leiden-detected entity cluster with an LLM report.
+- [**data_point**](#agrag.common.data_models.data_point) – The base class for a graph node.
+- [**document**](#agrag.common.data_models.document) – The Document model: one unit of source text, before chunking.
+- [**entity**](#agrag.common.data_models.entity) – The canonical, resolved graph entity that merge mechanics produces.
+- [**extraction**](#agrag.common.data_models.extraction) – Pre-resolution entity and relation mentions produced by an Extractor.
+- [**graph_record**](#agrag.common.data_models.graph_record) – Graph storage record shapes for GraphStore.
+- [**graph_schema**](#agrag.common.data_models.graph_schema) – The GraphSchema contract: entity and relation types extraction validates against.
+- [**provenance**](#agrag.common.data_models.provenance) – Provenance types for a chunk.
+- [**relation**](#agrag.common.data_models.relation) – The canonical, deduped graph relationship that merge mechanics produces.
+- [**search_result**](#agrag.common.data_models.search_result) – One retrieved item, tagged with source and relevance score.
+- [**vector_record**](#agrag.common.data_models.vector_record) – Vector storage record shapes shared by VectorStore and GraphStore.
+
+##### `agrag.common.data_models.chunk`
+
+The Chunk model: one retrieval-sized piece of a Document.
+
+**Classes:**
+
+- [**Chunk**](#agrag.common.data_models.chunk.Chunk) – One retrieval-sized piece of a Document.
+
+**Attributes:**
+
+- [**CHUNK_LABEL**](#agrag.common.data_models.chunk.CHUNK_LABEL) –
+
+###### `agrag.common.data_models.chunk.CHUNK_LABEL`
+
+```python
+CHUNK_LABEL = 'Chunk'
+```
+
+###### `agrag.common.data_models.chunk.Chunk`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+One retrieval-sized piece of a Document.
+
+**Attributes:**
+
+- [**document_id**](#agrag.common.data_models.chunk.Chunk.document_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the parent Document. Use this id to look up fields such
+- [**index**](#agrag.common.data_models.chunk.Chunk.index) (<code>[int](#int)</code>) – The position of the chunk within its document, from 0.
+- [**text**](#agrag.common.data_models.chunk.Chunk.text) (<code>[str](#str)</code>) – The chunk text.
+- [**provenance**](#agrag.common.data_models.chunk.Chunk.provenance) (<code>[TextProvenance](#agrag.common.data_models.provenance.TextProvenance) | [PageProvenance](#agrag.common.data_models.provenance.PageProvenance)</code>) – The location of this chunk in its source. The shape of this value
+- [**heading_path**](#agrag.common.data_models.chunk.Chunk.heading_path) (<code>[list](#list)\[[str](#str)\]</code>) – The headings that contain this chunk, from outermost to innermost.
+  Empty for a docling chunk and for a chunk with no heading above it.
+- [**content_kind**](#agrag.common.data_models.chunk.Chunk.content_kind) (<code>[Literal](#typing.Literal)['text', 'table_row', 'code', 'heading']</code>) – The kind of content in this chunk. A text chunker always sets
+  `"text"`. A docling chunk can also be `"table_row"`.
+
+**Functions:**
+
+- [**id_for**](#agrag.common.data_models.chunk.Chunk.id_for) – Compute the chunk id.
+- [**to_node_record**](#agrag.common.data_models.chunk.Chunk.to_node_record) – Return this chunk as a GraphStore write record.
+
+####### `agrag.common.data_models.chunk.Chunk.content_kind`
+
+```python
+content_kind: Literal['text', 'table_row', 'code', 'heading'] = 'text'
+```
+
+####### `agrag.common.data_models.chunk.Chunk.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+####### `agrag.common.data_models.chunk.Chunk.document_id`
+
+```python
+document_id: UUID
+```
+
+####### `agrag.common.data_models.chunk.Chunk.embedding`
+
+```python
+embedding: list[float] | None = None
+```
+
+####### `agrag.common.data_models.chunk.Chunk.heading_path`
+
+```python
+heading_path: list[str] = Field(default_factory=list)
+```
+
+####### `agrag.common.data_models.chunk.Chunk.id`
+
+```python
+id: UUID | None = None
+```
+
+####### `agrag.common.data_models.chunk.Chunk.id_for`
+
+```python
+id_for(*, document_id:UUID, provenance:TextProvenance | PageProvenance, index:int) -> UUID
+```
+
+Compute the chunk id.
+
+For a text chunk, the id comes from the document id and the character span. A
+change in chunk size shifts the span, so it also changes the id.
+
+For a docling chunk, the id comes from the document id and the chunk index
+instead.
+Docling parsing is not always the same between runs, so this id is not stable
+across
+a re-parse of the same source.
+
+**Parameters:**
+
+- **document_id** (<code>[UUID](#uuid.UUID)</code>) – The id of the parent Document.
+- **provenance** (<code>[TextProvenance](#agrag.common.data_models.provenance.TextProvenance) | [PageProvenance](#agrag.common.data_models.provenance.PageProvenance)</code>) – The provenance of the chunk. Its type picks which id rule
+- **index** (<code>[int](#int)</code>) – The position of the chunk within its document.
+
+**Returns:**
+
+- <code>[UUID](#uuid.UUID)</code> – The chunk id.
+
+####### `agrag.common.data_models.chunk.Chunk.index`
+
+```python
+index: int = 0
+```
+
+####### `agrag.common.data_models.chunk.Chunk.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.chunk.Chunk.provenance`
+
+```python
+provenance: TextProvenance | PageProvenance = Field(discriminator='kind')
+```
+
+####### `agrag.common.data_models.chunk.Chunk.text`
+
+```python
+text: str
+```
+
+####### `agrag.common.data_models.chunk.Chunk.to_node_record`
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this chunk as a GraphStore write record.
+
+Provenance is flattened to a plain JSON-safe dict via model_dump —
+GraphStore's own serialize.node_params only converts UUIDs and walks
+containers.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – id is None.
+
+##### `agrag.common.data_models.community`
+
+The Community model: a Leiden-detected entity cluster with an LLM report.
+
+**Classes:**
+
+- [**Community**](#agrag.common.data_models.community.Community) – A cluster of entities detected by hierarchical Leiden, with an LLM report.
+
+**Attributes:**
+
+- [**COMMUNITY_LABEL**](#agrag.common.data_models.community.COMMUNITY_LABEL) –
+- [**MEMBER_OF_RELATION**](#agrag.common.data_models.community.MEMBER_OF_RELATION) –
+
+###### `agrag.common.data_models.community.COMMUNITY_LABEL`
+
+```python
+COMMUNITY_LABEL = 'Community'
+```
+
+###### `agrag.common.data_models.community.Community`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+A cluster of entities detected by hierarchical Leiden, with an LLM report.
+
+**Attributes:**
+
+- [**title**](#agrag.common.data_models.community.Community.title) (<code>[str](#str)</code>) – A short, human-readable name for the community.
+- [**summary**](#agrag.common.data_models.community.Community.summary) (<code>[str](#str)</code>) – A prose summary of what the community is about.
+- [**rating**](#agrag.common.data_models.community.Community.rating) (<code>[float](#float)</code>) – An importance rating for this community, 0-10.
+- [**rating_explanation**](#agrag.common.data_models.community.Community.rating_explanation) (<code>[str](#str)</code>) – One sentence explaining the rating.
+- [**findings**](#agrag.common.data_models.community.Community.findings) (<code>[list](#list)\[[str](#str)\]</code>) – Distinct factual claims the report supports.
+- [**member_ids**](#agrag.common.data_models.community.Community.member_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of every Entity in this community, ordered by
+  internal weighted degree descending (see compute_communities) --
+  the highest-centrality, most representative members first.
+- [**internal_weight**](#agrag.common.data_models.community.Community.internal_weight) (<code>[float](#float)</code>) – Total weight of edges where both endpoints are
+  members of this community. A free-to-compute (no extra query,
+  no new dependency) importance signal, used in place of raw
+  member count to decide which communities get a real LLM report
+  -- a small but densely-attested community can matter more than
+  a larger sparse one.
+- [**embedding**](#agrag.common.data_models.community.Community.embedding) (<code>[list](#list)\[[float](#float)\] | None</code>) – The community's dense vector, computed from title and
+  summary. None before the report/embedding stage runs.
+
+**Functions:**
+
+- [**to_node_record**](#agrag.common.data_models.community.Community.to_node_record) – Return this community as a GraphStore write record.
+
+####### `agrag.common.data_models.community.Community.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+####### `agrag.common.data_models.community.Community.embedding`
+
+```python
+embedding: list[float] | None = None
+```
+
+####### `agrag.common.data_models.community.Community.embedding_text`
+
+```python
+embedding_text: str
+```
+
+Return the text this community's embedding is computed from.
+
+####### `agrag.common.data_models.community.Community.findings`
+
+```python
+findings: list[str] = Field(default_factory=list)
+```
+
+####### `agrag.common.data_models.community.Community.id`
+
+```python
+id: UUID
+```
+
+####### `agrag.common.data_models.community.Community.internal_weight`
+
+```python
+internal_weight: float = Field(default=0.0, ge=0.0)
+```
+
+####### `agrag.common.data_models.community.Community.member_ids`
+
+```python
+member_ids: list[UUID] = Field(default_factory=list)
+```
+
+####### `agrag.common.data_models.community.Community.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.community.Community.rating`
+
+```python
+rating: float = Field(ge=0.0, le=10.0)
+```
+
+####### `agrag.common.data_models.community.Community.rating_explanation`
+
+```python
+rating_explanation: str
+```
+
+####### `agrag.common.data_models.community.Community.summary`
+
+```python
+summary: str
+```
+
+####### `agrag.common.data_models.community.Community.title`
+
+```python
+title: str
+```
+
+####### `agrag.common.data_models.community.Community.to_node_record`
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this community as a GraphStore write record.
+
+###### `agrag.common.data_models.community.MEMBER_OF_RELATION`
+
+```python
+MEMBER_OF_RELATION = 'MEMBER_OF'
+```
+
+##### `agrag.common.data_models.data_point`
+
+The base class for a graph node.
+
+**Classes:**
+
+- [**DataPoint**](#agrag.common.data_models.data_point.DataPoint) – A graph node with a fixed id and free metadata.
+
+###### `agrag.common.data_models.data_point.DataPoint`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+A graph node with a fixed id and free metadata.
+
+**Attributes:**
+
+- [**id**](#agrag.common.data_models.data_point.DataPoint.id) (<code>[UUID](#uuid.UUID)</code>) – The node id. Each subclass defines its own rule to compute this id.
+- [**created_at**](#agrag.common.data_models.data_point.DataPoint.created_at) (<code>[datetime](#datetime.datetime)</code>) – The time the system created this node. Defaults to the current time.
+- [**metadata**](#agrag.common.data_models.data_point.DataPoint.metadata) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – Extra data about the node. Add an `index_fields` key to list which
+
+####### `agrag.common.data_models.data_point.DataPoint.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+####### `agrag.common.data_models.data_point.DataPoint.id`
+
+```python
+id: UUID
+```
+
+####### `agrag.common.data_models.data_point.DataPoint.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+##### `agrag.common.data_models.document`
+
+The Document model: one unit of source text, before chunking.
+
+**Classes:**
+
+- [**Document**](#agrag.common.data_models.document.Document) – One unit of source text, before chunking.
+- [**DocumentFamily**](#agrag.common.data_models.document.DocumentFamily) – The shape of a document's source.
+- [**HeadingRef**](#agrag.common.data_models.document.HeadingRef) – One heading in a document outline.
+- [**SourceFormat**](#agrag.common.data_models.document.SourceFormat) – A source format that a loader can read.
+
+###### `agrag.common.data_models.document.Document`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+One unit of source text, before chunking.
+
+A prose source, such as a Markdown file, makes one Document. A record source, such
+as a
+CSV file, makes one Document per row.
+
+The way the system computes `content_hash` depends on the loader. A text loader
+hashes
+the decoded text. A docling loader hashes the raw source bytes instead of the parsed
+output, because docling's parsed output can change between docling versions and
+between
+runs on different hardware.
+
+The system computes `id` from `content_hash` and `record_id` unless the caller
+passes `id` directly. A record-family document without `record_id` also mixes
+in `record_index` plus `source_hash`, or `uri` when `source_hash` is not
+set. Pass `id` only when rebuilding a document from stored data.
+
+**Attributes:**
+
+- [**text**](#agrag.common.data_models.document.Document.text) (<code>[str](#str)</code>) – The document text. For a docling source, this holds docling's Markdown
+- [**title**](#agrag.common.data_models.document.Document.title) (<code>[str](#str)</code>) – The document title.
+- [**uri**](#agrag.common.data_models.document.Document.uri) (<code>[str](#str)</code>) – The location of the source. This value is not part of the document id.
+- [**source_format**](#agrag.common.data_models.document.Document.source_format) (<code>[SourceFormat](#agrag.common.data_models.document.SourceFormat)</code>) – The format the loader used to read this document.
+- [**family**](#agrag.common.data_models.document.Document.family) (<code>[DocumentFamily](#agrag.common.data_models.document.DocumentFamily)</code>) – The shape of the source: one document per file, or one document per
+- [**content_hash**](#agrag.common.data_models.document.Document.content_hash) (<code>[str](#str)</code>) – The hash that forms the document id.
+- [**loader_name**](#agrag.common.data_models.document.Document.loader_name) (<code>[str](#str)</code>) – The name of the loader that produced this document, for example
+  `"text"` or `"docling"`.
+- [**loader_version**](#agrag.common.data_models.document.Document.loader_version) (<code>[str](#str) | None</code>) – The version of the loader package. Does not affect the document
+- [**encoding**](#agrag.common.data_models.document.Document.encoding) (<code>[str](#str) | None</code>) – The text encoding. Text loaders set this field; other loaders leave it
+- [**source_hash**](#agrag.common.data_models.document.Document.source_hash) (<code>[str](#str) | None</code>) – The hash of the whole source file. Record-family documents set this
+- [**char_count**](#agrag.common.data_models.document.Document.char_count) (<code>[int](#int)</code>) – The number of characters in `text`.
+- [**line_count**](#agrag.common.data_models.document.Document.line_count) (<code>[int](#int) | None</code>) – The number of lines in `text`. Some loaders do not set this field.
+- [**record_index**](#agrag.common.data_models.document.Document.record_index) (<code>[int](#int) | None</code>) – The 0-based row number in the source. Record-family documents set
+- [**record_id**](#agrag.common.data_models.document.Document.record_id) (<code>[str](#str) | None</code>) – The value from the configured id column. Record-family documents set
+- [**raw_record**](#agrag.common.data_models.document.Document.raw_record) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – The original record data. A loader sets this field only when the
+- [**heading_outline**](#agrag.common.data_models.document.Document.heading_outline) (<code>[list](#list)\[[HeadingRef](#agrag.common.data_models.document.HeadingRef)\]</code>) – The headings in the document, with their offsets. A text loader
+
+**Functions:**
+
+- [**id_for**](#agrag.common.data_models.document.Document.id_for) – Compute the document id.
+
+####### `agrag.common.data_models.document.Document.char_count`
+
+```python
+char_count: int
+```
+
+####### `agrag.common.data_models.document.Document.content_hash`
+
+```python
+content_hash: str
+```
+
+####### `agrag.common.data_models.document.Document.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+####### `agrag.common.data_models.document.Document.encoding`
+
+```python
+encoding: str | None = None
+```
+
+####### `agrag.common.data_models.document.Document.family`
+
+```python
+family: DocumentFamily
+```
+
+####### `agrag.common.data_models.document.Document.heading_outline`
+
+```python
+heading_outline: list[HeadingRef] = Field(default_factory=list)
+```
+
+####### `agrag.common.data_models.document.Document.id`
+
+```python
+id: UUID | None = None
+```
+
+####### `agrag.common.data_models.document.Document.id_for`
+
+```python
+id_for(*, content_hash:str, record_id:str | None = None, record_index:int | None = None, source_hash:str | None = None, uri:str | None = None) -> UUID
+```
+
+Compute the document id.
+
+A record id, when given, wins over the content hash. Without a record id,
+a record-family document (`record_index` is not `None`) mixes in its
+source hash and row index, so two rows with identical text but no
+configured id column still get distinct ids. When the source hash is not
+available, this falls back to `uri` so that two different sources still
+do not collide.
+
+**Parameters:**
+
+- **content_hash** (<code>[str](#str)</code>) – The document's content hash.
+- **record_id** (<code>[str](#str) | None</code>) – The value from the configured id column, when the source has one.
+- **record_index** (<code>[int](#int) | None</code>) – The 0-based row number, for a record-family document.
+- **source_hash** (<code>[str](#str) | None</code>) – The hash of the whole source file, for a record-family
+  document.
+- **uri** (<code>[str](#str) | None</code>) – The document's source location, used in place of `source_hash`
+  when the caller does not supply one.
+
+**Returns:**
+
+- <code>[UUID](#uuid.UUID)</code> – The document id.
+
+####### `agrag.common.data_models.document.Document.line_count`
+
+```python
+line_count: int | None = None
+```
+
+####### `agrag.common.data_models.document.Document.loader_name`
+
+```python
+loader_name: str
+```
+
+####### `agrag.common.data_models.document.Document.loader_version`
+
+```python
+loader_version: str | None = None
+```
+
+####### `agrag.common.data_models.document.Document.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.document.Document.raw_record`
+
+```python
+raw_record: dict[str, Any] | None = None
+```
+
+####### `agrag.common.data_models.document.Document.record_id`
+
+```python
+record_id: str | None = None
+```
+
+####### `agrag.common.data_models.document.Document.record_index`
+
+```python
+record_index: int | None = None
+```
+
+####### `agrag.common.data_models.document.Document.resolved_id`
+
+```python
+resolved_id: UUID
+```
+
+The document id, guaranteed non-`None` once construction succeeds.
+
+`id` is typed as optional because callers may omit it and let
+`_resolve_id` derive it, but every constructed `Document` has a
+non-`None` id by the time callers see it. Use this property instead of
+`id` where a non-optional value is required, such as building a `Chunk`.
+
+**Raises:**
+
+- <code>[RuntimeError](#RuntimeError)</code> – `id` is still `None`, which means a validator was
+  bypassed, for example via `model_construct`.
+
+####### `agrag.common.data_models.document.Document.source_format`
+
+```python
+source_format: SourceFormat
+```
+
+####### `agrag.common.data_models.document.Document.source_hash`
+
+```python
+source_hash: str | None = None
+```
+
+####### `agrag.common.data_models.document.Document.text`
+
+```python
+text: str
+```
+
+####### `agrag.common.data_models.document.Document.title`
+
+```python
+title: str
+```
+
+####### `agrag.common.data_models.document.Document.uri`
+
+```python
+uri: str
+```
+
+###### `agrag.common.data_models.document.DocumentFamily`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+The shape of a document's source.
+
+**Attributes:**
+
+- [**PROSE**](#agrag.common.data_models.document.DocumentFamily.PROSE) – One source file makes one document.
+- [**RECORD**](#agrag.common.data_models.document.DocumentFamily.RECORD) – One source file makes many documents, one per record.
+
+####### `agrag.common.data_models.document.DocumentFamily.PROSE`
+
+```python
+PROSE = 'prose'
+```
+
+####### `agrag.common.data_models.document.DocumentFamily.RECORD`
+
+```python
+RECORD = 'record'
+```
+
+###### `agrag.common.data_models.document.HeadingRef`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One heading in a document outline.
+
+**Attributes:**
+
+- [**text**](#agrag.common.data_models.document.HeadingRef.text) (<code>[str](#str)</code>) – The heading text.
+- [**level**](#agrag.common.data_models.document.HeadingRef.level) (<code>[int](#int)</code>) – The heading depth. A top-level heading has level 1.
+- [**char_start**](#agrag.common.data_models.document.HeadingRef.char_start) (<code>[int](#int)</code>) – The start character offset of the heading in the document text. The
+  chunker uses this offset to find which heading contains each chunk, since
+  the
+  base chunker does not detect headings on its own.
+
+####### `agrag.common.data_models.document.HeadingRef.char_start`
+
+```python
+char_start: int
+```
+
+####### `agrag.common.data_models.document.HeadingRef.level`
+
+```python
+level: int
+```
+
+####### `agrag.common.data_models.document.HeadingRef.text`
+
+```python
+text: str
+```
+
+###### `agrag.common.data_models.document.SourceFormat`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+A source format that a loader can read.
+
+The field that holds this value is named `source_format`, not `format`.
+`format`
+is a Python builtin, and this project's lint rules reject builtin names for fields.
+
+**Attributes:**
+
+- [**ASCIIDOC**](#agrag.common.data_models.document.SourceFormat.ASCIIDOC) –
+- [**CSV**](#agrag.common.data_models.document.SourceFormat.CSV) –
+- [**DOCX**](#agrag.common.data_models.document.SourceFormat.DOCX) –
+- [**HTML**](#agrag.common.data_models.document.SourceFormat.HTML) –
+- [**IMAGE**](#agrag.common.data_models.document.SourceFormat.IMAGE) –
+- [**JSON**](#agrag.common.data_models.document.SourceFormat.JSON) –
+- [**JSONL**](#agrag.common.data_models.document.SourceFormat.JSONL) –
+- [**LOG**](#agrag.common.data_models.document.SourceFormat.LOG) –
+- [**MARKDOWN**](#agrag.common.data_models.document.SourceFormat.MARKDOWN) –
+- [**PDF**](#agrag.common.data_models.document.SourceFormat.PDF) –
+- [**PPTX**](#agrag.common.data_models.document.SourceFormat.PPTX) –
+- [**TSV**](#agrag.common.data_models.document.SourceFormat.TSV) –
+- [**TXT**](#agrag.common.data_models.document.SourceFormat.TXT) –
+- [**XML**](#agrag.common.data_models.document.SourceFormat.XML) –
+
+####### `agrag.common.data_models.document.SourceFormat.ASCIIDOC`
+
+```python
+ASCIIDOC = 'asciidoc'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.CSV`
+
+```python
+CSV = 'csv'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.DOCX`
+
+```python
+DOCX = 'docx'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.HTML`
+
+```python
+HTML = 'html'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.IMAGE`
+
+```python
+IMAGE = 'image'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.JSON`
+
+```python
+JSON = 'json'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.JSONL`
+
+```python
+JSONL = 'jsonl'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.LOG`
+
+```python
+LOG = 'log'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.MARKDOWN`
+
+```python
+MARKDOWN = 'markdown'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.PDF`
+
+```python
+PDF = 'pdf'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.PPTX`
+
+```python
+PPTX = 'pptx'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.TSV`
+
+```python
+TSV = 'tsv'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.TXT`
+
+```python
+TXT = 'txt'
+```
+
+####### `agrag.common.data_models.document.SourceFormat.XML`
+
+```python
+XML = 'xml'
+```
+
+##### `agrag.common.data_models.entity`
+
+The canonical, resolved graph entity that merge mechanics produces.
+
+**Classes:**
+
+- [**Entity**](#agrag.common.data_models.entity.Entity) – A resolved entity, assembled from one or more ExtractedEntity mentions.
+
+###### `agrag.common.data_models.entity.Entity`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+A resolved entity, assembled from one or more ExtractedEntity mentions.
+
+**Attributes:**
+
+- [**label**](#agrag.common.data_models.entity.Entity.label) (<code>[str](#str)</code>) – The EntityType label this entity was resolved as.
+- [**name**](#agrag.common.data_models.entity.Entity.name) (<code>[str](#str)</code>) – The canonical resolved surface form — field-resolved the same
+  way any property is, but kept as its own field rather than
+  inside properties, since every entity has one regardless of
+  EntityType.properties' schema, and it is what gets embedded
+  (embedding_text).
+- [**properties**](#agrag.common.data_models.entity.Entity.properties) (<code>[dict](#dict)\[[str](#str), [object](#object)\]</code>) – Field-resolved property values, keyed by the schema's
+  declared property names (e.g. "dosage", "description" — whatever
+  EntityType.properties for this label declares). Never holds name.
+- [**embedding**](#agrag.common.data_models.entity.Entity.embedding) (<code>[list](#list)\[[float](#float)\] | None</code>) – The entity's dense vector, once populated by the storage
+  stage. None before that point.
+- [**merged_from**](#agrag.common.data_models.entity.Entity.merged_from) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of entities absorbed into this one by a tombstone
+  merge. Empty for an entity that has never absorbed another.
+- [**merge_count**](#agrag.common.data_models.entity.Entity.merge_count) (<code>[int](#int)</code>) – The total number of source mentions and absorbed
+  entities this entity's data was assembled from. Starts at 1.
+- [**source_chunk_ids**](#agrag.common.data_models.entity.Entity.source_chunk_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of every Chunk a mention contributing to this
+  entity's data came from. Each also backs one MENTIONED_IN edge
+  from that Chunk to this Entity.
+
+**Functions:**
+
+- [**to_node_record**](#agrag.common.data_models.entity.Entity.to_node_record) – Return this entity as a GraphStore write record.
+
+####### `agrag.common.data_models.entity.Entity.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+####### `agrag.common.data_models.entity.Entity.embedding`
+
+```python
+embedding: list[float] | None = None
+```
+
+####### `agrag.common.data_models.entity.Entity.embedding_text`
+
+```python
+embedding_text: str
+```
+
+Return the text this entity's embedding is computed from.
+
+Name alone, or name plus a "description" property when the schema
+declares one — decided once, here, so every embedding call site
+(resolution's future embedding tier, storage-stage population,
+Graph.consolidate()) embeds the same text for the same entity.
+
+####### `agrag.common.data_models.entity.Entity.id`
+
+```python
+id: UUID
+```
+
+####### `agrag.common.data_models.entity.Entity.label`
+
+```python
+label: str
+```
+
+####### `agrag.common.data_models.entity.Entity.merge_count`
+
+```python
+merge_count: int = 1
+```
+
+####### `agrag.common.data_models.entity.Entity.merge_key`
+
+```python
+merge_key: str
+```
+
+Return this entity's global exact-match lookup key.
+
+(label, normalized name) — the same identity ExactMatch already uses
+in-batch, applied to a persisted store lookup. A derived value, not
+stored redundantly anywhere else on this model; to_node_record()
+computes it fresh from label/name every write, so it can never drift
+from what the fields it's derived from actually say.
+
+####### `agrag.common.data_models.entity.Entity.merged_from`
+
+```python
+merged_from: list[UUID] = Field(default_factory=list)
+```
+
+####### `agrag.common.data_models.entity.Entity.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.entity.Entity.name`
+
+```python
+name: str
+```
+
+####### `agrag.common.data_models.entity.Entity.properties`
+
+```python
+properties: dict[str, object] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.entity.Entity.source_chunk_ids`
+
+```python
+source_chunk_ids: list[UUID] = Field(default_factory=list)
+```
+
+####### `agrag.common.data_models.entity.Entity.to_node_record`
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this entity as a GraphStore write record.
+
+Name, merge_key, merged_from, merge_count, and source_chunk_ids are
+flattened into properties as plain JSON-safe values; GraphStore has
+no reason to know these fields are special.
+
+##### `agrag.common.data_models.extraction`
+
+Pre-resolution entity and relation mentions produced by an Extractor.
+
+**Classes:**
+
+- [**ExtractedEntity**](#agrag.common.data_models.extraction.ExtractedEntity) – One entity mention found in a single Chunk.
+- [**ExtractedRelation**](#agrag.common.data_models.extraction.ExtractedRelation) – One relation mention between two ExtractedEntity mentions in one Chunk.
+- [**ExtractionResult**](#agrag.common.data_models.extraction.ExtractionResult) – The entities and relations one Extractor call found in one Chunk.
+
+###### `agrag.common.data_models.extraction.ExtractedEntity`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One entity mention found in a single Chunk.
+
+Not a graph node: this has no id and no canonical identity. Resolution decides
+which ExtractedEntity mentions refer to the same real-world thing.
+
+**Attributes:**
+
+- [**chunk_id**](#agrag.common.data_models.extraction.ExtractedEntity.chunk_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the Chunk this mention came from.
+- [**label**](#agrag.common.data_models.extraction.ExtractedEntity.label) (<code>[str](#str)</code>) – The EntityType label this mention was extracted as.
+- [**text**](#agrag.common.data_models.extraction.ExtractedEntity.text) (<code>[str](#str)</code>) – The mention's surface text.
+- [**char_start**](#agrag.common.data_models.extraction.ExtractedEntity.char_start) (<code>[int](#int)</code>) – The start character offset within the chunk's text.
+- [**char_end**](#agrag.common.data_models.extraction.ExtractedEntity.char_end) (<code>[int](#int)</code>) – The end character offset within the chunk's text.
+- [**confidence**](#agrag.common.data_models.extraction.ExtractedEntity.confidence) (<code>[float](#float) | None</code>) – The extractor's confidence in this mention, when available.
+- [**properties**](#agrag.common.data_models.extraction.ExtractedEntity.properties) (<code>[dict](#dict)\[[str](#str), [object](#object)\]</code>) – Schema-declared property values this mention carries,
+  keyed by property name. Empty for an extractor that only reports
+  spans -- normalize_extraction_result drops any key the schema
+  does not declare for this mention's label.
+
+####### `agrag.common.data_models.extraction.ExtractedEntity.char_end`
+
+```python
+char_end: int
+```
+
+####### `agrag.common.data_models.extraction.ExtractedEntity.char_start`
+
+```python
+char_start: int
+```
+
+####### `agrag.common.data_models.extraction.ExtractedEntity.chunk_id`
+
+```python
+chunk_id: UUID
+```
+
+####### `agrag.common.data_models.extraction.ExtractedEntity.confidence`
+
+```python
+confidence: float | None = None
+```
+
+####### `agrag.common.data_models.extraction.ExtractedEntity.label`
+
+```python
+label: str
+```
+
+####### `agrag.common.data_models.extraction.ExtractedEntity.properties`
+
+```python
+properties: dict[str, object] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.extraction.ExtractedEntity.text`
+
+```python
+text: str
+```
+
+###### `agrag.common.data_models.extraction.ExtractedRelation`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One relation mention between two ExtractedEntity mentions in one Chunk.
+
+**Attributes:**
+
+- [**chunk_id**](#agrag.common.data_models.extraction.ExtractedRelation.chunk_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the Chunk this mention came from.
+- [**label**](#agrag.common.data_models.extraction.ExtractedRelation.label) (<code>[str](#str)</code>) – The RelationType label this mention was extracted as.
+- [**source_index**](#agrag.common.data_models.extraction.ExtractedRelation.source_index) (<code>[int](#int)</code>) – Index of the source entity in the same ExtractionResult.entities.
+- [**target_index**](#agrag.common.data_models.extraction.ExtractedRelation.target_index) (<code>[int](#int)</code>) – Index of the target entity in the same ExtractionResult.entities.
+- [**confidence**](#agrag.common.data_models.extraction.ExtractedRelation.confidence) (<code>[float](#float) | None</code>) – The extractor's confidence in this mention, when available.
+
+####### `agrag.common.data_models.extraction.ExtractedRelation.chunk_id`
+
+```python
+chunk_id: UUID
+```
+
+####### `agrag.common.data_models.extraction.ExtractedRelation.confidence`
+
+```python
+confidence: float | None = None
+```
+
+####### `agrag.common.data_models.extraction.ExtractedRelation.label`
+
+```python
+label: str
+```
+
+####### `agrag.common.data_models.extraction.ExtractedRelation.source_index`
+
+```python
+source_index: int
+```
+
+####### `agrag.common.data_models.extraction.ExtractedRelation.target_index`
+
+```python
+target_index: int
+```
+
+###### `agrag.common.data_models.extraction.ExtractionResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The entities and relations one Extractor call found in one Chunk.
+
+**Attributes:**
+
+- [**entities**](#agrag.common.data_models.extraction.ExtractionResult.entities) (<code>[list](#list)\[[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]</code>) – The mentions found, in extraction order.
+- [**relations**](#agrag.common.data_models.extraction.ExtractionResult.relations) (<code>[list](#list)\[[ExtractedRelation](#agrag.common.data_models.extraction.ExtractedRelation)\]</code>) – The relation mentions found, referencing entities by index.
+- [**extractor_name**](#agrag.common.data_models.extraction.ExtractionResult.extractor_name) (<code>[str](#str)</code>) – Which Extractor produced this result. Set by the Extractor
+  itself; useful for provenance when a EscalatingExtractor escalated.
+
+####### `agrag.common.data_models.extraction.ExtractionResult.entities`
+
+```python
+entities: list[ExtractedEntity]
+```
+
+####### `agrag.common.data_models.extraction.ExtractionResult.extractor_name`
+
+```python
+extractor_name: str
+```
+
+####### `agrag.common.data_models.extraction.ExtractionResult.relations`
+
+```python
+relations: list[ExtractedRelation]
+```
+
+##### `agrag.common.data_models.graph_record`
+
+Graph storage record shapes for GraphStore.
+
+These are a temporary, minimal stopgap, not the canonical Entity/Relation
+domain model resolution will eventually produce. See the future
+storage/merge-mechanics work this decouples from.
+
+**Classes:**
+
+- [**NodeRecord**](#agrag.common.data_models.graph_record.NodeRecord) – One graph node, ready to write.
+- [**RelationRecord**](#agrag.common.data_models.graph_record.RelationRecord) – One graph relationship, ready to write.
+- [**UpsertFailure**](#agrag.common.data_models.graph_record.UpsertFailure) – One record that failed to write within a bulk upsert call.
+- [**UpsertResult**](#agrag.common.data_models.graph_record.UpsertResult) – Outcome of a bulk `upsert_nodes`/`upsert_relations` call.
+
+###### `agrag.common.data_models.graph_record.NodeRecord`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One graph node, ready to write.
+
+**Attributes:**
+
+- [**id**](#agrag.common.data_models.graph_record.NodeRecord.id) (<code>[UUID](#uuid.UUID)</code>) – The node id.
+- [**labels**](#agrag.common.data_models.graph_record.NodeRecord.labels) (<code>[list](#list)\[[str](#str)\]</code>) – The node's labels. A node carries every label listed here;
+  `GraphStore.upsert_nodes` groups records by their full label set
+  within a batch, since Cypher requires labels to be literal in the
+  query rather than a runtime parameter.
+- [**properties**](#agrag.common.data_models.graph_record.NodeRecord.properties) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – The node's properties, including an embedding vector under
+  whatever key `GraphStore.ensure_vector_index` was configured
+  with, if native vector search is in use.
+
+####### `agrag.common.data_models.graph_record.NodeRecord.id`
+
+```python
+id: UUID
+```
+
+####### `agrag.common.data_models.graph_record.NodeRecord.labels`
+
+```python
+labels: list[str] = Field(min_length=1)
+```
+
+####### `agrag.common.data_models.graph_record.NodeRecord.properties`
+
+```python
+properties: dict[str, Any]
+```
+
+###### `agrag.common.data_models.graph_record.RelationRecord`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One graph relationship, ready to write.
+
+**Attributes:**
+
+- [**id**](#agrag.common.data_models.graph_record.RelationRecord.id) (<code>[UUID](#uuid.UUID)</code>) – The relationship id.
+- [**type**](#agrag.common.data_models.graph_record.RelationRecord.type) (<code>[str](#str)</code>) – The relationship type.
+- [**start_id**](#agrag.common.data_models.graph_record.RelationRecord.start_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the start node.
+- [**end_id**](#agrag.common.data_models.graph_record.RelationRecord.end_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the end node.
+- [**properties**](#agrag.common.data_models.graph_record.RelationRecord.properties) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – The relationship's properties.
+
+####### `agrag.common.data_models.graph_record.RelationRecord.end_id`
+
+```python
+end_id: UUID
+```
+
+####### `agrag.common.data_models.graph_record.RelationRecord.id`
+
+```python
+id: UUID
+```
+
+####### `agrag.common.data_models.graph_record.RelationRecord.properties`
+
+```python
+properties: dict[str, Any]
+```
+
+####### `agrag.common.data_models.graph_record.RelationRecord.start_id`
+
+```python
+start_id: UUID
+```
+
+####### `agrag.common.data_models.graph_record.RelationRecord.type`
+
+```python
+type: str
+```
+
+###### `agrag.common.data_models.graph_record.UpsertFailure`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One record that failed to write within a bulk upsert call.
+
+**Attributes:**
+
+- [**id**](#agrag.common.data_models.graph_record.UpsertFailure.id) (<code>[str](#str)</code>) – The failed record's own id, as a string (matches the id already
+  sent to the backend, not necessarily parseable back to UUID for
+  every future backend).
+- [**error_type**](#agrag.common.data_models.graph_record.UpsertFailure.error_type) (<code>[str](#str)</code>) – The exception's class name.
+- [**error_message**](#agrag.common.data_models.graph_record.UpsertFailure.error_message) (<code>[str](#str)</code>) – The exception's message.
+
+####### `agrag.common.data_models.graph_record.UpsertFailure.error_message`
+
+```python
+error_message: str
+```
+
+####### `agrag.common.data_models.graph_record.UpsertFailure.error_type`
+
+```python
+error_type: str
+```
+
+####### `agrag.common.data_models.graph_record.UpsertFailure.id`
+
+```python
+id: str
+```
+
+###### `agrag.common.data_models.graph_record.UpsertResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Outcome of a bulk `upsert_nodes`/`upsert_relations` call.
+
+**Attributes:**
+
+- [**written**](#agrag.common.data_models.graph_record.UpsertResult.written) (<code>[int](#int)</code>) – How many records were written successfully.
+- [**failures**](#agrag.common.data_models.graph_record.UpsertResult.failures) (<code>[list](#list)\[[UpsertFailure](#agrag.common.data_models.graph_record.UpsertFailure)\]</code>) – Records that failed, isolated from the rest of the call.
+  Empty when every record wrote successfully.
+
+####### `agrag.common.data_models.graph_record.UpsertResult.failures`
+
+```python
+failures: list[UpsertFailure] = Field(default_factory=list)
+```
+
+####### `agrag.common.data_models.graph_record.UpsertResult.written`
+
+```python
+written: int = 0
+```
+
+##### `agrag.common.data_models.graph_schema`
+
+The GraphSchema contract: entity and relation types extraction validates against.
+
+**Classes:**
+
+- [**EntityType**](#agrag.common.data_models.graph_schema.EntityType) – One kind of entity a schema recognizes.
+- [**GraphSchema**](#agrag.common.data_models.graph_schema.GraphSchema) – A versioned contract of entity and relation types.
+- [**RelationType**](#agrag.common.data_models.graph_schema.RelationType) – One kind of relation a schema recognizes.
+
+**Attributes:**
+
+- [**GENERIC**](#agrag.common.data_models.graph_schema.GENERIC) –
+
+###### `agrag.common.data_models.graph_schema.EntityType`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One kind of entity a schema recognizes.
+
+**Attributes:**
+
+- [**label**](#agrag.common.data_models.graph_schema.EntityType.label) (<code>[str](#str)</code>) – The node label used in the extraction prompt and the graph.
+- [**description**](#agrag.common.data_models.graph_schema.EntityType.description) (<code>[str](#str)</code>) – Guidance fed to the extractor prompt or schema builder.
+- [**properties**](#agrag.common.data_models.graph_schema.EntityType.properties) (<code>[dict](#dict)\[[str](#str), [str](#str)\]</code>) – Property names mapped to a type name, such as `"str"` or
+  `"date"`. `label` and `text` are rejected, since both are
+  vector payload keys retrieval filtering and keyword search use.
+- [**subtypes**](#agrag.common.data_models.graph_schema.EntityType.subtypes) (<code>[list](#list)\[[str](#str)\]</code>) – Labels that narrow this type. Empty when this type has no subtypes.
+
+####### `agrag.common.data_models.graph_schema.EntityType.description`
+
+```python
+description: str
+```
+
+####### `agrag.common.data_models.graph_schema.EntityType.label`
+
+```python
+label: str
+```
+
+####### `agrag.common.data_models.graph_schema.EntityType.properties`
+
+```python
+properties: dict[str, str] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.graph_schema.EntityType.subtypes`
+
+```python
+subtypes: list[str] = Field(default_factory=list)
+```
+
+###### `agrag.common.data_models.graph_schema.GENERIC`
+
+```python
+GENERIC = GraphSchema(name='generic', version='1', entities=[EntityType(label='Person', description='A named individual.'), EntityType(label='Organization', description='A company or institution.'), EntityType(label='Location', description='A place or geographic area.'), EntityType(label='Event', description='A named occurrence at a time or place.'), EntityType(label='Product', description='A named product, service, or work.')], relations=[RelationType(label='RELATED_TO', description='A generic relationship between two entities.', patterns=[(src, tgt) for src in _GENERIC_LABELS for tgt in _GENERIC_LABELS])])
+```
+
+###### `agrag.common.data_models.graph_schema.GraphSchema`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+A versioned contract of entity and relation types.
+
+Every extraction call is validated against a GraphSchema; there is no schema-free
+extraction path. Round-trip with `model_dump(mode="json")`/`model_validate()`.
+A schema declaring an entity property name the vector payload reserves fails that
+validation, so a payload written before the check existed must be migrated before
+it loads again. See `EntityType.properties`.
+
+**Attributes:**
+
+- [**name**](#agrag.common.data_models.graph_schema.GraphSchema.name) (<code>[str](#str)</code>) – A short, unique name for this schema.
+- [**version**](#agrag.common.data_models.graph_schema.GraphSchema.version) (<code>[str](#str)</code>) – The schema version. Bump when types or patterns change.
+- [**entities**](#agrag.common.data_models.graph_schema.GraphSchema.entities) (<code>[list](#list)\[[EntityType](#agrag.common.data_models.graph_schema.EntityType)\]</code>) – The entity types this schema recognizes.
+- [**relations**](#agrag.common.data_models.graph_schema.GraphSchema.relations) (<code>[list](#list)\[[RelationType](#agrag.common.data_models.graph_schema.RelationType)\]</code>) – The relation types this schema recognizes.
+
+####### `agrag.common.data_models.graph_schema.GraphSchema.entities`
+
+```python
+entities: list[EntityType]
+```
+
+####### `agrag.common.data_models.graph_schema.GraphSchema.name`
+
+```python
+name: str
+```
+
+####### `agrag.common.data_models.graph_schema.GraphSchema.relations`
+
+```python
+relations: list[RelationType]
+```
+
+####### `agrag.common.data_models.graph_schema.GraphSchema.version`
+
+```python
+version: str
+```
+
+###### `agrag.common.data_models.graph_schema.RelationType`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One kind of relation a schema recognizes.
+
+**Attributes:**
+
+- [**label**](#agrag.common.data_models.graph_schema.RelationType.label) (<code>[str](#str)</code>) – The relation label used in the extraction prompt and the graph.
+- [**description**](#agrag.common.data_models.graph_schema.RelationType.description) (<code>[str](#str)</code>) – Guidance fed to the extractor prompt or schema builder.
+- [**patterns**](#agrag.common.data_models.graph_schema.RelationType.patterns) (<code>[list](#list)\[[tuple](#tuple)\[[str](#str), [str](#str)\]\]</code>) – Valid (source_label, target_label) pairs for this relation. An
+  extraction whose triple is not in this list is dropped at normalize time.
+
+####### `agrag.common.data_models.graph_schema.RelationType.description`
+
+```python
+description: str
+```
+
+####### `agrag.common.data_models.graph_schema.RelationType.label`
+
+```python
+label: str
+```
+
+####### `agrag.common.data_models.graph_schema.RelationType.patterns`
+
+```python
+patterns: list[tuple[str, str]]
+```
+
+##### `agrag.common.data_models.provenance`
+
+Provenance types for a chunk.
+
+A chunk's provenance shows where its text came from in the source. The shape of the
+provenance depends on which chunker made the chunk.
+
+**Classes:**
+
+- [**BoundingBox**](#agrag.common.data_models.provenance.BoundingBox) – A box on a page, in page coordinates.
+- [**PageProvenance**](#agrag.common.data_models.provenance.PageProvenance) – The location of a chunk across one or more pages.
+- [**PageSpan**](#agrag.common.data_models.provenance.PageSpan) – One page's part of a chunk.
+- [**TextProvenance**](#agrag.common.data_models.provenance.TextProvenance) – The location of a chunk inside flattened document text.
+
+###### `agrag.common.data_models.provenance.BoundingBox`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+A box on a page, in page coordinates.
+
+**Attributes:**
+
+- [**x0**](#agrag.common.data_models.provenance.BoundingBox.x0) (<code>[float](#float)</code>) – The left edge.
+- [**y0**](#agrag.common.data_models.provenance.BoundingBox.y0) (<code>[float](#float)</code>) – The top edge.
+- [**x1**](#agrag.common.data_models.provenance.BoundingBox.x1) (<code>[float](#float)</code>) – The right edge.
+- [**y1**](#agrag.common.data_models.provenance.BoundingBox.y1) (<code>[float](#float)</code>) – The bottom edge.
+
+####### `agrag.common.data_models.provenance.BoundingBox.x0`
+
+```python
+x0: float
+```
+
+####### `agrag.common.data_models.provenance.BoundingBox.x1`
+
+```python
+x1: float
+```
+
+####### `agrag.common.data_models.provenance.BoundingBox.y0`
+
+```python
+y0: float
+```
+
+####### `agrag.common.data_models.provenance.BoundingBox.y1`
+
+```python
+y1: float
+```
+
+###### `agrag.common.data_models.provenance.PageProvenance`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The location of a chunk across one or more pages.
+
+A chunk can start on one page and end on the next page. Each entry in `page_spans`
+covers one page.
+
+**Attributes:**
+
+- [**kind**](#agrag.common.data_models.provenance.PageProvenance.kind) (<code>[Literal](#typing.Literal)['page']</code>) – The literal tag `"page"`. Marks this as page provenance.
+- [**page_spans**](#agrag.common.data_models.provenance.PageProvenance.page_spans) (<code>[list](#list)\[[PageSpan](#agrag.common.data_models.provenance.PageSpan)\]</code>) – The page spans for this chunk. Has more than one entry when the
+
+####### `agrag.common.data_models.provenance.PageProvenance.kind`
+
+```python
+kind: Literal['page'] = 'page'
+```
+
+####### `agrag.common.data_models.provenance.PageProvenance.page_spans`
+
+```python
+page_spans: list[PageSpan]
+```
+
+###### `agrag.common.data_models.provenance.PageSpan`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One page's part of a chunk.
+
+**Attributes:**
+
+- [**page_no**](#agrag.common.data_models.provenance.PageSpan.page_no) (<code>[int](#int)</code>) – The page number.
+- [**bbox**](#agrag.common.data_models.provenance.PageSpan.bbox) (<code>[BoundingBox](#agrag.common.data_models.provenance.BoundingBox)</code>) – The box on the page that holds this part of the chunk.
+
+####### `agrag.common.data_models.provenance.PageSpan.bbox`
+
+```python
+bbox: BoundingBox
+```
+
+####### `agrag.common.data_models.provenance.PageSpan.page_no`
+
+```python
+page_no: int
+```
+
+###### `agrag.common.data_models.provenance.TextProvenance`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The location of a chunk inside flattened document text.
+
+**Attributes:**
+
+- [**kind**](#agrag.common.data_models.provenance.TextProvenance.kind) (<code>[Literal](#typing.Literal)['text']</code>) – The literal tag `"text"`. Marks this as text provenance.
+- [**char_start**](#agrag.common.data_models.provenance.TextProvenance.char_start) (<code>[int](#int)</code>) – The start character offset in the document text.
+- [**char_end**](#agrag.common.data_models.provenance.TextProvenance.char_end) (<code>[int](#int)</code>) – The end character offset in the document text.
+- [**line_start**](#agrag.common.data_models.provenance.TextProvenance.line_start) (<code>[int](#int) | None</code>) – The start line number. Empty when the loader does not track lines.
+- [**line_end**](#agrag.common.data_models.provenance.TextProvenance.line_end) (<code>[int](#int) | None</code>) – The end line number. Empty when the loader does not track lines.
+
+####### `agrag.common.data_models.provenance.TextProvenance.char_end`
+
+```python
+char_end: int
+```
+
+####### `agrag.common.data_models.provenance.TextProvenance.char_start`
+
+```python
+char_start: int
+```
+
+####### `agrag.common.data_models.provenance.TextProvenance.kind`
+
+```python
+kind: Literal['text'] = 'text'
+```
+
+####### `agrag.common.data_models.provenance.TextProvenance.line_end`
+
+```python
+line_end: int | None = None
+```
+
+####### `agrag.common.data_models.provenance.TextProvenance.line_start`
+
+```python
+line_start: int | None = None
+```
+
+##### `agrag.common.data_models.relation`
+
+The canonical, deduped graph relationship that merge mechanics produces.
+
+**Classes:**
+
+- [**Relation**](#agrag.common.data_models.relation.Relation) – A resolved relationship between two Entity nodes.
+
+###### `agrag.common.data_models.relation.Relation`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+A resolved relationship between two Entity nodes.
+
+**Attributes:**
+
+- [**type**](#agrag.common.data_models.relation.Relation.type) (<code>[str](#str)</code>) – The RelationType label this relationship was resolved as.
+- [**source_id**](#agrag.common.data_models.relation.Relation.source_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the source Entity.
+- [**target_id**](#agrag.common.data_models.relation.Relation.target_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the target Entity.
+- [**properties**](#agrag.common.data_models.relation.Relation.properties) (<code>[dict](#dict)\[[str](#str), [object](#object)\]</code>) – Field-resolved property values.
+- [**source_chunk_ids**](#agrag.common.data_models.relation.Relation.source_chunk_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of every Chunk a mention contributing to this
+  relationship came from. A relationship attested by more than one
+  source has more than one id here, rather than existing as
+  parallel edges.
+
+**Functions:**
+
+- [**to_relation_record**](#agrag.common.data_models.relation.Relation.to_relation_record) – Return this relationship as a GraphStore write record.
+
+####### `agrag.common.data_models.relation.Relation.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+####### `agrag.common.data_models.relation.Relation.id`
+
+```python
+id: UUID
+```
+
+####### `agrag.common.data_models.relation.Relation.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.relation.Relation.properties`
+
+```python
+properties: dict[str, object] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.relation.Relation.source_chunk_ids`
+
+```python
+source_chunk_ids: list[UUID] = Field(default_factory=list)
+```
+
+####### `agrag.common.data_models.relation.Relation.source_id`
+
+```python
+source_id: UUID
+```
+
+####### `agrag.common.data_models.relation.Relation.target_id`
+
+```python
+target_id: UUID
+```
+
+####### `agrag.common.data_models.relation.Relation.to_relation_record`
+
+```python
+to_relation_record() -> RelationRecord
+```
+
+Return this relationship as a GraphStore write record.
+
+####### `agrag.common.data_models.relation.Relation.type`
+
+```python
+type: str
+```
+
+##### `agrag.common.data_models.search_result`
+
+One retrieved item, tagged with source and relevance score.
+
+**Classes:**
+
+- [**SearchResult**](#agrag.common.data_models.search_result.SearchResult) – One retrieved item, tagged with where it came from.
+
+###### `agrag.common.data_models.search_result.SearchResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One retrieved item, tagged with where it came from.
+
+**Attributes:**
+
+- [**item**](#agrag.common.data_models.search_result.SearchResult.item) (<code>[Union](#typing.Union)\[[Entity](#agrag.common.data_models.entity.Entity), [Relation](#agrag.common.data_models.relation.Relation), [Chunk](#agrag.common.data_models.chunk.Chunk), [Community](#agrag.common.data_models.community.Community)\]</code>) – The retrieved Entity, Relation, Chunk, or Community,
+  already resolved through any merged_into chain.
+- [**score**](#agrag.common.data_models.search_result.SearchResult.score) (<code>[float](#float)</code>) – The method's own relevance score. Not comparable
+  across methods until Fusion normalizes it.
+- [**method**](#agrag.common.data_models.search_result.SearchResult.method) (<code>[str](#str)</code>) – The name of the retrieval method that produced
+  this result.
+
+####### `agrag.common.data_models.search_result.SearchResult.identity_key`
+
+```python
+identity_key: tuple[str, UUID]
+```
+
+Return the (type, id) key Fusion deduplicates on.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – The item has no id, so it cannot be
+  deduplicated.
+
+####### `agrag.common.data_models.search_result.SearchResult.item`
+
+```python
+item: Union[Entity, Relation, Chunk, Community]
+```
+
+####### `agrag.common.data_models.search_result.SearchResult.method`
+
+```python
+method: str
+```
+
+####### `agrag.common.data_models.search_result.SearchResult.score`
+
+```python
+score: float
+```
+
+##### `agrag.common.data_models.vector_record`
+
+Vector storage record shapes shared by VectorStore and GraphStore.
+
+**Classes:**
+
+- [**Distance**](#agrag.common.data_models.vector_record.Distance) – A distance metric a vector index compares embeddings with.
+- [**VectorHit**](#agrag.common.data_models.vector_record.VectorHit) – One search result: a matched id, its score, and its stored payload.
+- [**VectorRecord**](#agrag.common.data_models.vector_record.VectorRecord) – One vector and its payload, ready to write to a collection or index.
+
+###### `agrag.common.data_models.vector_record.Distance`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+A distance metric a vector index compares embeddings with.
+
+**Attributes:**
+
+- [**COSINE**](#agrag.common.data_models.vector_record.Distance.COSINE) – Cosine similarity. The default for most embedding models.
+- [**EUCLID**](#agrag.common.data_models.vector_record.Distance.EUCLID) – Euclidean (L2) distance.
+- [**DOT**](#agrag.common.data_models.vector_record.Distance.DOT) – Dot product.
+
+####### `agrag.common.data_models.vector_record.Distance.COSINE`
+
+```python
+COSINE = 'Cosine'
+```
+
+####### `agrag.common.data_models.vector_record.Distance.DOT`
+
+```python
+DOT = 'Dot'
+```
+
+####### `agrag.common.data_models.vector_record.Distance.EUCLID`
+
+```python
+EUCLID = 'Euclid'
+```
+
+###### `agrag.common.data_models.vector_record.VectorHit`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One search result: a matched id, its score, and its stored payload.
+
+Returned by both `VectorStore.search`/`hybrid_search` and
+`GraphStore.vector_search`, so a caller cannot tell which store produced
+a given hit.
+
+**Attributes:**
+
+- [**id**](#agrag.common.data_models.vector_record.VectorHit.id) (<code>[UUID](#uuid.UUID)</code>) – The id of the matched record.
+- [**score**](#agrag.common.data_models.vector_record.VectorHit.score) (<code>[float](#float)</code>) – The match score. Higher means a closer match, regardless of
+  which distance metric the collection uses.
+- [**payload**](#agrag.common.data_models.vector_record.VectorHit.payload) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – The payload stored with the matched record.
+
+####### `agrag.common.data_models.vector_record.VectorHit.id`
+
+```python
+id: UUID
+```
+
+####### `agrag.common.data_models.vector_record.VectorHit.payload`
+
+```python
+payload: dict[str, Any]
+```
+
+####### `agrag.common.data_models.vector_record.VectorHit.score`
+
+```python
+score: float
+```
+
+###### `agrag.common.data_models.vector_record.VectorRecord`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One vector and its payload, ready to write to a collection or index.
+
+The collection or index name is a call argument on the store, not a field
+here, so one record type can target any collection.
+
+**Attributes:**
+
+- [**id**](#agrag.common.data_models.vector_record.VectorRecord.id) (<code>[UUID](#uuid.UUID)</code>) – The record id. Callers set this to the id of the domain object the
+  vector represents.
+- [**vector**](#agrag.common.data_models.vector_record.VectorRecord.vector) (<code>[list](#list)\[[float](#float)\]</code>) – The dense embedding.
+- [**payload**](#agrag.common.data_models.vector_record.VectorRecord.payload) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – Fields stored alongside the vector, such as the source text or
+  a chunk id. Read back unchanged by `search`/`hybrid_search`.
+
+####### `agrag.common.data_models.vector_record.VectorRecord.id`
+
+```python
+id: UUID
+```
+
+####### `agrag.common.data_models.vector_record.VectorRecord.payload`
+
+```python
+payload: dict[str, Any]
+```
+
+####### `agrag.common.data_models.vector_record.VectorRecord.vector`
+
+```python
+vector: list[float]
+```
+
+#### `agrag.common.text`
+
+Shared text normalization used across resolution and merge-key computation.
+
+**Functions:**
+
+- [**normalize_text**](#agrag.common.text.normalize_text) – Return text stripped and case-folded for identity comparison.
+
+##### `agrag.common.text.normalize_text`
+
+```python
+normalize_text(text:str) -> str
+```
+
+Return text stripped and case-folded for identity comparison.
+
+**Parameters:**
+
+- **text** (<code>[str](#str)</code>) – The text to normalize.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The stripped, case-folded text.
+
+#### `agrag.common.validation`
+
+Validation helpers shared across storage backends.
+
+**Functions:**
+
+- [**require_encrypted_remote_connection**](#agrag.common.validation.require_encrypted_remote_connection) – Reject a plaintext connection to a non-local host carrying a credential.
+- [**require_positive_batch_size**](#agrag.common.validation.require_positive_batch_size) – Check that a backend write's `batch_size` is usable.
+- [**require_positive_max_concurrency**](#agrag.common.validation.require_positive_max_concurrency) – Check that a concurrency limit is positive.
+- [**require_valid_alpha**](#agrag.common.validation.require_valid_alpha) – Check that a `hybrid_search` `alpha` is a valid dense/keyword weight.
+- [**require_valid_search_limit**](#agrag.common.validation.require_valid_search_limit) – Check that a search/hybrid_search `limit` is usable across every backend.
+
+**Attributes:**
+
+- [**MAX_SEARCH_LIMIT**](#agrag.common.validation.MAX_SEARCH_LIMIT) –
+
+##### `agrag.common.validation.MAX_SEARCH_LIMIT`
+
+```python
+MAX_SEARCH_LIMIT = 16384
+```
+
+##### `agrag.common.validation.require_encrypted_remote_connection`
+
+```python
+require_encrypted_remote_connection(*, url:str, has_credential:bool, encrypted_schemes:Collection[str], require_encryption:bool = False) -> None
+```
+
+Reject a plaintext connection to a non-local host carrying a credential.
+
+A scheme outside `encrypted_schemes` sends everything on the
+connection, including any configured credential, unencrypted. That is
+the normal, safe shape of local development against a Docker Compose
+service on localhost, but the same plaintext default pointed at a real
+remote host would leak credentials and data to network interception.
+Loopback hosts are always allowed, regardless of scheme or credential.
+
+Without `require_encryption`, a connection carrying no credential is
+always allowed: many production deployments run an unauthenticated
+backend on a private network (a VPC, a cluster-internal service) and
+rely on network segmentation rather than transport encryption, and this
+check cannot distinguish that from a public host from the URL alone.
+`require_encryption` opts a deployment out of that default, for a
+stricter posture where every non-local connection must be encrypted
+regardless of credential.
+
+**Parameters:**
+
+- **url** (<code>[str](#str)</code>) – The connection URL or URI to check.
+- **has_credential** (<code>[bool](#bool)</code>) – Whether a credential (API key, token, password) is
+  configured for this connection.
+- **encrypted_schemes** (<code>[Collection](#collections.abc.Collection)\[[str](#str)\]</code>) – The URL schemes considered encrypted for this
+  backend, for example `{"https"}` or `{"bolt+s", "neo4j+s"}`.
+- **require_encryption** (<code>[bool](#bool)</code>) – When `True`, reject plaintext to a non-local
+  host even without a configured credential.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `url` uses a scheme outside `encrypted_schemes`, its
+  host is not loopback, and either `has_credential` or
+  `require_encryption` is `True`.
+
+##### `agrag.common.validation.require_positive_batch_size`
+
+```python
+require_positive_batch_size(batch_size:int) -> None
+```
+
+Check that a backend write's `batch_size` is usable.
+
+Every backend chunks writes with `range(0, len(records), batch_size)`.
+A non-positive value breaks that: zero raises `ValueError` from
+`range` itself, and a negative value silently produces an empty range,
+skipping every record without error.
+
+**Parameters:**
+
+- **batch_size** (<code>[int](#int)</code>) – The batch size to check.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
+
+##### `agrag.common.validation.require_positive_max_concurrency`
+
+```python
+require_positive_max_concurrency(max_concurrency:int) -> None
+```
+
+Check that a concurrency limit is positive.
+
+##### `agrag.common.validation.require_valid_alpha`
+
+```python
+require_valid_alpha(alpha:float) -> None
+```
+
+Check that a `hybrid_search` `alpha` is a valid dense/keyword weight.
+
+`alpha` is only meaningful in `[0.0, 1.0]`: `1.0` is pure dense,
+`0.0` is pure keyword. Outside that range, backends behave
+differently: Qdrant's client-side blend still produces a
+mathematically well-defined but meaningless score, while a backend's
+native ranker may reject the value outright.
+
+**Parameters:**
+
+- **alpha** (<code>[float](#float)</code>) – The dense/keyword balance to check.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `alpha` is outside `[0.0, 1.0]`.
+
+##### `agrag.common.validation.require_valid_search_limit`
+
+```python
+require_valid_search_limit(limit:int) -> None
+```
+
+Check that a search/hybrid_search `limit` is usable across every backend.
+
+Backends fail differently outside this range: Milvus raises for a
+non-positive `limit` or one above `MAX_SEARCH_LIMIT` (its own
+query/search result-window ceiling), while Qdrant and Weaviate may
+instead return an empty or silently truncated result. Enforcing the
+tightest bound uniformly means a given `limit` either works, or fails
+the same way, regardless of which backend is configured.
+
+**Parameters:**
+
+- **limit** (<code>[int](#int)</code>) – The requested maximum number of hits.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `limit` is not a positive integer, or exceeds
+  `MAX_SEARCH_LIMIT`.
 
 ### `agrag.cypher`
 
@@ -3478,6 +5334,10 @@ queries, since Cypher requires labels to be literal in the query text
 rather than a runtime parameter, so `batch_size` chunks apply within
 each group rather than across the whole call.
 
+**Returns:**
+
+- <code>[UpsertResult](#agrag.common.data_models.graph_record.UpsertResult)</code> – The number written and one failure entry for each isolated record.
+
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
@@ -3493,6 +5353,10 @@ Write or merge relationships between existing nodes.
 Relationship identity is each record's `id`, not its endpoints: see
 `upsert_relation_query` for how endpoint changes and same-id
 parallel relationships are handled.
+
+**Returns:**
+
+- <code>[UpsertResult](#agrag.common.data_models.graph_record.UpsertResult)</code> – The number written and one failure entry for each isolated record.
 
 **Raises:**
 
@@ -3893,7 +5757,7 @@ Run a write inside the surrounding transaction.
 ###### `agrag.graphdb.base.GraphStoreTransaction.upsert_nodes`
 
 ```python
-upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> None
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> UpsertResult | None
 ```
 
 Write or merge nodes inside the surrounding transaction.
@@ -3901,7 +5765,7 @@ Write or merge nodes inside the surrounding transaction.
 ###### `agrag.graphdb.base.GraphStoreTransaction.upsert_relations`
 
 ```python
-upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> None
+upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> UpsertResult | None
 ```
 
 Write or merge relationships inside the surrounding transaction.
@@ -4250,6 +6114,10 @@ queries, since Cypher requires labels to be literal in the query text
 rather than a runtime parameter, so `batch_size` chunks apply within
 each group rather than across the whole call.
 
+**Returns:**
+
+- <code>[UpsertResult](#agrag.common.data_models.graph_record.UpsertResult)</code> – The number written and one failure entry for each isolated record.
+
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
@@ -4265,6 +6133,10 @@ Write or merge relationships between existing nodes.
 Relationship identity is each record's `id`, not its endpoints: see
 `upsert_relation_query` for how endpoint changes and same-id
 parallel relationships are handled.
+
+**Returns:**
+
+- <code>[UpsertResult](#agrag.common.data_models.graph_record.UpsertResult)</code> – The number written and one failure entry for each isolated record.
 
 **Raises:**
 
@@ -6686,9 +8558,10 @@ Storage-write-stage results.
   point.
 - [**relationships_written**](#agrag.ingestion.stats.StorageStats.relationships_written) (<code>[int](#int)</code>) – Domain Relation and MENTIONED_IN edges
   together, for the same reason.
-- [**failures**](#agrag.ingestion.stats.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – One record per write item that failed, capped per call.
-  Bulk graph writes can partially succeed. The counts include only
-  records that landed; each isolated failure is a `StageFailure`.
+- [**failures**](#agrag.ingestion.stats.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Isolated graph-write failures are reported per record and
+  capped per call. Conversion, embedding, vector-store, and other
+  non-isolatable graph failures can use one stage-level failure.
+  The counts include only records that landed.
 - [**failures_total**](#agrag.ingestion.stats.StorageStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
 - [**failures_truncated**](#agrag.ingestion.stats.StorageStats.failures_truncated) (<code>[bool](#bool)</code>) – Whether `failures` was cut to the cap.
 
@@ -7113,9 +8986,10 @@ Storage-write-stage results.
   point.
 - [**relationships_written**](#agrag.ingestion.stats.storage.StorageStats.relationships_written) (<code>[int](#int)</code>) – Domain Relation and MENTIONED_IN edges
   together, for the same reason.
-- [**failures**](#agrag.ingestion.stats.storage.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – One record per write item that failed, capped per call.
-  Bulk graph writes can partially succeed. The counts include only
-  records that landed; each isolated failure is a `StageFailure`.
+- [**failures**](#agrag.ingestion.stats.storage.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Isolated graph-write failures are reported per record and
+  capped per call. Conversion, embedding, vector-store, and other
+  non-isolatable graph failures can use one stage-level failure.
+  The counts include only records that landed.
 - [**failures_total**](#agrag.ingestion.stats.storage.StorageStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
 - [**failures_truncated**](#agrag.ingestion.stats.storage.StorageStats.failures_truncated) (<code>[bool](#bool)</code>) – Whether `failures` was cut to the cap.
 
