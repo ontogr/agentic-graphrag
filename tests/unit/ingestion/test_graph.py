@@ -9,6 +9,7 @@ when provisioning fails at any stage (connect, setup_constraints,
 ensure_vector_index).
 """
 
+import hashlib
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
@@ -228,6 +229,27 @@ class TestGraphAdd:
         assert result.chunks_closed == 0
         assert result.add_result is None
 
+    async def test_update_normalizes_text_before_comparing_content_hash(self) -> None:
+        """An NFKC-equivalent update does not replace the current version."""
+        graph = await _open_graph()
+        node_id = uuid4()
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                {
+                    "id": str(node_id),
+                    "current_content_hash": hashlib.sha256(b"K").hexdigest(),
+                }
+            ]
+        )
+        graph._graph_store.execute_write = AsyncMock(  # type: ignore[method-assign]
+            return_value=[]
+        )
+
+        result = await graph.update("memory://doc", text="Ｋ")
+
+        assert result.no_op is True
+        graph._graph_store.execute_write.assert_not_awaited()
+
     async def test_delete_document_closes_current_edges(self) -> None:
         """Delete closes current edges and keeps the document result."""
         graph = await _open_graph()
@@ -284,6 +306,33 @@ class TestGraphAdd:
 
         assert result.no_op is False
         assert result.add_result is not None
+
+    async def test_update_rejects_source_with_multiple_documents(self) -> None:
+        """Update rejects sources that do not resolve to exactly one document."""
+        graph = await _open_graph()
+
+        with pytest.raises(ValueError, match="exactly one document"):
+            await graph.update("memory://doc", source=_FIXTURES / "sample.csv")
+
+    async def test_add_rejects_duplicate_document_keys(self) -> None:
+        """An add call cannot join chunks from separate document versions."""
+        graph = await _open_graph()
+        first = Document(
+            text="first",
+            title="first",
+            uri="memory://first",
+            document_key="shared",
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash="first",
+            loader_name="inline",
+            char_count=5,
+            line_count=1,
+        )
+        second = first.model_copy(update={"text": "second", "content_hash": "second"})
+
+        with pytest.raises(ValueError, match="distinct document keys"):
+            await graph.add(documents=[first, second])
 
     async def test_delete_missing_document_is_a_no_op(self) -> None:
         """Deleting an unknown document does not write graph state."""

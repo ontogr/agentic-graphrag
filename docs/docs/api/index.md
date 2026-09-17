@@ -4497,6 +4497,8 @@ Give exactly one of `source`, `text`, and `documents`.
 - <code>[MissingExtraError](#MissingExtraError)</code> – A loader is registered for a source's format, but its
   package extra is not installed. This error follows `error_policy`
   instead of always stopping the call.
+- <code>[ValueError](#ValueError)</code> – The input contains multiple documents with the same
+  `document_key`.
 
 ##### `agrag.ingestion.Graph.consolidate`
 
@@ -4619,7 +4621,14 @@ update(document_key:str, *, text:str | None = None, source:SourcesType | None = 
 Replace one document version, closing its former PART_OF edges.
 
 An unchanged content hash is a no-op. The update path uses the same
-`add` pipeline as fresh ingestion after it closes the old edges.
+`add` pipeline as fresh ingestion after it closes the old edges. A
+source must resolve to exactly one document.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – Both or neither of `text` and `source` are given, a loader
+  override targets multiple sources, or a source resolves to any number
+  of documents other than one.
 
 #### `agrag.ingestion.community`
 
@@ -5279,6 +5288,8 @@ Give exactly one of `source`, `text`, and `documents`.
 - <code>[MissingExtraError](#MissingExtraError)</code> – A loader is registered for a source's format, but its
   package extra is not installed. This error follows `error_policy`
   instead of always stopping the call.
+- <code>[ValueError](#ValueError)</code> – The input contains multiple documents with the same
+  `document_key`.
 
 ###### `agrag.ingestion.graph.Graph.consolidate`
 
@@ -5401,7 +5412,14 @@ update(document_key:str, *, text:str | None = None, source:SourcesType | None = 
 Replace one document version, closing its former PART_OF edges.
 
 An unchanged content hash is a no-op. The update path uses the same
-`add` pipeline as fresh ingestion after it closes the old edges.
+`add` pipeline as fresh ingestion after it closes the old edges. A
+source must resolve to exactly one document.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – Both or neither of `text` and `source` are given, a loader
+  override targets multiple sources, or a source resolves to any number
+  of documents other than one.
 
 ##### `agrag.ingestion.graph.SYSTEM_RELATION_TYPES`
 

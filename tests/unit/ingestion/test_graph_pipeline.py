@@ -2508,7 +2508,12 @@ class TestGraphAddPipeline:
             embedder=embed,
             extractor=TwoChunkExtractor(),
         )
-        result = await graph.add(documents=[_doc("a"), _doc("b")])
+        result = await graph.add(
+            documents=[
+                _distinct_doc("memory://a", "a"),
+                _distinct_doc("memory://b", "b"),
+            ]
+        )
         assert result.extraction.entities_extracted == 2
 
     async def test_empty_chunks_early_return(self) -> None:

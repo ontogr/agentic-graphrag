@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import glob
 import hashlib
+import unicodedata
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from datetime import datetime
@@ -1293,6 +1294,8 @@ class Graph:
             MissingExtraError: A loader is registered for a source's format, but its
                 package extra is not installed. This error follows ``error_policy``
                 instead of always stopping the call.
+            ValueError: The input contains multiple documents with the same
+                ``document_key``.
         """
         given = sum(x is not None for x in (source, text, documents))
         if given != 1:
@@ -1307,9 +1310,20 @@ class Graph:
 
         chunks: list[Chunk] = []
         documents_seen: list[Document] = []
+        document_keys_seen: set[str] = set()
         entities: list[ExtractedEntity] = []
         relations: list[ExtractedRelation] = []
         extraction_failures: list[StageFailure] = []
+
+        def _record_document_keys(batch: Sequence[Document]) -> None:
+            for document in batch:
+                document_key = document.resolved_document_key
+                if document_key in document_keys_seen:
+                    raise ValueError(
+                        "Each add call requires distinct document keys; "
+                        f"duplicate: {document_key!r}."
+                    )
+                document_keys_seen.add(document_key)
 
         # For ingestion stats accumulation
         final_stats = LoadStats()
@@ -1397,6 +1411,7 @@ class Graph:
         if documents is not None:
             # Single synthetic batch from provided documents
             docs_list = list(documents)
+            _record_document_keys(docs_list)
             final_stats.documents = len(docs_list)
             final_stats.sources = 0
             # Chunk all at once (still via thread)
@@ -1413,6 +1428,7 @@ class Graph:
             walk = _InMemoryWalk(text, opts=ReadOptions())
             batches = walk.iter_batches()
             async for batch, _cursor, stats in batches:
+                _record_document_keys(batch)
                 # Stats is LoadStats
                 final_stats.documents = stats.documents
                 final_stats.sources = stats.sources
@@ -1446,6 +1462,7 @@ class Graph:
             )
             batches = walk.iter_batches()
             async for batch, _cursor, stats in batches:
+                _record_document_keys(batch)
                 final_stats.documents = stats.documents
                 final_stats.sources = stats.sources
                 final_stats.skipped = stats.skipped
@@ -1979,13 +1996,19 @@ class Graph:
         """Replace one document version, closing its former PART_OF edges.
 
         An unchanged content hash is a no-op. The update path uses the same
-        ``add`` pipeline as fresh ingestion after it closes the old edges.
+        ``add`` pipeline as fresh ingestion after it closes the old edges. A
+        source must resolve to exactly one document.
+
+        Raises:
+            ValueError: Both or neither of ``text`` and ``source`` are given, a loader
+                override targets multiple sources, or a source resolves to any number
+                of documents other than one.
         """
         if (text is None) == (source is None):
             raise ValueError("Provide exactly one of 'text' or 'source'.")
 
         if text is not None:
-            normalized = text
+            normalized = unicodedata.normalize("NFKC", text)
             content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
             document = Document(
                 text=normalized,
@@ -2016,14 +2039,14 @@ class Graph:
                 loader=loader,
                 tracer=self._tracer,
             )
-            batches = walk.iter_batches()
-            try:
-                batch, _cursor, _stats = await anext(batches)
-            except StopAsyncIteration as exc:
-                raise ValueError("The source produced no document.") from exc
-            if not batch:
-                raise ValueError("The source produced no document.")
-            document = batch[0].model_copy(update={"document_key": document_key})
+            documents_from_source: list[Document] = []
+            async for batch, _cursor, _stats in walk.iter_batches():
+                documents_from_source.extend(batch)
+            if len(documents_from_source) != 1:
+                raise ValueError("The source must produce exactly one document.")
+            document = documents_from_source[0].model_copy(
+                update={"document_key": document_key}
+            )
 
         found = await find_document(self._graph_store, document_key=document_key)
         if found is not None and found.current_content_hash == document.content_hash:
