@@ -327,7 +327,7 @@ class TestNeo4jGraphStoreIntegration:
 
             assert result.written == 1
             assert [failure.id for failure in result.failures] == [str(missing.id)]
-            assert result.failures[0].error_type == "GraphStoreMissingEndpointError"
+            assert result.failures[0].error_type == "MissingEndpoint"
             rows = await store.execute_read(
                 "MATCH ()-[r:RELATES]->() WHERE r.id = $id RETURN r.id AS id",
                 {"id": str(missing.id)},
