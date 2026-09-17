@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import logging
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid4
 
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from baml_py import ClientRegistry
 
     from agrag.llm.baml_client.runtime import BamlCallOptions
+    from agrag.llm.baml_client.types import CommunityReport
 
 
 logger = logging.getLogger(__name__)
@@ -481,13 +483,20 @@ async def generate_community_reports(  # noqa: PLR0915
                     parameter.kind is inspect.Parameter.VAR_KEYWORD
                     for parameter in parameters.values()
                 )
-                kwargs = {"communities": inputs}
                 if supports_options:
-                    kwargs["baml_options"] = baml_options
-                reports = await call_with_retry(
-                    lambda: summarize(**kwargs),
-                    retry,
-                )
+                    reports = await call_with_retry(
+                        lambda: summarize(
+                            communities=inputs, baml_options=baml_options
+                        ),
+                        retry,
+                    )
+                else:
+                    summarize_without_options = cast(
+                        "Callable[..., Awaitable[list[CommunityReport]]]", summarize
+                    )
+                    reports = await call_with_retry(
+                        lambda: summarize_without_options(communities=inputs), retry
+                    )
             except Exception as exc:  # noqa: BLE001
                 if error_policy is ErrorPolicy.RAISE:
                     raise
