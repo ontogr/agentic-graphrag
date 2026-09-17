@@ -6,7 +6,7 @@ functions to turn already-built ``Document``/``Chunk`` objects into
 """
 
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
@@ -57,17 +57,22 @@ def build_part_of_records(
         ValueError: A chunk's id is None.
     """
     now = datetime.now(UTC).isoformat()
+    version_id = str(uuid4())
     records: list[RelationRecord] = []
     for chunk in chunks:
         if chunk.id is None:
             raise ValueError("Chunk.id must be set before building a PART_OF record.")
         records.append(
             RelationRecord(
-                id=part_of_id(document_node_id, chunk.id),
+                id=part_of_id(document_node_id, chunk.id, version_id),
                 type="PART_OF",
                 start_id=document_node_id,
                 end_id=chunk.id,
-                properties={"valid_at": now, "invalid_at": None},
+                properties={
+                    "valid_at": now,
+                    "invalid_at": None,
+                    "version_id": version_id,
+                },
             )
         )
     return records

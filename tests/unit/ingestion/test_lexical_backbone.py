@@ -25,10 +25,12 @@ from agrag.ingestion._lexical_backbone import (
 from agrag.ingestion.merge import next_chunk_id, part_of_id
 
 
-def _doc(*, uri: str = "u", document_key: str | None = None) -> Document:
+def _doc(
+    *, uri: str = "u", document_key: str | None = None, title: str = "t"
+) -> Document:
     return Document(
         text="hello",
-        title="t",
+        title=title,
         uri=uri,
         source_format=SourceFormat.TXT,
         family=DocumentFamily.PROSE,
@@ -42,12 +44,14 @@ def _doc(*, uri: str = "u", document_key: str | None = None) -> Document:
     )
 
 
-def _chunk(document_id: UUID, text: str = "hello", index: int = 0) -> Chunk:
+def _chunk(
+    document_id: UUID, text: str = "hello", index: int = 0, start: int = 0
+) -> Chunk:
     return Chunk(
         document_id=document_id,
         index=index,
         text=text,
-        provenance=TextProvenance(char_start=0, char_end=len(text)),
+        provenance=TextProvenance(char_start=start, char_end=start + len(text)),
     )
 
 
@@ -56,9 +60,11 @@ class TestDistinctDocuments:
 
     def test_deduplicates_by_resolved_id(self) -> None:
         """The same document appearing twice yields one entry."""
-        doc = _doc()
-        result = distinct_documents([doc, doc])
-        assert result == [doc]
+        first = _doc(document_key="shared", title="first")
+        second = _doc(document_key="shared", title="second")
+        result = distinct_documents([first, second])
+        assert result == [first]
+        assert result[0].title == "first"
 
     def test_keeps_all_distinct_documents(self) -> None:
         """Two distinct documents both appear, in first-seen order."""
@@ -92,9 +98,14 @@ class TestBuildPartOfRecords:
         """An N-chunk document produces exactly N PART_OF records."""
         document_id = uuid4()
         document_node_id = uuid4()
-        chunks = [_chunk(document_id), _chunk(document_id), _chunk(document_id)]
+        chunks = [
+            _chunk(document_id, text="zero", index=0, start=0),
+            _chunk(document_id, text="one!", index=1, start=4),
+            _chunk(document_id, text="two!!", index=2, start=8),
+        ]
         records = build_part_of_records(document_node_id, chunks)
         assert len(records) == 3
+        assert len({record.id for record in records}) == 3
 
     def test_records_are_open(self) -> None:
         """Every record has valid_at set and invalid_at unset."""
@@ -114,7 +125,23 @@ class TestBuildPartOfRecords:
         assert record.start_id == document_node_id
         assert record.end_id == chunk.id
         assert chunk.id is not None
-        assert record.id == part_of_id(document_node_id, chunk.id)
+        assert record.id == part_of_id(
+            document_node_id, chunk.id, record.properties["version_id"]
+        )
+        assert record.properties["version_id"]
+
+    def test_new_version_gets_distinct_edge_ids(self) -> None:
+        """Restoring content creates a new PART_OF history interval."""
+        document_id, document_node_id = uuid4(), uuid4()
+        chunk = _chunk(document_id)
+
+        first, second = (
+            build_part_of_records(document_node_id, [chunk]),
+            build_part_of_records(document_node_id, [chunk]),
+        )
+
+        assert first[0].id != second[0].id
+        assert first[0].properties["version_id"] != second[0].properties["version_id"]
 
     def test_never_cross_links_distinct_documents(self) -> None:
         """Chunks from two documents each link only to their own document node."""

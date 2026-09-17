@@ -2342,6 +2342,16 @@ class TestGraphAddPipeline:
             if rec.type == "PART_OF"
         ]
         assert len(part_of_records) == chunk_count
+        document_node_id = document_calls[0][0].id
+        assert all(record.start_id == document_node_id for record in part_of_records)
+        assert all(record.properties["valid_at"] for record in part_of_records)
+        assert all(
+            record.properties["invalid_at"] is None for record in part_of_records
+        )
+        assert all(record.properties["version_id"] for record in part_of_records)
+        assert {record.end_id for record in part_of_records} == {
+            chunk.id for chunk in result.chunks
+        }
 
     async def test_add_two_documents_writes_two_document_records(self) -> None:
         """A batch spanning two distinct documents writes two Document records."""
@@ -2350,7 +2360,7 @@ class TestGraphAddPipeline:
             schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
         )
         docs = [_distinct_doc("uri-a"), _distinct_doc("uri-b")]
-        await graph.add(documents=docs)
+        result = await graph.add(documents=docs, return_chunks=True)
 
         document_calls = [
             nodes
@@ -2360,6 +2370,21 @@ class TestGraphAddPipeline:
         assert len(document_calls) == 1
         written_keys = {rec.properties["document_key"] for rec in document_calls[0]}
         assert written_keys == {"uri-a", "uri-b"}
+        part_of_records = [
+            rec
+            for batch in store.upsert_relations_calls
+            for rec in batch
+            if rec.type == "PART_OF"
+        ]
+        expected_endpoints = {
+            (Document.node_id_for(document_key=doc.resolved_document_key), chunk.id)
+            for doc in docs
+            for chunk in result.chunks
+            if chunk.document_id == doc.resolved_id
+        }
+        assert {(record.start_id, record.end_id) for record in part_of_records} == (
+            expected_endpoints
+        )
 
     async def test_add_source_path(self, tmp_path: Path) -> None:
         """Source file path is loaded via walk."""
