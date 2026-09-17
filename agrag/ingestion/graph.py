@@ -2010,7 +2010,10 @@ class Graph:
         page_offset: str | None = None
         while True:
             records, page_offset = await self._vector_store.scroll(
-                collection, limit=1000, page_offset=page_offset
+                collection,
+                limit=1000,
+                page_offset=page_offset,
+                filters={"label": COMMUNITY_LABEL},
             )
             if records:
                 await self._vector_store.delete(
