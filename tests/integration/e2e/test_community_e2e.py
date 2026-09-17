@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from dotenv import load_dotenv
 
 from agrag.agents.ledger import Ledger
 from agrag.agents.tools import make_tools
@@ -39,6 +40,7 @@ graspologic_missing = importlib.util.find_spec("graspologic_native") is None
 
 def _llm_endpoint_configured() -> bool:
     """Return True when the shared LLM endpoint configuration is available."""
+    load_dotenv()
     return bool(os.getenv("LLM_BASE_URL") and os.getenv("LLM_MODEL_ID"))
 
 
