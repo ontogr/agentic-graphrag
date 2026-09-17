@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 
+from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.chunk import Chunk as ChunkModel
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
@@ -251,6 +252,24 @@ class RecordingVectorStore(VectorStore):
 
     async def close(self) -> None:
         """No-op close."""
+
+
+class _FailingUpsertVectorStore(RecordingVectorStore):
+    """RecordingVectorStore whose upsert fails while delete still works.
+
+    The mirror cleanup is a separate call, so a test needs the delete to
+    succeed in order to observe which ids it targeted.
+    """
+
+    async def upsert(
+        self,
+        collection: str,
+        records: Sequence[VectorRecord],
+        *,
+        batch_size: int = 256,
+    ) -> None:
+        """Always fail."""
+        raise RuntimeError("vector store down")
 
 
 class MockExtractor(Extractor):
@@ -1347,12 +1366,37 @@ class _GuardedNodeStore(MockStore):
     ``clear_chunk_embedding_query``) guard on ``text`` instead. Real
     Neo4j enforces those WHERE clauses; this fake reproduces them in
     memory so a concurrent-write test can prove a stale record is
-    rejected without a live database.
+    rejected without a live database. ``execute_read`` answers the by-id
+    hydration queries from the same ``nodes`` mapping, so a test can also
+    drive the guarded VectorStore mirror cleanup from it.
     """
 
     def __init__(self, nodes: dict[str, dict[str, Any]]) -> None:
         super().__init__()
         self.nodes = nodes
+
+    async def execute_read(
+        self,
+        query: str,
+        parameters: Mapping[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Answer the by-id hydration reads from the in-memory nodes."""
+        del timeout
+        if "RETURN n" not in query:
+            return await super().execute_read(query, parameters)
+        rows: list[dict[str, Any]] = []
+        for node_id in (parameters or {}).get("ids", []):
+            node = self.nodes.get(str(node_id))
+            if node is None:
+                continue
+            # hydrate_entities_by_id_query drops tombstones; the chunk
+            # variant matches the Chunk label instead.
+            if ":Chunk" not in query and node.get("merged_into") is not None:
+                continue
+            rows.append({"n": {"id": str(node_id), **node}})
+        return rows
 
     async def execute_write(
         self, query: str, parameters: Mapping[str, Any] | None = None
@@ -1736,6 +1780,39 @@ class TestEmbedChunksDualWrite:
         assert [str(r.id) for r in records] == [str(ch.id)]
         assert records[0].payload["text"] == "Hello world"
 
+    async def test_chunk_payload_carries_document_id(self) -> None:
+        """A document-scoped filter must match the VectorStore path too.
+
+        Regression test: chunk mirror records held only label and text, so
+        SearchFilters.document_ids -- compiled to a document_id payload
+        key -- matched nothing there, while the GraphStore-native path
+        filtered the chunk node's document_id property and returned the
+        right chunks.
+        """
+        document_id = uuid4()
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=document_id,
+            index=0,
+            text="Hello world",
+            provenance=TextProvenance(char_start=0, char_end=11),
+        )
+        store = _GuardedNodeStore({})
+        vector_store = RecordingVectorStore()
+
+        await _embed_and_upsert_chunks(
+            [ch],
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.RAISE,
+            vector_store=vector_store,
+            vector_collection="chunks",
+        )
+
+        assert len(vector_store.upserts) == 1
+        _, records = vector_store.upserts[0]
+        assert records[0].payload["document_id"] == str(document_id)
+
     async def test_vector_store_failure_returns_stage_failure(self) -> None:
         """A VectorStore failure is reported as StageFailure with SKIP."""
         ch = ChunkModel(
@@ -1791,6 +1868,112 @@ class TestEmbedChunksDualWrite:
 
         assert vector_store.upserts == []
 
+    async def test_failed_mirror_write_removes_record_it_owns(self) -> None:
+        """A chunk whose node holds this call's text drops its record.
+
+        The cleanup is guarded on the same text the embedding write
+        guards on, so a record this call is still responsible for cannot
+        keep being ranked by the text this call failed to replace.
+        """
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Hello world",
+            provenance=TextProvenance(char_start=0, char_end=11),
+        )
+        store = _GuardedNodeStore(
+            {
+                str(ch.id): {
+                    "text": "Hello world",
+                    "embedding": [0.1, 0.1],
+                }
+            }
+        )
+        vector_store = _FailingUpsertVectorStore()
+
+        failures = await _embed_and_upsert_chunks(
+            [ch],
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.SKIP,
+            vector_store=vector_store,
+            vector_collection="chunks",
+        )
+
+        assert [f.item_id for f in failures] == ["chunk_vector_store"]
+        assert vector_store.deletes == [("chunks", [ch.id])]
+
+    async def test_failed_mirror_write_keeps_record_of_newer_text(self) -> None:
+        """A chunk a newer call rewrote keeps its mirrored vector.
+
+        Regression test: the cleanup deleted every id this call tried to
+        write, so a failed mirror upsert from an older call removed the
+        record a newer call had just written for the same chunk id from
+        different text, dropping a vector the native path still returned.
+        """
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Old text",
+            provenance=TextProvenance(char_start=0, char_end=8),
+        )
+        store = _GuardedNodeStore(
+            {
+                str(ch.id): {
+                    "text": "New text",
+                    "embedding": [0.9, 0.9],
+                }
+            }
+        )
+        vector_store = _FailingUpsertVectorStore()
+
+        failures = await _embed_and_upsert_chunks(
+            [ch],
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.SKIP,
+            vector_store=vector_store,
+            vector_collection="chunks",
+        )
+
+        assert [f.item_id for f in failures] == ["chunk_vector_store"]
+        assert vector_store.deletes == []
+
+    async def test_unreadable_guard_removes_nothing(self) -> None:
+        """A graph read failure leaves the mirror records alone.
+
+        The cleanup only removes a record whose node still matches the text
+        this call embedded, and an unreadable graph cannot confirm that.
+        Removing a vector another call may own is the outcome the guard
+        exists to prevent, so the cleanup does nothing instead.
+        """
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Hello world",
+            provenance=TextProvenance(char_start=0, char_end=11),
+        )
+        store = _GuardedNodeStore({str(ch.id): {"text": "Hello world"}})
+        vector_store = _FailingUpsertVectorStore()
+
+        with mock.patch.object(
+            store, "execute_read", new=mock.AsyncMock(side_effect=RuntimeError("down"))
+        ):
+            failures = await _embed_and_upsert_chunks(
+                [ch],
+                embedder=MockEmbedder(),
+                graph_store=store,
+                error_policy=ErrorPolicy.SKIP,
+                vector_store=vector_store,
+                vector_collection="chunks",
+            )
+
+        assert [f.item_id for f in failures] == ["chunk_vector_store"]
+        assert vector_store.deletes == []
+
 
 class TestEmbedSurvivorsDualWrite:
     """_embed_and_upsert_survivors mirrors entity vectors and labels."""
@@ -1825,6 +2008,38 @@ class TestEmbedSurvivorsDualWrite:
         assert collection == "entities"
         assert records[0].payload["label"] == "Person"
         assert str(records[0].id) == str(ent.id)
+
+    async def test_entity_payload_carries_properties(self) -> None:
+        """A property-scoped filter must match the VectorStore path too.
+
+        Regression test: entity mirror records held only label and text, so
+        SearchFilters.properties -- compiled to payload keys -- matched
+        nothing there, while the GraphStore-native path matched them as
+        node properties and returned the right entities.
+        """
+        ent = Entity(
+            id=uuid4(),
+            label="Person",
+            name="Alice",
+            properties={"description": "A person", "tenant": "a"},
+        )
+        store = _GuardedNodeStore({})
+        vector_store = RecordingVectorStore()
+
+        await _embed_and_upsert_survivors(
+            {ent.id: ent},
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.RAISE,
+            vector_store=vector_store,
+            vector_collection="entities",
+            labels_by_id={ent.id: ent.label},
+        )
+
+        assert len(vector_store.upserts) == 1
+        _, records = vector_store.upserts[0]
+        assert records[0].payload["tenant"] == "a"
+        assert records[0].payload["description"] == "A person"
 
     async def test_vector_store_failure_returns_stage_failure(self) -> None:
         """A VectorStore failure is reported as a StageFailure with SKIP."""
@@ -1869,6 +2084,66 @@ class TestEmbedSurvivorsDualWrite:
             )
 
         assert vector_store.upserts == []
+
+    async def test_failed_mirror_write_removes_record_it_owns(self) -> None:
+        """An entity whose node holds this call's text drops its record."""
+        ent = self._entity()
+        store = _GuardedNodeStore(
+            {
+                str(ent.id): {
+                    "name": "Alice",
+                    "description": "A person",
+                    "embedding": [0.1, 0.1],
+                }
+            }
+        )
+        vector_store = _FailingUpsertVectorStore()
+
+        failures = await _embed_and_upsert_survivors(
+            {ent.id: ent},
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.SKIP,
+            vector_store=vector_store,
+            vector_collection="entities",
+            labels_by_id={ent.id: ent.label},
+        )
+
+        assert [f.item_id for f in failures] == ["entity_vector_store"]
+        assert vector_store.deletes == [("entities", [ent.id])]
+
+    async def test_failed_mirror_write_keeps_record_of_newer_text(self) -> None:
+        """An entity a newer call rewrote keeps its mirrored vector.
+
+        Regression test: the cleanup deleted every id this call tried to
+        write, so a failed mirror upsert from an older call removed the
+        record a newer call had just written for the same entity id from
+        different name/description.
+        """
+        ent = self._entity()
+        store = _GuardedNodeStore(
+            {
+                str(ent.id): {
+                    "name": "Alice Cooper",
+                    "description": "A different person",
+                    "embedding": [0.9, 0.9],
+                }
+            }
+        )
+        vector_store = _FailingUpsertVectorStore()
+
+        failures = await _embed_and_upsert_survivors(
+            {ent.id: ent},
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.SKIP,
+            vector_store=vector_store,
+            vector_collection="entities",
+            labels_by_id={ent.id: ent.label},
+        )
+
+        assert [f.item_id for f in failures] == ["entity_vector_store"]
+        assert vector_store.deletes == []
 
 
 class TestGraphOpenVectorStore:
@@ -2069,6 +2344,53 @@ class TestGraphAddPipeline:
         assert result.ingestion.documents == 1
         assert result.extraction.chunks_processed == 1
         assert result.chunks
+
+    async def test_partial_chunk_write_still_embeds_written_chunks(self) -> None:
+        """Chunks committed before a failed node write still get embeddings.
+
+        Regression test: the embedding stage ran only when the whole chunk
+        node write succeeded, so a failure in a later batch left the
+        already-committed chunks without a vector, unsearchable by vector
+        search until their source was ingested again.
+        """
+
+        class PartialChunkStore(_GuardedNodeStore):
+            """Commits the chunk nodes it is given, then fails the write."""
+
+            async def upsert_nodes(
+                self,
+                label: str,
+                nodes: Sequence[NodeRecord],
+                *,
+                batch_size: int = 256,
+            ) -> None:
+                await super().upsert_nodes(label, nodes, batch_size=batch_size)
+                if label != CHUNK_LABEL:
+                    return
+                for node in nodes:
+                    self.nodes[str(node.id)] = {
+                        "text": node.properties.get("text"),
+                    }
+                raise RuntimeError("chunk node write failed")
+
+        store = PartialChunkStore({})
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=store,
+            embedder=MockEmbedder(),
+            extractor=MockExtractor(),
+        )
+
+        result = await graph.add(text="hello world", error_policy=ErrorPolicy.SKIP)
+
+        assert any(f.item_id == "chunks" for f in result.storage.failures)
+        embedded_ids = {
+            record["id"]
+            for query, parameters in store.execute_write_calls
+            if "SET n.embedding" in query and "expected_text" in query
+            for record in (parameters or {}).get("records", [])
+        }
+        assert embedded_ids == set(store.nodes)
 
     async def test_add_documents_path(self) -> None:
         """Documents path chunks and extracts."""

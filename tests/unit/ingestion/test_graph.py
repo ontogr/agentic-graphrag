@@ -372,11 +372,17 @@ class TestGraphVectorStore:
         }
 
     async def test_vector_upsert_failures_remove_chunk_and_entity_vectors(self) -> None:
-        """Failed vector writes remove every vector prepared by the operation."""
+        """Failed vector writes remove the vectors their nodes still own."""
         chunk_id = uuid4()
         chunk = MagicMock(id=chunk_id, text="Chunk", embedding=None)
         entity = Entity(id=uuid4(), label="Person", name="Ada", properties={})
         graph_store = AsyncMock()
+        # The cleanup reads each node's current guard fields; these match what
+        # both calls embedded, so both records are theirs to remove.
+        graph_store.execute_read.side_effect = [
+            [{"n": {"id": str(chunk_id), "text": "Chunk"}}],
+            [{"n": {"id": str(entity.id), "name": "Ada"}}],
+        ]
         chunk_store = AsyncMock()
         entity_store = AsyncMock()
         chunk_store.upsert.side_effect = RuntimeError("chunk upsert failed")
