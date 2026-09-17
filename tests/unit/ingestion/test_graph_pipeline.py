@@ -312,7 +312,9 @@ def _chunk(text: str = "hello", provenance: TextProvenance | None = None) -> Chu
     return ChunkModel(document_id=uuid4(), index=0, text=text, provenance=prov)
 
 
-def _distinct_doc(uri: str, text: str = "hello world") -> Document:
+def _distinct_doc(
+    uri: str, text: str = "hello world", content_hash: str | None = None
+) -> Document:
     """Build a Document with a distinct id/document_key, unlike ``_doc()``.
 
     ``_doc()`` hardcodes ``content_hash="h"`` and ``uri="u"``, so two of its
@@ -325,7 +327,7 @@ def _distinct_doc(uri: str, text: str = "hello world") -> Document:
         uri=uri,
         source_format=SourceFormat.TXT,
         family=DocumentFamily.PROSE,
-        content_hash=uri,
+        content_hash=content_hash or uri,
         loader_name="text",
         char_count=len(text),
         line_count=1,
@@ -2359,7 +2361,10 @@ class TestGraphAddPipeline:
         graph = await Graph.open(
             schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
         )
-        docs = [_distinct_doc("uri-a"), _distinct_doc("uri-b")]
+        docs = [
+            _distinct_doc("uri-a", content_hash="same-content"),
+            _distinct_doc("uri-b", content_hash="same-content"),
+        ]
         result = await graph.add(documents=docs, return_chunks=True)
 
         document_calls = [
@@ -2380,7 +2385,8 @@ class TestGraphAddPipeline:
             (Document.node_id_for(document_key=doc.resolved_document_key), chunk.id)
             for doc in docs
             for chunk in result.chunks
-            if chunk.document_id == doc.resolved_id
+            if chunk.document_id
+            == Document.node_id_for(document_key=doc.resolved_document_key)
         }
         assert {(record.start_id, record.end_id) for record in part_of_records} == (
             expected_endpoints

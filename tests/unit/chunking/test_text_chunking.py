@@ -38,7 +38,9 @@ class TestChunkDocument:
         assert len(chunks) > 1
         assert all(isinstance(c, Chunk) for c in chunks)
         for chunk in chunks:
-            assert chunk.document_id == doc.id
+            assert chunk.document_id == Document.node_id_for(
+                document_key=doc.resolved_document_key
+            )
             assert chunk.provenance.kind == "text"
             assert (
                 chunk.text

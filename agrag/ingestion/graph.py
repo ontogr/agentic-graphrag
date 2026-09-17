@@ -1787,12 +1787,18 @@ class Graph:
         # in this call, PART_OF linking it to the chunks written above.
         distinct = distinct_documents(documents_seen)
         documents_by_key = {doc.resolved_document_key: doc for doc in distinct}
-        selected_document_ids = {doc.resolved_id for doc in documents_by_key.values()}
+        selected_document_ids = {
+            Document.node_id_for(document_key=document_key)
+            for document_key in documents_by_key
+        }
         chunks_by_document_id: dict[UUID, list[Chunk]] = defaultdict(list)
         for ch in chunks:
             if ch.document_id in selected_document_ids:
                 chunks_by_document_id[ch.document_id].append(ch)
-        documents_by_id = {doc.resolved_id: doc for doc in documents_by_key.values()}
+        documents_by_id = {
+            Document.node_id_for(document_key=document_key): document
+            for document_key, document in documents_by_key.items()
+        }
         document_records = [
             build_document_record(doc) for doc in documents_by_id.values()
         ]
@@ -2076,7 +2082,10 @@ class Graph:
                 if docling_doc is not None:
                     chunks.extend(
                         traced(self._tracer)(chunk_docling_document)(
-                            docling_doc, document.resolved_id
+                            docling_doc,
+                            Document.node_id_for(
+                                document_key=document.resolved_document_key
+                            ),
                         )
                     )
                     continue

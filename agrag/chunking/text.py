@@ -93,7 +93,9 @@ def chunk_document(document: Document, chunker: RecursiveChunker) -> list[Chunk]
         )
         chunks.append(
             Chunk(
-                document_id=document.resolved_id,
+                document_id=Document.node_id_for(
+                    document_key=document.resolved_document_key
+                ),
                 index=index,
                 text=piece.text,
                 provenance=provenance,
