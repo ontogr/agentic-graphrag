@@ -3,6 +3,8 @@
 import asyncio
 import contextlib
 import glob
+import hashlib
+import unicodedata
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from datetime import datetime
@@ -17,7 +19,12 @@ from agrag.chunking import default_chunker
 from agrag.chunking.text import chunk_document
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.community import COMMUNITY_LABEL, MEMBER_OF_RELATION
-from agrag.common.data_models.document import Document
+from agrag.common.data_models.document import (
+    DOCUMENT_LABEL,
+    Document,
+    DocumentFamily,
+    SourceFormat,
+)
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.graph_record import RelationRecord, UpsertResult
@@ -44,6 +51,16 @@ from agrag.graphdb.errors import (
     GraphStoreConstraintViolationError,
     GraphStoreDataIntegrityError,
 )
+from agrag.ingestion._document_lifecycle import (
+    close_open_part_of_edges,
+    find_document,
+)
+from agrag.ingestion._lexical_backbone import (
+    build_document_record,
+    build_next_chunk_records,
+    build_part_of_records,
+    distinct_documents,
+)
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.merge import (
     MergePlan,
@@ -56,6 +73,7 @@ from agrag.ingestion.reports import (
     AddResult,
     CommunityDetectionReport,
     ConsolidationReport,
+    UpdateResult,
 )
 from agrag.ingestion.resolve import (
     ExactMatch,
@@ -100,7 +118,7 @@ SourceType = Union[str, Path]
 SourcesType = Union[SourceType, Sequence[SourceType]]
 
 # Relationship types Graph.open() always registers
-SYSTEM_RELATION_TYPES = ["MENTIONED_IN", MEMBER_OF_RELATION]
+SYSTEM_RELATION_TYPES = ["MENTIONED_IN", MEMBER_OF_RELATION, "PART_OF", "NEXT_CHUNK"]
 
 
 def _vector_record(
@@ -1190,7 +1208,7 @@ class Graph:
             entity_labels = [entity_type.label for entity_type in schema.entities]
             relation_types = [relation_type.label for relation_type in schema.relations]
             await graph_store.register_labels(
-                [*entity_labels, CHUNK_LABEL, COMMUNITY_LABEL]
+                [*entity_labels, CHUNK_LABEL, COMMUNITY_LABEL, DOCUMENT_LABEL]
             )
             await graph_store.register_relation_types(
                 [*relation_types, *SYSTEM_RELATION_TYPES]
@@ -1288,6 +1306,8 @@ class Graph:
             MissingExtraError: A loader is registered for a source's format, but its
                 package extra is not installed. This error follows ``error_policy``
                 instead of always stopping the call.
+            ValueError: The input contains multiple documents with the same
+                ``document_key``.
         """
         given = sum(x is not None for x in (source, text, documents))
         if given != 1:
@@ -1301,9 +1321,21 @@ class Graph:
             )
 
         chunks: list[Chunk] = []
+        documents_seen: list[Document] = []
+        document_keys_seen: set[str] = set()
         entities: list[ExtractedEntity] = []
         relations: list[ExtractedRelation] = []
         extraction_failures: list[StageFailure] = []
+
+        def _record_document_keys(batch: Sequence[Document]) -> None:
+            for document in batch:
+                document_key = document.resolved_document_key
+                if document_key in document_keys_seen:
+                    raise ValueError(
+                        "Each add call requires distinct document keys; "
+                        f"duplicate: {document_key!r}."
+                    )
+                document_keys_seen.add(document_key)
 
         # For ingestion stats accumulation
         final_stats = LoadStats()
@@ -1391,11 +1423,13 @@ class Graph:
         if documents is not None:
             # Single synthetic batch from provided documents
             docs_list = list(documents)
+            _record_document_keys(docs_list)
             final_stats.documents = len(docs_list)
             final_stats.sources = 0
             # Chunk all at once (still via thread)
             chunk_batch = await asyncio.to_thread(self._chunk_documents, docs_list)
             chunks.extend(chunk_batch)
+            documents_seen.extend(docs_list)
             for chunk in chunk_batch:
                 await _extract_chunk(chunk)
             # Fire on_progress once for the synthetic batch (partial)
@@ -1406,6 +1440,7 @@ class Graph:
             walk = _InMemoryWalk(text, opts=ReadOptions())
             batches = walk.iter_batches()
             async for batch, _cursor, stats in batches:
+                _record_document_keys(batch)
                 # Stats is LoadStats
                 final_stats.documents = stats.documents
                 final_stats.sources = stats.sources
@@ -1415,6 +1450,7 @@ class Graph:
                 # Chunk this batch
                 chunk_batch = await asyncio.to_thread(self._chunk_documents, batch)
                 chunks.extend(chunk_batch)
+                documents_seen.extend(batch)
                 for chunk in chunk_batch:
                     await _extract_chunk(chunk)
                 if on_progress is not None:
@@ -1438,6 +1474,7 @@ class Graph:
             )
             batches = walk.iter_batches()
             async for batch, _cursor, stats in batches:
+                _record_document_keys(batch)
                 final_stats.documents = stats.documents
                 final_stats.sources = stats.sources
                 final_stats.skipped = stats.skipped
@@ -1445,6 +1482,7 @@ class Graph:
                 final_stats.quarantined_items = list(stats.quarantined_items)
                 chunk_batch = await asyncio.to_thread(self._chunk_documents, batch)
                 chunks.extend(chunk_batch)
+                documents_seen.extend(batch)
                 for chunk in chunk_batch:
                     await _extract_chunk(chunk)
                 if on_progress is not None:
@@ -1453,6 +1491,14 @@ class Graph:
 
         # If no chunks/entities, we can early return with empty stages
         if not chunks:
+            if documents_seen:
+                await self._graph_store.upsert_nodes(
+                    DOCUMENT_LABEL,
+                    [
+                        build_document_record(document)
+                        for document in distinct_documents(documents_seen)
+                    ],
+                )
             # Build final result with zero stages
             ingestion = IngestStats(
                 documents=final_stats.documents,
@@ -1766,6 +1812,36 @@ class Graph:
                 )
                 continue
 
+        # Document nodes and PART_OF edges: one Document per distinct document
+        # in this call, PART_OF linking it to the chunks written above.
+        distinct = distinct_documents(documents_seen)
+        documents_by_key = {doc.resolved_document_key: doc for doc in distinct}
+        selected_document_ids = {
+            Document.node_id_for(document_key=document_key)
+            for document_key in documents_by_key
+        }
+        chunks_by_document_id: dict[UUID, list[Chunk]] = defaultdict(list)
+        for ch in chunks:
+            if ch.document_id in selected_document_ids:
+                chunks_by_document_id[ch.document_id].append(ch)
+        documents_by_id = {
+            Document.node_id_for(document_key=document_key): document
+            for document_key, document in documents_by_key.items()
+        }
+        document_records = [
+            build_document_record(doc) for doc in documents_by_id.values()
+        ]
+        for document_id, document in documents_by_id.items():
+            document_node_id = Document.node_id_for(
+                document_key=document.resolved_document_key
+            )
+            relation_records.extend(
+                build_part_of_records(
+                    document_node_id, chunks_by_document_id.get(document_id, [])
+                )
+            )
+        relation_records.extend(build_next_chunk_records(chunks))
+
         # Write chunk nodes
         storage_failures: list[StageFailure] = list(relation_storage_failures)
         nodes_written = 0
@@ -1793,6 +1869,22 @@ class Graph:
             storage_failures.append(
                 StageFailure(
                     item_id="chunks",
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+            )
+
+        # Write Document nodes
+        try:
+            if document_records:
+                await self._graph_store.upsert_nodes(DOCUMENT_LABEL, document_records)
+                nodes_written += len(document_records)
+        except Exception as exc:  # noqa: BLE001
+            if error_policy is ErrorPolicy.RAISE:
+                raise
+            storage_failures.append(
+                StageFailure(
+                    item_id="documents",
                     error_type=type(exc).__name__,
                     error_message=str(exc),
                 )
@@ -1920,6 +2012,111 @@ class Graph:
 
         return result
 
+    async def update(
+        self,
+        document_key: str,
+        *,
+        text: str | None = None,
+        source: SourcesType | None = None,
+        loader: Loader | None = None,
+        error_policy: ErrorPolicy = ErrorPolicy.RAISE,
+    ) -> UpdateResult:
+        """Replace one document version, closing its former PART_OF edges.
+
+        An unchanged content hash is a no-op. The update path uses the same
+        ``add`` pipeline as fresh ingestion after it closes the old edges. A
+        source must resolve to exactly one document.
+
+        Raises:
+            ValueError: Both or neither of ``text`` and ``source`` are given, a loader
+                override targets multiple sources, or a source resolves to any number
+                of documents other than one.
+        """
+        if (text is None) == (source is None):
+            raise ValueError("Provide exactly one of 'text' or 'source'.")
+
+        if text is not None:
+            normalized = unicodedata.normalize("NFKC", text)
+            content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+            document = Document(
+                text=normalized,
+                title="inline",
+                uri=document_key,
+                document_key=document_key,
+                source_format=SourceFormat.TXT,
+                family=DocumentFamily.PROSE,
+                content_hash=content_hash,
+                loader_name="inline",
+                encoding="utf-8",
+                char_count=len(normalized),
+                line_count=normalized.count("\n") + 1,
+            )
+        else:
+            assert source is not None
+            paths, single_file = _resolve_paths(source)
+            if loader is not None and not single_file:
+                raise ValueError(
+                    "A loader override requires a single-file source, not a directory, "
+                    "glob, or list of sources."
+                )
+            walk = _CorpusWalk(
+                paths,
+                registry=self._registry,
+                opts=ReadOptions(),
+                error_policy=error_policy,
+                loader=loader,
+                tracer=self._tracer,
+            )
+            documents_from_source: list[Document] = []
+            async for batch, _cursor, _stats in walk.iter_batches():
+                documents_from_source.extend(batch)
+            if len(documents_from_source) != 1:
+                raise ValueError("The source must produce exactly one document.")
+            document = documents_from_source[0].model_copy(
+                update={"document_key": document_key}
+            )
+
+        found = await find_document(self._graph_store, document_key=document_key)
+        if found is not None and found.current_content_hash == document.content_hash:
+            return UpdateResult(
+                document_key=document_key,
+                no_op=True,
+                previous_content_hash=found.current_content_hash,
+                new_content_hash=document.content_hash,
+            )
+
+        chunks_closed = 0
+        if found is not None:
+            chunks_closed = await close_open_part_of_edges(
+                self._graph_store, document_node_id=found.document_node_id
+            )
+        add_result = await self.add(
+            documents=[document], error_policy=error_policy, return_chunks=False
+        )
+        return UpdateResult(
+            document_key=document_key,
+            no_op=False,
+            previous_content_hash=(found.current_content_hash if found else None),
+            new_content_hash=document.content_hash,
+            chunks_closed=chunks_closed,
+            add_result=add_result,
+        )
+
+    async def delete_document(self, document_key: str) -> UpdateResult:
+        """Soft-delete a document by closing its current PART_OF edges."""
+        found = await find_document(self._graph_store, document_key=document_key)
+        if found is None:
+            return UpdateResult(document_key=document_key, no_op=True)
+        chunks_closed = await close_open_part_of_edges(
+            self._graph_store, document_node_id=found.document_node_id
+        )
+        return UpdateResult(
+            document_key=document_key,
+            no_op=False,
+            previous_content_hash=found.current_content_hash,
+            chunks_closed=chunks_closed,
+        )
+
     def _chunk_documents(self, documents: list[Document]) -> list[Chunk]:
         """Chunk a batch of documents with the right chunker each.
 
@@ -1936,7 +2133,13 @@ class Graph:
                 if docling_doc is not None:
                     chunks.extend(
                         traced(self._tracer)(chunk_docling_document)(
-                            docling_doc, document.resolved_id
+                            docling_doc,
+                            Document.node_id_for(
+                                document_key=document.resolved_document_key
+                            ),
+                            version_id=Document.id_for(
+                                content_hash=document.content_hash
+                            ),
                         )
                     )
                     continue

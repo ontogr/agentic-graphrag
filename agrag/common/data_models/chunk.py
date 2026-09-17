@@ -59,13 +59,15 @@ class Chunk(DataPoint):
         cls,
         *,
         document_id: UUID,
+        version_id: UUID | None = None,
         provenance: TextProvenance | PageProvenance,
         index: int,
     ) -> UUID:
         """Compute the chunk id.
 
         For a text chunk, the id comes from the document id and the character span. A
-        change in chunk size shifts the span, so it also changes the id.
+        change in chunk size shifts the span, so it also changes the id. When supplied,
+        ``version_id`` makes the id distinct for each version of a document.
 
         For a docling chunk, the id comes from the document id and the chunk index
         instead.
@@ -75,6 +77,7 @@ class Chunk(DataPoint):
 
         Args:
             document_id: The id of the parent Document.
+            version_id: Optional id for the parent document version.
             provenance: The provenance of the chunk. Its type picks which id rule
             applies.
             index: The position of the chunk within its document.
@@ -82,10 +85,14 @@ class Chunk(DataPoint):
         Returns:
             The chunk id.
         """
+        version_suffix = f":{version_id}" if version_id is not None else ""
         if isinstance(provenance, TextProvenance):
-            key = f"Chunk:{document_id}:{provenance.char_start}:{provenance.char_end}"
+            key = (
+                f"Chunk:{document_id}{version_suffix}:"
+                f"{provenance.char_start}:{provenance.char_end}"
+            )
         else:
-            key = f"Chunk:{document_id}:{index}"
+            key = f"Chunk:{document_id}{version_suffix}:{index}"
         return uuid5(NAMESPACE_OID, key)
 
     def to_node_record(self) -> NodeRecord:

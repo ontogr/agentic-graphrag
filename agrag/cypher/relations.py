@@ -10,6 +10,15 @@ from typing import Any
 from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
 
 
+def close_part_of_query() -> str:
+    """Build Cypher that closes currently valid document-to-chunk edges."""
+    return (
+        "MATCH (d:_AgragNode:Document {id: $document_node_id})"
+        "-[r:PART_OF]->() WHERE r.invalid_at IS NULL "
+        "SET r.invalid_at = datetime() RETURN count(r) AS closed"
+    )
+
+
 def bfs_expand_query(
     *,
     depth: int = 2,

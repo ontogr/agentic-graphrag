@@ -11,7 +11,12 @@ import pytest
 
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.chunk import Chunk as ChunkModel
-from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.document import (
+    DOCUMENT_LABEL,
+    Document,
+    DocumentFamily,
+    SourceFormat,
+)
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
@@ -312,6 +317,28 @@ def _doc(text: str = "hello world") -> Document:
 def _chunk(text: str = "hello", provenance: TextProvenance | None = None) -> ChunkModel:
     prov = provenance or TextProvenance(char_start=0, char_end=len(text))
     return ChunkModel(document_id=uuid4(), index=0, text=text, provenance=prov)
+
+
+def _distinct_doc(
+    uri: str, text: str = "hello world", content_hash: str | None = None
+) -> Document:
+    """Build a Document with a distinct id/document_key, unlike ``_doc()``.
+
+    ``_doc()`` hardcodes ``content_hash="h"`` and ``uri="u"``, so two of its
+    documents always share one resolved_id and document_key. Tests asserting
+    per-document behavior across multiple documents need distinct ones.
+    """
+    return Document(
+        text=text,
+        title="t",
+        uri=uri,
+        source_format=SourceFormat.TXT,
+        family=DocumentFamily.PROSE,
+        content_hash=content_hash or uri,
+        loader_name="text",
+        char_count=len(text),
+        line_count=1,
+    )
 
 
 def _tombstone_row(
@@ -2339,6 +2366,79 @@ class TestGraphAddPipeline:
         assert result.chunks == []
         assert result.extraction.chunks_processed == 1
 
+    async def test_add_writes_one_document_node_and_part_of_per_chunk(self) -> None:
+        """add() writes one Document node and a PART_OF record per chunk."""
+        store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
+        graph = await Graph.open(
+            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
+        )
+        result = await graph.add(text="one two three four five six", return_chunks=True)
+        chunk_count = len(result.chunks)
+        assert chunk_count > 0
+
+        document_calls = [
+            nodes
+            for label, nodes in store.upsert_nodes_calls
+            if label == DOCUMENT_LABEL
+        ]
+        assert len(document_calls) == 1
+        assert len(document_calls[0]) == 1
+
+        part_of_records = [
+            rec
+            for batch in store.upsert_relations_calls
+            for rec in batch
+            if rec.type == "PART_OF"
+        ]
+        assert len(part_of_records) == chunk_count
+        document_node_id = document_calls[0][0].id
+        assert all(record.start_id == document_node_id for record in part_of_records)
+        assert all(record.properties["valid_at"] for record in part_of_records)
+        assert all(
+            record.properties["invalid_at"] is None for record in part_of_records
+        )
+        assert all(record.properties["version_id"] for record in part_of_records)
+        assert {record.end_id for record in part_of_records} == {
+            chunk.id for chunk in result.chunks
+        }
+
+    async def test_add_two_documents_writes_two_document_records(self) -> None:
+        """A batch spanning two distinct documents writes two Document records."""
+        store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
+        graph = await Graph.open(
+            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
+        )
+        docs = [
+            _distinct_doc("uri-a", content_hash="same-content"),
+            _distinct_doc("uri-b", content_hash="same-content"),
+        ]
+        result = await graph.add(documents=docs, return_chunks=True)
+
+        document_calls = [
+            nodes
+            for label, nodes in store.upsert_nodes_calls
+            if label == DOCUMENT_LABEL
+        ]
+        assert len(document_calls) == 1
+        written_keys = {rec.properties["document_key"] for rec in document_calls[0]}
+        assert written_keys == {"uri-a", "uri-b"}
+        part_of_records = [
+            rec
+            for batch in store.upsert_relations_calls
+            for rec in batch
+            if rec.type == "PART_OF"
+        ]
+        expected_endpoints = {
+            (Document.node_id_for(document_key=doc.resolved_document_key), chunk.id)
+            for doc in docs
+            for chunk in result.chunks
+            if chunk.document_id
+            == Document.node_id_for(document_key=doc.resolved_document_key)
+        }
+        assert {(record.start_id, record.end_id) for record in part_of_records} == (
+            expected_endpoints
+        )
+
     async def test_add_source_path(self, tmp_path: Path) -> None:
         """Source file path is loaded via walk."""
         f = tmp_path / "a.txt"
@@ -2455,7 +2555,12 @@ class TestGraphAddPipeline:
             embedder=embed,
             extractor=TwoChunkExtractor(),
         )
-        result = await graph.add(documents=[_doc("a"), _doc("b")])
+        result = await graph.add(
+            documents=[
+                _distinct_doc("memory://a", "a"),
+                _distinct_doc("memory://b", "b"),
+            ]
+        )
         assert result.extraction.entities_extracted == 2
 
     async def test_empty_chunks_early_return(self) -> None:

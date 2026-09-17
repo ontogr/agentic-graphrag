@@ -596,6 +596,33 @@ def relation_id(source_id: UUID, target_id: UUID, rel_type: str) -> UUID:
     return uuid5(NAMESPACE_OID, f"{rel_type}:{source_id}:{target_id}")
 
 
+def part_of_id(document_node_id: UUID, chunk_id: UUID, version_id: UUID | str) -> UUID:
+    """Return the id for one versioned Document -[:PART_OF]-> Chunk edge.
+
+    Args:
+        document_node_id: The id of the Document graph node.
+        chunk_id: The id of the Chunk.
+        version_id: The identifier for this document version.
+
+    Returns:
+        The edge id. Each document version gets a separate relationship id.
+    """
+    return uuid5(NAMESPACE_OID, f"PART_OF:{document_node_id}:{chunk_id}:{version_id}")
+
+
+def next_chunk_id(from_chunk_id: UUID, to_chunk_id: UUID) -> UUID:
+    """Return the deterministic id for a Chunk -[:NEXT_CHUNK]-> Chunk edge.
+
+    Args:
+        from_chunk_id: The id of the earlier chunk in sequence.
+        to_chunk_id: The id of the chunk that follows it.
+
+    Returns:
+        The edge id. Same pair always returns the same id.
+    """
+    return uuid5(NAMESPACE_OID, f"NEXT_CHUNK:{from_chunk_id}:{to_chunk_id}")
+
+
 _MAX_ALIAS_OWNER_CHAIN_HOPS = 32
 
 

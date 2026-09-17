@@ -13,7 +13,9 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.provenance import BoundingBox, PageProvenance, PageSpan
 
 
-def chunk_docling_document(docling_doc: object, document_id: UUID) -> list[Chunk]:
+def chunk_docling_document(
+    docling_doc: object, document_id: UUID, *, version_id: UUID | None = None
+) -> list[Chunk]:
     """Split a docling document into chunks with page provenance.
 
     A chunk that crosses a page boundary produces more than one ``PageSpan``. The spans
@@ -22,6 +24,7 @@ def chunk_docling_document(docling_doc: object, document_id: UUID) -> list[Chunk
     Args:
         docling_doc: The parsed docling document to chunk.
         document_id: The id of the parent Document.
+        version_id: Optional id for the parent document version.
 
     Returns:
         The chunks, in document order.
@@ -37,6 +40,12 @@ def chunk_docling_document(docling_doc: object, document_id: UUID) -> list[Chunk
         page_spans = _page_spans_for(item, docling_doc)
         chunks.append(
             Chunk(
+                id=Chunk.id_for(
+                    document_id=document_id,
+                    version_id=version_id,
+                    provenance=PageProvenance(page_spans=page_spans),
+                    index=index,
+                ),
                 document_id=document_id,
                 index=index,
                 text=text,
