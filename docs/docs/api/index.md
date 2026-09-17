@@ -1047,7 +1047,8 @@ hydrate_chunks_by_id_query() -> str
 Build Cypher fetching chunks by id.
 
 The query follows only currently valid PART_OF edges, so superseded
-document versions cannot surface in retrieval.
+document versions cannot surface in retrieval. Chunks without any
+PART_OF edge are also returned for direct or legacy chunk fixtures.
 
 **Returns:**
 

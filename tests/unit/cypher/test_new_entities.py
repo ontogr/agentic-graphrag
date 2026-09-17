@@ -71,6 +71,13 @@ class TestHydrateChunksByIdQuery:
         q = hydrate_chunks_by_id_query()
         assert "UNWIND $ids AS id" in q
 
+    def test_excludes_chunks_with_only_closed_part_of_edges(self) -> None:
+        """The query allows orphans but requires a valid edge otherwise."""
+        q = hydrate_chunks_by_id_query()
+        assert "NOT EXISTS" in q
+        assert "p.invalid_at IS NULL" in q
+        assert "OPTIONAL MATCH" not in q
+
 
 class TestSetChunkEmbeddingQuery:
     """set_chunk_embedding_query guards on text."""

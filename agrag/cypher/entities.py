@@ -426,7 +426,8 @@ def hydrate_chunks_by_id_query() -> str:
     """Build Cypher fetching chunks by id.
 
     The query follows only currently valid PART_OF edges, so superseded
-    document versions cannot surface in retrieval.
+    document versions cannot surface in retrieval. Chunks without any
+    PART_OF edge are also returned for direct or legacy chunk fixtures.
 
     Returns:
         Parameterized Cypher expecting $ids (list of string ids).
@@ -434,8 +435,12 @@ def hydrate_chunks_by_id_query() -> str:
     return (
         f"UNWIND $ids AS id "
         f"MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) "
-        f"OPTIONAL MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
-        f"WHERE p IS NULL OR p.invalid_at IS NULL RETURN n"
+        f"WHERE NOT EXISTS {{ "
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[:PART_OF]->(n) "
+        f"}} OR EXISTS {{ "
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
+        f"WHERE p.invalid_at IS NULL }} "
+        f"RETURN n"
     )
 
 
