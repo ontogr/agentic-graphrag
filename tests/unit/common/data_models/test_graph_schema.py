@@ -3,9 +3,12 @@
 Verifies the shipped GENERIC schema is internally consistent (every relation
 pattern references a declared entity label) and has its expected five entity
 types and one relation, that a GraphSchema survives a JSON dump/validate
-round trip unchanged, and that EntityType defaults to empty properties and
-subtypes.
+round trip unchanged, that EntityType defaults to empty properties and
+subtypes, and that it rejects property names reserved by the vector payload.
 """
+
+import pytest
+from pydantic import ValidationError
 
 from agrag.common.data_models.graph_schema import (
     GENERIC,
@@ -64,3 +67,56 @@ class TestGraphSchemaRoundTrip:
         entity = EntityType(label="X", description="y")
         assert entity.properties == {}
         assert entity.subtypes == []
+
+
+class TestEntityTypeReservedPropertyNames:
+    """EntityType rejects property names the vector payload reserves."""
+
+    @pytest.mark.parametrize("reserved", ["label", "text"])
+    def test_rejects_reserved_name(self, reserved: str) -> None:
+        """A property named label or text raises at construction.
+
+        Both are payload keys every mirrored entity embedding carries, so a
+        property with either name would hide the real value from the
+        VectorStore's label filter and keyword indexing.
+        """
+        with pytest.raises(ValidationError, match=reserved):
+            EntityType(
+                label="Person",
+                description="A named individual.",
+                properties={reserved: "str"},
+            )
+
+    def test_rejects_reserved_name_among_valid_ones(self) -> None:
+        """One reserved name alongside valid properties still rejects the type."""
+        with pytest.raises(ValidationError, match="label"):
+            EntityType(
+                label="Person",
+                description="A named individual.",
+                properties={"role": "str", "label": "str"},
+            )
+
+    def test_rejects_when_nested_in_schema(self) -> None:
+        """The rejection also applies to a type built inside a GraphSchema."""
+        with pytest.raises(ValidationError, match="text"):
+            GraphSchema(
+                name="clinical",
+                version="1",
+                entities=[
+                    EntityType(
+                        label="Person",
+                        description="A named individual.",
+                        properties={"text": "str"},
+                    )
+                ],
+                relations=[],
+            )
+
+    def test_accepts_unreserved_names(self) -> None:
+        """Names outside the reserved set are kept unchanged."""
+        entity = EntityType(
+            label="Person",
+            description="A named individual.",
+            properties={"role": "str", "age": "int"},
+        )
+        assert entity.properties == {"role": "str", "age": "int"}

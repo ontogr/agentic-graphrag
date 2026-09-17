@@ -3,6 +3,14 @@
 from pydantic import BaseModel, Field, model_validator
 
 
+# Payload keys every mirrored entity embedding carries: the graph label a
+# SearchFilters label filter matches on, and the embedding text the backends
+# keyword-index. An entity property with one of these names would overwrite
+# that key in the VectorStore payload while the GraphStore-native path keeps
+# it as an ordinary node property, so the two retrieval paths would disagree.
+_RESERVED_ENTITY_PROPERTY_NAMES = frozenset({"label", "text"})
+
+
 class EntityType(BaseModel):
     """One kind of entity a schema recognizes.
 
@@ -10,7 +18,8 @@ class EntityType(BaseModel):
         label: The node label used in the extraction prompt and the graph.
         description: Guidance fed to the extractor prompt or schema builder.
         properties: Property names mapped to a type name, such as ``"str"`` or
-            ``"date"``.
+            ``"date"``. ``label`` and ``text`` are rejected, since both are
+            vector payload keys retrieval filtering and keyword search use.
         subtypes: Labels that narrow this type. Empty when this type has no subtypes.
     """
 
@@ -18,6 +27,19 @@ class EntityType(BaseModel):
     description: str
     properties: dict[str, str] = Field(default_factory=dict)
     subtypes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _reject_reserved_property_names(self) -> "EntityType":
+        """Reject property names that collide with vector payload keys."""
+        reserved = sorted(_RESERVED_ENTITY_PROPERTY_NAMES & self.properties.keys())
+        if reserved:
+            raise ValueError(
+                f"Entity type '{self.label}' declares reserved property "
+                f"name(s) {reserved}; "
+                f"{sorted(_RESERVED_ENTITY_PROPERTY_NAMES)} are vector payload "
+                f"keys used for retrieval filtering and keyword search"
+            )
+        return self
 
 
 class RelationType(BaseModel):
