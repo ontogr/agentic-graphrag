@@ -70,16 +70,13 @@ class HeadingRef(BaseModel):
 class Document(DataPoint):
     """One unit of source text, before chunking.
 
-    A prose source, such as a Markdown file, makes one Document. A record source, such
-    as a
-    CSV file, makes one Document per row.
+    A prose source, such as a Markdown file, makes one Document. A record source,
+    such as a CSV file, makes one Document per row.
 
-    The way the system computes ``content_hash`` depends on the loader. A text loader
-    hashes
-    the decoded text. A docling loader hashes the raw source bytes instead of the parsed
-    output, because docling's parsed output can change between docling versions and
-    between
-    runs on different hardware.
+    The way the system computes ``content_hash`` depends on the loader. A text
+    loader hashes the decoded text. A docling loader hashes the raw source bytes
+    instead of the parsed output, because docling's parsed output can change
+    between docling versions and between runs on different hardware.
 
     The system computes ``id`` from ``content_hash`` and ``record_id`` unless the caller
     passes ``id`` directly. A record-family document without ``record_id`` also mixes
@@ -88,38 +85,32 @@ class Document(DataPoint):
 
     Attributes:
         text: The document text. For a docling source, this holds docling's Markdown
-        export.
-            The chunker never reads this field for a docling source; see the ``Chunk``
-            model
-            for docling chunk content instead.
+            export. The chunker never reads this field for a docling source; see the
+            ``Chunk`` model for docling chunk content instead.
         title: The document title.
         uri: The location of the source. This value is not part of the document id.
         source_format: The format the loader used to read this document.
         family: The shape of the source: one document per file, or one document per
-        record.
+            record.
         content_hash: The hash that forms the document id.
         loader_name: The name of the loader that produced this document, for example
             ``"text"`` or ``"docling"``.
-        loader_version: The version of the loader package. Does not affect the document
-        id.
-        encoding: The text encoding. Text loaders set this field; other loaders leave it
-        empty.
-        source_hash: The hash of the whole source file. Record-family documents set this
-        field.
+        loader_version: The version of the loader package. Does not affect the
+            document id.
+        encoding: The text encoding. Text loaders set this field; other loaders
+            leave it empty.
+        source_hash: The hash of the whole source file. Record-family documents set
+            this field.
         char_count: The number of characters in ``text``.
         line_count: The number of lines in ``text``. Some loaders do not set this field.
-        record_index: The 0-based row number in the source. Record-family documents set
-        this
-            field.
-        record_id: The value from the configured id column. Record-family documents set
-        this
-            field only when the caller configures an id column.
+        record_index: The 0-based row number in the source. Record-family documents
+            set this field.
+        record_id: The value from the configured id column. Record-family documents
+            set this field only when the caller configures an id column.
         raw_record: The original record data. A loader sets this field only when the
-        caller
-            asks for it.
-        heading_outline: The headings in the document, with their offsets. A text loader
-        sets
-            this field for a prose document.
+            caller asks for it.
+        heading_outline: The headings in the document, with their offsets. A text
+            loader sets this field for a prose document.
         document_key: The stable identifier for this document's persisted graph node.
             Independent of ``id``, which changes with every content edit. Defaults to
             ``uri`` when not supplied.
