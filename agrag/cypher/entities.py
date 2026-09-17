@@ -433,9 +433,9 @@ def hydrate_chunks_by_id_query() -> str:
     """
     return (
         f"UNWIND $ids AS id "
-        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->"
-        f"(n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) "
-        f"WHERE p.invalid_at IS NULL RETURN n"
+        f"MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) "
+        f"OPTIONAL MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
+        f"WHERE p IS NULL OR p.invalid_at IS NULL RETURN n"
     )
 
 

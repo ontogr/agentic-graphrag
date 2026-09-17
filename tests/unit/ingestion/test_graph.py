@@ -207,6 +207,44 @@ class TestGraphAdd:
         with pytest.raises(ValueError):
             await graph.add(text="x", documents=[])
 
+    async def test_update_returns_no_op_for_unchanged_content(self) -> None:
+        """Update skips ingestion when the stored hash is unchanged."""
+        graph = await _open_graph()
+        node_id = uuid4()
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                {
+                    "id": str(node_id),
+                    "current_content_hash": (
+                        "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+                    ),
+                }
+            ]
+        )
+
+        result = await graph.update("memory://doc", text="test")
+
+        assert result.no_op is True
+        assert result.chunks_closed == 0
+        assert result.add_result is None
+
+    async def test_delete_document_closes_current_edges(self) -> None:
+        """Delete closes current edges and keeps the document result."""
+        graph = await _open_graph()
+        node_id = uuid4()
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[{"id": str(node_id), "current_content_hash": "hash"}]
+        )
+        graph._graph_store.execute_write = AsyncMock(  # type: ignore[method-assign]
+            return_value=[{"closed": 2}]
+        )
+
+        result = await graph.delete_document("memory://doc")
+
+        assert result.no_op is False
+        assert result.chunks_closed == 2
+        assert result.add_result is None
+
     async def test_on_progress_receives_stats(self) -> None:
         """On progress receives stats."""
         graph = await _open_graph()
