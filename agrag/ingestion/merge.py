@@ -607,9 +607,7 @@ def part_of_id(document_node_id: UUID, chunk_id: UUID, version_id: UUID | str) -
     Returns:
         The edge id. Each document version gets a separate relationship id.
     """
-    return uuid5(
-        NAMESPACE_OID, f"PART_OF:{document_node_id}:{chunk_id}:{version_id}"
-    )
+    return uuid5(NAMESPACE_OID, f"PART_OF:{document_node_id}:{chunk_id}:{version_id}")
 
 
 def next_chunk_id(from_chunk_id: UUID, to_chunk_id: UUID) -> UUID:
