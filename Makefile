@@ -46,10 +46,23 @@ test:
 		--cov-report=xml \
 		--junitxml=pytest-results.xml
 
+# The suite's dist needs cannot share one pytest invocation, so this runs the two
+# groups separately, mirroring the suite matrix in
+# .github/workflows/integration.yml. Its cypher and retrieval community tests
+# write and delete Community nodes against the same shared label and are tagged
+# xdist_group(name="community_label"), which only --dist loadgroup keeps on one
+# worker. The ingestion community detection tests instead rely on --dist
+# loadscope to keep one class's methods on one worker, and they scan the whole
+# entity graph, so they also cannot run alongside another suite's relation
+# writes. The graph group runs second, so the scanning suite sees as few of
+# those writes as the run can arrange. End-to-end tests are a separate target.
 test-integration:
-	uv run pytest tests/integration --ignore=tests/integration/e2e -v -n auto --dist loadgroup \
+	uv run pytest tests/integration/agents tests/integration/ingestion tests/integration/embedding tests/integration/vectordb tests/integration/loaders -v -n auto --dist loadscope \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
-		--junitxml=pytest-integration-results.xml
+		--junitxml=pytest-integration-results-ingestion.xml
+	uv run pytest tests/integration/retrieval tests/integration/graphdb tests/integration/cypher -v -n auto --dist loadgroup \
+		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
+		--junitxml=pytest-integration-results-graph.xml
 
 test-e2e:
 	uv run pytest tests/integration/e2e -v \
@@ -110,7 +123,7 @@ wheel-test: build
 	cd /tmp && "$(CURDIR)/.wheelenv/bin/python" -c "import agrag; print(agrag.__version__)"
 
 clean:
-	rm -rf .coverage coverage.xml htmlcov dist build .wheelenv *.egg-info pytest-results.xml pytest-integration-results.xml
+	rm -rf .coverage coverage.xml htmlcov dist build .wheelenv *.egg-info pytest-results.xml pytest-integration-results*.xml
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type d -name .pytest_cache -exec rm -rf {} +
 	find . -type d -name .ruff_cache -exec rm -rf {} +

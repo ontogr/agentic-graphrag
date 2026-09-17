@@ -43,7 +43,10 @@ class TestFetchRelationEdgesPaginationIntegration:
         test's relations can add extra pages. Asserts the pagination
         contract instead of an exact call count: every page holds at
         most ``page_size`` rows, and this test's own 3 relations alone
-        require more than one page.
+        require more than one page. The final read may return no rows at
+        all: the loop probes once more to detect the end whenever a full
+        page exactly exhausts the result set, which depends on how many
+        live relations other tests have written concurrently.
         """
         node_ids = [uuid4() for _ in range(4)]
         try:
@@ -100,7 +103,12 @@ class TestFetchRelationEdgesPaginationIntegration:
             relevant = [e for e in edges if e[0] in our_ids and e[1] in our_ids]
             assert len(relevant) == 3
             assert len(page_sizes) >= 2
+            # Every request but the last came back exactly full: the loop
+            # continues only while a page is full.
             assert all(size == 2 for size in page_sizes[:-1])
-            assert 0 < page_sizes[-1] <= 2
+            # The last request is either a shorter final page or the empty
+            # probe that ends an exact multiple of page_size, so only the
+            # upper bound applies to it.
+            assert page_sizes[-1] <= 2
         finally:
             pass

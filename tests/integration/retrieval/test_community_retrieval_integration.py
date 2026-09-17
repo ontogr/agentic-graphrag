@@ -4,6 +4,7 @@ Run against the Docker Compose Neo4j instance from
 ``docker/docker-compose.ci.yml`` (``make dev-services-up``).
 """
 
+import asyncio
 import importlib.util
 from collections.abc import AsyncGenerator, Sequence
 from unittest.mock import AsyncMock, patch
@@ -108,6 +109,34 @@ class TestCommunityRetrievalIntegration:
             )
         await self.store.close()
 
+    async def _wait_for_index(
+        self, *, label: str, vector: list[float], expected_id: UUID
+    ) -> None:
+        """Wait until ``label``'s vector index returns the seeded node.
+
+        Neo4j populates and updates a vector index asynchronously, so a
+        search issued right after the nodes are written can miss them. Every
+        seed helper waits here, so each test's own vector searches start
+        from a populated index rather than retrying their assertions.
+
+        Membership of ``expected_id`` is checked rather than a non-empty
+        result, because the Community index is shared across tests in this
+        worker: a leftover entry from a just-deleted test would otherwise
+        satisfy the wait while the node this test just wrote is still
+        invisible. ``limit`` is set well above the handful of records any
+        one test seeds so such leftovers cannot crowd the seeded node out.
+        """
+        for _ in range(10):
+            hits = await self.store.vector_search(
+                label=label,
+                vector_property="embedding",
+                query_vector=vector,
+                limit=100,
+            )
+            if any(hit.id == expected_id for hit in hits):
+                return
+            await asyncio.sleep(1)
+
     async def _seed_entities(self, names: list[str]) -> list[Entity]:
         """Write entities with embeddings to the store."""
         entities: list[Entity] = []
@@ -139,6 +168,13 @@ class TestCommunityRetrievalIntegration:
             dimensions=4,
             distance=Distance.COSINE,
         )
+        first_embedding = entities[0].embedding if entities else None
+        if first_embedding:
+            await self._wait_for_index(
+                label=self.label,
+                vector=first_embedding,
+                expected_id=entities[0].id,
+            )
         return entities
 
     async def _seed_communities(self, communities: list[Community]) -> list[Community]:
@@ -156,6 +192,13 @@ class TestCommunityRetrievalIntegration:
             dimensions=4,
             distance=Distance.COSINE,
         )
+        first_embedding = communities[0].embedding if communities else None
+        if first_embedding:
+            await self._wait_for_index(
+                label=COMMUNITY_LABEL,
+                vector=first_embedding,
+                expected_id=communities[0].id,
+            )
 
         relations: list[RelationRecord] = []
         for comm in communities:
@@ -540,14 +583,17 @@ class TestCommunityRetrievalIntegration:
             embedder=self.embedder,
             settings=self.settings,
         )
-        # THEMATIC has limit 5.
+        # THEMATIC has limit 5. These bounds are only meaningful with a hit
+        # to bound, so a cold index must not pass as an empty result set.
         results = await engine.search("thematic", THEMATIC)
+        assert results
         assert len(results) <= 5
         assert all(isinstance(r.item, Community) for r in results)
 
         # Custom bounded recipe.
         small = Recipe(methods=["community"], limit=2)
         small_results = await engine.search("thematic", small)
+        assert small_results
         assert len(small_results) <= 2
 
     async def test_ledger_G_prefix(self) -> None:
