@@ -20,7 +20,7 @@ from agrag.common.data_models.community import COMMUNITY_LABEL, MEMBER_OF_RELATI
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
-from agrag.common.data_models.graph_record import RelationRecord
+from agrag.common.data_models.graph_record import RelationRecord, UpsertResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
@@ -82,6 +82,18 @@ from agrag.loaders.docling.chunking import chunk_docling_document
 from agrag.observability import get_tracer, traced
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
+
+
+def _upsert_stage_failures(result: UpsertResult) -> list[StageFailure]:
+    """Convert isolated graph-store failures into ingestion stage failures."""
+    return [
+        StageFailure(
+            item_id=failure.id,
+            error_type=failure.error_type,
+            error_message=failure.error_message,
+        )
+        for failure in result.failures
+    ]
 
 
 SourceType = Union[str, Path]
@@ -1758,12 +1770,22 @@ class Graph:
         storage_failures: list[StageFailure] = list(relation_storage_failures)
         nodes_written = 0
         relationships_written_count = 0
+        chunk_failure_ids: set[UUID] = set()
         chunks_written = False
         try:
             if chunk_records:
                 # Grouping handled inside upsert_nodes
-                await self._graph_store.upsert_nodes(CHUNK_LABEL, chunk_records)
-                nodes_written += len(chunk_records)
+                write_result = await self._graph_store.upsert_nodes(
+                    CHUNK_LABEL, chunk_records
+                )
+                nodes_written += write_result.written
+                storage_failures.extend(_upsert_stage_failures(write_result))
+                chunk_failure_ids = set()
+                for failure in write_result.failures:
+                    try:
+                        chunk_failure_ids.add(UUID(failure.id))
+                    except ValueError:
+                        continue
                 chunks_written = True
         except Exception as exc:  # noqa: BLE001
             if error_policy is ErrorPolicy.RAISE:
@@ -1780,10 +1802,10 @@ class Graph:
         # write failed, upsert_nodes may still have committed its earlier
         # batches, so embed whichever of this call's chunks the graph holds
         # instead of leaving them unsearchable until the source is re-ingested.
-        embeddable_ids = chunk_ids
+        embeddable_ids = chunk_ids - chunk_failure_ids
         if not chunks_written:
             embeddable_ids = await _persisted_chunk_ids(self._graph_store, chunk_ids)
-        if chunks_written or embeddable_ids:
+        if embeddable_ids:
             storage_failures.extend(
                 await _embed_and_upsert_chunks(
                     [chunk for chunk in chunks if chunk.id in embeddable_ids],
@@ -1801,8 +1823,11 @@ class Graph:
         # Write domain relations
         try:
             if relation_records:
-                await self._graph_store.upsert_relations(relation_records)
-                relationships_written_count += len(relation_records)
+                write_result = await self._graph_store.upsert_relations(
+                    relation_records
+                )
+                relationships_written_count += write_result.written
+                storage_failures.extend(_upsert_stage_failures(write_result))
         except Exception as exc:  # noqa: BLE001
             if error_policy is ErrorPolicy.RAISE:
                 raise
@@ -1816,8 +1841,11 @@ class Graph:
 
         try:
             if mentioned_in_records:
-                await self._graph_store.upsert_relations(mentioned_in_records)
-                relationships_written_count += len(mentioned_in_records)
+                write_result = await self._graph_store.upsert_relations(
+                    mentioned_in_records
+                )
+                relationships_written_count += write_result.written
+                storage_failures.extend(_upsert_stage_failures(write_result))
         except Exception as exc:  # noqa: BLE001
             if error_policy is ErrorPolicy.RAISE:
                 raise

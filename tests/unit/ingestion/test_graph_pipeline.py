@@ -18,7 +18,12 @@ from agrag.common.data_models.extraction import (
     ExtractedRelation,
     ExtractionResult,
 )
-from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_record import (
+    NodeRecord,
+    RelationRecord,
+    UpsertFailure,
+    UpsertResult,
+)
 from agrag.common.data_models.graph_schema import (
     GENERIC,
     EntityType,
@@ -129,15 +134,17 @@ class MockStore(GraphStore):
 
     async def upsert_nodes(
         self, label: str, nodes: Sequence[NodeRecord], *, batch_size: int = 256
-    ) -> None:
+    ) -> UpsertResult:
         """Record a node upsert."""
         self.upsert_nodes_calls.append((label, list(nodes)))
+        return UpsertResult(written=len(nodes))
 
     async def upsert_relations(
         self, relations: Sequence[RelationRecord], *, batch_size: int = 256
-    ) -> None:
+    ) -> UpsertResult:
         """Record a relation upsert."""
         self.upsert_relations_calls.append(list(relations))
+        return UpsertResult(written=len(relations))
 
     async def ensure_vector_index(self, **kw: Any) -> None:
         """No-op vector index creation."""
@@ -2251,10 +2258,10 @@ class TestGraphAddPipeline:
                 nodes: Sequence[NodeRecord],
                 *,
                 batch_size: int = 256,
-            ) -> None:
-                await super().upsert_nodes(label, nodes, batch_size=batch_size)
+            ) -> UpsertResult:
+                result = await super().upsert_nodes(label, nodes, batch_size=batch_size)
                 if label != CHUNK_LABEL:
-                    return
+                    return result
                 for node in nodes:
                     self.nodes[str(node.id)] = {
                         "text": node.properties.get("text"),
@@ -2279,6 +2286,46 @@ class TestGraphAddPipeline:
             for record in (parameters or {}).get("records", [])
         }
         assert embedded_ids == set(store.nodes)
+
+    async def test_non_uuid_chunk_failure_id_does_not_abort_add(self) -> None:
+        """Backend failure ids remain failures even when they are not UUIDs."""
+
+        class NonUuidFailureStore(MockStore):
+            """Return a backend-specific chunk failure id."""
+
+            async def upsert_nodes(
+                self,
+                label: str,
+                nodes: Sequence[NodeRecord],
+                *,
+                batch_size: int = 256,
+            ) -> UpsertResult:
+                result = await super().upsert_nodes(label, nodes, batch_size=batch_size)
+                if label == CHUNK_LABEL:
+                    return UpsertResult(
+                        failures=[
+                            UpsertFailure(
+                                id="backend-record-7",
+                                error_type="BackendFailure",
+                                error_message="record rejected",
+                            )
+                        ]
+                    )
+                return result
+
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=NonUuidFailureStore(),
+            embedder=MockEmbedder(),
+            extractor=MockExtractor(),
+        )
+
+        result = await graph.add(text="hello world", error_policy=ErrorPolicy.RAISE)
+
+        assert [failure.item_id for failure in result.storage.failures] == [
+            "backend-record-7"
+        ]
+        assert all(failure.item_id != "chunks" for failure in result.storage.failures)
 
     async def test_add_documents_path(self) -> None:
         """Documents path chunks and extracts."""

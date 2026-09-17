@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from dotenv import load_dotenv
 
 from agrag.agents.ledger import Ledger
 from agrag.agents.tools import make_tools
@@ -35,6 +36,12 @@ from agrag.retrieval.settings import RetrievalSettings
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 graspologic_missing = importlib.util.find_spec("graspologic_native") is None
+
+
+def _llm_endpoint_configured() -> bool:
+    """Return True when the shared LLM endpoint configuration is available."""
+    load_dotenv()
+    return bool(os.getenv("LLM_BASE_URL") and os.getenv("LLM_MODEL_ID"))
 
 
 class _FixedEmbedder(Embedder):
@@ -419,7 +426,9 @@ async def test_community_via_graph_add_e2e(e2e_schema: GraphSchema) -> None:
 @pytest.mark.slow
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 @pytest.mark.skipif(graspologic_missing, reason="graspologic-native missing")
-@pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"), reason="OPENAI_API_KEY not set")
+@pytest.mark.skipif(
+    not _llm_endpoint_configured(), reason="LLM endpoint not configured"
+)
 async def test_community_real_baml() -> None:
     """Real BAML: title non-empty, rating 0-10, findings list, embedding length."""
     store = build_graph_store("neo4j")
