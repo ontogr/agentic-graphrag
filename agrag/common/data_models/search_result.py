@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.relation import Relation
 
@@ -14,15 +15,15 @@ class SearchResult(BaseModel):
     """One retrieved item, tagged with where it came from.
 
     Attributes:
-        item: The retrieved Entity, Relation, or Chunk, already
-            resolved through any merged_into chain.
+        item: The retrieved Entity, Relation, Chunk, or Community,
+            already resolved through any merged_into chain.
         score: The method's own relevance score. Not comparable
             across methods until Fusion normalizes it.
         method: The name of the retrieval method that produced
             this result.
     """
 
-    item: Union[Entity, Relation, Chunk]
+    item: Union[Entity, Relation, Chunk, Community]
     score: float
     method: str
 

@@ -2,7 +2,9 @@
 
 from collections.abc import Sequence
 
+from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.search_result import SearchResult
+from agrag.cypher.entities import hydrate_entities_by_id_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.retrieval.filters import SearchFilters
@@ -71,6 +73,7 @@ class EntityRetriever(Retriever):
             query: The natural-language query text.
             filters: Constraints applied to the search.
             limit: Maximum results. None uses settings.entity_top_k.
+                Zero or negative returns no results without searching.
 
         Returns:
             Ranked SearchResults with resolved entity ids.
@@ -79,7 +82,9 @@ class EntityRetriever(Retriever):
             ValueError: Native search was selected and neither the
                 filter nor the configuration names an entity label.
         """
-        effective_limit = limit or self._settings.entity_top_k
+        effective_limit = limit if limit is not None else self._settings.entity_top_k
+        if effective_limit <= 0:
+            return []
         labels = filters.labels if filters and filters.labels else self._entity_labels
         hits = await vector_search(
             query,
@@ -92,13 +97,40 @@ class EntityRetriever(Retriever):
             filters=filters,
             settings=self._settings,
         )
+        if not hits:
+            return []
+        ids = [str(h.id) for h in hits]
+        entities_by_id: dict[str, Entity] = {}
+        try:
+            rows = await self._graph_store.execute_read(
+                hydrate_entities_by_id_query(), {"ids": ids}
+            )
+            from agrag.ingestion.graph import _parse_entity_node  # noqa: PLC0415
+
+            for row in rows:
+                try:
+                    node = row.get("n") if isinstance(row, dict) and "n" in row else row
+                    ent = _parse_entity_node(node)
+                    if ent is None:
+                        ent = _parse_entity_node(row)  # type: ignore[arg-type]
+                    if ent is not None:
+                        entities_by_id[str(ent.id)] = ent
+                except Exception:
+                    continue
+        except Exception:
+            entities_by_id = {}
         results: list[SearchResult] = []
         for hit in hits:
             try:
-                entity = await resolve_entity(self._graph_store, hit.id)
+                entity: Entity | None = entities_by_id.get(str(hit.id))
+                if entity is None:
+                    try:
+                        entity = await resolve_entity(self._graph_store, hit.id)
+                    except Exception:
+                        continue
                 results.append(
                     SearchResult(item=entity, score=hit.score, method=self.name)
                 )
-            except (ValueError, Exception):
+            except Exception:
                 continue
         return results

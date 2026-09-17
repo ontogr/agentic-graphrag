@@ -23,6 +23,7 @@ from uuid import uuid4
 import pytest
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.search_result import SearchResult
@@ -326,6 +327,153 @@ class TestSearchEngine:
             chunk_filters = chunk_call.kwargs.get("filters")
             assert chunk_filters is not None
             assert chunk_filters.document_ids == [doc_id]
+
+    async def test_community_expand_receives_scoping_filters(self) -> None:
+        """document_ids/properties filters reach community_context.
+
+        Regression test: community expansion used to ignore the active
+        SearchFilters entirely, so a document- or property-scoped search
+        could still be enriched with a community report drawn from
+        outside that scope.
+        """
+        ent = Entity(id=uuid4(), label="Person", name="Alice")
+        gs = AsyncMock()
+        embedder = MockEmbedder()
+        engine = SearchEngine(graph_store=gs, embedder=embedder)
+        recipe = Recipe(methods=["entity"], community_expand=True, community_top_k=2)
+        doc_id = str(uuid4())
+        filters = SearchFilters(document_ids=[doc_id])
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_vs,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "agrag.retrieval.search_engine.community_context",
+                new_callable=AsyncMock,
+            ) as mock_cc,
+        ):
+            mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
+            mock_resolve.return_value = ent
+            mock_cc.return_value = []
+
+            await engine.search("test", recipe, filters=filters)
+
+            mock_cc.assert_awaited_once()
+            call_kwargs = mock_cc.call_args.kwargs
+            community_filters = call_kwargs["filters"]
+            assert community_filters is not None
+            assert community_filters.document_ids == [doc_id]
+
+    async def test_community_expand_fuses_nonempty_results(self) -> None:
+        """Non-empty community_context results are fused into the output."""
+        ent = Entity(id=uuid4(), label="Person", name="Alice")
+        community = Community(
+            id=uuid4(),
+            title="T",
+            summary="S",
+            rating=5,
+            rating_explanation="e",
+        )
+        gs = AsyncMock()
+        embedder = MockEmbedder()
+        engine = SearchEngine(graph_store=gs, embedder=embedder)
+        recipe = Recipe(methods=["entity"], community_expand=True, community_top_k=2)
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_vs,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "agrag.retrieval.search_engine.community_context",
+                new_callable=AsyncMock,
+            ) as mock_cc,
+        ):
+            mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
+            mock_resolve.return_value = ent
+            mock_cc.return_value = [
+                SearchResult(item=community, score=5.0, method="community")
+            ]
+
+            results = await engine.search("test", recipe)
+
+            assert any(r.item.id == community.id for r in results)
+
+    async def test_cross_encoder_reserves_slots_for_community_items(self) -> None:
+        """cross_encoder reranking excludes communities and reserves them slots.
+
+        Community items are never sent to cross_encoder_rerank, and the
+        number of reserved slots after rerank is capped at
+        recipe.community_top_k even when more community items are present.
+        """
+        ent1 = Entity(id=uuid4(), label="Person", name="E1")
+        ent2 = Entity(id=uuid4(), label="Person", name="E2")
+        comm1 = Community(
+            id=uuid4(), title="C1", summary="S", rating=5, rating_explanation="e"
+        )
+        comm2 = Community(
+            id=uuid4(), title="C2", summary="S", rating=5, rating_explanation="e"
+        )
+        gs = AsyncMock()
+        embedder = MockEmbedder()
+        engine = SearchEngine(graph_store=gs, embedder=embedder)
+        recipe = Recipe(
+            methods=["entity"],
+            reranker="cross_encoder",
+            community_expand=True,
+            community_top_k=1,
+            limit=3,
+        )
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_vs,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "agrag.retrieval.search_engine.community_context",
+                new_callable=AsyncMock,
+            ) as mock_cc,
+            patch(
+                "agrag.retrieval.search_engine.cross_encoder_rerank",
+                new_callable=AsyncMock,
+            ) as mock_cer,
+        ):
+            mock_vs.return_value = [
+                VectorHit(id=ent1.id, score=0.9, payload={}),
+                VectorHit(id=ent2.id, score=0.8, payload={}),
+            ]
+            mock_resolve.side_effect = [ent1, ent2]
+            mock_cc.return_value = [
+                SearchResult(item=comm1, score=5.0, method="community"),
+                SearchResult(item=comm2, score=4.0, method="community"),
+            ]
+            mock_cer.return_value = [
+                SearchResult(item=ent1, score=0.99, method="cross_encoder"),
+                SearchResult(item=ent2, score=0.5, method="cross_encoder"),
+            ]
+
+            results = await engine.search("test", recipe)
+
+            rerank_call_items = mock_cer.call_args.args[1]
+            assert all(not isinstance(r.item, Community) for r in rerank_call_items)
+
+            community_results = [r for r in results if isinstance(r.item, Community)]
+            assert len(community_results) == 1
 
     async def test_bfs_fusion_not_split_per_prior_result(self) -> None:
         """BFS fusion uses a single methods key, not one per result."""
@@ -633,3 +781,35 @@ class TestSearchEngine:
             results = await engine.search("test", ENTITY)
 
         assert results == []
+
+    async def test_community_expand_failure_keeps_search_results(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A community lookup error does not discard successful search results."""
+        entity = Entity(id=uuid4(), label="Person", name="Ada", properties={})
+        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+        recipe = Recipe(methods=["entity"], community_expand=True)
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_search,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "agrag.retrieval.search_engine.community_context",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("community store unavailable"),
+            ),
+        ):
+            mock_search.return_value = [VectorHit(id=entity.id, score=0.9, payload={})]
+            mock_resolve.return_value = entity
+
+            with caplog.at_level(logging.WARNING):
+                results = await engine.search("Ada", recipe)
+
+        assert [result.item for result in results] == [entity]
+        assert "Community expansion failed" in caplog.text

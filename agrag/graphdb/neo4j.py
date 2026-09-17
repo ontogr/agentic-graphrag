@@ -63,9 +63,9 @@ class _Neo4jTransaction(GraphStoreTransaction):
 
         Args:
             tx: The open Neo4j ``AsyncTransaction``.
-            store: The store this transaction belongs to, used only for
-                label bookkeeping (``register_labels``) that upserts inside a
-                transaction still need.
+            store: The store this transaction belongs to, used for label and
+                relation-type bookkeeping and for ensuring each relationship
+                type's identity constraint exists before its first write.
         """
         self._tx = tx
         self._store = store
@@ -112,6 +112,34 @@ class _Neo4jTransaction(GraphStoreTransaction):
             records = [node_params(n) for n in group_nodes]
             for start in range(0, len(records), batch_size):
                 batch = records[start : start + batch_size]
+                await self.execute_write(query, {"records": batch})
+
+    async def upsert_relations(
+        self,
+        relations: Sequence[RelationRecord],
+        *,
+        batch_size: int = 256,
+    ) -> None:
+        """Write or merge relationships against this transaction.
+
+        Mirrors ``Neo4jGraphStore.upsert_relations``, including its per-type
+        constraint check, but via ``self.execute_write`` so every write joins
+        the surrounding explicit transaction.
+
+        Raises:
+            ValueError: ``batch_size`` is not positive.
+        """
+        require_positive_batch_size(batch_size)
+        by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for rel in relations:
+            validate_identifier(rel.type)
+            by_type[rel.type].append(relation_params(rel))
+        for rel_type, params in by_type.items():
+            await self._store.ensure_relation_constraint(rel_type)
+            await self._store.register_relation_types([rel_type])
+            query = upsert_relation_query(rel_type)
+            for start in range(0, len(params), batch_size):
+                batch = params[start : start + batch_size]
                 await self.execute_write(query, {"records": batch})
 
 
@@ -372,6 +400,20 @@ class Neo4jGraphStore(GraphStore):
                 return
             await self.execute_write(relation_id_constraint_query(rel_type))
             self._relation_type_constraints_ready.add(rel_type)
+
+    async def ensure_relation_constraint(self, rel_type: str) -> None:
+        """Create a relationship type's ``id`` uniqueness constraint once.
+
+        Public entry point onto ``_ensure_relation_constraint`` for
+        ``_Neo4jTransaction.upsert_relations``, which must give the same
+        constraint-before-first-write guarantee inside an explicit
+        transaction that the non-transactional ``upsert_relations`` gives.
+
+        Args:
+            rel_type: The relationship type to ensure a constraint for. Must
+                already be validated.
+        """
+        await self._ensure_relation_constraint(rel_type)
 
     async def register_labels(self, labels: Sequence[str]) -> None:
         """Add labels to this instance's known-label set.

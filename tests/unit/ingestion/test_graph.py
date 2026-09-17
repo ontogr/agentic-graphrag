@@ -13,11 +13,14 @@ from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.graph_schema import GENERIC
@@ -26,6 +29,11 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import Extractor
+from agrag.ingestion.graph import (
+    _embed_and_upsert_chunks,
+    _embed_and_upsert_survivors,
+    _vector_record,
+)
 from agrag.loaders.corpus.errors import UnsupportedFormatError
 from agrag.loaders.corpus.readers.prose import TextLoader
 from agrag.loaders.corpus.types import ErrorPolicy
@@ -157,15 +165,15 @@ class TestGraphAdd:
         """Add directory reads all sources."""
         graph = await _open_graph()
         result = await graph.add(_FIXTURES)
-        assert result.documents > 0
-        assert result.sources > 0
+        assert result.ingestion.documents > 0
+        assert result.ingestion.sources > 0
 
     async def test_add_single_text(self) -> None:
         """Add single text."""
         graph = await _open_graph()
         result = await graph.add(text="a short note")
-        assert result.documents == 1
-        assert result.sources == 1
+        assert result.ingestion.documents == 1
+        assert result.ingestion.sources == 1
 
     async def test_add_prebuilt_documents(self) -> None:
         """Add prebuilt documents."""
@@ -182,7 +190,7 @@ class TestGraphAdd:
             line_count=1,
         )
         result = await graph.add(documents=[doc])
-        assert result.documents == 1
+        assert result.ingestion.documents == 1
 
     async def test_add_exposes_the_chunks_it_produced(self) -> None:
         """Add returns the chunks it computed, not just counts."""
@@ -222,8 +230,8 @@ class TestGraphAdd:
         bad.write_text("x")
         graph = await _open_graph()
         result = await graph.add(bad, error_policy=ErrorPolicy.SKIP)
-        assert result.skipped == 1
-        assert result.documents == 0
+        assert result.ingestion.skipped == 1
+        assert result.ingestion.documents == 0
 
     async def test_quarantine_policy_counts_quarantined(self, tmp_path: Path) -> None:
         """Quarantine policy counts quarantined."""
@@ -231,8 +239,8 @@ class TestGraphAdd:
         bad.write_text("x")
         graph = await _open_graph()
         result = await graph.add(bad, error_policy=ErrorPolicy.QUARANTINE)
-        assert result.quarantined == 1
-        assert result.quarantined_items
+        assert result.ingestion.quarantined == 1
+        assert result.ingestion.quarantined_items
 
     async def test_loader_override_with_text_raises(self) -> None:
         """A loader override has no effect on ``text`` and must be rejected."""
@@ -263,8 +271,8 @@ class TestGraphAdd:
         (tmp_path / "a.txt").write_text("hello")
         graph = await _open_graph()
         result = await graph.add(str(tmp_path / "*"))
-        assert result.documents == 1
-        assert result.sources == 1
+        assert result.ingestion.documents == 1
+        assert result.ingestion.sources == 1
 
 
 class TestGraphOpen:
@@ -342,3 +350,62 @@ class TestGraphOpen:
             extractor=_MockExtractor(),
         )
         assert store.close_calls == 0
+
+
+class TestGraphVectorStore:
+    """Test Graph's vector-store synchronization safeguards."""
+
+    def test_vector_record_includes_filterable_properties(self) -> None:
+        """Optional metadata augments the standard vector payload."""
+        record = _vector_record(
+            uuid4(),
+            [0.1],
+            label="Community",
+            text="Report",
+            properties={"tenant": "a"},
+        )
+
+        assert record.payload == {
+            "label": "Community",
+            "text": "Report",
+            "tenant": "a",
+        }
+
+    async def test_vector_upsert_failures_leave_chunk_and_entity_vectors(self) -> None:
+        """Failed vector writes leave the collection untouched.
+
+        The mirror has no conditional write, so a delete issued after
+        checking the graph would race a concurrent call that owns the
+        record. The stored record keeps its previous text until the next
+        successful ingest replaces it.
+        """
+        chunk_id = uuid4()
+        chunk = MagicMock(id=chunk_id, text="Chunk", embedding=None)
+        entity = Entity(id=uuid4(), label="Person", name="Ada", properties={})
+        graph_store = AsyncMock()
+        chunk_store = AsyncMock()
+        entity_store = AsyncMock()
+        chunk_store.upsert.side_effect = RuntimeError("chunk upsert failed")
+        entity_store.upsert.side_effect = RuntimeError("entity upsert failed")
+
+        chunk_failures = await _embed_and_upsert_chunks(
+            [chunk],
+            embedder=_MockEmbedder(),
+            graph_store=graph_store,
+            error_policy=ErrorPolicy.SKIP,
+            vector_store=chunk_store,
+            vector_collection="chunks",
+        )
+        entity_failures = await _embed_and_upsert_survivors(
+            {entity.id: entity},
+            embedder=_MockEmbedder(),
+            graph_store=graph_store,
+            error_policy=ErrorPolicy.SKIP,
+            vector_store=entity_store,
+            vector_collection="entities",
+        )
+
+        assert chunk_failures[0].item_id == "chunk_vector_store"
+        assert entity_failures[0].item_id == "entity_vector_store"
+        chunk_store.delete.assert_not_awaited()
+        entity_store.delete.assert_not_awaited()

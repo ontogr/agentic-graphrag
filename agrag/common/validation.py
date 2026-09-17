@@ -91,6 +91,12 @@ def require_positive_batch_size(batch_size: int) -> None:
         raise ValueError(f"batch_size must be positive, got {batch_size}")
 
 
+def require_positive_max_concurrency(max_concurrency: int) -> None:
+    """Check that a concurrency limit is positive."""
+    if max_concurrency <= 0:
+        raise ValueError(f"max_concurrency must be positive, got {max_concurrency}")
+
+
 def require_valid_search_limit(limit: int) -> None:
     """Check that a search/hybrid_search ``limit`` is usable across every backend.
 

@@ -1,4 +1,4 @@
-.PHONY: sync baml-gen lint-actions test test-integration test-e2e test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
+.PHONY: sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
 help:
 	@echo "Available make targets:"
@@ -28,12 +28,16 @@ help:
 	@echo "  make docs-dev         - Run the Docusaurus dev server"
 	@echo "  make docs-build       - Regenerate the API reference and build the docs site"
 	@echo "  make clean            - Clean build artifacts and cache"
+	@echo "  make sync-docs-pins   - Sync docs-api hook pins from uv.lock"
 
 baml-gen:
 	uv run baml-cli generate --from agrag/llm/baml_src
 
 sync:
 	uv sync --all-groups --all-extras
+
+sync-docs-pins:
+	uv run python .github/scripts/update_precommit_docs_pins.py
 
 test:
 	uv run pytest tests/unit \
@@ -42,10 +46,23 @@ test:
 		--cov-report=xml \
 		--junitxml=pytest-results.xml
 
+# The suite's dist needs cannot share one pytest invocation, so this runs the two
+# groups separately, mirroring the suite matrix in
+# .github/workflows/integration.yml. Its cypher and retrieval community tests
+# write and delete Community nodes against the same shared label and are tagged
+# xdist_group(name="community_label"), which only --dist loadgroup keeps on one
+# worker. The ingestion community detection tests instead rely on --dist
+# loadscope to keep one class's methods on one worker, and they scan the whole
+# entity graph, so they also cannot run alongside another suite's relation
+# writes. The graph group runs second, so the scanning suite sees as few of
+# those writes as the run can arrange. End-to-end tests are a separate target.
 test-integration:
-	uv run pytest tests/integration --ignore=tests/integration/e2e -v -n auto --dist loadscope \
+	uv run pytest tests/integration/agents tests/integration/ingestion tests/integration/embedding tests/integration/vectordb tests/integration/loaders -v -n auto --dist loadscope \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
-		--junitxml=pytest-integration-results.xml
+		--junitxml=pytest-integration-results-ingestion.xml
+	uv run pytest tests/integration/retrieval tests/integration/graphdb tests/integration/cypher -v -n auto --dist loadgroup \
+		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
+		--junitxml=pytest-integration-results-graph.xml
 
 test-e2e:
 	uv run pytest tests/integration/e2e -v \
@@ -106,16 +123,19 @@ wheel-test: build
 	cd /tmp && "$(CURDIR)/.wheelenv/bin/python" -c "import agrag; print(agrag.__version__)"
 
 clean:
-	rm -rf .coverage coverage.xml htmlcov dist build .wheelenv *.egg-info pytest-results.xml pytest-integration-results.xml
+	rm -rf .coverage coverage.xml htmlcov dist build .wheelenv *.egg-info pytest-results.xml pytest-integration-results*.xml
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type d -name .pytest_cache -exec rm -rf {} +
 	find . -type d -name .ruff_cache -exec rm -rf {} +
 	find . -type d -name .ty_cache -exec rm -rf {} +
 
+# Overridable so the pre-commit hook can use its isolated docs environment.
+DOCS_GRIPPE2MD ?= uv run --group docs griffe2md
+
 docs-api:
 	mkdir -p docs/docs/api
 	{ printf '%s\n' '---' 'title: API Reference' 'sidebar_position: 2' '---' ''; \
-	  uv run --group docs griffe2md agrag -f; } > docs/docs/api/index.md.tmp
+	  $(DOCS_GRIPPE2MD) agrag -f; } > docs/docs/api/index.md.tmp
 	mv docs/docs/api/index.md.tmp docs/docs/api/index.md
 
 docs-install:

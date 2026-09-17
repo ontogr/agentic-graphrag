@@ -41,6 +41,17 @@ class RetrievalSettings(BaseSettings):
         text2cypher_max_rows: Maximum rows a generated read query may
             return. Appended as a LIMIT clause when the generated
             query declares none of its own.
+        cross_encoder_model: The sentence-transformers CrossEncoder model
+            used for cross_encoder reranking. Env:
+            RETRIEVAL_CROSS_ENCODER_MODEL.
+        community_collection: The VectorStore collection name for community
+            search. Same condition as entity_collection/chunk_collection:
+            only read when a VectorStore is configured.
+        community_top_k: Results requested per community search call when
+            the caller passes no explicit limit -- the same role
+            entity_top_k/chunk_top_k play for their retrievers. Distinct
+            from Recipe.community_top_k (enrichment-budget/reserved-slice
+            size): same name, different class, different job.
 
     Env prefix: ``RETRIEVAL_``.
     """
@@ -63,3 +74,6 @@ class RetrievalSettings(BaseSettings):
     text2cypher_max_retries: int = 3
     text2cypher_timeout_seconds: float | None = 10.0
     text2cypher_max_rows: int = 1000
+    cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    community_collection: str = "agrag_communities"
+    community_top_k: int = 5

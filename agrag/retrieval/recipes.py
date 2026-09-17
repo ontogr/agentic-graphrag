@@ -21,6 +21,11 @@ class Recipe(BaseModel):
             None skips reranking.
         limit: The maximum number of results SearchEngine
             returns.
+        community_expand: Whether to fetch and fuse in overlapping
+            communities' reports after BFS.
+        community_top_k: How many communities community_context
+            returns, and (when reranker is cross_encoder) how many
+            are reserved a slot after rerank.
     """
 
     methods: list[str]
@@ -28,6 +33,8 @@ class Recipe(BaseModel):
     bfs_depth: int | None = None
     reranker: Literal["cross_encoder", "node_distance"] | None = None
     limit: int = 10
+    community_expand: bool = False
+    community_top_k: int = 3
 
 
 # Preset recipes for common search patterns.
@@ -35,6 +42,10 @@ ENTITY = Recipe(methods=["entity"], limit=10)
 CHUNK = Recipe(methods=["chunk"], limit=10)
 HYBRID = Recipe(methods=["entity", "chunk"], limit=10)
 HYBRID_RERANKED = Recipe(
-    methods=["entity", "chunk"], reranker="cross_encoder", limit=10
+    methods=["entity", "chunk"],
+    reranker="cross_encoder",
+    limit=10,
+    community_expand=True,
 )
-GRAPH_EXPAND = Recipe(methods=["entity"], bfs=True, limit=20)
+GRAPH_EXPAND = Recipe(methods=["entity"], bfs=True, limit=20, community_expand=True)
+THEMATIC = Recipe(methods=["community"], limit=5)

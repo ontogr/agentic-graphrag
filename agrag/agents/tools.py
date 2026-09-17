@@ -68,8 +68,8 @@ def make_tools(
 
     Returns:
         A list of LangChain tool instances: search_source_text,
-        look_up_entity, find_connection, explore_related, and
-        answer_from_graph_structure.
+        look_up_entity, find_connection, explore_related,
+        answer_from_graph_structure, and answer_thematic_question.
     """
     from agrag.retrieval.recipes import (  # noqa: PLC0415
         CHUNK,
@@ -77,6 +77,7 @@ def make_tools(
         GRAPH_EXPAND,
         HYBRID,
         HYBRID_RERANKED,
+        THEMATIC,
     )
 
     return [
@@ -91,4 +92,5 @@ def make_tools(
             "answer_from_graph_structure",
             filters,
         ),
+        _make_tool_fn(engine, ledger, THEMATIC, "answer_thematic_question", filters),
     ]

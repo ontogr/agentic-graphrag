@@ -19,6 +19,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.text import normalize_text
+from agrag.ingestion.stats import StageFailure
 
 
 if TYPE_CHECKING:
@@ -244,10 +245,6 @@ async def _resolve_description(
         return result, True, None
     except Exception as exc:  # noqa: BLE001
         fallback = " | ".join(str(v) for v in distinct)
-        try:
-            from agrag.ingestion.types import StageFailure  # noqa: PLC0415
-        except ImportError:
-            return fallback, True, None
         failure = StageFailure(
             item_id="description",
             error_type=type(exc).__name__,
