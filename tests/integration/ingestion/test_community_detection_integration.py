@@ -6,6 +6,7 @@ Run against Docker Compose Neo4j from ``docker/docker-compose.ci.yml``
 
 import asyncio
 import contextlib
+import hashlib
 import importlib.util
 import math
 import sys
@@ -38,6 +39,7 @@ from agrag.ingestion.stats import StageFailure  # noqa: F401
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 graspologic_native_missing = importlib.util.find_spec("graspologic_native") is None
+baml_missing = importlib.util.find_spec("baml_py") is None
 
 
 class _FixedEmbedder(Embedder):
@@ -57,7 +59,7 @@ class _FixedEmbedder(Embedder):
         """Return deterministic vectors per text."""
         vectors: list[list[float]] = []
         for text in texts:
-            h = hash(text) % 1000
+            h = int.from_bytes(hashlib.sha256(text.encode()).digest()[:4], "big") % 1000
             vectors.append(
                 [
                     float(h % 10) / 10.0,
@@ -421,6 +423,7 @@ class TestCommunityDetectionIntegration:
     @pytest.mark.skipif(
         graspologic_native_missing, reason="graspologic-native not installed"
     )
+    @pytest.mark.skipif(baml_missing, reason="baml extra not installed")
     async def test_heuristic_vs_llm_branch_and_call_counts(self) -> None:
         """Heuristic for low weight, LLM for high weight, batching and truncate.
 
@@ -567,6 +570,7 @@ class TestCommunityDetectionIntegration:
     @pytest.mark.skipif(
         graspologic_native_missing, reason="graspologic-native not installed"
     )
+    @pytest.mark.skipif(baml_missing, reason="baml extra not installed")
     async def test_short_response_fallback(self) -> None:
         """Short LLM response falls back to heuristic for leftovers."""
         eids = [uuid4() for _ in range(4)]
@@ -614,6 +618,7 @@ class TestCommunityDetectionIntegration:
     @pytest.mark.skipif(
         graspologic_native_missing, reason="graspologic-native not installed"
     )
+    @pytest.mark.skipif(baml_missing, reason="baml extra not installed")
     async def test_batch_exception_creates_failures(self) -> None:
         """Batch exception creates StageFailure per community and fallback."""
         eids = [uuid4() for _ in range(2)]

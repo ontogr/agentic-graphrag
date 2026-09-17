@@ -140,11 +140,17 @@ jobs:
         id: docs-check
         run: |
           if git diff --exit-code HEAD -- docs/docs/api/index.md > /dev/null; then
-            echo "stale=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            if ! git ls-files --others --exclude-standard -- docs/docs/api/index.md | grep -q .; then
+              echo "stale=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           echo "stale=true" >> "$GITHUB_OUTPUT"
-          git diff HEAD -- docs/docs/api/index.md | head -c 6500 > /tmp/docs.diff || true
+          if git ls-files --error-unmatch docs/docs/api/index.md > /dev/null 2>&1; then
+            git diff HEAD -- docs/docs/api/index.md | head -c 6500 > /tmp/docs.diff || true
+          else
+            diff -u /dev/null docs/docs/api/index.md | head -c 6500 > /tmp/docs.diff || true
+          fi
           cat /tmp/docs.diff || true
       - name: Fail on stale docs
         if: steps.docs-check.outputs.stale == 'true'

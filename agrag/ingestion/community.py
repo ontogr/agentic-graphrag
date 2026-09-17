@@ -1,12 +1,19 @@
 """Community detection: hierarchical Leiden over the entity graph."""
 
 import asyncio
+import inspect
 import logging
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid4
 
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
+from agrag.common.validation import (
+    require_positive_batch_size,
+    require_positive_max_concurrency,
+)
 from agrag.cypher.community_write import delete_communities_batch_query
 from agrag.cypher.relations import (
     fetch_all_relations_query,
@@ -16,6 +23,13 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion.stats import StageFailure
 from agrag.loaders.corpus.types import ErrorPolicy
+
+
+if TYPE_CHECKING:
+    from baml_py import ClientRegistry
+
+    from agrag.llm.baml_client.runtime import BamlCallOptions
+    from agrag.llm.baml_client.types import CommunityReport
 
 
 logger = logging.getLogger(__name__)
@@ -238,6 +252,7 @@ async def delete_all_communities(
             communities atomically.
         batch_size: Community nodes deleted per statement.
     """
+    require_positive_batch_size(batch_size)
     while True:
         rows = await graph_store.execute_write(
             delete_communities_batch_query(), {"limit": batch_size}
@@ -317,7 +332,7 @@ def _apply_heuristic_report(
     community.findings = []
 
 
-async def generate_community_reports(
+async def generate_community_reports(  # noqa: PLR0915
     communities: list[Community],
     entities_by_id: dict[UUID, Entity],
     *,
@@ -389,6 +404,9 @@ async def generate_community_reports(
     Returns:
         One StageFailure per community whose batch call failed.
     """
+    require_positive_batch_size(batch_size)
+    require_positive_max_concurrency(max_concurrency)
+
     llm_candidates = []
     for community in communities:
         if community.internal_weight >= min_importance_for_llm_report:
@@ -414,6 +432,24 @@ async def generate_community_reports(
         for community in llm_candidates:
             _apply_heuristic_report(community, entities_by_id)
         return failures
+
+    baml_options: BamlCallOptions = {}
+    retry = None
+    try:
+        from agrag.ingestion.extract import ExtractionLLMSettings  # noqa: PLC0415
+        from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
+        from agrag.llm.retry import NO_RETRY, call_with_retry  # noqa: PLC0415
+
+        settings = ExtractionLLMSettings.from_openai_compatible_env()
+        baml_options["client_registry"] = cast(
+            "ClientRegistry",
+            build_client_registry(settings.clients, strategy=settings.strategy),
+        )
+        retry = settings.retry
+    except (ImportError, RuntimeError):
+        from agrag.llm.retry import NO_RETRY, call_with_retry  # noqa: PLC0415
+
+        retry = NO_RETRY
 
     relation_context = {
         community.id: _relation_summaries_for(
@@ -441,7 +477,26 @@ async def generate_community_reports(
                 for c in batch
             ]
             try:
-                reports = await baml_client.SummarizeCommunities(communities=inputs)
+                summarize = baml_client.SummarizeCommunities
+                parameters = inspect.signature(summarize).parameters
+                supports_options = "baml_options" in parameters or any(
+                    parameter.kind is inspect.Parameter.VAR_KEYWORD
+                    for parameter in parameters.values()
+                )
+                if supports_options:
+                    reports = await call_with_retry(
+                        lambda: summarize(
+                            communities=inputs, baml_options=baml_options
+                        ),
+                        retry,
+                    )
+                else:
+                    summarize_without_options = cast(
+                        "Callable[..., Awaitable[list[CommunityReport]]]", summarize
+                    )
+                    reports = await call_with_retry(
+                        lambda: summarize_without_options(communities=inputs), retry
+                    )
             except Exception as exc:  # noqa: BLE001
                 if error_policy is ErrorPolicy.RAISE:
                     raise
@@ -513,6 +568,8 @@ async def embed_communities(
     Returns:
         One StageFailure per community whose batch embed() call failed.
     """
+    require_positive_batch_size(batch_size)
+    require_positive_max_concurrency(max_concurrency)
     if not communities:
         return []
     sem = asyncio.Semaphore(max_concurrency)

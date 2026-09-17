@@ -121,6 +121,24 @@ class TestCommunityContext:
         assert len(res) == 1
         assert res[0].item.title == "Good"
 
+    async def test_rows_missing_overlap_are_skipped(self) -> None:
+        """A row without an overlap score does not stop later valid results."""
+        entity_id = uuid4()
+        community_id = uuid4()
+        mock_store = AsyncMock()
+        mock_store.execute_read.return_value = [
+            {"c": {"id": str(community_id), "title": "Missing score"}},
+            {
+                "c": {"id": str(community_id), "title": "Valid"},
+                "overlap": 2,
+            },
+        ]
+
+        results = await community_context([entity_id], graph_store=mock_store)
+
+        assert len(results) == 1
+        assert results[0].item.title == "Valid"
+
     async def test_document_scoped_filters_reach_the_query(self) -> None:
         """document_ids/properties filters constrain the community node.
 

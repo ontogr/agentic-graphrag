@@ -30,10 +30,19 @@ class TestCommunity:
             embedding=[0.1, 0.2],
         )
         rec = comm.to_node_record()
+        assert rec.id == comm.id
         assert rec.labels == [COMMUNITY_LABEL]
-        assert rec.properties["title"] == "Title"
-        assert rec.properties["member_ids"] == [str(m1), str(m2)]
-        assert rec.properties["embedding"] == [0.1, 0.2]
+        assert rec.properties == {
+            "title": "Title",
+            "summary": "Summary",
+            "rating": 7.5,
+            "rating_explanation": "exp",
+            "findings": ["f1", "f2"],
+            "member_ids": [str(m1), str(m2)],
+            "internal_weight": 3.5,
+            "created_at": comm.created_at.isoformat(),
+            "embedding": [0.1, 0.2],
+        }
 
     def test_embedding_text(self) -> None:
         """embedding_text joins title and summary."""
@@ -48,6 +57,18 @@ class TestCommunity:
         with pytest.raises(ValidationError):
             Community(
                 id=uuid4(), title="T", summary="S", rating=rating, rating_explanation=""
+            )
+
+    def test_negative_internal_weight_rejected(self) -> None:
+        """Constructing a Community with a negative weight raises."""
+        with pytest.raises(ValidationError):
+            Community(
+                id=uuid4(),
+                title="T",
+                summary="S",
+                rating=1,
+                rating_explanation="",
+                internal_weight=-1,
             )
 
     def test_constants(self) -> None:

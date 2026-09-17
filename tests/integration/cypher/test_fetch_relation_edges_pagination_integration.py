@@ -100,6 +100,7 @@ class TestFetchRelationEdgesPaginationIntegration:
             relevant = [e for e in edges if e[0] in our_ids and e[1] in our_ids]
             assert len(relevant) == 3
             assert len(page_sizes) >= 2
-            assert all(size <= 2 for size in page_sizes)
+            assert all(size == 2 for size in page_sizes[:-1])
+            assert 0 < page_sizes[-1] <= 2
         finally:
             pass

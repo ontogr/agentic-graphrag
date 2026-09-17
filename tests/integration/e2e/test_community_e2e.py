@@ -24,6 +24,7 @@ from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
+from agrag.graphdb.base import GraphStore
 from agrag.ingestion.community import required_member_ids
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
@@ -117,7 +118,36 @@ class _FakeWorksAtExtractor(Extractor):
         )
 
 
+async def _cleanup_community_test_data(
+    store: GraphStore, person_label: str, org_label: str
+) -> None:
+    """Remove only entities and dependent data created by one E2E test."""
+    rows = await store.execute_read(
+        "MATCH (n) WHERE $person_label IN labels(n) "
+        "OR $org_label IN labels(n) RETURN collect(n.id) AS ids",
+        {"person_label": person_label, "org_label": org_label},
+    )
+    entity_ids = [str(entity_id) for entity_id in (rows[0].get("ids") or [])]
+    if not entity_ids:
+        return
+    await store.execute_write(
+        "MATCH (chunk:Chunk)-[]-(entity) WHERE entity.id IN $entity_ids "
+        "DETACH DELETE chunk",
+        {"entity_ids": entity_ids},
+    )
+    await store.execute_write(
+        "MATCH (community:Community) WHERE any(member_id IN "
+        "community.member_ids WHERE member_id IN $entity_ids) DETACH DELETE community",
+        {"entity_ids": entity_ids},
+    )
+    await store.execute_write(
+        "MATCH (entity) WHERE entity.id IN $entity_ids DETACH DELETE entity",
+        {"entity_ids": entity_ids},
+    )
+
+
 @pytest.mark.enable_socket
+@pytest.mark.xdist_group(name="community_label")
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 @pytest.mark.skipif(graspologic_missing, reason="graspologic-native missing")
 async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
@@ -273,13 +303,12 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
             tools = make_tools(engine, ledger)
             assert len(tools) == 6
     finally:
-        for lbl in (person_label, org_label, COMMUNITY_LABEL):
-            await store.execute_write(f"MATCH (n:{lbl}) DETACH DELETE n")
-        await store.execute_write(f"MATCH (n:{CHUNK_LABEL}) DETACH DELETE n")
+        await _cleanup_community_test_data(store, person_label, org_label)
         await store.close()
 
 
 @pytest.mark.enable_socket
+@pytest.mark.xdist_group(name="community_label")
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 @pytest.mark.skipif(graspologic_missing, reason="graspologic-native missing")
 async def test_community_via_graph_add_e2e(e2e_schema: GraphSchema) -> None:
@@ -381,13 +410,12 @@ async def test_community_via_graph_add_e2e(e2e_schema: GraphSchema) -> None:
                 ledger.cite(result)
             assert ledger.resolve("G1") is not None
     finally:
-        for lbl in (person_label, org_label, COMMUNITY_LABEL):
-            await store.execute_write(f"MATCH (n:{lbl}) DETACH DELETE n")
-        await store.execute_write(f"MATCH (n:{CHUNK_LABEL}) DETACH DELETE n")
+        await _cleanup_community_test_data(store, person_label, org_label)
         await store.close()
 
 
 @pytest.mark.enable_socket
+@pytest.mark.xdist_group(name="community_label")
 @pytest.mark.slow
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 @pytest.mark.skipif(graspologic_missing, reason="graspologic-native missing")
@@ -475,7 +503,5 @@ async def test_community_real_baml() -> None:
             assert comm.embedding is not None
             assert len(comm.embedding) == dim
     finally:
-        for lbl in (person_label, org_label, COMMUNITY_LABEL):
-            await store.execute_write(f"MATCH (n:{lbl}) DETACH DELETE n")
-        await store.execute_write(f"MATCH (n:{CHUNK_LABEL}) DETACH DELETE n")
+        await _cleanup_community_test_data(store, person_label, org_label)
         await store.close()

@@ -91,7 +91,12 @@ SYSTEM_RELATION_TYPES = ["MENTIONED_IN", MEMBER_OF_RELATION]
 
 
 def _vector_record(
-    record_id: UUID, vector: list[float], *, label: str, text: str
+    record_id: UUID,
+    vector: list[float],
+    *,
+    label: str,
+    text: str,
+    properties: dict[str, object] | None = None,
 ) -> VectorRecord:
     """Build a VectorRecord whose payload matches the retrievers' reads.
 
@@ -104,13 +109,15 @@ def _vector_record(
         vector: The dense embedding.
         label: The graph label the domain object carries.
         text: The embedding_text the vector was computed from.
+        properties: Additional payload fields for metadata filtering.
 
     Returns:
         The record ready for VectorStore.upsert.
     """
-    return VectorRecord(
-        id=record_id, vector=vector, payload={"label": label, "text": text}
-    )
+    payload = {"label": label, "text": text}
+    if properties:
+        payload.update(properties)
+    return VectorRecord(id=record_id, vector=vector, payload=payload)
 
 
 async def _upsert_vectors(
@@ -744,6 +751,12 @@ async def _embed_and_upsert_chunks(
         try:
             await _upsert_vectors(vector_store, vector_collection, vector_records)
         except Exception as exc:  # noqa: BLE001
+            with contextlib.suppress(Exception):
+                await _delete_vectors(
+                    vector_store,
+                    vector_collection,
+                    [record.id for record in vector_records],
+                )
             if error_policy is ErrorPolicy.RAISE:
                 raise
             return [
@@ -847,21 +860,24 @@ async def _embed_and_upsert_survivors(
         ]
     if vector_store is not None:
         label_map = labels_by_id or {}
-        try:
-            await _upsert_vectors(
-                vector_store,
-                vector_collection,
-                [
-                    _vector_record(
-                        ent.id,
-                        ent.embedding or [],
-                        label=label_map.get(ent.id, ""),
-                        text=ent.embedding_text,
-                    )
-                    for ent in survivors.values()
-                ],
+        vector_records = [
+            _vector_record(
+                ent.id,
+                ent.embedding or [],
+                label=label_map.get(ent.id, ""),
+                text=ent.embedding_text,
             )
+            for ent in survivors.values()
+        ]
+        try:
+            await _upsert_vectors(vector_store, vector_collection, vector_records)
         except Exception as exc:  # noqa: BLE001
+            with contextlib.suppress(Exception):
+                await _delete_vectors(
+                    vector_store,
+                    vector_collection,
+                    [record.id for record in vector_records],
+                )
             if error_policy is ErrorPolicy.RAISE:
                 raise
             return [
@@ -1649,9 +1665,12 @@ class Graph:
         # Final storage writes: Chunks, Relations (domain + mentioned)
         # Chunks
         chunk_records = []
+        chunk_ids: set[UUID] = set()
         for ch in chunks:
             try:
                 chunk_records.append(ch.to_node_record())
+                if ch.id is not None:
+                    chunk_ids.add(ch.id)
             except Exception as exc:  # noqa: BLE001
                 if error_policy is ErrorPolicy.RAISE:
                     raise
@@ -1668,11 +1687,13 @@ class Graph:
         storage_failures: list[StageFailure] = list(relation_storage_failures)
         nodes_written = 0
         relationships_written_count = 0
+        chunks_written = False
         try:
             if chunk_records:
                 # Grouping handled inside upsert_nodes
                 await self._graph_store.upsert_nodes(CHUNK_LABEL, chunk_records)
                 nodes_written += len(chunk_records)
+                chunks_written = True
         except Exception as exc:  # noqa: BLE001
             if error_policy is ErrorPolicy.RAISE:
                 raise
@@ -1685,10 +1706,10 @@ class Graph:
             )
 
         # Chunk embedding stage: embed chunks and write vectors.
-        if chunk_records:
+        if chunks_written:
             storage_failures.extend(
                 await _embed_and_upsert_chunks(
-                    chunks,
+                    [chunk for chunk in chunks if chunk.id in chunk_ids],
                     embedder=self._embedder,
                     graph_store=self._graph_store,
                     error_policy=error_policy,
@@ -2176,6 +2197,7 @@ class Graph:
                                 c.embedding or [],
                                 label=COMMUNITY_LABEL,
                                 text=c.embedding_text,
+                                properties=c.metadata,
                             )
                             for c in communities
                             if c.embedding is not None

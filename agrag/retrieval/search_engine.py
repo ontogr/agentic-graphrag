@@ -83,7 +83,7 @@ class SearchEngine:
             else list(self._settings.entity_labels)
         )
 
-    async def search(  # noqa: PLR0912
+    async def search(  # noqa: PLR0912, PLR0915
         self,
         query: str,
         recipe: Recipe,
@@ -232,12 +232,16 @@ class SearchEngine:
 
         if recipe.community_expand:
             community_seed_ids = self._extract_entity_ids(fused)
-            community_results = await community_context(
-                community_seed_ids,
-                graph_store=self._graph_store,
-                top_k=recipe.community_top_k,
-                filters=community_filters,
-            )
+            try:
+                community_results = await community_context(
+                    community_seed_ids,
+                    graph_store=self._graph_store,
+                    top_k=recipe.community_top_k,
+                    filters=community_filters,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Community expansion failed; continuing: %s", exc)
+                community_results = []
             if community_results:
                 fused = fuse(
                     {"methods": fused, "community": community_results},
@@ -254,7 +258,11 @@ class SearchEngine:
                 model=self._settings.cross_encoder_model,
                 min_score=self._settings.reranker_min_score,
             )
-            reserved = min(len(community_items), recipe.community_top_k)
+            reserved = (
+                min(len(community_items), recipe.community_top_k)
+                if recipe.community_expand
+                else 0
+            )
             fused = (
                 reranked_other[: max(0, recipe.limit - reserved)]
                 + community_items[:reserved]

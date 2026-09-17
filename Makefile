@@ -28,6 +28,7 @@ help:
 	@echo "  make docs-dev         - Run the Docusaurus dev server"
 	@echo "  make docs-build       - Regenerate the API reference and build the docs site"
 	@echo "  make clean            - Clean build artifacts and cache"
+	@echo "  make sync-docs-pins   - Sync docs-api hook pins from uv.lock"
 
 baml-gen:
 	uv run baml-cli generate --from agrag/llm/baml_src
@@ -46,7 +47,7 @@ test:
 		--junitxml=pytest-results.xml
 
 test-integration:
-	uv run pytest tests/integration --ignore=tests/integration/e2e -v -n auto --dist loadscope \
+	uv run pytest tests/integration --ignore=tests/integration/e2e -v -n auto --dist loadgroup \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
 		--junitxml=pytest-integration-results.xml
 

@@ -13,11 +13,14 @@ from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.graph_schema import GENERIC
@@ -26,6 +29,11 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import Extractor
+from agrag.ingestion.graph import (
+    _embed_and_upsert_chunks,
+    _embed_and_upsert_survivors,
+    _vector_record,
+)
 from agrag.loaders.corpus.errors import UnsupportedFormatError
 from agrag.loaders.corpus.readers.prose import TextLoader
 from agrag.loaders.corpus.types import ErrorPolicy
@@ -342,3 +350,56 @@ class TestGraphOpen:
             extractor=_MockExtractor(),
         )
         assert store.close_calls == 0
+
+
+class TestGraphVectorStore:
+    """Test Graph's vector-store synchronization safeguards."""
+
+    def test_vector_record_includes_filterable_properties(self) -> None:
+        """Optional metadata augments the standard vector payload."""
+        record = _vector_record(
+            uuid4(),
+            [0.1],
+            label="Community",
+            text="Report",
+            properties={"tenant": "a"},
+        )
+
+        assert record.payload == {
+            "label": "Community",
+            "text": "Report",
+            "tenant": "a",
+        }
+
+    async def test_vector_upsert_failures_remove_chunk_and_entity_vectors(self) -> None:
+        """Failed vector writes remove every vector prepared by the operation."""
+        chunk_id = uuid4()
+        chunk = MagicMock(id=chunk_id, text="Chunk", embedding=None)
+        entity = Entity(id=uuid4(), label="Person", name="Ada", properties={})
+        graph_store = AsyncMock()
+        chunk_store = AsyncMock()
+        entity_store = AsyncMock()
+        chunk_store.upsert.side_effect = RuntimeError("chunk upsert failed")
+        entity_store.upsert.side_effect = RuntimeError("entity upsert failed")
+
+        chunk_failures = await _embed_and_upsert_chunks(
+            [chunk],
+            embedder=_MockEmbedder(),
+            graph_store=graph_store,
+            error_policy=ErrorPolicy.SKIP,
+            vector_store=chunk_store,
+            vector_collection="chunks",
+        )
+        entity_failures = await _embed_and_upsert_survivors(
+            {entity.id: entity},
+            embedder=_MockEmbedder(),
+            graph_store=graph_store,
+            error_policy=ErrorPolicy.SKIP,
+            vector_store=entity_store,
+            vector_collection="entities",
+        )
+
+        assert chunk_failures[0].item_id == "chunk_vector_store"
+        assert entity_failures[0].item_id == "entity_vector_store"
+        chunk_store.delete.assert_awaited_once_with("chunks", [chunk_id])
+        entity_store.delete.assert_awaited_once_with("entities", [entity.id])

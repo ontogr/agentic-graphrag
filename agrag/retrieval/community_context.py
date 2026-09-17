@@ -102,12 +102,15 @@ async def community_context(
     )
     results: list[SearchResult] = []
     for row in rows[:top_k]:
-        community = _parse_community_node(row.get("c", row))
-        if community is None:
-            continue
-        results.append(
-            SearchResult(
-                item=community, score=float(row["overlap"]), method="community"
+        try:
+            community = _parse_community_node(row.get("c", row))
+            if community is None:
+                continue
+            results.append(
+                SearchResult(
+                    item=community, score=float(row["overlap"]), method="community"
+                )
             )
-        )
+        except (KeyError, TypeError, ValueError):
+            continue
     return results
