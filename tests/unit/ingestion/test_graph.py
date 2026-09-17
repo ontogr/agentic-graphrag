@@ -273,6 +273,18 @@ class TestGraphAdd:
         with pytest.raises(ValueError, match="exactly one"):
             await graph.update("memory://doc", text="new", source="other.txt")
 
+    async def test_update_reads_a_single_file_source(self) -> None:
+        """Update accepts a loader-backed single-file source."""
+        graph = await _open_graph()
+
+        result = await graph.update(
+            "memory://doc",
+            source=_FIXTURES / "sample.txt",
+        )
+
+        assert result.no_op is False
+        assert result.add_result is not None
+
     async def test_delete_missing_document_is_a_no_op(self) -> None:
         """Deleting an unknown document does not write graph state."""
         graph = await _open_graph()

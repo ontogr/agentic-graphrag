@@ -1430,7 +1430,6 @@ class Graph:
                         on_progress(_build_partial_add_result())
         else:
             assert source is not None
-            assert source is not None
             paths, single_file = _resolve_paths(source)
             if loader is not None and not single_file:
                 raise ValueError(
