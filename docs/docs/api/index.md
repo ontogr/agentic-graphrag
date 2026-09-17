@@ -1913,8 +1913,8 @@ One record that failed to write within a bulk upsert call.
 - [**id**](#agrag.common.data_models.graph_record.UpsertFailure.id) (<code>[str](#str)</code>) – The failed record's own id, as a string (matches the id already
   sent to the backend, not necessarily parseable back to UUID for
   every future backend).
-- [**error_type**](#agrag.common.data_models.graph_record.UpsertFailure.error_type) (<code>[str](#str)</code>) – The exception's class name.
-- [**error_message**](#agrag.common.data_models.graph_record.UpsertFailure.error_message) (<code>[str](#str)</code>) – The exception's message.
+- [**error_type**](#agrag.common.data_models.graph_record.UpsertFailure.error_type) (<code>[str](#str)</code>) – The backend exception class name or GraphStore failure label.
+- [**error_message**](#agrag.common.data_models.graph_record.UpsertFailure.error_message) (<code>[str](#str)</code>) – The backend exception message or failure description.
 
 ####### `agrag.common.data_models.graph_record.UpsertFailure.error_message`
 

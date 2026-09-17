@@ -55,8 +55,8 @@ class UpsertFailure(BaseModel):
         id: The failed record's own id, as a string (matches the id already
             sent to the backend, not necessarily parseable back to UUID for
             every future backend).
-        error_type: The exception's class name.
-        error_message: The exception's message.
+        error_type: The backend exception class name or GraphStore failure label.
+        error_message: The backend exception message or failure description.
     """
 
     id: str

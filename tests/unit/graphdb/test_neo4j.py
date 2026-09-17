@@ -460,6 +460,9 @@ class TestUpsertRelations:
 
         assert result.written == 0
         assert [failure.id for failure in result.failures] == [str(relation.id)]
+        assert [failure.error_type for failure in result.failures] == [
+            "MissingEndpoint"
+        ]
 
     async def test_rejects_non_positive_batch_size(self) -> None:
         """A zero or negative batch_size raises instead of silently skipping."""

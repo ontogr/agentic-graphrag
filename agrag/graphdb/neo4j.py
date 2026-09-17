@@ -725,7 +725,7 @@ class Neo4jGraphStore(GraphStore):
                         outcome.failures.append(
                             UpsertFailure(
                                 id=str(record["id"]),
-                                error_type="GraphStoreMissingEndpointError",
+                                error_type="MissingEndpoint",
                                 error_message="relationship endpoint does not exist",
                             )
                         )
@@ -743,7 +743,7 @@ class Neo4jGraphStore(GraphStore):
                     outcome.failures.append(
                         UpsertFailure(
                             id=str(record["id"]),
-                            error_type="GraphStoreMissingEndpointError",
+                            error_type="MissingEndpoint",
                             error_message="relationship endpoint does not exist",
                         )
                     )
