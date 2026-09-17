@@ -17,7 +17,10 @@ from agrag.cypher.schema import (
     relation_id_constraint_query,
     vector_index_name,
 )
-from agrag.graphdb.errors import GraphStoreMissingExtraError
+from agrag.graphdb.errors import (
+    GraphStoreConstraintViolationError,
+    GraphStoreMissingExtraError,
+)
 from agrag.graphdb.neo4j import _VECTOR_SEARCH_MAX_K, Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
 
@@ -367,6 +370,40 @@ class TestUpsertRelations:
             c for c in writes if _relation_constraint_name("MENTIONS") in c.args[1]
         ]
         assert len(constraint_calls) == 1
+
+
+class TestBatchWritePerItemIsolation:
+    """Bulk writes isolate record-specific failures without hiding outages."""
+
+    async def test_constraint_failure_isolates_only_the_offending_record(self) -> None:
+        """A failed record does not prevent other records in its batch."""
+        store = _store()
+        records = [{"id": str(uuid4())}, {"id": str(uuid4())}, {"id": str(uuid4())}]
+        failed_id = records[1]["id"]
+        store.execute_write = mock.AsyncMock(
+            side_effect=[
+                GraphStoreConstraintViolationError("duplicate"),
+                None,
+                GraphStoreConstraintViolationError("duplicate"),
+                None,
+            ]
+        )
+
+        result = await store._batch_write("query", records, batch_size=3)
+
+        assert result.written == 2
+        assert [failure.id for failure in result.failures] == [failed_id]
+        assert store.execute_write.await_count == 4
+
+    async def test_unrecognized_failure_aborts_without_item_retries(self) -> None:
+        """An unknown error propagates instead of triggering a retry storm."""
+        store = _store()
+        store.execute_write = mock.AsyncMock(side_effect=RuntimeError("outage"))
+
+        with pytest.raises(RuntimeError, match="outage"):
+            await store._batch_write("query", [{"id": str(uuid4())}], batch_size=1)
+
+        assert store.execute_write.await_count == 1
 
 
 class TestEnsureVectorIndex:

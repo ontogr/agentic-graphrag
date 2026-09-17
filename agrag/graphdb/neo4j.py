@@ -8,7 +8,12 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_record import (
+    NodeRecord,
+    RelationRecord,
+    UpsertFailure,
+    UpsertResult,
+)
 from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.common.validation import require_positive_batch_size
 from agrag.cypher.entities import (
@@ -48,6 +53,13 @@ if TYPE_CHECKING:
 # Neo4j's own practical limit on a single vector query's k.
 _VECTOR_SEARCH_OVERFETCH_MULTIPLIER = 4
 _VECTOR_SEARCH_MAX_K = 1000
+
+
+def _is_record_failure(exc: Exception) -> bool:
+    """Return whether a write error can be caused by one record's data."""
+    from neo4j.exceptions import CypherTypeError  # noqa: PLC0415
+
+    return isinstance(exc, (GraphStoreConstraintViolationError, CypherTypeError))
 
 
 class _Neo4jTransaction(GraphStoreTransaction):
@@ -512,7 +524,7 @@ class Neo4jGraphStore(GraphStore):
         nodes: Sequence[NodeRecord],
         *,
         batch_size: int = 256,
-    ) -> None:
+    ) -> UpsertResult:
         """Write or merge nodes, honoring each record's full label set.
 
         ``label`` names the batch for constraint/index bookkeeping, matching
@@ -526,30 +538,48 @@ class Neo4jGraphStore(GraphStore):
 
         Raises:
             ValueError: ``batch_size`` is not positive.
+
+        Returns:
+            Counts of written records and any isolated record failures.
         """
         require_positive_batch_size(batch_size)
         validate_identifier(label)
         await self._ensure_identity_constraint()
         self._known_labels.add(label)
         groups: dict[tuple[str, ...], list[NodeRecord]] = defaultdict(list)
+        failures: list[UpsertFailure] = []
         for node in nodes:
             labels = tuple(sorted(set(node.labels)))
-            for node_label in labels:
-                validate_identifier(node_label)
+            try:
+                for node_label in labels:
+                    validate_identifier(node_label)
+            except ValueError as exc:
+                failures.append(
+                    UpsertFailure(
+                        id=str(node.id),
+                        error_type=type(exc).__name__,
+                        error_message=str(exc),
+                    )
+                )
+                continue
             self._known_labels.update(labels)
             groups[labels].append(node)
+        written = 0
         for labels, group_nodes in groups.items():
             query = upsert_node_query(labels)
-            await self._batch_write(
+            result = await self._batch_write(
                 query, [node_params(n) for n in group_nodes], batch_size
             )
+            written += result.written
+            failures.extend(result.failures)
+        return UpsertResult(written=written, failures=failures)
 
     async def upsert_relations(
         self,
         relations: Sequence[RelationRecord],
         *,
         batch_size: int = 256,
-    ) -> None:
+    ) -> UpsertResult:
         """Write or merge relationships between existing nodes.
 
         Relationship identity is each record's ``id``, not its endpoints: see
@@ -558,17 +588,35 @@ class Neo4jGraphStore(GraphStore):
 
         Raises:
             ValueError: ``batch_size`` is not positive.
+
+        Returns:
+            Counts of written records and any isolated record failures.
         """
         require_positive_batch_size(batch_size)
         by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        failures: list[UpsertFailure] = []
         for rel in relations:
-            validate_identifier(rel.type)
+            try:
+                validate_identifier(rel.type)
+            except ValueError as exc:
+                failures.append(
+                    UpsertFailure(
+                        id=str(rel.id),
+                        error_type=type(exc).__name__,
+                        error_message=str(exc),
+                    )
+                )
+                continue
             by_type[rel.type].append(relation_params(rel))
+        written = 0
         for rel_type, params in by_type.items():
             await self._ensure_relation_constraint(rel_type)
             self._known_relation_types.add(rel_type)
             query = upsert_relation_query(rel_type)
-            await self._batch_write(query, params, batch_size)
+            result = await self._batch_write(query, params, batch_size)
+            written += result.written
+            failures.extend(result.failures)
+        return UpsertResult(written=written, failures=failures)
 
     async def ensure_vector_index(
         self, *, label: str, vector_property: str, dimensions: int, distance: Distance
@@ -653,8 +701,32 @@ class Neo4jGraphStore(GraphStore):
 
     async def _batch_write(
         self, query: str, records: Sequence[dict[str, Any]], batch_size: int
-    ) -> None:
-        """Run ``query`` once per ``batch_size`` chunk of ``records``."""
+    ) -> UpsertResult:
+        """Run batches and isolate failures specific to individual records."""
+        written = 0
+        failures: list[UpsertFailure] = []
         for start in range(0, len(records), batch_size):
             batch = records[start : start + batch_size]
-            await self.execute_write(query, {"records": batch})
+            try:
+                await self.execute_write(query, {"records": batch})
+            except Exception as exc:  # noqa: BLE001
+                if not _is_record_failure(exc):
+                    raise
+                for record in batch:
+                    try:
+                        await self.execute_write(query, {"records": [record]})
+                    except Exception as item_exc:  # noqa: BLE001
+                        if not _is_record_failure(item_exc):
+                            raise
+                        failures.append(
+                            UpsertFailure(
+                                id=str(record["id"]),
+                                error_type=type(item_exc).__name__,
+                                error_message=str(item_exc),
+                            )
+                        )
+                    else:
+                        written += 1
+            else:
+                written += len(batch)
+        return UpsertResult(written=written, failures=failures)

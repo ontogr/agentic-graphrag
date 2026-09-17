@@ -18,7 +18,11 @@ from agrag.common.data_models.extraction import (
     ExtractedRelation,
     ExtractionResult,
 )
-from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_record import (
+    NodeRecord,
+    RelationRecord,
+    UpsertResult,
+)
 from agrag.common.data_models.graph_schema import (
     GENERIC,
     EntityType,
@@ -129,15 +133,17 @@ class MockStore(GraphStore):
 
     async def upsert_nodes(
         self, label: str, nodes: Sequence[NodeRecord], *, batch_size: int = 256
-    ) -> None:
+    ) -> UpsertResult:
         """Record a node upsert."""
         self.upsert_nodes_calls.append((label, list(nodes)))
+        return UpsertResult(written=len(nodes))
 
     async def upsert_relations(
         self, relations: Sequence[RelationRecord], *, batch_size: int = 256
-    ) -> None:
+    ) -> UpsertResult:
         """Record a relation upsert."""
         self.upsert_relations_calls.append(list(relations))
+        return UpsertResult(written=len(relations))
 
     async def ensure_vector_index(self, **kw: Any) -> None:
         """No-op vector index creation."""
@@ -2251,10 +2257,10 @@ class TestGraphAddPipeline:
                 nodes: Sequence[NodeRecord],
                 *,
                 batch_size: int = 256,
-            ) -> None:
-                await super().upsert_nodes(label, nodes, batch_size=batch_size)
+            ) -> UpsertResult:
+                result = await super().upsert_nodes(label, nodes, batch_size=batch_size)
                 if label != CHUNK_LABEL:
-                    return
+                    return result
                 for node in nodes:
                     self.nodes[str(node.id)] = {
                         "text": node.properties.get("text"),

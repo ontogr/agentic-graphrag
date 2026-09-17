@@ -5,7 +5,11 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Protocol
 
-from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_record import (
+    NodeRecord,
+    RelationRecord,
+    UpsertResult,
+)
 from agrag.common.data_models.vector_record import Distance, VectorHit
 
 
@@ -36,7 +40,7 @@ class GraphStoreTransaction(Protocol):
         nodes: Sequence[NodeRecord],
         *,
         batch_size: int = 256,
-    ) -> None:
+    ) -> UpsertResult | None:
         """Write or merge nodes inside the surrounding transaction."""
         ...
 
@@ -45,7 +49,7 @@ class GraphStoreTransaction(Protocol):
         relations: Sequence[RelationRecord],
         *,
         batch_size: int = 256,
-    ) -> None:
+    ) -> UpsertResult | None:
         """Write or merge relationships inside the surrounding transaction."""
         ...
 
@@ -164,7 +168,7 @@ class GraphStore(ABC):
         nodes: Sequence[NodeRecord],
         *,
         batch_size: int = 256,
-    ) -> None:
+    ) -> UpsertResult:
         """Write or merge nodes, honoring each record's full label set.
 
         Args:
@@ -179,6 +183,9 @@ class GraphStore(ABC):
 
         Raises:
             ValueError: ``batch_size`` is not positive.
+
+        Returns:
+            Counts of written records and any isolated record failures.
         """
 
     @abstractmethod
@@ -187,7 +194,7 @@ class GraphStore(ABC):
         relations: Sequence[RelationRecord],
         *,
         batch_size: int = 256,
-    ) -> None:
+    ) -> UpsertResult:
         """Write or merge relationships between existing nodes.
 
         Args:
@@ -196,6 +203,9 @@ class GraphStore(ABC):
 
         Raises:
             ValueError: ``batch_size`` is not positive.
+
+        Returns:
+            Counts of written records and any isolated record failures.
         """
 
     @abstractmethod

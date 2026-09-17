@@ -92,6 +92,95 @@ class TestNeo4jGraphStoreIntegration:
             await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await store.close()
 
+    async def test_merge_key_collision_isolates_one_record_in_a_batch(self) -> None:
+        """A merge-key collision fails one record; the rest of the batch lands."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
+        try:
+            await store.upsert_nodes(
+                label,
+                [
+                    NodeRecord(
+                        id=uuid4(), labels=[label], properties={"merge_key": "seed"}
+                    )
+                ],
+            )
+            await store.setup_constraints()
+            colliding_id = uuid4()
+            other_id = uuid4()
+            result = await store.upsert_nodes(
+                label,
+                [
+                    NodeRecord(
+                        id=colliding_id,
+                        labels=[label],
+                        properties={"merge_key": "seed"},
+                    ),
+                    NodeRecord(
+                        id=other_id,
+                        labels=[label],
+                        properties={"merge_key": "other"},
+                    ),
+                ],
+            )
+
+            assert result.written == 1
+            assert [failure.id for failure in result.failures] == [str(colliding_id)]
+            rows = await store.execute_read(
+                f"MATCH (n:{label} {{id: $id}}) RETURN n.id AS id",
+                {"id": str(other_id)},
+            )
+            assert len(rows) == 1
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.close()
+
+    async def test_failed_batch_does_not_block_a_later_batch(self) -> None:
+        """A failure in one batch does not abort a later batch."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
+        try:
+            await store.upsert_nodes(
+                label,
+                [
+                    NodeRecord(
+                        id=uuid4(), labels=[label], properties={"merge_key": "seed"}
+                    )
+                ],
+            )
+            await store.setup_constraints()
+            colliding_id = uuid4()
+            other_id = uuid4()
+            result = await store.upsert_nodes(
+                label,
+                [
+                    NodeRecord(
+                        id=colliding_id,
+                        labels=[label],
+                        properties={"merge_key": "seed"},
+                    ),
+                    NodeRecord(
+                        id=other_id,
+                        labels=[label],
+                        properties={"merge_key": "other"},
+                    ),
+                ],
+                batch_size=1,
+            )
+
+            assert result.written == 1
+            assert [failure.id for failure in result.failures] == [str(colliding_id)]
+            rows = await store.execute_read(
+                f"MATCH (n:{label} {{id: $id}}) RETURN n.id AS id",
+                {"id": str(other_id)},
+            )
+            assert len(rows) == 1
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.close()
+
     async def test_fresh_store_sets_up_constraints_for_existing_database(
         self,
     ) -> None:

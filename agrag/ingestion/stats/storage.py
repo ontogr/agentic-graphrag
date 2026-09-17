@@ -17,10 +17,9 @@ class StorageStats(BaseModel):
             point.
         relationships_written: Domain Relation and MENTIONED_IN edges
             together, for the same reason.
-        failures: One record per batch write that failed, capped per
-            call. A GraphStore write is a single managed transaction, so
-            a failure here means the whole batch did not land, not a
-            partial subset of it.
+        failures: One record per failed write, capped per call. A bulk
+            GraphStore write can commit a subset of its records, so these
+            failures identify records that did not land.
         failures_total: Failures recorded before capping.
         failures_truncated: Whether ``failures`` was cut to the cap.
     """
