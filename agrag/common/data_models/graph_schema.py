@@ -30,14 +30,21 @@ class EntityType(BaseModel):
 
     @model_validator(mode="after")
     def _reject_reserved_property_names(self) -> "EntityType":
-        """Reject property names that collide with vector payload keys."""
+        """Reject property names that collide with vector payload keys.
+
+        Enforced on every construction, including ``model_validate()`` of a
+        schema dumped before this check existed: a schema that declares one
+        of these names must be migrated rather than quietly accepted. The
+        message names the fix so that migration is unambiguous.
+        """
         reserved = sorted(_RESERVED_ENTITY_PROPERTY_NAMES & self.properties.keys())
         if reserved:
             raise ValueError(
                 f"Entity type '{self.label}' declares reserved property "
                 f"name(s) {reserved}; "
                 f"{sorted(_RESERVED_ENTITY_PROPERTY_NAMES)} are vector payload "
-                f"keys used for retrieval filtering and keyword search"
+                f"keys used for retrieval filtering and keyword search. "
+                f"Rename or remove those property names in the schema."
             )
         return self
 
@@ -62,6 +69,9 @@ class GraphSchema(BaseModel):
 
     Every extraction call is validated against a GraphSchema; there is no schema-free
     extraction path. Round-trip with ``model_dump(mode="json")``/``model_validate()``.
+    A schema declaring an entity property name the vector payload reserves fails that
+    validation, so a payload written before the check existed must be migrated before
+    it loads again. See ``EntityType.properties``.
 
     Attributes:
         name: A short, unique name for this schema.

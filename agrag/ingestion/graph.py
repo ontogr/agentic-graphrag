@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import glob
 from collections import defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Union
@@ -34,7 +34,6 @@ from agrag.cypher.entities import (
     fetch_by_merge_keys_query,
     fetch_relations_between_query,
     hydrate_chunks_by_id_query,
-    hydrate_entities_by_id_query,
     set_chunk_embedding_query,
     set_embedding_query,
 )
@@ -180,81 +179,6 @@ def _node_properties(node: object) -> dict[str, Any]:
     with contextlib.suppress(Exception):
         return dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
     return {}
-
-
-def _guard_still_matches(
-    node_properties: Mapping[str, Any], record: Mapping[str, Any]
-) -> bool:
-    """Return whether a node still satisfies an embedding record's guard.
-
-    Mirrors the WHERE clause of the embedding write: set_embedding_query and
-    clear_property_query match on ``name`` plus ``coalesce(description,
-    '')``, and their chunk variants match on ``text``.
-
-    Args:
-        node_properties: The node's current properties.
-        record: A guarded record from the embedding write.
-
-    Returns:
-        True when the node still matches the text its vector came from.
-    """
-    if "expected_text" in record:
-        return node_properties.get("text") == record["expected_text"]
-    description = node_properties.get("description")
-    return (
-        node_properties.get("name") == record["expected_name"]
-        and (str(description) if description else "") == record["expected_description"]
-    )
-
-
-async def _still_guarded_ids(
-    graph_store: GraphStore,
-    records: Sequence[Mapping[str, Any]],
-    *,
-    query: str,
-) -> list[UUID]:
-    """Return the record ids whose node still matches the embedding guard.
-
-    The VectorStore has no conditional write, so after a failed mirror upsert
-    the only records a call may remove are the ones whose graph node still
-    carries the text its vector was computed from. A node that a concurrent
-    add() or consolidate(apply=True) has since rewritten no longer matches:
-    that call owns the record, and removing it would drop a valid vector the
-    GraphStore-native path still returns. Keys beyond the guard fields, such
-    as the vector itself, are ignored.
-
-    Args:
-        graph_store: Where the nodes' current guard fields are read.
-        records: The same guarded records the embedding write sent.
-        query: The by-id hydration query for the nodes being checked. Pass
-            hydrate_chunks_by_id_query() for chunk text and
-            hydrate_entities_by_id_query() for entity name/description; the
-            latter also drops tombstones, which the write guard rejects.
-
-    Returns:
-        The ids to remove from the VectorStore, in ``records`` order.
-
-    Raises:
-        Exception: Whatever the read raised. The caller treats that as an
-            unverifiable guard and removes nothing, so an unreadable graph
-            never deletes a record another call may own.
-    """
-    ids = [str(record["id"]) for record in records]
-    if not ids:
-        return []
-    rows = await graph_store.execute_read(query, {"ids": ids})
-    properties_by_id: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        node = row.get("n", row) if isinstance(row, dict) else row
-        properties = _node_properties(node)
-        node_id = properties.get("id")
-        if node_id is not None:
-            properties_by_id[str(node_id)] = properties
-    return [
-        UUID(str(record["id"]))
-        for record in records
-        if _guard_still_matches(properties_by_id.get(str(record["id"]), {}), record)
-    ]
 
 
 async def _persisted_chunk_ids(
@@ -821,10 +745,13 @@ async def _embed_and_upsert_chunks(
     compiles to, so filtering by document works on both paths. A
     VectorStore failure honors error_policy: RAISE propagates, otherwise
     it is recorded as a StageFailure and the native search path keeps
-    working without it. The failure path removes only the mirror records
-    this call still owns, meaning the chunk node still holds the text this
-    call embedded: a concurrent re-ingest that rewrote a chunk keeps its
-    newer record.
+    working without it. The failure leaves the collection untouched: the
+    mirror has no conditional write, so deleting the records this call
+    failed to replace would race a concurrent re-ingest and could remove
+    the newer vector it just wrote. The stored record keeps its previous
+    text until the next successful ingest rewrites it, and retrieval
+    hydrates every hit from the graph, so only that record's score is
+    stale.
 
     Args:
         chunks: The chunks this call wrote to graph_store already.
@@ -898,14 +825,6 @@ async def _embed_and_upsert_chunks(
         try:
             await _upsert_vectors(vector_store, vector_collection, vector_records)
         except Exception as exc:  # noqa: BLE001
-            with contextlib.suppress(Exception):
-                await _delete_vectors(
-                    vector_store,
-                    vector_collection,
-                    await _still_guarded_ids(
-                        graph_store, records, query=hydrate_chunks_by_id_query()
-                    ),
-                )
             if error_policy is ErrorPolicy.RAISE:
                 raise
             return [
@@ -958,9 +877,10 @@ async def _embed_and_upsert_survivors(
     When vector_store is set, each mirrored record also carries the
     survivor's own properties, since a SearchFilters property filter is
     compiled into the payload there but into a node-property match on the
-    GraphStore-native path. A failed mirror upsert removes only the records
-    this call owns, guarded on name/description the same way the graph
-    write is, so a concurrent call's newer vector stays in place.
+    GraphStore-native path. A failed mirror upsert leaves the collection
+    untouched, for the reason _embed_and_upsert_chunks gives: removing the
+    records this call failed to replace would race a concurrent call that
+    owns them.
 
     Args:
         survivors: The entities to embed, keyed by id.
@@ -1029,14 +949,6 @@ async def _embed_and_upsert_survivors(
         try:
             await _upsert_vectors(vector_store, vector_collection, vector_records)
         except Exception as exc:  # noqa: BLE001
-            with contextlib.suppress(Exception):
-                await _delete_vectors(
-                    vector_store,
-                    vector_collection,
-                    await _still_guarded_ids(
-                        graph_store, records, query=hydrate_entities_by_id_query()
-                    ),
-                )
             if error_policy is ErrorPolicy.RAISE:
                 raise
             return [
@@ -2162,8 +2074,12 @@ class Graph:
         detect_communities is a full recompute: every prior run's Community
         nodes are deleted from the graph, so the matching vectors must go
         too, or the VectorStore keeps serving communities the graph no
-        longer has. Best effort: a failure is logged and swallowed so it
-        never blocks the recompute itself.
+        longer has. This clears every record labeled Community in the
+        configured collection, matching delete_all_communities deleting
+        every Community node in the database: one collection belongs to one
+        graph, and a collection shared by several graphs lets this wipe
+        remove another graph's community vectors. Best effort: a failure is
+        logged and swallowed so it never blocks the recompute itself.
 
         Raises:
             Exception: Whatever the VectorStore delete raises. Callers wrap

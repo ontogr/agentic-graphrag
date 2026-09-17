@@ -74,18 +74,44 @@ class TestEntityTypeReservedPropertyNames:
 
     @pytest.mark.parametrize("reserved", ["label", "text"])
     def test_rejects_reserved_name(self, reserved: str) -> None:
-        """A property named label or text raises at construction.
+        """A property named label or text raises, naming the fix.
 
         Both are payload keys every mirrored entity embedding carries, so a
         property with either name would hide the real value from the
-        VectorStore's label filter and keyword indexing.
+        VectorStore's label filter and keyword indexing. The message states
+        the migration, since a schema persisted before this check existed
+        must be renamed or stripped before it loads again.
         """
-        with pytest.raises(ValidationError, match=reserved):
+        with pytest.raises(ValidationError, match=reserved) as excinfo:
             EntityType(
                 label="Person",
                 description="A named individual.",
                 properties={reserved: "str"},
             )
+        assert "Rename or remove" in str(excinfo.value)
+
+    def test_payload_written_before_the_check_must_be_migrated(self) -> None:
+        """A persisted schema declaring a reserved property fails to load.
+
+        The rejection is deliberately breaking: a payload dumped before this
+        check existed validates no more, and the error names the migration
+        rather than accepting a schema whose two retrieval paths disagree.
+        """
+        persisted = {
+            "name": "clinical",
+            "version": "1",
+            "entities": [
+                {
+                    "label": "Person",
+                    "description": "A named individual.",
+                    "properties": {"text": "str"},
+                }
+            ],
+            "relations": [],
+        }
+        with pytest.raises(ValidationError, match="text") as excinfo:
+            GraphSchema.model_validate(persisted)
+        assert "Rename or remove" in str(excinfo.value)
 
     def test_rejects_reserved_name_among_valid_ones(self) -> None:
         """One reserved name alongside valid properties still rejects the type."""

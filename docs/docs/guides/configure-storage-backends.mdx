@@ -231,8 +231,11 @@ entity, chunk, and community vectors all land in the collections
 `agrag_communities` by default). `open()` creates a missing collection with
 your embedder's dimensions. After entity merges, the absorbed entities'
 vectors are deleted there. Each `detect_communities(apply=True)` run replaces
-the community vectors after stale-vector cleanup succeeds. A cleanup failure
-can leave old community vectors in the collection and is reported to the caller.
+the community vectors after stale-vector cleanup succeeds. That cleanup clears
+every `Community` vector in the collection, the way the graph-side recompute
+clears every `Community` node in the database, so give each graph its own
+collections. A cleanup failure can leave old community vectors in the
+collection and is reported to the caller.
 
 ```python
 from agrag.ingestion import Graph

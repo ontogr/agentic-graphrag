@@ -1368,7 +1368,7 @@ class _GuardedNodeStore(MockStore):
     memory so a concurrent-write test can prove a stale record is
     rejected without a live database. ``execute_read`` answers the by-id
     hydration queries from the same ``nodes`` mapping, so a test can also
-    drive the guarded VectorStore mirror cleanup from it.
+    drive the chunk-write recovery from it.
     """
 
     def __init__(self, nodes: dict[str, dict[str, Any]]) -> None:
@@ -1868,12 +1868,13 @@ class TestEmbedChunksDualWrite:
 
         assert vector_store.upserts == []
 
-    async def test_failed_mirror_write_removes_record_it_owns(self) -> None:
-        """A chunk whose node holds this call's text drops its record.
+    async def test_failed_mirror_write_leaves_collection_untouched(self) -> None:
+        """A failed chunk mirror write removes nothing.
 
-        The cleanup is guarded on the same text the embedding write
-        guards on, so a record this call is still responsible for cannot
-        keep being ranked by the text this call failed to replace.
+        The mirror has no conditional write, so removing the records this
+        call failed to replace would race a concurrent re-ingest that owns
+        them. The previous record stays until the next successful ingest
+        rewrites it.
         """
         ch = ChunkModel(
             id=uuid4(),
@@ -1882,14 +1883,7 @@ class TestEmbedChunksDualWrite:
             text="Hello world",
             provenance=TextProvenance(char_start=0, char_end=11),
         )
-        store = _GuardedNodeStore(
-            {
-                str(ch.id): {
-                    "text": "Hello world",
-                    "embedding": [0.1, 0.1],
-                }
-            }
-        )
+        store = _GuardedNodeStore({})
         vector_store = _FailingUpsertVectorStore()
 
         failures = await _embed_and_upsert_chunks(
@@ -1900,76 +1894,6 @@ class TestEmbedChunksDualWrite:
             vector_store=vector_store,
             vector_collection="chunks",
         )
-
-        assert [f.item_id for f in failures] == ["chunk_vector_store"]
-        assert vector_store.deletes == [("chunks", [ch.id])]
-
-    async def test_failed_mirror_write_keeps_record_of_newer_text(self) -> None:
-        """A chunk a newer call rewrote keeps its mirrored vector.
-
-        Regression test: the cleanup deleted every id this call tried to
-        write, so a failed mirror upsert from an older call removed the
-        record a newer call had just written for the same chunk id from
-        different text, dropping a vector the native path still returned.
-        """
-        ch = ChunkModel(
-            id=uuid4(),
-            document_id=uuid4(),
-            index=0,
-            text="Old text",
-            provenance=TextProvenance(char_start=0, char_end=8),
-        )
-        store = _GuardedNodeStore(
-            {
-                str(ch.id): {
-                    "text": "New text",
-                    "embedding": [0.9, 0.9],
-                }
-            }
-        )
-        vector_store = _FailingUpsertVectorStore()
-
-        failures = await _embed_and_upsert_chunks(
-            [ch],
-            embedder=MockEmbedder(),
-            graph_store=store,
-            error_policy=ErrorPolicy.SKIP,
-            vector_store=vector_store,
-            vector_collection="chunks",
-        )
-
-        assert [f.item_id for f in failures] == ["chunk_vector_store"]
-        assert vector_store.deletes == []
-
-    async def test_unreadable_guard_removes_nothing(self) -> None:
-        """A graph read failure leaves the mirror records alone.
-
-        The cleanup only removes a record whose node still matches the text
-        this call embedded, and an unreadable graph cannot confirm that.
-        Removing a vector another call may own is the outcome the guard
-        exists to prevent, so the cleanup does nothing instead.
-        """
-        ch = ChunkModel(
-            id=uuid4(),
-            document_id=uuid4(),
-            index=0,
-            text="Hello world",
-            provenance=TextProvenance(char_start=0, char_end=11),
-        )
-        store = _GuardedNodeStore({str(ch.id): {"text": "Hello world"}})
-        vector_store = _FailingUpsertVectorStore()
-
-        with mock.patch.object(
-            store, "execute_read", new=mock.AsyncMock(side_effect=RuntimeError("down"))
-        ):
-            failures = await _embed_and_upsert_chunks(
-                [ch],
-                embedder=MockEmbedder(),
-                graph_store=store,
-                error_policy=ErrorPolicy.SKIP,
-                vector_store=vector_store,
-                vector_collection="chunks",
-            )
 
         assert [f.item_id for f in failures] == ["chunk_vector_store"]
         assert vector_store.deletes == []
@@ -2085,51 +2009,15 @@ class TestEmbedSurvivorsDualWrite:
 
         assert vector_store.upserts == []
 
-    async def test_failed_mirror_write_removes_record_it_owns(self) -> None:
-        """An entity whose node holds this call's text drops its record."""
-        ent = self._entity()
-        store = _GuardedNodeStore(
-            {
-                str(ent.id): {
-                    "name": "Alice",
-                    "description": "A person",
-                    "embedding": [0.1, 0.1],
-                }
-            }
-        )
-        vector_store = _FailingUpsertVectorStore()
+    async def test_failed_mirror_write_leaves_collection_untouched(self) -> None:
+        """A failed entity mirror write removes nothing.
 
-        failures = await _embed_and_upsert_survivors(
-            {ent.id: ent},
-            embedder=MockEmbedder(),
-            graph_store=store,
-            error_policy=ErrorPolicy.SKIP,
-            vector_store=vector_store,
-            vector_collection="entities",
-            labels_by_id={ent.id: ent.label},
-        )
-
-        assert [f.item_id for f in failures] == ["entity_vector_store"]
-        assert vector_store.deletes == [("entities", [ent.id])]
-
-    async def test_failed_mirror_write_keeps_record_of_newer_text(self) -> None:
-        """An entity a newer call rewrote keeps its mirrored vector.
-
-        Regression test: the cleanup deleted every id this call tried to
-        write, so a failed mirror upsert from an older call removed the
-        record a newer call had just written for the same entity id from
-        different name/description.
+        Same reason as the chunk path: a delete this call issues after
+        reading the graph can land after a concurrent call has replaced the
+        record, and would remove that newer vector.
         """
         ent = self._entity()
-        store = _GuardedNodeStore(
-            {
-                str(ent.id): {
-                    "name": "Alice Cooper",
-                    "description": "A different person",
-                    "embedding": [0.9, 0.9],
-                }
-            }
-        )
+        store = _GuardedNodeStore({})
         vector_store = _FailingUpsertVectorStore()
 
         failures = await _embed_and_upsert_survivors(

@@ -371,18 +371,18 @@ class TestGraphVectorStore:
             "tenant": "a",
         }
 
-    async def test_vector_upsert_failures_remove_chunk_and_entity_vectors(self) -> None:
-        """Failed vector writes remove the vectors their nodes still own."""
+    async def test_vector_upsert_failures_leave_chunk_and_entity_vectors(self) -> None:
+        """Failed vector writes leave the collection untouched.
+
+        The mirror has no conditional write, so a delete issued after
+        checking the graph would race a concurrent call that owns the
+        record. The stored record keeps its previous text until the next
+        successful ingest replaces it.
+        """
         chunk_id = uuid4()
         chunk = MagicMock(id=chunk_id, text="Chunk", embedding=None)
         entity = Entity(id=uuid4(), label="Person", name="Ada", properties={})
         graph_store = AsyncMock()
-        # The cleanup reads each node's current guard fields; these match what
-        # both calls embedded, so both records are theirs to remove.
-        graph_store.execute_read.side_effect = [
-            [{"n": {"id": str(chunk_id), "text": "Chunk"}}],
-            [{"n": {"id": str(entity.id), "name": "Ada"}}],
-        ]
         chunk_store = AsyncMock()
         entity_store = AsyncMock()
         chunk_store.upsert.side_effect = RuntimeError("chunk upsert failed")
@@ -407,5 +407,5 @@ class TestGraphVectorStore:
 
         assert chunk_failures[0].item_id == "chunk_vector_store"
         assert entity_failures[0].item_id == "entity_vector_store"
-        chunk_store.delete.assert_awaited_once_with("chunks", [chunk_id])
-        entity_store.delete.assert_awaited_once_with("entities", [entity.id])
+        chunk_store.delete.assert_not_awaited()
+        entity_store.delete.assert_not_awaited()
