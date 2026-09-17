@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid4
 
 from agrag.common.data_models.community import Community
@@ -24,6 +24,8 @@ from agrag.loaders.corpus.types import ErrorPolicy
 
 
 if TYPE_CHECKING:
+    from baml_py import ClientRegistry
+
     from agrag.llm.baml_client.runtime import BamlCallOptions
 
 
@@ -436,8 +438,9 @@ async def generate_community_reports(  # noqa: PLR0915
         from agrag.llm.retry import NO_RETRY, call_with_retry  # noqa: PLC0415
 
         settings = ExtractionLLMSettings.from_openai_compatible_env()
-        baml_options["client_registry"] = build_client_registry(
-            settings.clients, strategy=settings.strategy
+        baml_options["client_registry"] = cast(
+            "ClientRegistry",
+            build_client_registry(settings.clients, strategy=settings.strategy),
         )
         retry = settings.retry
     except (ImportError, RuntimeError):
