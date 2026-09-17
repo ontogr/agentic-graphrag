@@ -46,6 +46,10 @@ class TestComputeCommunities:
         ):
             comms = compute_communities(edges, max_cluster_size=10)
             assert len(comms) == 2
+            assert {
+                tuple(sorted(str(member_id) for member_id in community.member_ids))
+                for community in comms
+            } == {(a, b), (c, d)}
 
     def test_internal_weight_only_internal_edges(self) -> None:
         """Cross-cluster edge contributes to neither community's weight."""

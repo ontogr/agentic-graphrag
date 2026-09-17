@@ -40,7 +40,7 @@ class Community(DataPoint):
     rating_explanation: str
     findings: list[str] = Field(default_factory=list)
     member_ids: list[UUID] = Field(default_factory=list)
-    internal_weight: float = 0.0
+    internal_weight: float = Field(default=0.0, ge=0.0)
     embedding: list[float] | None = None
 
     @property

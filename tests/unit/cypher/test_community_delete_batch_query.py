@@ -11,6 +11,7 @@ class TestDeleteCommunitiesBatchQuery:
         """Query expects $limit and returns deleted count."""
         q = delete_communities_batch_query()
         assert "$limit" in q
+        assert "LIMIT $limit" in q
         assert "RETURN count(n) AS deleted" in q
         assert COMMUNITY_LABEL in q
         assert "DETACH DELETE" in q

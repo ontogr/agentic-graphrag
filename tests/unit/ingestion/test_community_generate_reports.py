@@ -1,5 +1,6 @@
 """Tests for generate_community_reports batching and fallbacks."""
 
+import importlib.util
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -11,7 +12,23 @@ from agrag.ingestion.community import generate_community_reports
 from agrag.loaders.corpus.types import ErrorPolicy
 
 
+baml_missing = importlib.util.find_spec("baml_py") is None
+
+
 class TestGenerateCommunityReports:
+    """Test community report generation and fallback behavior."""
+
+    @pytest.mark.parametrize(
+        ("argument", "value"),
+        [("batch_size", 0), ("max_concurrency", 0)],
+    )
+    async def test_rejects_invalid_batch_arguments_without_communities(
+        self, argument: str, value: int
+    ) -> None:
+        """Reject invalid scheduling values before processing any communities."""
+        with pytest.raises(ValueError, match="must be positive"):
+            await generate_community_reports([], {}, **{argument: value})
+
     """Batched LLM reports with heuristic fallback."""
 
     async def test_heuristic_below_threshold_no_baml(self) -> None:
@@ -30,15 +47,13 @@ class TestGenerateCommunityReports:
             member_ids=eids,
             internal_weight=1.0,
         )
-        with patch("agrag.llm.baml_client.b") as mock_b:
-            mock_b.SummarizeCommunities = AsyncMock()
-            failures = await generate_community_reports(
-                [comm], entities_by_id, min_importance_for_llm_report=5.0
-            )
-            assert failures == []
-            assert comm.title  # heuristic filled
-            mock_b.SummarizeCommunities.assert_not_called()
+        failures = await generate_community_reports(
+            [comm], entities_by_id, min_importance_for_llm_report=5.0
+        )
+        assert failures == []
+        assert comm.title  # heuristic filled
 
+    @pytest.mark.skipif(baml_missing, reason="baml extra not installed")
     async def test_batched_and_truncated(self) -> None:
         """Qualifying communities batched and truncated to max_members_per_prompt."""
         eids = [uuid4() for _ in range(10)]
@@ -88,6 +103,8 @@ class TestGenerateCommunityReports:
             )
             assert len(failures) == 0
             assert c1.title == "T1"
+            assert c2.title == "T2"
+            mock_b.SummarizeCommunities.assert_awaited_once()
             # Verify truncation: capture inputs
             captured = {}
 
@@ -118,6 +135,7 @@ class TestGenerateCommunityReports:
             )
             assert len(captured["inputs"][0].entity_summaries) == 3
 
+    @pytest.mark.skipif(baml_missing, reason="baml extra not installed")
     async def test_out_of_range_rating_is_clamped(self) -> None:
         """An LLM rating outside 0-10 is clamped, not persisted as-is."""
         eids = [uuid4() for _ in range(2)]
@@ -149,6 +167,7 @@ class TestGenerateCommunityReports:
             await generate_community_reports([c1], entities_by_id)
             assert c1.rating == 10.0
 
+    @pytest.mark.skipif(baml_missing, reason="baml extra not installed")
     async def test_batch_failure_falls_back(self) -> None:
         """Batch failure records StageFailure per community and falls back."""
         eids = [uuid4() for _ in range(2)]
@@ -171,6 +190,7 @@ class TestGenerateCommunityReports:
             assert len(failures) == 1
             assert c1.title  # heuristic fallback
 
+    @pytest.mark.skipif(baml_missing, reason="baml extra not installed")
     async def test_batch_failure_raises_when_policy_is_raise(self) -> None:
         """RAISE policy propagates a batch failure instead of falling back."""
         eids = [uuid4() for _ in range(2)]
@@ -195,6 +215,7 @@ class TestGenerateCommunityReports:
                 )
             assert not c1.title
 
+    @pytest.mark.skipif(baml_missing, reason="baml extra not installed")
     async def test_short_batch_response_fallback(self) -> None:
         """Short batch response falls back only for leftover communities."""
         eids = [uuid4() for _ in range(4)]
@@ -234,5 +255,5 @@ class TestGenerateCommunityReports:
             )
             await generate_community_reports([c1, c2], entities_by_id, batch_size=2)
             assert c1.title == "T1"
-            assert c2.title  # heuristic fallback, not empty
-            assert c2.summary
+            assert c2.title == "N2, N3"
+            assert c2.rating == 5.0
