@@ -3494,7 +3494,8 @@ which caller's read was stale.
 - <code>[str](#str)</code> – A parameterized Cypher query expecting a `$records` list parameter whose
 - <code>[str](#str)</code> – items carry `id`, `start_id`, `end_id`, and `properties` keys.
 - <code>[str](#str)</code> – `properties` may include `source_chunk_ids`; other keys are
-- <code>[str](#str)</code> – applied as-is.
+- <code>[str](#str)</code> – applied as-is. The query returns one row with `id` for every record
+- <code>[str](#str)</code> – whose endpoints matched and was processed.
 
 #### `agrag.cypher.safety`
 
