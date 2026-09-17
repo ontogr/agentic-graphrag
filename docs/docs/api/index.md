@@ -3502,6 +3502,10 @@ parallel relationships are handled.
 
 - <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
 
+**Returns:**
+
+- <code>[UpsertResult](#agrag.common.data_models.graph_record.UpsertResult)</code> – Counts of written records and any isolated record failures.
+
 ##### `agrag.graphdb.Neo4jGraphStore.vector_search`
 
 ```python
@@ -4277,6 +4281,10 @@ parallel relationships are handled.
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
+
+**Returns:**
+
+- <code>[UpsertResult](#agrag.common.data_models.graph_record.UpsertResult)</code> – Counts of written records and any isolated record failures.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.vector_search`
 
