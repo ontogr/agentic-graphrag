@@ -1,6 +1,6 @@
 """The Document model: one unit of source text, before chunking."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import NAMESPACE_OID, UUID, uuid5
@@ -163,9 +163,14 @@ class Document(DataPoint):
 
     @model_validator(mode="after")
     def _resolve_document_key(self) -> "Document":
-        """Default ``document_key`` to ``uri`` unless the caller passed one."""
+        """Default the stable key to the source and record identity."""
         if self.document_key is None:
-            self.document_key = self.uri
+            if self.record_id is not None:
+                self.document_key = f"{self.uri}:{self.record_id}"
+            elif self.record_index is not None:
+                self.document_key = f"{self.uri}:{self.record_index}"
+            else:
+                self.document_key = self.uri
         return self
 
     @property
@@ -275,6 +280,6 @@ class Document(DataPoint):
                 "uri": self.uri,
                 "current_content_hash": self.content_hash,
                 "title": self.title,
-                "updated_at": datetime.now().isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             },
         )

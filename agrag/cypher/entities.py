@@ -425,14 +425,17 @@ def hydrate_entities_by_id_query() -> str:
 def hydrate_chunks_by_id_query() -> str:
     """Build Cypher fetching chunks by id.
 
-    Chunks are never tombstoned, so no merged_into guard is needed.
-    The query filters on the Chunk label for type safety.
+    The query follows only currently valid PART_OF edges, so superseded
+    document versions cannot surface in retrieval.
 
     Returns:
         Parameterized Cypher expecting $ids (list of string ids).
     """
     return (
-        f"UNWIND $ids AS id MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) RETURN n"
+        f"UNWIND $ids AS id "
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->"
+        f"(n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) "
+        f"WHERE p.invalid_at IS NULL RETURN n"
     )
 
 
