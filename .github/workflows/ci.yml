@@ -115,7 +115,7 @@ jobs:
   docs:
     name: docs-api up to date
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     env:
