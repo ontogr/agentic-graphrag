@@ -3154,7 +3154,7 @@ transfer, and dedup steps.
 ##### `agrag.graphdb.GraphStore.upsert_nodes`
 
 ```python
-upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> None
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> UpsertResult
 ```
 
 Write or merge nodes, honoring each record's full label set.
@@ -3170,6 +3170,10 @@ Write or merge nodes, honoring each record's full label set.
   distinct label set when `nodes` mixes more than one. Must
   be positive.
 
+**Returns:**
+
+- <code>[UpsertResult](#agrag.common.data_models.graph_record.UpsertResult)</code> – The number written and one failure entry for each isolated record.
+
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
@@ -3177,7 +3181,7 @@ Write or merge nodes, honoring each record's full label set.
 ##### `agrag.graphdb.GraphStore.upsert_relations`
 
 ```python
-upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> None
+upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> UpsertResult
 ```
 
 Write or merge relationships between existing nodes.
@@ -3186,6 +3190,10 @@ Write or merge relationships between existing nodes.
 
 - **relations** (<code>[Sequence](#collections.abc.Sequence)\[[RelationRecord](#agrag.common.data_models.graph_record.RelationRecord)\]</code>) – The relation records to upsert.
 - **batch_size** (<code>[int](#int)</code>) – Records per backend write call. Must be positive.
+
+**Returns:**
+
+- <code>[UpsertResult](#agrag.common.data_models.graph_record.UpsertResult)</code> – The number written and one failure entry for each isolated record.
 
 **Raises:**
 
@@ -3456,7 +3464,7 @@ check to avoid a nested write racing the transaction it belongs to.
 ##### `agrag.graphdb.Neo4jGraphStore.upsert_nodes`
 
 ```python
-upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> None
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> UpsertResult
 ```
 
 Write or merge nodes, honoring each record's full label set.
@@ -3477,7 +3485,7 @@ each group rather than across the whole call.
 ##### `agrag.graphdb.Neo4jGraphStore.upsert_relations`
 
 ```python
-upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> None
+upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> UpsertResult
 ```
 
 Write or merge relationships between existing nodes.
@@ -3783,7 +3791,7 @@ transfer, and dedup steps.
 ###### `agrag.graphdb.base.GraphStore.upsert_nodes`
 
 ```python
-upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> None
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> UpsertResult
 ```
 
 Write or merge nodes, honoring each record's full label set.
@@ -3799,6 +3807,10 @@ Write or merge nodes, honoring each record's full label set.
   distinct label set when `nodes` mixes more than one. Must
   be positive.
 
+**Returns:**
+
+- <code>[UpsertResult](#agrag.common.data_models.graph_record.UpsertResult)</code> – The number written and one failure entry for each isolated record.
+
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – `batch_size` is not positive.
@@ -3806,7 +3818,7 @@ Write or merge nodes, honoring each record's full label set.
 ###### `agrag.graphdb.base.GraphStore.upsert_relations`
 
 ```python
-upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> None
+upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> UpsertResult
 ```
 
 Write or merge relationships between existing nodes.
@@ -3815,6 +3827,10 @@ Write or merge relationships between existing nodes.
 
 - **relations** (<code>[Sequence](#collections.abc.Sequence)\[[RelationRecord](#agrag.common.data_models.graph_record.RelationRecord)\]</code>) – The relation records to upsert.
 - **batch_size** (<code>[int](#int)</code>) – Records per backend write call. Must be positive.
+
+**Returns:**
+
+- <code>[UpsertResult](#agrag.common.data_models.graph_record.UpsertResult)</code> – The number written and one failure entry for each isolated record.
 
 **Raises:**
 
@@ -4220,7 +4236,7 @@ check to avoid a nested write racing the transaction it belongs to.
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.upsert_nodes`
 
 ```python
-upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> None
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> UpsertResult
 ```
 
 Write or merge nodes, honoring each record's full label set.
@@ -4241,7 +4257,7 @@ each group rather than across the whole call.
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.upsert_relations`
 
 ```python
-upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> None
+upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> UpsertResult
 ```
 
 Write or merge relationships between existing nodes.
@@ -6670,10 +6686,9 @@ Storage-write-stage results.
   point.
 - [**relationships_written**](#agrag.ingestion.stats.StorageStats.relationships_written) (<code>[int](#int)</code>) – Domain Relation and MENTIONED_IN edges
   together, for the same reason.
-- [**failures**](#agrag.ingestion.stats.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – One record per batch write that failed, capped per
-  call. A GraphStore write is a single managed transaction, so
-  a failure here means the whole batch did not land, not a
-  partial subset of it.
+- [**failures**](#agrag.ingestion.stats.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – One record per write item that failed, capped per call.
+  Bulk graph writes can partially succeed. The counts include only
+  records that landed; each isolated failure is a `StageFailure`.
 - [**failures_total**](#agrag.ingestion.stats.StorageStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
 - [**failures_truncated**](#agrag.ingestion.stats.StorageStats.failures_truncated) (<code>[bool](#bool)</code>) – Whether `failures` was cut to the cap.
 
@@ -7098,10 +7113,9 @@ Storage-write-stage results.
   point.
 - [**relationships_written**](#agrag.ingestion.stats.storage.StorageStats.relationships_written) (<code>[int](#int)</code>) – Domain Relation and MENTIONED_IN edges
   together, for the same reason.
-- [**failures**](#agrag.ingestion.stats.storage.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – One record per batch write that failed, capped per
-  call. A GraphStore write is a single managed transaction, so
-  a failure here means the whole batch did not land, not a
-  partial subset of it.
+- [**failures**](#agrag.ingestion.stats.storage.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – One record per write item that failed, capped per call.
+  Bulk graph writes can partially succeed. The counts include only
+  records that landed; each isolated failure is a `StageFailure`.
 - [**failures_total**](#agrag.ingestion.stats.storage.StorageStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
 - [**failures_truncated**](#agrag.ingestion.stats.storage.StorageStats.failures_truncated) (<code>[bool](#bool)</code>) – Whether `failures` was cut to the cap.
 

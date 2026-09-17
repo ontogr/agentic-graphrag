@@ -22,7 +22,11 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractionResult
-from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_record import (
+    NodeRecord,
+    RelationRecord,
+    UpsertResult,
+)
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.embedding.base import Embedder
@@ -93,13 +97,13 @@ class _MockGraphStore(GraphStore):
 
     async def upsert_nodes(
         self, label: str, nodes: Sequence[NodeRecord], *, batch_size: int = 256
-    ) -> None:
-        return None
+    ) -> UpsertResult:
+        return UpsertResult(written=len(nodes))
 
     async def upsert_relations(
         self, relations: Sequence[RelationRecord], *, batch_size: int = 256
-    ) -> None:
-        return None
+    ) -> UpsertResult:
+        return UpsertResult(written=len(relations))
 
     async def ensure_vector_index(
         self, *, label: str, vector_property: str, dimensions: int, distance: Distance
