@@ -529,6 +529,9 @@ class Neo4jGraphStore(GraphStore):
         rather than a runtime parameter, so ``batch_size`` chunks apply within
         each group rather than across the whole call.
 
+        Returns:
+            The number written and one failure entry for each isolated record.
+
         Raises:
             ValueError: ``batch_size`` is not positive.
         """
@@ -573,6 +576,9 @@ class Neo4jGraphStore(GraphStore):
         ``upsert_relation_query`` for how endpoint changes and same-id
         parallel relationships are handled.
 
+        Returns:
+            The number written and one failure entry for each isolated record.
+
         Raises:
             ValueError: ``batch_size`` is not positive.
         """
@@ -596,7 +602,9 @@ class Neo4jGraphStore(GraphStore):
             await self._ensure_relation_constraint(rel_type)
             self._known_relation_types.add(rel_type)
             query = upsert_relation_query(rel_type)
-            batch_result = await self._batch_write(query, params, batch_size)
+            batch_result = await self._batch_write(
+                query, params, batch_size, require_returned_ids=True
+            )
             outcome.written += batch_result.written
             outcome.failures.extend(batch_result.failures)
         return outcome
@@ -683,20 +691,25 @@ class Neo4jGraphStore(GraphStore):
         return hits
 
     async def _batch_write(
-        self, query: str, records: Sequence[dict[str, Any]], batch_size: int
+        self,
+        query: str,
+        records: Sequence[dict[str, Any]],
+        batch_size: int,
+        *,
+        require_returned_ids: bool = False,
     ) -> UpsertResult:
         """Run batched writes, isolating failures that belong to one record."""
         outcome = UpsertResult()
         for start in range(0, len(records), batch_size):
             batch = records[start : start + batch_size]
             try:
-                await self.execute_write(query, {"records": batch})
+                rows = await self.execute_write(query, {"records": batch})
             except Exception as exc:  # noqa: BLE001
                 if not self._is_record_specific_error(exc):
                     raise
                 for record in batch:
                     try:
-                        await self.execute_write(query, {"records": [record]})
+                        rows = await self.execute_write(query, {"records": [record]})
                     except Exception as item_exc:  # noqa: BLE001
                         if not self._is_record_specific_error(item_exc):
                             raise
@@ -708,9 +721,32 @@ class Neo4jGraphStore(GraphStore):
                             )
                         )
                         continue
-                    outcome.written += 1
+                    if require_returned_ids and not rows:
+                        outcome.failures.append(
+                            UpsertFailure(
+                                id=str(record["id"]),
+                                error_type="GraphStoreMissingEndpointError",
+                                error_message="relationship endpoint does not exist",
+                            )
+                        )
+                    else:
+                        outcome.written += 1
                 continue
-            outcome.written += len(batch)
+            if not require_returned_ids:
+                outcome.written += len(batch)
+                continue
+            returned_ids = {str(row["id"]) for row in rows}
+            for record in batch:
+                if str(record["id"]) in returned_ids:
+                    outcome.written += 1
+                else:
+                    outcome.failures.append(
+                        UpsertFailure(
+                            id=str(record["id"]),
+                            error_type="GraphStoreMissingEndpointError",
+                            error_message="relationship endpoint does not exist",
+                        )
+                    )
         return outcome
 
     @staticmethod

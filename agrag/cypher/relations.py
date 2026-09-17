@@ -237,5 +237,6 @@ def upsert_relation_query(rel_type: str) -> str:
         f"[x IN existing_source_chunk_ids "
         f"WHERE NOT x IN coalesce(record.properties.source_chunk_ids, [])] "
         f"+ coalesce(record.properties.source_chunk_ids, []) "
-        f"SET r.id = record.id"
+        f"SET r.id = record.id "
+        f"RETURN record.id AS id"
     )

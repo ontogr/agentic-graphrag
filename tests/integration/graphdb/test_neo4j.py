@@ -292,6 +292,51 @@ class TestNeo4jGraphStoreIntegration:
             await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await store.close()
 
+    async def test_relation_with_missing_endpoint_is_reported(self) -> None:
+        """A missing endpoint does not count its relation as written."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Entity_{uuid4().hex[:8]}")
+        try:
+            start_id = uuid4()
+            end_id = uuid4()
+            missing_id = uuid4()
+            await store.upsert_nodes(
+                label,
+                [
+                    NodeRecord(id=start_id, labels=[label], properties={}),
+                    NodeRecord(id=end_id, labels=[label], properties={}),
+                ],
+            )
+            valid = RelationRecord(
+                id=uuid4(),
+                type="RELATES",
+                start_id=start_id,
+                end_id=end_id,
+                properties={},
+            )
+            missing = RelationRecord(
+                id=uuid4(),
+                type="RELATES",
+                start_id=start_id,
+                end_id=missing_id,
+                properties={},
+            )
+
+            result = await store.upsert_relations([valid, missing])
+
+            assert result.written == 1
+            assert [failure.id for failure in result.failures] == [str(missing.id)]
+            assert result.failures[0].error_type == "GraphStoreMissingEndpointError"
+            rows = await store.execute_read(
+                "MATCH ()-[r:RELATES]->() WHERE r.id = $id RETURN r.id AS id",
+                {"id": str(missing.id)},
+            )
+            assert rows == []
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.close()
+
     async def test_parallel_relations_keep_separate_identity(self) -> None:
         """Two same-type relations between the same nodes do not collapse."""
         store = build_graph_store("neo4j")
@@ -528,6 +573,12 @@ class TestPerItemFailureIsolation:
 
             assert result.written == 1
             assert [failure.id for failure in result.failures] == [str(colliding_id)]
+            assert result.failures[0].error_type == "GraphStoreConstraintViolationError"
+            colliding_rows = await store.execute_read(
+                f"MATCH (n:{label} {{id: $id}}) RETURN n.id AS id",
+                {"id": str(colliding_id)},
+            )
+            assert colliding_rows == []
             rows = await store.execute_read(
                 f"MATCH (n:{label} {{id: $id}}) RETURN n.id AS id",
                 {"id": str(other_id)},
@@ -575,6 +626,12 @@ class TestPerItemFailureIsolation:
 
             assert result.written == 1
             assert [failure.id for failure in result.failures] == [str(colliding_id)]
+            assert result.failures[0].error_type == "GraphStoreConstraintViolationError"
+            colliding_rows = await store.execute_read(
+                f"MATCH (n:{label} {{id: $id}}) RETURN n.id AS id",
+                {"id": str(colliding_id)},
+            )
+            assert colliding_rows == []
             rows = await store.execute_read(
                 f"MATCH (n:{label} {{id: $id}}) RETURN n.id AS id",
                 {"id": str(later_id)},

@@ -208,6 +208,9 @@ fewer labels, the labels already on the node are kept, not removed.
 `failures` for records that did not write. The rest of the call still lands.
 
 ```python
+nodes = [
+    NodeRecord(id=uuid4(), labels=["Chunk"], properties={"text": "example"})
+]
 result = await store.upsert_nodes("Chunk", nodes)
 if result.failures:
     for failure in result.failures:
