@@ -17,7 +17,7 @@ from agrag.chunking import default_chunker
 from agrag.chunking.text import chunk_document
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.community import COMMUNITY_LABEL, MEMBER_OF_RELATION
-from agrag.common.data_models.document import Document
+from agrag.common.data_models.document import DOCUMENT_LABEL, Document
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.graph_record import RelationRecord
@@ -43,6 +43,11 @@ from agrag.graphdb.errors import (
     GraphStoreAliasConflictError,
     GraphStoreConstraintViolationError,
     GraphStoreDataIntegrityError,
+)
+from agrag.ingestion._lexical_backbone import (
+    build_document_record,
+    build_part_of_records,
+    distinct_documents,
 )
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.merge import (
@@ -88,7 +93,7 @@ SourceType = Union[str, Path]
 SourcesType = Union[SourceType, Sequence[SourceType]]
 
 # Relationship types Graph.open() always registers
-SYSTEM_RELATION_TYPES = ["MENTIONED_IN", MEMBER_OF_RELATION]
+SYSTEM_RELATION_TYPES = ["MENTIONED_IN", MEMBER_OF_RELATION, "PART_OF", "NEXT_CHUNK"]
 
 
 def _vector_record(
@@ -1178,7 +1183,7 @@ class Graph:
             entity_labels = [entity_type.label for entity_type in schema.entities]
             relation_types = [relation_type.label for relation_type in schema.relations]
             await graph_store.register_labels(
-                [*entity_labels, CHUNK_LABEL, COMMUNITY_LABEL]
+                [*entity_labels, CHUNK_LABEL, COMMUNITY_LABEL, DOCUMENT_LABEL]
             )
             await graph_store.register_relation_types(
                 [*relation_types, *SYSTEM_RELATION_TYPES]
@@ -1289,6 +1294,7 @@ class Graph:
             )
 
         chunks: list[Chunk] = []
+        documents_seen: list[Document] = []
         entities: list[ExtractedEntity] = []
         relations: list[ExtractedRelation] = []
         extraction_failures: list[StageFailure] = []
@@ -1384,6 +1390,7 @@ class Graph:
             # Chunk all at once (still via thread)
             chunk_batch = await asyncio.to_thread(self._chunk_documents, docs_list)
             chunks.extend(chunk_batch)
+            documents_seen.extend(docs_list)
             for chunk in chunk_batch:
                 await _extract_chunk(chunk)
             # Fire on_progress once for the synthetic batch (partial)
@@ -1403,6 +1410,7 @@ class Graph:
                 # Chunk this batch
                 chunk_batch = await asyncio.to_thread(self._chunk_documents, batch)
                 chunks.extend(chunk_batch)
+                documents_seen.extend(batch)
                 for chunk in chunk_batch:
                     await _extract_chunk(chunk)
                 if on_progress is not None:
@@ -1433,6 +1441,7 @@ class Graph:
                 final_stats.quarantined_items = list(stats.quarantined_items)
                 chunk_batch = await asyncio.to_thread(self._chunk_documents, batch)
                 chunks.extend(chunk_batch)
+                documents_seen.extend(batch)
                 for chunk in chunk_batch:
                     await _extract_chunk(chunk)
                 if on_progress is not None:
@@ -1754,6 +1763,27 @@ class Graph:
                 )
                 continue
 
+        # Document nodes and PART_OF edges: one Document per distinct document
+        # in this call, PART_OF linking it to the chunks written above.
+        chunks_by_document_id: dict[UUID, list[Chunk]] = defaultdict(list)
+        for ch in chunks:
+            chunks_by_document_id[ch.document_id].append(ch)
+        documents_by_id = {
+            doc.resolved_id: doc for doc in distinct_documents(documents_seen)
+        }
+        document_records = [
+            build_document_record(doc) for doc in documents_by_id.values()
+        ]
+        for document_id, document in documents_by_id.items():
+            document_node_id = Document.node_id_for(
+                document_key=document.resolved_document_key
+            )
+            relation_records.extend(
+                build_part_of_records(
+                    document_node_id, chunks_by_document_id.get(document_id, [])
+                )
+            )
+
         # Write chunk nodes
         storage_failures: list[StageFailure] = list(relation_storage_failures)
         nodes_written = 0
@@ -1771,6 +1801,22 @@ class Graph:
             storage_failures.append(
                 StageFailure(
                     item_id="chunks",
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+            )
+
+        # Write Document nodes
+        try:
+            if document_records:
+                await self._graph_store.upsert_nodes(DOCUMENT_LABEL, document_records)
+                nodes_written += len(document_records)
+        except Exception as exc:  # noqa: BLE001
+            if error_policy is ErrorPolicy.RAISE:
+                raise
+            storage_failures.append(
+                StageFailure(
+                    item_id="documents",
                     error_type=type(exc).__name__,
                     error_message=str(exc),
                 )
