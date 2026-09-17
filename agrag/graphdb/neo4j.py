@@ -716,10 +716,8 @@ class Neo4jGraphStore(GraphStore):
     @staticmethod
     def _is_record_specific_error(exc: Exception) -> bool:
         """Return whether a Neo4j error can be caused by one record."""
+        from neo4j.exceptions import CypherTypeError  # noqa: PLC0415
+
         if isinstance(exc, GraphStoreConstraintViolationError):
             return True
-        try:
-            from neo4j.exceptions import CypherTypeError  # noqa: PLC0415
-        except ImportError:
-            return False
         return isinstance(exc, CypherTypeError)
