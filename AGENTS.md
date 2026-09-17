@@ -20,7 +20,7 @@ The repo is hosted at `ontogr/agentic-graphrag`.
 
 Project is pre-1.0 with no stability promise. Breaking changes are allowed
 and recommended if they produce better results. This section overrides any
-stability or compatibility rule below.
+stability or compatibility rule in this file or in `.rules/`.
 
 Default to a hard cut. Do not add backward-compat aliases, deprecated shims,
 fallback parsing, migration bridges, or tests for the previous API unless the
@@ -53,7 +53,8 @@ of every rule area below, so an agent that loads only this file can proceed. The
 `.rules/` files hold the authoritative, exhaustive version; load the one for your
 task before substantive work in that area. Where both state a rule they use the
 same wording and agree by construction. If they ever diverge, the rule file is
-authoritative and more specific to the task controls the implementation details.
+authoritative, except the Pre-1.0 policy above, which overrides all rule files.
+More specific task instructions control implementation details.
 
 ## Repository structure
 
