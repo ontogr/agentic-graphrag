@@ -1,6 +1,7 @@
 """Community detection: hierarchical Leiden over the entity graph."""
 
 import asyncio
+import inspect
 import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING, cast
@@ -474,10 +475,17 @@ async def generate_community_reports(  # noqa: PLR0915
                 for c in batch
             ]
             try:
+                summarize = baml_client.SummarizeCommunities
+                parameters = inspect.signature(summarize).parameters
+                supports_options = "baml_options" in parameters or any(
+                    parameter.kind is inspect.Parameter.VAR_KEYWORD
+                    for parameter in parameters.values()
+                )
+                kwargs = {"communities": inputs}
+                if supports_options:
+                    kwargs["baml_options"] = baml_options
                 reports = await call_with_retry(
-                    lambda: baml_client.SummarizeCommunities(  # type: ignore[attr-defined]
-                        communities=inputs, baml_options=baml_options
-                    ),
+                    lambda: summarize(**kwargs),
                     retry,
                 )
             except Exception as exc:  # noqa: BLE001
