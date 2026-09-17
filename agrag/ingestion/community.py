@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from collections import defaultdict
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from agrag.common.data_models.community import Community
@@ -20,6 +21,10 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.ingestion.stats import StageFailure
 from agrag.loaders.corpus.types import ErrorPolicy
+
+
+if TYPE_CHECKING:
+    from agrag.llm.baml_client.runtime import BamlCallOptions
 
 
 logger = logging.getLogger(__name__)
@@ -423,7 +428,7 @@ async def generate_community_reports(  # noqa: PLR0915
             _apply_heuristic_report(community, entities_by_id)
         return failures
 
-    baml_options: dict[str, object] = {}
+    baml_options: BamlCallOptions = {}
     retry = None
     try:
         from agrag.ingestion.extract import ExtractionLLMSettings  # noqa: PLC0415

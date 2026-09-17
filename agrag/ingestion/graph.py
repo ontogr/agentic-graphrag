@@ -1669,7 +1669,8 @@ class Graph:
         for ch in chunks:
             try:
                 chunk_records.append(ch.to_node_record())
-                chunk_ids.add(ch.id)
+                if ch.id is not None:
+                    chunk_ids.add(ch.id)
             except Exception as exc:  # noqa: BLE001
                 if error_policy is ErrorPolicy.RAISE:
                     raise

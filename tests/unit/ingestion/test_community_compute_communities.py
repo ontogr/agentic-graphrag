@@ -49,7 +49,7 @@ class TestComputeCommunities:
             assert {
                 tuple(sorted(str(member_id) for member_id in community.member_ids))
                 for community in comms
-            } == {(a, b), (c, d)}
+            } == {tuple(sorted(pair)) for pair in ((a, b), (c, d))}
 
     def test_internal_weight_only_internal_edges(self) -> None:
         """Cross-cluster edge contributes to neither community's weight."""

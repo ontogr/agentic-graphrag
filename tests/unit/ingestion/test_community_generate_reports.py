@@ -108,7 +108,7 @@ class TestGenerateCommunityReports:
             # Verify truncation: capture inputs
             captured = {}
 
-            async def capture(communities):
+            async def capture(communities, **kwargs):
                 captured["inputs"] = communities
                 return [
                     MagicMock(
