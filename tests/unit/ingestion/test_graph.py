@@ -25,6 +25,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models.provenance import PageProvenance
 from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
@@ -333,6 +334,63 @@ class TestGraphAdd:
 
         with pytest.raises(ValueError, match="distinct document keys"):
             await graph.add(documents=[first, second])
+
+    def test_docling_chunks_use_distinct_ids_for_each_content_version(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same-index docling chunks retain their separate version histories."""
+        graph = Graph(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+        )
+        version_ids: list[object] = []
+
+        def fake_chunk_docling_document(
+            docling_doc: object, document_id, *, version_id=None
+        ) -> list[Chunk]:
+            del docling_doc
+            version_ids.append(version_id)
+            provenance = PageProvenance(page_spans=[])
+            return [
+                Chunk(
+                    id=Chunk.id_for(
+                        document_id=document_id,
+                        version_id=version_id,
+                        provenance=provenance,
+                        index=0,
+                    ),
+                    document_id=document_id,
+                    text="chunk",
+                    provenance=provenance,
+                )
+            ]
+
+        monkeypatch.setattr(
+            "agrag.ingestion.graph.chunk_docling_document", fake_chunk_docling_document
+        )
+        first = Document(
+            text="first",
+            title="first",
+            uri="memory://doc",
+            document_key="memory://doc",
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash="first",
+            loader_name="docling",
+            char_count=5,
+            line_count=1,
+            metadata={"_docling_document": object()},
+        )
+        second = first.model_copy(update={"content_hash": "second"})
+
+        first_chunk = graph._chunk_documents([first])[0]
+        second_chunk = graph._chunk_documents([second])[0]
+
+        assert first_chunk.document_id == second_chunk.document_id
+        assert first_chunk.id != second_chunk.id
+        assert version_ids[0] != version_ids[1]
 
     async def test_delete_missing_document_is_a_no_op(self) -> None:
         """Deleting an unknown document does not write graph state."""

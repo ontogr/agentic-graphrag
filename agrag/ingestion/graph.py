@@ -2109,6 +2109,9 @@ class Graph:
                             Document.node_id_for(
                                 document_key=document.resolved_document_key
                             ),
+                            version_id=Document.id_for(
+                                content_hash=document.content_hash
+                            ),
                         )
                     )
                     continue
