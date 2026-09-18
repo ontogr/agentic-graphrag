@@ -3782,10 +3782,21 @@ Cypher writes for non-destructive entity resolution.
 
 **Functions:**
 
+- [**clear_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.clear_resolved_entity_vector_deletions_query) – Build Cypher removing successfully retried vector deletions.
 - [**deactivate_match_query**](#agrag.cypher.resolution_write.deactivate_match_query) – Build Cypher that retains but deactivates a match edge.
+- [**enqueue_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.enqueue_resolved_entity_vector_deletions_query) – Build Cypher persisting vector ids whose deletion needs a retry.
+- [**fetch_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.fetch_resolved_entity_vector_deletions_query) – Build Cypher reading vector deletions that still need a retry.
 - [**replace_component_materializations_query**](#agrag.cypher.resolution_write.replace_component_materializations_query) – Build Cypher deleting prior materializations for supplied raw members.
 - [**set_resolved_entity_sync_status_query**](#agrag.cypher.resolution_write.set_resolved_entity_sync_status_query) – Build Cypher setting the vector synchronization state of derived nodes.
 - [**upsert_matches_query**](#agrag.cypher.resolution_write.upsert_matches_query) – Build Cypher that idempotently records a confirmed entity match.
+
+##### `agrag.cypher.resolution_write.clear_resolved_entity_vector_deletions_query`
+
+```python
+clear_resolved_entity_vector_deletions_query() -> str
+```
+
+Build Cypher removing successfully retried vector deletions.
 
 ##### `agrag.cypher.resolution_write.deactivate_match_query`
 
@@ -3794,6 +3805,22 @@ deactivate_match_query() -> str
 ```
 
 Build Cypher that retains but deactivates a match edge.
+
+##### `agrag.cypher.resolution_write.enqueue_resolved_entity_vector_deletions_query`
+
+```python
+enqueue_resolved_entity_vector_deletions_query() -> str
+```
+
+Build Cypher persisting vector ids whose deletion needs a retry.
+
+##### `agrag.cypher.resolution_write.fetch_resolved_entity_vector_deletions_query`
+
+```python
+fetch_resolved_entity_vector_deletions_query() -> str
+```
+
+Build Cypher reading vector deletions that still need a retry.
 
 ##### `agrag.cypher.resolution_write.replace_component_materializations_query`
 

@@ -361,7 +361,7 @@ class TestSynchronizeResolvedEntityVectors:
 
         assert failures == []
         vector_store.delete.assert_awaited_once_with("resolved", [replaced_id])
-        assert calls == ["delete", "graph", "upsert", "graph"]
+        assert calls == ["delete", "graph", "graph", "upsert", "graph"]
 
     async def test_reports_stale_vector_delete_failure_with_skip(self) -> None:
         """A failed stale-vector deletion remains visible to the caller."""
@@ -390,3 +390,41 @@ class TestSynchronizeResolvedEntityVectors:
         ]
         assert str(stale_id) in failures[0].error_message
         assert entity.vector_sync_status == "synced"
+
+        enqueue_calls = [
+            call
+            for call in graph_store.execute_write.await_args_list
+            if "records" in call.args[1] and "collection" in call.args[1]["records"][0]
+        ]
+        assert enqueue_calls[0].args[1]["records"][0]["id"] == str(stale_id)
+
+    async def test_retries_and_clears_pending_vector_deletions(self) -> None:
+        """A later synchronization pass retries and removes queued ids."""
+        entity = _entity()
+        stale_id = uuid4()
+        graph_store = SimpleNamespace(
+            execute_read=AsyncMock(
+                return_value=[
+                    {"id": str(stale_id), "collection": "resolved"},
+                ]
+            ),
+            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}]),
+        )
+        vector_store = SimpleNamespace(delete=AsyncMock(), upsert=AsyncMock())
+
+        failures = await _synchronize_resolved_entity_vectors(
+            [entity],
+            [],
+            embedder=_Embedder(),
+            graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collection="resolved",
+            error_policy=ErrorPolicy.RAISE,
+        )
+
+        assert failures == []
+        vector_store.delete.assert_awaited_once_with("resolved", [stale_id])
+        assert any(
+            call.args[1].get("ids") == [str(stale_id)]
+            for call in graph_store.execute_write.await_args_list
+        )

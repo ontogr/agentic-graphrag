@@ -7,7 +7,12 @@ from uuid import UUID
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorRecord
 from agrag.cypher.entities import clear_property_query, set_embedding_query
-from agrag.cypher.resolution_write import set_resolved_entity_sync_status_query
+from agrag.cypher.resolution_write import (
+    clear_resolved_entity_vector_deletions_query,
+    enqueue_resolved_entity_vector_deletions_query,
+    fetch_resolved_entity_vector_deletions_query,
+    set_resolved_entity_sync_status_query,
+)
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.stats import StageFailure
@@ -170,24 +175,39 @@ async def _synchronize_resolved_entity_vectors(
     resolved node the graph has already replaced.
     """
     failures: list[StageFailure] = []
-    if removed_entity_ids and vector_store is not None:
-        try:
-            await vector_store.delete(
-                vector_collection, list(dict.fromkeys(removed_entity_ids))
-            )
-        except Exception as exc:  # noqa: BLE001
-            if error_policy is ErrorPolicy.RAISE:
-                raise
-            # ponytail: ids are lost on retry without a persistent
-            # pending-deletion queue; surfacing them here is a stopgap for
-            # manual follow-up until that queue exists.
-            failures.append(
-                StageFailure(
-                    item_id="resolved_entity_vector_store",
-                    error_type=type(exc).__name__,
-                    error_message=f"{exc} ids={removed_entity_ids}",
+    pending = await _pending_vector_deletions(graph_store)
+    pending.update(
+        {
+            str(entity_id): vector_collection
+            for entity_id in dict.fromkeys(removed_entity_ids)
+        }
+    )
+    if vector_store is not None:
+        for collection in sorted(set(pending.values())):
+            ids = [
+                UUID(item_id)
+                for item_id, item_collection in pending.items()
+                if item_collection == collection
+            ]
+            try:
+                await vector_store.delete(collection, ids)
+            except Exception as exc:  # noqa: BLE001
+                await _enqueue_vector_deletions(
+                    graph_store, ids, collection=collection, error=str(exc)
                 )
-            )
+                failures.append(
+                    StageFailure(
+                        item_id="resolved_entity_vector_store",
+                        error_type=type(exc).__name__,
+                        error_message=f"{exc} ids={ids}",
+                    )
+                )
+                if error_policy is ErrorPolicy.RAISE:
+                    raise
+            else:
+                await _clear_vector_deletions(
+                    graph_store, [str(entity_id) for entity_id in ids]
+                )
     failures.extend(
         await embed_resolved_entities(
             entities,
@@ -199,3 +219,48 @@ async def _synchronize_resolved_entity_vectors(
         )
     )
     return failures
+
+
+async def _pending_vector_deletions(graph_store: GraphStore) -> dict[str, str]:
+    """Return durable vector deletion ids grouped by collection."""
+    try:
+        rows = await graph_store.execute_read(
+            fetch_resolved_entity_vector_deletions_query()
+        )
+        return {
+            str(row["id"]): str(row["collection"])
+            for row in rows
+            if isinstance(row, dict) and row.get("id") and row.get("collection")
+        }
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+async def _enqueue_vector_deletions(
+    graph_store: GraphStore,
+    ids: list[UUID],
+    *,
+    collection: str,
+    error: str,
+) -> None:
+    """Persist failed vector deletions for a later synchronization pass."""
+    with contextlib.suppress(Exception):
+        await graph_store.execute_write(
+            enqueue_resolved_entity_vector_deletions_query(),
+            {
+                "records": [
+                    {"id": str(entity_id), "collection": collection, "error": error}
+                    for entity_id in ids
+                ]
+            },
+        )
+
+
+async def _clear_vector_deletions(graph_store: GraphStore, ids: list[str]) -> None:
+    """Remove deletion records after the vector store confirms deletion."""
+    if not ids:
+        return
+    with contextlib.suppress(Exception):
+        await graph_store.execute_write(
+            clear_resolved_entity_vector_deletions_query(), {"ids": ids}
+        )
