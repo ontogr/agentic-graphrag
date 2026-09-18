@@ -224,6 +224,65 @@ class LLMVerify(Comparator):
             return ComparisonVerdict.NO_MATCH
         return ComparisonVerdict.MATCH if is_match else ComparisonVerdict.NO_MATCH
 
+    async def compare_batch(
+        self, pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]]
+    ) -> dict[tuple[int, int], ComparisonResult]:
+        """Verify ambiguous candidate pairs in one LLM request.
+
+        Invalid, missing, and uncertain model responses do not merge entities.
+        """
+        if not pairs:
+            return {}
+        if self._client is not None:
+            client = self._client
+            baml_options: dict = {}
+            retry = NO_RETRY
+        else:
+            from agrag.llm import client_registry  # noqa: PLC0415
+
+            client = self._default_client()
+            settings = self.settings or ExtractionLLMSettings()
+            registry = client_registry.build_client_registry(
+                settings.clients, strategy=settings.strategy
+            )
+            baml_options = {"client_registry": registry}
+            retry = settings.retry
+        pair_ids = [f"{left}:{right}" for left, right, _, _ in pairs]
+        inputs = [
+            {
+                "pair_id": pair_id,
+                "entity_a": first.text,
+                "context_a": self._context_for(first),
+                "neighbors_a": [],
+                "entity_b": second.text,
+                "context_b": self._context_for(second),
+                "neighbors_b": [],
+                "similarity": 0.0,
+            }
+            for pair_id, (_, _, first, second) in zip(pair_ids, pairs, strict=True)
+        ]
+        try:
+            results = await call_with_retry(
+                lambda: client.VerifyEntityMatches(  # ty: ignore[unresolved-attribute]
+                    inputs, baml_options
+                ),
+                retry,
+            )
+        except Exception:  # noqa: BLE001
+            return {
+                (left, right): ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)
+                for left, right, _, _ in pairs
+            }
+        from agrag.ingestion.resolve.batch_validation import (  # noqa: PLC0415
+            validate_batch_verdicts,
+        )
+
+        verdicts = validate_batch_verdicts(pair_ids, results)
+        return {
+            (left, right): _final_llm_result(verdicts[pair_id])
+            for pair_id, (left, right, _, _) in zip(pair_ids, pairs, strict=True)
+        }
+
     def _default_client(self) -> object:
         """Return the default generated BAML client."""
         try:
@@ -272,6 +331,13 @@ def _group_matches(entity_count: int, edges: list[tuple[int, int]]) -> list[list
     return list(groups.values())
 
 
+def _final_llm_result(result: ComparisonResult) -> ComparisonResult:
+    """Make an inconclusive LLM judgment a fail-safe negative decision."""
+    if result.verdict is ComparisonVerdict.UNCERTAIN:
+        return ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)
+    return result
+
+
 class Resolver:
     """Runs an ordered comparator sequence over blocked candidate pairs.
 
@@ -305,8 +371,7 @@ class Resolver:
             Groups for every input index and evidence for every confirmed
             non-exact pair.
         """
-        edges: list[tuple[int, int]] = []
-        matches: list[ResolvedMatch] = []
+        pairs: list[tuple[int, int]] = []
         compared: set[tuple[int, int]] = set()
         for index in range(len(entities)):
             candidates = await self.candidate_source.candidates_for(index, entities)
@@ -315,9 +380,39 @@ class Resolver:
                 if pair in compared:
                     continue
                 compared.add(pair)
-                comparison, comparator = await self._first_verdict(
-                    entities[index], entities[candidate_index]
+                pairs.append(pair)
+        edges, matches = await self._resolve_pairs(pairs, entities)
+        groups = _group_matches(len(entities), edges)
+        return ResolutionResult(
+            groups=[ResolutionGroup(entity_indices=group) for group in groups],
+            matches=matches,
+        )
+
+    async def _resolve_pairs(
+        self, pairs: list[tuple[int, int]], entities: list[ExtractedEntity]
+    ) -> tuple[list[tuple[int, int]], list[ResolvedMatch]]:
+        """Resolve candidate pairs comparator tier by comparator tier."""
+        unresolved = pairs
+        edges: list[tuple[int, int]] = []
+        matches: list[ResolvedMatch] = []
+        for comparator in self.comparators:
+            if isinstance(comparator, LLMVerify):
+                results = await comparator.compare_batch(
+                    [
+                        (left, right, entities[left], entities[right])
+                        for left, right in unresolved
+                    ]
                 )
+            else:
+                results = {
+                    (left, right): await comparator.compare_with_evidence(
+                        entities[left], entities[right]
+                    )
+                    for left, right in unresolved
+                }
+            next_unresolved: list[tuple[int, int]] = []
+            for pair in unresolved:
+                comparison = results[pair]
                 if comparison.verdict is ComparisonVerdict.MATCH:
                     edges.append(pair)
                     if not isinstance(comparator, ExactMatch):
@@ -331,11 +426,12 @@ class Resolver:
                                 decided_at=datetime.now(UTC),
                             )
                         )
-        groups = _group_matches(len(entities), edges)
-        return ResolutionResult(
-            groups=[ResolutionGroup(entity_indices=group) for group in groups],
-            matches=matches,
-        )
+                elif comparison.verdict is ComparisonVerdict.UNCERTAIN:
+                    next_unresolved.append(pair)
+            unresolved = next_unresolved
+            if not unresolved:
+                break
+        return edges, matches
 
     async def _first_verdict(
         self, a: ExtractedEntity, b: ExtractedEntity

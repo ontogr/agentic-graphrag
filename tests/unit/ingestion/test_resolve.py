@@ -449,3 +449,43 @@ class TestResolver:
         assert result.matches[0].left_index == 0
         assert result.matches[0].right_index == 1
         assert result.matches[0].comparator == "FuzzyMatch"
+
+    async def test_batches_uncertain_pairs_with_pair_id_verdicts(self) -> None:
+        """Only a valid verdict for its requested pair can create a match."""
+        chunk = _chunk()
+
+        class BatchClient:
+            """Return intentionally unordered and incomplete batch output."""
+
+            async def VerifyEntityMatches(
+                self, pairs: list[object], options: dict
+            ) -> list[dict[str, str]]:
+                """Return verdicts that prove pair identifiers control matching."""
+                assert len(pairs) == 3
+                assert options == {}
+                return [
+                    {"pair_id": "1:2", "verdict": "match", "reasoning": "same"},
+                    {"pair_id": "0:1", "verdict": "invalid"},
+                ]
+
+        entities = [
+            _entity("Ada", chunk_id=chunk.id),
+            _entity("Charles", chunk_id=chunk.id),
+            _entity("Charles Babbage", chunk_id=chunk.id),
+        ]
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(match_above=1.0, no_match_below=0.0),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=BatchClient()),
+            ],
+            candidate_source=InBatchCandidateSource(),
+        )
+
+        result = await resolver.resolve(entities)
+
+        assert sorted(group.entity_indices for group in result.groups) == [[0], [1, 2]]
+        assert len(result.matches) == 1
+        assert result.matches[0].left_index == 1
+        assert result.matches[0].right_index == 2
+        assert result.matches[0].reasoning == "same"
