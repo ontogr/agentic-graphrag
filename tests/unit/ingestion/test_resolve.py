@@ -77,28 +77,28 @@ class TestExactMatch:
         matcher = ExactMatch()
         a = _entity("Ada Lovelace")
         b = _entity("Ada Lovelace")
-        assert await matcher.compare(a, b) is ComparisonVerdict.MATCH
+        assert (await matcher.compare(a, b)).verdict is ComparisonVerdict.MATCH
 
     async def test_match_case_insensitive(self) -> None:
         """Case differences are ignored."""
         matcher = ExactMatch()
         a = _entity("ada lovelace")
         b = _entity("Ada Lovelace")
-        assert await matcher.compare(a, b) is ComparisonVerdict.MATCH
+        assert (await matcher.compare(a, b)).verdict is ComparisonVerdict.MATCH
 
     async def test_match_with_whitespace(self) -> None:
         """Leading/trailing whitespace is stripped."""
         matcher = ExactMatch()
         a = _entity("  Ada  ")
         b = _entity("Ada")
-        assert await matcher.compare(a, b) is ComparisonVerdict.MATCH
+        assert (await matcher.compare(a, b)).verdict is ComparisonVerdict.MATCH
 
     async def test_uncertain_on_different_text(self) -> None:
         """Different text returns UNCERTAIN, never NO_MATCH."""
         matcher = ExactMatch()
         a = _entity("Ada")
         b = _entity("Charles")
-        assert await matcher.compare(a, b) is ComparisonVerdict.UNCERTAIN
+        assert (await matcher.compare(a, b)).verdict is ComparisonVerdict.UNCERTAIN
 
     async def test_never_returns_no_match(self) -> None:
         """ExactMatch never returns NO_MATCH."""
@@ -110,7 +110,7 @@ class TestExactMatch:
         ]
         for text_a, text_b in pairs:
             verdict = await matcher.compare(_entity(text_a), _entity(text_b))
-            assert verdict is not ComparisonVerdict.NO_MATCH
+            assert verdict.verdict is not ComparisonVerdict.NO_MATCH
 
 
 # ── FuzzyMatch ─────────────────────────────────────────────────────────
@@ -124,14 +124,16 @@ class TestFuzzyMatch:
         matcher = FuzzyMatch(match_above=0.92, no_match_below=0.70)
         a = _entity("Apple Inc")
         b = _entity("Apple Inc.")
-        assert await matcher.compare(a, b) is ComparisonVerdict.MATCH
+        result = await matcher.compare(a, b)
+        assert result.verdict is ComparisonVerdict.MATCH
+        assert result.score is not None
 
     async def test_no_match_below_threshold(self) -> None:
         """Low similarity returns NO_MATCH."""
         matcher = FuzzyMatch(match_above=0.92, no_match_below=0.70)
         a = _entity("Apple")
         b = _entity("Banana")
-        assert await matcher.compare(a, b) is ComparisonVerdict.NO_MATCH
+        assert (await matcher.compare(a, b)).verdict is ComparisonVerdict.NO_MATCH
 
     async def test_uncertain_in_band(self) -> None:
         """Medium similarity returns UNCERTAIN."""
@@ -140,7 +142,8 @@ class TestFuzzyMatch:
         b = _entity("Ada Lovelace.")
         verdict = await matcher.compare(a, b)
         # 0.96 score falls between 0.50 and 0.98
-        assert verdict is ComparisonVerdict.UNCERTAIN
+        assert verdict.verdict is ComparisonVerdict.UNCERTAIN
+        assert verdict.score is not None
 
     async def test_custom_thresholds(self) -> None:
         """Custom thresholds are respected."""
@@ -149,7 +152,7 @@ class TestFuzzyMatch:
         b = _entity("Ada Lovelace.")
         # 0.96 score is below 0.98 no_match_below → NO_MATCH
         verdict = await strict.compare(a, b)
-        assert verdict is ComparisonVerdict.NO_MATCH
+        assert verdict.verdict is ComparisonVerdict.NO_MATCH
 
 
 # ── LLMVerify ──────────────────────────────────────────────────────────
@@ -176,7 +179,7 @@ class TestLLMVerify:
             client=RaisingClient(),
         )
         verdict = await verifier.compare(a, b)
-        assert verdict is ComparisonVerdict.NO_MATCH
+        assert verdict.verdict is ComparisonVerdict.NO_MATCH
 
     async def test_injected_client_works_without_settings(self) -> None:
         """An injected client works without EXTRACTION_LLM_CLIENTS env vars."""
@@ -195,7 +198,7 @@ class TestLLMVerify:
         )
         assert verifier.settings is None
         verdict = await verifier.compare(a, b)
-        assert verdict is ComparisonVerdict.MATCH
+        assert verdict.verdict is ComparisonVerdict.MATCH
 
     async def test_raises_when_no_client(self) -> None:
         """Missing llm extra raises ExtractorMissingExtraError."""
@@ -250,7 +253,7 @@ class TestLLMVerify:
 
         assert call_count == 3
         assert sleeps == [0.05, 0.1]
-        assert verdict is ComparisonVerdict.MATCH
+        assert verdict.verdict is ComparisonVerdict.MATCH
 
     async def test_compare_with_non_default_env_retry_does_not_abort(
         self, monkeypatch
@@ -282,7 +285,7 @@ class TestLLMVerify:
 
         verdict = await verifier.compare(a, b)
 
-        assert verdict is ComparisonVerdict.MATCH
+        assert verdict.verdict is ComparisonVerdict.MATCH
 
 
 # ── InBatchCandidateSource ─────────────────────────────────────────────
@@ -409,3 +412,38 @@ class TestResolver:
         groups = await resolver.resolve(entities)
         # Different labels → different groups
         assert len(groups) == 2
+
+    async def test_returns_non_exact_pair_evidence(self) -> None:
+        """Semantic matches retain their decisive comparator and score."""
+        resolver = Resolver(
+            comparators=[FuzzyMatch(match_above=0.90)],
+            candidate_source=InBatchCandidateSource(),
+        )
+        entities = [
+            _entity("Ada Lovelace", label="Person"),
+            _entity("Ada Lovelace.", label="Person"),
+        ]
+
+        result = await resolver.resolve_with_matches(entities)
+
+        assert [group.entity_indices for group in result.groups] == [[0, 1]]
+        assert len(result.matches) == 1
+        match = result.matches[0]
+        assert (match.left_index, match.right_index) == (0, 1)
+        assert match.comparator == "FuzzyMatch"
+        assert match.score is not None
+        assert match.decided_at.tzinfo is not None
+
+    async def test_excludes_exact_identity_from_match_evidence(self) -> None:
+        """Exact identity groups mentions without creating semantic evidence."""
+        resolver = Resolver(
+            comparators=[ExactMatch()],
+            candidate_source=InBatchCandidateSource(),
+        )
+
+        result = await resolver.resolve_with_matches(
+            [_entity("Ada Lovelace"), _entity("Ada Lovelace")]
+        )
+
+        assert [group.entity_indices for group in result.groups] == [[0, 1]]
+        assert result.matches == []

@@ -1,6 +1,7 @@
 """Entity resolution: deciding which ExtractedEntity mentions are the same thing."""
 
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
 
@@ -78,13 +79,57 @@ class ComparisonVerdict(StrEnum):
     UNCERTAIN = "uncertain"
 
 
+class ComparisonResult(BaseModel):
+    """A comparator verdict with evidence that explains its decision.
+
+    Attributes:
+        verdict: The outcome for one candidate pair.
+        score: Numeric similarity evidence when the comparator provides it.
+        reasoning: Natural-language evidence when the comparator provides it.
+    """
+
+    verdict: ComparisonVerdict
+    score: float | None = None
+    reasoning: str | None = None
+
+
+class ResolvedMatch(BaseModel):
+    """A confirmed non-exact match between two input mention indices.
+
+    Attributes:
+        left_index: One index into the resolved entity list.
+        right_index: The other index into the resolved entity list.
+        comparator: The comparator that confirmed this pair.
+        score: Numeric similarity evidence when available.
+        reasoning: Natural-language evidence when available.
+        decided_at: The UTC time that resolution confirmed this pair.
+    """
+
+    left_index: int
+    right_index: int
+    comparator: str
+    score: float | None = None
+    reasoning: str | None = None
+    decided_at: datetime
+
+
+class ResolutionResult(BaseModel):
+    """The groups and pair-level evidence produced by one resolution run.
+
+    Attributes:
+        groups: Every input mention, partitioned into transitive groups.
+        matches: Confirmed non-exact pairs that created semantic match edges.
+    """
+
+    groups: list[ResolutionGroup]
+    matches: list[ResolvedMatch]
+
+
 class Comparator(ABC):
     """One matching strategy a Resolver runs against a candidate pair."""
 
     @abstractmethod
-    async def compare(
-        self, a: ExtractedEntity, b: ExtractedEntity
-    ) -> ComparisonVerdict:
+    async def compare(self, a: ExtractedEntity, b: ExtractedEntity) -> ComparisonResult:
         """Compare two entities.
 
         Args:
@@ -92,20 +137,19 @@ class Comparator(ABC):
             b: The second entity.
 
         Returns:
-            This comparator's verdict. UNCERTAIN defers to the next comparator.
+            This comparator's verdict and available decision evidence.
+            UNCERTAIN defers to the next comparator.
         """
 
 
 class ExactMatch(Comparator):
     """Matches when normalized text is identical. Never returns NO_MATCH."""
 
-    async def compare(
-        self, a: ExtractedEntity, b: ExtractedEntity
-    ) -> ComparisonVerdict:
+    async def compare(self, a: ExtractedEntity, b: ExtractedEntity) -> ComparisonResult:
         """Return MATCH on identical normalized text, else UNCERTAIN."""
         if _normalize(a.text) == _normalize(b.text):
-            return ComparisonVerdict.MATCH
-        return ComparisonVerdict.UNCERTAIN
+            return ComparisonResult(verdict=ComparisonVerdict.MATCH)
+        return ComparisonResult(verdict=ComparisonVerdict.UNCERTAIN)
 
 
 class FuzzyMatch(Comparator):
@@ -124,18 +168,16 @@ class FuzzyMatch(Comparator):
         self.match_above = match_above
         self.no_match_below = no_match_below
 
-    async def compare(
-        self, a: ExtractedEntity, b: ExtractedEntity
-    ) -> ComparisonVerdict:
+    async def compare(self, a: ExtractedEntity, b: ExtractedEntity) -> ComparisonResult:
         """Return a verdict from token-sort-ratio similarity."""
         from rapidfuzz import fuzz  # noqa: PLC0415
 
         score = fuzz.token_sort_ratio(_normalize(a.text), _normalize(b.text)) / 100
         if score >= self.match_above:
-            return ComparisonVerdict.MATCH
+            return ComparisonResult(verdict=ComparisonVerdict.MATCH, score=score)
         if score < self.no_match_below:
-            return ComparisonVerdict.NO_MATCH
-        return ComparisonVerdict.UNCERTAIN
+            return ComparisonResult(verdict=ComparisonVerdict.NO_MATCH, score=score)
+        return ComparisonResult(verdict=ComparisonVerdict.UNCERTAIN, score=score)
 
 
 class LLMVerify(Comparator):
@@ -169,9 +211,7 @@ class LLMVerify(Comparator):
         self.settings = settings
         self._client = client
 
-    async def compare(
-        self, a: ExtractedEntity, b: ExtractedEntity
-    ) -> ComparisonVerdict:
+    async def compare(self, a: ExtractedEntity, b: ExtractedEntity) -> ComparisonResult:
         """Return the LLM's verdict, or NO_MATCH if the call itself fails.
 
         Raises:
@@ -207,8 +247,12 @@ class LLMVerify(Comparator):
                 retry,
             )
         except Exception:  # noqa: BLE001
-            return ComparisonVerdict.NO_MATCH
-        return ComparisonVerdict.MATCH if is_match else ComparisonVerdict.NO_MATCH
+            return ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)
+        return ComparisonResult(
+            verdict=(
+                ComparisonVerdict.MATCH if is_match else ComparisonVerdict.NO_MATCH
+            )
+        )
 
     def _default_client(self) -> object:
         """Return the default generated BAML client."""
@@ -291,7 +335,19 @@ class Resolver:
             One ResolutionGroup per distinct entity found. Every input index
             appears in exactly one group.
         """
+        return (await self.resolve_with_matches(entities)).groups
+
+    async def resolve_with_matches(
+        self, entities: list[ExtractedEntity]
+    ) -> ResolutionResult:
+        """Resolve groups while retaining confirmed non-exact pair evidence.
+
+        Exact matches contribute to groups but not ``matches`` because exact
+        identity follows the separate accumulation path. Every semantic match
+        records the decisive comparator and its available evidence.
+        """
         edges: list[tuple[int, int]] = []
+        matches: list[ResolvedMatch] = []
         compared: set[tuple[int, int]] = set()
         for index in range(len(entities)):
             candidates = await self.candidate_source.candidates_for(index, entities)
@@ -300,24 +356,38 @@ class Resolver:
                 if pair in compared:
                     continue
                 compared.add(pair)
-                verdict = await self._first_verdict(
+                comparator, result = await self._first_result(
                     entities[index], entities[candidate_index]
                 )
-                if verdict is ComparisonVerdict.MATCH:
+                if result.verdict is ComparisonVerdict.MATCH:
                     edges.append(pair)
+                    if not isinstance(comparator, ExactMatch):
+                        matches.append(
+                            ResolvedMatch(
+                                left_index=pair[0],
+                                right_index=pair[1],
+                                comparator=type(comparator).__name__,
+                                score=result.score,
+                                reasoning=result.reasoning,
+                                decided_at=datetime.now(UTC),
+                            )
+                        )
         groups = _group_matches(len(entities), edges)
-        return [ResolutionGroup(entity_indices=group) for group in groups]
+        return ResolutionResult(
+            groups=[ResolutionGroup(entity_indices=group) for group in groups],
+            matches=matches,
+        )
 
-    async def _first_verdict(
+    async def _first_result(
         self, a: ExtractedEntity, b: ExtractedEntity
-    ) -> ComparisonVerdict:
-        """Return the first non-UNCERTAIN verdict, or NO_MATCH if none.
+    ) -> tuple[Comparator | None, ComparisonResult]:
+        """Return the first decisive result, or a fail-safe non-match.
 
         This is the fail-safe fallback: a pair every comparator is UNCERTAIN
         about is treated as distinct, never merged.
         """
         for comparator in self.comparators:
-            verdict = await comparator.compare(a, b)
-            if verdict is not ComparisonVerdict.UNCERTAIN:
-                return verdict
-        return ComparisonVerdict.NO_MATCH
+            result = await comparator.compare(a, b)
+            if result.verdict is not ComparisonVerdict.UNCERTAIN:
+                return comparator, result
+        return None, ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)

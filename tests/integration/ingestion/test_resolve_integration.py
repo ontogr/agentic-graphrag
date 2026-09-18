@@ -78,7 +78,10 @@ class TestLLMVerifyIntegration:
         verifier = LLMVerify(chunks_by_id={chunk_id: chunk}, settings=settings)
         verdict = await verifier.compare(a, b)
 
-        assert verdict in (ComparisonVerdict.MATCH, ComparisonVerdict.NO_MATCH)
+        assert verdict.verdict in (
+            ComparisonVerdict.MATCH,
+            ComparisonVerdict.NO_MATCH,
+        )
 
     @pytest.mark.skipif(not _has_llm_endpoint(), reason="LLM endpoint not configured")
     async def test_same_entity_pair_completes(self) -> None:
@@ -97,7 +100,10 @@ class TestLLMVerifyIntegration:
 
         # gemma4:31b can't reliably parse BAML bool output, so we only
         # confirm the call completes. Stronger models should return MATCH.
-        assert verdict in (ComparisonVerdict.MATCH, ComparisonVerdict.NO_MATCH)
+        assert verdict.verdict in (
+            ComparisonVerdict.MATCH,
+            ComparisonVerdict.NO_MATCH,
+        )
 
     @pytest.mark.skipif(not _has_llm_endpoint(), reason="LLM endpoint not configured")
     async def test_different_entity_pair_completes(self) -> None:
@@ -114,7 +120,10 @@ class TestLLMVerifyIntegration:
         verifier = LLMVerify(chunks_by_id={chunk_id: chunk}, settings=settings)
         verdict = await verifier.compare(a, b)
 
-        assert verdict in (ComparisonVerdict.MATCH, ComparisonVerdict.NO_MATCH)
+        assert verdict.verdict in (
+            ComparisonVerdict.MATCH,
+            ComparisonVerdict.NO_MATCH,
+        )
 
 
 # ── FuzzyMatch ────────────────────────────────────────────────────────
@@ -131,7 +140,7 @@ class TestFuzzyMatchIntegration:
 
         verdict = await comparator.compare(a, b)
 
-        assert verdict == ComparisonVerdict.NO_MATCH
+        assert verdict.verdict == ComparisonVerdict.NO_MATCH
 
     async def test_match_for_renamed_entities(self) -> None:
         """FuzzyMatch returns MATCH when reordered names are very similar."""
@@ -141,7 +150,7 @@ class TestFuzzyMatchIntegration:
 
         verdict = await comparator.compare(a, b)
 
-        assert verdict == ComparisonVerdict.MATCH
+        assert verdict.verdict == ComparisonVerdict.MATCH
 
 
 # ── Full Resolver Flow ─────────────────────────────────────────────────
