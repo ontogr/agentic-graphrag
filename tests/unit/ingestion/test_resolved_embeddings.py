@@ -395,10 +395,14 @@ class TestSynchronizeResolvedEntityVectors:
     async def test_holds_back_republished_entity_when_stale_clear_fails(self) -> None:
         """A live vector is never republished while its queue entry survives.
 
-        If clearing a stale queue entry for a republished id fails, that
-        entity must not be embedded and upserted this call: doing so would
-        leave a queue entry claiming the id still needs deletion right
-        alongside a freshly published, live vector for it.
+        The stale id comes only from the durable retry queue, sourced via
+        ``execute_read``, not from ``removed_entity_ids``: a regression that
+        stops reading that queue must fail this test rather than pass it by
+        accident through the in-call ``removed_entity_ids`` path. If clearing
+        the queue entry for a republished id fails, that entity must not be
+        embedded and upserted this call: doing so would leave a queue entry
+        claiming the id still needs deletion right alongside a freshly
+        published, live vector for it.
         """
         entity = _entity()
 
@@ -408,13 +412,16 @@ class TestSynchronizeResolvedEntityVectors:
             return [{"id": str(entity.id)}]
 
         graph_store = SimpleNamespace(
-            execute_write=AsyncMock(side_effect=execute_write)
+            execute_read=AsyncMock(
+                return_value=[{"id": str(entity.id), "collection": "resolved"}]
+            ),
+            execute_write=AsyncMock(side_effect=execute_write),
         )
         vector_store = SimpleNamespace(delete=AsyncMock(), upsert=AsyncMock())
 
         failures = await _synchronize_resolved_entity_vectors(
             [entity],
-            [entity.id],
+            [],
             embedder=_Embedder(),
             graph_store=graph_store,
             vector_store=vector_store,
@@ -422,6 +429,13 @@ class TestSynchronizeResolvedEntityVectors:
             error_policy=ErrorPolicy.SKIP,
         )
 
+        graph_store.execute_read.assert_awaited_once()
+        clear_attempts = [
+            call
+            for call in graph_store.execute_write.await_args_list
+            if call.args[1].get("ids") == [str(entity.id)]
+        ]
+        assert clear_attempts, "the queued id was never attempted to be cleared"
         assert [failure.item_id for failure in failures] == [
             "resolved_entity_vector_store"
         ]
@@ -432,7 +446,11 @@ class TestSynchronizeResolvedEntityVectors:
         assert entity.vector_sync_status == "pending"
 
     async def test_raises_when_a_stale_clear_fails_under_raise(self) -> None:
-        """RAISE aborts the whole synchronization pass on a failed queue clear."""
+        """RAISE aborts the whole synchronization pass on a failed queue clear.
+
+        The stale id is sourced from the durable retry queue via
+        ``execute_read``, matching the real cross-pass retry path.
+        """
         entity = _entity()
 
         async def execute_write(_query: str, params: dict) -> list[dict]:
@@ -441,14 +459,17 @@ class TestSynchronizeResolvedEntityVectors:
             return [{"id": str(entity.id)}]
 
         graph_store = SimpleNamespace(
-            execute_write=AsyncMock(side_effect=execute_write)
+            execute_read=AsyncMock(
+                return_value=[{"id": str(entity.id), "collection": "resolved"}]
+            ),
+            execute_write=AsyncMock(side_effect=execute_write),
         )
         vector_store = SimpleNamespace(delete=AsyncMock(), upsert=AsyncMock())
 
         with pytest.raises(RuntimeError, match="clear failed"):
             await _synchronize_resolved_entity_vectors(
                 [entity],
-                [entity.id],
+                [],
                 embedder=_Embedder(),
                 graph_store=graph_store,
                 vector_store=vector_store,
@@ -456,6 +477,7 @@ class TestSynchronizeResolvedEntityVectors:
                 error_policy=ErrorPolicy.RAISE,
             )
 
+        graph_store.execute_read.assert_awaited_once()
         vector_store.upsert.assert_not_awaited()
 
     async def test_reports_stale_vector_delete_failure_with_skip(self) -> None:
