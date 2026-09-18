@@ -683,8 +683,10 @@ class TestSearchEngine:
 
             await engine.search("test", ENTITY)
 
-            assert mock_ev.call_args.kwargs["labels"] == ["Drug", "Disease"]
-            assert mock_ev.call_args.kwargs["collection"] == "agrag_entities"
+            raw_call, resolved_call = mock_ev.call_args_list
+            assert raw_call.kwargs["labels"] == ["Drug", "Disease"]
+            assert raw_call.kwargs["collection"] == "agrag_entities"
+            assert resolved_call.kwargs["labels"] == ("ResolvedEntity",)
 
     async def test_raises_when_every_method_fails(self) -> None:
         """A total retriever outage raises instead of returning no hits."""
