@@ -14,6 +14,7 @@ from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.ingestion.materialize import (
     MatchDecision,
     compute_resolved_entity,
+    deactivate_match_and_rematerialize,
     decisions_by_component,
     matches_id,
     write_matches_and_materialize,
@@ -176,6 +177,38 @@ class TestWriteMatchesAndMaterialize:
             await write_matches_and_materialize(
                 [decision], graph_store=store, schema=_schema(), members=[first, second]
             )
+
+
+class TestDeactivateMatch:
+    """Match corrections report stale materializations for vector cleanup."""
+
+    async def test_returns_deleted_materialization_ids(self, monkeypatch) -> None:
+        """Only replaced derived IDs are returned after the transaction commits."""
+        first, second, stale_id = _entity("Ada"), _entity("Ada Lovelace"), uuid4()
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
+        )
+        store.current_transaction.execute_read.side_effect = [
+            [{"a": first, "b": second}],
+            [
+                {"seed_id": str(first.id), "member": first},
+                {"seed_id": str(first.id), "member": second},
+            ],
+        ]
+        store.current_transaction.execute_write.side_effect = [
+            [{"id": "match"}],
+            [{"removed_resolved_entity_ids": [str(stale_id)]}],
+        ]
+        monkeypatch.setattr(
+            "agrag.ingestion.graph._parse_entity_node", lambda node: node
+        )
+
+        result = await deactivate_match_and_rematerialize(
+            uuid4(), graph_store=store, schema=_schema()
+        )
+
+        assert result.removed_entity_ids == [stale_id]
+        assert len(result.resolved_entities) == 1
 
 
 class TestDecisionsByComponent:

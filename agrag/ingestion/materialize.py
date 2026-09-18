@@ -46,6 +46,13 @@ class MaterializationResult(BaseModel):
     removed_entity_ids: list[UUID]
 
 
+class DeactivationResult(BaseModel):
+    """Materializations created after a match correction and stale ids removed."""
+
+    resolved_entities: list[ResolvedEntity]
+    removed_entity_ids: list[UUID]
+
+
 def decisions_by_component(
     matches: list[ResolvedMatch], mention_to_entity: dict[int, UUID]
 ) -> list[list[MatchDecision]]:
@@ -271,6 +278,16 @@ async def deactivate_match(
     Singleton components remain raw entities and do not receive a derived node.
     All graph changes occur inside one transaction.
     """
+    result = await deactivate_match_and_rematerialize(
+        match_id, graph_store=graph_store, schema=schema
+    )
+    return result.resolved_entities
+
+
+async def deactivate_match_and_rematerialize(
+    match_id: UUID, *, graph_store: GraphStore, schema: GraphSchema
+) -> DeactivationResult:
+    """Deactivate a match and return its replacements and deleted derived IDs."""
     from agrag.ingestion.graph import _parse_entity_node  # noqa: PLC0415
 
     async with graph_store.transaction() as transaction:
@@ -308,10 +325,16 @@ async def deactivate_match(
             {member.id for members in components.values() for member in members},
             key=str,
         )
-        await transaction.execute_write(
+        replacement_rows = await transaction.execute_write(
             replace_component_materializations_query(),
             {"member_ids": [str(member_id) for member_id in all_member_ids]},
         )
+        removed_entity_ids = [
+            UUID(str(entity_id))
+            for row in replacement_rows
+            if isinstance(row, dict)
+            for entity_id in row.get("removed_resolved_entity_ids", [])
+        ]
         materialized: list[ResolvedEntity] = []
         for members in sorted(
             components.values(),
@@ -343,4 +366,12 @@ async def deactivate_match(
                 )
             )
             materialized.append(resolved)
-    return materialized
+    materialized_ids = {entity.id for entity in materialized}
+    return DeactivationResult(
+        resolved_entities=materialized,
+        removed_entity_ids=[
+            entity_id
+            for entity_id in dict.fromkeys(removed_entity_ids)
+            if entity_id not in materialized_ids
+        ],
+    )

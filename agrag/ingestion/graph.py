@@ -68,6 +68,7 @@ from agrag.ingestion._lexical_backbone import (
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.materialize import (
     MatchDecision,
+    deactivate_match_and_rematerialize,
     decisions_by_component,
     match_decision_components,
     write_matches_and_materialize,
@@ -2328,6 +2329,22 @@ class Graph:
                 break
             skip += limit
         return entities
+
+    async def deactivate_match(self, match_id: UUID) -> list[ResolvedEntity]:
+        """Deactivate a semantic match and synchronize replacement retrieval vectors."""
+        result = await deactivate_match_and_rematerialize(
+            match_id, graph_store=self._graph_store, schema=self._schema
+        )
+        await _synchronize_resolved_entity_vectors(
+            result.resolved_entities,
+            result.removed_entity_ids,
+            embedder=self._embedder,
+            graph_store=self._graph_store,
+            vector_store=self._vector_store,
+            vector_collection=self._retrieval_settings.resolved_entity_collection,
+            error_policy=ErrorPolicy.RAISE,
+        )
+        return result.resolved_entities
 
     async def consolidate(self, *, apply: bool = False) -> ConsolidationReport:
         """Run non-destructive resolution against every persisted raw entity.
