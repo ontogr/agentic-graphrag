@@ -31,7 +31,9 @@ def parse_resolved_entity_node(node: object) -> ResolvedEntity | None:
     """
     if isinstance(node, dict) and "properties" in node:
         properties = node.get("properties")
-        node_id = node.get("id")
+        node_id = (
+            properties.get("id") if isinstance(properties, dict) else None
+        ) or node.get("id")
     else:
         try:
             properties = dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]

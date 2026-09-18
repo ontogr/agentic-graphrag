@@ -177,6 +177,8 @@ class LLMVerify(Comparator):
                 this size so one oversized request cannot exceed the model's
                 context limit and silently fail every pair in the batch.
         """
+        if max_pairs_per_batch <= 0:
+            raise ValueError("max_pairs_per_batch must be positive")
         self.chunks_by_id = chunks_by_id
         self.settings = settings
         self._client = client

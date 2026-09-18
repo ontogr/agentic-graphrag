@@ -14,6 +14,8 @@ class TestResolutionReadQueries:
         """A pending or failed vector sync must not be served to retrieval."""
         query = hydrate_resolved_entities_by_id_query()
 
+        assert "UNWIND $ids AS resolved_entity_id" in query
+        assert "{id: resolved_entity_id}" in query
         assert "resolved.vector_sync_status = 'synced'" in query
         assert "RETURN resolved" in query
 
@@ -28,4 +30,6 @@ class TestResolutionReadQueries:
         """A raw hit is only suppressed once its materialization is synced."""
         query = fetch_active_resolved_member_ids_query()
 
+        assert "-[:RESOLVED_AS]->(resolved:" in query
+        assert "RETURN entity_id" in query
         assert "resolved.vector_sync_status = 'synced'" in query

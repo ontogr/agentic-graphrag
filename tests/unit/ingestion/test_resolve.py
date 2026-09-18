@@ -178,6 +178,12 @@ class TestFuzzyMatch:
 class TestLLMVerify:
     """LLMVerify returns NO_MATCH on failure, raises on missing extra."""
 
+    def test_rejects_non_positive_max_pairs_per_batch(self) -> None:
+        """A zero or negative batch size cannot produce valid results."""
+        chunk_id = uuid4()
+        with pytest.raises(ValueError, match="must be positive"):
+            LLMVerify(chunks_by_id={chunk_id: _chunk("context")}, max_pairs_per_batch=0)
+
     async def test_returns_no_match_on_client_exception(self) -> None:
         """An injected client that raises produces NO_MATCH (fail-safe)."""
 
