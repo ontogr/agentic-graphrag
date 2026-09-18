@@ -9,6 +9,7 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.relation import Relation
+from agrag.common.data_models.resolved_entity import ResolvedEntity
 
 
 class SearchResult(BaseModel):
@@ -23,7 +24,7 @@ class SearchResult(BaseModel):
             this result.
     """
 
-    item: Union[Entity, Relation, Chunk, Community]
+    item: Union[Entity, ResolvedEntity, Relation, Chunk, Community]
     score: float
     method: str
 

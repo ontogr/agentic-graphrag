@@ -6,6 +6,7 @@ from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
     ResolvedEntity,
 )
+from agrag.common.data_models.search_result import SearchResult
 
 
 class TestResolvedEntity:
@@ -45,3 +46,13 @@ class TestResolvedEntity:
 
         assert record.properties["vector_sync_status"] == "failed"
         assert record.properties["vector_sync_error"] == "vector store down"
+
+    def test_is_a_valid_retrieval_result_item(self) -> None:
+        """Grouped retrieval keeps its derived type instead of faking a raw entity."""
+        entity = ResolvedEntity(
+            id=uuid4(), label="Person", name="Ada", member_ids=[uuid4()]
+        )
+
+        result = SearchResult(item=entity, score=0.9, method="entity")
+
+        assert result.item is entity
