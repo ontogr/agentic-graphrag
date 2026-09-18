@@ -5,7 +5,7 @@ from typing import Any, cast
 
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.search_result import SearchResult
-from agrag.cypher.entities import NODE_IDENTITY_LABEL
+from agrag.cypher.entities import hydrate_chunks_by_id_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.retrieval.filters import SearchFilters
@@ -63,11 +63,14 @@ class ChunkRetriever(Retriever):
             query: The natural-language query text.
             filters: Constraints applied to the search.
             limit: Maximum results. None uses settings.chunk_top_k.
+                Zero or negative returns no results without searching.
 
         Returns:
             Ranked SearchResults with hydrated Chunk items.
         """
-        effective_limit = limit or self._settings.chunk_top_k
+        effective_limit = limit if limit is not None else self._settings.chunk_top_k
+        if effective_limit <= 0:
+            return []
         hits = await vector_search(
             query,
             embedder=self._embedder,
@@ -79,29 +82,31 @@ class ChunkRetriever(Retriever):
             filters=filters,
             settings=self._settings,
         )
+        if not hits:
+            return []
+        ids = [str(h.id) for h in hits]
+        try:
+            rows = await self._graph_store.execute_read(
+                hydrate_chunks_by_id_query(), {"ids": ids}
+            )
+        except Exception:
+            return []
+        by_id: dict[str, Chunk] = {}
+        for row in rows:
+            try:
+                node = row.get("n") if isinstance(row, dict) and "n" in row else row
+                chunk = self._parse_chunk_node(node)
+                if chunk is not None:
+                    by_id[str(chunk.id)] = chunk
+            except Exception:
+                continue
         results: list[SearchResult] = []
         for hit in hits:
             try:
-                rows = await self._graph_store.execute_read(
-                    f"MATCH (n:{NODE_IDENTITY_LABEL}:{CHUNK_LABEL} "
-                    f"{{id: $id}}) RETURN n",
-                    {"id": str(hit.id)},
-                )
-                if not rows:
-                    continue
-                node = (
-                    rows[0].get("n")
-                    if isinstance(rows[0], dict) and "n" in rows[0]
-                    else rows[0]
-                )
-                chunk = self._parse_chunk_node(node)
+                chunk = by_id.get(str(hit.id))
                 if chunk is not None:
                     results.append(
-                        SearchResult(
-                            item=chunk,
-                            score=hit.score,
-                            method=self.name,
-                        )
+                        SearchResult(item=chunk, score=hit.score, method=self.name)
                     )
             except Exception:
                 continue

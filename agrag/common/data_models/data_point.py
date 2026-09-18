@@ -13,9 +13,8 @@ class DataPoint(BaseModel):
     Attributes:
         id: The node id. Each subclass defines its own rule to compute this id.
         created_at: The time the system created this node. Defaults to the current time.
-        metadata: Extra data about the node. Add an ``index_fields`` key to list which
-        fields
-            the store must index for filters.
+        metadata: Extra data about the node. Add an ``index_fields`` key to list
+            which fields the store must index for filters.
     """
 
     id: UUID

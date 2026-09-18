@@ -63,9 +63,8 @@ class PageProvenance(BaseModel):
 
     Attributes:
         kind: The literal tag ``"page"``. Marks this as page provenance.
-        page_spans: The page spans for this chunk. Has more than one entry when the
-        chunk
-            crosses a page boundary.
+        page_spans: The page spans for this chunk. Has more than one entry when
+            the chunk crosses a page boundary.
     """
 
     kind: Literal["page"] = "page"

@@ -1,4 +1,12 @@
-"""Tests for BFSRetriever."""
+"""Tests for BFSRetriever in agrag.retrieval.retrievers.bfs.
+
+Uses an AsyncMock graph store and inspects the generated Cypher query and
+parameters directly. Covers empty/None seed ids short-circuiting to no
+results, a depth override reaching the variable-length path pattern
+(``*1..N``), SearchFilters properties reaching query parameters,
+relation_types restricting the relationship pattern, and that no filters
+means no filter parameters are added.
+"""
 
 from unittest.mock import AsyncMock
 from uuid import uuid4

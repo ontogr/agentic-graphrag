@@ -1,4 +1,13 @@
-"""Tests for the extension-to-loader registry."""
+"""Tests for LoaderRegistry in agrag.loaders.corpus.registry.
+
+Uses a minimal _StubLoader to cover prefer=True precedence (including that
+the last preferred registration wins), idempotent re-registration, an
+unsupported extension raising UnsupportedFormatError, a loader with a
+missing optional extra raising MissingExtraError (and falling back to a
+non-preferred loader for the same extension when the preferred one's extra
+is unavailable), and scoping a loader to a subset of its declared
+extensions.
+"""
 
 from agrag.common.data_models.document import DocumentFamily
 from agrag.loaders.corpus.base import Loader
@@ -103,7 +112,19 @@ class TestLoaderRegistry:
     def test_extensions_allow_list_limits_scope(self) -> None:
         """A loader registered for a subset of its extensions claims only those."""
         registry = LoaderRegistry()
-        registry.register(_StubLoader(), prefer=True, extensions={".stub"})
-        assert (
-            registry.for_source(SourceRef(uri="x.stub", extension=".stub")) is not None
-        )
+
+        class _MultiExtLoader(Loader):
+            extensions = frozenset({".stub", ".other"})
+            family = DocumentFamily.PROSE
+
+            def load(self, source, stream, opts, *, start_at=0):  # type: ignore[no-untyped-def]
+                yield from ()
+
+        loader = _MultiExtLoader()
+        registry.register(loader, extensions={".stub"})
+        assert registry.for_source(SourceRef(uri="x.stub", extension=".stub")) is loader
+        try:
+            registry.for_source(SourceRef(uri="x.other", extension=".other"))
+        except UnsupportedFormatError:
+            return
+        raise AssertionError("expected UnsupportedFormatError")

@@ -1,4 +1,12 @@
-"""Tests for the prose readers: text, Markdown, and AsciiDoc."""
+"""Tests for TextLoader, MarkdownLoader, and AsciiDocLoader.
+
+Reads fixtures from the local ``fixtures/`` directory. Covers plain-text and
+log-format documents, the ``store_text=False`` text-stripping option,
+oversized-source rejection (including a source with an unknown byte size),
+Markdown heading-outline extraction with title detection, and AsciiDoc's
+regex-based heading scan used as the fallback when docling is not
+installed.
+"""
 
 from io import BytesIO
 

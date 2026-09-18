@@ -1,4 +1,14 @@
-"""Tests for the FastEmbed BM25 sparse embedder."""
+"""Tests for FastEmbedBM25Embedder in agrag.embedding.fastembed_bm25.
+
+Uses a MockSparseModel injected via ``_model`` so no real fastembed model is
+downloaded. Covers model-name resolution, lazy loading (the model is not
+built at construction), that embed and query_embed delegate to distinct
+model methods (a query must not use document-side term weighting), that
+concurrent first-time embeds share one model build via
+``mock.patch.object(..., autospec=True)`` and threading events rather than
+racing to build it twice, and that a missing ``fastembed`` module (simulated
+via ``sys.modules`` patching) raises EmbeddingMissingExtraError.
+"""
 
 import asyncio
 import sys

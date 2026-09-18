@@ -1,4 +1,10 @@
-"""Tests for RoundRobinModelMiddleware."""
+"""Tests for RoundRobinModelMiddleware in agrag.agents.middleware.
+
+Covers rotating the model on each wrap_model_call/awrap_model_call, wrapping
+back to the first model after the last, that non-model request fields pass
+through unchanged, and that an empty model list raises ValueError. Uses a
+minimal ModelRequest builder rather than a real LangChain agent run.
+"""
 
 import pytest
 from langchain.agents.middleware.types import ModelRequest

@@ -135,11 +135,11 @@ class TestToolsIntegration:
         await self.store.close()
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
-    async def test_make_tools_returns_five(self) -> None:
-        """make_tools returns 5 tools."""
+    async def test_make_tools_returns_six(self) -> None:
+        """make_tools returns 6 tools."""
         ledger = Ledger()
         tools = make_tools(self.engine, ledger)
-        assert len(tools) == 5
+        assert len(tools) == 6
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     async def test_tool_names(self) -> None:
@@ -152,6 +152,7 @@ class TestToolsIntegration:
         assert "find_connection" in names
         assert "explore_related" in names
         assert "answer_from_graph_structure" in names
+        assert "answer_thematic_question" in names
 
 
 @pytest.mark.integration

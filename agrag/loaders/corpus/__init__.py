@@ -17,7 +17,7 @@ from agrag.loaders.corpus.registry import LoaderRegistry
 registry: LoaderRegistry = LoaderRegistry()
 registry.register(TextLoader(), prefer=True)
 registry.register(MarkdownLoader(), prefer=True)
-# Docling is the default for .adoc/.asciidoc when installed (ADR 0006): its structural
+# Docling is the default for .adoc/.asciidoc when installed: its structural
 # parser beats this reader's regex headings-only scan. Registering prefer=False here,
 # mirroring how docling itself defers on .md/.html/.csv, makes that precedence hold
 # regardless of import order instead of depending on which package registers last.

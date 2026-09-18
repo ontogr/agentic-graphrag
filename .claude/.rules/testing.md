@@ -20,9 +20,10 @@ Use these rules for tests in this repository.
   details. Avoid accessing private members in tests unless there is no public
   seam and adding one would be worse for the design.
 - Follow nearby test patterns before introducing new fixtures or helpers.
-- For bug fixes, extend the existing mapped test file when one already covers
-  the affected module. Create a new test file only when no mapped test exists or
-  a new feature/component needs one.
+- For bug fixes, write a failing test that reproduces the reported symptom,
+  then make it pass. Extend the existing mapped test file when one already
+  covers the affected module; do not create new scaffolding when a suite for
+  the module exists.
 - One focused regression test that fails without the fix is better than many
   shallow tests that do not prove behavior.
 

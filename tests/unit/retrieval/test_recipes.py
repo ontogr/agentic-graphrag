@@ -1,4 +1,9 @@
-"""Tests for Recipe and preset recipes."""
+"""Tests for the Recipe data class and its preset instances.
+
+Covers the fields of each preset (ENTITY, CHUNK, HYBRID, HYBRID_RERANKED,
+GRAPH_EXPAND) and that a custom Recipe can be constructed directly with its
+own methods, bfs flag, and limit.
+"""
 
 from agrag.retrieval.recipes import (
     CHUNK,

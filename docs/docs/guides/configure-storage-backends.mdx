@@ -161,9 +161,10 @@ await store.connect()
 | `NEO4J_PASSWORD` | The database password. |
 | `NEO4J_DATABASE` | The target database name. |
 
-Neo4j always authenticates with a password, so settings construction raises
-if `NEO4J_URI` uses a plaintext scheme (`bolt://` or `neo4j://`) and points at
-a non-local host: use `neo4j+s://` (or `bolt+s://`) for a remote instance.
+Neo4j always authenticates with a password. Settings construction raises an
+error if `NEO4J_URI` uses a plaintext scheme (`bolt://` or `neo4j://`) and
+points at a non-local host. Use `neo4j+s://` (or `bolt+s://`) for a remote
+instance.
 
 ### Write nodes
 
@@ -201,6 +202,26 @@ await store.upsert_nodes("Chunk", [tagged_node])
 Labels only ever accumulate. If a later upsert of the same node id lists
 fewer labels, the labels already on the node are kept, not removed.
 
+### Handle partial write failures
+
+`upsert_nodes` and `upsert_relations` return an `UpsertResult`. Check
+`failures` for records that did not write. The rest of the call still lands.
+
+```python
+nodes = [
+    NodeRecord(id=uuid4(), labels=["Chunk"], properties={"text": "example"})
+]
+result = await store.upsert_nodes("Chunk", nodes)
+if result.failures:
+    for failure in result.failures:
+        print(f"{failure.id} failed: {failure.error_message}")
+print(f"{result.written} of {len(nodes)} nodes written")
+```
+
+A connectivity or authentication failure still raises instead of returning a
+partial result. Only a failure specific to one record's data is isolated and
+reported this way.
+
 ### Search vectors stored in the graph
 
 You can search vectors stored as node properties, without a separate vector
@@ -220,6 +241,42 @@ hits = await store.vector_search(
 
 `vector_search` returns the same hit type `VectorStore.search` returns. Code
 that reads hits does not need to know which store produced them.
+
+## Mirror ingestion into a vector store
+
+`Graph.open` accepts an optional `vector_store`. Pass one and every embedding
+ingestion writes to the graph store is also upserted to the vector store:
+entity, chunk, and community vectors all land in the collections
+`RetrievalSettings` names (`agrag_entities`, `agrag_chunks`,
+`agrag_communities` by default). `open()` creates a missing collection with
+your embedder's dimensions. After entity merges, the absorbed entities'
+vectors are deleted there. Each `detect_communities(apply=True)` run replaces
+the community vectors after stale-vector cleanup succeeds. That cleanup clears
+every `Community` vector in the collection, the way the graph-side recompute
+clears every `Community` node in the database, so give each graph its own
+Neo4j database (`NEO4J_DATABASE`) and its own collections. A cleanup
+failure can leave old community vectors in the collection and is reported
+to the caller.
+
+```python
+from agrag.ingestion import Graph
+from agrag.vectordb import build_vector_store
+
+vector_store = build_vector_store("qdrant")
+graph = await Graph.open(
+    schema=schema,
+    graph_store=graph_store,
+    embedder=embedder,
+    extractor=extractor,
+    vector_store=vector_store,
+)
+```
+
+A `SearchEngine` pointed at the same `vector_store` then searches the same
+data the graph-native path serves. Ingestion reports failed vector-store writes
+in each stage's failures: a failed mirror is recorded as a `StageFailure` such
+as `chunk_vector_store` under `ErrorPolicy.SKIP`/`QUARANTINE` and propagates
+under the default `ErrorPolicy.RAISE`.
 
 ## Next steps
 

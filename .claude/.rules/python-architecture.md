@@ -47,8 +47,13 @@ repository.
   injection can provide the seam. Patching third-party SDK or driver boundaries
   is acceptable when it is the narrowest reliable isolation point.
 - Do not use dependency-injection frameworks.
-- Public APIs are contracts. Do not break them during refactors without explicit
-  approval and a deprecation path.
+- Pre-1.0 policy: breaking changes are allowed and recommended if they
+  produce better results. Default to a hard cut: no backward-compat aliases,
+  deprecated shims, fallback parsing, migration bridges, or tests for the
+  previous API unless the user explicitly asks.
+- Within a release, public APIs are contracts. Do not break them during
+  refactors without explicit approval, unless the break is intended under the
+  Pre-1.0 policy above.
 - Define `__all__` only in package `__init__.py` files that intentionally
   re-export public symbols. Do not put `__all__` in implementation modules where
   classes or functions are defined.

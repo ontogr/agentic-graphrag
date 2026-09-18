@@ -1,4 +1,13 @@
-"""Tests for merge mechanics."""
+"""Tests for entity merge planning and application in agrag.ingestion.merge.
+
+Covers canonical-name selection, per-property resolution strategies and
+rules, LLM-assisted description resolution (mocked with ``AsyncMock``),
+property merging, full merge-plan computation, relationship-dedup planning
+with alias transfer, and applying a merge plan against a mocked graph store
+transaction. ``apply_merge`` tests build an ``AsyncMock`` store whose
+``transaction()`` context manager yields a fake handle wrapping
+``execute_write``/``execute_read`` mocks, so no real Neo4j session is used.
+"""
 
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -28,7 +37,7 @@ from agrag.ingestion.merge import (
     mentioned_in_id,
     relation_id,
 )
-from agrag.ingestion.types import StageFailure
+from agrag.ingestion.stats import StageFailure
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
 
 
@@ -473,22 +482,6 @@ class TestResolveDescription:
         assert conflicted is True
         assert isinstance(failure, StageFailure)
         assert failure.error_type == "ImportError"
-
-    async def test_fallback_stage_failure_import_error(self) -> None:
-        """StageFailure import failure returns fallback without failure."""
-        # patch sys.modules to make agrag.ingestion.types import fail
-
-        class FailingClient:
-            async def SummarizeDescriptions(self, *args, **kwargs):  # noqa: N802
-                raise RuntimeError("boom")
-
-        with patch.dict("sys.modules", {"agrag.ingestion.types": None}):
-            value, conflicted, failure = await _resolve_description(
-                ["a", "b"], client=FailingClient()
-            )
-        assert value == "a | b"
-        assert conflicted is True
-        assert failure is None
 
 
 class TestMergeProperties:

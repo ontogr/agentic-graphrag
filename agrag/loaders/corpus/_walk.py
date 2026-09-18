@@ -1,8 +1,7 @@
 """Corpus walk, batching, and resumable streaming.
 
 This module is internal. ``Graph.add`` uses it to turn a set of sources into batches of
-Documents. It never exports a public concept; ADR 0001 forbids a second public loader
-idea.
+Documents. It never exports a public concept.
 """
 
 import hashlib

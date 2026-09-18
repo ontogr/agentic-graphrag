@@ -1,4 +1,14 @@
-"""Tests for build_chat_model provider translation."""
+"""Tests for build_chat_model and build_model_middleware in agrag.agents.model.
+
+Covers unsupported providers (aws-bedrock, vertex-ai, openai-responses,
+azure-openai) raising UnsupportedAgentProviderError, parametrized over
+provider names, and that each supported provider (openai, openai-generic,
+anthropic, google-ai) builds its LangChain chat model, skipping when the
+matching optional integration package is not installed. Also covers
+build_model_middleware's strategy handling: "single" and a single client
+never produce middleware, "fallback" composes the clients after the first,
+and "round_robin" wraps all clients in RoundRobinModelMiddleware.
+"""
 
 import pytest
 

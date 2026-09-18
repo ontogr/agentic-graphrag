@@ -15,7 +15,7 @@ uv run pre-commit install
 
 ## Making a change
 
-1. Fork the repository and branch off `main`.
+1. Fork the repository. Branch off `main`.
 2. Make your change, with tests. Tests live in `tests/unit/` and mirror the
    package structure, one `Test<Feature>` class per `test_<feature>.py`.
 3. Run the checks:

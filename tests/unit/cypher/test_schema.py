@@ -1,4 +1,14 @@
-"""Tests for the Cypher schema builders."""
+"""Tests for schema-level Cypher builders in agrag.cypher.schema.
+
+Covers node and relationship uniqueness constraint queries, a regression for
+constraint-name collisions between a node label and a relationship type that
+share a naming boundary (e.g. label "X_rel" versus type "X"), plain range
+index queries, deterministic and collision-free vector index naming across
+label/property pairs that could otherwise clash, Distance-to-
+similarity-function mapping in vector_index_query (cosine, euclidean; dot
+product is unsupported and raises), and vector_search_query's optional
+WHERE-filter clause.
+"""
 
 import pytest
 

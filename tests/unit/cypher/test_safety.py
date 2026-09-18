@@ -1,4 +1,15 @@
-"""Tests for the Cypher write-clause safety gate."""
+"""Tests for reject_write_cypher in agrag.cypher.safety.
+
+Covers rejecting each write keyword (DELETE, CREATE, MERGE, SET, REMOVE,
+DROP) anywhere in a query, including inside an otherwise read-shaped query
+or a subquery CALL, in any letter case; rejecting a CALL to a procedure
+outside the read-only allowlist; and accepting pure MATCH...RETURN queries
+and read-only vector index CALLs. A cluster of adversarial-string tests
+verifies the pre-filter's string/comment/backtick scanning is not
+desynced by an escaped quote, a `//` or `/* */` comment, or a backtick
+identifier placed between a keyword and a real write clause, and that a
+write keyword used as a property name is still conservatively rejected.
+"""
 
 import pytest
 

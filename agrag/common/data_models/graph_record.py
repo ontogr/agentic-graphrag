@@ -46,3 +46,32 @@ class RelationRecord(BaseModel):
     start_id: UUID
     end_id: UUID
     properties: dict[str, Any]
+
+
+class UpsertFailure(BaseModel):
+    """One record that failed to write within a bulk upsert call.
+
+    Attributes:
+        id: The failed record's own id, as a string (matches the id already
+            sent to the backend, not necessarily parseable back to UUID for
+            every future backend).
+        error_type: The backend exception class name or GraphStore failure label.
+        error_message: The backend exception message or failure description.
+    """
+
+    id: str
+    error_type: str
+    error_message: str
+
+
+class UpsertResult(BaseModel):
+    """Outcome of a bulk ``upsert_nodes``/``upsert_relations`` call.
+
+    Attributes:
+        written: How many records were written successfully.
+        failures: Records that failed, isolated from the rest of the call.
+            Empty when every record wrote successfully.
+    """
+
+    written: int = 0
+    failures: list[UpsertFailure] = Field(default_factory=list)

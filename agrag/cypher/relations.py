@@ -7,7 +7,16 @@ identifier-validation contract shared by every Cypher builder.
 from collections.abc import Sequence
 from typing import Any
 
-from agrag.cypher.entities import validate_identifier
+from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
+
+
+def close_part_of_query() -> str:
+    """Build Cypher that closes currently valid document-to-chunk edges."""
+    return (
+        "MATCH (d:_AgragNode:Document {id: $document_node_id})"
+        "-[r:PART_OF]->() WHERE r.invalid_at IS NULL "
+        "SET r.invalid_at = datetime() RETURN count(r) AS closed"
+    )
 
 
 def bfs_expand_query(
@@ -116,6 +125,77 @@ def entities_mentioned_in_chunks_query() -> str:
     )
 
 
+def fetch_all_relations_query() -> str:
+    """Build Cypher paginating every live domain relationship.
+
+    Used by Graph.detect_communities() to build the weighted edge list for
+    clustering. Excludes MENTIONED_IN and MEMBER_OF (system edges, not
+    entity-graph topology) and any endpoint that is a Chunk, a Community,
+    or a tombstone.
+
+    ``ORDER BY`` includes ``type(r)`` and ``r.id`` after ``(a.id, b.id)``
+    because two distinct relationships (different types, or the same type
+    with different ids) can share the same endpoints -- see
+    ``upsert_relation_query``. Without a total order, Neo4j does not
+    guarantee a stable row order across separate paged queries, so a page
+    boundary falling inside such a group can duplicate or drop rows.
+
+    Returns:
+        Parameterized Cypher expecting $skip and $limit. Returns each
+        relation's source_id, target_id, source_chunk_ids, and rel_type.
+    """
+    return (
+        f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
+        f"WHERE a.merged_into IS NULL AND b.merged_into IS NULL "
+        f"AND NOT a:Chunk AND NOT b:Chunk "
+        f"AND NOT a:Community AND NOT b:Community "
+        f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
+        f"RETURN a.id AS source_id, b.id AS target_id, "
+        f"r.source_chunk_ids AS source_chunk_ids, "
+        f"type(r) AS rel_type "
+        f"ORDER BY a.id, b.id, type(r), coalesce(r.id, '') SKIP $skip LIMIT $limit"
+    )
+
+
+def fetch_all_relations_query_cursor() -> str:
+    """Build Cypher paginating every live domain relationship via keyset.
+
+    Keyset variant of :func:`fetch_all_relations_query` for large graphs
+    where ``SKIP`` becomes expensive. Orders by ``(a.id, b.id, type(r),
+    r.id)`` and pages by the last seen tuple; the first page uses
+    ``last_a=""``, ``last_b=""``, ``last_type=""`` and ``last_rel_id=""``.
+
+    The relationship type and id break ties on ``(a.id, b.id)``: two
+    distinct relationships (different types, or the same type with
+    different ids) can share the same endpoints -- see
+    ``upsert_relation_query``. Ordering by endpoints alone would let a
+    page boundary fall inside such a group, silently excluding the
+    remaining relationships for that pair from every later page.
+
+    Returns:
+        Parameterized Cypher expecting ``$last_a``, ``$last_b``,
+        ``$last_type``, ``$last_rel_id`` and ``$limit``.
+    """
+    return (
+        f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
+        f"WHERE (a.id > $last_a "
+        f"OR (a.id = $last_a AND b.id > $last_b) "
+        f"OR (a.id = $last_a AND b.id = $last_b AND type(r) > $last_type) "
+        f"OR (a.id = $last_a AND b.id = $last_b AND type(r) = $last_type "
+        f"AND coalesce(r.id, '') > $last_rel_id) "
+        f'OR ($last_a = "" AND $last_b = "" AND $last_type = "" '
+        f'AND $last_rel_id = "")) '
+        f"AND a.merged_into IS NULL AND b.merged_into IS NULL "
+        f"AND NOT a:Chunk AND NOT b:Chunk "
+        f"AND NOT a:Community AND NOT b:Community "
+        f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
+        f"RETURN a.id AS source_id, b.id AS target_id, "
+        f"r.source_chunk_ids AS source_chunk_ids, "
+        f"type(r) AS rel_type, coalesce(r.id, '') AS rel_id "
+        f"ORDER BY a.id, b.id, type(r), coalesce(r.id, '') LIMIT $limit"
+    )
+
+
 def upsert_relation_query(rel_type: str) -> str:
     """Build the Cypher for an UNWIND-batched relationship upsert.
 
@@ -148,7 +228,8 @@ def upsert_relation_query(rel_type: str) -> str:
         A parameterized Cypher query expecting a ``$records`` list parameter whose
         items carry ``id``, ``start_id``, ``end_id``, and ``properties`` keys.
         ``properties`` may include ``source_chunk_ids``; other keys are
-        applied as-is.
+        applied as-is. The query returns one row with ``id`` for every record
+        whose endpoints matched and was processed.
     """
     safe_type = validate_identifier(rel_type)
     return (
@@ -166,5 +247,6 @@ def upsert_relation_query(rel_type: str) -> str:
         f"[x IN existing_source_chunk_ids "
         f"WHERE NOT x IN coalesce(record.properties.source_chunk_ids, [])] "
         f"+ coalesce(record.properties.source_chunk_ids, []) "
-        f"SET r.id = record.id"
+        f"SET r.id = record.id "
+        f"RETURN record.id AS id"
     )
