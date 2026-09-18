@@ -8960,7 +8960,7 @@ Return every other mention sharing the indexed mention's label.
 ##### `agrag.ingestion.resolve.LLMVerify`
 
 ```python
-LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None) -> None
+LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50) -> None
 ```
 
 Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
@@ -8976,12 +8976,13 @@ raised outright instead (see compare's Raises section).
 **Functions:**
 
 - [**compare**](#agrag.ingestion.resolve.LLMVerify.compare) – Return the LLM's verdict, or NO_MATCH if the call itself fails.
-- [**compare_batch**](#agrag.ingestion.resolve.LLMVerify.compare_batch) – Verify ambiguous candidate pairs in one LLM request.
+- [**compare_batch**](#agrag.ingestion.resolve.LLMVerify.compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
 - [**compare_with_evidence**](#agrag.ingestion.resolve.LLMVerify.compare_with_evidence) – Compare two entities and retain any available decision evidence.
 
 **Attributes:**
 
 - [**chunks_by_id**](#agrag.ingestion.resolve.LLMVerify.chunks_by_id) –
+- [**max_pairs_per_batch**](#agrag.ingestion.resolve.LLMVerify.max_pairs_per_batch) –
 - [**settings**](#agrag.ingestion.resolve.LLMVerify.settings) –
 
 **Parameters:**
@@ -8992,6 +8993,10 @@ raised outright instead (see compare's Raises section).
   disables `settings.retry`, since a caller building its own
   client is assumed to own its own retry behavior too.
 - **client** (<code>[object](#object) | None</code>) – An already-built BAML client. Tests inject a fake here.
+- **max_pairs_per_batch** (<code>[int](#int)</code>) – Maximum pairs sent to the LLM in one request.
+  A large ambiguous population is split into requests of at most
+  this size so one oversized request cannot exceed the model's
+  context limit and silently fail every pair in the batch.
 
 ###### `agrag.ingestion.resolve.LLMVerify.chunks_by_id`
 
@@ -9018,8 +9023,10 @@ Return the LLM's verdict, or NO_MATCH if the call itself fails.
 compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]]) -> dict[tuple[int, int], ComparisonResult]
 ```
 
-Verify ambiguous candidate pairs in one LLM request.
+Verify ambiguous candidate pairs across bounded LLM requests.
 
+Splits into requests of at most `max_pairs_per_batch` pairs so one
+oversized population cannot exceed the model's context limit.
 Invalid, missing, and uncertain model responses do not merge entities.
 
 ###### `agrag.ingestion.resolve.LLMVerify.compare_with_evidence`
@@ -9029,6 +9036,12 @@ compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
 ```
 
 Compare two entities and retain any available decision evidence.
+
+###### `agrag.ingestion.resolve.LLMVerify.max_pairs_per_batch`
+
+```python
+max_pairs_per_batch = max_pairs_per_batch
+```
 
 ###### `agrag.ingestion.resolve.LLMVerify.settings`
 
@@ -9640,7 +9653,7 @@ no_match_below = no_match_below
 ###### `agrag.ingestion.resolve.comparators.LLMVerify`
 
 ```python
-LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None) -> None
+LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50) -> None
 ```
 
 Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
@@ -9656,12 +9669,13 @@ raised outright instead (see compare's Raises section).
 **Functions:**
 
 - [**compare**](#agrag.ingestion.resolve.comparators.LLMVerify.compare) – Return the LLM's verdict, or NO_MATCH if the call itself fails.
-- [**compare_batch**](#agrag.ingestion.resolve.comparators.LLMVerify.compare_batch) – Verify ambiguous candidate pairs in one LLM request.
+- [**compare_batch**](#agrag.ingestion.resolve.comparators.LLMVerify.compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
 - [**compare_with_evidence**](#agrag.ingestion.resolve.comparators.LLMVerify.compare_with_evidence) – Compare two entities and retain any available decision evidence.
 
 **Attributes:**
 
 - [**chunks_by_id**](#agrag.ingestion.resolve.comparators.LLMVerify.chunks_by_id) –
+- [**max_pairs_per_batch**](#agrag.ingestion.resolve.comparators.LLMVerify.max_pairs_per_batch) –
 - [**settings**](#agrag.ingestion.resolve.comparators.LLMVerify.settings) –
 
 **Parameters:**
@@ -9672,6 +9686,10 @@ raised outright instead (see compare's Raises section).
   disables `settings.retry`, since a caller building its own
   client is assumed to own its own retry behavior too.
 - **client** (<code>[object](#object) | None</code>) – An already-built BAML client. Tests inject a fake here.
+- **max_pairs_per_batch** (<code>[int](#int)</code>) – Maximum pairs sent to the LLM in one request.
+  A large ambiguous population is split into requests of at most
+  this size so one oversized request cannot exceed the model's
+  context limit and silently fail every pair in the batch.
 
 ####### `agrag.ingestion.resolve.comparators.LLMVerify.chunks_by_id`
 
@@ -9698,8 +9716,10 @@ Return the LLM's verdict, or NO_MATCH if the call itself fails.
 compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]]) -> dict[tuple[int, int], ComparisonResult]
 ```
 
-Verify ambiguous candidate pairs in one LLM request.
+Verify ambiguous candidate pairs across bounded LLM requests.
 
+Splits into requests of at most `max_pairs_per_batch` pairs so one
+oversized population cannot exceed the model's context limit.
 Invalid, missing, and uncertain model responses do not merge entities.
 
 ####### `agrag.ingestion.resolve.comparators.LLMVerify.compare_with_evidence`
@@ -9709,6 +9729,12 @@ compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
 ```
 
 Compare two entities and retain any available decision evidence.
+
+####### `agrag.ingestion.resolve.comparators.LLMVerify.max_pairs_per_batch`
+
+```python
+max_pairs_per_batch = max_pairs_per_batch
+```
 
 ####### `agrag.ingestion.resolve.comparators.LLMVerify.settings`
 
@@ -9961,7 +9987,7 @@ no_match_below = no_match_below
 ###### `agrag.ingestion.resolve.resolver.LLMVerify`
 
 ```python
-LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None) -> None
+LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50) -> None
 ```
 
 Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
@@ -9977,12 +10003,13 @@ raised outright instead (see compare's Raises section).
 **Functions:**
 
 - [**compare**](#agrag.ingestion.resolve.resolver.LLMVerify.compare) – Return the LLM's verdict, or NO_MATCH if the call itself fails.
-- [**compare_batch**](#agrag.ingestion.resolve.resolver.LLMVerify.compare_batch) – Verify ambiguous candidate pairs in one LLM request.
+- [**compare_batch**](#agrag.ingestion.resolve.resolver.LLMVerify.compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
 - [**compare_with_evidence**](#agrag.ingestion.resolve.resolver.LLMVerify.compare_with_evidence) – Compare two entities and retain any available decision evidence.
 
 **Attributes:**
 
 - [**chunks_by_id**](#agrag.ingestion.resolve.resolver.LLMVerify.chunks_by_id) –
+- [**max_pairs_per_batch**](#agrag.ingestion.resolve.resolver.LLMVerify.max_pairs_per_batch) –
 - [**settings**](#agrag.ingestion.resolve.resolver.LLMVerify.settings) –
 
 **Parameters:**
@@ -9993,6 +10020,10 @@ raised outright instead (see compare's Raises section).
   disables `settings.retry`, since a caller building its own
   client is assumed to own its own retry behavior too.
 - **client** (<code>[object](#object) | None</code>) – An already-built BAML client. Tests inject a fake here.
+- **max_pairs_per_batch** (<code>[int](#int)</code>) – Maximum pairs sent to the LLM in one request.
+  A large ambiguous population is split into requests of at most
+  this size so one oversized request cannot exceed the model's
+  context limit and silently fail every pair in the batch.
 
 ####### `agrag.ingestion.resolve.resolver.LLMVerify.chunks_by_id`
 
@@ -10019,8 +10050,10 @@ Return the LLM's verdict, or NO_MATCH if the call itself fails.
 compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]]) -> dict[tuple[int, int], ComparisonResult]
 ```
 
-Verify ambiguous candidate pairs in one LLM request.
+Verify ambiguous candidate pairs across bounded LLM requests.
 
+Splits into requests of at most `max_pairs_per_batch` pairs so one
+oversized population cannot exceed the model's context limit.
 Invalid, missing, and uncertain model responses do not merge entities.
 
 ####### `agrag.ingestion.resolve.resolver.LLMVerify.compare_with_evidence`
@@ -10030,6 +10063,12 @@ compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
 ```
 
 Compare two entities and retain any available decision evidence.
+
+####### `agrag.ingestion.resolve.resolver.LLMVerify.max_pairs_per_batch`
+
+```python
+max_pairs_per_batch = max_pairs_per_batch
+```
 
 ####### `agrag.ingestion.resolve.resolver.LLMVerify.settings`
 

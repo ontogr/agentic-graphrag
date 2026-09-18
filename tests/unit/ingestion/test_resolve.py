@@ -150,14 +150,17 @@ class TestFuzzyMatch:
 
     async def test_retains_similarity_score_as_match_evidence(self) -> None:
         """The resolver persists the score that produced a fuzzy match."""
-        matcher = FuzzyMatch(match_above=0.80)
-
-        result = await matcher.compare_with_evidence(
-            _entity("Ada Lovelace"), _entity("Lovelace Ada")
+        resolver = Resolver(
+            comparators=[FuzzyMatch(match_above=0.80)],
+            candidate_source=InBatchCandidateSource(),
         )
 
-        assert result.verdict is ComparisonVerdict.MATCH
-        assert result.score == 1.0
+        result = await resolver.resolve(
+            [_entity("Ada Lovelace"), _entity("Lovelace Ada")]
+        )
+
+        assert len(result.matches) == 1
+        assert result.matches[0].score == 1.0
 
     async def test_custom_thresholds(self) -> None:
         """Custom thresholds are respected."""
@@ -280,10 +283,6 @@ class TestLLMVerify:
         monkeypatch.setenv("EXTRACTION_LLM_RETRY", '{"max_retries": 7}')
         settings = ExtractionLLMSettings()
         assert settings.retry.max_retries == 7
-        monkeypatch.setattr(
-            "agrag.llm.client_registry.build_client_registry",
-            lambda clients, *, strategy: object(),
-        )
 
         class MockClient:
             async def VerifyEntityMatch(self, *args):  # noqa: N802

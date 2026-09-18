@@ -127,14 +127,7 @@ class FuzzyMatch(Comparator):
         self, a: ExtractedEntity, b: ExtractedEntity
     ) -> ComparisonVerdict:
         """Return a verdict from token-sort-ratio similarity."""
-        from rapidfuzz import fuzz  # noqa: PLC0415
-
-        score = fuzz.token_sort_ratio(_normalize(a.text), _normalize(b.text)) / 100
-        if score >= self.match_above:
-            return ComparisonVerdict.MATCH
-        if score < self.no_match_below:
-            return ComparisonVerdict.NO_MATCH
-        return ComparisonVerdict.UNCERTAIN
+        return (await self.compare_with_evidence(a, b)).verdict
 
     async def compare_with_evidence(
         self, a: ExtractedEntity, b: ExtractedEntity
@@ -168,6 +161,7 @@ class LLMVerify(Comparator):
         chunks_by_id: dict[UUID, Chunk],
         settings: ExtractionLLMSettings | None = None,
         client: object | None = None,
+        max_pairs_per_batch: int = 50,
     ) -> None:
         """Create a comparator with chunk lookup for context and an LLM client.
 
@@ -178,10 +172,15 @@ class LLMVerify(Comparator):
                 disables ``settings.retry``, since a caller building its own
                 client is assumed to own its own retry behavior too.
             client: An already-built BAML client. Tests inject a fake here.
+            max_pairs_per_batch: Maximum pairs sent to the LLM in one request.
+                A large ambiguous population is split into requests of at most
+                this size so one oversized request cannot exceed the model's
+                context limit and silently fail every pair in the batch.
         """
         self.chunks_by_id = chunks_by_id
         self.settings = settings
         self._client = client
+        self.max_pairs_per_batch = max_pairs_per_batch
 
     async def compare(
         self, a: ExtractedEntity, b: ExtractedEntity
@@ -227,12 +226,24 @@ class LLMVerify(Comparator):
     async def compare_batch(
         self, pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]]
     ) -> dict[tuple[int, int], ComparisonResult]:
-        """Verify ambiguous candidate pairs in one LLM request.
+        """Verify ambiguous candidate pairs across bounded LLM requests.
 
+        Splits into requests of at most ``max_pairs_per_batch`` pairs so one
+        oversized population cannot exceed the model's context limit.
         Invalid, missing, and uncertain model responses do not merge entities.
         """
         if not pairs:
             return {}
+        results: dict[tuple[int, int], ComparisonResult] = {}
+        for start in range(0, len(pairs), self.max_pairs_per_batch):
+            chunk = pairs[start : start + self.max_pairs_per_batch]
+            results.update(await self._compare_batch_chunk(chunk))
+        return results
+
+    async def _compare_batch_chunk(
+        self, pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]]
+    ) -> dict[tuple[int, int], ComparisonResult]:
+        """Verify one bounded chunk of ambiguous candidate pairs in one LLM request."""
         if self._client is not None:
             client = self._client
             baml_options: dict = {}
@@ -247,21 +258,21 @@ class LLMVerify(Comparator):
             )
             baml_options = {"client_registry": registry}
             retry = settings.retry
-        pair_ids = [f"{left}:{right}" for left, right, _, _ in pairs]
-        inputs = [
-            {
-                "pair_id": pair_id,
-                "entity_a": first.text,
-                "context_a": self._context_for(first),
-                "neighbors_a": [],
-                "entity_b": second.text,
-                "context_b": self._context_for(second),
-                "neighbors_b": [],
-                "similarity": 0.0,
-            }
-            for pair_id, (_, _, first, second) in zip(pair_ids, pairs, strict=True)
-        ]
         try:
+            pair_ids = [f"{left}:{right}" for left, right, _, _ in pairs]
+            inputs = [
+                {
+                    "pair_id": pair_id,
+                    "entity_a": first.text,
+                    "context_a": self._context_for(first),
+                    "neighbors_a": [],
+                    "entity_b": second.text,
+                    "context_b": self._context_for(second),
+                    "neighbors_b": [],
+                    "similarity": 0.0,
+                }
+                for pair_id, (_, _, first, second) in zip(pair_ids, pairs, strict=True)
+            ]
             results = await call_with_retry(
                 lambda: client.VerifyEntityMatches(  # ty: ignore[unresolved-attribute]
                     inputs, baml_options
