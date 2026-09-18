@@ -81,6 +81,8 @@ class FuzzyMatch(Comparator):
         self, *, match_above: float = 0.92, no_match_below: float = 0.70
     ) -> None:
         """Create a comparator with the configured similarity thresholds."""
+        if no_match_below > match_above:
+            raise ValueError("no_match_below must not exceed match_above")
         self.match_above = match_above
         self.no_match_below = no_match_below
 

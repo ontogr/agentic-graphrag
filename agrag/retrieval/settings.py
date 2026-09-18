@@ -76,5 +76,4 @@ class RetrievalSettings(BaseSettings):
     text2cypher_max_rows: int = 1000
     cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     community_collection: str = "agrag_communities"
-    resolved_entity_collection: str = "agrag_resolved_entities"
     community_top_k: int = 5

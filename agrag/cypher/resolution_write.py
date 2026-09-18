@@ -13,6 +13,8 @@ def upsert_matches_query() -> str:
     return (
         f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: $entity_a_id}}), "
         f"(b:{NODE_IDENTITY_LABEL} {{id: $entity_b_id}}) "
+        f"OPTIONAL MATCH (a)-[existing:{MATCHES_RELATION} {{id: $match_id}}]-(b) "
+        "DELETE existing "
         f"MERGE (a)-[r:{MATCHES_RELATION} {{id: $match_id}}]->(b) "
         "SET r.active = true, r.comparator = $comparator, r.score = $score, "
         "r.reasoning = $reasoning, r.decided_at = $decided_at "

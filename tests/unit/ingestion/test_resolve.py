@@ -119,6 +119,11 @@ class TestExactMatch:
 class TestFuzzyMatch:
     """FuzzyMatch has three verdict bands."""
 
+    def test_rejects_inverted_thresholds(self) -> None:
+        """A lower reject boundary cannot exceed the match boundary."""
+        with pytest.raises(ValueError, match="no_match_below"):
+            FuzzyMatch(match_above=0.70, no_match_below=0.92)
+
     async def test_match_above_threshold(self) -> None:
         """High similarity returns MATCH."""
         matcher = FuzzyMatch(match_above=0.92, no_match_below=0.70)

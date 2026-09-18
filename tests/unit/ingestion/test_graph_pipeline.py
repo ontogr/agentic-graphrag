@@ -2097,7 +2097,6 @@ class TestGraphOpenVectorStore:
             settings.entity_collection,
             settings.chunk_collection,
             settings.community_collection,
-            settings.resolved_entity_collection,
         ]
         assert graph._vector_store is vector_store
 

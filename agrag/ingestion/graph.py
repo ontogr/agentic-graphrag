@@ -1250,12 +1250,6 @@ class Graph:
                 dimensions=dimensions,
                 distance=distance,
             )
-            await graph_store.ensure_vector_index(
-                label=RESOLVED_ENTITY_LABEL,
-                vector_property="embedding",
-                dimensions=dimensions,
-                distance=distance,
-            )
             if vector_store is not None:
                 settings = retrieval_settings or RetrievalSettings()
                 await vector_store.initialize()
@@ -1263,7 +1257,6 @@ class Graph:
                     settings.entity_collection,
                     settings.chunk_collection,
                     settings.community_collection,
-                    settings.resolved_entity_collection,
                 ):
                     await vector_store.ensure_collection(
                         collection,

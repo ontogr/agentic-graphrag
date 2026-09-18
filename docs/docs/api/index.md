@@ -11610,12 +11610,6 @@ node_distance_seed_top_k: int = 3
 reranker_min_score: float | None = None
 ```
 
-###### `agrag.retrieval.settings.RetrievalSettings.resolved_entity_collection`
-
-```python
-resolved_entity_collection: str = 'agrag_resolved_entities'
-```
-
 ###### `agrag.retrieval.settings.RetrievalSettings.rrf_k`
 
 ```python

@@ -72,6 +72,8 @@ class GraphCandidateSource(CandidateSource):
         for hit in hits:
             payload = dict(hit.payload)
             payload.setdefault("id", hit.id)
+            if self.vector_store is None:
+                payload.setdefault("label", mention.label)
             if payload.get("label") != mention.label:
                 continue
             try:
