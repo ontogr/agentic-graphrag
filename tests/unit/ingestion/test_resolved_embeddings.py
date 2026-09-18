@@ -85,6 +85,7 @@ class TestEmbedResolvedEntities:
         records = vector_store.upsert.await_args.args[1]
         assert isinstance(records[0], VectorRecord)
         assert records[0].payload["resolved"] is True
+        assert records[0].payload["name"] == entity.name
         assert graph_store.execute_write.await_count == 2
         assert calls == ["graph", "vector", "graph"]
         assert entity.vector_sync_status == "synced"

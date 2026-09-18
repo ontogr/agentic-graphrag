@@ -79,6 +79,7 @@ async def embed_resolved_entities(
                     vector=vector,
                     payload={
                         "label": entity.label,
+                        "name": entity.name,
                         "text": entity.embedding_text,
                         "member_ids": [
                             str(member_id) for member_id in entity.member_ids
