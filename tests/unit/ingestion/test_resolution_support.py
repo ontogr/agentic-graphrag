@@ -7,6 +7,7 @@ import pytest
 
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
+from agrag.common.data_models.vector_record import VectorHit
 from agrag.cypher.resolution_read import (
     fetch_matches_for_component_query,
     fetch_resolved_entity_members_query,
@@ -88,6 +89,34 @@ class TestResolutionSupport:
             ),
         ]
         assert await source.candidates_for(0, mentions) == [2]
+
+    async def test_reads_valid_global_candidates(self, monkeypatch) -> None:
+        """Global search maps a persisted entity payload into an Entity."""
+        entity_id, chunk_id = uuid4(), uuid4()
+
+        async def search(*args, **kwargs):
+            return [
+                VectorHit(
+                    id=entity_id,
+                    score=0.9,
+                    payload={"label": "Person", "name": "Ada"},
+                )
+            ]
+
+        monkeypatch.setattr(
+            "agrag.ingestion.resolve.candidate_source.vector_search", search
+        )
+        source = GraphCandidateSource(graph_store=None, embedder=None)  # type: ignore[arg-type]
+        mention = ExtractedEntity(
+            chunk_id=chunk_id,
+            label="Person",
+            text="Ada",
+            char_start=0,
+            char_end=3,
+        )
+        assert [
+            entity.id for entity in await source.global_candidates_for(mention)
+        ] == [entity_id]
 
     def test_builds_resolution_queries(self) -> None:
         """Resolution query builders produce the required relationship operations."""
