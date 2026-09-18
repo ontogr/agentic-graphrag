@@ -2,68 +2,15 @@
 
 from uuid import uuid4
 
-import numpy as np
-import pytest
-
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorHit
-from agrag.cypher.resolution_read import (
-    fetch_matches_for_component_query,
-    fetch_resolved_entity_members_query,
-)
-from agrag.cypher.resolution_write import (
-    deactivate_match_query,
-    delete_resolved_as_query,
-    upsert_matches_query,
-    upsert_resolved_as_query,
-)
-from agrag.ingestion._clustering import average_linkage_clusters
+from agrag.cypher.resolution_write import deactivate_match_query, upsert_matches_query
 from agrag.ingestion.resolve.candidate_source import GraphCandidateSource
-from agrag.ingestion.resolve.zone_classifier import ComparisonZone, classify_zone
 
 
 class TestResolutionSupport:
     """Small pure resolution support units."""
-
-    @pytest.mark.parametrize(
-        ("fuzzy_score", "embedding_similarity", "expected"),
-        [
-            (0.97, None, ComparisonZone.HARD_MERGE),
-            (None, 0.95, ComparisonZone.HARD_MERGE),
-            (None, 0.80, ComparisonZone.AMBIGUOUS),
-            (None, 0.79, ComparisonZone.DISCARD),
-        ],
-    )
-    def test_classifies_similarity_zones(
-        self, fuzzy_score, embedding_similarity, expected
-    ) -> None:
-        """Thresholds select the documented resolution zone."""
-        assert (
-            classify_zone(
-                fuzzy_score=fuzzy_score, embedding_similarity=embedding_similarity
-            )
-            == expected
-        )
-
-    def test_requires_embedding_without_fast_path(self) -> None:
-        """A non-fast-path comparison needs an embedding score."""
-        with pytest.raises(ValueError):
-            classify_zone()
-
-    def test_clusters_tight_members(self) -> None:
-        """Average linkage joins a tight cluster."""
-        ids = [uuid4(), uuid4()]
-        assert average_linkage_clusters(
-            ids, np.array([[0.0, 0.1], [0.1, 0.0]]), cut_distance=0.2
-        ) == [ids]
-
-    def test_rejects_invalid_cluster_matrix(self) -> None:
-        """Clustering rejects dimensions that do not match member ids."""
-        with pytest.raises(ValueError):
-            average_linkage_clusters(
-                [uuid4(), uuid4()], np.zeros((1, 1)), cut_distance=0.2
-            )
 
     async def test_blocks_candidates_by_label(self) -> None:
         """In-batch candidates only include mentions with the same label."""
@@ -144,14 +91,7 @@ class TestResolutionSupport:
 
     def test_builds_resolution_queries(self) -> None:
         """Resolution query builders produce the required relationship operations."""
-        queries = [
-            upsert_matches_query(),
-            deactivate_match_query(),
-            upsert_resolved_as_query(),
-            delete_resolved_as_query(),
-            fetch_matches_for_component_query(),
-            fetch_resolved_entity_members_query(),
-        ]
+        queries = [upsert_matches_query(), deactivate_match_query()]
         assert all("MATCH" in query for query in queries)
         assert "OPTIONAL MATCH" in upsert_matches_query()
 

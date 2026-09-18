@@ -1,4 +1,4 @@
-"""A graph entity assembled from exact-name matching mentions."""
+"""A graph entity assembled from mentions resolution confirmed as the same thing."""
 
 from uuid import UUID
 

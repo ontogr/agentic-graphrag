@@ -33,7 +33,6 @@ dependencies = [
   "markdown-it-py>=3.0",
   "selectolax>=0.3.21",
   "rapidfuzz>=3.0",
-  "scipy>=1.11",
 ]
 
 [project.optional-dependencies]

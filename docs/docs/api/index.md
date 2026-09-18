@@ -810,7 +810,7 @@ Shared data models used by agrag components.
 - [**community**](#agrag.common.data_models.community) – The Community model: a Leiden-detected entity cluster with an LLM report.
 - [**data_point**](#agrag.common.data_models.data_point) – The base class for a graph node.
 - [**document**](#agrag.common.data_models.document) – The Document model: one unit of source text, before chunking.
-- [**entity**](#agrag.common.data_models.entity) – A graph entity assembled from exact-name matching mentions.
+- [**entity**](#agrag.common.data_models.entity) – A graph entity assembled from mentions resolution confirmed as the same thing.
 - [**extraction**](#agrag.common.data_models.extraction) – Pre-resolution entity and relation mentions produced by an Extractor.
 - [**graph_record**](#agrag.common.data_models.graph_record) – Graph storage record shapes for GraphStore.
 - [**graph_schema**](#agrag.common.data_models.graph_schema) – The GraphSchema contract: entity and relation types extraction validates against.
@@ -1609,7 +1609,7 @@ XML = 'xml'
 
 ##### `agrag.common.data_models.entity`
 
-A graph entity assembled from exact-name matching mentions.
+A graph entity assembled from mentions resolution confirmed as the same thing.
 
 **Classes:**
 
@@ -2554,8 +2554,8 @@ One retrieved item, tagged with where it came from.
 
 **Attributes:**
 
-- [**item**](#agrag.common.data_models.search_result.SearchResult.item) (<code>[Union](#typing.Union)\[[Entity](#agrag.common.data_models.entity.Entity), [ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity), [Relation](#agrag.common.data_models.relation.Relation), [Chunk](#agrag.common.data_models.chunk.Chunk), [Community](#agrag.common.data_models.community.Community)\]</code>) – The retrieved Entity, Relation, Chunk, or Community,
-  already resolved through any merged_into chain.
+- [**item**](#agrag.common.data_models.search_result.SearchResult.item) (<code>[Union](#typing.Union)\[[Entity](#agrag.common.data_models.entity.Entity), [ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity), [Relation](#agrag.common.data_models.relation.Relation), [Chunk](#agrag.common.data_models.chunk.Chunk), [Community](#agrag.common.data_models.community.Community)\]</code>) – The retrieved Entity, ResolvedEntity, Relation, Chunk, or
+  Community, already resolved through any merged_into chain.
 - [**score**](#agrag.common.data_models.search_result.SearchResult.score) (<code>[float](#float)</code>) – The method's own relevance score. Not comparable
   across methods until Fusion normalizes it.
 - [**method**](#agrag.common.data_models.search_result.SearchResult.method) (<code>[str](#str)</code>) – The name of the retrieval method that produced
@@ -8698,7 +8698,6 @@ Entity resolution public API.
 - [**comparators**](#agrag.ingestion.resolve.comparators) – Comparison strategies used by entity resolution.
 - [**exact_groups**](#agrag.ingestion.resolve.exact_groups) – Exact-name grouping for permanent raw entity records.
 - [**resolver**](#agrag.ingestion.resolve.resolver) – Entity resolution: deciding which ExtractedEntity mentions are the same thing.
-- [**zone_classifier**](#agrag.ingestion.resolve.zone_classifier) – Embedding-similarity zones for non-vetoing entity comparison.
 
 **Classes:**
 
@@ -10237,80 +10236,6 @@ Resolve entity groups and retain each confirmed non-exact match.
 
 - <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index and evidence for every confirmed
 - <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair.
-
-##### `agrag.ingestion.resolve.zone_classifier`
-
-Embedding-similarity zones for non-vetoing entity comparison.
-
-**Classes:**
-
-- [**ComparisonZone**](#agrag.ingestion.resolve.zone_classifier.ComparisonZone) – The resolution tier selected for a candidate pair.
-
-**Functions:**
-
-- [**classify_zone**](#agrag.ingestion.resolve.zone_classifier.classify_zone) – Classify a pair, allowing fuzzy similarity only to accept fast.
-
-**Attributes:**
-
-- [**DISCARD_THRESHOLD**](#agrag.ingestion.resolve.zone_classifier.DISCARD_THRESHOLD) –
-- [**FUZZY_FAST_PATH_THRESHOLD**](#agrag.ingestion.resolve.zone_classifier.FUZZY_FAST_PATH_THRESHOLD) –
-- [**HARD_MERGE_THRESHOLD**](#agrag.ingestion.resolve.zone_classifier.HARD_MERGE_THRESHOLD) –
-
-###### `agrag.ingestion.resolve.zone_classifier.ComparisonZone`
-
-Bases: <code>[StrEnum](#enum.StrEnum)</code>
-
-The resolution tier selected for a candidate pair.
-
-**Attributes:**
-
-- [**AMBIGUOUS**](#agrag.ingestion.resolve.zone_classifier.ComparisonZone.AMBIGUOUS) –
-- [**DISCARD**](#agrag.ingestion.resolve.zone_classifier.ComparisonZone.DISCARD) –
-- [**HARD_MERGE**](#agrag.ingestion.resolve.zone_classifier.ComparisonZone.HARD_MERGE) –
-
-####### `agrag.ingestion.resolve.zone_classifier.ComparisonZone.AMBIGUOUS`
-
-```python
-AMBIGUOUS = 'ambiguous'
-```
-
-####### `agrag.ingestion.resolve.zone_classifier.ComparisonZone.DISCARD`
-
-```python
-DISCARD = 'discard'
-```
-
-####### `agrag.ingestion.resolve.zone_classifier.ComparisonZone.HARD_MERGE`
-
-```python
-HARD_MERGE = 'hard_merge'
-```
-
-###### `agrag.ingestion.resolve.zone_classifier.DISCARD_THRESHOLD`
-
-```python
-DISCARD_THRESHOLD = 0.8
-```
-
-###### `agrag.ingestion.resolve.zone_classifier.FUZZY_FAST_PATH_THRESHOLD`
-
-```python
-FUZZY_FAST_PATH_THRESHOLD = 0.97
-```
-
-###### `agrag.ingestion.resolve.zone_classifier.HARD_MERGE_THRESHOLD`
-
-```python
-HARD_MERGE_THRESHOLD = 0.95
-```
-
-###### `agrag.ingestion.resolve.zone_classifier.classify_zone`
-
-```python
-classify_zone(*, fuzzy_score:float | None = None, embedding_similarity:float | None = None) -> ComparisonZone
-```
-
-Classify a pair, allowing fuzzy similarity only to accept fast.
 
 #### `agrag.ingestion.resolved_embeddings`
 
