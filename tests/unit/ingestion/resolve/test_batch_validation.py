@@ -4,6 +4,7 @@ import pytest
 
 from agrag.ingestion.resolve import ComparisonVerdict
 from agrag.ingestion.resolve.batch_validation import validate_batch_verdicts
+from agrag.llm.baml_client.types import MatchVerdict
 
 
 class TestValidateBatchVerdicts:
@@ -40,3 +41,12 @@ class TestValidateBatchVerdicts:
         assert verdicts["first"].verdict is ComparisonVerdict.NO_MATCH
         assert verdicts["second"].verdict is ComparisonVerdict.MATCH
         assert verdicts["second"].reasoning == "same person"
+
+    def test_accepts_generated_baml_verdict_models(self) -> None:
+        """Generated BAML response models are validated like decoded JSON."""
+        verdicts = validate_batch_verdicts(
+            ["first"],
+            [MatchVerdict(pair_id="first", verdict="match", reasoning="same person")],
+        )
+
+        assert verdicts["first"].verdict is ComparisonVerdict.MATCH

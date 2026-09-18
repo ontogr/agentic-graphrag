@@ -88,7 +88,7 @@ class TestMatchMaterializationIntegration:
                 "WHERE a.id IN $ids AND b.id IN $ids "
                 "MATCH (a)-[:RESOLVED_AS]->(resolved:ResolvedEntity) "
                 "MATCH (b)-[:RESOLVED_AS]->(resolved) "
-                "OPTIONAL MATCH (a)-[domain:KNOWS]->(b) "
+                "OPTIONAL MATCH (a)-[domain:KNOWS]-(b) "
                 "RETURN a.id AS first_id, b.id AS second_id, "
                 "resolved.id AS resolved_id, "
                 "count(domain) AS domain_count",
@@ -227,8 +227,8 @@ class TestMatchMaterializationIntegration:
             rows = await store.execute_read(
                 "MATCH (third) WHERE third.id = $third_id "
                 "OPTIONAL MATCH (third)-[membership:RESOLVED_AS]->() "
-                "MATCH ()-[match:MATCHES {id: $match_id}]->() "
-                "RETURN count(membership) AS memberships, match.active AS active",
+                "MATCH ()-[edge:MATCHES {id: $match_id}]->() "
+                "RETURN count(membership) AS memberships, edge.active AS active",
                 {
                     "third_id": str(third.id),
                     "match_id": str(matches_id(second.id, third.id)),

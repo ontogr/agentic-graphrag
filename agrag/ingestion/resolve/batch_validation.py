@@ -30,8 +30,9 @@ def validate_batch_verdicts(
     }
     seen: set[str] = set()
     for result in results:
+        value = result.model_dump() if isinstance(result, BaseModel) else result
         try:
-            verdict = BatchMatchVerdict.model_validate(result)
+            verdict = BatchMatchVerdict.model_validate(value)
         except ValidationError:
             continue
         if verdict.pair_id not in requested:
