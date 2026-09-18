@@ -78,6 +78,7 @@ class CommunityReport(BaseModel):
     findings: typing.List[str] = Field(description='Distinct factual claims this community\'s members support.')
 
 class EntityPairInput(BaseModel):
+    pair_id: str
     entity_a: str
     context_a: str
     neighbors_a: typing.List[str]
@@ -87,6 +88,7 @@ class EntityPairInput(BaseModel):
     similarity: float
 
 class MatchVerdict(BaseModel):
+    pair_id: str
     reasoning: str
     verdict: typing.Union[typing_extensions.Literal['match'], typing_extensions.Literal['no_match'], typing_extensions.Literal['uncertain']]
 

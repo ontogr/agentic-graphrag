@@ -424,7 +424,7 @@ class EntityPairInputAst:
     def __init__(self, tb: type_builder.TypeBuilder):
         _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("EntityPairInput")
-        self._properties: typing.Set[str] = set([  "entity_a",  "context_a",  "neighbors_a",  "entity_b",  "context_b",  "neighbors_b",  "similarity",  ])
+        self._properties: typing.Set[str] = set([  "pair_id",  "entity_a",  "context_a",  "neighbors_a",  "entity_b",  "context_b",  "neighbors_b",  "similarity",  ])
         self._props = EntityPairInputProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -451,6 +451,10 @@ class EntityPairInputProperties:
         self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
 
     
+    
+    @property
+    def pair_id(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("pair_id"))
     
     @property
     def entity_a(self) -> type_builder.ClassPropertyViewer:
@@ -487,7 +491,7 @@ class MatchVerdictAst:
     def __init__(self, tb: type_builder.TypeBuilder):
         _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("MatchVerdict")
-        self._properties: typing.Set[str] = set([  "reasoning",  "verdict",  ])
+        self._properties: typing.Set[str] = set([  "pair_id",  "reasoning",  "verdict",  ])
         self._props = MatchVerdictProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -514,6 +518,10 @@ class MatchVerdictProperties:
         self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
 
     
+    
+    @property
+    def pair_id(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("pair_id"))
     
     @property
     def reasoning(self) -> type_builder.ClassPropertyViewer:
