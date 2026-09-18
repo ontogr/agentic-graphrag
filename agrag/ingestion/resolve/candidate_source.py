@@ -98,6 +98,20 @@ class InBatchCandidateSource(CandidateSource):
         ]
 
 
+class PersistedCandidateSource(CandidateSource):
+    """Supplies only candidate pairs between new mentions and raw graph entities."""
+
+    def __init__(self, candidates_by_index: dict[int, list[int]]) -> None:
+        """Create a source from mention-indexed persisted candidate indices."""
+        self.candidates_by_index = candidates_by_index
+
+    async def candidates_for(
+        self, index: int, entities: list[ExtractedEntity]
+    ) -> list[int]:
+        """Return persisted candidates for a newly extracted mention."""
+        return self.candidates_by_index.get(index, [])
+
+
 async def exact_match_lookup(
     mentions: list[ExtractedEntity], *, graph_store: GraphStore
 ) -> dict[int, Entity]:

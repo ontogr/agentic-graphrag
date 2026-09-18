@@ -33,6 +33,7 @@ from agrag.ingestion.resolve import (
     FuzzyMatch,
     InBatchCandidateSource,
     LLMVerify,
+    PersistedCandidateSource,
     Resolver,
     _group_matches,
 )
@@ -335,6 +336,18 @@ class TestInBatchCandidateSource:
         entities = [_entity("Ada", label="Person")]
         candidates = await source.candidates_for(0, entities)
         assert candidates == []
+
+
+class TestPersistedCandidateSource:
+    """Persisted candidates only originate from newly extracted mentions."""
+
+    async def test_returns_configured_candidate_indices(self) -> None:
+        """The source does not invent reverse or persisted-to-persisted pairs."""
+        source = PersistedCandidateSource({0: [2, 3]})
+        entities = [_entity("Ada"), _entity("Grace"), _entity("Ada L."), _entity("A.")]
+
+        assert await source.candidates_for(0, entities) == [2, 3]
+        assert await source.candidates_for(2, entities) == []
 
 
 # ── _group_matches (union-find) ────────────────────────────────────────

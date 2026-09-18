@@ -88,8 +88,10 @@ from agrag.ingestion.reports import (
 from agrag.ingestion.resolve import (
     ExactMatch,
     FuzzyMatch,
+    GraphCandidateSource,
     InBatchCandidateSource,
     LLMVerify,
+    PersistedCandidateSource,
     ResolutionGroup,
     Resolver,
     exact_resolution_groups,
@@ -1716,6 +1718,50 @@ class Graph:
                 mention_to_entity[idx] = plan.survivor.id
 
         if resolution_result is not None:
+            persisted_mentions: list[ExtractedEntity] = list(entities)
+            persisted_candidates: dict[int, list[int]] = {}
+            persisted_ids: dict[int, UUID] = {}
+            candidate_source = GraphCandidateSource(
+                graph_store=self._graph_store,
+                embedder=self._embedder,
+                vector_store=self._vector_store,
+                vector_collection=self._retrieval_settings.entity_collection,
+                entity_labels=[entity.label for entity in self._schema.entities],
+            )
+            for mention_index, mention in enumerate(entities):
+                try:
+                    candidates = await candidate_source.global_candidates_for(mention)
+                except Exception:  # noqa: BLE001
+                    candidates = []
+                for candidate in candidates:
+                    if candidate.id == mention_to_entity.get(mention_index):
+                        continue
+                    candidate_index = len(persisted_mentions)
+                    persisted_mentions.append(
+                        ExtractedEntity(
+                            chunk_id=mention.chunk_id,
+                            label=candidate.label,
+                            text=candidate.name,
+                            char_start=0,
+                            char_end=len(candidate.name),
+                        )
+                    )
+                    persisted_candidates.setdefault(mention_index, []).append(
+                        candidate_index
+                    )
+                    persisted_ids[candidate_index] = candidate.id
+                    survivors[candidate.id] = candidate
+            if persisted_candidates:
+                persisted_result = await Resolver(
+                    comparators=[
+                        ExactMatch(),
+                        FuzzyMatch(),
+                        LLMVerify(chunks_by_id=chunks_by_id),
+                    ],
+                    candidate_source=PersistedCandidateSource(persisted_candidates),
+                ).resolve(persisted_mentions)
+                resolution_result.matches.extend(persisted_result.matches)
+                mention_to_entity.update(persisted_ids)
             for decisions in decisions_by_component(
                 resolution_result.matches, mention_to_entity
             ):
