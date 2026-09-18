@@ -172,9 +172,18 @@ async def _synchronize_resolved_entity_vectors(
 
     The stale-vector delete runs before a later graph write can fail after
     materialization. This keeps an external vector store from serving a
-    resolved node the graph has already replaced.
+    resolved node the graph has already replaced. A delete that fails is
+    persisted so a later synchronization pass retries it.
+
+    A component recomputed from an unchanged member set reuses its prior
+    deterministic id, so ``removed_entity_ids``, or an earlier pass's
+    persisted retry queue, can hold an id that ``entities`` is about to
+    republish in this same call. That id is dropped from the pending
+    deletions, and any stale queue entry for it is cleared, so a queued
+    delete can never remove a vector this call just made live again.
     """
     failures: list[StageFailure] = []
+    republished_ids = {str(entity.id) for entity in entities}
     pending = await _pending_vector_deletions(graph_store)
     pending.update(
         {
@@ -182,6 +191,11 @@ async def _synchronize_resolved_entity_vectors(
             for entity_id in dict.fromkeys(removed_entity_ids)
         }
     )
+    stale_pending_ids = [item_id for item_id in pending if item_id in republished_ids]
+    for item_id in stale_pending_ids:
+        del pending[item_id]
+    if stale_pending_ids:
+        await _clear_vector_deletions(graph_store, stale_pending_ids)
     if vector_store is not None:
         for collection in sorted(set(pending.values())):
             ids = [

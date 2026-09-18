@@ -363,6 +363,35 @@ class TestSynchronizeResolvedEntityVectors:
         vector_store.delete.assert_awaited_once_with("resolved", [replaced_id])
         assert calls == ["delete", "graph", "graph", "upsert", "graph"]
 
+    async def test_skips_delete_for_a_republished_id(self) -> None:
+        """A component recreated with its own deterministic id is not deleted.
+
+        Reprocessing an unchanged member set materializes the same
+        deterministic resolved id again, so it appears in both the removed
+        and the republished set. Deleting it would race the republish that
+        follows in the same call, and could delete a live vector if a
+        concurrent synchronization retries a failed delete later.
+        """
+        entity = _entity()
+        graph_store = SimpleNamespace(
+            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+        )
+        vector_store = SimpleNamespace(delete=AsyncMock(), upsert=AsyncMock())
+
+        failures = await _synchronize_resolved_entity_vectors(
+            [entity],
+            [entity.id],
+            embedder=_Embedder(),
+            graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collection="resolved",
+            error_policy=ErrorPolicy.RAISE,
+        )
+
+        assert failures == []
+        vector_store.delete.assert_not_awaited()
+        vector_store.upsert.assert_awaited_once()
+
     async def test_reports_stale_vector_delete_failure_with_skip(self) -> None:
         """A failed stale-vector deletion remains visible to the caller."""
         entity = _entity()

@@ -5,6 +5,8 @@ from collections.abc import Sequence
 
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
+from agrag.common.data_models.vector_record import VectorHit
+from agrag.cypher.entities import hydrate_entities_by_id_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.retrieval.filters import SearchFilters
@@ -56,7 +58,15 @@ class GraphCandidateSource(CandidateSource):
         ]
 
     async def global_candidates_for(self, mention: ExtractedEntity) -> list[Entity]:
-        """Return persisted entities found by the shared vector-search route."""
+        """Return persisted entities found by the shared vector-search route.
+
+        The GraphStore-native path's payload already carries the real node
+        properties and is validated directly. The VectorStore path's payload
+        only carries ``label`` and ``text`` (the embedding source text), so
+        candidates are hydrated from the graph by hit id instead; a hit that
+        fails to hydrate, for example a tombstoned or deleted node, is
+        skipped rather than reconstructed from ``text``.
+        """
         hits = await vector_search(
             mention.text,
             embedder=self.embedder,
@@ -68,21 +78,51 @@ class GraphCandidateSource(CandidateSource):
             filters=SearchFilters(labels=[mention.label]),
             settings=RetrievalSettings(),
         )
-        entities: list[Entity] = []
-        for hit in hits:
-            payload = dict(hit.payload)
-            payload.setdefault("id", hit.id)
-            if self.vector_store is None:
+        if not hits:
+            return []
+        if self.vector_store is None:
+            entities: list[Entity] = []
+            for hit in hits:
+                payload = dict(hit.payload)
+                payload.setdefault("id", hit.id)
                 payload.setdefault("label", mention.label)
-            if payload.get("label") != mention.label:
-                continue
-            if "name" not in payload and payload.get("text"):
-                # VectorStore payloads store embedding_text ("name" or
-                # "name: description") under "text", not "name".
-                payload["name"] = str(payload["text"]).split(":", 1)[0].strip()
+                if payload.get("label") != mention.label:
+                    continue
+                try:
+                    entities.append(Entity.model_validate(payload))
+                except Exception:  # malformed payloads are not candidates
+                    continue
+            return entities
+        return await self._hydrate_hits(hits, mention.label)
+
+    async def _hydrate_hits(
+        self, hits: Sequence[VectorHit], label: str
+    ) -> list[Entity]:
+        """Hydrate VectorStore hits into real entities by graph id.
+
+        Reconstructing the name from the payload's display text corrupts
+        any name containing ":" (e.g. "Star Trek: Voyager"), so this fetches
+        the actual nodes instead.
+        """
+        from agrag.ingestion.graph import _parse_entity_node  # noqa: PLC0415
+
+        ids = [str(hit.id) for hit in hits]
+        try:
+            rows = await self.graph_store.execute_read(
+                hydrate_entities_by_id_query(), {"ids": ids}
+            )
+        except Exception:
+            return []
+        entities: list[Entity] = []
+        for row in rows:
             try:
-                entities.append(Entity.model_validate(payload))
-            except Exception:  # malformed vector payloads are not candidates
+                node = row.get("n") if isinstance(row, dict) and "n" in row else row
+                entity = _parse_entity_node(node)
+                if entity is None:
+                    entity = _parse_entity_node(row)  # type: ignore[arg-type]
+                if entity is not None and entity.label == label:
+                    entities.append(entity)
+            except Exception:
                 continue
         return entities
 

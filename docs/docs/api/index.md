@@ -8950,6 +8950,13 @@ global_candidates_for(mention:ExtractedEntity) -> list[Entity]
 
 Return persisted entities found by the shared vector-search route.
 
+The GraphStore-native path's payload already carries the real node
+properties and is validated directly. The VectorStore path's payload
+only carries `label` and `text` (the embedding source text), so
+candidates are hydrated from the graph by hit id instead; a hit that
+fails to hydrate, for example a tombstoned or deleted node, is
+skipped rather than reconstructed from `text`.
+
 ###### `agrag.ingestion.resolve.GraphCandidateSource.graph_store`
 
 ```python
@@ -9406,6 +9413,13 @@ global_candidates_for(mention:ExtractedEntity) -> list[Entity]
 ```
 
 Return persisted entities found by the shared vector-search route.
+
+The GraphStore-native path's payload already carries the real node
+properties and is validated directly. The VectorStore path's payload
+only carries `label` and `text` (the embedding source text), so
+candidates are hydrated from the graph by hit id instead; a hit that
+fails to hydrate, for example a tombstoned or deleted node, is
+skipped rather than reconstructed from `text`.
 
 ####### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.graph_store`
 
