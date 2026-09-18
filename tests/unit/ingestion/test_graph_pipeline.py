@@ -37,6 +37,7 @@ from agrag.common.data_models.graph_schema import (
     RelationType,
 )
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorHit, VectorRecord
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
@@ -62,6 +63,7 @@ from agrag.ingestion.graph import (
     _union_groups_by_existing_entity,
     _upsert_vectors,
 )
+from agrag.ingestion.materialize import MaterializationResult
 from agrag.ingestion.merge import MergePlan
 from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolve import ResolutionGroup
@@ -2096,6 +2098,7 @@ class TestGraphOpenVectorStore:
         settings = RetrievalSettings()
         assert ensured == [
             settings.entity_collection,
+            settings.resolved_entity_collection,
             settings.chunk_collection,
             settings.community_collection,
         ]
@@ -3170,9 +3173,30 @@ class TestGraphAddPipeline:
                     ],
                 )
                 mock_resolver.return_value = mock_instance
-                with mock.patch.object(
-                    gmod, "write_matches_and_materialize", new_callable=mock.AsyncMock
-                ) as materialize:
+                with (
+                    mock.patch.object(
+                        gmod,
+                        "write_matches_and_materialize",
+                        new_callable=mock.AsyncMock,
+                    ) as materialize,
+                    mock.patch.object(
+                        gmod,
+                        "_synchronize_resolved_entity_vectors",
+                        new_callable=mock.AsyncMock,
+                    ) as synchronize,
+                ):
+                    resolved = ResolvedEntity(
+                        id=uuid4(),
+                        label="Person",
+                        name="Alice",
+                        member_ids=[e1.id, e2.id],
+                    )
+                    replaced_id = uuid4()
+                    materialize.return_value = MaterializationResult(
+                        resolved_entity=resolved,
+                        removed_entity_ids=[replaced_id],
+                    )
+                    synchronize.return_value = []
                     report = await graph.consolidate(apply=False)
                     assert len(report.would_match) == 1
                     assert report.applied is False
@@ -3180,6 +3204,11 @@ class TestGraphAddPipeline:
                     report2 = await graph.consolidate(apply=True)
                     assert report2.applied is True
                     materialize.assert_awaited_once()
+                    synchronize.assert_awaited_once()
+                    assert synchronize.await_args.args[:2] == (
+                        [resolved],
+                        [replaced_id],
+                    )
 
     async def test_consolidate_reports_materialization_failure(self) -> None:
         """A failed materialization keeps raw entities intact and reports the error."""

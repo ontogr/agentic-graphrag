@@ -104,11 +104,13 @@ class TestWriteMatchesAndMaterialize:
             decided_at=datetime.now(UTC),
         )
 
-        resolved = await write_matches_and_materialize(
+        materialization = await write_matches_and_materialize(
             [decision], graph_store=store, schema=_schema(), members=[second, first]
         )
 
-        assert resolved.member_ids == sorted([first.id, second.id], key=str)
+        assert materialization.resolved_entity.member_ids == sorted(
+            [first.id, second.id], key=str
+        )
         assert store.current_transaction.execute_write.await_count == 2
         store.current_transaction.upsert_nodes.assert_awaited_once()
         store.current_transaction.upsert_relations.assert_awaited_once()

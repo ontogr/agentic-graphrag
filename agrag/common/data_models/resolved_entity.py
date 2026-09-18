@@ -1,5 +1,6 @@
 """Materialized identity clusters for non-destructive entity resolution."""
 
+from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -21,6 +22,8 @@ class ResolvedEntity(DataPoint):
     properties: dict[str, object] = Field(default_factory=dict)
     member_ids: list[UUID] = Field(default_factory=list)
     embedding: list[float] | None = None
+    vector_sync_status: Literal["pending", "synced", "failed"] = "pending"
+    vector_sync_error: str | None = None
 
     @property
     def embedding_text(self) -> str:
@@ -36,9 +39,12 @@ class ResolvedEntity(DataPoint):
             "label": self.label,
             "member_ids": [str(member_id) for member_id in self.member_ids],
             "created_at": self.created_at.isoformat(),
+            "vector_sync_status": self.vector_sync_status,
         }
         if self.embedding is not None:
             properties["embedding"] = self.embedding
+        if self.vector_sync_error is not None:
+            properties["vector_sync_error"] = self.vector_sync_error
         return NodeRecord(
             id=self.id, labels=[RESOLVED_ENTITY_LABEL], properties=properties
         )

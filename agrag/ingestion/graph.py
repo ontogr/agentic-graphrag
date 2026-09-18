@@ -31,7 +31,10 @@ from agrag.common.data_models.graph_record import RelationRecord, UpsertResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
-from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
+from agrag.common.data_models.resolved_entity import (
+    RESOLVED_ENTITY_LABEL,
+    ResolvedEntity,
+)
 from agrag.common.data_models.vector_record import VectorRecord
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
@@ -91,6 +94,7 @@ from agrag.ingestion.resolve import (
     Resolver,
     exact_resolution_groups,
 )
+from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
 from agrag.ingestion.stats import (
     ExtractionStats,
     IngestStats,
@@ -1257,11 +1261,18 @@ class Graph:
                 dimensions=dimensions,
                 distance=distance,
             )
+            await graph_store.ensure_vector_index(
+                label=RESOLVED_ENTITY_LABEL,
+                vector_property="embedding",
+                dimensions=dimensions,
+                distance=distance,
+            )
             if vector_store is not None:
                 settings = retrieval_settings or RetrievalSettings()
                 await vector_store.initialize()
                 for collection in (
                     settings.entity_collection,
+                    settings.resolved_entity_collection,
                     settings.chunk_collection,
                     settings.community_collection,
                 ):
@@ -1601,6 +1612,9 @@ class Graph:
         # Track survivors and mention->entity map
         mention_to_entity: dict[int, UUID] = {}
         survivors: dict[UUID, Entity] = {}
+        materialized_entities: list[ResolvedEntity] = []
+        replaced_resolved_entity_ids: list[UUID] = []
+        resolved_vector_failures: list[StageFailure] = []
         # For storage stats counting
         nodes_created = 0
         nodes_updated = 0
@@ -1710,11 +1724,15 @@ class Graph:
                 }
                 members = [survivors[member_id] for member_id in member_ids]
                 try:
-                    await write_matches_and_materialize(
+                    materialization = await write_matches_and_materialize(
                         decisions,
                         graph_store=self._graph_store,
                         schema=self._schema,
                         members=members,
+                    )
+                    materialized_entities.append(materialization.resolved_entity)
+                    replaced_resolved_entity_ids.extend(
+                        materialization.removed_entity_ids
                     )
                 except Exception as exc:  # noqa: BLE001
                     if error_policy is ErrorPolicy.RAISE:
@@ -1728,6 +1746,18 @@ class Graph:
                             error_message=str(exc),
                         )
                     )
+
+        resolved_vector_failures.extend(
+            await _synchronize_resolved_entity_vectors(
+                materialized_entities,
+                replaced_resolved_entity_ids,
+                embedder=self._embedder,
+                graph_store=self._graph_store,
+                vector_store=self._vector_store,
+                vector_collection=self._retrieval_settings.resolved_entity_collection,
+                error_policy=error_policy,
+            )
+        )
 
         # If there were no entities (empty corpus) we have no survivors
         # but we still need to write chunks
@@ -1888,7 +1918,10 @@ class Graph:
         relation_records.extend(build_next_chunk_records(chunks))
 
         # Write chunk nodes
-        storage_failures: list[StageFailure] = list(relation_storage_failures)
+        storage_failures: list[StageFailure] = [
+            *relation_storage_failures,
+            *resolved_vector_failures,
+        ]
         nodes_written = 0
         relationships_written_count = 0
         chunk_failure_ids: set[UUID] = set()
@@ -2007,7 +2040,6 @@ class Graph:
                     labels_by_id={ent.id: ent.label for ent in survivors.values()},
                 )
             )
-
         storage_failures_capped = cap_failures(storage_failures)
         storage_stats = StorageStats(
             nodes_written=nodes_written,
@@ -2298,17 +2330,23 @@ class Graph:
                 )
 
         consolidation_failures: list[StageFailure] = []
+        materialized_entities: list[ResolvedEntity] = []
+        replaced_resolved_entity_ids: list[UUID] = []
         if apply:
             for decisions in match_decision_components(would_match):
                 member_ids = {decision.entity_a_id for decision in decisions} | {
                     decision.entity_b_id for decision in decisions
                 }
                 try:
-                    await write_matches_and_materialize(
+                    materialization = await write_matches_and_materialize(
                         decisions,
                         graph_store=self._graph_store,
                         schema=self._schema,
                         members=[entities_by_id[member_id] for member_id in member_ids],
+                    )
+                    materialized_entities.append(materialization.resolved_entity)
+                    replaced_resolved_entity_ids.extend(
+                        materialization.removed_entity_ids
                     )
                 except Exception as exc:  # noqa: BLE001
                     consolidation_failures.append(
@@ -2320,6 +2358,18 @@ class Graph:
                             error_message=str(exc),
                         )
                     )
+
+            consolidation_failures.extend(
+                await _synchronize_resolved_entity_vectors(
+                    materialized_entities,
+                    replaced_resolved_entity_ids,
+                    embedder=self._embedder,
+                    graph_store=self._graph_store,
+                    vector_store=self._vector_store,
+                    vector_collection=self._retrieval_settings.resolved_entity_collection,
+                    error_policy=ErrorPolicy.SKIP,
+                )
+            )
 
         return ConsolidationReport(
             would_match=would_match,

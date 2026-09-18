@@ -34,6 +34,13 @@ class MatchDecision(BaseModel):
     decided_at: datetime
 
 
+class MaterializationResult(BaseModel):
+    """The derived entity created and prior derived ids it replaced."""
+
+    resolved_entity: ResolvedEntity
+    removed_entity_ids: list[UUID]
+
+
 def decisions_by_component(
     matches: list[ResolvedMatch], mention_to_entity: dict[int, UUID]
 ) -> list[list[MatchDecision]]:
@@ -134,7 +141,7 @@ async def write_matches_and_materialize(
     graph_store: GraphStore,
     schema: GraphSchema,
     members: list[Entity],
-) -> ResolvedEntity:
+) -> MaterializationResult:
     """Persist matches and materialize their supplied connected component.
 
     Callers fetch the bounded affected component before invoking this function.
@@ -177,10 +184,16 @@ async def write_matches_and_materialize(
                 raise ValueError(
                     "Cannot materialize a match whose entities do not exist"
                 )
-        await transaction.execute_write(
+        removed_rows = await transaction.execute_write(
             replace_component_materializations_query(),
             {"member_ids": [str(member.id) for member in members]},
         )
+        removed_entity_ids = [
+            UUID(str(entity_id))
+            for row in removed_rows
+            if isinstance(row, dict)
+            for entity_id in row.get("removed_resolved_entity_ids", [])
+        ]
         _raise_for_write_failure(
             await transaction.upsert_nodes(
                 RESOLVED_ENTITY_LABEL, [resolved.to_node_record()]
@@ -202,4 +215,7 @@ async def write_matches_and_materialize(
                 ]
             )
         )
-    return resolved
+    return MaterializationResult(
+        resolved_entity=resolved,
+        removed_entity_ids=list(dict.fromkeys(removed_entity_ids)),
+    )

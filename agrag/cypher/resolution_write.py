@@ -57,7 +57,19 @@ def replace_component_materializations_query() -> str:
         f"-[membership:{RESOLVED_AS_RELATION}]->"
         f"(resolved:{RESOLVED_ENTITY_LABEL}) "
         "WITH collect(DISTINCT membership) AS memberships, "
-        "collect(DISTINCT resolved) AS resolved_entities "
+        "collect(DISTINCT resolved) AS resolved_entities, "
+        "collect(DISTINCT resolved.id) AS removed_resolved_entity_ids "
         "FOREACH (membership IN memberships | DELETE membership) "
-        "FOREACH (resolved IN resolved_entities | DETACH DELETE resolved)"
+        "FOREACH (resolved IN resolved_entities | DETACH DELETE resolved) "
+        "RETURN removed_resolved_entity_ids"
+    )
+
+
+def set_resolved_entity_sync_status_query() -> str:
+    """Build Cypher setting the vector synchronization state of derived nodes."""
+    return (
+        "UNWIND $records AS record "
+        f"MATCH (resolved:{RESOLVED_ENTITY_LABEL} {{id: record.id}}) "
+        "SET resolved.vector_sync_status = record.status, "
+        "resolved.vector_sync_error = record.error"
     )

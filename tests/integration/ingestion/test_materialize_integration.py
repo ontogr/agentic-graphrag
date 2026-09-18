@@ -63,7 +63,7 @@ class TestMatchMaterializationIntegration:
                 ]
             )
 
-            resolved = await write_matches_and_materialize(
+            materialization = await write_matches_and_materialize(
                 [
                     MatchDecision(
                         entity_a_id=first.id,
@@ -95,7 +95,7 @@ class TestMatchMaterializationIntegration:
                 str(first.id),
                 str(second.id),
             }
-            assert rows[0]["resolved_id"] == str(resolved.id)
+            assert rows[0]["resolved_id"] == str(materialization.resolved_entity.id)
             assert rows[0]["domain_count"] == 1
             raw_rows = await store.execute_read(
                 f"MATCH (entity:{label}) WHERE entity.id IN $ids "
