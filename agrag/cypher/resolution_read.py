@@ -46,3 +46,12 @@ def fetch_active_component_members_query() -> str:
         "WHERE ALL(match IN matches WHERE match.active = true) "
         "RETURN DISTINCT seed_id, member"
     )
+
+
+def hydrate_resolved_entities_by_id_query() -> str:
+    """Build Cypher hydrating materializations returned by vector search."""
+    return (
+        "UNWIND $ids AS resolved_entity_id "
+        f"MATCH (resolved:{RESOLVED_ENTITY_LABEL} {{id: resolved_entity_id}}) "
+        "RETURN resolved"
+    )
