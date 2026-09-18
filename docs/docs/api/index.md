@@ -845,10 +845,12 @@ One retrieval-sized piece of a Document.
 
 **Attributes:**
 
-- [**document_id**](#agrag.common.data_models.chunk.Chunk.document_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the parent Document. Use this id to look up fields such
+- [**document_id**](#agrag.common.data_models.chunk.Chunk.document_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the parent Document. Use this id to look up fields
+  such as `record_index` on the parent Document.
 - [**index**](#agrag.common.data_models.chunk.Chunk.index) (<code>[int](#int)</code>) – The position of the chunk within its document, from 0.
 - [**text**](#agrag.common.data_models.chunk.Chunk.text) (<code>[str](#str)</code>) – The chunk text.
-- [**provenance**](#agrag.common.data_models.chunk.Chunk.provenance) (<code>[TextProvenance](#agrag.common.data_models.provenance.TextProvenance) | [PageProvenance](#agrag.common.data_models.provenance.PageProvenance)</code>) – The location of this chunk in its source. The shape of this value
+- [**provenance**](#agrag.common.data_models.chunk.Chunk.provenance) (<code>[TextProvenance](#agrag.common.data_models.provenance.TextProvenance) | [PageProvenance](#agrag.common.data_models.provenance.PageProvenance)</code>) – The location of this chunk in its source. The shape of this
+  value depends on which chunker made the chunk.
 - [**heading_path**](#agrag.common.data_models.chunk.Chunk.heading_path) (<code>[list](#list)\[[str](#str)\]</code>) – The headings that contain this chunk, from outermost to innermost.
   Empty for a docling chunk and for a chunk with no heading above it.
 - [**content_kind**](#agrag.common.data_models.chunk.Chunk.content_kind) (<code>[Literal](#typing.Literal)['text', 'table_row', 'code', 'heading']</code>) – The kind of content in this chunk. A text chunker always sets
@@ -898,24 +900,25 @@ id: UUID | None = None
 ####### `agrag.common.data_models.chunk.Chunk.id_for`
 
 ```python
-id_for(*, document_id:UUID, provenance:TextProvenance | PageProvenance, index:int) -> UUID
+id_for(*, document_id:UUID, version_id:UUID | None = None, provenance:TextProvenance | PageProvenance, index:int) -> UUID
 ```
 
 Compute the chunk id.
 
 For a text chunk, the id comes from the document id and the character span. A
-change in chunk size shifts the span, so it also changes the id.
+change in chunk size shifts the span, so it also changes the id. When supplied,
+`version_id` makes the id distinct for each version of a document.
 
 For a docling chunk, the id comes from the document id and the chunk index
-instead.
-Docling parsing is not always the same between runs, so this id is not stable
-across
-a re-parse of the same source.
+instead. Docling parsing is not always the same between runs, so this id is
+not stable across a re-parse of the same source.
 
 **Parameters:**
 
 - **document_id** (<code>[UUID](#uuid.UUID)</code>) – The id of the parent Document.
+- **version_id** (<code>[UUID](#uuid.UUID) | None</code>) – Optional id for the parent document version.
 - **provenance** (<code>[TextProvenance](#agrag.common.data_models.provenance.TextProvenance) | [PageProvenance](#agrag.common.data_models.provenance.PageProvenance)</code>) – The provenance of the chunk. Its type picks which id rule
+  applies.
 - **index** (<code>[int](#int)</code>) – The position of the chunk within its document.
 
 **Returns:**
@@ -1116,7 +1119,8 @@ A graph node with a fixed id and free metadata.
 
 - [**id**](#agrag.common.data_models.data_point.DataPoint.id) (<code>[UUID](#uuid.UUID)</code>) – The node id. Each subclass defines its own rule to compute this id.
 - [**created_at**](#agrag.common.data_models.data_point.DataPoint.created_at) (<code>[datetime](#datetime.datetime)</code>) – The time the system created this node. Defaults to the current time.
-- [**metadata**](#agrag.common.data_models.data_point.DataPoint.metadata) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – Extra data about the node. Add an `index_fields` key to list which
+- [**metadata**](#agrag.common.data_models.data_point.DataPoint.metadata) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – Extra data about the node. Add an `index_fields` key to list
+  which fields the store must index for filters.
 
 ####### `agrag.common.data_models.data_point.DataPoint.created_at`
 
@@ -1147,22 +1151,29 @@ The Document model: one unit of source text, before chunking.
 - [**HeadingRef**](#agrag.common.data_models.document.HeadingRef) – One heading in a document outline.
 - [**SourceFormat**](#agrag.common.data_models.document.SourceFormat) – A source format that a loader can read.
 
+**Attributes:**
+
+- [**DOCUMENT_LABEL**](#agrag.common.data_models.document.DOCUMENT_LABEL) –
+
+###### `agrag.common.data_models.document.DOCUMENT_LABEL`
+
+```python
+DOCUMENT_LABEL = 'Document'
+```
+
 ###### `agrag.common.data_models.document.Document`
 
 Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
 
 One unit of source text, before chunking.
 
-A prose source, such as a Markdown file, makes one Document. A record source, such
-as a
-CSV file, makes one Document per row.
+A prose source, such as a Markdown file, makes one Document. A record source,
+such as a CSV file, makes one Document per row.
 
-The way the system computes `content_hash` depends on the loader. A text loader
-hashes
-the decoded text. A docling loader hashes the raw source bytes instead of the parsed
-output, because docling's parsed output can change between docling versions and
-between
-runs on different hardware.
+The way the system computes `content_hash` depends on the loader. A text
+loader hashes the decoded text. A docling loader hashes the raw source bytes
+instead of the parsed output, because docling's parsed output can change
+between docling versions and between runs on different hardware.
 
 The system computes `id` from `content_hash` and `record_id` unless the caller
 passes `id` directly. A record-family document without `record_id` also mixes
@@ -1172,26 +1183,41 @@ set. Pass `id` only when rebuilding a document from stored data.
 **Attributes:**
 
 - [**text**](#agrag.common.data_models.document.Document.text) (<code>[str](#str)</code>) – The document text. For a docling source, this holds docling's Markdown
+  export. The chunker never reads this field for a docling source; see the
+  `Chunk` model for docling chunk content instead.
 - [**title**](#agrag.common.data_models.document.Document.title) (<code>[str](#str)</code>) – The document title.
 - [**uri**](#agrag.common.data_models.document.Document.uri) (<code>[str](#str)</code>) – The location of the source. This value is not part of the document id.
 - [**source_format**](#agrag.common.data_models.document.Document.source_format) (<code>[SourceFormat](#agrag.common.data_models.document.SourceFormat)</code>) – The format the loader used to read this document.
 - [**family**](#agrag.common.data_models.document.Document.family) (<code>[DocumentFamily](#agrag.common.data_models.document.DocumentFamily)</code>) – The shape of the source: one document per file, or one document per
+  record.
 - [**content_hash**](#agrag.common.data_models.document.Document.content_hash) (<code>[str](#str)</code>) – The hash that forms the document id.
 - [**loader_name**](#agrag.common.data_models.document.Document.loader_name) (<code>[str](#str)</code>) – The name of the loader that produced this document, for example
   `"text"` or `"docling"`.
-- [**loader_version**](#agrag.common.data_models.document.Document.loader_version) (<code>[str](#str) | None</code>) – The version of the loader package. Does not affect the document
-- [**encoding**](#agrag.common.data_models.document.Document.encoding) (<code>[str](#str) | None</code>) – The text encoding. Text loaders set this field; other loaders leave it
-- [**source_hash**](#agrag.common.data_models.document.Document.source_hash) (<code>[str](#str) | None</code>) – The hash of the whole source file. Record-family documents set this
+- [**loader_version**](#agrag.common.data_models.document.Document.loader_version) (<code>[str](#str) | None</code>) – The version of the loader package. Does not affect the
+  document id.
+- [**encoding**](#agrag.common.data_models.document.Document.encoding) (<code>[str](#str) | None</code>) – The text encoding. Text loaders set this field; other loaders
+  leave it empty.
+- [**source_hash**](#agrag.common.data_models.document.Document.source_hash) (<code>[str](#str) | None</code>) – The hash of the whole source file. Record-family documents set
+  this field.
 - [**char_count**](#agrag.common.data_models.document.Document.char_count) (<code>[int](#int)</code>) – The number of characters in `text`.
 - [**line_count**](#agrag.common.data_models.document.Document.line_count) (<code>[int](#int) | None</code>) – The number of lines in `text`. Some loaders do not set this field.
-- [**record_index**](#agrag.common.data_models.document.Document.record_index) (<code>[int](#int) | None</code>) – The 0-based row number in the source. Record-family documents set
-- [**record_id**](#agrag.common.data_models.document.Document.record_id) (<code>[str](#str) | None</code>) – The value from the configured id column. Record-family documents set
+- [**record_index**](#agrag.common.data_models.document.Document.record_index) (<code>[int](#int) | None</code>) – The 0-based row number in the source. Record-family documents
+  set this field.
+- [**record_id**](#agrag.common.data_models.document.Document.record_id) (<code>[str](#str) | None</code>) – The value from the configured id column. Record-family documents
+  set this field only when the caller configures an id column.
 - [**raw_record**](#agrag.common.data_models.document.Document.raw_record) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – The original record data. A loader sets this field only when the
-- [**heading_outline**](#agrag.common.data_models.document.Document.heading_outline) (<code>[list](#list)\[[HeadingRef](#agrag.common.data_models.document.HeadingRef)\]</code>) – The headings in the document, with their offsets. A text loader
+  caller asks for it.
+- [**heading_outline**](#agrag.common.data_models.document.Document.heading_outline) (<code>[list](#list)\[[HeadingRef](#agrag.common.data_models.document.HeadingRef)\]</code>) – The headings in the document, with their offsets. A text
+  loader sets this field for a prose document.
+- [**document_key**](#agrag.common.data_models.document.Document.document_key) (<code>[str](#str) | None</code>) – The stable identifier for this document's persisted graph node.
+  Independent of `id`, which changes with every content edit. Defaults to
+  `uri` when not supplied.
 
 **Functions:**
 
 - [**id_for**](#agrag.common.data_models.document.Document.id_for) – Compute the document id.
+- [**node_id_for**](#agrag.common.data_models.document.Document.node_id_for) – Compute the persisted Document graph node's id.
+- [**to_node_record**](#agrag.common.data_models.document.Document.to_node_record) – Return this document as a GraphStore write record for its graph node.
 
 ####### `agrag.common.data_models.document.Document.char_count`
 
@@ -1209,6 +1235,12 @@ content_hash: str
 
 ```python
 created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+####### `agrag.common.data_models.document.Document.document_key`
+
+```python
+document_key: str | None = None
 ```
 
 ####### `agrag.common.data_models.document.Document.encoding`
@@ -1288,6 +1320,28 @@ loader_version: str | None = None
 metadata: dict[str, Any] = Field(default_factory=dict)
 ```
 
+####### `agrag.common.data_models.document.Document.node_id_for`
+
+```python
+node_id_for(*, document_key:str) -> UUID
+```
+
+Compute the persisted Document graph node's id.
+
+Distinct from `id_for()`: this id is keyed on `document_key`, not the
+content hash, so it stays the same across content changes to the same
+logical document. Conflating the two ids would give every content version
+of a document its own graph node instead of one node with a changing
+content hash.
+
+**Parameters:**
+
+- **document_key** (<code>[str](#str)</code>) – The document's stable key.
+
+**Returns:**
+
+- <code>[UUID](#uuid.UUID)</code> – The Document graph node id.
+
 ####### `agrag.common.data_models.document.Document.raw_record`
 
 ```python
@@ -1305,6 +1359,25 @@ record_id: str | None = None
 ```python
 record_index: int | None = None
 ```
+
+####### `agrag.common.data_models.document.Document.resolved_document_key`
+
+```python
+resolved_document_key: str
+```
+
+The document key, guaranteed non-`None` once construction succeeds.
+
+`document_key` is typed as optional because callers may omit it and let
+`_resolve_document_key` default it to `uri`, but every constructed
+`Document` has a non-`None` document key by the time callers see it. Use
+this property instead of `document_key` where a non-optional value is
+required, such as computing the persisted Document node's id.
+
+**Raises:**
+
+- <code>[RuntimeError](#RuntimeError)</code> – `document_key` is still `None`, which means a validator
+  was bypassed, for example via `model_construct`.
 
 ####### `agrag.common.data_models.document.Document.resolved_id`
 
@@ -1347,6 +1420,18 @@ text: str
 ```python
 title: str
 ```
+
+####### `agrag.common.data_models.document.Document.to_node_record`
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this document as a GraphStore write record for its graph node.
+
+The record excludes `text`: the persisted node exists for traversal and
+the update no-op check, not to duplicate the document body already held
+per-chunk.
 
 ####### `agrag.common.data_models.document.Document.uri`
 
@@ -2154,7 +2239,8 @@ covers one page.
 **Attributes:**
 
 - [**kind**](#agrag.common.data_models.provenance.PageProvenance.kind) (<code>[Literal](#typing.Literal)['page']</code>) – The literal tag `"page"`. Marks this as page provenance.
-- [**page_spans**](#agrag.common.data_models.provenance.PageProvenance.page_spans) (<code>[list](#list)\[[PageSpan](#agrag.common.data_models.provenance.PageSpan)\]</code>) – The page spans for this chunk. Has more than one entry when the
+- [**page_spans**](#agrag.common.data_models.provenance.PageProvenance.page_spans) (<code>[list](#list)\[[PageSpan](#agrag.common.data_models.provenance.PageSpan)\]</code>) – The page spans for this chunk. Has more than one entry when
+  the chunk crosses a page boundary.
 
 ####### `agrag.common.data_models.provenance.PageProvenance.kind`
 
