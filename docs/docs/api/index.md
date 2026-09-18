@@ -6667,6 +6667,7 @@ by `open()` when missing.
 
 - [**add**](#agrag.ingestion.Graph.add) – Add content to the graph.
 - [**consolidate**](#agrag.ingestion.Graph.consolidate) – Run non-destructive resolution against every persisted raw entity.
+- [**deactivate_match**](#agrag.ingestion.Graph.deactivate_match) – Deactivate a semantic match and synchronize replacement retrieval vectors.
 - [**delete_document**](#agrag.ingestion.Graph.delete_document) – Soft-delete a document by closing its current PART_OF edges.
 - [**detect_communities**](#agrag.ingestion.Graph.detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag.ingestion.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
@@ -6757,6 +6758,14 @@ matches preserve both raw Entity nodes and their relationships.
 **Returns:**
 
 - <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every confirmed non-exact match, applied or not.
+
+##### `agrag.ingestion.Graph.deactivate_match`
+
+```python
+deactivate_match(match_id:UUID) -> list[ResolvedEntity]
+```
+
+Deactivate a semantic match and synchronize replacement retrieval vectors.
 
 ##### `agrag.ingestion.Graph.delete_document`
 
@@ -7458,6 +7467,7 @@ by `open()` when missing.
 
 - [**add**](#agrag.ingestion.graph.Graph.add) – Add content to the graph.
 - [**consolidate**](#agrag.ingestion.graph.Graph.consolidate) – Run non-destructive resolution against every persisted raw entity.
+- [**deactivate_match**](#agrag.ingestion.graph.Graph.deactivate_match) – Deactivate a semantic match and synchronize replacement retrieval vectors.
 - [**delete_document**](#agrag.ingestion.graph.Graph.delete_document) – Soft-delete a document by closing its current PART_OF edges.
 - [**detect_communities**](#agrag.ingestion.graph.Graph.detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag.ingestion.graph.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
@@ -7548,6 +7558,14 @@ matches preserve both raw Entity nodes and their relationships.
 **Returns:**
 
 - <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every confirmed non-exact match, applied or not.
+
+###### `agrag.ingestion.graph.Graph.deactivate_match`
+
+```python
+deactivate_match(match_id:UUID) -> list[ResolvedEntity]
+```
+
+Deactivate a semantic match and synchronize replacement retrieval vectors.
 
 ###### `agrag.ingestion.graph.Graph.delete_document`
 
@@ -7678,6 +7696,7 @@ Non-destructive match persistence and resolved-entity computation.
 
 **Classes:**
 
+- [**DeactivationResult**](#agrag.ingestion.materialize.DeactivationResult) – Materializations created after a match correction and stale ids removed.
 - [**MatchDecision**](#agrag.ingestion.materialize.MatchDecision) – A confirmed non-exact entity match ready to persist.
 - [**MaterializationResult**](#agrag.ingestion.materialize.MaterializationResult) – The derived entity created and prior derived ids it replaced.
 
@@ -7685,10 +7704,34 @@ Non-destructive match persistence and resolved-entity computation.
 
 - [**compute_resolved_entity**](#agrag.ingestion.materialize.compute_resolved_entity) – Compute a resolved entity from its current member data only.
 - [**deactivate_match**](#agrag.ingestion.materialize.deactivate_match) – Deactivate one match and replace materializations for its split component.
+- [**deactivate_match_and_rematerialize**](#agrag.ingestion.materialize.deactivate_match_and_rematerialize) – Deactivate a match and return its replacements and deleted derived IDs.
 - [**decisions_by_component**](#agrag.ingestion.materialize.decisions_by_component) – Map resolution evidence to raw ids and group it by connected component.
 - [**match_decision_components**](#agrag.ingestion.materialize.match_decision_components) – Group persisted match decisions by their connected raw component.
 - [**matches_id**](#agrag.ingestion.materialize.matches_id) – Return the order-independent deterministic id for an entity match.
 - [**write_matches_and_materialize**](#agrag.ingestion.materialize.write_matches_and_materialize) – Persist matches and materialize their supplied connected component.
+
+##### `agrag.ingestion.materialize.DeactivationResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Materializations created after a match correction and stale ids removed.
+
+**Attributes:**
+
+- [**removed_entity_ids**](#agrag.ingestion.materialize.DeactivationResult.removed_entity_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) –
+- [**resolved_entities**](#agrag.ingestion.materialize.DeactivationResult.resolved_entities) (<code>[list](#list)\[[ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity)\]</code>) –
+
+###### `agrag.ingestion.materialize.DeactivationResult.removed_entity_ids`
+
+```python
+removed_entity_ids: list[UUID]
+```
+
+###### `agrag.ingestion.materialize.DeactivationResult.resolved_entities`
+
+```python
+resolved_entities: list[ResolvedEntity]
+```
 
 ##### `agrag.ingestion.materialize.MatchDecision`
 
@@ -7782,6 +7825,14 @@ Deactivate one match and replace materializations for its split component.
 
 Singleton components remain raw entities and do not receive a derived node.
 All graph changes occur inside one transaction.
+
+##### `agrag.ingestion.materialize.deactivate_match_and_rematerialize`
+
+```python
+deactivate_match_and_rematerialize(match_id:UUID, *, graph_store:GraphStore, schema:GraphSchema) -> DeactivationResult
+```
+
+Deactivate a match and return its replacements and deleted derived IDs.
 
 ##### `agrag.ingestion.materialize.decisions_by_component`
 

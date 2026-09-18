@@ -173,6 +173,12 @@ class TestMatchMaterializationIntegration:
             ]
         finally:
             await store.execute_write(f"MATCH (node:{label}) DETACH DELETE node")
+            await store.execute_write(
+                "MATCH (node:ResolvedEntity) "
+                "WHERE any(member_id IN node.member_ids "
+                "WHERE member_id IN $ids) DETACH DELETE node",
+                {"ids": [str(first.id), str(second.id)]},
+            )
             await store.close()
 
     async def test_deactivation_splits_a_component_without_deleting_raw_nodes(
@@ -248,12 +254,5 @@ class TestMatchMaterializationIntegration:
                 "WHERE any(member_id IN node.member_ids WHERE member_id IN $ids) "
                 "DETACH DELETE node",
                 {"ids": [str(first.id), str(second.id), str(third.id)]},
-            )
-            await store.close()
-            await store.execute_write(
-                "MATCH (node:ResolvedEntity) "
-                "WHERE any(member_id IN node.member_ids "
-                "WHERE member_id IN $ids) DETACH DELETE node",
-                {"ids": [str(first.id), str(second.id)]},
             )
             await store.close()
