@@ -26,3 +26,23 @@ def fetch_resolved_entity_members_query() -> str:
         f"(resolved:{RESOLVED_ENTITY_LABEL} {{id: $resolved_entity_id}}) "
         "RETURN entity"
     )
+
+
+def fetch_match_endpoints_query() -> str:
+    """Build Cypher returning both endpoints of one match edge."""
+    return (
+        f"MATCH (a:{NODE_IDENTITY_LABEL})-"
+        f"[match:{MATCHES_RELATION} {{id: $match_id}}]->"
+        f"(b:{NODE_IDENTITY_LABEL}) RETURN a, b"
+    )
+
+
+def fetch_active_component_members_query() -> str:
+    """Build Cypher returning active match components from seed ids."""
+    return (
+        "UNWIND $seed_ids AS seed_id "
+        f"MATCH (seed:{NODE_IDENTITY_LABEL} {{id: seed_id}})"
+        f"-[matches:{MATCHES_RELATION}*0..]-(member:{NODE_IDENTITY_LABEL}) "
+        "WHERE ALL(match IN matches WHERE match.active = true) "
+        "RETURN DISTINCT seed_id, member"
+    )

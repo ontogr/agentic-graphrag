@@ -1,5 +1,6 @@
 """Tests for Cypher write builders used by entity-resolution materialization."""
 
+from agrag.cypher.resolution_read import fetch_active_component_members_query
 from agrag.cypher.resolution_write import (
     replace_component_materializations_query,
     set_resolved_entity_sync_status_query,
@@ -24,3 +25,10 @@ class TestResolutionWriteQueries:
 
         assert "resolved.vector_sync_status = record.status" in query
         assert "resolved.vector_sync_error = record.error" in query
+
+    def test_fetches_components_using_only_active_matches(self) -> None:
+        """A deactivation recomputes components from active edges only."""
+        query = fetch_active_component_members_query()
+
+        assert "match.active = true" in query
+        assert "seed_ids" in query

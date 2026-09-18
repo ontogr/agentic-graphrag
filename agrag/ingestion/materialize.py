@@ -14,7 +14,12 @@ from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
     ResolvedEntity,
 )
+from agrag.cypher.resolution_read import (
+    fetch_active_component_members_query,
+    fetch_match_endpoints_query,
+)
 from agrag.cypher.resolution_write import (
+    deactivate_match_query,
     replace_component_materializations_query,
     upsert_matches_query,
 )
@@ -240,3 +245,86 @@ async def write_matches_and_materialize(
         resolved_entity=resolved,
         removed_entity_ids=list(dict.fromkeys(removed_entity_ids)),
     )
+
+
+async def deactivate_match(
+    match_id: UUID, *, graph_store: GraphStore, schema: GraphSchema
+) -> list[ResolvedEntity]:
+    """Deactivate one match and replace materializations for its split component.
+
+    Singleton components remain raw entities and do not receive a derived node.
+    All graph changes occur inside one transaction.
+    """
+    from agrag.ingestion.graph import _parse_entity_node  # noqa: PLC0415
+
+    async with graph_store.transaction() as transaction:
+        endpoint_rows = await transaction.execute_read(
+            fetch_match_endpoints_query(), {"match_id": str(match_id)}
+        )
+        if not endpoint_rows:
+            raise ValueError(f"Match {match_id} does not exist")
+        endpoints: list[UUID] = []
+        for row in endpoint_rows:
+            for key in ("a", "b"):
+                entity = _parse_entity_node(row.get(key))
+                if entity is not None:
+                    endpoints.append(entity.id)
+        if len(set(endpoints)) != 2:
+            raise ValueError(f"Match {match_id} has invalid endpoints")
+        if not await transaction.execute_write(
+            deactivate_match_query(), {"match_id": str(match_id)}
+        ):
+            raise ValueError(f"Match {match_id} does not exist")
+        component_rows = await transaction.execute_read(
+            fetch_active_component_members_query(),
+            {"seed_ids": [str(endpoint_id) for endpoint_id in endpoints]},
+        )
+        by_seed: dict[str, list[Entity]] = defaultdict(list)
+        for row in component_rows:
+            entity = _parse_entity_node(row.get("member"))
+            if entity is not None:
+                by_seed[str(row["seed_id"])].append(entity)
+        components = {
+            frozenset(member.id for member in members): members
+            for members in by_seed.values()
+        }
+        all_member_ids = sorted(
+            {member.id for members in components.values() for member in members},
+            key=str,
+        )
+        await transaction.execute_write(
+            replace_component_materializations_query(),
+            {"member_ids": [str(member_id) for member_id in all_member_ids]},
+        )
+        materialized: list[ResolvedEntity] = []
+        for members in sorted(
+            components.values(),
+            key=lambda component: min(str(member.id) for member in component),
+        ):
+            if len(members) < 2:
+                continue
+            resolved = await compute_resolved_entity(members, schema)
+            _raise_for_write_failure(
+                await transaction.upsert_nodes(
+                    RESOLVED_ENTITY_LABEL, [resolved.to_node_record()]
+                )
+            )
+            _raise_for_write_failure(
+                await transaction.upsert_relations(
+                    [
+                        RelationRecord(
+                            id=uuid5(
+                                NAMESPACE_OID,
+                                f"RESOLVED_AS:{member.id}:{resolved.id}",
+                            ),
+                            type=RESOLVED_AS_RELATION,
+                            start_id=member.id,
+                            end_id=resolved.id,
+                            properties={},
+                        )
+                        for member in sorted(members, key=lambda member: str(member.id))
+                    ]
+                )
+            )
+            materialized.append(resolved)
+    return materialized
