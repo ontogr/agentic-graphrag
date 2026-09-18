@@ -1625,8 +1625,6 @@ class Graph:
         # Track survivors and mention->entity map
         mention_to_entity: dict[int, UUID] = {}
         survivors: dict[UUID, Entity] = {}
-        materialized_entities: list[ResolvedEntity] = []
-        replaced_resolved_entity_ids: list[UUID] = []
         resolved_vector_failures: list[StageFailure] = []
         # For storage stats counting
         nodes_created = 0
@@ -1732,6 +1730,7 @@ class Graph:
             persisted_mentions: list[ExtractedEntity] = list(entities)
             persisted_candidates: dict[int, list[int]] = {}
             persisted_ids: dict[int, UUID] = {}
+            candidate_entities: dict[UUID, Entity] = {}
             candidate_source = GraphCandidateSource(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
@@ -1757,7 +1756,7 @@ class Graph:
                         candidate_index
                     )
                     persisted_ids[candidate_index] = candidate.id
-                    survivors[candidate.id] = candidate
+                    candidate_entities[candidate.id] = candidate
             if persisted_candidates:
                 persisted_result = await Resolver(
                     comparators=[
@@ -1775,17 +1774,16 @@ class Graph:
                 member_ids = {decision.entity_a_id for decision in decisions} | {
                     decision.entity_b_id for decision in decisions
                 }
-                members = [survivors[member_id] for member_id in member_ids]
+                members = [
+                    survivors.get(member_id) or candidate_entities[member_id]
+                    for member_id in member_ids
+                ]
                 try:
                     materialization = await write_matches_and_materialize(
                         decisions,
                         graph_store=self._graph_store,
                         schema=self._schema,
                         members=members,
-                    )
-                    materialized_entities.append(materialization.resolved_entity)
-                    replaced_resolved_entity_ids.extend(
-                        materialization.removed_entity_ids
                     )
                 except Exception as exc:  # noqa: BLE001
                     if error_policy is ErrorPolicy.RAISE:
@@ -1799,18 +1797,21 @@ class Graph:
                             error_message=str(exc),
                         )
                     )
-
-        resolved_vector_failures.extend(
-            await _synchronize_resolved_entity_vectors(
-                materialized_entities,
-                replaced_resolved_entity_ids,
-                embedder=self._embedder,
-                graph_store=self._graph_store,
-                vector_store=self._vector_store,
-                vector_collection=self._retrieval_settings.resolved_entity_collection,
-                error_policy=error_policy,
-            )
-        )
+                    continue
+                # Synchronized per component, not batched after the loop: a
+                # later component's failure under ErrorPolicy.RAISE must not
+                # skip vector cleanup for components already committed above.
+                resolved_vector_failures.extend(
+                    await _synchronize_resolved_entity_vectors(
+                        [materialization.resolved_entity],
+                        materialization.removed_entity_ids,
+                        embedder=self._embedder,
+                        graph_store=self._graph_store,
+                        vector_store=self._vector_store,
+                        vector_collection=self._retrieval_settings.resolved_entity_collection,
+                        error_policy=error_policy,
+                    )
+                )
 
         # If there were no entities (empty corpus) we have no survivors
         # but we still need to write chunks
@@ -2353,9 +2354,10 @@ class Graph:
         apply=True to write MATCHES edges and derived ResolvedEntity nodes.
 
         For each EntityType label in self._schema, fetches every persisted
-        entity with that label and runs the same comparator sequence add() uses
-        in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
-        them — O(n^2) within each label's population. Confirmed non-exact
+        entity with that label, bounds the pairs actually compared with
+        GraphCandidateSource's ANN-backed persisted_candidate_indices, and
+        runs the same comparator sequence add() uses in-batch (ExactMatch,
+        FuzzyMatch, LLMVerify) over those candidate pairs. Confirmed non-exact
         matches preserve both raw Entity nodes and their relationships.
 
         Args:
@@ -2454,7 +2456,7 @@ class Graph:
 
         return ConsolidationReport(
             would_match=would_match,
-            applied=apply and bool(would_match),
+            applied=apply and bool(materialized_entities),
             failures=consolidation_failures,
         )
 

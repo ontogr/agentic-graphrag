@@ -3287,6 +3287,9 @@ class TestGraphAddPipeline:
 
         assert len(report.failures) == 1
         assert report.failures[0].error_message == "database unavailable"
+        assert report.applied is False
+        assert store.upsert_nodes_calls == []
+        assert store.upsert_relations_calls == []
 
     async def test_consolidate_no_entities(self) -> None:
         """Less than 2 entities yields no matches."""

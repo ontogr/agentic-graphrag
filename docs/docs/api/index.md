@@ -6710,9 +6710,10 @@ Dry-run by default: produces matches before any node is touched. Pass
 apply=True to write MATCHES edges and derived ResolvedEntity nodes.
 
 For each EntityType label in self.\_schema, fetches every persisted
-entity with that label and runs the same comparator sequence add() uses
-in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
-them — O(n^2) within each label's population. Confirmed non-exact
+entity with that label, bounds the pairs actually compared with
+GraphCandidateSource's ANN-backed persisted_candidate_indices, and
+runs the same comparator sequence add() uses in-batch (ExactMatch,
+FuzzyMatch, LLMVerify) over those candidate pairs. Confirmed non-exact
 matches preserve both raw Entity nodes and their relationships.
 
 **Parameters:**
@@ -7510,9 +7511,10 @@ Dry-run by default: produces matches before any node is touched. Pass
 apply=True to write MATCHES edges and derived ResolvedEntity nodes.
 
 For each EntityType label in self.\_schema, fetches every persisted
-entity with that label and runs the same comparator sequence add() uses
-in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
-them — O(n^2) within each label's population. Confirmed non-exact
+entity with that label, bounds the pairs actually compared with
+GraphCandidateSource's ANN-backed persisted_candidate_indices, and
+runs the same comparator sequence add() uses in-batch (ExactMatch,
+FuzzyMatch, LLMVerify) over those candidate pairs. Confirmed non-exact
 matches preserve both raw Entity nodes and their relationships.
 
 **Parameters:**
