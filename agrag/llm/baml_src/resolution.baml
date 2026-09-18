@@ -35,3 +35,34 @@ function VerifyEntityMatch(
     {{ ctx.output_format }}
   "#
 }
+
+class EntityPairInput {
+  entity_a: string
+  context_a: string
+  neighbors_a: string[]
+  entity_b: string
+  context_b: string
+  neighbors_b: string[]
+  similarity: float
+}
+
+class MatchVerdict {
+  reasoning: string
+  verdict: "match" | "no_match" | "uncertain"
+}
+
+function VerifyEntityMatches(pairs: EntityPairInput[]) -> MatchVerdict[] {
+  client "openai/gpt-4o-mini"
+  prompt #"
+    {{ _.role("system") }}
+    You are an entity resolution assistant. Verify every candidate pair and
+    return one verdict per pair, in input order. Use the entity names,
+    contexts, neighboring relationships, and similarity score. Return
+    uncertain when the evidence is insufficient.
+
+    {{ _.role("user") }}
+    {{ pairs }}
+
+    {{ ctx.output_format }}
+  "#
+}

@@ -10,6 +10,7 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.text import normalize_text as _normalize
 from agrag.ingestion.extract import ExtractionLLMSettings, ExtractorMissingExtraError
+from agrag.ingestion.resolve.candidate_source import CandidateSource
 from agrag.llm.retry import NO_RETRY, call_with_retry
 
 
@@ -22,46 +23,6 @@ class ResolutionGroup(BaseModel):
     """
 
     entity_indices: list[int]
-
-
-class CandidateSource(ABC):
-    """Narrows which entity pairs resolution compares — the blocking step."""
-
-    @abstractmethod
-    async def candidates_for(
-        self, index: int, entities: list[ExtractedEntity]
-    ) -> list[int]:
-        """Return indices worth comparing against entities[index].
-
-        Args:
-            index: The entity to find candidates for.
-            entities: The full entity list this call is scoped to.
-
-        Returns:
-            Indices into ``entities``, excluding ``index`` itself. Order does
-            not matter; duplicates are harmless but wasteful.
-        """
-
-
-class InBatchCandidateSource(CandidateSource):
-    """Blocks by label: only entities sharing a label are ever compared.
-
-    Scoped to whatever entity list a caller passes to candidates_for — today,
-    always the current extraction batch. A future graph-backed candidate source
-    can replace this without changing any Comparator, since comparators only
-    ever see the pairs a CandidateSource proposes.
-    """
-
-    async def candidates_for(
-        self, index: int, entities: list[ExtractedEntity]
-    ) -> list[int]:
-        """Return every other entity sharing entities[index]'s label."""
-        label = entities[index].label
-        return [
-            other_index
-            for other_index, entity in enumerate(entities)
-            if other_index != index and entity.label == label
-        ]
 
 
 class ComparisonVerdict(StrEnum):
@@ -109,20 +70,17 @@ class ExactMatch(Comparator):
 
 
 class FuzzyMatch(Comparator):
-    """Matches by string similarity, within a confident-match/distinct band.
+    """Accepts only highly similar strings as a fast path.
 
     Attributes:
-        match_above: A similarity score at or above this is a confident match.
-        no_match_below: A similarity score below this is a confident non-match.
-            A score in between is UNCERTAIN and defers to the next comparator.
+        match_above: A similarity score at or above this is a fast-path match.
     """
 
     def __init__(
-        self, *, match_above: float = 0.92, no_match_below: float = 0.70
+        self, *, match_above: float = 0.97
     ) -> None:
-        """Create a comparator with the given match/no-match band."""
+        """Create a comparator with the given fast-path threshold."""
         self.match_above = match_above
-        self.no_match_below = no_match_below
 
     async def compare(
         self, a: ExtractedEntity, b: ExtractedEntity
@@ -133,8 +91,6 @@ class FuzzyMatch(Comparator):
         score = fuzz.token_sort_ratio(_normalize(a.text), _normalize(b.text)) / 100
         if score >= self.match_above:
             return ComparisonVerdict.MATCH
-        if score < self.no_match_below:
-            return ComparisonVerdict.NO_MATCH
         return ComparisonVerdict.UNCERTAIN
 
 
