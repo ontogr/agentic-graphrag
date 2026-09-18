@@ -2072,7 +2072,7 @@ class TestGraphOpenVectorStore:
     """Graph.open provisions the VectorStore collections it will write to."""
 
     async def test_open_provisions_vector_collections(self) -> None:
-        """open() initializes the store and ensures all three collections."""
+        """open() initializes the store and ensures all vector collections."""
         ensured: list[str] = []
 
         class RecordingStore(RecordingVectorStore):
@@ -2097,6 +2097,7 @@ class TestGraphOpenVectorStore:
             settings.entity_collection,
             settings.chunk_collection,
             settings.community_collection,
+            settings.resolved_entity_collection,
         ]
         assert graph._vector_store is vector_store
 

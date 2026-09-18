@@ -20,7 +20,7 @@ from .globals import DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIM
 class TypeBuilder(type_builder.TypeBuilder):
     def __init__(self):
         super().__init__(classes=set(
-          ["BAMLExtractedEntity","BAMLExtractedRelation","BAMLExtractionResult","CommunityInput","CommunityReport",]
+          ["BAMLExtractedEntity","BAMLExtractedRelation","BAMLExtractionResult","CommunityInput","CommunityReport","EntityPairInput","MatchVerdict",]
         ), enums=set(
           ["ExtractedEntityLabel","ExtractedRelationLabel",]
         ), runtime=DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIME)
@@ -39,7 +39,7 @@ class TypeBuilder(type_builder.TypeBuilder):
 
 
     # #########################################################################
-    # Generated classes 5
+    # Generated classes 7
     # #########################################################################
 
     @property
@@ -61,6 +61,14 @@ class TypeBuilder(type_builder.TypeBuilder):
     @property
     def CommunityReport(self) -> "CommunityReportViewer":
         return CommunityReportViewer(self)
+
+    @property
+    def EntityPairInput(self) -> "EntityPairInputViewer":
+        return EntityPairInputViewer(self)
+
+    @property
+    def MatchVerdict(self) -> "MatchVerdictViewer":
+        return MatchVerdictViewer(self)
 
 
 
@@ -166,7 +174,7 @@ class ExtractedRelationLabelValues:
 
 
 # #########################################################################
-# Generated classes 5
+# Generated classes 7
 # #########################################################################
 
 class BAMLExtractedEntityAst:
@@ -408,6 +416,112 @@ class CommunityReportProperties:
     @property
     def findings(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("findings"))
+    
+    
+
+
+class EntityPairInputAst:
+    def __init__(self, tb: type_builder.TypeBuilder):
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        self._bldr = _tb.class_("EntityPairInput")
+        self._properties: typing.Set[str] = set([  "entity_a",  "context_a",  "neighbors_a",  "entity_b",  "context_b",  "neighbors_b",  "similarity",  ])
+        self._props = EntityPairInputProperties(self._bldr, self._properties)
+
+    def type(self) -> baml_py.FieldType:
+        return self._bldr.field()
+
+    @property
+    def props(self) -> "EntityPairInputProperties":
+        return self._props
+
+
+class EntityPairInputViewer(EntityPairInputAst):
+    def __init__(self, tb: type_builder.TypeBuilder):
+        super().__init__(tb)
+
+    
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+    
+
+
+class EntityPairInputProperties:
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+        self.__bldr = bldr
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+    
+    
+    @property
+    def entity_a(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("entity_a"))
+    
+    @property
+    def context_a(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("context_a"))
+    
+    @property
+    def neighbors_a(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("neighbors_a"))
+    
+    @property
+    def entity_b(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("entity_b"))
+    
+    @property
+    def context_b(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("context_b"))
+    
+    @property
+    def neighbors_b(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("neighbors_b"))
+    
+    @property
+    def similarity(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("similarity"))
+    
+    
+
+
+class MatchVerdictAst:
+    def __init__(self, tb: type_builder.TypeBuilder):
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        self._bldr = _tb.class_("MatchVerdict")
+        self._properties: typing.Set[str] = set([  "reasoning",  "verdict",  ])
+        self._props = MatchVerdictProperties(self._bldr, self._properties)
+
+    def type(self) -> baml_py.FieldType:
+        return self._bldr.field()
+
+    @property
+    def props(self) -> "MatchVerdictProperties":
+        return self._props
+
+
+class MatchVerdictViewer(MatchVerdictAst):
+    def __init__(self, tb: type_builder.TypeBuilder):
+        super().__init__(tb)
+
+    
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+    
+
+
+class MatchVerdictProperties:
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+        self.__bldr = bldr
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+    
+    
+    @property
+    def reasoning(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("reasoning"))
+    
+    @property
+    def verdict(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("verdict"))
     
     
 

@@ -31,6 +31,7 @@ from agrag.common.data_models.graph_record import RelationRecord, UpsertResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
+from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
 from agrag.common.data_models.vector_record import VectorRecord
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
@@ -118,7 +119,14 @@ SourceType = Union[str, Path]
 SourcesType = Union[SourceType, Sequence[SourceType]]
 
 # Relationship types Graph.open() always registers
-SYSTEM_RELATION_TYPES = ["MENTIONED_IN", MEMBER_OF_RELATION, "PART_OF", "NEXT_CHUNK"]
+SYSTEM_RELATION_TYPES = [
+    "MENTIONED_IN",
+    MEMBER_OF_RELATION,
+    "PART_OF",
+    "NEXT_CHUNK",
+    "MATCHES",
+    "RESOLVED_AS",
+]
 
 
 def _vector_record(
@@ -1208,7 +1216,13 @@ class Graph:
             entity_labels = [entity_type.label for entity_type in schema.entities]
             relation_types = [relation_type.label for relation_type in schema.relations]
             await graph_store.register_labels(
-                [*entity_labels, CHUNK_LABEL, COMMUNITY_LABEL, DOCUMENT_LABEL]
+                [
+                    *entity_labels,
+                    CHUNK_LABEL,
+                    COMMUNITY_LABEL,
+                    DOCUMENT_LABEL,
+                    RESOLVED_ENTITY_LABEL,
+                ]
             )
             await graph_store.register_relation_types(
                 [*relation_types, *SYSTEM_RELATION_TYPES]
@@ -1236,6 +1250,12 @@ class Graph:
                 dimensions=dimensions,
                 distance=distance,
             )
+            await graph_store.ensure_vector_index(
+                label=RESOLVED_ENTITY_LABEL,
+                vector_property="embedding",
+                dimensions=dimensions,
+                distance=distance,
+            )
             if vector_store is not None:
                 settings = retrieval_settings or RetrievalSettings()
                 await vector_store.initialize()
@@ -1243,6 +1263,7 @@ class Graph:
                     settings.entity_collection,
                     settings.chunk_collection,
                     settings.community_collection,
+                    settings.resolved_entity_collection,
                 ):
                     await vector_store.ensure_collection(
                         collection,

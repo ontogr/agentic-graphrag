@@ -31,6 +31,12 @@ type_map = {
     "types.CommunityReport": types.CommunityReport,
     "stream_types.CommunityReport": stream_types.CommunityReport,
 
+    "types.EntityPairInput": types.EntityPairInput,
+    "stream_types.EntityPairInput": stream_types.EntityPairInput,
+
+    "types.MatchVerdict": types.MatchVerdict,
+    "stream_types.MatchVerdict": stream_types.MatchVerdict,
+
 
     "types.ExtractedEntityLabel": types.ExtractedEntityLabel,
 

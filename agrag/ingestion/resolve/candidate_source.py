@@ -36,6 +36,7 @@ class GraphCandidateSource(CandidateSource):
         entity_labels: Sequence[str] = (),
         top_k: int = 50,
     ) -> None:
+        """Create a candidate source backed by the configured graph indexes."""
         self.graph_store = graph_store
         self.embedder = embedder
         self.vector_store = vector_store
@@ -62,7 +63,7 @@ class GraphCandidateSource(CandidateSource):
             graph_store=self.graph_store,
             vector_store=self.vector_store,
             collection=self.vector_collection,
-            labels=self.entity_labels or (mention.label,),
+            labels=(mention.label,),
             limit=self.top_k,
             filters=SearchFilters(labels=[mention.label]),
             settings=RetrievalSettings(),
@@ -71,7 +72,8 @@ class GraphCandidateSource(CandidateSource):
         for hit in hits:
             payload = dict(hit.payload)
             payload.setdefault("id", hit.id)
-            payload.setdefault("label", mention.label)
+            if payload.get("label") != mention.label:
+                continue
             try:
                 entities.append(Entity.model_validate(payload))
             except Exception:  # malformed vector payloads are not candidates

@@ -76,9 +76,7 @@ class FuzzyMatch(Comparator):
         match_above: A similarity score at or above this is a fast-path match.
     """
 
-    def __init__(
-        self, *, match_above: float = 0.97
-    ) -> None:
+    def __init__(self, *, match_above: float = 0.97) -> None:
         """Create a comparator with the given fast-path threshold."""
         self.match_above = match_above
 
