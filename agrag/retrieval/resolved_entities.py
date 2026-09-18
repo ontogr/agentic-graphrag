@@ -8,16 +8,49 @@ from agrag.cypher.resolution_read import hydrate_resolved_entities_by_id_query
 from agrag.graphdb.base import GraphStore
 
 
+_SYSTEM_KEYS = {
+    "id",
+    "name",
+    "label",
+    "member_ids",
+    "created_at",
+    "vector_sync_status",
+    "vector_sync_error",
+    "embedding",
+}
+
+
 def parse_resolved_entity_node(node: object) -> ResolvedEntity | None:
-    """Parse a graph-store node into a resolved entity when its shape is valid."""
-    if not isinstance(node, dict):
-        return None
-    properties = node.get("properties", node)
+    """Parse a graph-store node into a resolved entity when its shape is valid.
+
+    Accepts both the ``{"properties": {...}}`` mock shape used in tests and a
+    real Neo4j driver ``Node``, which exposes its properties through
+    ``dict(node)`` rather than as a plain dict. Flat properties outside
+    ``ResolvedEntity``'s own fields (for example ``description``) are routed
+    into ``ResolvedEntity.properties`` instead of being dropped by pydantic.
+    """
+    if isinstance(node, dict) and "properties" in node:
+        properties = node.get("properties")
+        node_id = node.get("id")
+    else:
+        try:
+            properties = dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
+        except TypeError:
+            return None
+        node_id = None
     if not isinstance(properties, dict):
         return None
-    values: dict[str, Any] = dict(properties)
-    if "id" not in values and node.get("id") is not None:
-        values["id"] = node["id"]
+    if node_id is None:
+        node_id = properties.get("id")
+    if node_id is None:
+        return None
+    values: dict[str, Any] = {
+        key: value for key, value in properties.items() if key in _SYSTEM_KEYS
+    }
+    values["id"] = node_id
+    values["properties"] = {
+        key: value for key, value in properties.items() if key not in _SYSTEM_KEYS
+    }
     try:
         return ResolvedEntity.model_validate(values)
     except (TypeError, ValueError):
