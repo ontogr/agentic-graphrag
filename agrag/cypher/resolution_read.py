@@ -55,3 +55,14 @@ def hydrate_resolved_entities_by_id_query() -> str:
         f"MATCH (resolved:{RESOLVED_ENTITY_LABEL} {{id: resolved_entity_id}}) "
         "RETURN resolved"
     )
+
+
+def fetch_active_resolved_member_ids_query() -> str:
+    """Build Cypher finding raw hits hidden by an active materialization."""
+    return (
+        "UNWIND $ids AS entity_id "
+        f"MATCH (entity:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
+        f"-[:{RESOLVED_AS_RELATION}]->(resolved:{RESOLVED_ENTITY_LABEL}) "
+        "WHERE resolved.vector_sync_status = 'synced' "
+        "RETURN entity_id"
+    )

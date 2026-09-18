@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.retrieval.retrievers.entity import EntityRetriever
 
@@ -56,6 +57,43 @@ class TestEntityRetriever:
             assert len(results) == 1
             assert results[0].item.id == ent.id
             assert results[0].method == "entity"
+
+    async def test_returns_materialization_without_its_raw_member(self) -> None:
+        """An active resolved entity replaces its member in user-facing search."""
+        raw = Entity(id=uuid4(), label="Person", name="Ada")
+        resolved = ResolvedEntity(
+            id=uuid4(),
+            label="Person",
+            name="Ada Lovelace",
+            member_ids=[raw.id, uuid4()],
+        )
+        graph_store = AsyncMock()
+        graph_store.execute_read.side_effect = [
+            [],
+            [{"entity_id": str(raw.id)}],
+        ]
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                side_effect=[
+                    [VectorHit(id=raw.id, score=0.9, payload={})],
+                    [VectorHit(id=resolved.id, score=0.8, payload={})],
+                ],
+            ),
+            patch(
+                "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
+                new_callable=AsyncMock,
+                return_value={resolved.id: resolved},
+            ),
+        ):
+            retriever = EntityRetriever(
+                graph_store=graph_store, embedder=MockEmbedder()
+            )
+            results = await retriever.retrieve("Ada")
+
+        assert [result.item for result in results] == [resolved]
 
     async def test_skips_unresolvable_entities(self) -> None:
         """Entities that fail to resolve are skipped."""
