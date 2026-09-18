@@ -14,9 +14,11 @@ from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.ingestion.materialize import (
     MatchDecision,
     compute_resolved_entity,
+    decisions_by_component,
     matches_id,
     write_matches_and_materialize,
 )
+from agrag.ingestion.resolve import ResolvedMatch
 
 
 def _schema() -> GraphSchema:
@@ -136,6 +138,36 @@ class TestWriteMatchesAndMaterialize:
             await write_matches_and_materialize(
                 [decision], graph_store=store, schema=_schema(), members=[first, second]
             )
+
+
+class TestDecisionsByComponent:
+    """Resolution evidence maps to the raw components it changes."""
+
+    def test_groups_transitive_evidence_after_mapping_mentions(self) -> None:
+        """Two transitive decisions rematerialize their three raw entities once."""
+        first, second, third = uuid4(), uuid4(), uuid4()
+        now = datetime.now(UTC)
+        matches = [
+            ResolvedMatch(
+                left_index=0,
+                right_index=1,
+                comparator="FuzzyMatch",
+                decided_at=now,
+            ),
+            ResolvedMatch(
+                left_index=1,
+                right_index=2,
+                comparator="LLMVerify",
+                decided_at=now,
+            ),
+        ]
+
+        components = decisions_by_component(matches, {0: first, 1: second, 2: third})
+
+        assert len(components) == 1
+        assert {decision.entity_a_id for decision in components[0]} | {
+            decision.entity_b_id for decision in components[0]
+        } == {first, second, third}
 
     async def test_canonicalizes_reverse_order_match_writes(self) -> None:
         """A reverse-order repeat preserves one canonical edge direction."""

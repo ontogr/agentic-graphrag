@@ -1,5 +1,6 @@
 """Non-destructive match persistence and resolved-entity computation."""
 
+from collections import defaultdict
 from datetime import datetime
 from uuid import NAMESPACE_OID, UUID, uuid5
 
@@ -19,6 +20,7 @@ from agrag.cypher.resolution_write import (
 )
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.merge import compute_merge
+from agrag.ingestion.resolve.resolver import ResolvedMatch
 
 
 class MatchDecision(BaseModel):
@@ -30,6 +32,54 @@ class MatchDecision(BaseModel):
     score: float | None = None
     reasoning: str | None = None
     decided_at: datetime
+
+
+def decisions_by_component(
+    matches: list[ResolvedMatch], mention_to_entity: dict[int, UUID]
+) -> list[list[MatchDecision]]:
+    """Map resolution evidence to raw ids and group it by connected component."""
+    decisions: list[MatchDecision] = []
+    for match in matches:
+        left_id = mention_to_entity.get(match.left_index)
+        right_id = mention_to_entity.get(match.right_index)
+        if left_id is None or right_id is None or left_id == right_id:
+            continue
+        decisions.append(
+            MatchDecision(
+                entity_a_id=left_id,
+                entity_b_id=right_id,
+                comparator=match.comparator,
+                score=match.score,
+                reasoning=match.reasoning,
+                decided_at=match.decided_at,
+            )
+        )
+
+    return match_decision_components(decisions)
+
+
+def match_decision_components(
+    decisions: list[MatchDecision],
+) -> list[list[MatchDecision]]:
+    """Group persisted match decisions by their connected raw component."""
+    parent: dict[UUID, UUID] = {}
+
+    def find(entity_id: UUID) -> UUID:
+        parent.setdefault(entity_id, entity_id)
+        if parent[entity_id] != entity_id:
+            parent[entity_id] = find(parent[entity_id])
+        return parent[entity_id]
+
+    for decision in decisions:
+        left_root = find(decision.entity_a_id)
+        right_root = find(decision.entity_b_id)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    components: dict[UUID, list[MatchDecision]] = defaultdict(list)
+    for decision in decisions:
+        components[find(decision.entity_a_id)].append(decision)
+    return list(components.values())
 
 
 def matches_id(entity_a_id: UUID, entity_b_id: UUID) -> UUID:

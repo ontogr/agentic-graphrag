@@ -3746,6 +3746,7 @@ Cypher writes for non-destructive entity resolution.
 
 - [**deactivate_match_query**](#agrag.cypher.resolution_write.deactivate_match_query) – Build Cypher that retains but deactivates a match edge.
 - [**delete_resolved_as_query**](#agrag.cypher.resolution_write.delete_resolved_as_query) – Build Cypher deleting materialized membership edges by cluster id.
+- [**replace_component_materializations_query**](#agrag.cypher.resolution_write.replace_component_materializations_query) – Build Cypher deleting prior materializations for supplied raw members.
 - [**upsert_matches_query**](#agrag.cypher.resolution_write.upsert_matches_query) – Build Cypher that idempotently records a confirmed entity match.
 - [**upsert_resolved_as_query**](#agrag.cypher.resolution_write.upsert_resolved_as_query) – Build Cypher linking a member to its materialized resolved entity.
 
@@ -3764,6 +3765,14 @@ delete_resolved_as_query() -> str
 ```
 
 Build Cypher deleting materialized membership edges by cluster id.
+
+##### `agrag.cypher.resolution_write.replace_component_materializations_query`
+
+```python
+replace_component_materializations_query() -> str
+```
+
+Build Cypher deleting prior materializations for supplied raw members.
 
 ##### `agrag.cypher.resolution_write.upsert_matches_query`
 
@@ -6597,7 +6606,7 @@ by `open()` when missing.
 **Functions:**
 
 - [**add**](#agrag.ingestion.Graph.add) – Add content to the graph.
-- [**consolidate**](#agrag.ingestion.Graph.consolidate) – Run full tiered resolution against everything persisted.
+- [**consolidate**](#agrag.ingestion.Graph.consolidate) – Run non-destructive resolution against every persisted raw entity.
 - [**delete_document**](#agrag.ingestion.Graph.delete_document) – Soft-delete a document by closing its current PART_OF edges.
 - [**detect_communities**](#agrag.ingestion.Graph.detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag.ingestion.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
@@ -6670,24 +6679,24 @@ Give exactly one of `source`, `text`, and `documents`.
 consolidate(*, apply:bool = False) -> ConsolidationReport
 ```
 
-Run full tiered resolution against everything persisted.
+Run non-destructive resolution against every persisted raw entity.
 
-Dry-run by default: produces a report of what would merge before any
-node is touched. Pass apply=True to write the merges.
+Dry-run by default: produces matches before any node is touched. Pass
+apply=True to write MATCHES edges and derived ResolvedEntity nodes.
 
 For each EntityType label in self.\_schema, fetches every persisted
 entity with that label and runs the same comparator sequence add() uses
 in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
-them — O(n^2) within each label's population.
-Confirmed matches become MergePlans via compute_merge.
+them — O(n^2) within each label's population. Confirmed non-exact
+matches preserve both raw Entity nodes and their relationships.
 
 **Parameters:**
 
-- **apply** (<code>[bool](#bool)</code>) – Write the computed merges. False produces a report only.
+- **apply** (<code>[bool](#bool)</code>) – Materialize the confirmed matches. False produces a report only.
 
 **Returns:**
 
-- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every group consolidate() found, applied or not.
+- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every confirmed non-exact match, applied or not.
 
 ##### `agrag.ingestion.Graph.delete_document`
 
@@ -7388,7 +7397,7 @@ by `open()` when missing.
 **Functions:**
 
 - [**add**](#agrag.ingestion.graph.Graph.add) – Add content to the graph.
-- [**consolidate**](#agrag.ingestion.graph.Graph.consolidate) – Run full tiered resolution against everything persisted.
+- [**consolidate**](#agrag.ingestion.graph.Graph.consolidate) – Run non-destructive resolution against every persisted raw entity.
 - [**delete_document**](#agrag.ingestion.graph.Graph.delete_document) – Soft-delete a document by closing its current PART_OF edges.
 - [**detect_communities**](#agrag.ingestion.graph.Graph.detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag.ingestion.graph.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
@@ -7461,24 +7470,24 @@ Give exactly one of `source`, `text`, and `documents`.
 consolidate(*, apply:bool = False) -> ConsolidationReport
 ```
 
-Run full tiered resolution against everything persisted.
+Run non-destructive resolution against every persisted raw entity.
 
-Dry-run by default: produces a report of what would merge before any
-node is touched. Pass apply=True to write the merges.
+Dry-run by default: produces matches before any node is touched. Pass
+apply=True to write MATCHES edges and derived ResolvedEntity nodes.
 
 For each EntityType label in self.\_schema, fetches every persisted
 entity with that label and runs the same comparator sequence add() uses
 in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
-them — O(n^2) within each label's population.
-Confirmed matches become MergePlans via compute_merge.
+them — O(n^2) within each label's population. Confirmed non-exact
+matches preserve both raw Entity nodes and their relationships.
 
 **Parameters:**
 
-- **apply** (<code>[bool](#bool)</code>) – Write the computed merges. False produces a report only.
+- **apply** (<code>[bool](#bool)</code>) – Materialize the confirmed matches. False produces a report only.
 
 **Returns:**
 
-- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every group consolidate() found, applied or not.
+- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every confirmed non-exact match, applied or not.
 
 ###### `agrag.ingestion.graph.Graph.delete_document`
 
@@ -7614,8 +7623,10 @@ Non-destructive match persistence and resolved-entity computation.
 **Functions:**
 
 - [**compute_resolved_entity**](#agrag.ingestion.materialize.compute_resolved_entity) – Compute a resolved entity from its current member data only.
+- [**decisions_by_component**](#agrag.ingestion.materialize.decisions_by_component) – Map resolution evidence to raw ids and group it by connected component.
+- [**match_decision_components**](#agrag.ingestion.materialize.match_decision_components) – Group persisted match decisions by their connected raw component.
 - [**matches_id**](#agrag.ingestion.materialize.matches_id) – Return the order-independent deterministic id for an entity match.
-- [**write_match_and_materialize**](#agrag.ingestion.materialize.write_match_and_materialize) – Persist a match and materialize its supplied connected component.
+- [**write_matches_and_materialize**](#agrag.ingestion.materialize.write_matches_and_materialize) – Persist matches and materialize their supplied connected component.
 
 ##### `agrag.ingestion.materialize.MatchDecision`
 
@@ -7676,6 +7687,22 @@ compute_resolved_entity(members:list[Entity], schema:GraphSchema) -> ResolvedEnt
 
 Compute a resolved entity from its current member data only.
 
+##### `agrag.ingestion.materialize.decisions_by_component`
+
+```python
+decisions_by_component(matches:list[ResolvedMatch], mention_to_entity:dict[int, UUID]) -> list[list[MatchDecision]]
+```
+
+Map resolution evidence to raw ids and group it by connected component.
+
+##### `agrag.ingestion.materialize.match_decision_components`
+
+```python
+match_decision_components(decisions:list[MatchDecision]) -> list[list[MatchDecision]]
+```
+
+Group persisted match decisions by their connected raw component.
+
 ##### `agrag.ingestion.materialize.matches_id`
 
 ```python
@@ -7684,16 +7711,21 @@ matches_id(entity_a_id:UUID, entity_b_id:UUID) -> UUID
 
 Return the order-independent deterministic id for an entity match.
 
-##### `agrag.ingestion.materialize.write_match_and_materialize`
+##### `agrag.ingestion.materialize.write_matches_and_materialize`
 
 ```python
-write_match_and_materialize(decision:MatchDecision, *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity]) -> ResolvedEntity
+write_matches_and_materialize(decisions:list[MatchDecision], *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity]) -> ResolvedEntity
 ```
 
-Persist a match and materialize its supplied connected component.
+Persist matches and materialize their supplied connected component.
 
 Callers fetch the bounded affected component before invoking this function.
 The resolved node is always recomputed from that current membership.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – No decisions are supplied, or a decision references a
+  member outside the supplied component.
 
 #### `agrag.ingestion.merge`
 
@@ -8192,9 +8224,9 @@ Report from Graph.consolidate().
 
 **Attributes:**
 
-- [**would_merge**](#agrag.ingestion.reports.ConsolidationReport.would_merge) (<code>[list](#list)\[[MergePlan](#agrag.ingestion.merge.MergePlan)\]</code>) – The merge plans found, whether applied or not.
-- [**applied**](#agrag.ingestion.reports.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the plans were applied.
-- [**failures**](#agrag.ingestion.reports.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures re-embedding an applied survivor's final text.
+- [**would_match**](#agrag.ingestion.reports.ConsolidationReport.would_match) (<code>[list](#list)\[[MatchDecision](#agrag.ingestion.materialize.MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
+- [**applied**](#agrag.ingestion.reports.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the matches were materialized.
+- [**failures**](#agrag.ingestion.reports.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
   Always empty when apply is False.
 
 ###### `agrag.ingestion.reports.ConsolidationReport.applied`
@@ -8209,10 +8241,10 @@ applied: bool = False
 failures: list[StageFailure] = Field(default_factory=list)
 ```
 
-###### `agrag.ingestion.reports.ConsolidationReport.would_merge`
+###### `agrag.ingestion.reports.ConsolidationReport.would_match`
 
 ```python
-would_merge: list[MergePlan] = Field(default_factory=list)
+would_match: list[MatchDecision] = Field(default_factory=list)
 ```
 
 ##### `agrag.ingestion.reports.UpdateResult`
@@ -8426,9 +8458,9 @@ Report from Graph.consolidate().
 
 **Attributes:**
 
-- [**would_merge**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.would_merge) (<code>[list](#list)\[[MergePlan](#agrag.ingestion.merge.MergePlan)\]</code>) – The merge plans found, whether applied or not.
-- [**applied**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the plans were applied.
-- [**failures**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures re-embedding an applied survivor's final text.
+- [**would_match**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.would_match) (<code>[list](#list)\[[MatchDecision](#agrag.ingestion.materialize.MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
+- [**applied**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the matches were materialized.
+- [**failures**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
   Always empty when apply is False.
 
 ####### `agrag.ingestion.reports.consolidation_report.ConsolidationReport.applied`
@@ -8443,10 +8475,10 @@ applied: bool = False
 failures: list[StageFailure] = Field(default_factory=list)
 ```
 
-####### `agrag.ingestion.reports.consolidation_report.ConsolidationReport.would_merge`
+####### `agrag.ingestion.reports.consolidation_report.ConsolidationReport.would_match`
 
 ```python
-would_merge: list[MergePlan] = Field(default_factory=list)
+would_match: list[MatchDecision] = Field(default_factory=list)
 ```
 
 ##### `agrag.ingestion.reports.update_result`
@@ -8516,6 +8548,7 @@ Entity resolution public API.
 
 - [**candidate_source**](#agrag.ingestion.resolve.candidate_source) – Candidate generation for in-batch and persisted graph entities.
 - [**comparators**](#agrag.ingestion.resolve.comparators) – Comparison strategies used by entity resolution.
+- [**exact_groups**](#agrag.ingestion.resolve.exact_groups) – Exact-name grouping for permanent raw entity records.
 - [**resolver**](#agrag.ingestion.resolve.resolver) – Entity resolution: deciding which ExtractedEntity mentions are the same thing.
 - [**zone_classifier**](#agrag.ingestion.resolve.zone_classifier) – Embedding-similarity zones for non-vetoing entity comparison.
 
@@ -8537,6 +8570,7 @@ Entity resolution public API.
 **Functions:**
 
 - [**exact_match_lookup**](#agrag.ingestion.resolve.exact_match_lookup) – Return persisted exact matches, including resolved tombstone aliases.
+- [**exact_resolution_groups**](#agrag.ingestion.resolve.exact_resolution_groups) – Group mentions only when they share exact raw-entity identity.
 
 ##### `agrag.ingestion.resolve.CandidateSource`
 
@@ -9294,6 +9328,27 @@ Return the LLM's verdict, or NO_MATCH if the call itself fails.
 settings = settings
 ```
 
+##### `agrag.ingestion.resolve.exact_groups`
+
+Exact-name grouping for permanent raw entity records.
+
+**Functions:**
+
+- [**exact_resolution_groups**](#agrag.ingestion.resolve.exact_groups.exact_resolution_groups) – Group mentions only when they share exact raw-entity identity.
+
+###### `agrag.ingestion.resolve.exact_groups.exact_resolution_groups`
+
+```python
+exact_resolution_groups(mentions:list[ExtractedEntity], exact_matches:dict[int, Entity]) -> list[ResolutionGroup]
+```
+
+Group mentions only when they share exact raw-entity identity.
+
+A mention with a persisted exact match joins every other mention that
+resolves to the same raw Entity. Other mentions join only when their
+labels and normalized names match. Semantic matches deliberately remain
+separate raw records and are materialized through `MATCHES` later.
+
 ##### `agrag.ingestion.resolve.exact_match_lookup`
 
 ```python
@@ -9301,6 +9356,19 @@ exact_match_lookup(mentions:list[ExtractedEntity], *, graph_store:GraphStore) ->
 ```
 
 Return persisted exact matches, including resolved tombstone aliases.
+
+##### `agrag.ingestion.resolve.exact_resolution_groups`
+
+```python
+exact_resolution_groups(mentions:list[ExtractedEntity], exact_matches:dict[int, Entity]) -> list[ResolutionGroup]
+```
+
+Group mentions only when they share exact raw-entity identity.
+
+A mention with a persisted exact match joins every other mention that
+resolves to the same raw Entity. Other mentions join only when their
+labels and normalized names match. Semantic matches deliberately remain
+separate raw records and are materialized through `MATCHES` later.
 
 ##### `agrag.ingestion.resolve.resolver`
 

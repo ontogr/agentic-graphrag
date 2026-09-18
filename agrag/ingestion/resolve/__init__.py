@@ -5,6 +5,7 @@ from agrag.ingestion.resolve.candidate_source import (
     InBatchCandidateSource,
     exact_match_lookup,
 )
+from agrag.ingestion.resolve.exact_groups import exact_resolution_groups
 from agrag.ingestion.resolve.resolver import (
     CandidateSource,
     Comparator,
@@ -34,5 +35,6 @@ __all__ = [
     "ResolutionResult",
     "Resolver",
     "exact_match_lookup",
+    "exact_resolution_groups",
     "_group_matches",
 ]
