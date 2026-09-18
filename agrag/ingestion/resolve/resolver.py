@@ -62,6 +62,14 @@ class ComparisonVerdict(StrEnum):
     UNCERTAIN = "uncertain"
 
 
+class ComparisonResult(BaseModel):
+    """The verdict and evidence produced by one comparator."""
+
+    verdict: ComparisonVerdict
+    score: float | None = None
+    reasoning: str | None = None
+
+
 class Comparator(ABC):
     """One matching strategy a Resolver runs against a candidate pair."""
 
@@ -78,6 +86,12 @@ class Comparator(ABC):
         Returns:
             This comparator's verdict. UNCERTAIN defers to the next comparator.
         """
+
+    async def compare_with_evidence(
+        self, a: ExtractedEntity, b: ExtractedEntity
+    ) -> ComparisonResult:
+        """Compare two entities and retain any available decision evidence."""
+        return ComparisonResult(verdict=await self.compare(a, b))
 
 
 class ExactMatch(Comparator):
@@ -121,6 +135,21 @@ class FuzzyMatch(Comparator):
         if score < self.no_match_below:
             return ComparisonVerdict.NO_MATCH
         return ComparisonVerdict.UNCERTAIN
+
+    async def compare_with_evidence(
+        self, a: ExtractedEntity, b: ExtractedEntity
+    ) -> ComparisonResult:
+        """Compare two entities and include their token-sort similarity."""
+        from rapidfuzz import fuzz  # noqa: PLC0415
+
+        score = fuzz.token_sort_ratio(_normalize(a.text), _normalize(b.text)) / 100
+        if score >= self.match_above:
+            verdict = ComparisonVerdict.MATCH
+        elif score < self.no_match_below:
+            verdict = ComparisonVerdict.NO_MATCH
+        else:
+            verdict = ComparisonVerdict.UNCERTAIN
+        return ComparisonResult(verdict=verdict, score=score)
 
 
 class LLMVerify(Comparator):
@@ -168,11 +197,11 @@ class LLMVerify(Comparator):
             baml_options: dict = {}
             retry = NO_RETRY
         else:
-            from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
+            from agrag.llm import client_registry  # noqa: PLC0415
 
             client = self._default_client()
             settings = self.settings or ExtractionLLMSettings()
-            registry = build_client_registry(
+            registry = client_registry.build_client_registry(
                 settings.clients, strategy=settings.strategy
             )
             baml_options = {"client_registry": registry}
@@ -286,10 +315,10 @@ class Resolver:
                 if pair in compared:
                     continue
                 compared.add(pair)
-                verdict, comparator = await self._first_verdict(
+                comparison, comparator = await self._first_verdict(
                     entities[index], entities[candidate_index]
                 )
-                if verdict is ComparisonVerdict.MATCH:
+                if comparison.verdict is ComparisonVerdict.MATCH:
                     edges.append(pair)
                     if not isinstance(comparator, ExactMatch):
                         matches.append(
@@ -297,6 +326,8 @@ class Resolver:
                                 left_index=pair[0],
                                 right_index=pair[1],
                                 comparator=type(comparator).__name__,
+                                score=comparison.score,
+                                reasoning=comparison.reasoning,
                                 decided_at=datetime.now(UTC),
                             )
                         )
@@ -308,14 +339,14 @@ class Resolver:
 
     async def _first_verdict(
         self, a: ExtractedEntity, b: ExtractedEntity
-    ) -> tuple[ComparisonVerdict, Comparator | None]:
+    ) -> tuple[ComparisonResult, Comparator | None]:
         """Return the first non-UNCERTAIN verdict, or NO_MATCH if none.
 
         This is the fail-safe fallback: a pair every comparator is UNCERTAIN
         about is treated as distinct, never merged.
         """
         for comparator in self.comparators:
-            verdict = await comparator.compare(a, b)
-            if verdict is not ComparisonVerdict.UNCERTAIN:
-                return verdict, comparator
-        return ComparisonVerdict.NO_MATCH, None
+            result = await comparator.compare_with_evidence(a, b)
+            if result.verdict is not ComparisonVerdict.UNCERTAIN:
+                return result, comparator
+        return ComparisonResult(verdict=ComparisonVerdict.NO_MATCH), None

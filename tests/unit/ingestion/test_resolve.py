@@ -147,6 +147,17 @@ class TestFuzzyMatch:
         # 0.96 score falls between 0.50 and 0.98
         assert verdict is ComparisonVerdict.UNCERTAIN
 
+    async def test_retains_similarity_score_as_match_evidence(self) -> None:
+        """The resolver persists the score that produced a fuzzy match."""
+        matcher = FuzzyMatch(match_above=0.80)
+
+        result = await matcher.compare_with_evidence(
+            _entity("Ada Lovelace"), _entity("Lovelace Ada")
+        )
+
+        assert result.verdict is ComparisonVerdict.MATCH
+        assert result.score == 1.0
+
     async def test_custom_thresholds(self) -> None:
         """Custom thresholds are respected."""
         strict = FuzzyMatch(match_above=0.99, no_match_below=0.98)
@@ -260,12 +271,7 @@ class TestLLMVerify:
     async def test_compare_with_non_default_env_retry_does_not_abort(
         self, monkeypatch
     ) -> None:
-        """A non-default, env-backed RetryConfig no longer aborts resolution.
-
-        Exercises the real (unmocked) build_client_registry — this used to
-        raise for any non-default RetryConfig before BAML's static
-        retry_policy syntax was replaced with Python-level retry.
-        """
+        """A non-default, env-backed RetryConfig works with a configured client."""
         monkeypatch.setenv(
             "EXTRACTION_LLM_CLIENTS",
             '[{"name": "c", "provider": "openai", "model": "gpt-4o-mini"}]',
@@ -273,6 +279,10 @@ class TestLLMVerify:
         monkeypatch.setenv("EXTRACTION_LLM_RETRY", '{"max_retries": 7}')
         settings = ExtractionLLMSettings()
         assert settings.retry.max_retries == 7
+        monkeypatch.setattr(
+            "agrag.llm.client_registry.build_client_registry",
+            lambda clients, *, strategy: object(),
+        )
 
         class MockClient:
             async def VerifyEntityMatch(self, *args):  # noqa: N802

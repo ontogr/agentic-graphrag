@@ -9,6 +9,7 @@ from agrag.ingestion.resolve.exact_groups import exact_resolution_groups
 from agrag.ingestion.resolve.resolver import (
     CandidateSource,
     Comparator,
+    ComparisonResult,
     ComparisonVerdict,
     ExactMatch,
     FuzzyMatch,
@@ -24,6 +25,7 @@ from agrag.ingestion.resolve.resolver import (
 __all__ = [
     "CandidateSource",
     "Comparator",
+    "ComparisonResult",
     "ComparisonVerdict",
     "ExactMatch",
     "FuzzyMatch",

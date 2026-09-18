@@ -5,6 +5,7 @@
 # orchestration is split out in a later phase.
 from agrag.ingestion.resolve.resolver import (
     Comparator,
+    ComparisonResult,
     ComparisonVerdict,
     ExactMatch,
     FuzzyMatch,
@@ -12,4 +13,11 @@ from agrag.ingestion.resolve.resolver import (
 )
 
 
-__all__ = ["Comparator", "ComparisonVerdict", "ExactMatch", "FuzzyMatch", "LLMVerify"]
+__all__ = [
+    "Comparator",
+    "ComparisonResult",
+    "ComparisonVerdict",
+    "ExactMatch",
+    "FuzzyMatch",
+    "LLMVerify",
+]
