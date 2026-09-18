@@ -174,10 +174,10 @@ class TestResolverIntegration:
             ],
             candidate_source=InBatchCandidateSource(),
         )
-        groups = await resolver.resolve(entities)
+        result = await resolver.resolve(entities)
 
         # Ada Lovelace pair should be grouped; Charles alone
-        all_indices = [g.entity_indices for g in groups]
+        all_indices = [g.entity_indices for g in result.groups]
         ada_group = next(g for g in all_indices if 0 in g)
         assert set(ada_group) == {0, 1}
         charles_group = next(g for g in all_indices if 2 in g)
@@ -208,9 +208,9 @@ class TestResolverIntegration:
             ],
             candidate_source=InBatchCandidateSource(),
         )
-        groups = await resolver.resolve(entities)
+        result = await resolver.resolve(entities)
 
         # Both forms refer to the same person — LLM should confirm
-        all_indices = [g.entity_indices for g in groups]
+        all_indices = [g.entity_indices for g in result.groups]
         assert len(all_indices) == 1
         assert set(all_indices[0]) == {0, 1}

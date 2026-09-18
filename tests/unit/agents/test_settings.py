@@ -1,4 +1,11 @@
-"""Tests for agent settings."""
+"""Tests for AgentLLMSettings and AgentSettings.
+
+Covers ``from_openai_compatible_env`` reading ``AGENT_LLM_*`` env vars, its
+fallback to the shared ``LLM_*`` vars when the agent-specific ones are unset,
+direct construction, and the default/custom agent recursion limit. Sets and
+tears down real environment variables with ``os.environ`` rather than
+``monkeypatch``.
+"""
 
 import os
 

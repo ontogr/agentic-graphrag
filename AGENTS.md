@@ -16,6 +16,20 @@ The repo is hosted at `ontogr/agentic-graphrag`.
 - Python: `>=3.11`.
 - Package manager and command runner: `uv`.
 
+## Pre-1.0 policy — breaking changes expected
+
+Project is pre-1.0 with no stability promise. Breaking changes are allowed
+and recommended if they produce better results. This section overrides any
+stability or compatibility rule in this file or in `.rules/`.
+
+Default to a hard cut. Do not add backward-compat aliases, deprecated shims,
+fallback parsing, migration bridges, or tests for the previous API unless the
+user explicitly asks. Remove the old surface and write tests only for the
+current behavior, as if the old API never existed.
+
+Do not add backwards-compatibility shims, deprecation comments, or feature
+flags for changes that have not been released yet. Just edit the code.
+
 ## How to use the detailed rule files
 
 Read the specific rule file before doing work in that category. Do not load all
@@ -39,7 +53,8 @@ of every rule area below, so an agent that loads only this file can proceed. The
 `.rules/` files hold the authoritative, exhaustive version; load the one for your
 task before substantive work in that area. Where both state a rule they use the
 same wording and agree by construction. If they ever diverge, the rule file is
-authoritative and more specific to the task controls the implementation details.
+authoritative, except the Pre-1.0 policy above, which overrides all rule files.
+More specific task instructions control implementation details.
 
 ## Repository structure
 
@@ -61,11 +76,14 @@ For the full project map and component responsibilities, read
 
 ## Critical rules
 
+- Do not add any documentation or comments that would not reside in a production codebase. Comments should be developer/user friendly not intermediate findings when performing a task.
+- Do not include comments referring to internal plans, notes, or comments written by agents while performing a task.
 - Keep the flat layout: `agrag/` lives at the repository root. Do not add
   `src/`.
 - Use `uv run` for Python commands and Makefile targets for standard checks.
 - Public component APIs are async unless an existing interface requires sync.
-- Preserve public APIs unless the user explicitly approves a breaking change.
+- Preserve public APIs within a release; the Pre-1.0 policy above governs
+  breaking changes.
 - Inject dependencies through constructors or function parameters; do not add a
   dependency-injection framework.
 - Match existing patterns before introducing new abstractions.
@@ -124,6 +142,9 @@ Read @.claude/.rules/python-architecture.md before non-trivial Python changes.
 - Do not use classes only for namespacing, single-method wrappers, or grouping
   pure functions.
 - Do not add abstractions for single-use code or hypothetical future needs.
+  If you catch yourself adding "for future extensibility", stop. Ship the
+  smallest code that satisfies this task; add configurability only when a
+  second caller exists in this repo.
 - Use `snake_case` for functions and variables, `PascalCase` for classes, and
   `test_*.py` for tests.
 - Prefer descriptive names. Avoid abbreviations such as `ver` when `version` is
@@ -153,7 +174,8 @@ Read @.claude/.rules/python-architecture.md before non-trivial Python changes.
 
 ### Public API stability
 
-Public APIs are contracts. Before changing a public function, class, constructor,
+The Pre-1.0 policy above controls. Within a release, public APIs are
+contracts. Before changing a public function, class, constructor,
 or exported symbol:
 
 1. Check whether it is exported from a package `__init__.py`.
@@ -225,9 +247,10 @@ Read @.claude/.rules/testing.md before adding or changing tests.
 - For tests over multiple inputs, use `@pytest.mark.parametrize`.
 - Always read and copy the style of similar nearby tests before adding fixtures
   or helpers.
-- For bug fixes, extend the existing mapped test file when one already covers
-  the affected module. Create a new test file only when no mapped test exists or
-  a new feature/component needs one.
+- For bug fixes, write a failing test that reproduces the reported symptom,
+  then make it pass. Extend the existing mapped test file when one already
+  covers the affected module; do not create new scaffolding when a suite for
+  the module exists.
 - One focused regression test that fails without the fix is better than many
   shallow tests that do not prove behavior.
 - Do not write assertion-free tests just to increase coverage.
@@ -278,6 +301,7 @@ errors.
 - Never use the passive where you can use the active.
 - Never use a foreign phrase, a scientific word, or a jargon word if you can think of an everyday English equivalent.
 - Break any of these rules sooner than say anything outright barbarous.
+- Use the ASD-STE100 Simplified Technical English (STE) standard writing style.
 
 ## Docstrings and comments
 
@@ -366,7 +390,9 @@ Read @.claude/.rules/workflow.md for the detailed coding workflow.
 
 - If the request is ambiguous and multiple valid interpretations materially
   change the solution, ask one narrow clarifying question.
-- Otherwise make a reasonable assumption and proceed.
+- Ask before changing public API shape, Neo4j labels/relationship types,
+  persistence, dependencies, config keys, or docs build. Otherwise make a
+  reasonable assumption and proceed.
 - State assumptions when they affect the implementation. Surface tradeoffs and
   push back when a simpler or safer approach exists.
 - Before changing code, inspect enough nearby code and tests to follow existing
@@ -405,9 +431,9 @@ Use judgment based on scope, but default to these artifacts.
 
 ### Refactors/internal changes
 
-- Preserve public behavior.
-- Avoid changing tests unless the public contract changes or tests were coupled
-  to implementation details.
+- Preserve public behavior unless the change itself intends a break under the
+  Pre-1.0 policy; update tests to the current behavior and drop tests for
+  removed APIs.
 - Run existing tests that cover the refactored behavior.
 
 ### Documentation-only changes
@@ -442,8 +468,9 @@ Before handing off non-trivial changes, check:
 
 - Correctness: the code does what the request says and handles relevant edge
   cases such as empty inputs, `None`, and boundary values.
-- Public contract: public APIs, documented behavior, and existing call sites are
-  preserved unless a breaking change was explicitly approved.
+- Public contract: breaking changes follow the Pre-1.0 policy (hard cut, old
+  surface removed, no compat shims); no leftover aliases or old-API tests
+  remain.
 - Tests: changed behavior has meaningful tests that fail when the behavior is
   broken and do not depend on private internals.
 - Style: new or modified public functions are typed, docstrings are updated when
@@ -469,8 +496,9 @@ Before handing off non-trivial changes, check:
   compatibility reason.
 - Do not pipe remote install scripts into a shell in CI or documentation.
 - Do not refactor, reformat, or clean adjacent code just because it is nearby.
-- Do not change public APIs without explicit approval and documentation/testing
-  updates.
+- Do not change public APIs without explicit approval unless the Pre-1.0 policy
+  above allows the break; never keep the old API beside the new one, and update
+  docs and tests to the current behavior.
 - Do not change CI, Ruff, pytest, or typing config unless explicitly asked.
 - Do not add AI attribution to commits, branches, PR descriptions, comments, or
   issues.

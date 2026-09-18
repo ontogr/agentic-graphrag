@@ -1,4 +1,14 @@
-"""Tests for validation helpers shared across storage backends."""
+"""Tests for the shared guard functions in agrag.common.validation.
+
+Covers require_encrypted_remote_connection's default posture (a remote
+plaintext connection is allowed unless it carries a credential, since a
+schemeless or unparsable URL is deliberately not flagged) versus its
+stricter ``require_encryption=True`` mode (rejects any remote plaintext
+connection, credential or not, while still allowing loopback hosts); and
+require_positive_batch_size, require_valid_search_limit (bounded by
+MAX_SEARCH_LIMIT), and require_valid_alpha enforcing their respective
+numeric contracts, parametrized over valid and invalid values.
+"""
 
 import pytest
 

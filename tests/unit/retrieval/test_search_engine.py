@@ -1,4 +1,20 @@
-"""Tests for SearchEngine."""
+"""Tests for SearchEngine in agrag.retrieval.search_engine.
+
+Patches retriever-level ``vector_search``/``resolve_entity``/
+``_parse_chunk_node`` functions and BFSRetriever/node_distance_rerank with
+AsyncMock/MagicMock, using an AsyncMock graph store, so no real database or
+embedding call is made. Covers single-method and HYBRID (fused entity+chunk)
+recipes, forwarding a recipe's bfs_depth to BFSRetriever (or omitting it when
+None), that SearchFilters route to only the retrievers they apply to
+(relation_types to BFS, labels to entity search, document_ids to chunk
+search), that BFS fusion uses one "bfs" key rather than one per prior result,
+that node-distance rerank seeds are the pre-BFS top-k entity ids only (never
+chunk ids or every candidate), that entity_labels (not the collection name)
+drive native entity search, and error handling: every method failing raises
+AllRetrievalMethodsFailedError, a partial failure keeps surviving results and
+logs a warning, and an unknown recipe method name raises
+UnknownRecipeMethodError instead of silently returning no hits.
+"""
 
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,8 +23,10 @@ from uuid import uuid4
 import pytest
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.retrieval.errors import (
@@ -260,8 +278,8 @@ class TestSearchEngine:
 
             await engine.search("test", HYBRID, filters=filters)
 
-            # Entity search should have received the label filter.
-            entity_call = mock_ev.call_args
+            # Raw entity search should have received the label filter as-is.
+            entity_call = mock_ev.call_args_list[0]
             entity_filters = entity_call.kwargs.get("filters")
             assert entity_filters is not None
             assert entity_filters.labels == ["Person"]
@@ -310,6 +328,153 @@ class TestSearchEngine:
             chunk_filters = chunk_call.kwargs.get("filters")
             assert chunk_filters is not None
             assert chunk_filters.document_ids == [doc_id]
+
+    async def test_community_expand_receives_scoping_filters(self) -> None:
+        """document_ids/properties filters reach community_context.
+
+        Regression test: community expansion used to ignore the active
+        SearchFilters entirely, so a document- or property-scoped search
+        could still be enriched with a community report drawn from
+        outside that scope.
+        """
+        ent = Entity(id=uuid4(), label="Person", name="Alice")
+        gs = AsyncMock()
+        embedder = MockEmbedder()
+        engine = SearchEngine(graph_store=gs, embedder=embedder)
+        recipe = Recipe(methods=["entity"], community_expand=True, community_top_k=2)
+        doc_id = str(uuid4())
+        filters = SearchFilters(document_ids=[doc_id])
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_vs,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "agrag.retrieval.search_engine.community_context",
+                new_callable=AsyncMock,
+            ) as mock_cc,
+        ):
+            mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
+            mock_resolve.return_value = ent
+            mock_cc.return_value = []
+
+            await engine.search("test", recipe, filters=filters)
+
+            mock_cc.assert_awaited_once()
+            call_kwargs = mock_cc.call_args.kwargs
+            community_filters = call_kwargs["filters"]
+            assert community_filters is not None
+            assert community_filters.document_ids == [doc_id]
+
+    async def test_community_expand_fuses_nonempty_results(self) -> None:
+        """Non-empty community_context results are fused into the output."""
+        ent = Entity(id=uuid4(), label="Person", name="Alice")
+        community = Community(
+            id=uuid4(),
+            title="T",
+            summary="S",
+            rating=5,
+            rating_explanation="e",
+        )
+        gs = AsyncMock()
+        embedder = MockEmbedder()
+        engine = SearchEngine(graph_store=gs, embedder=embedder)
+        recipe = Recipe(methods=["entity"], community_expand=True, community_top_k=2)
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_vs,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "agrag.retrieval.search_engine.community_context",
+                new_callable=AsyncMock,
+            ) as mock_cc,
+        ):
+            mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
+            mock_resolve.return_value = ent
+            mock_cc.return_value = [
+                SearchResult(item=community, score=5.0, method="community")
+            ]
+
+            results = await engine.search("test", recipe)
+
+            assert any(r.item.id == community.id for r in results)
+
+    async def test_cross_encoder_reserves_slots_for_community_items(self) -> None:
+        """cross_encoder reranking excludes communities and reserves them slots.
+
+        Community items are never sent to cross_encoder_rerank, and the
+        number of reserved slots after rerank is capped at
+        recipe.community_top_k even when more community items are present.
+        """
+        ent1 = Entity(id=uuid4(), label="Person", name="E1")
+        ent2 = Entity(id=uuid4(), label="Person", name="E2")
+        comm1 = Community(
+            id=uuid4(), title="C1", summary="S", rating=5, rating_explanation="e"
+        )
+        comm2 = Community(
+            id=uuid4(), title="C2", summary="S", rating=5, rating_explanation="e"
+        )
+        gs = AsyncMock()
+        embedder = MockEmbedder()
+        engine = SearchEngine(graph_store=gs, embedder=embedder)
+        recipe = Recipe(
+            methods=["entity"],
+            reranker="cross_encoder",
+            community_expand=True,
+            community_top_k=1,
+            limit=3,
+        )
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_vs,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "agrag.retrieval.search_engine.community_context",
+                new_callable=AsyncMock,
+            ) as mock_cc,
+            patch(
+                "agrag.retrieval.search_engine.cross_encoder_rerank",
+                new_callable=AsyncMock,
+            ) as mock_cer,
+        ):
+            mock_vs.return_value = [
+                VectorHit(id=ent1.id, score=0.9, payload={}),
+                VectorHit(id=ent2.id, score=0.8, payload={}),
+            ]
+            mock_resolve.side_effect = [ent1, ent2]
+            mock_cc.return_value = [
+                SearchResult(item=comm1, score=5.0, method="community"),
+                SearchResult(item=comm2, score=4.0, method="community"),
+            ]
+            mock_cer.return_value = [
+                SearchResult(item=ent1, score=0.99, method="cross_encoder"),
+                SearchResult(item=ent2, score=0.5, method="cross_encoder"),
+            ]
+
+            results = await engine.search("test", recipe)
+
+            rerank_call_items = mock_cer.call_args.args[1]
+            assert all(not isinstance(r.item, Community) for r in rerank_call_items)
+
+            community_results = [r for r in results if isinstance(r.item, Community)]
+            assert len(community_results) == 1
 
     async def test_bfs_fusion_not_split_per_prior_result(self) -> None:
         """BFS fusion uses a single methods key, not one per result."""
@@ -519,8 +684,10 @@ class TestSearchEngine:
 
             await engine.search("test", ENTITY)
 
-            assert mock_ev.call_args.kwargs["labels"] == ["Drug", "Disease"]
-            assert mock_ev.call_args.kwargs["collection"] == "agrag_entities"
+            raw_call, resolved_call = mock_ev.call_args_list
+            assert raw_call.kwargs["labels"] == ["Drug", "Disease"]
+            assert raw_call.kwargs["collection"] == "agrag_entities"
+            assert resolved_call.kwargs["labels"] == ("ResolvedEntity",)
 
     async def test_raises_when_every_method_fails(self) -> None:
         """A total retriever outage raises instead of returning no hits."""
@@ -617,3 +784,54 @@ class TestSearchEngine:
             results = await engine.search("test", ENTITY)
 
         assert results == []
+
+    async def test_community_expand_failure_keeps_search_results(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A community lookup error does not discard successful search results."""
+        entity = Entity(id=uuid4(), label="Person", name="Ada", properties={})
+        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+        recipe = Recipe(methods=["entity"], community_expand=True)
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_search,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "agrag.retrieval.search_engine.community_context",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("community store unavailable"),
+            ),
+        ):
+            mock_search.return_value = [VectorHit(id=entity.id, score=0.9, payload={})]
+            mock_resolve.return_value = entity
+
+            with caplog.at_level(logging.WARNING):
+                results = await engine.search("Ada", recipe)
+
+        assert [result.item for result in results] == [entity]
+        assert "Community expansion failed" in caplog.text
+
+    def test_extract_entity_ids_uses_resolved_entity_members(self) -> None:
+        """A ResolvedEntity contributes its raw member ids, not its own id."""
+        entity = Entity(id=uuid4(), label="Person", name="Ada")
+        member_a, member_b = uuid4(), uuid4()
+        resolved = ResolvedEntity(
+            id=uuid4(),
+            label="Person",
+            name="Cluster",
+            member_ids=[member_a, member_b],
+        )
+        results = [
+            SearchResult(item=entity, score=0.9, method="test"),
+            SearchResult(item=resolved, score=0.8, method="test"),
+        ]
+
+        ids = SearchEngine._extract_entity_ids(results)
+
+        assert ids == [entity.id, member_a, member_b]

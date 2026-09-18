@@ -1,4 +1,10 @@
-"""Tests for RetrievalSettings."""
+"""Tests for RetrievalSettings in agrag.retrieval.settings.
+
+Covers default values across all fields (collection names, top_k, hybrid
+alpha, traversal depth/limit, RRF k, text2cypher limits), explicit overrides,
+and reading a field from the RETRIEVAL_ env prefix via real environment
+variables rather than monkeypatch.
+"""
 
 import os
 
@@ -12,8 +18,10 @@ class TestRetrievalSettings:
         """Default settings have expected values."""
         s = RetrievalSettings()
         assert s.entity_collection == "agrag_entities"
+        assert s.resolved_entity_collection == "agrag_resolved_entities"
         assert s.chunk_collection == "agrag_chunks"
         assert s.entity_top_k == 10
+        assert s.resolved_entity_top_k == 10
         assert s.chunk_top_k == 10
         assert s.hybrid_alpha == 0.5
         assert s.traversal_depth == 2

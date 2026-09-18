@@ -1,4 +1,4 @@
-"""The canonical, resolved graph entity that merge mechanics produces."""
+"""A graph entity assembled from mentions resolution confirmed as the same thing."""
 
 from uuid import UUID
 
@@ -24,8 +24,7 @@ class Entity(DataPoint):
             EntityType.properties for this label declares). Never holds name.
         embedding: The entity's dense vector, once populated by the storage
             stage. None before that point.
-        merged_from: Ids of entities absorbed into this one by a tombstone
-            merge. Empty for an entity that has never absorbed another.
+        merged_from: Ids of entities accumulated by exact-name matching.
         merge_count: The total number of source mentions and absorbed
             entities this entity's data was assembled from. Starts at 1.
         source_chunk_ids: Ids of every Chunk a mention contributing to this

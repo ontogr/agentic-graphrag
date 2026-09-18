@@ -1,4 +1,12 @@
-"""Tests for identity resolution: resolve_entity."""
+"""Tests for resolve_entity in agrag.retrieval.identity.
+
+Uses an AsyncMock graph store returning rows shaped like
+resolve_merged_into_query's output. Covers a missing entity raising
+ValueError, a live (non-tombstoned) entity resolving in one query, following
+a multi-hop merged_into chain to its survivor, a chain pointing at a missing
+node raising, a merged_into cycle raising instead of looping forever, and a
+chain longer than MAX_MERGE_HOPS raising.
+"""
 
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4

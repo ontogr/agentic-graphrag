@@ -94,8 +94,8 @@ agent = build_agent(
 )
 ```
 
-The filters are fixed at build time and applied inside the tools; the
-model cannot see or override them.
+Your application fixes the filters at build time. The tools apply the
+filters internally, and the model cannot see or override them.
 
 ## Available Recipes
 
@@ -121,6 +121,6 @@ RETRIEVAL_TRAVERSAL_DEPTH=2
 
 `RETRIEVAL_ENTITY_LABELS` (or the `entity_labels` argument) names the schema
 entity labels that entity search runs against. Ingestion creates one native
-vector index per label, so search needs the labels themselves, not the
-`RETRIEVAL_ENTITY_COLLECTION` name, which applies only when a `VectorStore`
-is configured.
+vector index per label, so search needs the labels themselves. The
+`RETRIEVAL_ENTITY_COLLECTION` name does not apply here; it applies only when
+you configure a separate `VectorStore`.

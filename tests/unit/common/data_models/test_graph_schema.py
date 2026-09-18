@@ -1,4 +1,14 @@
-"""Tests for the GraphSchema contract and the GENERIC schema."""
+"""Tests for the GraphSchema, EntityType, RelationType models and GENERIC.
+
+Verifies the shipped GENERIC schema is internally consistent (every relation
+pattern references a declared entity label) and has its expected five entity
+types and one relation, that a GraphSchema survives a JSON dump/validate
+round trip unchanged, that EntityType defaults to empty properties and
+subtypes, and that it rejects property names reserved by the vector payload.
+"""
+
+import pytest
+from pydantic import ValidationError
 
 from agrag.common.data_models.graph_schema import (
     GENERIC,
@@ -57,3 +67,82 @@ class TestGraphSchemaRoundTrip:
         entity = EntityType(label="X", description="y")
         assert entity.properties == {}
         assert entity.subtypes == []
+
+
+class TestEntityTypeReservedPropertyNames:
+    """EntityType rejects property names the vector payload reserves."""
+
+    @pytest.mark.parametrize("reserved", ["label", "text"])
+    def test_rejects_reserved_name(self, reserved: str) -> None:
+        """A property named label or text raises, naming the fix.
+
+        Both are payload keys every mirrored entity embedding carries, so a
+        property with either name would hide the real value from the
+        VectorStore's label filter and keyword indexing. The message states
+        the migration, since a schema persisted before this check existed
+        must be renamed or stripped before it loads again.
+        """
+        with pytest.raises(ValidationError, match=reserved) as excinfo:
+            EntityType(
+                label="Person",
+                description="A named individual.",
+                properties={reserved: "str"},
+            )
+        assert "Rename or remove" in str(excinfo.value)
+
+    def test_payload_written_before_the_check_must_be_migrated(self) -> None:
+        """A persisted schema declaring a reserved property fails to load.
+
+        The rejection is deliberately breaking: a payload dumped before this
+        check existed validates no more, and the error names the migration
+        rather than accepting a schema whose two retrieval paths disagree.
+        """
+        persisted = {
+            "name": "clinical",
+            "version": "1",
+            "entities": [
+                {
+                    "label": "Person",
+                    "description": "A named individual.",
+                    "properties": {"text": "str"},
+                }
+            ],
+            "relations": [],
+        }
+        with pytest.raises(ValidationError, match="text") as excinfo:
+            GraphSchema.model_validate(persisted)
+        assert "Rename or remove" in str(excinfo.value)
+
+    def test_rejects_reserved_name_among_valid_ones(self) -> None:
+        """One reserved name alongside valid properties still rejects the type."""
+        with pytest.raises(ValidationError, match="label"):
+            EntityType(
+                label="Person",
+                description="A named individual.",
+                properties={"role": "str", "label": "str"},
+            )
+
+    def test_rejects_when_nested_in_schema(self) -> None:
+        """The rejection also applies to a type built inside a GraphSchema."""
+        with pytest.raises(ValidationError, match="text"):
+            GraphSchema(
+                name="clinical",
+                version="1",
+                entities=[
+                    EntityType(
+                        label="Person",
+                        description="A named individual.",
+                        properties={"text": "str"},
+                    )
+                ],
+                relations=[],
+            )
+
+    def test_accepts_unreserved_names(self) -> None:
+        """Names outside the reserved set are kept unchanged."""
+        entity = EntityType(
+            label="Person",
+            description="A named individual.",
+            properties={"role": "str", "age": "int"},
+        )
+        assert entity.properties == {"role": "str", "age": "int"}

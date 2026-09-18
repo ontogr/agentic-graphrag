@@ -20,14 +20,12 @@ class Chunk(DataPoint):
     """One retrieval-sized piece of a Document.
 
     Attributes:
-        document_id: The id of the parent Document. Use this id to look up fields such
-        as
-            ``record_index`` on the parent Document.
+        document_id: The id of the parent Document. Use this id to look up fields
+            such as ``record_index`` on the parent Document.
         index: The position of the chunk within its document, from 0.
         text: The chunk text.
-        provenance: The location of this chunk in its source. The shape of this value
-        depends
-            on which chunker made the chunk.
+        provenance: The location of this chunk in its source. The shape of this
+            value depends on which chunker made the chunk.
         heading_path: The headings that contain this chunk, from outermost to innermost.
             Empty for a docling chunk and for a chunk with no heading above it.
         content_kind: The kind of content in this chunk. A text chunker always sets
@@ -59,33 +57,38 @@ class Chunk(DataPoint):
         cls,
         *,
         document_id: UUID,
+        version_id: UUID | None = None,
         provenance: TextProvenance | PageProvenance,
         index: int,
     ) -> UUID:
         """Compute the chunk id.
 
         For a text chunk, the id comes from the document id and the character span. A
-        change in chunk size shifts the span, so it also changes the id.
+        change in chunk size shifts the span, so it also changes the id. When supplied,
+        ``version_id`` makes the id distinct for each version of a document.
 
         For a docling chunk, the id comes from the document id and the chunk index
-        instead.
-        Docling parsing is not always the same between runs, so this id is not stable
-        across
-        a re-parse of the same source.
+        instead. Docling parsing is not always the same between runs, so this id is
+        not stable across a re-parse of the same source.
 
         Args:
             document_id: The id of the parent Document.
+            version_id: Optional id for the parent document version.
             provenance: The provenance of the chunk. Its type picks which id rule
-            applies.
+                applies.
             index: The position of the chunk within its document.
 
         Returns:
             The chunk id.
         """
+        version_suffix = f":{version_id}" if version_id is not None else ""
         if isinstance(provenance, TextProvenance):
-            key = f"Chunk:{document_id}:{provenance.char_start}:{provenance.char_end}"
+            key = (
+                f"Chunk:{document_id}{version_suffix}:"
+                f"{provenance.char_start}:{provenance.char_end}"
+            )
         else:
-            key = f"Chunk:{document_id}:{index}"
+            key = f"Chunk:{document_id}{version_suffix}:{index}"
         return uuid5(NAMESPACE_OID, key)
 
     def to_node_record(self) -> NodeRecord:

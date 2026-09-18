@@ -261,7 +261,10 @@ def set_embedding_query(vector_property: str) -> str:
 
     Returns:
         Parameterized Cypher expecting $records, a list of dicts with the keys
-        id, vector, expected_name, and expected_description.
+        id, vector, expected_name, and expected_description. Each row the
+        guard actually matched comes back as ``{"id": <node id>}``, so a
+        caller can tell which records were applied and which were skipped
+        because a concurrent write already changed or removed the node.
     """
     safe_property = validate_identifier(vector_property)
     return (
@@ -270,7 +273,8 @@ def set_embedding_query(vector_property: str) -> str:
         f"WHERE n.name = record.expected_name "
         f"AND coalesce(n.description, '') = record.expected_description "
         f"AND n.merged_into IS NULL "
-        f"SET n.{safe_property} = record.vector"
+        f"SET n.{safe_property} = record.vector "
+        f"RETURN n.id AS id"
     )
 
 
@@ -290,7 +294,10 @@ def clear_property_query(property_name: str) -> str:
 
     Returns:
         Parameterized Cypher expecting $records, a list of dicts with the keys
-        id, expected_name, and expected_description.
+        id, expected_name, and expected_description. Each row the guard
+        actually matched comes back as ``{"id": <node id>}``, so a caller can
+        tell which records were cleared and which were skipped because a
+        concurrent write already changed or removed the node.
     """
     safe_property = validate_identifier(property_name)
     return (
@@ -298,7 +305,8 @@ def clear_property_query(property_name: str) -> str:
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
         f"WHERE n.name = record.expected_name "
         f"AND coalesce(n.description, '') = record.expected_description "
-        f"REMOVE n.{safe_property}"
+        f"REMOVE n.{safe_property} "
+        f"RETURN n.id AS id"
     )
 
 
@@ -390,10 +398,9 @@ def resolve_merged_into_query() -> str:
     """Return a node and the id of the node it was merged into.
 
     A tombstoned node is never deleted; it only gains a ``merged_into``
-    property pointing at its survivor (ADR 0033). The pointer is a
-    property, not a relationship, so a chain is followed one hop per
-    call: ``merged_into`` is null on a live node and holds the next id
-    on a tombstone.
+    property pointing at its survivor. The pointer is a property, not a
+    relationship, so a chain is followed one hop per call: ``merged_into``
+    is null on a live node and holds the next id on a tombstone.
 
     Returns:
         A parameterized query expecting an $id parameter, returning the
@@ -408,7 +415,7 @@ def resolve_merged_into_query() -> str:
 def hydrate_entities_by_id_query() -> str:
     """Build Cypher fetching entities by id, excluding tombstones.
 
-    A tombstoned node is never deleted (ADR 0033) so a naive
+    A tombstoned node is never deleted, so a naive
     ``MATCH (n) WHERE n.id IN $ids`` would surface one. This query
     filters on ``merged_into IS NULL`` to return only live nodes.
 
@@ -426,14 +433,22 @@ def hydrate_entities_by_id_query() -> str:
 def hydrate_chunks_by_id_query() -> str:
     """Build Cypher fetching chunks by id.
 
-    Chunks are never tombstoned, so no merged_into guard is needed.
-    The query filters on the Chunk label for type safety.
+    The query follows only currently valid PART_OF edges, so superseded
+    document versions cannot surface in retrieval. Chunks without any
+    PART_OF edge are also returned for direct or legacy chunk fixtures.
 
     Returns:
         Parameterized Cypher expecting $ids (list of string ids).
     """
     return (
-        f"UNWIND $ids AS id MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) RETURN n"
+        f"UNWIND $ids AS id "
+        f"MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) "
+        f"WHERE NOT EXISTS {{ "
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[:PART_OF]->(n) "
+        f"}} OR EXISTS {{ "
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
+        f"WHERE p.invalid_at IS NULL }} "
+        f"RETURN n"
     )
 
 

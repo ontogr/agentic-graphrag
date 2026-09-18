@@ -83,6 +83,14 @@ repos:
         # Override the global exclude so pytest runs even when only
         # BAML-client files changed, to catch regressions elsewhere.
         exclude: '(^tests/.*/fixtures/)'
+      - id: docs-api
+        name: docs-api (griffe2md)
+        entry: "bash -c 'DOCS_GRIPPE2MD=griffe2md make docs-api'"
+        # Keep the docs generator and its chunker available in pre-commit.ci.
+        language: python
+        additional_dependencies: ["griffe2md==1.5.0", "chonkie==1.7.0"]
+        pass_filenames: false
+        files: '^(agrag/.*\.py|pyproject\.toml|uv\.lock|Makefile|docs/docs/api/index\.md)$'
 
 ci:
   autofix_prs: true

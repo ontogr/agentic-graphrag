@@ -1,5 +1,6 @@
 """The Document model: one unit of source text, before chunking."""
 
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import NAMESPACE_OID, UUID, uuid5
@@ -7,6 +8,10 @@ from uuid import NAMESPACE_OID, UUID, uuid5
 from pydantic import BaseModel, Field, model_validator
 
 from agrag.common.data_models.data_point import DataPoint
+from agrag.common.data_models.graph_record import NodeRecord
+
+
+DOCUMENT_LABEL = "Document"
 
 
 class DocumentFamily(StrEnum):
@@ -65,16 +70,13 @@ class HeadingRef(BaseModel):
 class Document(DataPoint):
     """One unit of source text, before chunking.
 
-    A prose source, such as a Markdown file, makes one Document. A record source, such
-    as a
-    CSV file, makes one Document per row.
+    A prose source, such as a Markdown file, makes one Document. A record source,
+    such as a CSV file, makes one Document per row.
 
-    The way the system computes ``content_hash`` depends on the loader. A text loader
-    hashes
-    the decoded text. A docling loader hashes the raw source bytes instead of the parsed
-    output, because docling's parsed output can change between docling versions and
-    between
-    runs on different hardware.
+    The way the system computes ``content_hash`` depends on the loader. A text
+    loader hashes the decoded text. A docling loader hashes the raw source bytes
+    instead of the parsed output, because docling's parsed output can change
+    between docling versions and between runs on different hardware.
 
     The system computes ``id`` from ``content_hash`` and ``record_id`` unless the caller
     passes ``id`` directly. A record-family document without ``record_id`` also mixes
@@ -83,38 +85,35 @@ class Document(DataPoint):
 
     Attributes:
         text: The document text. For a docling source, this holds docling's Markdown
-        export.
-            The chunker never reads this field for a docling source; see the ``Chunk``
-            model
-            for docling chunk content instead.
+            export. The chunker never reads this field for a docling source; see the
+            ``Chunk`` model for docling chunk content instead.
         title: The document title.
         uri: The location of the source. This value is not part of the document id.
         source_format: The format the loader used to read this document.
         family: The shape of the source: one document per file, or one document per
-        record.
+            record.
         content_hash: The hash that forms the document id.
         loader_name: The name of the loader that produced this document, for example
             ``"text"`` or ``"docling"``.
-        loader_version: The version of the loader package. Does not affect the document
-        id.
-        encoding: The text encoding. Text loaders set this field; other loaders leave it
-        empty.
-        source_hash: The hash of the whole source file. Record-family documents set this
-        field.
+        loader_version: The version of the loader package. Does not affect the
+            document id.
+        encoding: The text encoding. Text loaders set this field; other loaders
+            leave it empty.
+        source_hash: The hash of the whole source file. Record-family documents set
+            this field.
         char_count: The number of characters in ``text``.
         line_count: The number of lines in ``text``. Some loaders do not set this field.
-        record_index: The 0-based row number in the source. Record-family documents set
-        this
-            field.
-        record_id: The value from the configured id column. Record-family documents set
-        this
-            field only when the caller configures an id column.
+        record_index: The 0-based row number in the source. Record-family documents
+            set this field.
+        record_id: The value from the configured id column. Record-family documents
+            set this field only when the caller configures an id column.
         raw_record: The original record data. A loader sets this field only when the
-        caller
-            asks for it.
-        heading_outline: The headings in the document, with their offsets. A text loader
-        sets
-            this field for a prose document.
+            caller asks for it.
+        heading_outline: The headings in the document, with their offsets. A text
+            loader sets this field for a prose document.
+        document_key: The stable identifier for this document's persisted graph node.
+            Independent of ``id``, which changes with every content edit. Defaults to
+            ``uri`` when not supplied.
     """
 
     id: UUID | None = None
@@ -138,6 +137,7 @@ class Document(DataPoint):
     raw_record: dict[str, Any] | None = None
 
     heading_outline: list[HeadingRef] = Field(default_factory=list)
+    document_key: str | None = None
 
     @model_validator(mode="after")
     def _resolve_id(self) -> "Document":
@@ -150,6 +150,18 @@ class Document(DataPoint):
                 source_hash=self.source_hash,
                 uri=self.uri,
             )
+        return self
+
+    @model_validator(mode="after")
+    def _resolve_document_key(self) -> "Document":
+        """Default the stable key to the source and record identity."""
+        if self.document_key is None:
+            if self.record_id is not None:
+                self.document_key = f"{self.uri}:{self.record_id}"
+            elif self.record_index is not None:
+                self.document_key = f"{self.uri}:{self.record_index}"
+            else:
+                self.document_key = self.uri
         return self
 
     @property
@@ -168,6 +180,24 @@ class Document(DataPoint):
         if self.id is None:
             raise RuntimeError("Document.id was not resolved by its validator")
         return self.id
+
+    @property
+    def resolved_document_key(self) -> str:
+        """The document key, guaranteed non-``None`` once construction succeeds.
+
+        ``document_key`` is typed as optional because callers may omit it and let
+        ``_resolve_document_key`` default it to ``uri``, but every constructed
+        ``Document`` has a non-``None`` document key by the time callers see it. Use
+        this property instead of ``document_key`` where a non-optional value is
+        required, such as computing the persisted Document node's id.
+
+        Raises:
+            RuntimeError: ``document_key`` is still ``None``, which means a validator
+                was bypassed, for example via ``model_construct``.
+        """
+        if self.document_key is None:
+            raise RuntimeError("Document.document_key was not resolved by a validator")
+        return self.document_key
 
     @classmethod
     def id_for(
@@ -207,3 +237,40 @@ class Document(DataPoint):
         else:
             key = content_hash
         return uuid5(NAMESPACE_OID, f"Document:{key}")
+
+    @classmethod
+    def node_id_for(cls, *, document_key: str) -> UUID:
+        """Compute the persisted Document graph node's id.
+
+        Distinct from ``id_for()``: this id is keyed on ``document_key``, not the
+        content hash, so it stays the same across content changes to the same
+        logical document. Conflating the two ids would give every content version
+        of a document its own graph node instead of one node with a changing
+        content hash.
+
+        Args:
+            document_key: The document's stable key.
+
+        Returns:
+            The Document graph node id.
+        """
+        return uuid5(NAMESPACE_OID, f"Document:{document_key}")
+
+    def to_node_record(self) -> NodeRecord:
+        """Return this document as a GraphStore write record for its graph node.
+
+        The record excludes ``text``: the persisted node exists for traversal and
+        the update no-op check, not to duplicate the document body already held
+        per-chunk.
+        """
+        return NodeRecord(
+            id=self.node_id_for(document_key=self.resolved_document_key),
+            labels=[DOCUMENT_LABEL],
+            properties={
+                "document_key": self.resolved_document_key,
+                "uri": self.uri,
+                "current_content_hash": self.content_hash,
+                "title": self.title,
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
+        )

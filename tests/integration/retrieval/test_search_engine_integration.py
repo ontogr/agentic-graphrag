@@ -6,7 +6,7 @@ Run against the Docker Compose Neo4j instance from
 
 import importlib.util
 from collections.abc import AsyncGenerator, Sequence
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -73,11 +73,11 @@ class TestSearchEngineIntegration:
 
     @pytest.fixture(autouse=True)
     async def setup_store(self) -> AsyncGenerator[None, None]:
-        """Set up a fresh store for each test."""
+        """Set up a fresh store for each test and delete only its own rows."""
         self.store = build_graph_store("neo4j")
         await self.store.connect()
         self.label = validate_identifier(f"Person_{uuid4().hex[:8]}")
-        self.chunk_label = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
+        self.chunk_ids: list[UUID] = []
         self.embedder = _FixedEmbedder()
         self.settings = RetrievalSettings(
             entity_labels=[self.label],
@@ -86,7 +86,15 @@ class TestSearchEngineIntegration:
         )
         yield
         await self.store.execute_write(f"MATCH (n:{self.label}) DETACH DELETE n")
-        await self.store.execute_write(f"MATCH (n:{self.chunk_label}) DETACH DELETE n")
+        if self.chunk_ids:
+            # Chunk nodes and their vector index are global: every suite
+            # writes CHUNK_LABEL, and the index cannot be dropped per test.
+            # Deleting this test's own ids leaves a concurrent test's chunk
+            # data alone, which a label-wide delete would not.
+            await self.store.execute_write(
+                f"MATCH (n:{CHUNK_LABEL}) WHERE n.id IN $ids DETACH DELETE n",
+                {"ids": [str(chunk_id) for chunk_id in self.chunk_ids]},
+            )
         await self.store.close()
 
     async def _seed_entities(self, names: list[str]) -> list[Entity]:
@@ -135,6 +143,7 @@ class TestSearchEngineIntegration:
             ch.embedding = await self.embedder.embed_one(text)
             chunks.append(ch)
 
+        self.chunk_ids.extend(ch.id for ch in chunks if ch.id is not None)
         records = [
             NodeRecord(
                 id=ch.id,
@@ -220,6 +229,7 @@ class TestSearchEngineIntegration:
 
         # Create a MENTIONED_IN relationship via direct write.
         chunk_id = uuid4()
+        self.chunk_ids.append(chunk_id)
         await self.store.upsert_nodes(
             CHUNK_LABEL,
             [

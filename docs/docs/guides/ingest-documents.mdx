@@ -35,7 +35,7 @@ from agrag.ingestion import Graph
 async def main():
     graph = await Graph.open()
     result = await graph.add(source="path/to/file.pdf")
-    print(result.documents)  # number of documents ingested
+    print(result.ingestion.documents)  # number of documents ingested
 
 asyncio.run(main())
 ```
@@ -103,27 +103,26 @@ from agrag.ingestion import Graph
 from agrag.loaders.corpus.types import ErrorPolicy
 
 result = await graph.add(source="./corpus", error_policy=ErrorPolicy.SKIP)
-print(result.skipped, result.quarantined)
+print(result.ingestion.skipped, result.ingestion.quarantined)
 ```
 
 - `ErrorPolicy.RAISE` — stop and raise on the first failure (default).
 - `ErrorPolicy.SKIP` — drop the failing source and continue.
 - `ErrorPolicy.QUARANTINE` — isolate the failing source and continue.
 
-Read the outcome from the returned `IngestResult`:
+Read the outcome from the returned `AddResult`:
 
 ```python
-print(result.documents)          # count of documents ingested
-print(result.sources)            # count of sources processed
-print(result.skipped)            # count of skipped sources
-print(result.quarantined)        # count of quarantined sources
-print(result.quarantined_items)   # list of (uri, reason) tuples
+print(result.ingestion.documents)  # count of documents ingested
+print(result.ingestion.sources)    # count of sources processed
+print(result.ingestion.skipped)    # count of skipped sources
+print(result.ingestion.quarantined)  # count of quarantined sources
+print(result.ingestion.quarantined_items)  # one StageFailure per quarantined source
 ```
 
 An unknown format raises `UnsupportedFormatError`; a format that needs docling
 without the extra installed raises `MissingExtraError`. With `SKIP` or
-`QUARANTINE`, those sources are handled by the policy instead of stopping the
-run.
+`QUARANTINE`, the policy handles those sources instead of stopping the run.
 
 ## Track progress
 
@@ -138,6 +137,27 @@ def report(stats: LoadStats) -> None:
     print(f"loaded {stats.documents} documents from {stats.sources} sources so far")
 
 result = await graph.add(source="./corpus", on_progress=report)
+```
+
+## Update or delete a document
+
+Use `Graph.update` to ingest new content under the same stable `document_key`.
+If the content hash is unchanged, the operation does not re-chunk or rewrite the
+document.
+
+```python
+result = await graph.update("memory://manual", text="Revised document text")
+print(result.no_op)
+print(result.chunks_closed)
+```
+
+Use `Graph.delete_document` to remove a document from current retrieval without
+deleting its chunks or extracted entities. The graph keeps those records for
+provenance.
+
+```python
+result = await graph.delete_document("memory://manual")
+print(result.chunks_closed)
 ```
 
 ## Supported formats
@@ -161,12 +181,12 @@ loaders require the docling extra.
 | XML | `.xml` | docling |
 
 For `.md`, `.html`, and `.csv`, docling registers a loader but the core loader
-wins by default. For `.adoc` and `.asciidoc`, it is the other way around:
-docling's structural parser wins when the docling extra is installed, and the
-core regex-based reader is the fallback when it is not. To customize
-per-source reading (encoding, size limits, column mapping, and more), build
-`Document` objects through the lower-level loaders with `ReadOptions` from
-`agrag.loaders.corpus.types`.
+wins by default. For `.adoc` and `.asciidoc`, docling takes precedence
+instead: docling's structural parser wins when the docling extra is
+installed, and the core regex-based reader is the fallback when it is not.
+To customize per-source reading (encoding, size limits, column mapping, and
+more), build `Document` objects through the lower-level loaders with
+`ReadOptions` from `agrag.loaders.corpus.types`.
 
 ## Next steps
 

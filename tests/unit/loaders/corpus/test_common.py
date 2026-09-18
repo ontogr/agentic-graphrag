@@ -1,4 +1,14 @@
-"""Tests for the shared corpus reader helpers and Document id rules."""
+"""Tests for shared reader helpers in agrag.loaders.corpus.readers._common.
+
+Covers Document id derivation (content hash versus an explicit record id,
+and that identical text still gets distinct ids by row position or source
+uri when no record id or source hash disambiguates it), read_within_limit
+rejecting a non-positive ``max_document_bytes``, resolve_text_column's
+named-column and known-default-column resolution, and build_prose_document
+and build_record_document producing well-formed documents (text stripping
+under ``store_text=False``, null-field normalization, title-column
+resolution, and rejecting a missing or null configured id column).
+"""
 
 from io import BytesIO
 

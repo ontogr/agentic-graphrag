@@ -1,4 +1,13 @@
-"""Tests for vector-store backend settings."""
+"""Tests for the TLS-enforcement validators on vector-store settings.
+
+Covers QdrantSettings, WeaviateSettings, and MilvusSettings each rejecting a
+plaintext URL or URI to a non-local host when a credential (api_key or
+token) is present, or when ``require_tls=True`` is set even without a
+credential, while allowing plaintext localhost and encrypted remote
+connections. Also covers WeaviateSettings defaulting to ``mode="custom"``
+so its default URL (a local Docker host) is reachable, rather than
+defaulting to the cloud connector.
+"""
 
 import pytest
 

@@ -1,4 +1,12 @@
-"""Tests for vector_search helper."""
+"""Tests for the vector_search helper in agrag.retrieval.methods.vector.
+
+Uses AsyncMock graph and vector stores and a minimal MockEmbedder. Covers
+routing to GraphStore.vector_search when no VectorStore is configured versus
+VectorStore.hybrid_search when one is, that exactly one of the two stores is
+ever called, per-label native search fan-out with score-merged results,
+that a label filter is never sent as a node property to native search, and
+that native search with an empty label list raises ValueError.
+"""
 
 from unittest.mock import AsyncMock
 from uuid import uuid4

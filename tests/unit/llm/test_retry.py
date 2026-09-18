@@ -1,4 +1,14 @@
-"""Tests for the async retry-with-backoff helper."""
+"""Tests for RetryConfig and call_with_retry in agrag.llm.retry.
+
+Patches ``agrag.llm.retry.sleep`` to record delays instead of actually
+sleeping. Covers RetryConfig rejecting negative backoff fields, immediate
+success without retrying, retrying transient failures with exponential
+backoff up to ``max_delay_ms``, raising the final exception after
+exhausting retries, ``max_retries=0`` making exactly one attempt, and
+NO_RETRY disabling retries entirely. TestPermanentBamlFailures verifies
+BAML client errors are classified correctly: invalid-argument and HTTP 401
+fail once without retrying, while HTTP 429 and 500 are retried.
+"""
 
 import pytest
 from pydantic import ValidationError
