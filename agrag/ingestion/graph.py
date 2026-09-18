@@ -95,6 +95,7 @@ from agrag.ingestion.resolve import (
     ResolutionGroup,
     Resolver,
     exact_resolution_groups,
+    persisted_candidate_indices,
 )
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
 from agrag.ingestion.stats import (
@@ -2353,13 +2354,25 @@ class Graph:
                 all_entities
             )
 
+            candidate_source = GraphCandidateSource(
+                graph_store=self._graph_store,
+                embedder=self._embedder,
+                vector_store=self._vector_store,
+                vector_collection=self._retrieval_settings.entity_collection,
+                entity_labels=[entity.label for entity in self._schema.entities],
+            )
+            candidate_indices = await persisted_candidate_indices(
+                synthetic_mentions,
+                all_entities,
+                source=candidate_source,
+            )
             resolver = Resolver(
                 comparators=[
                     ExactMatch(),
                     FuzzyMatch(),
                     LLMVerify(chunks_by_id=dummy_chunks_by_id),
                 ],
-                candidate_source=InBatchCandidateSource(),
+                candidate_source=PersistedCandidateSource(candidate_indices),
             )
             resolution_result = await resolver.resolve(synthetic_mentions)
             entities_by_id.update({entity.id: entity for entity in all_entities})

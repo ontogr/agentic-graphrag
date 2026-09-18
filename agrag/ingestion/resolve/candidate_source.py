@@ -112,6 +112,49 @@ class PersistedCandidateSource(CandidateSource):
         return self.candidates_by_index.get(index, [])
 
 
+async def persisted_candidate_indices(
+    mentions: list[ExtractedEntity],
+    entities: list[Entity],
+    *,
+    source: GraphCandidateSource,
+    fallback_limit: int = 128,
+) -> dict[int, list[int]]:
+    """Return ANN candidate indices, with a bounded exhaustive fallback.
+
+    The fallback only applies when no indexed candidates are available. It
+    keeps first-time and small-graph consolidation deterministic without
+    returning to an unbounded pairwise scan for established graphs.
+    """
+    index_by_id = {entity.id: index for index, entity in enumerate(entities)}
+    candidates_by_index: dict[int, list[int]] = {}
+    for index, mention in enumerate(mentions):
+        try:
+            candidates = await source.global_candidates_for(mention)
+        except Exception:  # noqa: BLE001
+            continue
+        candidate_indices = sorted(
+            {
+                candidate_index
+                for candidate in candidates
+                if (candidate_index := index_by_id.get(candidate.id)) is not None
+                and candidate_index != index
+                and entities[candidate_index].label == mention.label
+            }
+        )
+        if candidate_indices:
+            candidates_by_index[index] = candidate_indices
+    if candidates_by_index or len(entities) > fallback_limit:
+        return candidates_by_index
+    return {
+        index: [
+            candidate_index
+            for candidate_index, entity in enumerate(entities)
+            if candidate_index != index and entity.label == mention.label
+        ]
+        for index, mention in enumerate(mentions)
+    }
+
+
 async def exact_match_lookup(
     mentions: list[ExtractedEntity], *, graph_store: GraphStore
 ) -> dict[int, Entity]:
