@@ -171,6 +171,33 @@ class TestDecisionsByComponent:
             decision.entity_b_id for decision in components[0]
         } == {first, second, third}
 
+    def test_deduplicates_reverse_mentions_by_stable_match_id(self) -> None:
+        """One pair produces one graph edge regardless of resolver order."""
+        first, second = uuid4(), uuid4()
+        now = datetime.now(UTC)
+
+        components = decisions_by_component(
+            [
+                ResolvedMatch(
+                    left_index=0,
+                    right_index=1,
+                    comparator="FuzzyMatch",
+                    decided_at=now,
+                ),
+                ResolvedMatch(
+                    left_index=1,
+                    right_index=0,
+                    comparator="FuzzyMatch",
+                    decided_at=now,
+                ),
+            ],
+            {0: first, 1: second},
+        )
+
+        assert len(components) == 1
+        assert len(components[0]) == 1
+        assert matches_id(first, second) == matches_id(second, first)
+
     async def test_canonicalizes_reverse_order_match_writes(self) -> None:
         """A reverse-order repeat preserves one canonical edge direction."""
         first, second = sorted(

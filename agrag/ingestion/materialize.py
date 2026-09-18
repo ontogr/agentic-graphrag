@@ -46,11 +46,16 @@ def decisions_by_component(
 ) -> list[list[MatchDecision]]:
     """Map resolution evidence to raw ids and group it by connected component."""
     decisions: list[MatchDecision] = []
+    seen_match_ids: set[UUID] = set()
     for match in matches:
         left_id = mention_to_entity.get(match.left_index)
         right_id = mention_to_entity.get(match.right_index)
         if left_id is None or right_id is None or left_id == right_id:
             continue
+        match_id = matches_id(left_id, right_id)
+        if match_id in seen_match_ids:
+            continue
+        seen_match_ids.add(match_id)
         decisions.append(
             MatchDecision(
                 entity_a_id=left_id,
@@ -86,7 +91,23 @@ def match_decision_components(
     components: dict[UUID, list[MatchDecision]] = defaultdict(list)
     for decision in decisions:
         components[find(decision.entity_a_id)].append(decision)
-    return list(components.values())
+    ordered_components = sorted(
+        components.values(),
+        key=lambda component: min(
+            str(entity_id)
+            for decision in component
+            for entity_id in (decision.entity_a_id, decision.entity_b_id)
+        ),
+    )
+    return [
+        sorted(
+            component,
+            key=lambda decision: str(
+                matches_id(decision.entity_a_id, decision.entity_b_id)
+            ),
+        )
+        for component in ordered_components
+    ]
 
 
 def matches_id(entity_a_id: UUID, entity_b_id: UUID) -> UUID:
