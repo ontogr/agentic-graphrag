@@ -8525,7 +8525,7 @@ Entity resolution public API.
 - [**Comparator**](#agrag.ingestion.resolve.Comparator) – One matching strategy a Resolver runs against a candidate pair.
 - [**ComparisonVerdict**](#agrag.ingestion.resolve.ComparisonVerdict) – A Comparator's verdict on one entity pair.
 - [**ExactMatch**](#agrag.ingestion.resolve.ExactMatch) – Matches when normalized text is identical. Never returns NO_MATCH.
-- [**FuzzyMatch**](#agrag.ingestion.resolve.FuzzyMatch) – Accepts only highly similar strings as a fast path.
+- [**FuzzyMatch**](#agrag.ingestion.resolve.FuzzyMatch) – Classifies string similarity before the LLM verification tier.
 - [**GraphCandidateSource**](#agrag.ingestion.resolve.GraphCandidateSource) – Blocks by label in-batch; ANN-searches persisted entities globally.
 - [**InBatchCandidateSource**](#agrag.ingestion.resolve.InBatchCandidateSource) – Compatibility candidate source for the existing Resolver callers.
 - [**LLMVerify**](#agrag.ingestion.resolve.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
@@ -8632,16 +8632,17 @@ Return MATCH on identical normalized text, else UNCERTAIN.
 ##### `agrag.ingestion.resolve.FuzzyMatch`
 
 ```python
-FuzzyMatch(*, match_above:float = 0.97) -> None
+FuzzyMatch(*, match_above:float = 0.92, no_match_below:float = 0.7) -> None
 ```
 
 Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
 
-Accepts only highly similar strings as a fast path.
+Classifies string similarity before the LLM verification tier.
 
 **Attributes:**
 
-- [**match_above**](#agrag.ingestion.resolve.FuzzyMatch.match_above) – A similarity score at or above this is a fast-path match.
+- [**match_above**](#agrag.ingestion.resolve.FuzzyMatch.match_above) – A similarity score at or above this is a match.
+- [**no_match_below**](#agrag.ingestion.resolve.FuzzyMatch.no_match_below) – A similarity score below this is not a match.
 
 **Functions:**
 
@@ -8659,6 +8660,12 @@ Return a verdict from token-sort-ratio similarity.
 
 ```python
 match_above = match_above
+```
+
+###### `agrag.ingestion.resolve.FuzzyMatch.no_match_below`
+
+```python
+no_match_below = no_match_below
 ```
 
 ##### `agrag.ingestion.resolve.GraphCandidateSource`
@@ -9032,7 +9039,7 @@ Comparison strategies used by entity resolution.
 - [**Comparator**](#agrag.ingestion.resolve.comparators.Comparator) – One matching strategy a Resolver runs against a candidate pair.
 - [**ComparisonVerdict**](#agrag.ingestion.resolve.comparators.ComparisonVerdict) – A Comparator's verdict on one entity pair.
 - [**ExactMatch**](#agrag.ingestion.resolve.comparators.ExactMatch) – Matches when normalized text is identical. Never returns NO_MATCH.
-- [**FuzzyMatch**](#agrag.ingestion.resolve.comparators.FuzzyMatch) – Accepts only highly similar strings as a fast path.
+- [**FuzzyMatch**](#agrag.ingestion.resolve.comparators.FuzzyMatch) – Classifies string similarity before the LLM verification tier.
 - [**LLMVerify**](#agrag.ingestion.resolve.comparators.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
 
 ###### `agrag.ingestion.resolve.comparators.Comparator`
@@ -9113,16 +9120,17 @@ Return MATCH on identical normalized text, else UNCERTAIN.
 ###### `agrag.ingestion.resolve.comparators.FuzzyMatch`
 
 ```python
-FuzzyMatch(*, match_above:float = 0.97) -> None
+FuzzyMatch(*, match_above:float = 0.92, no_match_below:float = 0.7) -> None
 ```
 
 Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
 
-Accepts only highly similar strings as a fast path.
+Classifies string similarity before the LLM verification tier.
 
 **Attributes:**
 
-- [**match_above**](#agrag.ingestion.resolve.comparators.FuzzyMatch.match_above) – A similarity score at or above this is a fast-path match.
+- [**match_above**](#agrag.ingestion.resolve.comparators.FuzzyMatch.match_above) – A similarity score at or above this is a match.
+- [**no_match_below**](#agrag.ingestion.resolve.comparators.FuzzyMatch.no_match_below) – A similarity score below this is not a match.
 
 **Functions:**
 
@@ -9140,6 +9148,12 @@ Return a verdict from token-sort-ratio similarity.
 
 ```python
 match_above = match_above
+```
+
+####### `agrag.ingestion.resolve.comparators.FuzzyMatch.no_match_below`
+
+```python
+no_match_below = no_match_below
 ```
 
 ###### `agrag.ingestion.resolve.comparators.LLMVerify`
@@ -9218,7 +9232,7 @@ Entity resolution: deciding which ExtractedEntity mentions are the same thing.
 - [**Comparator**](#agrag.ingestion.resolve.resolver.Comparator) – One matching strategy a Resolver runs against a candidate pair.
 - [**ComparisonVerdict**](#agrag.ingestion.resolve.resolver.ComparisonVerdict) – A Comparator's verdict on one entity pair.
 - [**ExactMatch**](#agrag.ingestion.resolve.resolver.ExactMatch) – Matches when normalized text is identical. Never returns NO_MATCH.
-- [**FuzzyMatch**](#agrag.ingestion.resolve.resolver.FuzzyMatch) – Accepts only highly similar strings as a fast path.
+- [**FuzzyMatch**](#agrag.ingestion.resolve.resolver.FuzzyMatch) – Classifies string similarity before the LLM verification tier.
 - [**LLMVerify**](#agrag.ingestion.resolve.resolver.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
 - [**ResolutionGroup**](#agrag.ingestion.resolve.resolver.ResolutionGroup) – One set of ExtractedEntity indices resolution decided are the same entity.
 - [**Resolver**](#agrag.ingestion.resolve.resolver.Resolver) – Runs an ordered comparator sequence over blocked candidate pairs.
@@ -9301,16 +9315,17 @@ Return MATCH on identical normalized text, else UNCERTAIN.
 ###### `agrag.ingestion.resolve.resolver.FuzzyMatch`
 
 ```python
-FuzzyMatch(*, match_above:float = 0.97) -> None
+FuzzyMatch(*, match_above:float = 0.92, no_match_below:float = 0.7) -> None
 ```
 
 Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
 
-Accepts only highly similar strings as a fast path.
+Classifies string similarity before the LLM verification tier.
 
 **Attributes:**
 
-- [**match_above**](#agrag.ingestion.resolve.resolver.FuzzyMatch.match_above) – A similarity score at or above this is a fast-path match.
+- [**match_above**](#agrag.ingestion.resolve.resolver.FuzzyMatch.match_above) – A similarity score at or above this is a match.
+- [**no_match_below**](#agrag.ingestion.resolve.resolver.FuzzyMatch.no_match_below) – A similarity score below this is not a match.
 
 **Functions:**
 
@@ -9328,6 +9343,12 @@ Return a verdict from token-sort-ratio similarity.
 
 ```python
 match_above = match_above
+```
+
+####### `agrag.ingestion.resolve.resolver.FuzzyMatch.no_match_below`
+
+```python
+no_match_below = no_match_below
 ```
 
 ###### `agrag.ingestion.resolve.resolver.LLMVerify`
