@@ -188,7 +188,6 @@ async def write_matches_and_materialize(
         raise ValueError(
             "Every match decision must reference a supplied component member"
         )
-    resolved = await compute_resolved_entity(members, schema)
     async with graph_store.transaction() as transaction:
         for decision in decisions:
             first_id, second_id = sorted(
@@ -210,6 +209,23 @@ async def write_matches_and_materialize(
                 raise ValueError(
                     "Cannot materialize a match whose entities do not exist"
                 )
+        component_rows = await transaction.execute_read(
+            fetch_active_component_members_query(),
+            {"seed_ids": [str(member.id) for member in members]},
+        )
+        if component_rows:
+            from agrag.ingestion.graph import _parse_entity_node  # noqa: PLC0415
+
+            persisted_members = {
+                entity.id: entity
+                for row in component_rows
+                if (entity := _parse_entity_node(row.get("member"))) is not None
+            }
+            if persisted_members:
+                members = sorted(
+                    persisted_members.values(), key=lambda member: str(member.id)
+                )
+        resolved = await compute_resolved_entity(members, schema)
         removed_rows = await transaction.execute_write(
             replace_component_materializations_query(),
             {"member_ids": [str(member.id) for member in members]},

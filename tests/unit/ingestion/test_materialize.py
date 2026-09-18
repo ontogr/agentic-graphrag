@@ -74,6 +74,7 @@ def _store(
 ) -> SimpleNamespace:
     """Build a transaction-capable graph-store test double."""
     transaction = SimpleNamespace(
+        execute_read=AsyncMock(return_value=[]),
         execute_write=AsyncMock(return_value=[{"id": "match"}]),
         upsert_nodes=AsyncMock(return_value=node_result),
         upsert_relations=AsyncMock(return_value=relation_result),
@@ -114,6 +115,41 @@ class TestWriteMatchesAndMaterialize:
         assert store.current_transaction.execute_write.await_count == 2
         store.current_transaction.upsert_nodes.assert_awaited_once()
         store.current_transaction.upsert_relations.assert_awaited_once()
+
+    async def test_loads_existing_members_of_the_affected_component(
+        self, monkeypatch
+    ) -> None:
+        """A new edge rematerializes all members of its active component."""
+        first, second, existing = (
+            _entity("Ada"),
+            _entity("Ada L."),
+            _entity("A. Lovelace"),
+        )
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=3)
+        )
+        store.current_transaction.execute_read.return_value = [
+            {"member": first},
+            {"member": second},
+            {"member": existing},
+        ]
+        monkeypatch.setattr(
+            "agrag.ingestion.graph._parse_entity_node", lambda node: node
+        )
+        decision = MatchDecision(
+            entity_a_id=first.id,
+            entity_b_id=second.id,
+            comparator="FuzzyMatch",
+            decided_at=datetime.now(UTC),
+        )
+
+        materialization = await write_matches_and_materialize(
+            [decision], graph_store=store, schema=_schema(), members=[first, second]
+        )
+
+        assert materialization.resolved_entity.member_ids == sorted(
+            [first.id, second.id, existing.id], key=str
+        )
 
     async def test_raises_when_a_bulk_write_reports_failure(self) -> None:
         """A failed membership write prevents a partial materialization result."""
