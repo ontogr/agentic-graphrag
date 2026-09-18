@@ -11,6 +11,7 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.text import normalize_text as _normalize
 from agrag.ingestion.extract import ExtractionLLMSettings, ExtractorMissingExtraError
+from agrag.llm.client_registry import build_client_registry
 from agrag.llm.retry import NO_RETRY, call_with_retry
 
 
@@ -223,8 +224,6 @@ class LLMVerify(Comparator):
             baml_options: dict = {}
             retry = NO_RETRY
         else:
-            from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
-
             client = self._default_client()
             settings = self.settings or ExtractionLLMSettings()
             registry = build_client_registry(

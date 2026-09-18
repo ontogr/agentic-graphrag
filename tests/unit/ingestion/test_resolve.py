@@ -224,8 +224,9 @@ class TestLLMVerify:
 
         monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
         monkeypatch.setattr(
-            "agrag.llm.client_registry.build_client_registry",
+            "agrag.ingestion.resolve.build_client_registry",
             lambda clients, *, strategy: object(),
+            raising=False,
         )
 
         call_count = 0
@@ -271,6 +272,11 @@ class TestLLMVerify:
         monkeypatch.setenv("EXTRACTION_LLM_RETRY", '{"max_retries": 7}')
         settings = ExtractionLLMSettings()
         assert settings.retry.max_retries == 7
+        monkeypatch.setattr(
+            "agrag.ingestion.resolve.build_client_registry",
+            lambda clients, *, strategy: object(),
+            raising=False,
+        )
 
         class MockClient:
             async def VerifyEntityMatch(self, *args):  # noqa: N802
