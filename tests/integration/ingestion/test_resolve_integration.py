@@ -124,20 +124,20 @@ class TestFuzzyMatchIntegration:
     """FuzzyMatch compares entity pairs using rapidfuzz similarity."""
 
     async def test_no_match_for_distinct_entities(self) -> None:
-        """FuzzyMatch defers distinct entities to the next resolution tier."""
+        """FuzzyMatch returns NO_MATCH when entities are too dissimilar."""
         a = _entity("Ada Lovelace")
         b = _entity("Quantum Physics")
         comparator = FuzzyMatch()
 
         verdict = await comparator.compare(a, b)
 
-        assert verdict == ComparisonVerdict.UNCERTAIN
+        assert verdict == ComparisonVerdict.NO_MATCH
 
     async def test_match_for_renamed_entities(self) -> None:
         """FuzzyMatch returns MATCH when reordered names are very similar."""
         a = _entity("Ada Lovelace")
         b = _entity("Lovelace, Ada")
-        comparator = FuzzyMatch(match_above=0.90)
+        comparator = FuzzyMatch()
 
         verdict = await comparator.compare(a, b)
 

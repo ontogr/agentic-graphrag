@@ -117,25 +117,25 @@ class TestExactMatch:
 
 
 class TestFuzzyMatch:
-    """FuzzyMatch accepts only its fast-path threshold."""
+    """FuzzyMatch has three verdict bands."""
 
     async def test_match_above_threshold(self) -> None:
         """High similarity returns MATCH."""
-        matcher = FuzzyMatch(match_above=0.92)
+        matcher = FuzzyMatch(match_above=0.92, no_match_below=0.70)
         a = _entity("Apple Inc")
         b = _entity("Apple Inc.")
         assert await matcher.compare(a, b) is ComparisonVerdict.MATCH
 
-    async def test_low_similarity_defers_to_later_tiers(self) -> None:
-        """Low similarity never vetoes a later comparison tier."""
-        matcher = FuzzyMatch(match_above=0.92)
+    async def test_no_match_below_threshold(self) -> None:
+        """Low similarity returns NO_MATCH."""
+        matcher = FuzzyMatch(match_above=0.92, no_match_below=0.70)
         a = _entity("Apple")
         b = _entity("Banana")
-        assert await matcher.compare(a, b) is ComparisonVerdict.UNCERTAIN
+        assert await matcher.compare(a, b) is ComparisonVerdict.NO_MATCH
 
     async def test_uncertain_in_band(self) -> None:
         """Medium similarity returns UNCERTAIN."""
-        matcher = FuzzyMatch(match_above=0.98)
+        matcher = FuzzyMatch(match_above=0.98, no_match_below=0.50)
         a = _entity("Ada Lovelace")
         b = _entity("Ada Lovelace.")
         verdict = await matcher.compare(a, b)
@@ -144,12 +144,12 @@ class TestFuzzyMatch:
 
     async def test_custom_thresholds(self) -> None:
         """Custom thresholds are respected."""
-        strict = FuzzyMatch(match_above=0.99)
+        strict = FuzzyMatch(match_above=0.99, no_match_below=0.98)
         a = _entity("Ada Lovelace")
         b = _entity("Ada Lovelace.")
-        # A lower score defers instead of rejecting the pair.
+        # A lower score is below the no-match threshold.
         verdict = await strict.compare(a, b)
-        assert verdict is ComparisonVerdict.UNCERTAIN
+        assert verdict is ComparisonVerdict.NO_MATCH
 
 
 # ── LLMVerify ──────────────────────────────────────────────────────────

@@ -70,15 +70,19 @@ class ExactMatch(Comparator):
 
 
 class FuzzyMatch(Comparator):
-    """Accepts only highly similar strings as a fast path.
+    """Classifies string similarity before the LLM verification tier.
 
     Attributes:
-        match_above: A similarity score at or above this is a fast-path match.
+        match_above: A similarity score at or above this is a match.
+        no_match_below: A similarity score below this is not a match.
     """
 
-    def __init__(self, *, match_above: float = 0.97) -> None:
-        """Create a comparator with the given fast-path threshold."""
+    def __init__(
+        self, *, match_above: float = 0.92, no_match_below: float = 0.70
+    ) -> None:
+        """Create a comparator with the configured similarity thresholds."""
         self.match_above = match_above
+        self.no_match_below = no_match_below
 
     async def compare(
         self, a: ExtractedEntity, b: ExtractedEntity
@@ -89,6 +93,8 @@ class FuzzyMatch(Comparator):
         score = fuzz.token_sort_ratio(_normalize(a.text), _normalize(b.text)) / 100
         if score >= self.match_above:
             return ComparisonVerdict.MATCH
+        if score < self.no_match_below:
+            return ComparisonVerdict.NO_MATCH
         return ComparisonVerdict.UNCERTAIN
 
 
