@@ -60,6 +60,7 @@ from agrag.ingestion.graph import (
     _resolve_paths,
     _resolve_tombstone_chain,
     _synthesize_consolidation_mentions,
+    _synthetic_entity_mention,
     _union_groups_by_existing_entity,
     _upsert_vectors,
 )
@@ -1109,6 +1110,18 @@ class TestSynthesizeConsolidationMentions:
         assert [m.label for m in mentions] == ["Person", "Organization"]
         assert [m.text for m in mentions] == ["Alice", "Acme"]
         assert len(dummy_chunks_by_id) == 2
+
+    def test_persisted_candidate_uses_its_own_name_context(self) -> None:
+        """A persisted candidate cannot inherit a new mention's source context."""
+        candidate = Entity(
+            id=uuid4(), label="Person", name="Ada Lovelace", properties={}
+        )
+
+        mention, chunk = _synthetic_entity_mention(candidate)
+
+        assert mention.chunk_id == chunk.id
+        assert mention.text == "Ada Lovelace"
+        assert chunk.text == "Ada Lovelace"
 
 
 class TestApplyMergeWithConflictRetry:

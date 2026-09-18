@@ -736,23 +736,32 @@ def _synthesize_consolidation_mentions(
     synthetic_mentions: list[ExtractedEntity] = []
     dummy_chunks_by_id: dict[UUID, Chunk] = {}
     for ent in entities:
-        dummy_cid = uuid4()
-        dummy_chunks_by_id[dummy_cid] = Chunk(
-            document_id=dummy_cid,
-            index=0,
-            text=ent.name,
-            provenance=TextProvenance(char_start=0, char_end=len(ent.name)),
-        )
-        synthetic_mentions.append(
-            ExtractedEntity(
-                chunk_id=dummy_cid,
-                label=ent.label,
-                text=ent.name,
-                char_start=0,
-                char_end=len(ent.name),
-            )
-        )
+        mention, chunk = _synthetic_entity_mention(ent)
+        synthetic_mentions.append(mention)
+        dummy_chunks_by_id[mention.chunk_id] = chunk
     return synthetic_mentions, dummy_chunks_by_id
+
+
+def _synthetic_entity_mention(entity: Entity) -> tuple[ExtractedEntity, Chunk]:
+    """Build a mention and distinct name context for a persisted raw entity."""
+    chunk_id = uuid4()
+    chunk = Chunk(
+        id=chunk_id,
+        document_id=chunk_id,
+        index=0,
+        text=entity.name,
+        provenance=TextProvenance(char_start=0, char_end=len(entity.name)),
+    )
+    return (
+        ExtractedEntity(
+            chunk_id=chunk_id,
+            label=entity.label,
+            text=entity.name,
+            char_start=0,
+            char_end=len(entity.name),
+        ),
+        chunk,
+    )
 
 
 def _embedding_guard_fields(entity: Entity) -> dict[str, str]:
@@ -1738,15 +1747,11 @@ class Graph:
                     if candidate.id == mention_to_entity.get(mention_index):
                         continue
                     candidate_index = len(persisted_mentions)
-                    persisted_mentions.append(
-                        ExtractedEntity(
-                            chunk_id=mention.chunk_id,
-                            label=candidate.label,
-                            text=candidate.name,
-                            char_start=0,
-                            char_end=len(candidate.name),
-                        )
+                    candidate_mention, candidate_chunk = _synthetic_entity_mention(
+                        candidate
                     )
+                    persisted_mentions.append(candidate_mention)
+                    chunks_by_id[candidate_mention.chunk_id] = candidate_chunk
                     persisted_candidates.setdefault(mention_index, []).append(
                         candidate_index
                     )
