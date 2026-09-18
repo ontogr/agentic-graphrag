@@ -26,6 +26,7 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.retrieval.errors import (
@@ -277,8 +278,8 @@ class TestSearchEngine:
 
             await engine.search("test", HYBRID, filters=filters)
 
-            # Entity search should have received the label filter.
-            entity_call = mock_ev.call_args
+            # Raw entity search should have received the label filter as-is.
+            entity_call = mock_ev.call_args_list[0]
             entity_filters = entity_call.kwargs.get("filters")
             assert entity_filters is not None
             assert entity_filters.labels == ["Person"]
@@ -815,3 +816,22 @@ class TestSearchEngine:
 
         assert [result.item for result in results] == [entity]
         assert "Community expansion failed" in caplog.text
+
+    def test_extract_entity_ids_uses_resolved_entity_members(self) -> None:
+        """A ResolvedEntity contributes its raw member ids, not its own id."""
+        entity = Entity(id=uuid4(), label="Person", name="Ada")
+        member_a, member_b = uuid4(), uuid4()
+        resolved = ResolvedEntity(
+            id=uuid4(),
+            label="Person",
+            name="Cluster",
+            member_ids=[member_a, member_b],
+        )
+        results = [
+            SearchResult(item=entity, score=0.9, method="test"),
+            SearchResult(item=resolved, score=0.8, method="test"),
+        ]
+
+        ids = SearchEngine._extract_entity_ids(results)
+
+        assert ids == [entity.id, member_a, member_b]

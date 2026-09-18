@@ -14,6 +14,7 @@ from uuid import uuid4
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorHit
+from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.retrievers.entity import EntityRetriever
 
 
@@ -294,3 +295,79 @@ class TestEntityRetriever:
             assert results == []
             mock_vs.assert_not_called()
             gs.execute_read.assert_not_called()
+
+    async def test_searches_resolved_collection_when_raw_hits_are_empty(self) -> None:
+        """No raw hits still lets the resolved-entity collection be searched."""
+        resolved = ResolvedEntity(
+            id=uuid4(), label="Person", name="Ada Lovelace", member_ids=[uuid4()]
+        )
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                side_effect=[[], [VectorHit(id=resolved.id, score=0.8, payload={})]],
+            ) as mock_vs,
+            patch(
+                "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
+                new_callable=AsyncMock,
+                return_value={resolved.id: resolved},
+            ),
+        ):
+            retriever = EntityRetriever(graph_store=gs, embedder=MockEmbedder())
+            results = await retriever.retrieve("Ada")
+
+        assert [result.item for result in results] == [resolved]
+        assert mock_vs.await_count == 2
+
+    async def test_resolved_search_uses_property_label_filter(self) -> None:
+        """A domain label filter reaches resolved search as a property filter."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        filters = SearchFilters(labels=["Person"])
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                side_effect=[[], []],
+            ) as mock_vs,
+        ):
+            retriever = EntityRetriever(graph_store=gs, embedder=MockEmbedder())
+            await retriever.retrieve("Ada", filters=filters)
+
+        raw_call, resolved_call = mock_vs.call_args_list
+        assert raw_call.kwargs["filters"].labels == ["Person"]
+        resolved_filters = resolved_call.kwargs["filters"]
+        assert resolved_filters.labels == []
+        assert resolved_filters.properties["label"] == ["Person"]
+
+    async def test_missing_resolved_collection_falls_back_to_raw_results(
+        self,
+    ) -> None:
+        """A resolved-collection search failure keeps the raw results."""
+        ent = Entity(id=uuid4(), label="Person", name="Alice")
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                side_effect=[
+                    [VectorHit(id=ent.id, score=0.9, payload={})],
+                    RuntimeError("collection not found"),
+                ],
+            ),
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+                return_value=ent,
+            ),
+        ):
+            retriever = EntityRetriever(graph_store=gs, embedder=MockEmbedder())
+            results = await retriever.retrieve("Alice")
+
+        assert [result.item for result in results] == [ent]

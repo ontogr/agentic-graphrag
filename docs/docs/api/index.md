@@ -11683,7 +11683,8 @@ node_distance_rerank(results:list[SearchResult], *, graph_store:GraphStore, seed
 Rerank results by graph proximity to seed entity ids.
 
 Uses shortest-path distance from each result entity to the
-closest seed entity. Entities closer to seeds rank higher.
+closest seed entity. Entities closer to seeds rank higher. A
+ResolvedEntity item is measured by its closest raw member.
 Results without an entity item (chunks, relations) are placed
 at the end with a high distance penalty.
 
