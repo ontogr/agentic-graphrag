@@ -258,7 +258,11 @@ async def write_matches_and_materialize(
                         type=RESOLVED_AS_RELATION,
                         start_id=member.id,
                         end_id=resolved.id,
-                        properties={"decided_at": decisions[-1].decided_at.isoformat()},
+                        properties={
+                            "decided_at": max(
+                                decision.decided_at for decision in decisions
+                            ).isoformat()
+                        },
                     )
                     for member in members
                 ]
@@ -268,20 +272,6 @@ async def write_matches_and_materialize(
         resolved_entity=resolved,
         removed_entity_ids=list(dict.fromkeys(removed_entity_ids)),
     )
-
-
-async def deactivate_match(
-    match_id: UUID, *, graph_store: GraphStore, schema: GraphSchema
-) -> list[ResolvedEntity]:
-    """Deactivate one match and replace materializations for its split component.
-
-    Singleton components remain raw entities and do not receive a derived node.
-    All graph changes occur inside one transaction.
-    """
-    result = await deactivate_match_and_rematerialize(
-        match_id, graph_store=graph_store, schema=schema
-    )
-    return result.resolved_entities
 
 
 async def deactivate_match_and_rematerialize(

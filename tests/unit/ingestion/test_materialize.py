@@ -11,6 +11,7 @@ import pytest
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import UpsertFailure, UpsertResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.ingestion.materialize import (
     MatchDecision,
     compute_resolved_entity,
@@ -209,6 +210,93 @@ class TestDeactivateMatch:
 
         assert result.removed_entity_ids == [stale_id]
         assert len(result.resolved_entities) == 1
+
+    async def test_excludes_and_dedupes_ids_the_split_already_recreated(
+        self, monkeypatch
+    ) -> None:
+        """A removed id that a split component recreates is not reported stale."""
+        first, second, stale_id = _entity("Ada"), _entity("Ada Lovelace"), uuid4()
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
+        )
+        store.current_transaction.execute_read.side_effect = [
+            [{"a": first, "b": second}],
+            [
+                {"seed_id": str(first.id), "member": first},
+                {"seed_id": str(first.id), "member": second},
+            ],
+        ]
+        monkeypatch.setattr(
+            "agrag.ingestion.graph._parse_entity_node", lambda node: node
+        )
+        recreated = ResolvedEntity(
+            id=uuid4(), label="Person", name="Ada", member_ids=[first.id, second.id]
+        )
+        monkeypatch.setattr(
+            "agrag.ingestion.materialize.compute_resolved_entity",
+            AsyncMock(return_value=recreated),
+        )
+        store.current_transaction.execute_write.side_effect = [
+            [{"id": "match"}],
+            [
+                {
+                    "removed_resolved_entity_ids": [
+                        str(recreated.id),
+                        str(recreated.id),
+                        str(stale_id),
+                    ]
+                }
+            ],
+        ]
+
+        result = await deactivate_match_and_rematerialize(
+            uuid4(), graph_store=store, schema=_schema()
+        )
+
+        assert result.removed_entity_ids == [stale_id]
+        assert result.resolved_entities == [recreated]
+
+    async def test_raises_when_match_does_not_exist(self) -> None:
+        """Deactivating an unknown match id fails fast."""
+        store = _store()
+
+        with pytest.raises(ValueError, match="does not exist"):
+            await deactivate_match_and_rematerialize(
+                uuid4(), graph_store=store, schema=_schema()
+            )
+
+    async def test_raises_when_match_endpoints_are_invalid(self, monkeypatch) -> None:
+        """A match edge without two distinct endpoints cannot be deactivated."""
+        first = _entity("Ada")
+        store = _store()
+        store.current_transaction.execute_read.return_value = [{"a": first, "b": first}]
+        monkeypatch.setattr(
+            "agrag.ingestion.graph._parse_entity_node", lambda node: node
+        )
+
+        with pytest.raises(ValueError, match="invalid endpoints"):
+            await deactivate_match_and_rematerialize(
+                uuid4(), graph_store=store, schema=_schema()
+            )
+
+    async def test_raises_when_deactivate_write_finds_no_match(
+        self, monkeypatch
+    ) -> None:
+        """A match already gone by the time of the write still fails cleanly."""
+        first, second = _entity("Ada"), _entity("Ada Lovelace")
+        store = _store()
+        store.current_transaction.execute_read.return_value = [
+            {"a": first, "b": second}
+        ]
+        store.current_transaction.execute_write.return_value = []
+        monkeypatch.setattr(
+            "agrag.ingestion.graph._parse_entity_node", lambda node: node
+        )
+
+        with pytest.raises(ValueError, match="does not exist"):
+            await deactivate_match_and_rematerialize(
+                uuid4(), graph_store=store, schema=_schema()
+            )
 
 
 class TestDecisionsByComponent:

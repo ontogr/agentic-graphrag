@@ -30,25 +30,6 @@ def deactivate_match_query() -> str:
     )
 
 
-def upsert_resolved_as_query() -> str:
-    """Build Cypher linking a member to its materialized resolved entity."""
-    return (
-        f"MATCH (e:{NODE_IDENTITY_LABEL} {{id: $entity_id}}), "
-        f"(r:{RESOLVED_ENTITY_LABEL} {{id: $resolved_entity_id}}) "
-        f"MERGE (e)-[edge:{RESOLVED_AS_RELATION}]->(r) "
-        "RETURN edge"
-    )
-
-
-def delete_resolved_as_query() -> str:
-    """Build Cypher deleting materialized membership edges by cluster id."""
-    return (
-        f"MATCH ()-[edge:{RESOLVED_AS_RELATION}]->"
-        f"(r:{RESOLVED_ENTITY_LABEL} {{id: $resolved_entity_id}}) "
-        "DELETE edge"
-    )
-
-
 def replace_component_materializations_query() -> str:
     """Build Cypher deleting prior materializations for supplied raw members."""
     return (

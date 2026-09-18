@@ -13,7 +13,7 @@ from agrag.cypher.entities import validate_identifier
 from agrag.graphdb import build_graph_store
 from agrag.ingestion.materialize import (
     MatchDecision,
-    deactivate_match,
+    deactivate_match_and_rematerialize,
     matches_id,
     write_matches_and_materialize,
 )
@@ -224,12 +224,14 @@ class TestMatchMaterializationIntegration:
                 members=[first, second, third],
             )
 
-            materialized = await deactivate_match(
+            result = await deactivate_match_and_rematerialize(
                 matches_id(second.id, third.id), graph_store=store, schema=schema
             )
 
-            assert len(materialized) == 1
-            assert materialized[0].member_ids == sorted([first.id, second.id], key=str)
+            assert len(result.resolved_entities) == 1
+            assert result.resolved_entities[0].member_ids == sorted(
+                [first.id, second.id], key=str
+            )
             rows = await store.execute_read(
                 "MATCH (third) WHERE third.id = $third_id "
                 "OPTIONAL MATCH (third)-[membership:RESOLVED_AS]->() "

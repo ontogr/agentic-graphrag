@@ -3736,8 +3736,6 @@ Cypher reads for local entity-resolution materialization.
 - [**fetch_active_component_members_query**](#agrag.cypher.resolution_read.fetch_active_component_members_query) – Build Cypher returning active match components from seed ids.
 - [**fetch_active_resolved_member_ids_query**](#agrag.cypher.resolution_read.fetch_active_resolved_member_ids_query) – Build Cypher finding raw hits hidden by an active materialization.
 - [**fetch_match_endpoints_query**](#agrag.cypher.resolution_read.fetch_match_endpoints_query) – Build Cypher returning both endpoints of one match edge.
-- [**fetch_matches_for_component_query**](#agrag.cypher.resolution_read.fetch_matches_for_component_query) – Build Cypher returning active matches touching supplied entity ids.
-- [**fetch_resolved_entity_members_query**](#agrag.cypher.resolution_read.fetch_resolved_entity_members_query) – Build Cypher returning the members of one resolved entity.
 - [**hydrate_resolved_entities_by_id_query**](#agrag.cypher.resolution_read.hydrate_resolved_entities_by_id_query) – Build Cypher hydrating materializations returned by vector search.
 
 ##### `agrag.cypher.resolution_read.fetch_active_component_members_query`
@@ -3764,22 +3762,6 @@ fetch_match_endpoints_query() -> str
 
 Build Cypher returning both endpoints of one match edge.
 
-##### `agrag.cypher.resolution_read.fetch_matches_for_component_query`
-
-```python
-fetch_matches_for_component_query() -> str
-```
-
-Build Cypher returning active matches touching supplied entity ids.
-
-##### `agrag.cypher.resolution_read.fetch_resolved_entity_members_query`
-
-```python
-fetch_resolved_entity_members_query() -> str
-```
-
-Build Cypher returning the members of one resolved entity.
-
 ##### `agrag.cypher.resolution_read.hydrate_resolved_entities_by_id_query`
 
 ```python
@@ -3795,11 +3777,9 @@ Cypher writes for non-destructive entity resolution.
 **Functions:**
 
 - [**deactivate_match_query**](#agrag.cypher.resolution_write.deactivate_match_query) – Build Cypher that retains but deactivates a match edge.
-- [**delete_resolved_as_query**](#agrag.cypher.resolution_write.delete_resolved_as_query) – Build Cypher deleting materialized membership edges by cluster id.
 - [**replace_component_materializations_query**](#agrag.cypher.resolution_write.replace_component_materializations_query) – Build Cypher deleting prior materializations for supplied raw members.
 - [**set_resolved_entity_sync_status_query**](#agrag.cypher.resolution_write.set_resolved_entity_sync_status_query) – Build Cypher setting the vector synchronization state of derived nodes.
 - [**upsert_matches_query**](#agrag.cypher.resolution_write.upsert_matches_query) – Build Cypher that idempotently records a confirmed entity match.
-- [**upsert_resolved_as_query**](#agrag.cypher.resolution_write.upsert_resolved_as_query) – Build Cypher linking a member to its materialized resolved entity.
 
 ##### `agrag.cypher.resolution_write.deactivate_match_query`
 
@@ -3808,14 +3788,6 @@ deactivate_match_query() -> str
 ```
 
 Build Cypher that retains but deactivates a match edge.
-
-##### `agrag.cypher.resolution_write.delete_resolved_as_query`
-
-```python
-delete_resolved_as_query() -> str
-```
-
-Build Cypher deleting materialized membership edges by cluster id.
 
 ##### `agrag.cypher.resolution_write.replace_component_materializations_query`
 
@@ -3840,14 +3812,6 @@ upsert_matches_query() -> str
 ```
 
 Build Cypher that idempotently records a confirmed entity match.
-
-##### `agrag.cypher.resolution_write.upsert_resolved_as_query`
-
-```python
-upsert_resolved_as_query() -> str
-```
-
-Build Cypher linking a member to its materialized resolved entity.
 
 #### `agrag.cypher.safety`
 
@@ -7703,7 +7667,6 @@ Non-destructive match persistence and resolved-entity computation.
 **Functions:**
 
 - [**compute_resolved_entity**](#agrag.ingestion.materialize.compute_resolved_entity) – Compute a resolved entity from its current member data only.
-- [**deactivate_match**](#agrag.ingestion.materialize.deactivate_match) – Deactivate one match and replace materializations for its split component.
 - [**deactivate_match_and_rematerialize**](#agrag.ingestion.materialize.deactivate_match_and_rematerialize) – Deactivate a match and return its replacements and deleted derived IDs.
 - [**decisions_by_component**](#agrag.ingestion.materialize.decisions_by_component) – Map resolution evidence to raw ids and group it by connected component.
 - [**match_decision_components**](#agrag.ingestion.materialize.match_decision_components) – Group persisted match decisions by their connected raw component.
@@ -7814,17 +7777,6 @@ compute_resolved_entity(members:list[Entity], schema:GraphSchema) -> ResolvedEnt
 ```
 
 Compute a resolved entity from its current member data only.
-
-##### `agrag.ingestion.materialize.deactivate_match`
-
-```python
-deactivate_match(match_id:UUID, *, graph_store:GraphStore, schema:GraphSchema) -> list[ResolvedEntity]
-```
-
-Deactivate one match and replace materializations for its split component.
-
-Singleton components remain raw entities and do not receive a derived node.
-All graph changes occur inside one transaction.
 
 ##### `agrag.ingestion.materialize.deactivate_match_and_rematerialize`
 

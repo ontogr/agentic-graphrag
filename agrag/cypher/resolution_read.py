@@ -8,26 +8,6 @@ from agrag.common.data_models.resolved_entity import (
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 
 
-def fetch_matches_for_component_query() -> str:
-    """Build Cypher returning active matches touching supplied entity ids."""
-    return (
-        "UNWIND $entity_ids AS entity_id "
-        f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
-        f"-[match:{MATCHES_RELATION} {{active: true}}]-(b:{NODE_IDENTITY_LABEL}) "
-        "RETURN DISTINCT a, b, match"
-    )
-
-
-def fetch_resolved_entity_members_query() -> str:
-    """Build Cypher returning the members of one resolved entity."""
-    return (
-        f"MATCH (entity:{NODE_IDENTITY_LABEL})"
-        f"-[:{RESOLVED_AS_RELATION}]->"
-        f"(resolved:{RESOLVED_ENTITY_LABEL} {{id: $resolved_entity_id}}) "
-        "RETURN entity"
-    )
-
-
 def fetch_match_endpoints_query() -> str:
     """Build Cypher returning both endpoints of one match edge."""
     return (
@@ -53,6 +33,7 @@ def hydrate_resolved_entities_by_id_query() -> str:
     return (
         "UNWIND $ids AS resolved_entity_id "
         f"MATCH (resolved:{RESOLVED_ENTITY_LABEL} {{id: resolved_entity_id}}) "
+        "WHERE resolved.vector_sync_status = 'synced' "
         "RETURN resolved"
     )
 
