@@ -1,6 +1,7 @@
 """Entity resolution: deciding which ExtractedEntity mentions are the same thing."""
 
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
 
@@ -23,6 +24,28 @@ class ResolutionGroup(BaseModel):
     """
 
     entity_indices: list[int]
+
+
+class ResolvedMatch(BaseModel):
+    """One confirmed non-exact match between two input entity indices.
+
+    Exact-name identity matches group mentions but do not create a match-graph
+    edge. Every other confirmed comparator decision creates one record.
+    """
+
+    left_index: int
+    right_index: int
+    comparator: str
+    score: float | None = None
+    reasoning: str | None = None
+    decided_at: datetime
+
+
+class ResolutionResult(BaseModel):
+    """The groups and non-exact evidence produced by one resolution pass."""
+
+    groups: list[ResolutionGroup]
+    matches: list[ResolvedMatch]
 
 
 class ComparisonVerdict(StrEnum):
@@ -240,8 +263,8 @@ class Resolver:
         self.comparators = comparators
         self.candidate_source = candidate_source
 
-    async def resolve(self, entities: list[ExtractedEntity]) -> list[ResolutionGroup]:
-        """Group entities that resolution decided are the same thing.
+    async def resolve(self, entities: list[ExtractedEntity]) -> ResolutionResult:
+        """Resolve entity groups and retain each confirmed non-exact match.
 
         Args:
             entities: The entities to resolve. Only entities passed in the
@@ -250,10 +273,11 @@ class Resolver:
                 not supported by this Resolver.
 
         Returns:
-            One ResolutionGroup per distinct entity found. Every input index
-            appears in exactly one group.
+            Groups for every input index and evidence for every confirmed
+            non-exact pair.
         """
         edges: list[tuple[int, int]] = []
+        matches: list[ResolvedMatch] = []
         compared: set[tuple[int, int]] = set()
         for index in range(len(entities)):
             candidates = await self.candidate_source.candidates_for(index, entities)
@@ -262,17 +286,29 @@ class Resolver:
                 if pair in compared:
                     continue
                 compared.add(pair)
-                verdict = await self._first_verdict(
+                verdict, comparator = await self._first_verdict(
                     entities[index], entities[candidate_index]
                 )
                 if verdict is ComparisonVerdict.MATCH:
                     edges.append(pair)
+                    if not isinstance(comparator, ExactMatch):
+                        matches.append(
+                            ResolvedMatch(
+                                left_index=pair[0],
+                                right_index=pair[1],
+                                comparator=type(comparator).__name__,
+                                decided_at=datetime.now(UTC),
+                            )
+                        )
         groups = _group_matches(len(entities), edges)
-        return [ResolutionGroup(entity_indices=group) for group in groups]
+        return ResolutionResult(
+            groups=[ResolutionGroup(entity_indices=group) for group in groups],
+            matches=matches,
+        )
 
     async def _first_verdict(
         self, a: ExtractedEntity, b: ExtractedEntity
-    ) -> ComparisonVerdict:
+    ) -> tuple[ComparisonVerdict, Comparator | None]:
         """Return the first non-UNCERTAIN verdict, or NO_MATCH if none.
 
         This is the fail-safe fallback: a pair every comparator is UNCERTAIN
@@ -281,5 +317,5 @@ class Resolver:
         for comparator in self.comparators:
             verdict = await comparator.compare(a, b)
             if verdict is not ComparisonVerdict.UNCERTAIN:
-                return verdict
-        return ComparisonVerdict.NO_MATCH
+                return verdict, comparator
+        return ComparisonVerdict.NO_MATCH, None

@@ -1570,7 +1570,8 @@ class Graph:
             ],
             candidate_source=InBatchCandidateSource(),
         )
-        groups = await resolver.resolve(entities) if entities else []
+        resolution_result = await resolver.resolve(entities) if entities else None
+        groups = resolution_result.groups if resolution_result is not None else []
 
         # Compute resolution stats
         exact_match_hits = len(exact_matches)
@@ -2251,7 +2252,8 @@ class Graph:
                 ],
                 candidate_source=InBatchCandidateSource(),
             )
-            groups = await resolver.resolve(synthetic_mentions)
+            resolution_result = await resolver.resolve(synthetic_mentions)
+            groups = resolution_result.groups
             # Filter groups of one (no merge)
             for group in groups:
                 if len(group.entity_indices) <= 1:

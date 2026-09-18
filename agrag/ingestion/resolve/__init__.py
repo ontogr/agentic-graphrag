@@ -13,6 +13,8 @@ from agrag.ingestion.resolve.resolver import (
     FuzzyMatch,
     LLMVerify,
     ResolutionGroup,
+    ResolutionResult,
+    ResolvedMatch,
     Resolver,
     _group_matches,
 )
@@ -27,7 +29,9 @@ __all__ = [
     "GraphCandidateSource",
     "InBatchCandidateSource",
     "LLMVerify",
+    "ResolvedMatch",
     "ResolutionGroup",
+    "ResolutionResult",
     "Resolver",
     "exact_match_lookup",
     "_group_matches",

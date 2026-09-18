@@ -380,9 +380,9 @@ class TestResolver:
             _entity("Ada Lovelace", label="Person"),
             _entity("Charles Babbage", label="Person"),
         ]
-        groups = await resolver.resolve(entities)
+        result = await resolver.resolve(entities)
         # Ada Lovelace pair should be in one group, Charles alone
-        all_indices = [g.entity_indices for g in groups]
+        all_indices = [g.entity_indices for g in result.groups]
         pair_group = next(g for g in all_indices if 0 in g)
         assert set(pair_group) == {0, 1}
         charles_group = next(g for g in all_indices if 2 in g)
@@ -398,8 +398,8 @@ class TestResolver:
             _entity("Ada", label="Person"),
             _entity("Charles", label="Person"),
         ]
-        groups = await resolver.resolve(entities)
-        assert len(groups) == 2
+        result = await resolver.resolve(entities)
+        assert len(result.groups) == 2
 
     async def test_respects_label_boundaries(self) -> None:
         """Same text but different labels are not compared."""
@@ -411,6 +411,18 @@ class TestResolver:
             _entity("Apple", label="Person"),
             _entity("Apple", label="Organization"),
         ]
-        groups = await resolver.resolve(entities)
+        result = await resolver.resolve(entities)
         # Different labels → different groups
-        assert len(groups) == 2
+        assert len(result.groups) == 2
+
+    async def test_records_non_exact_match_evidence(self) -> None:
+        """A fuzzy match retains its exact input pair for graph persistence."""
+        resolver = Resolver(
+            comparators=[FuzzyMatch(match_above=0.80)],
+            candidate_source=InBatchCandidateSource(),
+        )
+        result = await resolver.resolve([_entity("Apple Inc"), _entity("Apple Inc.")])
+        assert len(result.matches) == 1
+        assert result.matches[0].left_index == 0
+        assert result.matches[0].right_index == 1
+        assert result.matches[0].comparator == "FuzzyMatch"

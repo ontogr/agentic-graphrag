@@ -8530,6 +8530,8 @@ Entity resolution public API.
 - [**InBatchCandidateSource**](#agrag.ingestion.resolve.InBatchCandidateSource) – Compatibility candidate source for the existing Resolver callers.
 - [**LLMVerify**](#agrag.ingestion.resolve.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
 - [**ResolutionGroup**](#agrag.ingestion.resolve.ResolutionGroup) – One set of ExtractedEntity indices resolution decided are the same entity.
+- [**ResolutionResult**](#agrag.ingestion.resolve.ResolutionResult) – The groups and non-exact evidence produced by one resolution pass.
+- [**ResolvedMatch**](#agrag.ingestion.resolve.ResolvedMatch) – One confirmed non-exact match between two input entity indices.
 - [**Resolver**](#agrag.ingestion.resolve.Resolver) – Runs an ordered comparator sequence over blocked candidate pairs.
 
 **Functions:**
@@ -8838,6 +8840,83 @@ One set of ExtractedEntity indices resolution decided are the same entity.
 entity_indices: list[int]
 ```
 
+##### `agrag.ingestion.resolve.ResolutionResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The groups and non-exact evidence produced by one resolution pass.
+
+**Attributes:**
+
+- [**groups**](#agrag.ingestion.resolve.ResolutionResult.groups) (<code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.resolver.ResolutionGroup)\]</code>) –
+- [**matches**](#agrag.ingestion.resolve.ResolutionResult.matches) (<code>[list](#list)\[[ResolvedMatch](#agrag.ingestion.resolve.resolver.ResolvedMatch)\]</code>) –
+
+###### `agrag.ingestion.resolve.ResolutionResult.groups`
+
+```python
+groups: list[ResolutionGroup]
+```
+
+###### `agrag.ingestion.resolve.ResolutionResult.matches`
+
+```python
+matches: list[ResolvedMatch]
+```
+
+##### `agrag.ingestion.resolve.ResolvedMatch`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One confirmed non-exact match between two input entity indices.
+
+Exact-name identity matches group mentions but do not create a match-graph
+edge. Every other confirmed comparator decision creates one record.
+
+**Attributes:**
+
+- [**comparator**](#agrag.ingestion.resolve.ResolvedMatch.comparator) (<code>[str](#str)</code>) –
+- [**decided_at**](#agrag.ingestion.resolve.ResolvedMatch.decided_at) (<code>[datetime](#datetime.datetime)</code>) –
+- [**left_index**](#agrag.ingestion.resolve.ResolvedMatch.left_index) (<code>[int](#int)</code>) –
+- [**reasoning**](#agrag.ingestion.resolve.ResolvedMatch.reasoning) (<code>[str](#str) | None</code>) –
+- [**right_index**](#agrag.ingestion.resolve.ResolvedMatch.right_index) (<code>[int](#int)</code>) –
+- [**score**](#agrag.ingestion.resolve.ResolvedMatch.score) (<code>[float](#float) | None</code>) –
+
+###### `agrag.ingestion.resolve.ResolvedMatch.comparator`
+
+```python
+comparator: str
+```
+
+###### `agrag.ingestion.resolve.ResolvedMatch.decided_at`
+
+```python
+decided_at: datetime
+```
+
+###### `agrag.ingestion.resolve.ResolvedMatch.left_index`
+
+```python
+left_index: int
+```
+
+###### `agrag.ingestion.resolve.ResolvedMatch.reasoning`
+
+```python
+reasoning: str | None = None
+```
+
+###### `agrag.ingestion.resolve.ResolvedMatch.right_index`
+
+```python
+right_index: int
+```
+
+###### `agrag.ingestion.resolve.ResolvedMatch.score`
+
+```python
+score: float | None = None
+```
+
 ##### `agrag.ingestion.resolve.Resolver`
 
 ```python
@@ -8850,7 +8929,7 @@ Groups every pair a comparator confirms as a match into a ResolutionGroup.
 
 **Functions:**
 
-- [**resolve**](#agrag.ingestion.resolve.Resolver.resolve) – Group entities that resolution decided are the same thing.
+- [**resolve**](#agrag.ingestion.resolve.Resolver.resolve) – Resolve entity groups and retain each confirmed non-exact match.
 
 **Attributes:**
 
@@ -8879,10 +8958,10 @@ comparators = comparators
 ###### `agrag.ingestion.resolve.Resolver.resolve`
 
 ```python
-resolve(entities:list[ExtractedEntity]) -> list[ResolutionGroup]
+resolve(entities:list[ExtractedEntity]) -> ResolutionResult
 ```
 
-Group entities that resolution decided are the same thing.
+Resolve entity groups and retain each confirmed non-exact match.
 
 **Parameters:**
 
@@ -8893,8 +8972,8 @@ Group entities that resolution decided are the same thing.
 
 **Returns:**
 
-- <code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.resolver.ResolutionGroup)\]</code> – One ResolutionGroup per distinct entity found. Every input index
-- <code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.resolver.ResolutionGroup)\]</code> – appears in exactly one group.
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index and evidence for every confirmed
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair.
 
 ##### `agrag.ingestion.resolve.candidate_source`
 
@@ -9235,6 +9314,8 @@ Entity resolution: deciding which ExtractedEntity mentions are the same thing.
 - [**FuzzyMatch**](#agrag.ingestion.resolve.resolver.FuzzyMatch) – Classifies string similarity before the LLM verification tier.
 - [**LLMVerify**](#agrag.ingestion.resolve.resolver.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
 - [**ResolutionGroup**](#agrag.ingestion.resolve.resolver.ResolutionGroup) – One set of ExtractedEntity indices resolution decided are the same entity.
+- [**ResolutionResult**](#agrag.ingestion.resolve.resolver.ResolutionResult) – The groups and non-exact evidence produced by one resolution pass.
+- [**ResolvedMatch**](#agrag.ingestion.resolve.resolver.ResolvedMatch) – One confirmed non-exact match between two input entity indices.
 - [**Resolver**](#agrag.ingestion.resolve.resolver.Resolver) – Runs an ordered comparator sequence over blocked candidate pairs.
 
 ###### `agrag.ingestion.resolve.resolver.Comparator`
@@ -9427,6 +9508,83 @@ One set of ExtractedEntity indices resolution decided are the same entity.
 entity_indices: list[int]
 ```
 
+###### `agrag.ingestion.resolve.resolver.ResolutionResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The groups and non-exact evidence produced by one resolution pass.
+
+**Attributes:**
+
+- [**groups**](#agrag.ingestion.resolve.resolver.ResolutionResult.groups) (<code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.resolver.ResolutionGroup)\]</code>) –
+- [**matches**](#agrag.ingestion.resolve.resolver.ResolutionResult.matches) (<code>[list](#list)\[[ResolvedMatch](#agrag.ingestion.resolve.resolver.ResolvedMatch)\]</code>) –
+
+####### `agrag.ingestion.resolve.resolver.ResolutionResult.groups`
+
+```python
+groups: list[ResolutionGroup]
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolutionResult.matches`
+
+```python
+matches: list[ResolvedMatch]
+```
+
+###### `agrag.ingestion.resolve.resolver.ResolvedMatch`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One confirmed non-exact match between two input entity indices.
+
+Exact-name identity matches group mentions but do not create a match-graph
+edge. Every other confirmed comparator decision creates one record.
+
+**Attributes:**
+
+- [**comparator**](#agrag.ingestion.resolve.resolver.ResolvedMatch.comparator) (<code>[str](#str)</code>) –
+- [**decided_at**](#agrag.ingestion.resolve.resolver.ResolvedMatch.decided_at) (<code>[datetime](#datetime.datetime)</code>) –
+- [**left_index**](#agrag.ingestion.resolve.resolver.ResolvedMatch.left_index) (<code>[int](#int)</code>) –
+- [**reasoning**](#agrag.ingestion.resolve.resolver.ResolvedMatch.reasoning) (<code>[str](#str) | None</code>) –
+- [**right_index**](#agrag.ingestion.resolve.resolver.ResolvedMatch.right_index) (<code>[int](#int)</code>) –
+- [**score**](#agrag.ingestion.resolve.resolver.ResolvedMatch.score) (<code>[float](#float) | None</code>) –
+
+####### `agrag.ingestion.resolve.resolver.ResolvedMatch.comparator`
+
+```python
+comparator: str
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolvedMatch.decided_at`
+
+```python
+decided_at: datetime
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolvedMatch.left_index`
+
+```python
+left_index: int
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolvedMatch.reasoning`
+
+```python
+reasoning: str | None = None
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolvedMatch.right_index`
+
+```python
+right_index: int
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolvedMatch.score`
+
+```python
+score: float | None = None
+```
+
 ###### `agrag.ingestion.resolve.resolver.Resolver`
 
 ```python
@@ -9439,7 +9597,7 @@ Groups every pair a comparator confirms as a match into a ResolutionGroup.
 
 **Functions:**
 
-- [**resolve**](#agrag.ingestion.resolve.resolver.Resolver.resolve) – Group entities that resolution decided are the same thing.
+- [**resolve**](#agrag.ingestion.resolve.resolver.Resolver.resolve) – Resolve entity groups and retain each confirmed non-exact match.
 
 **Attributes:**
 
@@ -9468,10 +9626,10 @@ comparators = comparators
 ####### `agrag.ingestion.resolve.resolver.Resolver.resolve`
 
 ```python
-resolve(entities:list[ExtractedEntity]) -> list[ResolutionGroup]
+resolve(entities:list[ExtractedEntity]) -> ResolutionResult
 ```
 
-Group entities that resolution decided are the same thing.
+Resolve entity groups and retain each confirmed non-exact match.
 
 **Parameters:**
 
@@ -9482,8 +9640,8 @@ Group entities that resolution decided are the same thing.
 
 **Returns:**
 
-- <code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.resolver.ResolutionGroup)\]</code> – One ResolutionGroup per distinct entity found. Every input index
-- <code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.resolver.ResolutionGroup)\]</code> – appears in exactly one group.
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index and evidence for every confirmed
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair.
 
 ##### `agrag.ingestion.resolve.zone_classifier`
 
