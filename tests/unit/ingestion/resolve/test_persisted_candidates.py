@@ -26,11 +26,19 @@ def _mention(entity: Entity) -> ExtractedEntity:
 class _CandidateSource:
     """Configurable graph-candidate double."""
 
-    def __init__(self, candidates: dict[str, list[Entity]]) -> None:
+    def __init__(
+        self,
+        candidates: dict[str, list[Entity]],
+        *,
+        raises_for: set[str] | None = None,
+    ) -> None:
         self.candidates = candidates
+        self.raises_for = raises_for or set()
 
     async def global_candidates_for(self, mention: ExtractedEntity) -> list[Entity]:
         """Return configured candidates by mention text."""
+        if mention.text in self.raises_for:
+            raise RuntimeError("candidate lookup failed")
         return self.candidates.get(mention.text, [])
 
 
@@ -60,3 +68,29 @@ class TestPersistedCandidateIndices:
         )
 
         assert indices == {0: [1], 1: [0]}
+
+    async def test_skips_full_scan_fallback_above_bound(self) -> None:
+        """A large, first-time population does not fall back to a full scan."""
+        entities = [_entity(f"Person {i}") for i in range(130)]
+
+        indices = await persisted_candidate_indices(
+            [_mention(entity) for entity in entities],
+            entities,
+            source=_CandidateSource({}),  # type: ignore[arg-type]
+        )
+
+        assert indices == {}
+
+    async def test_lookup_failure_leaves_only_that_mention_without_candidates(
+        self,
+    ) -> None:
+        """A candidate-lookup failure for one mention does not affect others."""
+        first, second, third = _entity("Ada"), _entity("Ada L."), _entity("Grace")
+
+        indices = await persisted_candidate_indices(
+            [_mention(first), _mention(second), _mention(third)],
+            [first, second, third],
+            source=_CandidateSource({"Grace": [second]}, raises_for={"Ada"}),  # type: ignore[arg-type]
+        )
+
+        assert indices == {2: [1]}

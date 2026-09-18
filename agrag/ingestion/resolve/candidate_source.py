@@ -76,6 +76,10 @@ class GraphCandidateSource(CandidateSource):
                 payload.setdefault("label", mention.label)
             if payload.get("label") != mention.label:
                 continue
+            if "name" not in payload and payload.get("text"):
+                # VectorStore payloads store embedding_text ("name" or
+                # "name: description") under "text", not "name".
+                payload["name"] = str(payload["text"]).split(":", 1)[0].strip()
             try:
                 entities.append(Entity.model_validate(payload))
             except Exception:  # malformed vector payloads are not candidates
