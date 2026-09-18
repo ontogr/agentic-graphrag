@@ -9,7 +9,6 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import RelationRecord, UpsertResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.resolved_entity import (
-    MATCHES_RELATION,
     RESOLVED_AS_RELATION,
     RESOLVED_ENTITY_LABEL,
     ResolvedEntity,
@@ -79,48 +78,55 @@ def _raise_for_write_failure(result: UpsertResult | None) -> None:
     raise RuntimeError(f"Could not materialize resolved entity: {failures}")
 
 
-async def write_match_and_materialize(
-    decision: MatchDecision,
+async def write_matches_and_materialize(
+    decisions: list[MatchDecision],
     *,
     graph_store: GraphStore,
     schema: GraphSchema,
     members: list[Entity],
 ) -> ResolvedEntity:
-    """Persist a match and materialize its supplied connected component.
+    """Persist matches and materialize their supplied connected component.
 
     Callers fetch the bounded affected component before invoking this function.
     The resolved node is always recomputed from that current membership.
+
+    Raises:
+        ValueError: No decisions are supplied, or a decision references a
+            member outside the supplied component.
     """
+    if not decisions:
+        raise ValueError("At least one match decision is required")
     members = sorted(members, key=lambda member: str(member.id))
-    resolved = await compute_resolved_entity(members, schema)
-    match = RelationRecord(
-        id=matches_id(decision.entity_a_id, decision.entity_b_id),
-        type=MATCHES_RELATION,
-        start_id=decision.entity_a_id,
-        end_id=decision.entity_b_id,
-        properties={
-            "active": True,
-            "comparator": decision.comparator,
-            "score": decision.score,
-            "reasoning": decision.reasoning,
-            "decided_at": decision.decided_at.isoformat(),
-        },
-    )
-    async with graph_store.transaction() as transaction:
-        match_rows = await transaction.execute_write(
-            upsert_matches_query(),
-            {
-                "entity_a_id": str(decision.entity_a_id),
-                "entity_b_id": str(decision.entity_b_id),
-                "match_id": str(match.id),
-                "comparator": decision.comparator,
-                "score": decision.score,
-                "reasoning": decision.reasoning,
-                "decided_at": decision.decided_at.isoformat(),
-            },
+    member_ids = {member.id for member in members}
+    if any(
+        decision.entity_a_id not in member_ids or decision.entity_b_id not in member_ids
+        for decision in decisions
+    ):
+        raise ValueError(
+            "Every match decision must reference a supplied component member"
         )
-        if not match_rows:
-            raise ValueError("Cannot materialize a match whose entities do not exist")
+    resolved = await compute_resolved_entity(members, schema)
+    async with graph_store.transaction() as transaction:
+        for decision in decisions:
+            first_id, second_id = sorted(
+                (decision.entity_a_id, decision.entity_b_id), key=str
+            )
+            match_rows = await transaction.execute_write(
+                upsert_matches_query(),
+                {
+                    "entity_a_id": str(first_id),
+                    "entity_b_id": str(second_id),
+                    "match_id": str(matches_id(first_id, second_id)),
+                    "comparator": decision.comparator,
+                    "score": decision.score,
+                    "reasoning": decision.reasoning,
+                    "decided_at": decision.decided_at.isoformat(),
+                },
+            )
+            if not match_rows:
+                raise ValueError(
+                    "Cannot materialize a match whose entities do not exist"
+                )
         await transaction.execute_write(
             replace_component_materializations_query(),
             {"member_ids": [str(member.id) for member in members]},
@@ -140,7 +146,7 @@ async def write_match_and_materialize(
                         type=RESOLVED_AS_RELATION,
                         start_id=member.id,
                         end_id=resolved.id,
-                        properties={"decided_at": decision.decided_at.isoformat()},
+                        properties={"decided_at": decisions[-1].decided_at.isoformat()},
                     )
                     for member in members
                 ]

@@ -15,7 +15,7 @@ from agrag.ingestion.materialize import (
     MatchDecision,
     compute_resolved_entity,
     matches_id,
-    write_match_and_materialize,
+    write_matches_and_materialize,
 )
 
 
@@ -86,7 +86,7 @@ def _store(
     )
 
 
-class TestWriteMatchAndMaterialize:
+class TestWriteMatchesAndMaterialize:
     """Match materialization uses one atomic graph transaction."""
 
     async def test_replaces_existing_component_materialization(self) -> None:
@@ -102,8 +102,8 @@ class TestWriteMatchAndMaterialize:
             decided_at=datetime.now(UTC),
         )
 
-        resolved = await write_match_and_materialize(
-            decision, graph_store=store, schema=_schema(), members=[second, first]
+        resolved = await write_matches_and_materialize(
+            [decision], graph_store=store, schema=_schema(), members=[second, first]
         )
 
         assert resolved.member_ids == sorted([first.id, second.id], key=str)
@@ -133,6 +133,51 @@ class TestWriteMatchAndMaterialize:
         )
 
         with pytest.raises(RuntimeError, match="failed"):
-            await write_match_and_materialize(
-                decision, graph_store=store, schema=_schema(), members=[first, second]
+            await write_matches_and_materialize(
+                [decision], graph_store=store, schema=_schema(), members=[first, second]
+            )
+
+    async def test_canonicalizes_reverse_order_match_writes(self) -> None:
+        """A reverse-order repeat preserves one canonical edge direction."""
+        first, second = sorted(
+            (_entity("Ada"), _entity("Ada Lovelace")), key=lambda e: str(e.id)
+        )
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
+        )
+        decision = MatchDecision(
+            entity_a_id=second.id,
+            entity_b_id=first.id,
+            comparator="FuzzyMatch",
+            decided_at=datetime.now(UTC),
+        )
+
+        await write_matches_and_materialize(
+            [decision], graph_store=store, schema=_schema(), members=[first, second]
+        )
+
+        match_parameters = store.current_transaction.execute_write.call_args_list[
+            0
+        ].args[1]
+        assert match_parameters["entity_a_id"] == str(first.id)
+        assert match_parameters["entity_b_id"] == str(second.id)
+
+    async def test_rejects_decisions_outside_the_component(self) -> None:
+        """A write cannot create a match to a member it did not rematerialize."""
+        first, second, outside = (
+            _entity("Ada"),
+            _entity("Ada Lovelace"),
+            _entity("Grace"),
+        )
+        store = _store()
+        decision = MatchDecision(
+            entity_a_id=first.id,
+            entity_b_id=outside.id,
+            comparator="FuzzyMatch",
+            decided_at=datetime.now(UTC),
+        )
+
+        with pytest.raises(ValueError, match="supplied component"):
+            await write_matches_and_materialize(
+                [decision], graph_store=store, schema=_schema(), members=[first, second]
             )
