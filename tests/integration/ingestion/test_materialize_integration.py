@@ -11,7 +11,12 @@ from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.cypher.entities import validate_identifier
 from agrag.graphdb import build_graph_store
-from agrag.ingestion.materialize import MatchDecision, write_matches_and_materialize
+from agrag.ingestion.materialize import (
+    MatchDecision,
+    deactivate_match,
+    matches_id,
+    write_matches_and_materialize,
+)
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -168,6 +173,83 @@ class TestMatchMaterializationIntegration:
             ]
         finally:
             await store.execute_write(f"MATCH (node:{label}) DETACH DELETE node")
+            await store.close()
+
+    async def test_deactivation_splits_a_component_without_deleting_raw_nodes(
+        self,
+    ) -> None:
+        """A correction deactivates one edge and leaves singleton raw nodes intact."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Person_{uuid4().hex[:8]}")
+        first, second, third = (
+            Entity(id=uuid4(), label=label, name="Ada"),
+            Entity(id=uuid4(), label=label, name="Ada Lovelace"),
+            Entity(id=uuid4(), label=label, name="Lady Lovelace"),
+        )
+        schema = _schema(label)
+        try:
+            await store.upsert_nodes(
+                label,
+                [
+                    first.to_node_record(),
+                    second.to_node_record(),
+                    third.to_node_record(),
+                ],
+            )
+            now = datetime.now(UTC)
+            await write_matches_and_materialize(
+                [
+                    MatchDecision(
+                        entity_a_id=first.id,
+                        entity_b_id=second.id,
+                        comparator="FuzzyMatch",
+                        decided_at=now,
+                    ),
+                    MatchDecision(
+                        entity_a_id=second.id,
+                        entity_b_id=third.id,
+                        comparator="FuzzyMatch",
+                        decided_at=now,
+                    ),
+                ],
+                graph_store=store,
+                schema=schema,
+                members=[first, second, third],
+            )
+
+            materialized = await deactivate_match(
+                matches_id(second.id, third.id), graph_store=store, schema=schema
+            )
+
+            assert len(materialized) == 1
+            assert materialized[0].member_ids == sorted([first.id, second.id], key=str)
+            rows = await store.execute_read(
+                "MATCH (third) WHERE third.id = $third_id "
+                "OPTIONAL MATCH (third)-[membership:RESOLVED_AS]->() "
+                "MATCH ()-[match:MATCHES {id: $match_id}]->() "
+                "RETURN count(membership) AS memberships, match.active AS active",
+                {
+                    "third_id": str(third.id),
+                    "match_id": str(matches_id(second.id, third.id)),
+                },
+            )
+            assert rows == [{"memberships": 0, "active": False}]
+            raw_rows = await store.execute_read(
+                f"MATCH (entity:{label}) WHERE entity.id IN $ids "
+                "RETURN count(entity) AS count",
+                {"ids": [str(first.id), str(second.id), str(third.id)]},
+            )
+            assert raw_rows == [{"count": 3}]
+        finally:
+            await store.execute_write(f"MATCH (node:{label}) DETACH DELETE node")
+            await store.execute_write(
+                "MATCH (node:ResolvedEntity) "
+                "WHERE any(member_id IN node.member_ids WHERE member_id IN $ids) "
+                "DETACH DELETE node",
+                {"ids": [str(first.id), str(second.id), str(third.id)]},
+            )
+            await store.close()
             await store.execute_write(
                 "MATCH (node:ResolvedEntity) "
                 "WHERE any(member_id IN node.member_ids "
