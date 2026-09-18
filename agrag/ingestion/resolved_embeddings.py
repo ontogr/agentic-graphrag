@@ -179,8 +179,11 @@ async def _synchronize_resolved_entity_vectors(
     deterministic id, so ``removed_entity_ids``, or an earlier pass's
     persisted retry queue, can hold an id that ``entities`` is about to
     republish in this same call. That id is dropped from the pending
-    deletions, and any stale queue entry for it is cleared, so a queued
-    delete can never remove a vector this call just made live again.
+    deletions, and its stale queue entry must be cleared before that id's
+    entity is republished; if the clear fails, that entity is held back
+    from this call's embedding pass instead, so its queue entry can never
+    survive alongside a freshly republished vector for a later pass to
+    wrongly delete.
     """
     failures: list[StageFailure] = []
     republished_ids = {str(entity.id) for entity in entities}
@@ -194,8 +197,23 @@ async def _synchronize_resolved_entity_vectors(
     stale_pending_ids = [item_id for item_id in pending if item_id in republished_ids]
     for item_id in stale_pending_ids:
         del pending[item_id]
+    uncleared_stale_ids: set[str] = set()
     if stale_pending_ids:
-        await _clear_vector_deletions(graph_store, stale_pending_ids)
+        try:
+            await _clear_vector_deletions(
+                graph_store, stale_pending_ids, suppress=False
+            )
+        except Exception as exc:  # noqa: BLE001
+            uncleared_stale_ids = set(stale_pending_ids)
+            failures.append(
+                StageFailure(
+                    item_id="resolved_entity_vector_store",
+                    error_type=type(exc).__name__,
+                    error_message=f"{exc} ids={stale_pending_ids}",
+                )
+            )
+            if error_policy is ErrorPolicy.RAISE:
+                raise
     if vector_store is not None:
         for collection in sorted(set(pending.values())):
             ids = [
@@ -222,9 +240,14 @@ async def _synchronize_resolved_entity_vectors(
                 await _clear_vector_deletions(
                     graph_store, [str(entity_id) for entity_id in ids]
                 )
+    entities_to_sync = (
+        [entity for entity in entities if str(entity.id) not in uncleared_stale_ids]
+        if uncleared_stale_ids
+        else entities
+    )
     failures.extend(
         await embed_resolved_entities(
-            entities,
+            entities_to_sync,
             embedder=embedder,
             graph_store=graph_store,
             vector_store=vector_store,
@@ -270,11 +293,31 @@ async def _enqueue_vector_deletions(
         )
 
 
-async def _clear_vector_deletions(graph_store: GraphStore, ids: list[str]) -> None:
-    """Remove deletion records after the vector store confirms deletion."""
+async def _clear_vector_deletions(
+    graph_store: GraphStore, ids: list[str], *, suppress: bool = True
+) -> None:
+    """Remove deletion records after the vector store confirms deletion.
+
+    Args:
+        graph_store: The graph store the deletion queue is persisted in.
+        ids: The queued deletion record ids to remove.
+        suppress: When True, a write failure is swallowed because the
+            queued deletion still points at a vector no later pass has
+            republished, so it is safe to retry. Set False when ``ids`` are
+            about to be republished instead, since a swallowed failure
+            there would leave a stale queue entry for a live vector.
+
+    Raises:
+        Exception: The graph write failed and ``suppress`` is False.
+    """
     if not ids:
         return
-    with contextlib.suppress(Exception):
+    if suppress:
+        with contextlib.suppress(Exception):
+            await graph_store.execute_write(
+                clear_resolved_entity_vector_deletions_query(), {"ids": ids}
+            )
+    else:
         await graph_store.execute_write(
             clear_resolved_entity_vector_deletions_query(), {"ids": ids}
         )
