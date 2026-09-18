@@ -184,6 +184,16 @@ async def _synchronize_resolved_entity_vectors(
     from this call's embedding pass instead, so its queue entry can never
     survive alongside a freshly republished vector for a later pass to
     wrongly delete.
+
+    Consolidation can also batch a materialization that recreated a
+    component under its prior id together with a later one, in the same
+    call, that supersedes it with a bigger merged component. Both ids look
+    "about to be republished" up front, but only the later one's node
+    still exists, so the guarded embedding write matches nothing for the
+    superseded one. That outcome, not mere presence in ``entities``, is
+    what confirms an id is still current: any assumed-current id that does
+    not come back ``synced`` goes back on the deletion queue instead of
+    being left orphaned with no cleanup record.
     """
     failures: list[StageFailure] = []
     republished_ids = {str(entity.id) for entity in entities}
@@ -194,52 +204,39 @@ async def _synchronize_resolved_entity_vectors(
             for entity_id in dict.fromkeys(removed_entity_ids)
         }
     )
-    stale_pending_ids = [item_id for item_id in pending if item_id in republished_ids]
-    for item_id in stale_pending_ids:
+    assumed_current = {
+        item_id: collection
+        for item_id, collection in pending.items()
+        if item_id in republished_ids
+    }
+    for item_id in assumed_current:
         del pending[item_id]
     uncleared_stale_ids: set[str] = set()
-    if stale_pending_ids:
+    if assumed_current:
         try:
             await _clear_vector_deletions(
-                graph_store, stale_pending_ids, suppress=False
+                graph_store, list(assumed_current), suppress=False
             )
         except Exception as exc:  # noqa: BLE001
-            uncleared_stale_ids = set(stale_pending_ids)
+            uncleared_stale_ids = set(assumed_current)
             failures.append(
                 StageFailure(
                     item_id="resolved_entity_vector_store",
                     error_type=type(exc).__name__,
-                    error_message=f"{exc} ids={stale_pending_ids}",
+                    error_message=f"{exc} ids={list(assumed_current)}",
                 )
             )
             if error_policy is ErrorPolicy.RAISE:
                 raise
-    if vector_store is not None:
-        for collection in sorted(set(pending.values())):
-            ids = [
-                UUID(item_id)
-                for item_id, item_collection in pending.items()
-                if item_collection == collection
-            ]
-            try:
-                await vector_store.delete(collection, ids)
-            except Exception as exc:  # noqa: BLE001
-                await _enqueue_vector_deletions(
-                    graph_store, ids, collection=collection, error=str(exc)
-                )
-                failures.append(
-                    StageFailure(
-                        item_id="resolved_entity_vector_store",
-                        error_type=type(exc).__name__,
-                        error_message=f"{exc} ids={ids}",
-                    )
-                )
-                if error_policy is ErrorPolicy.RAISE:
-                    raise
-            else:
-                await _clear_vector_deletions(
-                    graph_store, [str(entity_id) for entity_id in ids]
-                )
+    if vector_store is not None and pending:
+        failures.extend(
+            await _delete_pending_vectors(
+                pending,
+                graph_store=graph_store,
+                vector_store=vector_store,
+                error_policy=error_policy,
+            )
+        )
     entities_to_sync = (
         [entity for entity in entities if str(entity.id) not in uncleared_stale_ids]
         if uncleared_stale_ids
@@ -255,6 +252,74 @@ async def _synchronize_resolved_entity_vectors(
             error_policy=error_policy,
         )
     )
+    synced_ids = {
+        str(entity.id)
+        for entity in entities_to_sync
+        if entity.vector_sync_status == "synced"
+    }
+    superseded = {
+        item_id: collection
+        for item_id, collection in assumed_current.items()
+        if item_id not in uncleared_stale_ids and item_id not in synced_ids
+    }
+    if superseded and vector_store is not None:
+        failures.extend(
+            await _delete_pending_vectors(
+                superseded,
+                graph_store=graph_store,
+                vector_store=vector_store,
+                error_policy=error_policy,
+            )
+        )
+    return failures
+
+
+async def _delete_pending_vectors(
+    pending: dict[str, str],
+    *,
+    graph_store: GraphStore,
+    vector_store: VectorStore,
+    error_policy: ErrorPolicy,
+) -> list[StageFailure]:
+    """Delete every queued vector id, persisting a retry on failure.
+
+    Args:
+        pending: Vector ids to delete, mapped to the collection each lives
+            in.
+        graph_store: The graph store the deletion queue is persisted in.
+        vector_store: The store to delete the vectors from.
+        error_policy: Whether a delete failure raises or is recorded.
+
+    Raises:
+        Exception: A delete failed and ``error_policy`` is
+            ``ErrorPolicy.RAISE``.
+    """
+    failures: list[StageFailure] = []
+    for collection in sorted(set(pending.values())):
+        ids = [
+            UUID(item_id)
+            for item_id, item_collection in pending.items()
+            if item_collection == collection
+        ]
+        try:
+            await vector_store.delete(collection, ids)
+        except Exception as exc:  # noqa: BLE001
+            await _enqueue_vector_deletions(
+                graph_store, ids, collection=collection, error=str(exc)
+            )
+            failures.append(
+                StageFailure(
+                    item_id="resolved_entity_vector_store",
+                    error_type=type(exc).__name__,
+                    error_message=f"{exc} ids={ids}",
+                )
+            )
+            if error_policy is ErrorPolicy.RAISE:
+                raise
+        else:
+            await _clear_vector_deletions(
+                graph_store, [str(entity_id) for entity_id in ids]
+            )
     return failures
 
 

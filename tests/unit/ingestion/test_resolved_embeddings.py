@@ -480,6 +480,51 @@ class TestSynchronizeResolvedEntityVectors:
         graph_store.execute_read.assert_awaited_once()
         vector_store.upsert.assert_not_awaited()
 
+    async def test_retries_deletion_for_an_id_superseded_within_the_batch(
+        self,
+    ) -> None:
+        """A materialization superseded by a later one in the batch is not orphaned.
+
+        Consolidation can batch a materialization that recreated a
+        component under its old id together with a later one that merges
+        it into a bigger component. Both ids get treated as "about to be
+        republished" up front, but only the surviving entity's guarded
+        write still matches a node: the superseded one's node was already
+        replaced before this call ran. Its vector must still end up queued
+        for deletion instead of being left orphaned with no cleanup record.
+        """
+        superseded_entity = _entity()
+        current_entity = _entity()
+
+        async def execute_write(_query: str, params: dict) -> list[dict]:
+            records = params.get("records")
+            if records and "expected_name" in records[0]:
+                return [{"id": str(current_entity.id)}]
+            return []
+
+        graph_store = SimpleNamespace(
+            execute_write=AsyncMock(side_effect=execute_write)
+        )
+        vector_store = SimpleNamespace(delete=AsyncMock(), upsert=AsyncMock())
+
+        failures = await _synchronize_resolved_entity_vectors(
+            [superseded_entity, current_entity],
+            [superseded_entity.id],
+            embedder=_Embedder(),
+            graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collection="resolved",
+            error_policy=ErrorPolicy.SKIP,
+        )
+
+        assert failures == []
+        vector_store.delete.assert_awaited_once_with("resolved", [superseded_entity.id])
+        vector_store.upsert.assert_awaited_once()
+        upserted_records = vector_store.upsert.await_args.args[1]
+        assert [record.id for record in upserted_records] == [current_entity.id]
+        assert current_entity.vector_sync_status == "synced"
+        assert superseded_entity.vector_sync_status == "pending"
+
     async def test_reports_stale_vector_delete_failure_with_skip(self) -> None:
         """A failed stale-vector deletion remains visible to the caller."""
         entity = _entity()
