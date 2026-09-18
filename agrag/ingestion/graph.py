@@ -31,6 +31,10 @@ from agrag.common.data_models.graph_record import RelationRecord, UpsertResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
+from agrag.common.data_models.resolved_entity import (
+    RESOLVED_ENTITY_LABEL,
+    ResolvedEntity,
+)
 from agrag.common.data_models.vector_record import VectorRecord
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
@@ -62,6 +66,13 @@ from agrag.ingestion._lexical_backbone import (
     distinct_documents,
 )
 from agrag.ingestion.extract import Extractor
+from agrag.ingestion.materialize import (
+    MatchDecision,
+    deactivate_match_and_rematerialize,
+    decisions_by_component,
+    match_decision_components,
+    write_matches_and_materialize,
+)
 from agrag.ingestion.merge import (
     MergePlan,
     apply_merge,
@@ -78,11 +89,16 @@ from agrag.ingestion.reports import (
 from agrag.ingestion.resolve import (
     ExactMatch,
     FuzzyMatch,
+    GraphCandidateSource,
     InBatchCandidateSource,
     LLMVerify,
+    PersistedCandidateSource,
     ResolutionGroup,
     Resolver,
+    exact_resolution_groups,
+    persisted_candidate_indices,
 )
+from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
 from agrag.ingestion.stats import (
     ExtractionStats,
     IngestStats,
@@ -118,7 +134,14 @@ SourceType = Union[str, Path]
 SourcesType = Union[SourceType, Sequence[SourceType]]
 
 # Relationship types Graph.open() always registers
-SYSTEM_RELATION_TYPES = ["MENTIONED_IN", MEMBER_OF_RELATION, "PART_OF", "NEXT_CHUNK"]
+SYSTEM_RELATION_TYPES = [
+    "MENTIONED_IN",
+    MEMBER_OF_RELATION,
+    "PART_OF",
+    "NEXT_CHUNK",
+    "MATCHES",
+    "RESOLVED_AS",
+]
 
 
 def _vector_record(
@@ -714,23 +737,32 @@ def _synthesize_consolidation_mentions(
     synthetic_mentions: list[ExtractedEntity] = []
     dummy_chunks_by_id: dict[UUID, Chunk] = {}
     for ent in entities:
-        dummy_cid = uuid4()
-        dummy_chunks_by_id[dummy_cid] = Chunk(
-            document_id=dummy_cid,
-            index=0,
-            text=ent.name,
-            provenance=TextProvenance(char_start=0, char_end=len(ent.name)),
-        )
-        synthetic_mentions.append(
-            ExtractedEntity(
-                chunk_id=dummy_cid,
-                label=ent.label,
-                text=ent.name,
-                char_start=0,
-                char_end=len(ent.name),
-            )
-        )
+        mention, chunk = _synthetic_entity_mention(ent)
+        synthetic_mentions.append(mention)
+        dummy_chunks_by_id[mention.chunk_id] = chunk
     return synthetic_mentions, dummy_chunks_by_id
+
+
+def _synthetic_entity_mention(entity: Entity) -> tuple[ExtractedEntity, Chunk]:
+    """Build a mention and distinct name context for a persisted raw entity."""
+    chunk_id = uuid4()
+    chunk = Chunk(
+        id=chunk_id,
+        document_id=chunk_id,
+        index=0,
+        text=entity.name,
+        provenance=TextProvenance(char_start=0, char_end=len(entity.name)),
+    )
+    return (
+        ExtractedEntity(
+            chunk_id=chunk_id,
+            label=entity.label,
+            text=entity.name,
+            char_start=0,
+            char_end=len(entity.name),
+        ),
+        chunk,
+    )
 
 
 def _embedding_guard_fields(entity: Entity) -> dict[str, str]:
@@ -1208,7 +1240,13 @@ class Graph:
             entity_labels = [entity_type.label for entity_type in schema.entities]
             relation_types = [relation_type.label for relation_type in schema.relations]
             await graph_store.register_labels(
-                [*entity_labels, CHUNK_LABEL, COMMUNITY_LABEL, DOCUMENT_LABEL]
+                [
+                    *entity_labels,
+                    CHUNK_LABEL,
+                    COMMUNITY_LABEL,
+                    DOCUMENT_LABEL,
+                    RESOLVED_ENTITY_LABEL,
+                ]
             )
             await graph_store.register_relation_types(
                 [*relation_types, *SYSTEM_RELATION_TYPES]
@@ -1236,11 +1274,18 @@ class Graph:
                 dimensions=dimensions,
                 distance=distance,
             )
+            await graph_store.ensure_vector_index(
+                label=RESOLVED_ENTITY_LABEL,
+                vector_property="embedding",
+                dimensions=dimensions,
+                distance=distance,
+            )
             if vector_store is not None:
                 settings = retrieval_settings or RetrievalSettings()
                 await vector_store.initialize()
                 for collection in (
                     settings.entity_collection,
+                    settings.resolved_entity_collection,
                     settings.chunk_collection,
                     settings.community_collection,
                 ):
@@ -1556,7 +1601,11 @@ class Graph:
             ],
             candidate_source=InBatchCandidateSource(),
         )
-        groups = await resolver.resolve(entities) if entities else []
+        resolution_result = await resolver.resolve(entities) if entities else None
+        semantic_groups = (
+            resolution_result.groups if resolution_result is not None else []
+        )
+        groups = exact_resolution_groups(entities, exact_matches)
 
         # Compute resolution stats
         exact_match_hits = len(exact_matches)
@@ -1564,17 +1613,9 @@ class Graph:
         # ambiguous_count: no direct metric yet, use 0.
         resolution = ResolutionStats(
             exact_match_hits=exact_match_hits,
-            in_batch_groups=len(groups) if groups else 0,
+            in_batch_groups=len(semantic_groups),
             ambiguous_count=0,
         )
-
-        # In-batch resolution alone can leave two mentions of the same
-        # persisted entity in separate groups (each reached it through a
-        # different accepted alias). Union those before computing plans, or
-        # the second group's apply_merge would overwrite the first's
-        # contribution.
-        if groups:
-            groups = _union_groups_by_existing_entity(groups, exact_matches)
 
         # Merge and write
         merge_stats = MergeStats()
@@ -1584,6 +1625,7 @@ class Graph:
         # Track survivors and mention->entity map
         mention_to_entity: dict[int, UUID] = {}
         survivors: dict[UUID, Entity] = {}
+        resolved_vector_failures: list[StageFailure] = []
         # For storage stats counting
         nodes_created = 0
         nodes_updated = 0
@@ -1683,6 +1725,93 @@ class Graph:
             survivors[plan.survivor.id] = plan.survivor
             for idx in group_indices:
                 mention_to_entity[idx] = plan.survivor.id
+
+        if resolution_result is not None:
+            persisted_mentions: list[ExtractedEntity] = list(entities)
+            persisted_candidates: dict[int, list[int]] = {}
+            persisted_ids: dict[int, UUID] = {}
+            candidate_entities: dict[UUID, Entity] = {}
+            candidate_source = GraphCandidateSource(
+                graph_store=self._graph_store,
+                embedder=self._embedder,
+                vector_store=self._vector_store,
+                vector_collection=self._retrieval_settings.entity_collection,
+                entity_labels=[entity.label for entity in self._schema.entities],
+            )
+            for mention_index, mention in enumerate(entities):
+                try:
+                    candidates = await candidate_source.global_candidates_for(mention)
+                except Exception:  # noqa: BLE001
+                    candidates = []
+                for candidate in candidates:
+                    if candidate.id == mention_to_entity.get(mention_index):
+                        continue
+                    candidate_index = len(persisted_mentions)
+                    candidate_mention, candidate_chunk = _synthetic_entity_mention(
+                        candidate
+                    )
+                    persisted_mentions.append(candidate_mention)
+                    chunks_by_id[candidate_mention.chunk_id] = candidate_chunk
+                    persisted_candidates.setdefault(mention_index, []).append(
+                        candidate_index
+                    )
+                    persisted_ids[candidate_index] = candidate.id
+                    candidate_entities[candidate.id] = candidate
+            if persisted_candidates:
+                persisted_result = await Resolver(
+                    comparators=[
+                        ExactMatch(),
+                        FuzzyMatch(),
+                        LLMVerify(chunks_by_id=chunks_by_id),
+                    ],
+                    candidate_source=PersistedCandidateSource(persisted_candidates),
+                ).resolve(persisted_mentions)
+                resolution_result.matches.extend(persisted_result.matches)
+                mention_to_entity.update(persisted_ids)
+            for decisions in decisions_by_component(
+                resolution_result.matches, mention_to_entity
+            ):
+                member_ids = {decision.entity_a_id for decision in decisions} | {
+                    decision.entity_b_id for decision in decisions
+                }
+                members = [
+                    survivors.get(member_id) or candidate_entities[member_id]
+                    for member_id in member_ids
+                ]
+                try:
+                    materialization = await write_matches_and_materialize(
+                        decisions,
+                        graph_store=self._graph_store,
+                        schema=self._schema,
+                        members=members,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    if error_policy is ErrorPolicy.RAISE:
+                        raise
+                    merge_failures.append(
+                        StageFailure(
+                            item_id=",".join(
+                                str(member_id) for member_id in member_ids
+                            ),
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
+                    )
+                    continue
+                # Synchronized per component, not batched after the loop: a
+                # later component's failure under ErrorPolicy.RAISE must not
+                # skip vector cleanup for components already committed above.
+                resolved_vector_failures.extend(
+                    await _synchronize_resolved_entity_vectors(
+                        [materialization.resolved_entity],
+                        materialization.removed_entity_ids,
+                        embedder=self._embedder,
+                        graph_store=self._graph_store,
+                        vector_store=self._vector_store,
+                        vector_collection=self._retrieval_settings.resolved_entity_collection,
+                        error_policy=error_policy,
+                    )
+                )
 
         # If there were no entities (empty corpus) we have no survivors
         # but we still need to write chunks
@@ -1843,7 +1972,10 @@ class Graph:
         relation_records.extend(build_next_chunk_records(chunks))
 
         # Write chunk nodes
-        storage_failures: list[StageFailure] = list(relation_storage_failures)
+        storage_failures: list[StageFailure] = [
+            *relation_storage_failures,
+            *resolved_vector_failures,
+        ]
         nodes_written = 0
         relationships_written_count = 0
         chunk_failure_ids: set[UUID] = set()
@@ -1962,7 +2094,6 @@ class Graph:
                     labels_by_id={ent.id: ent.label for ent in survivors.values()},
                 )
             )
-
         storage_failures_capped = cap_failures(storage_failures)
         storage_stats = StorageStats(
             nodes_written=nodes_written,
@@ -2200,25 +2331,43 @@ class Graph:
             skip += limit
         return entities
 
-    async def consolidate(self, *, apply: bool = False) -> ConsolidationReport:
-        """Run full tiered resolution against everything persisted.
+    async def deactivate_match(self, match_id: UUID) -> list[ResolvedEntity]:
+        """Deactivate a semantic match and synchronize replacement retrieval vectors."""
+        result = await deactivate_match_and_rematerialize(
+            match_id, graph_store=self._graph_store, schema=self._schema
+        )
+        await _synchronize_resolved_entity_vectors(
+            result.resolved_entities,
+            result.removed_entity_ids,
+            embedder=self._embedder,
+            graph_store=self._graph_store,
+            vector_store=self._vector_store,
+            vector_collection=self._retrieval_settings.resolved_entity_collection,
+            error_policy=ErrorPolicy.RAISE,
+        )
+        return result.resolved_entities
 
-        Dry-run by default: produces a report of what would merge before any
-        node is touched. Pass apply=True to write the merges.
+    async def consolidate(self, *, apply: bool = False) -> ConsolidationReport:
+        """Run non-destructive resolution against every persisted raw entity.
+
+        Dry-run by default: produces matches before any node is touched. Pass
+        apply=True to write MATCHES edges and derived ResolvedEntity nodes.
 
         For each EntityType label in self._schema, fetches every persisted
-        entity with that label and runs the same comparator sequence add() uses
-        in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
-        them — O(n^2) within each label's population.
-        Confirmed matches become MergePlans via compute_merge.
+        entity with that label, bounds the pairs actually compared with
+        GraphCandidateSource's ANN-backed persisted_candidate_indices, and
+        runs the same comparator sequence add() uses in-batch (ExactMatch,
+        FuzzyMatch, LLMVerify) over those candidate pairs. Confirmed non-exact
+        matches preserve both raw Entity nodes and their relationships.
 
         Args:
-            apply: Write the computed merges. False produces a report only.
+            apply: Materialize the confirmed matches. False produces a report only.
 
         Returns:
-            A report of every group consolidate() found, applied or not.
+            A report of every confirmed non-exact match, applied or not.
         """
-        would_merge: list = []
+        would_match: list[MatchDecision] = []
+        entities_by_id: dict[UUID, Entity] = {}
         # For each label, fetch all entities, then pairwise compare via Resolver
         for entity_type in self._schema.entities:
             label = entity_type.label
@@ -2229,73 +2378,85 @@ class Graph:
                 all_entities
             )
 
+            candidate_source = GraphCandidateSource(
+                graph_store=self._graph_store,
+                embedder=self._embedder,
+                vector_store=self._vector_store,
+                vector_collection=self._retrieval_settings.entity_collection,
+                entity_labels=[entity.label for entity in self._schema.entities],
+            )
+            candidate_indices = await persisted_candidate_indices(
+                synthetic_mentions,
+                all_entities,
+                source=candidate_source,
+            )
             resolver = Resolver(
                 comparators=[
                     ExactMatch(),
                     FuzzyMatch(),
                     LLMVerify(chunks_by_id=dummy_chunks_by_id),
                 ],
-                candidate_source=InBatchCandidateSource(),
+                candidate_source=PersistedCandidateSource(candidate_indices),
             )
-            groups = await resolver.resolve(synthetic_mentions)
-            # Filter groups of one (no merge)
-            for group in groups:
-                if len(group.entity_indices) <= 1:
-                    continue
-                # Collect existing_entities for this group
-                group_entities = [all_entities[i] for i in group.entity_indices]
-                # compute_merge with mentions=[] (per plan)
-                try:
-                    plan, _failures = await compute_merge(
-                        existing_entities=group_entities,
-                        mentions=[],
-                        schema=self._schema,
+            resolution_result = await resolver.resolve(synthetic_mentions)
+            entities_by_id.update({entity.id: entity for entity in all_entities})
+            for match in resolution_result.matches:
+                would_match.append(
+                    MatchDecision(
+                        entity_a_id=all_entities[match.left_index].id,
+                        entity_b_id=all_entities[match.right_index].id,
+                        comparator=match.comparator,
+                        score=match.score,
+                        reasoning=match.reasoning,
+                        decided_at=match.decided_at,
                     )
-                except Exception:
-                    continue
-                would_merge.append(plan)
+                )
 
         consolidation_failures: list[StageFailure] = []
-        if apply and would_merge:
-            survivors: dict[UUID, Entity] = {}
-            for plan in would_merge:
-                await apply_merge(
-                    plan, graph_store=self._graph_store, schema=self._schema
-                )
-                survivors[plan.survivor.id] = plan.survivor
-                if plan.tombstone_ids:
-                    try:
-                        await _delete_vectors(
-                            self._vector_store,
-                            self._retrieval_settings.entity_collection,
-                            list(plan.tombstone_ids),
+        materialized_entities: list[ResolvedEntity] = []
+        replaced_resolved_entity_ids: list[UUID] = []
+        if apply:
+            for decisions in match_decision_components(would_match):
+                member_ids = {decision.entity_a_id for decision in decisions} | {
+                    decision.entity_b_id for decision in decisions
+                }
+                try:
+                    materialization = await write_matches_and_materialize(
+                        decisions,
+                        graph_store=self._graph_store,
+                        schema=self._schema,
+                        members=[entities_by_id[member_id] for member_id in member_ids],
+                    )
+                    materialized_entities.append(materialization.resolved_entity)
+                    replaced_resolved_entity_ids.extend(
+                        materialization.removed_entity_ids
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    consolidation_failures.append(
+                        StageFailure(
+                            item_id=",".join(
+                                str(member_id) for member_id in member_ids
+                            ),
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
                         )
-                    except Exception as exc:  # noqa: BLE001
-                        consolidation_failures.append(
-                            StageFailure(
-                                item_id="tombstone_vector_store",
-                                error_type=type(exc).__name__,
-                                error_message=str(exc),
-                            )
-                        )
-            # Every survivor's node was just (re)written, possibly with a new
-            # canonical name or description; its embedding must match that
-            # final text, the same way add()'s embedding stage keeps one in
-            # sync with a merge it just applied.
-            if survivors:
-                consolidation_failures = await _embed_and_upsert_survivors(
-                    survivors,
+                    )
+
+            consolidation_failures.extend(
+                await _synchronize_resolved_entity_vectors(
+                    materialized_entities,
+                    replaced_resolved_entity_ids,
                     embedder=self._embedder,
                     graph_store=self._graph_store,
-                    error_policy=ErrorPolicy.SKIP,
                     vector_store=self._vector_store,
-                    vector_collection=self._retrieval_settings.entity_collection,
-                    labels_by_id={ent.id: ent.label for ent in survivors.values()},
+                    vector_collection=self._retrieval_settings.resolved_entity_collection,
+                    error_policy=ErrorPolicy.SKIP,
                 )
+            )
 
         return ConsolidationReport(
-            would_merge=would_merge,
-            applied=apply and bool(would_merge),
+            would_match=would_match,
+            applied=apply and bool(materialized_entities),
             failures=consolidation_failures,
         )
 

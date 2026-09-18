@@ -810,12 +810,13 @@ Shared data models used by agrag components.
 - [**community**](#agrag.common.data_models.community) – The Community model: a Leiden-detected entity cluster with an LLM report.
 - [**data_point**](#agrag.common.data_models.data_point) – The base class for a graph node.
 - [**document**](#agrag.common.data_models.document) – The Document model: one unit of source text, before chunking.
-- [**entity**](#agrag.common.data_models.entity) – The canonical, resolved graph entity that merge mechanics produces.
+- [**entity**](#agrag.common.data_models.entity) – A graph entity assembled from mentions resolution confirmed as the same thing.
 - [**extraction**](#agrag.common.data_models.extraction) – Pre-resolution entity and relation mentions produced by an Extractor.
 - [**graph_record**](#agrag.common.data_models.graph_record) – Graph storage record shapes for GraphStore.
 - [**graph_schema**](#agrag.common.data_models.graph_schema) – The GraphSchema contract: entity and relation types extraction validates against.
 - [**provenance**](#agrag.common.data_models.provenance) – Provenance types for a chunk.
 - [**relation**](#agrag.common.data_models.relation) – The canonical, deduped graph relationship that merge mechanics produces.
+- [**resolved_entity**](#agrag.common.data_models.resolved_entity) – Materialized identity clusters for non-destructive entity resolution.
 - [**search_result**](#agrag.common.data_models.search_result) – One retrieved item, tagged with source and relevance score.
 - [**vector_record**](#agrag.common.data_models.vector_record) – Vector storage record shapes shared by VectorStore and GraphStore.
 
@@ -1608,7 +1609,7 @@ XML = 'xml'
 
 ##### `agrag.common.data_models.entity`
 
-The canonical, resolved graph entity that merge mechanics produces.
+A graph entity assembled from mentions resolution confirmed as the same thing.
 
 **Classes:**
 
@@ -1633,8 +1634,7 @@ A resolved entity, assembled from one or more ExtractedEntity mentions.
   EntityType.properties for this label declares). Never holds name.
 - [**embedding**](#agrag.common.data_models.entity.Entity.embedding) (<code>[list](#list)\[[float](#float)\] | None</code>) – The entity's dense vector, once populated by the storage
   stage. None before that point.
-- [**merged_from**](#agrag.common.data_models.entity.Entity.merged_from) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of entities absorbed into this one by a tombstone
-  merge. Empty for an entity that has never absorbed another.
+- [**merged_from**](#agrag.common.data_models.entity.Entity.merged_from) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of entities accumulated by exact-name matching.
 - [**merge_count**](#agrag.common.data_models.entity.Entity.merge_count) (<code>[int](#int)</code>) – The total number of source mentions and absorbed
   entities this entity's data was assembled from. Starts at 1.
 - [**source_chunk_ids**](#agrag.common.data_models.entity.Entity.source_chunk_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of every Chunk a mention contributing to this
@@ -2406,6 +2406,138 @@ Return this relationship as a GraphStore write record.
 type: str
 ```
 
+##### `agrag.common.data_models.resolved_entity`
+
+Materialized identity clusters for non-destructive entity resolution.
+
+**Classes:**
+
+- [**ResolvedEntity**](#agrag.common.data_models.resolved_entity.ResolvedEntity) – A materialized cluster of entities that refer to the same thing.
+
+**Attributes:**
+
+- [**MATCHES_RELATION**](#agrag.common.data_models.resolved_entity.MATCHES_RELATION) –
+- [**RESOLVED_AS_RELATION**](#agrag.common.data_models.resolved_entity.RESOLVED_AS_RELATION) –
+- [**RESOLVED_ENTITY_LABEL**](#agrag.common.data_models.resolved_entity.RESOLVED_ENTITY_LABEL) –
+
+###### `agrag.common.data_models.resolved_entity.MATCHES_RELATION`
+
+```python
+MATCHES_RELATION = 'MATCHES'
+```
+
+###### `agrag.common.data_models.resolved_entity.RESOLVED_AS_RELATION`
+
+```python
+RESOLVED_AS_RELATION = 'RESOLVED_AS'
+```
+
+###### `agrag.common.data_models.resolved_entity.RESOLVED_ENTITY_LABEL`
+
+```python
+RESOLVED_ENTITY_LABEL = 'ResolvedEntity'
+```
+
+###### `agrag.common.data_models.resolved_entity.ResolvedEntity`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+A materialized cluster of entities that refer to the same thing.
+
+**Functions:**
+
+- [**to_node_record**](#agrag.common.data_models.resolved_entity.ResolvedEntity.to_node_record) – Return this resolved entity as a graph write record.
+
+**Attributes:**
+
+- [**created_at**](#agrag.common.data_models.resolved_entity.ResolvedEntity.created_at) (<code>[datetime](#datetime.datetime)</code>) –
+- [**embedding**](#agrag.common.data_models.resolved_entity.ResolvedEntity.embedding) (<code>[list](#list)\[[float](#float)\] | None</code>) –
+- [**embedding_text**](#agrag.common.data_models.resolved_entity.ResolvedEntity.embedding_text) (<code>[str](#str)</code>) – Return the text used to embed this resolved entity.
+- [**id**](#agrag.common.data_models.resolved_entity.ResolvedEntity.id) (<code>[UUID](#uuid.UUID)</code>) –
+- [**label**](#agrag.common.data_models.resolved_entity.ResolvedEntity.label) (<code>[str](#str)</code>) –
+- [**member_ids**](#agrag.common.data_models.resolved_entity.ResolvedEntity.member_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) –
+- [**metadata**](#agrag.common.data_models.resolved_entity.ResolvedEntity.metadata) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) –
+- [**name**](#agrag.common.data_models.resolved_entity.ResolvedEntity.name) (<code>[str](#str)</code>) –
+- [**properties**](#agrag.common.data_models.resolved_entity.ResolvedEntity.properties) (<code>[dict](#dict)\[[str](#str), [object](#object)\]</code>) –
+- [**vector_sync_error**](#agrag.common.data_models.resolved_entity.ResolvedEntity.vector_sync_error) (<code>[str](#str) | None</code>) –
+- [**vector_sync_status**](#agrag.common.data_models.resolved_entity.ResolvedEntity.vector_sync_status) (<code>[Literal](#typing.Literal)['pending', 'synced', 'failed']</code>) –
+
+####### `agrag.common.data_models.resolved_entity.ResolvedEntity.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+####### `agrag.common.data_models.resolved_entity.ResolvedEntity.embedding`
+
+```python
+embedding: list[float] | None = None
+```
+
+####### `agrag.common.data_models.resolved_entity.ResolvedEntity.embedding_text`
+
+```python
+embedding_text: str
+```
+
+Return the text used to embed this resolved entity.
+
+####### `agrag.common.data_models.resolved_entity.ResolvedEntity.id`
+
+```python
+id: UUID
+```
+
+####### `agrag.common.data_models.resolved_entity.ResolvedEntity.label`
+
+```python
+label: str
+```
+
+####### `agrag.common.data_models.resolved_entity.ResolvedEntity.member_ids`
+
+```python
+member_ids: list[UUID] = Field(default_factory=list)
+```
+
+####### `agrag.common.data_models.resolved_entity.ResolvedEntity.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.resolved_entity.ResolvedEntity.name`
+
+```python
+name: str
+```
+
+####### `agrag.common.data_models.resolved_entity.ResolvedEntity.properties`
+
+```python
+properties: dict[str, object] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.resolved_entity.ResolvedEntity.to_node_record`
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this resolved entity as a graph write record.
+
+####### `agrag.common.data_models.resolved_entity.ResolvedEntity.vector_sync_error`
+
+```python
+vector_sync_error: str | None = None
+```
+
+####### `agrag.common.data_models.resolved_entity.ResolvedEntity.vector_sync_status`
+
+```python
+vector_sync_status: Literal['pending', 'synced', 'failed'] = 'pending'
+```
+
 ##### `agrag.common.data_models.search_result`
 
 One retrieved item, tagged with source and relevance score.
@@ -2422,8 +2554,8 @@ One retrieved item, tagged with where it came from.
 
 **Attributes:**
 
-- [**item**](#agrag.common.data_models.search_result.SearchResult.item) (<code>[Union](#typing.Union)\[[Entity](#agrag.common.data_models.entity.Entity), [Relation](#agrag.common.data_models.relation.Relation), [Chunk](#agrag.common.data_models.chunk.Chunk), [Community](#agrag.common.data_models.community.Community)\]</code>) – The retrieved Entity, Relation, Chunk, or Community,
-  already resolved through any merged_into chain.
+- [**item**](#agrag.common.data_models.search_result.SearchResult.item) (<code>[Union](#typing.Union)\[[Entity](#agrag.common.data_models.entity.Entity), [ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity), [Relation](#agrag.common.data_models.relation.Relation), [Chunk](#agrag.common.data_models.chunk.Chunk), [Community](#agrag.common.data_models.community.Community)\]</code>) – The retrieved Entity, ResolvedEntity, Relation, Chunk, or
+  Community, already resolved through any merged_into chain.
 - [**score**](#agrag.common.data_models.search_result.SearchResult.score) (<code>[float](#float)</code>) – The method's own relevance score. Not comparable
   across methods until Fusion normalizes it.
 - [**method**](#agrag.common.data_models.search_result.SearchResult.method) (<code>[str](#str)</code>) – The name of the retrieval method that produced
@@ -2445,7 +2577,7 @@ Return the (type, id) key Fusion deduplicates on.
 ####### `agrag.common.data_models.search_result.SearchResult.item`
 
 ```python
-item: Union[Entity, Relation, Chunk, Community]
+item: Union[Entity, ResolvedEntity, Relation, Chunk, Community]
 ```
 
 ####### `agrag.common.data_models.search_result.SearchResult.method`
@@ -2745,6 +2877,8 @@ points one way (store -> cypher).
 - [**entities**](#agrag.cypher.entities) – Cypher builders for node writes and filters.
 - [**merge**](#agrag.cypher.merge) – Cypher for the tombstone/transfer/dedup merge path.
 - [**relations**](#agrag.cypher.relations) – Cypher builders for relationship writes and graph traversal.
+- [**resolution_read**](#agrag.cypher.resolution_read) – Cypher reads for local entity-resolution materialization.
+- [**resolution_write**](#agrag.cypher.resolution_write) – Cypher writes for non-destructive entity resolution.
 - [**safety**](#agrag.cypher.safety) – Safety gate for generated Cypher queries.
 - [**schema**](#agrag.cypher.schema) – Cypher builders for constraints and native vector indexes.
 
@@ -2897,7 +3031,10 @@ flight call has already written for different text.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $records, a list of dicts with the keys
-- <code>[str](#str)</code> – id, expected_name, and expected_description.
+- <code>[str](#str)</code> – id, expected_name, and expected_description. Each row the guard
+- <code>[str](#str)</code> – actually matched comes back as `{"id": <node id>}`, so a caller can
+- <code>[str](#str)</code> – tell which records were cleared and which were skipped because a
+- <code>[str](#str)</code> – concurrent write already changed or removed the node.
 
 ##### `agrag.cypher.entities.fetch_all_by_label_query`
 
@@ -3122,7 +3259,10 @@ one always sees them change together.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $records, a list of dicts with the keys
-- <code>[str](#str)</code> – id, vector, expected_name, and expected_description.
+- <code>[str](#str)</code> – id, vector, expected_name, and expected_description. Each row the
+- <code>[str](#str)</code> – guard actually matched comes back as `{"id": <node id>}`, so a
+- <code>[str](#str)</code> – caller can tell which records were applied and which were skipped
+- <code>[str](#str)</code> – because a concurrent write already changed or removed the node.
 
 ##### `agrag.cypher.entities.upsert_merge_alias_query`
 
@@ -3592,6 +3732,119 @@ which caller's read was stale.
 - <code>[str](#str)</code> – `properties` may include `source_chunk_ids`; other keys are
 - <code>[str](#str)</code> – applied as-is. The query returns one row with `id` for every record
 - <code>[str](#str)</code> – whose endpoints matched and was processed.
+
+#### `agrag.cypher.resolution_read`
+
+Cypher reads for local entity-resolution materialization.
+
+**Functions:**
+
+- [**fetch_active_component_members_query**](#agrag.cypher.resolution_read.fetch_active_component_members_query) – Build Cypher returning active match components from seed ids.
+- [**fetch_active_resolved_member_ids_query**](#agrag.cypher.resolution_read.fetch_active_resolved_member_ids_query) – Build Cypher finding raw hits hidden by an active materialization.
+- [**fetch_match_endpoints_query**](#agrag.cypher.resolution_read.fetch_match_endpoints_query) – Build Cypher returning both endpoints of one match edge.
+- [**hydrate_resolved_entities_by_id_query**](#agrag.cypher.resolution_read.hydrate_resolved_entities_by_id_query) – Build Cypher hydrating materializations returned by vector search.
+
+##### `agrag.cypher.resolution_read.fetch_active_component_members_query`
+
+```python
+fetch_active_component_members_query() -> str
+```
+
+Build Cypher returning active match components from seed ids.
+
+##### `agrag.cypher.resolution_read.fetch_active_resolved_member_ids_query`
+
+```python
+fetch_active_resolved_member_ids_query() -> str
+```
+
+Build Cypher finding raw hits hidden by an active materialization.
+
+##### `agrag.cypher.resolution_read.fetch_match_endpoints_query`
+
+```python
+fetch_match_endpoints_query() -> str
+```
+
+Build Cypher returning both endpoints of one match edge.
+
+##### `agrag.cypher.resolution_read.hydrate_resolved_entities_by_id_query`
+
+```python
+hydrate_resolved_entities_by_id_query() -> str
+```
+
+Build Cypher hydrating materializations returned by vector search.
+
+#### `agrag.cypher.resolution_write`
+
+Cypher writes for non-destructive entity resolution.
+
+**Functions:**
+
+- [**clear_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.clear_resolved_entity_vector_deletions_query) – Build Cypher removing successfully retried vector deletions.
+- [**deactivate_match_query**](#agrag.cypher.resolution_write.deactivate_match_query) – Build Cypher that retains but deactivates a match edge.
+- [**enqueue_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.enqueue_resolved_entity_vector_deletions_query) – Build Cypher persisting vector ids whose deletion needs a retry.
+- [**fetch_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.fetch_resolved_entity_vector_deletions_query) – Build Cypher reading vector deletions that still need a retry.
+- [**replace_component_materializations_query**](#agrag.cypher.resolution_write.replace_component_materializations_query) – Build Cypher deleting prior materializations for supplied raw members.
+- [**set_resolved_entity_sync_status_query**](#agrag.cypher.resolution_write.set_resolved_entity_sync_status_query) – Build Cypher setting the vector synchronization state of derived nodes.
+- [**upsert_matches_query**](#agrag.cypher.resolution_write.upsert_matches_query) – Build Cypher that idempotently records a confirmed entity match.
+
+##### `agrag.cypher.resolution_write.clear_resolved_entity_vector_deletions_query`
+
+```python
+clear_resolved_entity_vector_deletions_query() -> str
+```
+
+Build Cypher removing successfully retried vector deletions.
+
+##### `agrag.cypher.resolution_write.deactivate_match_query`
+
+```python
+deactivate_match_query() -> str
+```
+
+Build Cypher that retains but deactivates a match edge.
+
+##### `agrag.cypher.resolution_write.enqueue_resolved_entity_vector_deletions_query`
+
+```python
+enqueue_resolved_entity_vector_deletions_query() -> str
+```
+
+Build Cypher persisting vector ids whose deletion needs a retry.
+
+##### `agrag.cypher.resolution_write.fetch_resolved_entity_vector_deletions_query`
+
+```python
+fetch_resolved_entity_vector_deletions_query() -> str
+```
+
+Build Cypher reading vector deletions that still need a retry.
+
+##### `agrag.cypher.resolution_write.replace_component_materializations_query`
+
+```python
+replace_component_materializations_query() -> str
+```
+
+Build Cypher deleting prior materializations for supplied raw members.
+
+##### `agrag.cypher.resolution_write.set_resolved_entity_sync_status_query`
+
+```python
+set_resolved_entity_sync_status_query() -> str
+```
+
+Build Cypher setting the vector synchronization state of derived nodes.
+
+##### `agrag.cypher.resolution_write.upsert_matches_query`
+
+```python
+upsert_matches_query() -> str
+```
+
+Build Cypher that idempotently records a confirmed entity match.
 
 #### `agrag.cypher.safety`
 
@@ -6382,9 +6635,11 @@ The ingestion package.
 - [**community**](#agrag.ingestion.community) – Community detection: hierarchical Leiden over the entity graph.
 - [**extract**](#agrag.ingestion.extract) – The Extractor interface: reads one Chunk and produces an ExtractionResult.
 - [**graph**](#agrag.ingestion.graph) – The public Graph API for ingestion.
+- [**materialize**](#agrag.ingestion.materialize) – Non-destructive match persistence and resolved-entity computation.
 - [**merge**](#agrag.ingestion.merge) – Merge mechanics: computing how a resolved group of mentions and entities combine.
 - [**reports**](#agrag.ingestion.reports) – Reports returned by Graph pipeline operations.
-- [**resolve**](#agrag.ingestion.resolve) – Entity resolution: deciding which ExtractedEntity mentions are the same thing.
+- [**resolve**](#agrag.ingestion.resolve) – Entity resolution public API.
+- [**resolved_embeddings**](#agrag.ingestion.resolved_embeddings) – Embedding and vector synchronization for materialized resolved entities.
 - [**stats**](#agrag.ingestion.stats) – Per-stage observability types for the ingestion pipeline.
 
 **Classes:**
@@ -6408,7 +6663,8 @@ by `open()` when missing.
 **Functions:**
 
 - [**add**](#agrag.ingestion.Graph.add) – Add content to the graph.
-- [**consolidate**](#agrag.ingestion.Graph.consolidate) – Run full tiered resolution against everything persisted.
+- [**consolidate**](#agrag.ingestion.Graph.consolidate) – Run non-destructive resolution against every persisted raw entity.
+- [**deactivate_match**](#agrag.ingestion.Graph.deactivate_match) – Deactivate a semantic match and synchronize replacement retrieval vectors.
 - [**delete_document**](#agrag.ingestion.Graph.delete_document) – Soft-delete a document by closing its current PART_OF edges.
 - [**detect_communities**](#agrag.ingestion.Graph.detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag.ingestion.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
@@ -6481,24 +6737,33 @@ Give exactly one of `source`, `text`, and `documents`.
 consolidate(*, apply:bool = False) -> ConsolidationReport
 ```
 
-Run full tiered resolution against everything persisted.
+Run non-destructive resolution against every persisted raw entity.
 
-Dry-run by default: produces a report of what would merge before any
-node is touched. Pass apply=True to write the merges.
+Dry-run by default: produces matches before any node is touched. Pass
+apply=True to write MATCHES edges and derived ResolvedEntity nodes.
 
 For each EntityType label in self.\_schema, fetches every persisted
-entity with that label and runs the same comparator sequence add() uses
-in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
-them — O(n^2) within each label's population.
-Confirmed matches become MergePlans via compute_merge.
+entity with that label, bounds the pairs actually compared with
+GraphCandidateSource's ANN-backed persisted_candidate_indices, and
+runs the same comparator sequence add() uses in-batch (ExactMatch,
+FuzzyMatch, LLMVerify) over those candidate pairs. Confirmed non-exact
+matches preserve both raw Entity nodes and their relationships.
 
 **Parameters:**
 
-- **apply** (<code>[bool](#bool)</code>) – Write the computed merges. False produces a report only.
+- **apply** (<code>[bool](#bool)</code>) – Materialize the confirmed matches. False produces a report only.
 
 **Returns:**
 
-- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every group consolidate() found, applied or not.
+- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every confirmed non-exact match, applied or not.
+
+##### `agrag.ingestion.Graph.deactivate_match`
+
+```python
+deactivate_match(match_id:UUID) -> list[ResolvedEntity]
+```
+
+Deactivate a semantic match and synchronize replacement retrieval vectors.
 
 ##### `agrag.ingestion.Graph.delete_document`
 
@@ -7199,7 +7464,8 @@ by `open()` when missing.
 **Functions:**
 
 - [**add**](#agrag.ingestion.graph.Graph.add) – Add content to the graph.
-- [**consolidate**](#agrag.ingestion.graph.Graph.consolidate) – Run full tiered resolution against everything persisted.
+- [**consolidate**](#agrag.ingestion.graph.Graph.consolidate) – Run non-destructive resolution against every persisted raw entity.
+- [**deactivate_match**](#agrag.ingestion.graph.Graph.deactivate_match) – Deactivate a semantic match and synchronize replacement retrieval vectors.
 - [**delete_document**](#agrag.ingestion.graph.Graph.delete_document) – Soft-delete a document by closing its current PART_OF edges.
 - [**detect_communities**](#agrag.ingestion.graph.Graph.detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag.ingestion.graph.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
@@ -7272,24 +7538,33 @@ Give exactly one of `source`, `text`, and `documents`.
 consolidate(*, apply:bool = False) -> ConsolidationReport
 ```
 
-Run full tiered resolution against everything persisted.
+Run non-destructive resolution against every persisted raw entity.
 
-Dry-run by default: produces a report of what would merge before any
-node is touched. Pass apply=True to write the merges.
+Dry-run by default: produces matches before any node is touched. Pass
+apply=True to write MATCHES edges and derived ResolvedEntity nodes.
 
 For each EntityType label in self.\_schema, fetches every persisted
-entity with that label and runs the same comparator sequence add() uses
-in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
-them — O(n^2) within each label's population.
-Confirmed matches become MergePlans via compute_merge.
+entity with that label, bounds the pairs actually compared with
+GraphCandidateSource's ANN-backed persisted_candidate_indices, and
+runs the same comparator sequence add() uses in-batch (ExactMatch,
+FuzzyMatch, LLMVerify) over those candidate pairs. Confirmed non-exact
+matches preserve both raw Entity nodes and their relationships.
 
 **Parameters:**
 
-- **apply** (<code>[bool](#bool)</code>) – Write the computed merges. False produces a report only.
+- **apply** (<code>[bool](#bool)</code>) – Materialize the confirmed matches. False produces a report only.
 
 **Returns:**
 
-- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every group consolidate() found, applied or not.
+- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every confirmed non-exact match, applied or not.
+
+###### `agrag.ingestion.graph.Graph.deactivate_match`
+
+```python
+deactivate_match(match_id:UUID) -> list[ResolvedEntity]
+```
+
+Deactivate a semantic match and synchronize replacement retrieval vectors.
 
 ###### `agrag.ingestion.graph.Graph.delete_document`
 
@@ -7399,7 +7674,7 @@ source must resolve to exactly one document.
 ##### `agrag.ingestion.graph.SYSTEM_RELATION_TYPES`
 
 ```python
-SYSTEM_RELATION_TYPES = ['MENTIONED_IN', MEMBER_OF_RELATION, 'PART_OF', 'NEXT_CHUNK']
+SYSTEM_RELATION_TYPES = ['MENTIONED_IN', MEMBER_OF_RELATION, 'PART_OF', 'NEXT_CHUNK', 'MATCHES', 'RESOLVED_AS']
 ```
 
 ##### `agrag.ingestion.graph.SourceType`
@@ -7413,6 +7688,178 @@ SourceType = Union[str, Path]
 ```python
 SourcesType = Union[SourceType, Sequence[SourceType]]
 ```
+
+#### `agrag.ingestion.materialize`
+
+Non-destructive match persistence and resolved-entity computation.
+
+**Classes:**
+
+- [**DeactivationResult**](#agrag.ingestion.materialize.DeactivationResult) – Materializations created after a match correction and stale ids removed.
+- [**MatchDecision**](#agrag.ingestion.materialize.MatchDecision) – A confirmed non-exact entity match ready to persist.
+- [**MaterializationResult**](#agrag.ingestion.materialize.MaterializationResult) – The derived entity created and prior derived ids it replaced.
+
+**Functions:**
+
+- [**compute_resolved_entity**](#agrag.ingestion.materialize.compute_resolved_entity) – Compute a resolved entity from its current member data only.
+- [**deactivate_match_and_rematerialize**](#agrag.ingestion.materialize.deactivate_match_and_rematerialize) – Deactivate a match and return its replacements and deleted derived IDs.
+- [**decisions_by_component**](#agrag.ingestion.materialize.decisions_by_component) – Map resolution evidence to raw ids and group it by connected component.
+- [**match_decision_components**](#agrag.ingestion.materialize.match_decision_components) – Group persisted match decisions by their connected raw component.
+- [**matches_id**](#agrag.ingestion.materialize.matches_id) – Return the order-independent deterministic id for an entity match.
+- [**write_matches_and_materialize**](#agrag.ingestion.materialize.write_matches_and_materialize) – Persist matches and materialize their supplied connected component.
+
+##### `agrag.ingestion.materialize.DeactivationResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Materializations created after a match correction and stale ids removed.
+
+**Attributes:**
+
+- [**removed_entity_ids**](#agrag.ingestion.materialize.DeactivationResult.removed_entity_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) –
+- [**resolved_entities**](#agrag.ingestion.materialize.DeactivationResult.resolved_entities) (<code>[list](#list)\[[ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity)\]</code>) –
+
+###### `agrag.ingestion.materialize.DeactivationResult.removed_entity_ids`
+
+```python
+removed_entity_ids: list[UUID]
+```
+
+###### `agrag.ingestion.materialize.DeactivationResult.resolved_entities`
+
+```python
+resolved_entities: list[ResolvedEntity]
+```
+
+##### `agrag.ingestion.materialize.MatchDecision`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+A confirmed non-exact entity match ready to persist.
+
+**Attributes:**
+
+- [**comparator**](#agrag.ingestion.materialize.MatchDecision.comparator) (<code>[str](#str)</code>) –
+- [**decided_at**](#agrag.ingestion.materialize.MatchDecision.decided_at) (<code>[datetime](#datetime.datetime)</code>) –
+- [**entity_a_id**](#agrag.ingestion.materialize.MatchDecision.entity_a_id) (<code>[UUID](#uuid.UUID)</code>) –
+- [**entity_b_id**](#agrag.ingestion.materialize.MatchDecision.entity_b_id) (<code>[UUID](#uuid.UUID)</code>) –
+- [**reasoning**](#agrag.ingestion.materialize.MatchDecision.reasoning) (<code>[str](#str) | None</code>) –
+- [**score**](#agrag.ingestion.materialize.MatchDecision.score) (<code>[float](#float) | None</code>) –
+
+###### `agrag.ingestion.materialize.MatchDecision.comparator`
+
+```python
+comparator: str
+```
+
+###### `agrag.ingestion.materialize.MatchDecision.decided_at`
+
+```python
+decided_at: datetime
+```
+
+###### `agrag.ingestion.materialize.MatchDecision.entity_a_id`
+
+```python
+entity_a_id: UUID
+```
+
+###### `agrag.ingestion.materialize.MatchDecision.entity_b_id`
+
+```python
+entity_b_id: UUID
+```
+
+###### `agrag.ingestion.materialize.MatchDecision.reasoning`
+
+```python
+reasoning: str | None = None
+```
+
+###### `agrag.ingestion.materialize.MatchDecision.score`
+
+```python
+score: float | None = None
+```
+
+##### `agrag.ingestion.materialize.MaterializationResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The derived entity created and prior derived ids it replaced.
+
+**Attributes:**
+
+- [**removed_entity_ids**](#agrag.ingestion.materialize.MaterializationResult.removed_entity_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) –
+- [**resolved_entity**](#agrag.ingestion.materialize.MaterializationResult.resolved_entity) (<code>[ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity)</code>) –
+
+###### `agrag.ingestion.materialize.MaterializationResult.removed_entity_ids`
+
+```python
+removed_entity_ids: list[UUID]
+```
+
+###### `agrag.ingestion.materialize.MaterializationResult.resolved_entity`
+
+```python
+resolved_entity: ResolvedEntity
+```
+
+##### `agrag.ingestion.materialize.compute_resolved_entity`
+
+```python
+compute_resolved_entity(members:list[Entity], schema:GraphSchema) -> ResolvedEntity
+```
+
+Compute a resolved entity from its current member data only.
+
+##### `agrag.ingestion.materialize.deactivate_match_and_rematerialize`
+
+```python
+deactivate_match_and_rematerialize(match_id:UUID, *, graph_store:GraphStore, schema:GraphSchema) -> DeactivationResult
+```
+
+Deactivate a match and return its replacements and deleted derived IDs.
+
+##### `agrag.ingestion.materialize.decisions_by_component`
+
+```python
+decisions_by_component(matches:list[ResolvedMatch], mention_to_entity:dict[int, UUID]) -> list[list[MatchDecision]]
+```
+
+Map resolution evidence to raw ids and group it by connected component.
+
+##### `agrag.ingestion.materialize.match_decision_components`
+
+```python
+match_decision_components(decisions:list[MatchDecision]) -> list[list[MatchDecision]]
+```
+
+Group persisted match decisions by their connected raw component.
+
+##### `agrag.ingestion.materialize.matches_id`
+
+```python
+matches_id(entity_a_id:UUID, entity_b_id:UUID) -> UUID
+```
+
+Return the order-independent deterministic id for an entity match.
+
+##### `agrag.ingestion.materialize.write_matches_and_materialize`
+
+```python
+write_matches_and_materialize(decisions:list[MatchDecision], *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity]) -> MaterializationResult
+```
+
+Persist matches and materialize their supplied connected component.
+
+Callers fetch the bounded affected component before invoking this function.
+The resolved node is always recomputed from that current membership.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – No decisions are supplied, or a decision references a
+  member outside the supplied component.
 
 #### `agrag.ingestion.merge`
 
@@ -7911,9 +8358,9 @@ Report from Graph.consolidate().
 
 **Attributes:**
 
-- [**would_merge**](#agrag.ingestion.reports.ConsolidationReport.would_merge) (<code>[list](#list)\[[MergePlan](#agrag.ingestion.merge.MergePlan)\]</code>) – The merge plans found, whether applied or not.
-- [**applied**](#agrag.ingestion.reports.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the plans were applied.
-- [**failures**](#agrag.ingestion.reports.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures re-embedding an applied survivor's final text.
+- [**would_match**](#agrag.ingestion.reports.ConsolidationReport.would_match) (<code>[list](#list)\[[MatchDecision](#agrag.ingestion.materialize.MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
+- [**applied**](#agrag.ingestion.reports.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the matches were materialized.
+- [**failures**](#agrag.ingestion.reports.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
   Always empty when apply is False.
 
 ###### `agrag.ingestion.reports.ConsolidationReport.applied`
@@ -7928,10 +8375,10 @@ applied: bool = False
 failures: list[StageFailure] = Field(default_factory=list)
 ```
 
-###### `agrag.ingestion.reports.ConsolidationReport.would_merge`
+###### `agrag.ingestion.reports.ConsolidationReport.would_match`
 
 ```python
-would_merge: list[MergePlan] = Field(default_factory=list)
+would_match: list[MatchDecision] = Field(default_factory=list)
 ```
 
 ##### `agrag.ingestion.reports.UpdateResult`
@@ -8145,9 +8592,9 @@ Report from Graph.consolidate().
 
 **Attributes:**
 
-- [**would_merge**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.would_merge) (<code>[list](#list)\[[MergePlan](#agrag.ingestion.merge.MergePlan)\]</code>) – The merge plans found, whether applied or not.
-- [**applied**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the plans were applied.
-- [**failures**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures re-embedding an applied survivor's final text.
+- [**would_match**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.would_match) (<code>[list](#list)\[[MatchDecision](#agrag.ingestion.materialize.MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
+- [**applied**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the matches were materialized.
+- [**failures**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
   Always empty when apply is False.
 
 ####### `agrag.ingestion.reports.consolidation_report.ConsolidationReport.applied`
@@ -8162,10 +8609,10 @@ applied: bool = False
 failures: list[StageFailure] = Field(default_factory=list)
 ```
 
-####### `agrag.ingestion.reports.consolidation_report.ConsolidationReport.would_merge`
+####### `agrag.ingestion.reports.consolidation_report.ConsolidationReport.would_match`
 
 ```python
-would_merge: list[MergePlan] = Field(default_factory=list)
+would_match: list[MatchDecision] = Field(default_factory=list)
 ```
 
 ##### `agrag.ingestion.reports.update_result`
@@ -8229,29 +8676,48 @@ previous_content_hash: str | None = None
 
 #### `agrag.ingestion.resolve`
 
-Entity resolution: deciding which ExtractedEntity mentions are the same thing.
+Entity resolution public API.
+
+**Modules:**
+
+- [**batch_validation**](#agrag.ingestion.resolve.batch_validation) – Validation for LLM batch entity-match verdicts.
+- [**candidate_source**](#agrag.ingestion.resolve.candidate_source) – Candidate generation for in-batch and persisted graph entities.
+- [**comparators**](#agrag.ingestion.resolve.comparators) – Comparison strategies used by entity resolution.
+- [**exact_groups**](#agrag.ingestion.resolve.exact_groups) – Exact-name grouping for permanent raw entity records.
+- [**resolver**](#agrag.ingestion.resolve.resolver) – Entity resolution: deciding which ExtractedEntity mentions are the same thing.
 
 **Classes:**
 
-- [**CandidateSource**](#agrag.ingestion.resolve.CandidateSource) – Narrows which entity pairs resolution compares — the blocking step.
+- [**CandidateSource**](#agrag.ingestion.resolve.CandidateSource) – Narrows which in-batch entity pairs resolution compares.
 - [**Comparator**](#agrag.ingestion.resolve.Comparator) – One matching strategy a Resolver runs against a candidate pair.
+- [**ComparisonResult**](#agrag.ingestion.resolve.ComparisonResult) – The verdict and evidence produced by one comparator.
 - [**ComparisonVerdict**](#agrag.ingestion.resolve.ComparisonVerdict) – A Comparator's verdict on one entity pair.
 - [**ExactMatch**](#agrag.ingestion.resolve.ExactMatch) – Matches when normalized text is identical. Never returns NO_MATCH.
-- [**FuzzyMatch**](#agrag.ingestion.resolve.FuzzyMatch) – Matches by string similarity, within a confident-match/distinct band.
-- [**InBatchCandidateSource**](#agrag.ingestion.resolve.InBatchCandidateSource) – Blocks by label: only entities sharing a label are ever compared.
+- [**FuzzyMatch**](#agrag.ingestion.resolve.FuzzyMatch) – Classifies string similarity before the LLM verification tier.
+- [**GraphCandidateSource**](#agrag.ingestion.resolve.GraphCandidateSource) – Blocks by label in-batch; ANN-searches persisted entities globally.
+- [**InBatchCandidateSource**](#agrag.ingestion.resolve.InBatchCandidateSource) – Compatibility candidate source for the existing Resolver callers.
 - [**LLMVerify**](#agrag.ingestion.resolve.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
+- [**PersistedCandidateSource**](#agrag.ingestion.resolve.PersistedCandidateSource) – Supplies only candidate pairs between new mentions and raw graph entities.
 - [**ResolutionGroup**](#agrag.ingestion.resolve.ResolutionGroup) – One set of ExtractedEntity indices resolution decided are the same entity.
+- [**ResolutionResult**](#agrag.ingestion.resolve.ResolutionResult) – The groups and non-exact evidence produced by one resolution pass.
+- [**ResolvedMatch**](#agrag.ingestion.resolve.ResolvedMatch) – One confirmed non-exact match between two input entity indices.
 - [**Resolver**](#agrag.ingestion.resolve.Resolver) – Runs an ordered comparator sequence over blocked candidate pairs.
+
+**Functions:**
+
+- [**exact_match_lookup**](#agrag.ingestion.resolve.exact_match_lookup) – Return persisted exact matches, including resolved tombstone aliases.
+- [**exact_resolution_groups**](#agrag.ingestion.resolve.exact_resolution_groups) – Group mentions only when they share exact raw-entity identity.
+- [**persisted_candidate_indices**](#agrag.ingestion.resolve.persisted_candidate_indices) – Return ANN candidate indices, with a bounded exhaustive fallback.
 
 ##### `agrag.ingestion.resolve.CandidateSource`
 
 Bases: <code>[ABC](#abc.ABC)</code>
 
-Narrows which entity pairs resolution compares — the blocking step.
+Narrows which in-batch entity pairs resolution compares.
 
 **Functions:**
 
-- [**candidates_for**](#agrag.ingestion.resolve.CandidateSource.candidates_for) – Return indices worth comparing against entities[index].
+- [**candidates_for**](#agrag.ingestion.resolve.CandidateSource.candidates_for) – Return indices worth comparing against `entities[index]`.
 
 ###### `agrag.ingestion.resolve.CandidateSource.candidates_for`
 
@@ -8259,17 +8725,7 @@ Narrows which entity pairs resolution compares — the blocking step.
 candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
 ```
 
-Return indices worth comparing against entities[index].
-
-**Parameters:**
-
-- **index** (<code>[int](#int)</code>) – The entity to find candidates for.
-- **entities** (<code>[list](#list)\[[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]</code>) – The full entity list this call is scoped to.
-
-**Returns:**
-
-- <code>[list](#list)\[[int](#int)\]</code> – Indices into `entities`, excluding `index` itself. Order does
-- <code>[list](#list)\[[int](#int)\]</code> – not matter; duplicates are harmless but wasteful.
+Return indices worth comparing against `entities[index]`.
 
 ##### `agrag.ingestion.resolve.Comparator`
 
@@ -8280,6 +8736,7 @@ One matching strategy a Resolver runs against a candidate pair.
 **Functions:**
 
 - [**compare**](#agrag.ingestion.resolve.Comparator.compare) – Compare two entities.
+- [**compare_with_evidence**](#agrag.ingestion.resolve.Comparator.compare_with_evidence) – Compare two entities and retain any available decision evidence.
 
 ###### `agrag.ingestion.resolve.Comparator.compare`
 
@@ -8296,7 +8753,45 @@ Compare two entities.
 
 **Returns:**
 
-- <code>[ComparisonVerdict](#agrag.ingestion.resolve.ComparisonVerdict)</code> – This comparator's verdict. UNCERTAIN defers to the next comparator.
+- <code>[ComparisonVerdict](#agrag.ingestion.resolve.resolver.ComparisonVerdict)</code> – This comparator's verdict. UNCERTAIN defers to the next comparator.
+
+###### `agrag.ingestion.resolve.Comparator.compare_with_evidence`
+
+```python
+compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
+```
+
+Compare two entities and retain any available decision evidence.
+
+##### `agrag.ingestion.resolve.ComparisonResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The verdict and evidence produced by one comparator.
+
+**Attributes:**
+
+- [**reasoning**](#agrag.ingestion.resolve.ComparisonResult.reasoning) (<code>[str](#str) | None</code>) –
+- [**score**](#agrag.ingestion.resolve.ComparisonResult.score) (<code>[float](#float) | None</code>) –
+- [**verdict**](#agrag.ingestion.resolve.ComparisonResult.verdict) (<code>[ComparisonVerdict](#agrag.ingestion.resolve.resolver.ComparisonVerdict)</code>) –
+
+###### `agrag.ingestion.resolve.ComparisonResult.reasoning`
+
+```python
+reasoning: str | None = None
+```
+
+###### `agrag.ingestion.resolve.ComparisonResult.score`
+
+```python
+score: float | None = None
+```
+
+###### `agrag.ingestion.resolve.ComparisonResult.verdict`
+
+```python
+verdict: ComparisonVerdict
+```
 
 ##### `agrag.ingestion.resolve.ComparisonVerdict`
 
@@ -8330,13 +8825,14 @@ UNCERTAIN = 'uncertain'
 
 ##### `agrag.ingestion.resolve.ExactMatch`
 
-Bases: <code>[Comparator](#agrag.ingestion.resolve.Comparator)</code>
+Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
 
 Matches when normalized text is identical. Never returns NO_MATCH.
 
 **Functions:**
 
 - [**compare**](#agrag.ingestion.resolve.ExactMatch.compare) – Return MATCH on identical normalized text, else UNCERTAIN.
+- [**compare_with_evidence**](#agrag.ingestion.resolve.ExactMatch.compare_with_evidence) – Compare two entities and retain any available decision evidence.
 
 ###### `agrag.ingestion.resolve.ExactMatch.compare`
 
@@ -8346,25 +8842,33 @@ compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
 
 Return MATCH on identical normalized text, else UNCERTAIN.
 
+###### `agrag.ingestion.resolve.ExactMatch.compare_with_evidence`
+
+```python
+compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
+```
+
+Compare two entities and retain any available decision evidence.
+
 ##### `agrag.ingestion.resolve.FuzzyMatch`
 
 ```python
 FuzzyMatch(*, match_above:float = 0.92, no_match_below:float = 0.7) -> None
 ```
 
-Bases: <code>[Comparator](#agrag.ingestion.resolve.Comparator)</code>
+Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
 
-Matches by string similarity, within a confident-match/distinct band.
+Classifies string similarity before the LLM verification tier.
 
 **Attributes:**
 
-- [**match_above**](#agrag.ingestion.resolve.FuzzyMatch.match_above) – A similarity score at or above this is a confident match.
-- [**no_match_below**](#agrag.ingestion.resolve.FuzzyMatch.no_match_below) – A similarity score below this is a confident non-match.
-  A score in between is UNCERTAIN and defers to the next comparator.
+- [**match_above**](#agrag.ingestion.resolve.FuzzyMatch.match_above) – A similarity score at or above this is a match.
+- [**no_match_below**](#agrag.ingestion.resolve.FuzzyMatch.no_match_below) – A similarity score below this is not a match.
 
 **Functions:**
 
 - [**compare**](#agrag.ingestion.resolve.FuzzyMatch.compare) – Return a verdict from token-sort-ratio similarity.
+- [**compare_with_evidence**](#agrag.ingestion.resolve.FuzzyMatch.compare_with_evidence) – Compare two entities and include their token-sort similarity.
 
 ###### `agrag.ingestion.resolve.FuzzyMatch.compare`
 
@@ -8373,6 +8877,14 @@ compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
 ```
 
 Return a verdict from token-sort-ratio similarity.
+
+###### `agrag.ingestion.resolve.FuzzyMatch.compare_with_evidence`
+
+```python
+compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
+```
+
+Compare two entities and include their token-sort similarity.
 
 ###### `agrag.ingestion.resolve.FuzzyMatch.match_above`
 
@@ -8386,20 +8898,98 @@ match_above = match_above
 no_match_below = no_match_below
 ```
 
-##### `agrag.ingestion.resolve.InBatchCandidateSource`
+##### `agrag.ingestion.resolve.GraphCandidateSource`
 
-Bases: <code>[CandidateSource](#agrag.ingestion.resolve.CandidateSource)</code>
+```python
+GraphCandidateSource(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, vector_collection:str = '', entity_labels:Sequence[str] = (), top_k:int = 50) -> None
+```
 
-Blocks by label: only entities sharing a label are ever compared.
+Bases: <code>[CandidateSource](#agrag.ingestion.resolve.candidate_source.CandidateSource)</code>
 
-Scoped to whatever entity list a caller passes to candidates_for — today,
-always the current extraction batch. A future graph-backed candidate source
-can replace this without changing any Comparator, since comparators only
-ever see the pairs a CandidateSource proposes.
+Blocks by label in-batch; ANN-searches persisted entities globally.
 
 **Functions:**
 
-- [**candidates_for**](#agrag.ingestion.resolve.InBatchCandidateSource.candidates_for) – Return every other entity sharing entities[index]'s label.
+- [**candidates_for**](#agrag.ingestion.resolve.GraphCandidateSource.candidates_for) – Return every other mention sharing the indexed mention's label.
+- [**global_candidates_for**](#agrag.ingestion.resolve.GraphCandidateSource.global_candidates_for) – Return persisted entities found by the shared vector-search route.
+
+**Attributes:**
+
+- [**embedder**](#agrag.ingestion.resolve.GraphCandidateSource.embedder) –
+- [**entity_labels**](#agrag.ingestion.resolve.GraphCandidateSource.entity_labels) –
+- [**graph_store**](#agrag.ingestion.resolve.GraphCandidateSource.graph_store) –
+- [**top_k**](#agrag.ingestion.resolve.GraphCandidateSource.top_k) –
+- [**vector_collection**](#agrag.ingestion.resolve.GraphCandidateSource.vector_collection) –
+- [**vector_store**](#agrag.ingestion.resolve.GraphCandidateSource.vector_store) –
+
+###### `agrag.ingestion.resolve.GraphCandidateSource.candidates_for`
+
+```python
+candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
+```
+
+Return every other mention sharing the indexed mention's label.
+
+###### `agrag.ingestion.resolve.GraphCandidateSource.embedder`
+
+```python
+embedder = embedder
+```
+
+###### `agrag.ingestion.resolve.GraphCandidateSource.entity_labels`
+
+```python
+entity_labels = tuple(entity_labels)
+```
+
+###### `agrag.ingestion.resolve.GraphCandidateSource.global_candidates_for`
+
+```python
+global_candidates_for(mention:ExtractedEntity) -> list[Entity]
+```
+
+Return persisted entities found by the shared vector-search route.
+
+The GraphStore-native path's payload already carries the real node
+properties and is validated directly. The VectorStore path's payload
+only carries `label` and `text` (the embedding source text), so
+candidates are hydrated from the graph by hit id instead; a hit that
+fails to hydrate, for example a tombstoned or deleted node, is
+skipped rather than reconstructed from `text`.
+
+###### `agrag.ingestion.resolve.GraphCandidateSource.graph_store`
+
+```python
+graph_store = graph_store
+```
+
+###### `agrag.ingestion.resolve.GraphCandidateSource.top_k`
+
+```python
+top_k = top_k
+```
+
+###### `agrag.ingestion.resolve.GraphCandidateSource.vector_collection`
+
+```python
+vector_collection = vector_collection
+```
+
+###### `agrag.ingestion.resolve.GraphCandidateSource.vector_store`
+
+```python
+vector_store = vector_store
+```
+
+##### `agrag.ingestion.resolve.InBatchCandidateSource`
+
+Bases: <code>[CandidateSource](#agrag.ingestion.resolve.candidate_source.CandidateSource)</code>
+
+Compatibility candidate source for the existing Resolver callers.
+
+**Functions:**
+
+- [**candidates_for**](#agrag.ingestion.resolve.InBatchCandidateSource.candidates_for) – Return every other mention sharing the indexed mention's label.
 
 ###### `agrag.ingestion.resolve.InBatchCandidateSource.candidates_for`
 
@@ -8407,15 +8997,15 @@ ever see the pairs a CandidateSource proposes.
 candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
 ```
 
-Return every other entity sharing entities[index]'s label.
+Return every other mention sharing the indexed mention's label.
 
 ##### `agrag.ingestion.resolve.LLMVerify`
 
 ```python
-LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None) -> None
+LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50) -> None
 ```
 
-Bases: <code>[Comparator](#agrag.ingestion.resolve.Comparator)</code>
+Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
 
 Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
 
@@ -8428,10 +9018,13 @@ raised outright instead (see compare's Raises section).
 **Functions:**
 
 - [**compare**](#agrag.ingestion.resolve.LLMVerify.compare) – Return the LLM's verdict, or NO_MATCH if the call itself fails.
+- [**compare_batch**](#agrag.ingestion.resolve.LLMVerify.compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
+- [**compare_with_evidence**](#agrag.ingestion.resolve.LLMVerify.compare_with_evidence) – Compare two entities and retain any available decision evidence.
 
 **Attributes:**
 
 - [**chunks_by_id**](#agrag.ingestion.resolve.LLMVerify.chunks_by_id) –
+- [**max_pairs_per_batch**](#agrag.ingestion.resolve.LLMVerify.max_pairs_per_batch) –
 - [**settings**](#agrag.ingestion.resolve.LLMVerify.settings) –
 
 **Parameters:**
@@ -8442,6 +9035,10 @@ raised outright instead (see compare's Raises section).
   disables `settings.retry`, since a caller building its own
   client is assumed to own its own retry behavior too.
 - **client** (<code>[object](#object) | None</code>) – An already-built BAML client. Tests inject a fake here.
+- **max_pairs_per_batch** (<code>[int](#int)</code>) – Maximum pairs sent to the LLM in one request.
+  A large ambiguous population is split into requests of at most
+  this size so one oversized request cannot exceed the model's
+  context limit and silently fail every pair in the batch.
 
 ###### `agrag.ingestion.resolve.LLMVerify.chunks_by_id`
 
@@ -8462,11 +9059,69 @@ Return the LLM's verdict, or NO_MATCH if the call itself fails.
 - <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `llm` package extra is not
   installed.
 
+###### `agrag.ingestion.resolve.LLMVerify.compare_batch`
+
+```python
+compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]]) -> dict[tuple[int, int], ComparisonResult]
+```
+
+Verify ambiguous candidate pairs across bounded LLM requests.
+
+Splits into requests of at most `max_pairs_per_batch` pairs so one
+oversized population cannot exceed the model's context limit.
+Invalid, missing, and uncertain model responses do not merge entities.
+
+###### `agrag.ingestion.resolve.LLMVerify.compare_with_evidence`
+
+```python
+compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
+```
+
+Compare two entities and retain any available decision evidence.
+
+###### `agrag.ingestion.resolve.LLMVerify.max_pairs_per_batch`
+
+```python
+max_pairs_per_batch = max_pairs_per_batch
+```
+
 ###### `agrag.ingestion.resolve.LLMVerify.settings`
 
 ```python
 settings = settings
 ```
+
+##### `agrag.ingestion.resolve.PersistedCandidateSource`
+
+```python
+PersistedCandidateSource(candidates_by_index:dict[int, list[int]]) -> None
+```
+
+Bases: <code>[CandidateSource](#agrag.ingestion.resolve.candidate_source.CandidateSource)</code>
+
+Supplies only candidate pairs between new mentions and raw graph entities.
+
+**Functions:**
+
+- [**candidates_for**](#agrag.ingestion.resolve.PersistedCandidateSource.candidates_for) – Return persisted candidates for a newly extracted mention.
+
+**Attributes:**
+
+- [**candidates_by_index**](#agrag.ingestion.resolve.PersistedCandidateSource.candidates_by_index) –
+
+###### `agrag.ingestion.resolve.PersistedCandidateSource.candidates_by_index`
+
+```python
+candidates_by_index = candidates_by_index
+```
+
+###### `agrag.ingestion.resolve.PersistedCandidateSource.candidates_for`
+
+```python
+candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
+```
+
+Return persisted candidates for a newly extracted mention.
 
 ##### `agrag.ingestion.resolve.ResolutionGroup`
 
@@ -8485,6 +9140,83 @@ One set of ExtractedEntity indices resolution decided are the same entity.
 entity_indices: list[int]
 ```
 
+##### `agrag.ingestion.resolve.ResolutionResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The groups and non-exact evidence produced by one resolution pass.
+
+**Attributes:**
+
+- [**groups**](#agrag.ingestion.resolve.ResolutionResult.groups) (<code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.resolver.ResolutionGroup)\]</code>) –
+- [**matches**](#agrag.ingestion.resolve.ResolutionResult.matches) (<code>[list](#list)\[[ResolvedMatch](#agrag.ingestion.resolve.resolver.ResolvedMatch)\]</code>) –
+
+###### `agrag.ingestion.resolve.ResolutionResult.groups`
+
+```python
+groups: list[ResolutionGroup]
+```
+
+###### `agrag.ingestion.resolve.ResolutionResult.matches`
+
+```python
+matches: list[ResolvedMatch]
+```
+
+##### `agrag.ingestion.resolve.ResolvedMatch`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One confirmed non-exact match between two input entity indices.
+
+Exact-name identity matches group mentions but do not create a match-graph
+edge. Every other confirmed comparator decision creates one record.
+
+**Attributes:**
+
+- [**comparator**](#agrag.ingestion.resolve.ResolvedMatch.comparator) (<code>[str](#str)</code>) –
+- [**decided_at**](#agrag.ingestion.resolve.ResolvedMatch.decided_at) (<code>[datetime](#datetime.datetime)</code>) –
+- [**left_index**](#agrag.ingestion.resolve.ResolvedMatch.left_index) (<code>[int](#int)</code>) –
+- [**reasoning**](#agrag.ingestion.resolve.ResolvedMatch.reasoning) (<code>[str](#str) | None</code>) –
+- [**right_index**](#agrag.ingestion.resolve.ResolvedMatch.right_index) (<code>[int](#int)</code>) –
+- [**score**](#agrag.ingestion.resolve.ResolvedMatch.score) (<code>[float](#float) | None</code>) –
+
+###### `agrag.ingestion.resolve.ResolvedMatch.comparator`
+
+```python
+comparator: str
+```
+
+###### `agrag.ingestion.resolve.ResolvedMatch.decided_at`
+
+```python
+decided_at: datetime
+```
+
+###### `agrag.ingestion.resolve.ResolvedMatch.left_index`
+
+```python
+left_index: int
+```
+
+###### `agrag.ingestion.resolve.ResolvedMatch.reasoning`
+
+```python
+reasoning: str | None = None
+```
+
+###### `agrag.ingestion.resolve.ResolvedMatch.right_index`
+
+```python
+right_index: int
+```
+
+###### `agrag.ingestion.resolve.ResolvedMatch.score`
+
+```python
+score: float | None = None
+```
+
 ##### `agrag.ingestion.resolve.Resolver`
 
 ```python
@@ -8497,7 +9229,7 @@ Groups every pair a comparator confirms as a match into a ResolutionGroup.
 
 **Functions:**
 
-- [**resolve**](#agrag.ingestion.resolve.Resolver.resolve) – Group entities that resolution decided are the same thing.
+- [**resolve**](#agrag.ingestion.resolve.Resolver.resolve) – Resolve entity groups and retain each confirmed non-exact match.
 
 **Attributes:**
 
@@ -8506,10 +9238,10 @@ Groups every pair a comparator confirms as a match into a ResolutionGroup.
 
 **Parameters:**
 
-- **comparators** (<code>[list](#list)\[[Comparator](#agrag.ingestion.resolve.Comparator)\]</code>) – Tried in order per candidate pair. The first
+- **comparators** (<code>[list](#list)\[[Comparator](#agrag.ingestion.resolve.resolver.Comparator)\]</code>) – Tried in order per candidate pair. The first
   non-UNCERTAIN verdict wins; if every comparator is UNCERTAIN,
   the pair does not merge.
-- **candidate_source** (<code>[CandidateSource](#agrag.ingestion.resolve.CandidateSource)</code>) – Narrows which pairs get compared at all.
+- **candidate_source** (<code>[CandidateSource](#agrag.ingestion.resolve.candidate_source.CandidateSource)</code>) – Narrows which pairs get compared at all.
 
 ###### `agrag.ingestion.resolve.Resolver.candidate_source`
 
@@ -8526,10 +9258,10 @@ comparators = comparators
 ###### `agrag.ingestion.resolve.Resolver.resolve`
 
 ```python
-resolve(entities:list[ExtractedEntity]) -> list[ResolutionGroup]
+resolve(entities:list[ExtractedEntity]) -> ResolutionResult
 ```
 
-Group entities that resolution decided are the same thing.
+Resolve entity groups and retain each confirmed non-exact match.
 
 **Parameters:**
 
@@ -8540,8 +9272,1038 @@ Group entities that resolution decided are the same thing.
 
 **Returns:**
 
-- <code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.ResolutionGroup)\]</code> – One ResolutionGroup per distinct entity found. Every input index
-- <code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.ResolutionGroup)\]</code> – appears in exactly one group.
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index and evidence for every confirmed
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair.
+
+##### `agrag.ingestion.resolve.batch_validation`
+
+Validation for LLM batch entity-match verdicts.
+
+**Classes:**
+
+- [**BatchMatchVerdict**](#agrag.ingestion.resolve.batch_validation.BatchMatchVerdict) – One LLM result bound to the candidate pair it judged.
+
+**Functions:**
+
+- [**validate_batch_verdicts**](#agrag.ingestion.resolve.batch_validation.validate_batch_verdicts) – Return fail-safe verdicts keyed by requested candidate pair identifiers.
+
+###### `agrag.ingestion.resolve.batch_validation.BatchMatchVerdict`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One LLM result bound to the candidate pair it judged.
+
+**Attributes:**
+
+- [**pair_id**](#agrag.ingestion.resolve.batch_validation.BatchMatchVerdict.pair_id) (<code>[str](#str)</code>) –
+- [**reasoning**](#agrag.ingestion.resolve.batch_validation.BatchMatchVerdict.reasoning) (<code>[str](#str) | None</code>) –
+- [**verdict**](#agrag.ingestion.resolve.batch_validation.BatchMatchVerdict.verdict) (<code>[ComparisonVerdict](#agrag.ingestion.resolve.resolver.ComparisonVerdict)</code>) –
+
+####### `agrag.ingestion.resolve.batch_validation.BatchMatchVerdict.pair_id`
+
+```python
+pair_id: str
+```
+
+####### `agrag.ingestion.resolve.batch_validation.BatchMatchVerdict.reasoning`
+
+```python
+reasoning: str | None = None
+```
+
+####### `agrag.ingestion.resolve.batch_validation.BatchMatchVerdict.verdict`
+
+```python
+verdict: ComparisonVerdict
+```
+
+###### `agrag.ingestion.resolve.batch_validation.validate_batch_verdicts`
+
+```python
+validate_batch_verdicts(pair_ids:Iterable[str], results:Iterable[object]) -> dict[str, ComparisonResult]
+```
+
+Return fail-safe verdicts keyed by requested candidate pair identifiers.
+
+Unknown, duplicate, missing, and malformed results resolve to `NO_MATCH`.
+This avoids assigning a valid LLM response to a different candidate pair.
+
+##### `agrag.ingestion.resolve.candidate_source`
+
+Candidate generation for in-batch and persisted graph entities.
+
+**Classes:**
+
+- [**CandidateSource**](#agrag.ingestion.resolve.candidate_source.CandidateSource) – Narrows which in-batch entity pairs resolution compares.
+- [**GraphCandidateSource**](#agrag.ingestion.resolve.candidate_source.GraphCandidateSource) – Blocks by label in-batch; ANN-searches persisted entities globally.
+- [**InBatchCandidateSource**](#agrag.ingestion.resolve.candidate_source.InBatchCandidateSource) – Compatibility candidate source for the existing Resolver callers.
+- [**PersistedCandidateSource**](#agrag.ingestion.resolve.candidate_source.PersistedCandidateSource) – Supplies only candidate pairs between new mentions and raw graph entities.
+
+**Functions:**
+
+- [**exact_match_lookup**](#agrag.ingestion.resolve.candidate_source.exact_match_lookup) – Return persisted exact matches, including resolved tombstone aliases.
+- [**persisted_candidate_indices**](#agrag.ingestion.resolve.candidate_source.persisted_candidate_indices) – Return ANN candidate indices, with a bounded exhaustive fallback.
+
+###### `agrag.ingestion.resolve.candidate_source.CandidateSource`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+Narrows which in-batch entity pairs resolution compares.
+
+**Functions:**
+
+- [**candidates_for**](#agrag.ingestion.resolve.candidate_source.CandidateSource.candidates_for) – Return indices worth comparing against `entities[index]`.
+
+####### `agrag.ingestion.resolve.candidate_source.CandidateSource.candidates_for`
+
+```python
+candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
+```
+
+Return indices worth comparing against `entities[index]`.
+
+###### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource`
+
+```python
+GraphCandidateSource(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, vector_collection:str = '', entity_labels:Sequence[str] = (), top_k:int = 50) -> None
+```
+
+Bases: <code>[CandidateSource](#agrag.ingestion.resolve.candidate_source.CandidateSource)</code>
+
+Blocks by label in-batch; ANN-searches persisted entities globally.
+
+**Functions:**
+
+- [**candidates_for**](#agrag.ingestion.resolve.candidate_source.GraphCandidateSource.candidates_for) – Return every other mention sharing the indexed mention's label.
+- [**global_candidates_for**](#agrag.ingestion.resolve.candidate_source.GraphCandidateSource.global_candidates_for) – Return persisted entities found by the shared vector-search route.
+
+**Attributes:**
+
+- [**embedder**](#agrag.ingestion.resolve.candidate_source.GraphCandidateSource.embedder) –
+- [**entity_labels**](#agrag.ingestion.resolve.candidate_source.GraphCandidateSource.entity_labels) –
+- [**graph_store**](#agrag.ingestion.resolve.candidate_source.GraphCandidateSource.graph_store) –
+- [**top_k**](#agrag.ingestion.resolve.candidate_source.GraphCandidateSource.top_k) –
+- [**vector_collection**](#agrag.ingestion.resolve.candidate_source.GraphCandidateSource.vector_collection) –
+- [**vector_store**](#agrag.ingestion.resolve.candidate_source.GraphCandidateSource.vector_store) –
+
+####### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.candidates_for`
+
+```python
+candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
+```
+
+Return every other mention sharing the indexed mention's label.
+
+####### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.embedder`
+
+```python
+embedder = embedder
+```
+
+####### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.entity_labels`
+
+```python
+entity_labels = tuple(entity_labels)
+```
+
+####### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.global_candidates_for`
+
+```python
+global_candidates_for(mention:ExtractedEntity) -> list[Entity]
+```
+
+Return persisted entities found by the shared vector-search route.
+
+The GraphStore-native path's payload already carries the real node
+properties and is validated directly. The VectorStore path's payload
+only carries `label` and `text` (the embedding source text), so
+candidates are hydrated from the graph by hit id instead; a hit that
+fails to hydrate, for example a tombstoned or deleted node, is
+skipped rather than reconstructed from `text`.
+
+####### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.graph_store`
+
+```python
+graph_store = graph_store
+```
+
+####### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.top_k`
+
+```python
+top_k = top_k
+```
+
+####### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.vector_collection`
+
+```python
+vector_collection = vector_collection
+```
+
+####### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.vector_store`
+
+```python
+vector_store = vector_store
+```
+
+###### `agrag.ingestion.resolve.candidate_source.InBatchCandidateSource`
+
+Bases: <code>[CandidateSource](#agrag.ingestion.resolve.candidate_source.CandidateSource)</code>
+
+Compatibility candidate source for the existing Resolver callers.
+
+**Functions:**
+
+- [**candidates_for**](#agrag.ingestion.resolve.candidate_source.InBatchCandidateSource.candidates_for) – Return every other mention sharing the indexed mention's label.
+
+####### `agrag.ingestion.resolve.candidate_source.InBatchCandidateSource.candidates_for`
+
+```python
+candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
+```
+
+Return every other mention sharing the indexed mention's label.
+
+###### `agrag.ingestion.resolve.candidate_source.PersistedCandidateSource`
+
+```python
+PersistedCandidateSource(candidates_by_index:dict[int, list[int]]) -> None
+```
+
+Bases: <code>[CandidateSource](#agrag.ingestion.resolve.candidate_source.CandidateSource)</code>
+
+Supplies only candidate pairs between new mentions and raw graph entities.
+
+**Functions:**
+
+- [**candidates_for**](#agrag.ingestion.resolve.candidate_source.PersistedCandidateSource.candidates_for) – Return persisted candidates for a newly extracted mention.
+
+**Attributes:**
+
+- [**candidates_by_index**](#agrag.ingestion.resolve.candidate_source.PersistedCandidateSource.candidates_by_index) –
+
+####### `agrag.ingestion.resolve.candidate_source.PersistedCandidateSource.candidates_by_index`
+
+```python
+candidates_by_index = candidates_by_index
+```
+
+####### `agrag.ingestion.resolve.candidate_source.PersistedCandidateSource.candidates_for`
+
+```python
+candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
+```
+
+Return persisted candidates for a newly extracted mention.
+
+###### `agrag.ingestion.resolve.candidate_source.exact_match_lookup`
+
+```python
+exact_match_lookup(mentions:list[ExtractedEntity], *, graph_store:GraphStore) -> dict[int, Entity]
+```
+
+Return persisted exact matches, including resolved tombstone aliases.
+
+###### `agrag.ingestion.resolve.candidate_source.persisted_candidate_indices`
+
+```python
+persisted_candidate_indices(mentions:list[ExtractedEntity], entities:list[Entity], *, source:GraphCandidateSource, fallback_limit:int = 128) -> dict[int, list[int]]
+```
+
+Return ANN candidate indices, with a bounded exhaustive fallback.
+
+The fallback only applies when no indexed candidates are available. It
+keeps first-time and small-graph consolidation deterministic without
+returning to an unbounded pairwise scan for established graphs.
+
+##### `agrag.ingestion.resolve.comparators`
+
+Comparison strategies used by entity resolution.
+
+**Classes:**
+
+- [**Comparator**](#agrag.ingestion.resolve.comparators.Comparator) – One matching strategy a Resolver runs against a candidate pair.
+- [**ComparisonResult**](#agrag.ingestion.resolve.comparators.ComparisonResult) – The verdict and evidence produced by one comparator.
+- [**ComparisonVerdict**](#agrag.ingestion.resolve.comparators.ComparisonVerdict) – A Comparator's verdict on one entity pair.
+- [**ExactMatch**](#agrag.ingestion.resolve.comparators.ExactMatch) – Matches when normalized text is identical. Never returns NO_MATCH.
+- [**FuzzyMatch**](#agrag.ingestion.resolve.comparators.FuzzyMatch) – Classifies string similarity before the LLM verification tier.
+- [**LLMVerify**](#agrag.ingestion.resolve.comparators.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
+
+###### `agrag.ingestion.resolve.comparators.Comparator`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+One matching strategy a Resolver runs against a candidate pair.
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.comparators.Comparator.compare) – Compare two entities.
+- [**compare_with_evidence**](#agrag.ingestion.resolve.comparators.Comparator.compare_with_evidence) – Compare two entities and retain any available decision evidence.
+
+####### `agrag.ingestion.resolve.comparators.Comparator.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Compare two entities.
+
+**Parameters:**
+
+- **a** (<code>[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)</code>) – The first entity.
+- **b** (<code>[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)</code>) – The second entity.
+
+**Returns:**
+
+- <code>[ComparisonVerdict](#agrag.ingestion.resolve.resolver.ComparisonVerdict)</code> – This comparator's verdict. UNCERTAIN defers to the next comparator.
+
+####### `agrag.ingestion.resolve.comparators.Comparator.compare_with_evidence`
+
+```python
+compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
+```
+
+Compare two entities and retain any available decision evidence.
+
+###### `agrag.ingestion.resolve.comparators.ComparisonResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The verdict and evidence produced by one comparator.
+
+**Attributes:**
+
+- [**reasoning**](#agrag.ingestion.resolve.comparators.ComparisonResult.reasoning) (<code>[str](#str) | None</code>) –
+- [**score**](#agrag.ingestion.resolve.comparators.ComparisonResult.score) (<code>[float](#float) | None</code>) –
+- [**verdict**](#agrag.ingestion.resolve.comparators.ComparisonResult.verdict) (<code>[ComparisonVerdict](#agrag.ingestion.resolve.resolver.ComparisonVerdict)</code>) –
+
+####### `agrag.ingestion.resolve.comparators.ComparisonResult.reasoning`
+
+```python
+reasoning: str | None = None
+```
+
+####### `agrag.ingestion.resolve.comparators.ComparisonResult.score`
+
+```python
+score: float | None = None
+```
+
+####### `agrag.ingestion.resolve.comparators.ComparisonResult.verdict`
+
+```python
+verdict: ComparisonVerdict
+```
+
+###### `agrag.ingestion.resolve.comparators.ComparisonVerdict`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+A Comparator's verdict on one entity pair.
+
+**Attributes:**
+
+- [**MATCH**](#agrag.ingestion.resolve.comparators.ComparisonVerdict.MATCH) – The comparator is confident these are the same entity.
+- [**NO_MATCH**](#agrag.ingestion.resolve.comparators.ComparisonVerdict.NO_MATCH) – The comparator is confident these are different entities.
+- [**UNCERTAIN**](#agrag.ingestion.resolve.comparators.ComparisonVerdict.UNCERTAIN) – This comparator can't decide; the next one gets a turn.
+
+####### `agrag.ingestion.resolve.comparators.ComparisonVerdict.MATCH`
+
+```python
+MATCH = 'match'
+```
+
+####### `agrag.ingestion.resolve.comparators.ComparisonVerdict.NO_MATCH`
+
+```python
+NO_MATCH = 'no_match'
+```
+
+####### `agrag.ingestion.resolve.comparators.ComparisonVerdict.UNCERTAIN`
+
+```python
+UNCERTAIN = 'uncertain'
+```
+
+###### `agrag.ingestion.resolve.comparators.ExactMatch`
+
+Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
+
+Matches when normalized text is identical. Never returns NO_MATCH.
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.comparators.ExactMatch.compare) – Return MATCH on identical normalized text, else UNCERTAIN.
+- [**compare_with_evidence**](#agrag.ingestion.resolve.comparators.ExactMatch.compare_with_evidence) – Compare two entities and retain any available decision evidence.
+
+####### `agrag.ingestion.resolve.comparators.ExactMatch.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Return MATCH on identical normalized text, else UNCERTAIN.
+
+####### `agrag.ingestion.resolve.comparators.ExactMatch.compare_with_evidence`
+
+```python
+compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
+```
+
+Compare two entities and retain any available decision evidence.
+
+###### `agrag.ingestion.resolve.comparators.FuzzyMatch`
+
+```python
+FuzzyMatch(*, match_above:float = 0.92, no_match_below:float = 0.7) -> None
+```
+
+Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
+
+Classifies string similarity before the LLM verification tier.
+
+**Attributes:**
+
+- [**match_above**](#agrag.ingestion.resolve.comparators.FuzzyMatch.match_above) – A similarity score at or above this is a match.
+- [**no_match_below**](#agrag.ingestion.resolve.comparators.FuzzyMatch.no_match_below) – A similarity score below this is not a match.
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.comparators.FuzzyMatch.compare) – Return a verdict from token-sort-ratio similarity.
+- [**compare_with_evidence**](#agrag.ingestion.resolve.comparators.FuzzyMatch.compare_with_evidence) – Compare two entities and include their token-sort similarity.
+
+####### `agrag.ingestion.resolve.comparators.FuzzyMatch.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Return a verdict from token-sort-ratio similarity.
+
+####### `agrag.ingestion.resolve.comparators.FuzzyMatch.compare_with_evidence`
+
+```python
+compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
+```
+
+Compare two entities and include their token-sort similarity.
+
+####### `agrag.ingestion.resolve.comparators.FuzzyMatch.match_above`
+
+```python
+match_above = match_above
+```
+
+####### `agrag.ingestion.resolve.comparators.FuzzyMatch.no_match_below`
+
+```python
+no_match_below = no_match_below
+```
+
+###### `agrag.ingestion.resolve.comparators.LLMVerify`
+
+```python
+LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50) -> None
+```
+
+Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
+
+Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
+
+Never raises from an LLM-call failure: it resolves to NO_MATCH instead, by
+the same fail-safe design as every comparator a Resolver runs — an
+ambiguous or failed comparison never merges two entities. A missing package
+extra is a configuration error, not an ambiguous judgment call, and is
+raised outright instead (see compare's Raises section).
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.comparators.LLMVerify.compare) – Return the LLM's verdict, or NO_MATCH if the call itself fails.
+- [**compare_batch**](#agrag.ingestion.resolve.comparators.LLMVerify.compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
+- [**compare_with_evidence**](#agrag.ingestion.resolve.comparators.LLMVerify.compare_with_evidence) – Compare two entities and retain any available decision evidence.
+
+**Attributes:**
+
+- [**chunks_by_id**](#agrag.ingestion.resolve.comparators.LLMVerify.chunks_by_id) –
+- [**max_pairs_per_batch**](#agrag.ingestion.resolve.comparators.LLMVerify.max_pairs_per_batch) –
+- [**settings**](#agrag.ingestion.resolve.comparators.LLMVerify.settings) –
+
+**Parameters:**
+
+- **chunks_by_id** (<code>[dict](#dict)\[[UUID](#uuid.UUID), [Chunk](#agrag.common.data_models.chunk.Chunk)\]</code>) – Maps a Chunk id to the Chunk, for prompt context.
+- **settings** (<code>[ExtractionLLMSettings](#agrag.ingestion.extract.ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`.
+  Ignored when `client` is given: an injected client also
+  disables `settings.retry`, since a caller building its own
+  client is assumed to own its own retry behavior too.
+- **client** (<code>[object](#object) | None</code>) – An already-built BAML client. Tests inject a fake here.
+- **max_pairs_per_batch** (<code>[int](#int)</code>) – Maximum pairs sent to the LLM in one request.
+  A large ambiguous population is split into requests of at most
+  this size so one oversized request cannot exceed the model's
+  context limit and silently fail every pair in the batch.
+
+####### `agrag.ingestion.resolve.comparators.LLMVerify.chunks_by_id`
+
+```python
+chunks_by_id = chunks_by_id
+```
+
+####### `agrag.ingestion.resolve.comparators.LLMVerify.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Return the LLM's verdict, or NO_MATCH if the call itself fails.
+
+**Raises:**
+
+- <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `llm` package extra is not
+  installed.
+
+####### `agrag.ingestion.resolve.comparators.LLMVerify.compare_batch`
+
+```python
+compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]]) -> dict[tuple[int, int], ComparisonResult]
+```
+
+Verify ambiguous candidate pairs across bounded LLM requests.
+
+Splits into requests of at most `max_pairs_per_batch` pairs so one
+oversized population cannot exceed the model's context limit.
+Invalid, missing, and uncertain model responses do not merge entities.
+
+####### `agrag.ingestion.resolve.comparators.LLMVerify.compare_with_evidence`
+
+```python
+compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
+```
+
+Compare two entities and retain any available decision evidence.
+
+####### `agrag.ingestion.resolve.comparators.LLMVerify.max_pairs_per_batch`
+
+```python
+max_pairs_per_batch = max_pairs_per_batch
+```
+
+####### `agrag.ingestion.resolve.comparators.LLMVerify.settings`
+
+```python
+settings = settings
+```
+
+##### `agrag.ingestion.resolve.exact_groups`
+
+Exact-name grouping for permanent raw entity records.
+
+**Functions:**
+
+- [**exact_resolution_groups**](#agrag.ingestion.resolve.exact_groups.exact_resolution_groups) – Group mentions only when they share exact raw-entity identity.
+
+###### `agrag.ingestion.resolve.exact_groups.exact_resolution_groups`
+
+```python
+exact_resolution_groups(mentions:list[ExtractedEntity], exact_matches:dict[int, Entity]) -> list[ResolutionGroup]
+```
+
+Group mentions only when they share exact raw-entity identity.
+
+A mention with a persisted exact match joins every other mention that
+resolves to the same raw Entity. Other mentions join only when their
+labels and normalized names match. Semantic matches deliberately remain
+separate raw records and are materialized through `MATCHES` later.
+
+##### `agrag.ingestion.resolve.exact_match_lookup`
+
+```python
+exact_match_lookup(mentions:list[ExtractedEntity], *, graph_store:GraphStore) -> dict[int, Entity]
+```
+
+Return persisted exact matches, including resolved tombstone aliases.
+
+##### `agrag.ingestion.resolve.exact_resolution_groups`
+
+```python
+exact_resolution_groups(mentions:list[ExtractedEntity], exact_matches:dict[int, Entity]) -> list[ResolutionGroup]
+```
+
+Group mentions only when they share exact raw-entity identity.
+
+A mention with a persisted exact match joins every other mention that
+resolves to the same raw Entity. Other mentions join only when their
+labels and normalized names match. Semantic matches deliberately remain
+separate raw records and are materialized through `MATCHES` later.
+
+##### `agrag.ingestion.resolve.persisted_candidate_indices`
+
+```python
+persisted_candidate_indices(mentions:list[ExtractedEntity], entities:list[Entity], *, source:GraphCandidateSource, fallback_limit:int = 128) -> dict[int, list[int]]
+```
+
+Return ANN candidate indices, with a bounded exhaustive fallback.
+
+The fallback only applies when no indexed candidates are available. It
+keeps first-time and small-graph consolidation deterministic without
+returning to an unbounded pairwise scan for established graphs.
+
+##### `agrag.ingestion.resolve.resolver`
+
+Entity resolution: deciding which ExtractedEntity mentions are the same thing.
+
+**Classes:**
+
+- [**Comparator**](#agrag.ingestion.resolve.resolver.Comparator) – One matching strategy a Resolver runs against a candidate pair.
+- [**ComparisonResult**](#agrag.ingestion.resolve.resolver.ComparisonResult) – The verdict and evidence produced by one comparator.
+- [**ComparisonVerdict**](#agrag.ingestion.resolve.resolver.ComparisonVerdict) – A Comparator's verdict on one entity pair.
+- [**ExactMatch**](#agrag.ingestion.resolve.resolver.ExactMatch) – Matches when normalized text is identical. Never returns NO_MATCH.
+- [**FuzzyMatch**](#agrag.ingestion.resolve.resolver.FuzzyMatch) – Classifies string similarity before the LLM verification tier.
+- [**LLMVerify**](#agrag.ingestion.resolve.resolver.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
+- [**ResolutionGroup**](#agrag.ingestion.resolve.resolver.ResolutionGroup) – One set of ExtractedEntity indices resolution decided are the same entity.
+- [**ResolutionResult**](#agrag.ingestion.resolve.resolver.ResolutionResult) – The groups and non-exact evidence produced by one resolution pass.
+- [**ResolvedMatch**](#agrag.ingestion.resolve.resolver.ResolvedMatch) – One confirmed non-exact match between two input entity indices.
+- [**Resolver**](#agrag.ingestion.resolve.resolver.Resolver) – Runs an ordered comparator sequence over blocked candidate pairs.
+
+###### `agrag.ingestion.resolve.resolver.Comparator`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+One matching strategy a Resolver runs against a candidate pair.
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.resolver.Comparator.compare) – Compare two entities.
+- [**compare_with_evidence**](#agrag.ingestion.resolve.resolver.Comparator.compare_with_evidence) – Compare two entities and retain any available decision evidence.
+
+####### `agrag.ingestion.resolve.resolver.Comparator.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Compare two entities.
+
+**Parameters:**
+
+- **a** (<code>[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)</code>) – The first entity.
+- **b** (<code>[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)</code>) – The second entity.
+
+**Returns:**
+
+- <code>[ComparisonVerdict](#agrag.ingestion.resolve.resolver.ComparisonVerdict)</code> – This comparator's verdict. UNCERTAIN defers to the next comparator.
+
+####### `agrag.ingestion.resolve.resolver.Comparator.compare_with_evidence`
+
+```python
+compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
+```
+
+Compare two entities and retain any available decision evidence.
+
+###### `agrag.ingestion.resolve.resolver.ComparisonResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The verdict and evidence produced by one comparator.
+
+**Attributes:**
+
+- [**reasoning**](#agrag.ingestion.resolve.resolver.ComparisonResult.reasoning) (<code>[str](#str) | None</code>) –
+- [**score**](#agrag.ingestion.resolve.resolver.ComparisonResult.score) (<code>[float](#float) | None</code>) –
+- [**verdict**](#agrag.ingestion.resolve.resolver.ComparisonResult.verdict) (<code>[ComparisonVerdict](#agrag.ingestion.resolve.resolver.ComparisonVerdict)</code>) –
+
+####### `agrag.ingestion.resolve.resolver.ComparisonResult.reasoning`
+
+```python
+reasoning: str | None = None
+```
+
+####### `agrag.ingestion.resolve.resolver.ComparisonResult.score`
+
+```python
+score: float | None = None
+```
+
+####### `agrag.ingestion.resolve.resolver.ComparisonResult.verdict`
+
+```python
+verdict: ComparisonVerdict
+```
+
+###### `agrag.ingestion.resolve.resolver.ComparisonVerdict`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+A Comparator's verdict on one entity pair.
+
+**Attributes:**
+
+- [**MATCH**](#agrag.ingestion.resolve.resolver.ComparisonVerdict.MATCH) – The comparator is confident these are the same entity.
+- [**NO_MATCH**](#agrag.ingestion.resolve.resolver.ComparisonVerdict.NO_MATCH) – The comparator is confident these are different entities.
+- [**UNCERTAIN**](#agrag.ingestion.resolve.resolver.ComparisonVerdict.UNCERTAIN) – This comparator can't decide; the next one gets a turn.
+
+####### `agrag.ingestion.resolve.resolver.ComparisonVerdict.MATCH`
+
+```python
+MATCH = 'match'
+```
+
+####### `agrag.ingestion.resolve.resolver.ComparisonVerdict.NO_MATCH`
+
+```python
+NO_MATCH = 'no_match'
+```
+
+####### `agrag.ingestion.resolve.resolver.ComparisonVerdict.UNCERTAIN`
+
+```python
+UNCERTAIN = 'uncertain'
+```
+
+###### `agrag.ingestion.resolve.resolver.ExactMatch`
+
+Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
+
+Matches when normalized text is identical. Never returns NO_MATCH.
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.resolver.ExactMatch.compare) – Return MATCH on identical normalized text, else UNCERTAIN.
+- [**compare_with_evidence**](#agrag.ingestion.resolve.resolver.ExactMatch.compare_with_evidence) – Compare two entities and retain any available decision evidence.
+
+####### `agrag.ingestion.resolve.resolver.ExactMatch.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Return MATCH on identical normalized text, else UNCERTAIN.
+
+####### `agrag.ingestion.resolve.resolver.ExactMatch.compare_with_evidence`
+
+```python
+compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
+```
+
+Compare two entities and retain any available decision evidence.
+
+###### `agrag.ingestion.resolve.resolver.FuzzyMatch`
+
+```python
+FuzzyMatch(*, match_above:float = 0.92, no_match_below:float = 0.7) -> None
+```
+
+Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
+
+Classifies string similarity before the LLM verification tier.
+
+**Attributes:**
+
+- [**match_above**](#agrag.ingestion.resolve.resolver.FuzzyMatch.match_above) – A similarity score at or above this is a match.
+- [**no_match_below**](#agrag.ingestion.resolve.resolver.FuzzyMatch.no_match_below) – A similarity score below this is not a match.
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.resolver.FuzzyMatch.compare) – Return a verdict from token-sort-ratio similarity.
+- [**compare_with_evidence**](#agrag.ingestion.resolve.resolver.FuzzyMatch.compare_with_evidence) – Compare two entities and include their token-sort similarity.
+
+####### `agrag.ingestion.resolve.resolver.FuzzyMatch.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Return a verdict from token-sort-ratio similarity.
+
+####### `agrag.ingestion.resolve.resolver.FuzzyMatch.compare_with_evidence`
+
+```python
+compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
+```
+
+Compare two entities and include their token-sort similarity.
+
+####### `agrag.ingestion.resolve.resolver.FuzzyMatch.match_above`
+
+```python
+match_above = match_above
+```
+
+####### `agrag.ingestion.resolve.resolver.FuzzyMatch.no_match_below`
+
+```python
+no_match_below = no_match_below
+```
+
+###### `agrag.ingestion.resolve.resolver.LLMVerify`
+
+```python
+LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50) -> None
+```
+
+Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
+
+Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
+
+Never raises from an LLM-call failure: it resolves to NO_MATCH instead, by
+the same fail-safe design as every comparator a Resolver runs — an
+ambiguous or failed comparison never merges two entities. A missing package
+extra is a configuration error, not an ambiguous judgment call, and is
+raised outright instead (see compare's Raises section).
+
+**Functions:**
+
+- [**compare**](#agrag.ingestion.resolve.resolver.LLMVerify.compare) – Return the LLM's verdict, or NO_MATCH if the call itself fails.
+- [**compare_batch**](#agrag.ingestion.resolve.resolver.LLMVerify.compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
+- [**compare_with_evidence**](#agrag.ingestion.resolve.resolver.LLMVerify.compare_with_evidence) – Compare two entities and retain any available decision evidence.
+
+**Attributes:**
+
+- [**chunks_by_id**](#agrag.ingestion.resolve.resolver.LLMVerify.chunks_by_id) –
+- [**max_pairs_per_batch**](#agrag.ingestion.resolve.resolver.LLMVerify.max_pairs_per_batch) –
+- [**settings**](#agrag.ingestion.resolve.resolver.LLMVerify.settings) –
+
+**Parameters:**
+
+- **chunks_by_id** (<code>[dict](#dict)\[[UUID](#uuid.UUID), [Chunk](#agrag.common.data_models.chunk.Chunk)\]</code>) – Maps a Chunk id to the Chunk, for prompt context.
+- **settings** (<code>[ExtractionLLMSettings](#agrag.ingestion.extract.ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`.
+  Ignored when `client` is given: an injected client also
+  disables `settings.retry`, since a caller building its own
+  client is assumed to own its own retry behavior too.
+- **client** (<code>[object](#object) | None</code>) – An already-built BAML client. Tests inject a fake here.
+- **max_pairs_per_batch** (<code>[int](#int)</code>) – Maximum pairs sent to the LLM in one request.
+  A large ambiguous population is split into requests of at most
+  this size so one oversized request cannot exceed the model's
+  context limit and silently fail every pair in the batch.
+
+####### `agrag.ingestion.resolve.resolver.LLMVerify.chunks_by_id`
+
+```python
+chunks_by_id = chunks_by_id
+```
+
+####### `agrag.ingestion.resolve.resolver.LLMVerify.compare`
+
+```python
+compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
+```
+
+Return the LLM's verdict, or NO_MATCH if the call itself fails.
+
+**Raises:**
+
+- <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `llm` package extra is not
+  installed.
+
+####### `agrag.ingestion.resolve.resolver.LLMVerify.compare_batch`
+
+```python
+compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]]) -> dict[tuple[int, int], ComparisonResult]
+```
+
+Verify ambiguous candidate pairs across bounded LLM requests.
+
+Splits into requests of at most `max_pairs_per_batch` pairs so one
+oversized population cannot exceed the model's context limit.
+Invalid, missing, and uncertain model responses do not merge entities.
+
+####### `agrag.ingestion.resolve.resolver.LLMVerify.compare_with_evidence`
+
+```python
+compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
+```
+
+Compare two entities and retain any available decision evidence.
+
+####### `agrag.ingestion.resolve.resolver.LLMVerify.max_pairs_per_batch`
+
+```python
+max_pairs_per_batch = max_pairs_per_batch
+```
+
+####### `agrag.ingestion.resolve.resolver.LLMVerify.settings`
+
+```python
+settings = settings
+```
+
+###### `agrag.ingestion.resolve.resolver.ResolutionGroup`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One set of ExtractedEntity indices resolution decided are the same entity.
+
+**Attributes:**
+
+- [**entity_indices**](#agrag.ingestion.resolve.resolver.ResolutionGroup.entity_indices) (<code>[list](#list)\[[int](#int)\]</code>) – Indices into the entity list passed to Resolver.resolve.
+  A group of one means resolution found no match for that entity.
+
+####### `agrag.ingestion.resolve.resolver.ResolutionGroup.entity_indices`
+
+```python
+entity_indices: list[int]
+```
+
+###### `agrag.ingestion.resolve.resolver.ResolutionResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The groups and non-exact evidence produced by one resolution pass.
+
+**Attributes:**
+
+- [**groups**](#agrag.ingestion.resolve.resolver.ResolutionResult.groups) (<code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.resolver.ResolutionGroup)\]</code>) –
+- [**matches**](#agrag.ingestion.resolve.resolver.ResolutionResult.matches) (<code>[list](#list)\[[ResolvedMatch](#agrag.ingestion.resolve.resolver.ResolvedMatch)\]</code>) –
+
+####### `agrag.ingestion.resolve.resolver.ResolutionResult.groups`
+
+```python
+groups: list[ResolutionGroup]
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolutionResult.matches`
+
+```python
+matches: list[ResolvedMatch]
+```
+
+###### `agrag.ingestion.resolve.resolver.ResolvedMatch`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One confirmed non-exact match between two input entity indices.
+
+Exact-name identity matches group mentions but do not create a match-graph
+edge. Every other confirmed comparator decision creates one record.
+
+**Attributes:**
+
+- [**comparator**](#agrag.ingestion.resolve.resolver.ResolvedMatch.comparator) (<code>[str](#str)</code>) –
+- [**decided_at**](#agrag.ingestion.resolve.resolver.ResolvedMatch.decided_at) (<code>[datetime](#datetime.datetime)</code>) –
+- [**left_index**](#agrag.ingestion.resolve.resolver.ResolvedMatch.left_index) (<code>[int](#int)</code>) –
+- [**reasoning**](#agrag.ingestion.resolve.resolver.ResolvedMatch.reasoning) (<code>[str](#str) | None</code>) –
+- [**right_index**](#agrag.ingestion.resolve.resolver.ResolvedMatch.right_index) (<code>[int](#int)</code>) –
+- [**score**](#agrag.ingestion.resolve.resolver.ResolvedMatch.score) (<code>[float](#float) | None</code>) –
+
+####### `agrag.ingestion.resolve.resolver.ResolvedMatch.comparator`
+
+```python
+comparator: str
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolvedMatch.decided_at`
+
+```python
+decided_at: datetime
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolvedMatch.left_index`
+
+```python
+left_index: int
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolvedMatch.reasoning`
+
+```python
+reasoning: str | None = None
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolvedMatch.right_index`
+
+```python
+right_index: int
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolvedMatch.score`
+
+```python
+score: float | None = None
+```
+
+###### `agrag.ingestion.resolve.resolver.Resolver`
+
+```python
+Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource) -> None
+```
+
+Runs an ordered comparator sequence over blocked candidate pairs.
+
+Groups every pair a comparator confirms as a match into a ResolutionGroup.
+
+**Functions:**
+
+- [**resolve**](#agrag.ingestion.resolve.resolver.Resolver.resolve) – Resolve entity groups and retain each confirmed non-exact match.
+
+**Attributes:**
+
+- [**candidate_source**](#agrag.ingestion.resolve.resolver.Resolver.candidate_source) –
+- [**comparators**](#agrag.ingestion.resolve.resolver.Resolver.comparators) –
+
+**Parameters:**
+
+- **comparators** (<code>[list](#list)\[[Comparator](#agrag.ingestion.resolve.resolver.Comparator)\]</code>) – Tried in order per candidate pair. The first
+  non-UNCERTAIN verdict wins; if every comparator is UNCERTAIN,
+  the pair does not merge.
+- **candidate_source** (<code>[CandidateSource](#agrag.ingestion.resolve.candidate_source.CandidateSource)</code>) – Narrows which pairs get compared at all.
+
+####### `agrag.ingestion.resolve.resolver.Resolver.candidate_source`
+
+```python
+candidate_source = candidate_source
+```
+
+####### `agrag.ingestion.resolve.resolver.Resolver.comparators`
+
+```python
+comparators = comparators
+```
+
+####### `agrag.ingestion.resolve.resolver.Resolver.resolve`
+
+```python
+resolve(entities:list[ExtractedEntity]) -> ResolutionResult
+```
+
+Resolve entity groups and retain each confirmed non-exact match.
+
+**Parameters:**
+
+- **entities** (<code>[list](#list)\[[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]</code>) – The entities to resolve. Only entities passed in the
+  same call are ever compared against each other — resolving
+  against previously-resolved entities from an earlier call is
+  not supported by this Resolver.
+
+**Returns:**
+
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index and evidence for every confirmed
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair.
+
+#### `agrag.ingestion.resolved_embeddings`
+
+Embedding and vector synchronization for materialized resolved entities.
+
+**Functions:**
+
+- [**embed_resolved_entities**](#agrag.ingestion.resolved_embeddings.embed_resolved_entities) – Write resolved-entity embeddings to the graph and optional vector store.
+
+##### `agrag.ingestion.resolved_embeddings.embed_resolved_entities`
+
+```python
+embed_resolved_entities(entities:list[ResolvedEntity], *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, vector_collection:str, error_policy:ErrorPolicy) -> list[StageFailure]
+```
+
+Write resolved-entity embeddings to the graph and optional vector store.
+
+Graph writes finish before vector-store synchronization because the two
+stores cannot share a transaction. A failed sync clears the graph vector,
+removes any old mirrored vector, and records `failed` for a later
+materialization pass to retry.
+
+Only entities whose guarded graph write actually matched a live node are
+mirrored to the vector store or have their sync status updated. A
+concurrent materialization can replace or delete a ResolvedEntity between
+this call reading it and writing its embedding; skipping the unmatched
+ones keeps this call from resurrecting a vector, or overwriting a status,
+that the concurrent call already owns.
 
 #### `agrag.ingestion.stats`
 
@@ -9394,6 +11156,7 @@ Retrieval package: search engine, fusion, reranking, and retrievers.
 - [**methods**](#agrag.retrieval.methods) – Low-level search method helpers shared by retrievers.
 - [**recipes**](#agrag.retrieval.recipes) – Named, data-only configurations of what SearchEngine runs.
 - [**rerank**](#agrag.retrieval.rerank) – Rerankers that reorder fused search results.
+- [**resolved_entities**](#agrag.retrieval.resolved_entities) – Hydration helpers for materialized resolved entities.
 - [**retrievers**](#agrag.retrieval.retrievers) – Retriever implementations for entity, chunk, BFS, and text2cypher search.
 - [**search_engine**](#agrag.retrieval.search_engine) – Retrieval's public entry point, independent of Graph.
 - [**settings**](#agrag.retrieval.settings) – Env-backed configuration for retrieval methods and fusion.
@@ -9961,7 +11724,8 @@ node_distance_rerank(results:list[SearchResult], *, graph_store:GraphStore, seed
 Rerank results by graph proximity to seed entity ids.
 
 Uses shortest-path distance from each result entity to the
-closest seed entity. Entities closer to seeds rank higher.
+closest seed entity. Entities closer to seeds rank higher. A
+ResolvedEntity item is measured by its closest raw member.
 Results without an entity item (chunks, relations) are placed
 at the end with a high distance penalty.
 
@@ -9977,6 +11741,37 @@ at the end with a high distance penalty.
 **Returns:**
 
 - <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Results reranked by proximity, closest first.
+
+#### `agrag.retrieval.resolved_entities`
+
+Hydration helpers for materialized resolved entities.
+
+**Functions:**
+
+- [**hydrate_resolved_entities**](#agrag.retrieval.resolved_entities.hydrate_resolved_entities) – Hydrate resolved entities by vector-hit identifiers.
+- [**parse_resolved_entity_node**](#agrag.retrieval.resolved_entities.parse_resolved_entity_node) – Parse a graph-store node into a resolved entity when its shape is valid.
+
+##### `agrag.retrieval.resolved_entities.hydrate_resolved_entities`
+
+```python
+hydrate_resolved_entities(graph_store:GraphStore, ids:list[UUID]) -> dict[UUID, ResolvedEntity]
+```
+
+Hydrate resolved entities by vector-hit identifiers.
+
+##### `agrag.retrieval.resolved_entities.parse_resolved_entity_node`
+
+```python
+parse_resolved_entity_node(node:object) -> ResolvedEntity | None
+```
+
+Parse a graph-store node into a resolved entity when its shape is valid.
+
+Accepts both the `{"properties": {...}}` mock shape used in tests and a
+real Neo4j driver `Node`, which exposes its properties through
+`dict(node)` rather than as a plain dict. Flat properties outside
+`ResolvedEntity`'s own fields (for example `description`) are routed
+into `ResolvedEntity.properties` instead of being dropped by pydantic.
 
 #### `agrag.retrieval.retrievers`
 
@@ -10477,6 +12272,9 @@ Configuration for retrieval methods and fusion.
 - [**entity_collection**](#agrag.retrieval.settings.RetrievalSettings.entity_collection) (<code>[str](#str)</code>) – The VectorStore collection name for entity
   search. Only read when a VectorStore is configured on
   SearchEngine; ignored on the GraphStore-native path.
+- [**resolved_entity_collection**](#agrag.retrieval.settings.RetrievalSettings.resolved_entity_collection) (<code>[str](#str)</code>) – The VectorStore collection name for
+  materialized resolved-entity search. Same condition as
+  entity_collection.
 - [**chunk_collection**](#agrag.retrieval.settings.RetrievalSettings.chunk_collection) (<code>[str](#str)</code>) – The VectorStore collection name for chunk
   search. Same condition as entity_collection.
 - [**entity_labels**](#agrag.retrieval.settings.RetrievalSettings.entity_labels) (<code>[list](#list)\[[str](#str)\]</code>) – The graph labels native entity search runs
@@ -10488,6 +12286,8 @@ Configuration for retrieval methods and fusion.
   entity hits seed the node-distance reranker. Candidates
   are ordered by graph distance to those seeds.
 - [**entity_top_k**](#agrag.retrieval.settings.RetrievalSettings.entity_top_k) (<code>[int](#int)</code>) – Results requested per entity search call.
+- [**resolved_entity_top_k**](#agrag.retrieval.settings.RetrievalSettings.resolved_entity_top_k) (<code>[int](#int)</code>) – Results requested per resolved-entity search
+  call.
 - [**chunk_top_k**](#agrag.retrieval.settings.RetrievalSettings.chunk_top_k) (<code>[int](#int)</code>) – Results requested per chunk search call.
 - [**hybrid_alpha**](#agrag.retrieval.settings.RetrievalSettings.hybrid_alpha) (<code>[float](#float)</code>) – Dense-versus-keyword blend for hybrid search,
   0 to 1. Only meaningful on the VectorStore path;
@@ -10592,6 +12392,18 @@ node_distance_seed_top_k: int = 3
 
 ```python
 reranker_min_score: float | None = None
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.resolved_entity_collection`
+
+```python
+resolved_entity_collection: str = 'agrag_resolved_entities'
+```
+
+###### `agrag.retrieval.settings.RetrievalSettings.resolved_entity_top_k`
+
+```python
+resolved_entity_top_k: int = 10
 ```
 
 ###### `agrag.retrieval.settings.RetrievalSettings.rrf_k`

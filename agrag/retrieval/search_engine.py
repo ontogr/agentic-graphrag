@@ -280,24 +280,32 @@ class SearchEngine:
     def _extract_entity_ids(
         results: list[SearchResult],
     ) -> list[UUID]:
-        """Return entity ids from results, preserving order.
+        """Return raw entity ids from results, preserving order.
 
         Used for BFS seeds and node-distance reranking. Keeps the
         first-seen id of each entity so the fusion ranking is
-        respected. Only Entity items are included; Chunks and other
-        non-entity result items are skipped.
+        respected. A ResolvedEntity contributes its raw member ids,
+        since graph traversal and distance run over raw entity nodes.
+        Chunks and other non-entity result items are skipped.
         """
         from agrag.common.data_models.entity import Entity  # noqa: PLC0415
+        from agrag.common.data_models.resolved_entity import (  # noqa: PLC0415
+            ResolvedEntity,
+        )
 
         seen: set[UUID] = set()
         ids: list[UUID] = []
         for r in results:
-            if not isinstance(r.item, Entity):
+            if isinstance(r.item, Entity):
+                item_ids: list[UUID] = [r.item.id]
+            elif isinstance(r.item, ResolvedEntity):
+                item_ids = r.item.member_ids
+            else:
                 continue
-            item_id: UUID = r.item.id
-            if item_id not in seen:
-                seen.add(item_id)
-                ids.append(item_id)
+            for item_id in item_ids:
+                if item_id not in seen:
+                    seen.add(item_id)
+                    ids.append(item_id)
         return ids
 
     @staticmethod

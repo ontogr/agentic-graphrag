@@ -100,9 +100,10 @@ def _text_of(result: SearchResult) -> str:
     from agrag.common.data_models.chunk import Chunk  # noqa: PLC0415
     from agrag.common.data_models.entity import Entity  # noqa: PLC0415
     from agrag.common.data_models.relation import Relation  # noqa: PLC0415
+    from agrag.common.data_models.resolved_entity import ResolvedEntity  # noqa: PLC0415
 
     item = result.item
-    if isinstance(item, Entity):
+    if isinstance(item, (Entity, ResolvedEntity)):
         return item.embedding_text
     if isinstance(item, Chunk):
         return item.text

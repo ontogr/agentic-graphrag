@@ -22,6 +22,7 @@ from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
+from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.retrieval.rerank.cross_encoder import cross_encoder_rerank
 
@@ -124,6 +125,13 @@ class TestCrossEncoderRerank:
             score=0.1,
             method="test",
         )
+        resolved = SearchResult(
+            item=ResolvedEntity(
+                id=uuid4(), label="Person", name="Ada Lovelace", member_ids=[uuid4()]
+            ),
+            score=0.1,
+            method="test",
+        )
         captured_pairs: list[tuple[str, str]] = []
 
         class RecordingCrossEncoder:
@@ -140,15 +148,16 @@ class TestCrossEncoderRerank:
         with patch.dict(sys.modules, {"sentence_transformers": module}):
             reranked = await cross_encoder_rerank(
                 "query",
-                [chunk, relation, community],
+                [chunk, relation, community, resolved],
                 model=f"text-of-model-{uuid4().hex}",
             )
 
-        assert len(reranked) == 3
+        assert len(reranked) == 4
         texts = {text for _, text in captured_pairs}
         assert "chunk body" in texts
         assert any("KNOWS" in text for text in texts)
         assert community.item.embedding_text in texts
+        assert resolved.item.embedding_text in texts
 
     async def test_cached_model_is_reused_across_calls(self) -> None:
         """A second call with the same model name reuses the cached instance.

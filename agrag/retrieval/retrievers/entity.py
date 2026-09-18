@@ -1,15 +1,18 @@
 """Entity retriever: dense vector search over entities."""
 
 from collections.abc import Sequence
+from uuid import UUID
 
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.entities import hydrate_entities_by_id_query
+from agrag.cypher.resolution_read import fetch_active_resolved_member_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.identity import resolve_entity
 from agrag.retrieval.methods.vector import vector_search
+from agrag.retrieval.resolved_entities import hydrate_resolved_entities
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
@@ -60,7 +63,7 @@ class EntityRetriever(Retriever):
             else list(self._settings.entity_labels)
         )
 
-    async def retrieve(
+    async def retrieve(  # noqa: PLR0912
         self,
         query: str,
         *,
@@ -97,40 +100,108 @@ class EntityRetriever(Retriever):
             filters=filters,
             settings=self._settings,
         )
-        if not hits:
-            return []
-        ids = [str(h.id) for h in hits]
-        entities_by_id: dict[str, Entity] = {}
-        try:
-            rows = await self._graph_store.execute_read(
-                hydrate_entities_by_id_query(), {"ids": ids}
-            )
-            from agrag.ingestion.graph import _parse_entity_node  # noqa: PLC0415
-
-            for row in rows:
-                try:
-                    node = row.get("n") if isinstance(row, dict) and "n" in row else row
-                    ent = _parse_entity_node(node)
-                    if ent is None:
-                        ent = _parse_entity_node(row)  # type: ignore[arg-type]
-                    if ent is not None:
-                        entities_by_id[str(ent.id)] = ent
-                except Exception:
-                    continue
-        except Exception:
-            entities_by_id = {}
         results: list[SearchResult] = []
-        for hit in hits:
+        if hits:
+            ids = [str(h.id) for h in hits]
+            entities_by_id: dict[str, Entity] = {}
             try:
-                entity: Entity | None = entities_by_id.get(str(hit.id))
-                if entity is None:
+                rows = await self._graph_store.execute_read(
+                    hydrate_entities_by_id_query(), {"ids": ids}
+                )
+                from agrag.ingestion.graph import _parse_entity_node  # noqa: PLC0415
+
+                for row in rows:
                     try:
-                        entity = await resolve_entity(self._graph_store, hit.id)
+                        node = (
+                            row.get("n")
+                            if isinstance(row, dict) and "n" in row
+                            else row
+                        )
+                        ent = _parse_entity_node(node)
+                        if ent is None:
+                            ent = _parse_entity_node(row)  # type: ignore[arg-type]
+                        if ent is not None:
+                            entities_by_id[str(ent.id)] = ent
                     except Exception:
                         continue
-                results.append(
-                    SearchResult(item=entity, score=hit.score, method=self.name)
-                )
             except Exception:
-                continue
-        return results
+                entities_by_id = {}
+            active_member_ids = await self._active_resolved_member_ids(
+                [hit.id for hit in hits]
+            )
+            for hit in hits:
+                if hit.id in active_member_ids:
+                    continue
+                try:
+                    entity: Entity | None = entities_by_id.get(str(hit.id))
+                    if entity is None:
+                        try:
+                            entity = await resolve_entity(self._graph_store, hit.id)
+                        except Exception:
+                            continue
+                    results.append(
+                        SearchResult(item=entity, score=hit.score, method=self.name)
+                    )
+                except Exception:
+                    continue
+
+        resolved_limit = (
+            limit if limit is not None else self._settings.resolved_entity_top_k
+        )
+        resolved_filters = filters
+        if filters is not None and filters.labels:
+            resolved_filters = SearchFilters(
+                relation_types=filters.relation_types,
+                document_ids=filters.document_ids,
+                properties={**filters.properties, "label": filters.labels},
+            )
+        try:
+            resolved_hits = await vector_search(
+                query,
+                embedder=self._embedder,
+                graph_store=self._graph_store,
+                vector_store=self._vector_store,
+                collection=self._settings.resolved_entity_collection,
+                labels=("ResolvedEntity",),
+                limit=resolved_limit,
+                filters=resolved_filters,
+                settings=self._settings,
+            )
+            resolved_by_id = await hydrate_resolved_entities(
+                self._graph_store, [hit.id for hit in resolved_hits]
+            )
+        except Exception:
+            resolved_hits = []
+            resolved_by_id = {}
+        results.extend(
+            SearchResult(item=entity, score=hit.score, method=self.name)
+            for hit in resolved_hits
+            if (entity := resolved_by_id.get(hit.id)) is not None
+            and (not filters or not filters.labels or entity.label in filters.labels)
+        )
+        results.sort(key=lambda result: result.score, reverse=True)
+        return results[:effective_limit]
+
+    async def _active_resolved_member_ids(self, ids: list[UUID]) -> set[UUID]:
+        """Return raw hit ids that active resolved entities supersede."""
+        if not ids:
+            return set()
+        try:
+            rows = await self._graph_store.execute_read(
+                fetch_active_resolved_member_ids_query(),
+                {"ids": [str(item_id) for item_id in ids]},
+            )
+        except Exception:
+            return set()
+        return {
+            hit_id
+            for row in rows
+            if isinstance(row, dict)
+            and (entity_id := row.get("entity_id")) is not None
+            and (
+                hit_id := next(
+                    (item_id for item_id in ids if str(item_id) == str(entity_id)), None
+                )
+            )
+            is not None
+        }

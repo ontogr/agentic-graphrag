@@ -1,6 +1,7 @@
 """Entity resolution: deciding which ExtractedEntity mentions are the same thing."""
 
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
 
@@ -10,6 +11,7 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.text import normalize_text as _normalize
 from agrag.ingestion.extract import ExtractionLLMSettings, ExtractorMissingExtraError
+from agrag.ingestion.resolve.candidate_source import CandidateSource
 from agrag.llm.retry import NO_RETRY, call_with_retry
 
 
@@ -24,44 +26,26 @@ class ResolutionGroup(BaseModel):
     entity_indices: list[int]
 
 
-class CandidateSource(ABC):
-    """Narrows which entity pairs resolution compares — the blocking step."""
+class ResolvedMatch(BaseModel):
+    """One confirmed non-exact match between two input entity indices.
 
-    @abstractmethod
-    async def candidates_for(
-        self, index: int, entities: list[ExtractedEntity]
-    ) -> list[int]:
-        """Return indices worth comparing against entities[index].
-
-        Args:
-            index: The entity to find candidates for.
-            entities: The full entity list this call is scoped to.
-
-        Returns:
-            Indices into ``entities``, excluding ``index`` itself. Order does
-            not matter; duplicates are harmless but wasteful.
-        """
-
-
-class InBatchCandidateSource(CandidateSource):
-    """Blocks by label: only entities sharing a label are ever compared.
-
-    Scoped to whatever entity list a caller passes to candidates_for — today,
-    always the current extraction batch. A future graph-backed candidate source
-    can replace this without changing any Comparator, since comparators only
-    ever see the pairs a CandidateSource proposes.
+    Exact-name identity matches group mentions but do not create a match-graph
+    edge. Every other confirmed comparator decision creates one record.
     """
 
-    async def candidates_for(
-        self, index: int, entities: list[ExtractedEntity]
-    ) -> list[int]:
-        """Return every other entity sharing entities[index]'s label."""
-        label = entities[index].label
-        return [
-            other_index
-            for other_index, entity in enumerate(entities)
-            if other_index != index and entity.label == label
-        ]
+    left_index: int
+    right_index: int
+    comparator: str
+    score: float | None = None
+    reasoning: str | None = None
+    decided_at: datetime
+
+
+class ResolutionResult(BaseModel):
+    """The groups and non-exact evidence produced by one resolution pass."""
+
+    groups: list[ResolutionGroup]
+    matches: list[ResolvedMatch]
 
 
 class ComparisonVerdict(StrEnum):
@@ -76,6 +60,14 @@ class ComparisonVerdict(StrEnum):
     MATCH = "match"
     NO_MATCH = "no_match"
     UNCERTAIN = "uncertain"
+
+
+class ComparisonResult(BaseModel):
+    """The verdict and evidence produced by one comparator."""
+
+    verdict: ComparisonVerdict
+    score: float | None = None
+    reasoning: str | None = None
 
 
 class Comparator(ABC):
@@ -95,6 +87,12 @@ class Comparator(ABC):
             This comparator's verdict. UNCERTAIN defers to the next comparator.
         """
 
+    async def compare_with_evidence(
+        self, a: ExtractedEntity, b: ExtractedEntity
+    ) -> ComparisonResult:
+        """Compare two entities and retain any available decision evidence."""
+        return ComparisonResult(verdict=await self.compare(a, b))
+
 
 class ExactMatch(Comparator):
     """Matches when normalized text is identical. Never returns NO_MATCH."""
@@ -109,18 +107,19 @@ class ExactMatch(Comparator):
 
 
 class FuzzyMatch(Comparator):
-    """Matches by string similarity, within a confident-match/distinct band.
+    """Classifies string similarity before the LLM verification tier.
 
     Attributes:
-        match_above: A similarity score at or above this is a confident match.
-        no_match_below: A similarity score below this is a confident non-match.
-            A score in between is UNCERTAIN and defers to the next comparator.
+        match_above: A similarity score at or above this is a match.
+        no_match_below: A similarity score below this is not a match.
     """
 
     def __init__(
         self, *, match_above: float = 0.92, no_match_below: float = 0.70
     ) -> None:
-        """Create a comparator with the given match/no-match band."""
+        """Create a comparator with the configured similarity thresholds."""
+        if no_match_below > match_above:
+            raise ValueError("no_match_below must not exceed match_above")
         self.match_above = match_above
         self.no_match_below = no_match_below
 
@@ -128,14 +127,22 @@ class FuzzyMatch(Comparator):
         self, a: ExtractedEntity, b: ExtractedEntity
     ) -> ComparisonVerdict:
         """Return a verdict from token-sort-ratio similarity."""
+        return (await self.compare_with_evidence(a, b)).verdict
+
+    async def compare_with_evidence(
+        self, a: ExtractedEntity, b: ExtractedEntity
+    ) -> ComparisonResult:
+        """Compare two entities and include their token-sort similarity."""
         from rapidfuzz import fuzz  # noqa: PLC0415
 
         score = fuzz.token_sort_ratio(_normalize(a.text), _normalize(b.text)) / 100
         if score >= self.match_above:
-            return ComparisonVerdict.MATCH
-        if score < self.no_match_below:
-            return ComparisonVerdict.NO_MATCH
-        return ComparisonVerdict.UNCERTAIN
+            verdict = ComparisonVerdict.MATCH
+        elif score < self.no_match_below:
+            verdict = ComparisonVerdict.NO_MATCH
+        else:
+            verdict = ComparisonVerdict.UNCERTAIN
+        return ComparisonResult(verdict=verdict, score=score)
 
 
 class LLMVerify(Comparator):
@@ -154,6 +161,7 @@ class LLMVerify(Comparator):
         chunks_by_id: dict[UUID, Chunk],
         settings: ExtractionLLMSettings | None = None,
         client: object | None = None,
+        max_pairs_per_batch: int = 50,
     ) -> None:
         """Create a comparator with chunk lookup for context and an LLM client.
 
@@ -164,10 +172,17 @@ class LLMVerify(Comparator):
                 disables ``settings.retry``, since a caller building its own
                 client is assumed to own its own retry behavior too.
             client: An already-built BAML client. Tests inject a fake here.
+            max_pairs_per_batch: Maximum pairs sent to the LLM in one request.
+                A large ambiguous population is split into requests of at most
+                this size so one oversized request cannot exceed the model's
+                context limit and silently fail every pair in the batch.
         """
+        if max_pairs_per_batch <= 0:
+            raise ValueError("max_pairs_per_batch must be positive")
         self.chunks_by_id = chunks_by_id
         self.settings = settings
         self._client = client
+        self.max_pairs_per_batch = max_pairs_per_batch
 
     async def compare(
         self, a: ExtractedEntity, b: ExtractedEntity
@@ -183,11 +198,11 @@ class LLMVerify(Comparator):
             baml_options: dict = {}
             retry = NO_RETRY
         else:
-            from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
+            from agrag.llm import client_registry  # noqa: PLC0415
 
             client = self._default_client()
             settings = self.settings or ExtractionLLMSettings()
-            registry = build_client_registry(
+            registry = client_registry.build_client_registry(
                 settings.clients, strategy=settings.strategy
             )
             baml_options = {"client_registry": registry}
@@ -209,6 +224,77 @@ class LLMVerify(Comparator):
         except Exception:  # noqa: BLE001
             return ComparisonVerdict.NO_MATCH
         return ComparisonVerdict.MATCH if is_match else ComparisonVerdict.NO_MATCH
+
+    async def compare_batch(
+        self, pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]]
+    ) -> dict[tuple[int, int], ComparisonResult]:
+        """Verify ambiguous candidate pairs across bounded LLM requests.
+
+        Splits into requests of at most ``max_pairs_per_batch`` pairs so one
+        oversized population cannot exceed the model's context limit.
+        Invalid, missing, and uncertain model responses do not merge entities.
+        """
+        if not pairs:
+            return {}
+        results: dict[tuple[int, int], ComparisonResult] = {}
+        for start in range(0, len(pairs), self.max_pairs_per_batch):
+            chunk = pairs[start : start + self.max_pairs_per_batch]
+            results.update(await self._compare_batch_chunk(chunk))
+        return results
+
+    async def _compare_batch_chunk(
+        self, pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]]
+    ) -> dict[tuple[int, int], ComparisonResult]:
+        """Verify one bounded chunk of ambiguous candidate pairs in one LLM request."""
+        if self._client is not None:
+            client = self._client
+            baml_options: dict = {}
+            retry = NO_RETRY
+        else:
+            from agrag.llm import client_registry  # noqa: PLC0415
+
+            client = self._default_client()
+            settings = self.settings or ExtractionLLMSettings()
+            registry = client_registry.build_client_registry(
+                settings.clients, strategy=settings.strategy
+            )
+            baml_options = {"client_registry": registry}
+            retry = settings.retry
+        try:
+            pair_ids = [f"{left}:{right}" for left, right, _, _ in pairs]
+            inputs = [
+                {
+                    "pair_id": pair_id,
+                    "entity_a": first.text,
+                    "context_a": self._context_for(first),
+                    "neighbors_a": [],
+                    "entity_b": second.text,
+                    "context_b": self._context_for(second),
+                    "neighbors_b": [],
+                    "similarity": 0.0,
+                }
+                for pair_id, (_, _, first, second) in zip(pair_ids, pairs, strict=True)
+            ]
+            results = await call_with_retry(
+                lambda: client.VerifyEntityMatches(  # ty: ignore[unresolved-attribute]
+                    inputs, baml_options
+                ),
+                retry,
+            )
+        except Exception:  # noqa: BLE001
+            return {
+                (left, right): ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)
+                for left, right, _, _ in pairs
+            }
+        from agrag.ingestion.resolve.batch_validation import (  # noqa: PLC0415
+            validate_batch_verdicts,
+        )
+
+        verdicts = validate_batch_verdicts(pair_ids, results)
+        return {
+            (left, right): _final_llm_result(verdicts[pair_id])
+            for pair_id, (left, right, _, _) in zip(pair_ids, pairs, strict=True)
+        }
 
     def _default_client(self) -> object:
         """Return the default generated BAML client."""
@@ -258,6 +344,13 @@ def _group_matches(entity_count: int, edges: list[tuple[int, int]]) -> list[list
     return list(groups.values())
 
 
+def _final_llm_result(result: ComparisonResult) -> ComparisonResult:
+    """Make an inconclusive LLM judgment a fail-safe negative decision."""
+    if result.verdict is ComparisonVerdict.UNCERTAIN:
+        return ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)
+    return result
+
+
 class Resolver:
     """Runs an ordered comparator sequence over blocked candidate pairs.
 
@@ -278,8 +371,8 @@ class Resolver:
         self.comparators = comparators
         self.candidate_source = candidate_source
 
-    async def resolve(self, entities: list[ExtractedEntity]) -> list[ResolutionGroup]:
-        """Group entities that resolution decided are the same thing.
+    async def resolve(self, entities: list[ExtractedEntity]) -> ResolutionResult:
+        """Resolve entity groups and retain each confirmed non-exact match.
 
         Args:
             entities: The entities to resolve. Only entities passed in the
@@ -288,10 +381,10 @@ class Resolver:
                 not supported by this Resolver.
 
         Returns:
-            One ResolutionGroup per distinct entity found. Every input index
-            appears in exactly one group.
+            Groups for every input index and evidence for every confirmed
+            non-exact pair.
         """
-        edges: list[tuple[int, int]] = []
+        pairs: list[tuple[int, int]] = []
         compared: set[tuple[int, int]] = set()
         for index in range(len(entities)):
             candidates = await self.candidate_source.candidates_for(index, entities)
@@ -300,24 +393,69 @@ class Resolver:
                 if pair in compared:
                     continue
                 compared.add(pair)
-                verdict = await self._first_verdict(
-                    entities[index], entities[candidate_index]
-                )
-                if verdict is ComparisonVerdict.MATCH:
-                    edges.append(pair)
+                pairs.append(pair)
+        edges, matches = await self._resolve_pairs(pairs, entities)
         groups = _group_matches(len(entities), edges)
-        return [ResolutionGroup(entity_indices=group) for group in groups]
+        return ResolutionResult(
+            groups=[ResolutionGroup(entity_indices=group) for group in groups],
+            matches=matches,
+        )
+
+    async def _resolve_pairs(
+        self, pairs: list[tuple[int, int]], entities: list[ExtractedEntity]
+    ) -> tuple[list[tuple[int, int]], list[ResolvedMatch]]:
+        """Resolve candidate pairs comparator tier by comparator tier."""
+        unresolved = pairs
+        edges: list[tuple[int, int]] = []
+        matches: list[ResolvedMatch] = []
+        for comparator in self.comparators:
+            if isinstance(comparator, LLMVerify):
+                results = await comparator.compare_batch(
+                    [
+                        (left, right, entities[left], entities[right])
+                        for left, right in unresolved
+                    ]
+                )
+            else:
+                results = {
+                    (left, right): await comparator.compare_with_evidence(
+                        entities[left], entities[right]
+                    )
+                    for left, right in unresolved
+                }
+            next_unresolved: list[tuple[int, int]] = []
+            for pair in unresolved:
+                comparison = results[pair]
+                if comparison.verdict is ComparisonVerdict.MATCH:
+                    edges.append(pair)
+                    if not isinstance(comparator, ExactMatch):
+                        matches.append(
+                            ResolvedMatch(
+                                left_index=pair[0],
+                                right_index=pair[1],
+                                comparator=type(comparator).__name__,
+                                score=comparison.score,
+                                reasoning=comparison.reasoning,
+                                decided_at=datetime.now(UTC),
+                            )
+                        )
+                elif comparison.verdict is ComparisonVerdict.UNCERTAIN:
+                    next_unresolved.append(pair)
+            unresolved = next_unresolved
+            if not unresolved:
+                break
+        return edges, matches
 
     async def _first_verdict(
         self, a: ExtractedEntity, b: ExtractedEntity
-    ) -> ComparisonVerdict:
+    ) -> tuple[ComparisonResult, Comparator | None]:
         """Return the first non-UNCERTAIN verdict, or NO_MATCH if none.
 
         This is the fail-safe fallback: a pair every comparator is UNCERTAIN
         about is treated as distinct, never merged.
         """
         for comparator in self.comparators:
-            verdict = await comparator.compare(a, b)
-            if verdict is not ComparisonVerdict.UNCERTAIN:
-                return verdict
-        return ComparisonVerdict.NO_MATCH
+            result = await comparator.compare_with_evidence(a, b)
+            if result.verdict is not ComparisonVerdict.UNCERTAIN:
+                return result, comparator
+        return ComparisonResult(verdict=ComparisonVerdict.NO_MATCH), None
