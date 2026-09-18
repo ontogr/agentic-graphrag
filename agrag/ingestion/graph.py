@@ -31,6 +31,7 @@ from agrag.common.data_models.graph_record import RelationRecord, UpsertResult
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
+from agrag.common.data_models.resolved_entity import RESOLVED_ENTITY_LABEL
 from agrag.common.data_models.vector_record import VectorRecord
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
@@ -62,6 +63,8 @@ from agrag.ingestion._lexical_backbone import (
     distinct_documents,
 )
 from agrag.ingestion.extract import Extractor
+from agrag.ingestion.match_decision import MatchDecision
+from agrag.ingestion.match_persistence import write_match_and_materialize
 from agrag.ingestion.merge import (
     MergePlan,
     apply_merge,
@@ -118,7 +121,14 @@ SourceType = Union[str, Path]
 SourcesType = Union[SourceType, Sequence[SourceType]]
 
 # Relationship types Graph.open() always registers
-SYSTEM_RELATION_TYPES = ["MENTIONED_IN", MEMBER_OF_RELATION, "PART_OF", "NEXT_CHUNK"]
+SYSTEM_RELATION_TYPES = [
+    "MENTIONED_IN",
+    MEMBER_OF_RELATION,
+    "PART_OF",
+    "NEXT_CHUNK",
+    "MATCHES",
+    "RESOLVED_AS",
+]
 
 
 def _vector_record(
@@ -1208,7 +1218,13 @@ class Graph:
             entity_labels = [entity_type.label for entity_type in schema.entities]
             relation_types = [relation_type.label for relation_type in schema.relations]
             await graph_store.register_labels(
-                [*entity_labels, CHUNK_LABEL, COMMUNITY_LABEL, DOCUMENT_LABEL]
+                [
+                    *entity_labels,
+                    CHUNK_LABEL,
+                    COMMUNITY_LABEL,
+                    DOCUMENT_LABEL,
+                    RESOLVED_ENTITY_LABEL,
+                ]
             )
             await graph_store.register_relation_types(
                 [*relation_types, *SYSTEM_RELATION_TYPES]
@@ -1556,7 +1572,9 @@ class Graph:
             ],
             candidate_source=InBatchCandidateSource(),
         )
-        groups = await resolver.resolve(entities) if entities else []
+        resolution_result = (
+            await resolver.resolve_with_matches(entities) if entities else None
+        )
 
         # Compute resolution stats
         exact_match_hits = len(exact_matches)
@@ -1564,17 +1582,26 @@ class Graph:
         # ambiguous_count: no direct metric yet, use 0.
         resolution = ResolutionStats(
             exact_match_hits=exact_match_hits,
-            in_batch_groups=len(groups) if groups else 0,
+            in_batch_groups=(
+                len(resolution_result.groups) if resolution_result is not None else 0
+            ),
             ambiguous_count=0,
         )
 
-        # In-batch resolution alone can leave two mentions of the same
-        # persisted entity in separate groups (each reached it through a
-        # different accepted alias). Union those before computing plans, or
-        # the second group's apply_merge would overwrite the first's
-        # contribution.
-        if groups:
-            groups = _union_groups_by_existing_entity(groups, exact_matches)
+        # Exact identity may accumulate mentions into one raw Entity. Semantic
+        # matches remain individual raw nodes and are materialized later.
+        exact_groups: dict[tuple[str, str], list[int]] = defaultdict(list)
+        for index, mention in enumerate(entities):
+            existing = exact_matches.get(index)
+            key = (
+                mention.label,
+                (
+                    str(existing.id)
+                    if existing is not None
+                    else normalize_text(mention.text)
+                ),
+            )
+            exact_groups[key].append(index)
 
         # Merge and write
         merge_stats = MergeStats()
@@ -1590,18 +1617,11 @@ class Graph:
         nodes_merged = 0
         conflicts_resolved = 0
 
-        for group in groups:
-            group_indices = list(group.entity_indices)
+        for group_indices in exact_groups.values():
             group_mentions = [entities[i] for i in group_indices]
 
-            # Collect distinct existing entities for this group
-            existing_for_group: list[Entity] = []
-            seen_ids: set[UUID] = set()
-            for idx in group_indices:
-                ent = exact_matches.get(idx)
-                if ent is not None and ent.id not in seen_ids:
-                    seen_ids.add(ent.id)
-                    existing_for_group.append(ent)
+            existing = exact_matches.get(group_indices[0])
+            existing_for_group = [existing] if existing is not None else []
 
             # Compute merge
             try:
@@ -1632,12 +1652,6 @@ class Graph:
                 nodes_created += 1
             elif len(existing_for_group) == 1:
                 nodes_updated += 1
-            else:
-                # Tombstone case: survivor + absorbed
-                nodes_merged += len(plan.tombstone_ids)
-                # nodes_merged counts tombstoned; survivor is already existing
-                # so no nodes_created/updated increment for multi-merge.
-                pass
 
             # Apply merge (writes survivor and handles tombstone)
             try:
@@ -1683,6 +1697,31 @@ class Graph:
             survivors[plan.survivor.id] = plan.survivor
             for idx in group_indices:
                 mention_to_entity[idx] = plan.survivor.id
+
+        semantic_decisions: list[MatchDecision] = []
+        if resolution_result is not None:
+            for match in resolution_result.matches:
+                left_entity_id = mention_to_entity.get(match.left_index)
+                right_entity_id = mention_to_entity.get(match.right_index)
+                if left_entity_id is None or right_entity_id is None:
+                    continue
+                if left_entity_id == right_entity_id:
+                    continue
+                semantic_decisions.append(
+                    MatchDecision.create(
+                        left_entity_id=left_entity_id,
+                        right_entity_id=right_entity_id,
+                        comparator=match.comparator,
+                        score=match.score,
+                        reasoning=match.reasoning,
+                    )
+                )
+        if semantic_decisions:
+            await write_match_and_materialize(
+                semantic_decisions,
+                graph_store=self._graph_store,
+                schema=self._schema,
+            )
 
         # If there were no entities (empty corpus) we have no survivors
         # but we still need to write chunks
