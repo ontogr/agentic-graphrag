@@ -3031,7 +3031,10 @@ flight call has already written for different text.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $records, a list of dicts with the keys
-- <code>[str](#str)</code> – id, expected_name, and expected_description.
+- <code>[str](#str)</code> – id, expected_name, and expected_description. Each row the guard
+- <code>[str](#str)</code> – actually matched comes back as `{"id": <node id>}`, so a caller can
+- <code>[str](#str)</code> – tell which records were cleared and which were skipped because a
+- <code>[str](#str)</code> – concurrent write already changed or removed the node.
 
 ##### `agrag.cypher.entities.fetch_all_by_label_query`
 
@@ -3256,7 +3259,10 @@ one always sees them change together.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $records, a list of dicts with the keys
-- <code>[str](#str)</code> – id, vector, expected_name, and expected_description.
+- <code>[str](#str)</code> – id, vector, expected_name, and expected_description. Each row the
+- <code>[str](#str)</code> – guard actually matched comes back as `{"id": <node id>}`, so a
+- <code>[str](#str)</code> – caller can tell which records were applied and which were skipped
+- <code>[str](#str)</code> – because a concurrent write already changed or removed the node.
 
 ##### `agrag.cypher.entities.upsert_merge_alias_query`
 
@@ -10250,6 +10256,13 @@ Graph writes finish before vector-store synchronization because the two
 stores cannot share a transaction. A failed sync clears the graph vector,
 removes any old mirrored vector, and records `failed` for a later
 materialization pass to retry.
+
+Only entities whose guarded graph write actually matched a live node are
+mirrored to the vector store or have their sync status updated. A
+concurrent materialization can replace or delete a ResolvedEntity between
+this call reading it and writing its embedding; skipping the unmatched
+ones keeps this call from resurrecting a vector, or overwriting a status,
+that the concurrent call already owns.
 
 #### `agrag.ingestion.stats`
 

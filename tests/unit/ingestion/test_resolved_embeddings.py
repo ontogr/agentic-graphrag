@@ -55,9 +55,11 @@ class TestEmbedResolvedEntities:
     async def test_writes_graph_vector_mirror_and_synced_status(self) -> None:
         """Successful synchronization marks derived entities as ready to retrieve."""
         calls: list[str] = []
+        entity = _entity()
 
-        async def execute_write(*_args: object) -> None:
+        async def execute_write(*_args: object) -> list[dict]:
             calls.append("graph")
+            return [{"id": str(entity.id)}]
 
         async def upsert(*_args: object) -> None:
             calls.append("vector")
@@ -68,7 +70,6 @@ class TestEmbedResolvedEntities:
         vector_store = SimpleNamespace(
             upsert=AsyncMock(side_effect=upsert), delete=AsyncMock()
         )
-        entity = _entity()
 
         failures = await embed_resolved_entities(
             [entity],
@@ -95,12 +96,14 @@ class TestEmbedResolvedEntities:
         self,
     ) -> None:
         """A failed mirror write cannot leave a retrievable stale resolved vector."""
-        graph_store = SimpleNamespace(execute_write=AsyncMock())
+        entity = _entity()
+        graph_store = SimpleNamespace(
+            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+        )
         vector_store = SimpleNamespace(
             upsert=AsyncMock(side_effect=RuntimeError("vector store down")),
             delete=AsyncMock(),
         )
-        entity = _entity()
 
         failures = await embed_resolved_entities(
             [entity],
@@ -127,13 +130,17 @@ class TestEmbedResolvedEntities:
 
     async def test_skips_vector_store_when_graph_embedding_write_fails(self) -> None:
         """A graph write failure never sends a vector lacking graph state."""
+        entity = _entity()
         graph_store = SimpleNamespace(
             execute_write=AsyncMock(
-                side_effect=[RuntimeError("graph store down"), None, None]
+                side_effect=[
+                    RuntimeError("graph store down"),
+                    [{"id": str(entity.id)}],
+                    [{"id": str(entity.id)}],
+                ]
             )
         )
         vector_store = SimpleNamespace(upsert=AsyncMock(), delete=AsyncMock())
-        entity = _entity()
 
         failures = await embed_resolved_entities(
             [entity],
@@ -153,12 +160,14 @@ class TestEmbedResolvedEntities:
         self,
     ) -> None:
         """A later pass can make a previously failed derived vector searchable."""
-        graph_store = SimpleNamespace(execute_write=AsyncMock())
+        entity = _entity()
+        graph_store = SimpleNamespace(
+            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+        )
         vector_store = SimpleNamespace(
             upsert=AsyncMock(side_effect=[RuntimeError("vector store down"), None]),
             delete=AsyncMock(),
         )
-        entity = _entity()
 
         first_failures = await embed_resolved_entities(
             [entity],
@@ -185,12 +194,14 @@ class TestEmbedResolvedEntities:
 
     async def test_raises_after_cleaning_up_a_failed_synchronization(self) -> None:
         """RAISE leaves neither graph nor mirrored vector searchable after failure."""
-        graph_store = SimpleNamespace(execute_write=AsyncMock())
+        entity = _entity()
+        graph_store = SimpleNamespace(
+            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+        )
         vector_store = SimpleNamespace(
             upsert=AsyncMock(side_effect=RuntimeError("vector store down")),
             delete=AsyncMock(),
         )
-        entity = _entity()
 
         with pytest.raises(RuntimeError, match="vector store down"):
             await embed_resolved_entities(
@@ -228,8 +239,10 @@ class TestEmbedResolvedEntities:
         self,
     ) -> None:
         """Native-vector retrieval is ready when no mirror store is configured."""
-        graph_store = SimpleNamespace(execute_write=AsyncMock())
         entity = _entity()
+        graph_store = SimpleNamespace(
+            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+        )
 
         failures = await embed_resolved_entities(
             [entity],
@@ -244,6 +257,70 @@ class TestEmbedResolvedEntities:
         assert entity.vector_sync_status == "synced"
         assert graph_store.execute_write.await_count == 2
 
+    async def test_skips_vector_store_and_status_for_a_concurrently_replaced_entity(
+        self,
+    ) -> None:
+        """An entity a concurrent pass already replaced keeps its prior status.
+
+        Regression test: the guarded embedding write can match zero rows for
+        one entity in a batch (a concurrent materialization replaced or
+        deleted it) while matching the rest. Only the matched entities may be
+        mirrored to the vector store or marked synced.
+        """
+        matched, unmatched = _entity(), _entity()
+        graph_store = SimpleNamespace(
+            execute_write=AsyncMock(return_value=[{"id": str(matched.id)}])
+        )
+        vector_store = SimpleNamespace(upsert=AsyncMock(), delete=AsyncMock())
+
+        failures = await embed_resolved_entities(
+            [matched, unmatched],
+            embedder=_Embedder(),
+            graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collection="resolved",
+            error_policy=ErrorPolicy.RAISE,
+        )
+
+        assert failures == []
+        vector_store.upsert.assert_awaited_once()
+        written_ids = {record.id for record in vector_store.upsert.await_args.args[1]}
+        assert written_ids == {matched.id}
+        assert matched.vector_sync_status == "synced"
+        assert unmatched.vector_sync_status == "pending"
+
+    async def test_skips_delete_and_failure_status_for_a_concurrently_replaced_entity(
+        self,
+    ) -> None:
+        """A failed sync only tears down the vector for the entity it still owns."""
+        matched, unmatched = _entity(), _entity()
+        graph_store = SimpleNamespace(
+            execute_write=AsyncMock(
+                side_effect=[
+                    RuntimeError("graph store down"),
+                    [{"id": str(matched.id)}],
+                    [{"id": str(matched.id)}],
+                ]
+            )
+        )
+        vector_store = SimpleNamespace(upsert=AsyncMock(), delete=AsyncMock())
+
+        failures = await embed_resolved_entities(
+            [matched, unmatched],
+            embedder=_Embedder(),
+            graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collection="resolved",
+            error_policy=ErrorPolicy.SKIP,
+        )
+
+        assert len(failures) == 1
+        vector_store.delete.assert_awaited_once_with("resolved", [matched.id])
+        assert matched.vector_sync_status == "failed"
+        assert unmatched.vector_sync_status == "pending"
+        assert matched.embedding is None
+        assert unmatched.embedding is None
+
 
 class TestSynchronizeResolvedEntityVectors:
     """Replacement vectors do not outlive their materialized graph nodes."""
@@ -253,9 +330,11 @@ class TestSynchronizeResolvedEntityVectors:
     ) -> None:
         """A replacement cannot leave a former vector searchable after a later error."""
         calls: list[str] = []
+        entity = _entity()
 
-        async def execute_write(*_args: object) -> None:
+        async def execute_write(*_args: object) -> list[dict]:
             calls.append("graph")
+            return [{"id": str(entity.id)}]
 
         async def delete(*_args: object) -> None:
             calls.append("delete")
@@ -263,7 +342,6 @@ class TestSynchronizeResolvedEntityVectors:
         async def upsert(*_args: object) -> None:
             calls.append("upsert")
 
-        entity = _entity()
         replaced_id = uuid4()
         vector_store = SimpleNamespace(
             delete=AsyncMock(side_effect=delete),
@@ -288,15 +366,18 @@ class TestSynchronizeResolvedEntityVectors:
     async def test_reports_stale_vector_delete_failure_with_skip(self) -> None:
         """A failed stale-vector deletion remains visible to the caller."""
         entity = _entity()
-        graph_store = SimpleNamespace(execute_write=AsyncMock())
+        graph_store = SimpleNamespace(
+            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+        )
         vector_store = SimpleNamespace(
             delete=AsyncMock(side_effect=RuntimeError("delete failed")),
             upsert=AsyncMock(),
         )
+        stale_id = uuid4()
 
         failures = await _synchronize_resolved_entity_vectors(
             [entity],
-            [uuid4()],
+            [stale_id],
             embedder=_Embedder(),
             graph_store=graph_store,
             vector_store=vector_store,
@@ -307,4 +388,5 @@ class TestSynchronizeResolvedEntityVectors:
         assert [failure.item_id for failure in failures] == [
             "resolved_entity_vector_store"
         ]
+        assert str(stale_id) in failures[0].error_message
         assert entity.vector_sync_status == "synced"

@@ -26,6 +26,17 @@ def _embedding_record(entity: ResolvedEntity, vector: list[float]) -> dict[str, 
     }
 
 
+def _matched_ids(rows: list[dict[str, object]]) -> set[UUID]:
+    """Return the node ids a guarded write in agrag.cypher.entities matched.
+
+    A row is missing for any record the write's optimistic-concurrency guard
+    skipped, because a concurrent write already changed or removed that node.
+    """
+    return {
+        UUID(str(row["id"])) for row in rows if isinstance(row, dict) and row.get("id")
+    }
+
+
 async def _set_sync_status(
     entities: list[ResolvedEntity],
     *,
@@ -63,58 +74,73 @@ async def embed_resolved_entities(
     stores cannot share a transaction. A failed sync clears the graph vector,
     removes any old mirrored vector, and records ``failed`` for a later
     materialization pass to retry.
+
+    Only entities whose guarded graph write actually matched a live node are
+    mirrored to the vector store or have their sync status updated. A
+    concurrent materialization can replace or delete a ResolvedEntity between
+    this call reading it and writing its embedding; skipping the unmatched
+    ones keeps this call from resurrecting a vector, or overwriting a status,
+    that the concurrent call already owns.
     """
     if not entities:
         return []
     try:
         vectors = await embedder.embed([entity.embedding_text for entity in entities])
         records: list[dict[str, object]] = []
-        vector_records: list[VectorRecord] = []
+        vector_records_by_id: dict[UUID, VectorRecord] = {}
         for entity, vector in zip(entities, vectors, strict=True):
             entity.embedding = vector
             records.append(_embedding_record(entity, vector))
-            vector_records.append(
-                VectorRecord(
-                    id=entity.id,
-                    vector=vector,
-                    payload={
-                        "label": entity.label,
-                        "name": entity.name,
-                        "text": entity.embedding_text,
-                        "member_ids": [
-                            str(member_id) for member_id in entity.member_ids
-                        ],
-                        "resolved": True,
-                        **entity.properties,
-                    },
-                )
+            vector_records_by_id[entity.id] = VectorRecord(
+                id=entity.id,
+                vector=vector,
+                payload={
+                    "label": entity.label,
+                    "name": entity.name,
+                    "text": entity.embedding_text,
+                    "member_ids": [str(member_id) for member_id in entity.member_ids],
+                    "resolved": True,
+                    **entity.properties,
+                },
             )
-        await graph_store.execute_write(
+        rows = await graph_store.execute_write(
             set_embedding_query("embedding"), {"records": records}
         )
-        if vector_store is not None:
-            await vector_store.upsert(vector_collection, vector_records)
-        await _set_sync_status(entities, graph_store=graph_store, status="synced")
+        matched_ids = _matched_ids(rows)
+        synced_entities = [entity for entity in entities if entity.id in matched_ids]
+        if vector_store is not None and synced_entities:
+            await vector_store.upsert(
+                vector_collection,
+                [vector_records_by_id[entity.id] for entity in synced_entities],
+            )
+        if synced_entities:
+            await _set_sync_status(
+                synced_entities, graph_store=graph_store, status="synced"
+            )
     except Exception as exc:  # noqa: BLE001
         for entity in entities:
             entity.embedding = None
+        cleared_ids: set[UUID] = set()
         with contextlib.suppress(Exception):
-            await graph_store.execute_write(
+            cleared_rows = await graph_store.execute_write(
                 clear_property_query("embedding"),
                 {"records": [_embedding_record(entity, []) for entity in entities]},
             )
-        if vector_store is not None:
+            cleared_ids = _matched_ids(cleared_rows)
+        cleared_entities = [entity for entity in entities if entity.id in cleared_ids]
+        if vector_store is not None and cleared_entities:
             with contextlib.suppress(Exception):
                 await vector_store.delete(
-                    vector_collection, [entity.id for entity in entities]
+                    vector_collection, [entity.id for entity in cleared_entities]
                 )
-        with contextlib.suppress(Exception):
-            await _set_sync_status(
-                entities,
-                graph_store=graph_store,
-                status="failed",
-                error=str(exc),
-            )
+        if cleared_entities:
+            with contextlib.suppress(Exception):
+                await _set_sync_status(
+                    cleared_entities,
+                    graph_store=graph_store,
+                    status="failed",
+                    error=str(exc),
+                )
         if error_policy is ErrorPolicy.RAISE:
             raise
         return [
@@ -152,11 +178,14 @@ async def _synchronize_resolved_entity_vectors(
         except Exception as exc:  # noqa: BLE001
             if error_policy is ErrorPolicy.RAISE:
                 raise
+            # ponytail: ids are lost on retry without a persistent
+            # pending-deletion queue; surfacing them here is a stopgap for
+            # manual follow-up until that queue exists.
             failures.append(
                 StageFailure(
                     item_id="resolved_entity_vector_store",
                     error_type=type(exc).__name__,
-                    error_message=str(exc),
+                    error_message=f"{exc} ids={removed_entity_ids}",
                 )
             )
     failures.extend(

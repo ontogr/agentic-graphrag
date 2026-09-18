@@ -261,7 +261,10 @@ def set_embedding_query(vector_property: str) -> str:
 
     Returns:
         Parameterized Cypher expecting $records, a list of dicts with the keys
-        id, vector, expected_name, and expected_description.
+        id, vector, expected_name, and expected_description. Each row the
+        guard actually matched comes back as ``{"id": <node id>}``, so a
+        caller can tell which records were applied and which were skipped
+        because a concurrent write already changed or removed the node.
     """
     safe_property = validate_identifier(vector_property)
     return (
@@ -270,7 +273,8 @@ def set_embedding_query(vector_property: str) -> str:
         f"WHERE n.name = record.expected_name "
         f"AND coalesce(n.description, '') = record.expected_description "
         f"AND n.merged_into IS NULL "
-        f"SET n.{safe_property} = record.vector"
+        f"SET n.{safe_property} = record.vector "
+        f"RETURN n.id AS id"
     )
 
 
@@ -290,7 +294,10 @@ def clear_property_query(property_name: str) -> str:
 
     Returns:
         Parameterized Cypher expecting $records, a list of dicts with the keys
-        id, expected_name, and expected_description.
+        id, expected_name, and expected_description. Each row the guard
+        actually matched comes back as ``{"id": <node id>}``, so a caller can
+        tell which records were cleared and which were skipped because a
+        concurrent write already changed or removed the node.
     """
     safe_property = validate_identifier(property_name)
     return (
@@ -298,7 +305,8 @@ def clear_property_query(property_name: str) -> str:
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
         f"WHERE n.name = record.expected_name "
         f"AND coalesce(n.description, '') = record.expected_description "
-        f"REMOVE n.{safe_property}"
+        f"REMOVE n.{safe_property} "
+        f"RETURN n.id AS id"
     )
 
 
