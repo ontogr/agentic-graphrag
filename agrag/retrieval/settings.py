@@ -10,6 +10,9 @@ class RetrievalSettings(BaseSettings):
         entity_collection: The VectorStore collection name for entity
             search. Only read when a VectorStore is configured on
             SearchEngine; ignored on the GraphStore-native path.
+        resolved_entity_collection: The VectorStore collection name for
+            materialized resolved-entity search. Same condition as
+            entity_collection.
         chunk_collection: The VectorStore collection name for chunk
             search. Same condition as entity_collection.
         entity_labels: The graph labels native entity search runs
@@ -21,6 +24,8 @@ class RetrievalSettings(BaseSettings):
             entity hits seed the node-distance reranker. Candidates
             are ordered by graph distance to those seeds.
         entity_top_k: Results requested per entity search call.
+        resolved_entity_top_k: Results requested per resolved-entity search
+            call.
         chunk_top_k: Results requested per chunk search call.
         hybrid_alpha: Dense-versus-keyword blend for hybrid search,
             0 to 1. Only meaningful on the VectorStore path;
@@ -61,10 +66,12 @@ class RetrievalSettings(BaseSettings):
     )
 
     entity_collection: str = "agrag_entities"
+    resolved_entity_collection: str = "agrag_resolved_entities"
     chunk_collection: str = "agrag_chunks"
     entity_labels: list[str] = []
     node_distance_seed_top_k: int = 3
     entity_top_k: int = 10
+    resolved_entity_top_k: int = 10
     chunk_top_k: int = 10
     hybrid_alpha: float = 0.5
     traversal_depth: int = 2

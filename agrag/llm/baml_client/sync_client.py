@@ -150,6 +150,20 @@ class BamlSyncClient:
                 "entity_a": entity_a,"context_a": context_a,"entity_b": entity_b,"context_b": context_b,
             })
             return typing.cast(bool, __result__.cast_to(types, types, stream_types, False, __runtime__))
+    def VerifyEntityMatches(self, pairs: typing.List["types.EntityPairInput"],
+        baml_options: BamlCallOptions = {},
+    ) -> typing.List["types.MatchVerdict"]:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            __stream__ = self.stream.VerifyEntityMatches(pairs=pairs,
+                baml_options=baml_options)
+            return __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="VerifyEntityMatches", args={
+                "pairs": pairs,
+            })
+            return typing.cast(typing.List["types.MatchVerdict"], __result__.cast_to(types, types, stream_types, False, __runtime__))
     
 
 
@@ -207,6 +221,18 @@ class BamlStreamClient:
           lambda x: typing.cast(bool, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
+    def VerifyEntityMatches(self, pairs: typing.List["types.EntityPairInput"],
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlSyncStream[typing.List["stream_types.MatchVerdict"], typing.List["types.MatchVerdict"]]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="VerifyEntityMatches", args={
+            "pairs": pairs,
+        })
+        return baml_py.BamlSyncStream[typing.List["stream_types.MatchVerdict"], typing.List["types.MatchVerdict"]](
+          __result__,
+          lambda x: typing.cast(typing.List["stream_types.MatchVerdict"], x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(typing.List["types.MatchVerdict"], x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
     
 
 class BamlHttpRequestClient:
@@ -243,6 +269,13 @@ class BamlHttpRequestClient:
             "entity_a": entity_a,"context_a": context_a,"entity_b": entity_b,"context_b": context_b,
         }, mode="request")
         return __result__
+    def VerifyEntityMatches(self, pairs: typing.List["types.EntityPairInput"],
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="VerifyEntityMatches", args={
+            "pairs": pairs,
+        }, mode="request")
+        return __result__
     
 
 class BamlHttpStreamRequestClient:
@@ -277,6 +310,13 @@ class BamlHttpStreamRequestClient:
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="VerifyEntityMatch", args={
             "entity_a": entity_a,"context_a": context_a,"entity_b": entity_b,"context_b": context_b,
+        }, mode="stream")
+        return __result__
+    def VerifyEntityMatches(self, pairs: typing.List["types.EntityPairInput"],
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="VerifyEntityMatches", args={
+            "pairs": pairs,
         }, mode="stream")
         return __result__
     

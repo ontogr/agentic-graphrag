@@ -202,6 +202,26 @@ await store.upsert_nodes("Chunk", [tagged_node])
 Labels only ever accumulate. If a later upsert of the same node id lists
 fewer labels, the labels already on the node are kept, not removed.
 
+### Handle partial write failures
+
+`upsert_nodes` and `upsert_relations` return an `UpsertResult`. Check
+`failures` for records that did not write. The rest of the call still lands.
+
+```python
+nodes = [
+    NodeRecord(id=uuid4(), labels=["Chunk"], properties={"text": "example"})
+]
+result = await store.upsert_nodes("Chunk", nodes)
+if result.failures:
+    for failure in result.failures:
+        print(f"{failure.id} failed: {failure.error_message}")
+print(f"{result.written} of {len(nodes)} nodes written")
+```
+
+A connectivity or authentication failure still raises instead of returning a
+partial result. Only a failure specific to one record's data is isolated and
+reported this way.
+
 ### Search vectors stored in the graph
 
 You can search vectors stored as node properties, without a separate vector

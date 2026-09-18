@@ -17,8 +17,10 @@ import pytest
 
 from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
+    clear_property_query,
     filter_clause,
     is_safe_identifier,
+    set_embedding_query,
     upsert_merge_alias_query,
     upsert_node_query,
     upsert_survivor_query,
@@ -204,3 +206,24 @@ class TestFilterClause:
         """A non-identifier field name raises."""
         with pytest.raises(ValueError):
             filter_clause({"bad field": 1})
+
+
+class TestGuardedPropertyWrites:
+    """set_embedding_query / clear_property_query report which node matched.
+
+    A caller needs to know which guarded writes actually applied so it can
+    tell a node a concurrent write already changed or removed apart from one
+    it safely wrote to (see resolved_embeddings.py's use of this).
+    """
+
+    def test_set_embedding_returns_matched_id(self) -> None:
+        """The guarded SET reports the id it wrote to."""
+        query = set_embedding_query("embedding")
+        assert "RETURN n.id AS id" in query
+        assert "SET n.embedding = record.vector" in query
+
+    def test_clear_property_returns_matched_id(self) -> None:
+        """The guarded REMOVE reports the id it cleared."""
+        query = clear_property_query("embedding")
+        assert "RETURN n.id AS id" in query
+        assert "REMOVE n.embedding" in query

@@ -23,7 +23,7 @@ class StreamState(BaseModel, typing.Generic[StreamStateValueT]):
     value: StreamStateValueT
     state: typing_extensions.Literal["Pending", "Incomplete", "Complete"]
 # #########################################################################
-# Generated classes (5)
+# Generated classes (7)
 # #########################################################################
 
 class BAMLExtractedEntity(BaseModel):
@@ -53,13 +53,28 @@ class CommunityReport(BaseModel):
     rating_explanation: typing.Optional[str] = None
     findings: typing.List[str] = Field(description='Distinct factual claims this community\'s members support.')
 
+class EntityPairInput(BaseModel):
+    pair_id: typing.Optional[str] = None
+    entity_a: typing.Optional[str] = None
+    context_a: typing.Optional[str] = None
+    neighbors_a: typing.List[str]
+    entity_b: typing.Optional[str] = None
+    context_b: typing.Optional[str] = None
+    neighbors_b: typing.List[str]
+    similarity: typing.Optional[float] = None
+
+class MatchVerdict(BaseModel):
+    pair_id: typing.Optional[str] = None
+    reasoning: typing.Optional[str] = None
+    verdict: typing.Optional[typing.Union[typing_extensions.Literal['match'], typing_extensions.Literal['no_match'], typing_extensions.Literal['uncertain']]] = None
+
 # #########################################################################
 # Generated type aliases (0)
 # #########################################################################
 
 
 # #########################################################################
-# Model rebuilds (5)
+# Model rebuilds (7)
 # #########################################################################
 # Resolve string forward references now that every model above is defined so
 # class declaration order never breaks Pydantic construction (issue #793).
@@ -70,3 +85,5 @@ BAMLExtractedRelation.model_rebuild()
 BAMLExtractionResult.model_rebuild()
 CommunityInput.model_rebuild()
 CommunityReport.model_rebuild()
+EntityPairInput.model_rebuild()
+MatchVerdict.model_rebuild()

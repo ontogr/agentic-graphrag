@@ -33,6 +33,7 @@ from agrag.ingestion.resolve import (
     FuzzyMatch,
     InBatchCandidateSource,
     LLMVerify,
+    PersistedCandidateSource,
     Resolver,
     _group_matches,
 )
@@ -119,6 +120,11 @@ class TestExactMatch:
 class TestFuzzyMatch:
     """FuzzyMatch has three verdict bands."""
 
+    def test_rejects_inverted_thresholds(self) -> None:
+        """A lower reject boundary cannot exceed the match boundary."""
+        with pytest.raises(ValueError, match="no_match_below"):
+            FuzzyMatch(match_above=0.70, no_match_below=0.92)
+
     async def test_match_above_threshold(self) -> None:
         """High similarity returns MATCH."""
         matcher = FuzzyMatch(match_above=0.92, no_match_below=0.70)
@@ -142,12 +148,26 @@ class TestFuzzyMatch:
         # 0.96 score falls between 0.50 and 0.98
         assert verdict is ComparisonVerdict.UNCERTAIN
 
+    async def test_retains_similarity_score_as_match_evidence(self) -> None:
+        """The resolver persists the score that produced a fuzzy match."""
+        resolver = Resolver(
+            comparators=[FuzzyMatch(match_above=0.80)],
+            candidate_source=InBatchCandidateSource(),
+        )
+
+        result = await resolver.resolve(
+            [_entity("Ada Lovelace"), _entity("Lovelace Ada")]
+        )
+
+        assert len(result.matches) == 1
+        assert result.matches[0].score == 1.0
+
     async def test_custom_thresholds(self) -> None:
         """Custom thresholds are respected."""
         strict = FuzzyMatch(match_above=0.99, no_match_below=0.98)
         a = _entity("Ada Lovelace")
         b = _entity("Ada Lovelace.")
-        # 0.96 score is below 0.98 no_match_below → NO_MATCH
+        # A lower score is below the no-match threshold.
         verdict = await strict.compare(a, b)
         assert verdict is ComparisonVerdict.NO_MATCH
 
@@ -157,6 +177,18 @@ class TestFuzzyMatch:
 
 class TestLLMVerify:
     """LLMVerify returns NO_MATCH on failure, raises on missing extra."""
+
+    @pytest.mark.parametrize("max_pairs_per_batch", [0, -1])
+    def test_rejects_non_positive_max_pairs_per_batch(
+        self, max_pairs_per_batch: int
+    ) -> None:
+        """A zero or negative batch size cannot produce valid results."""
+        chunk_id = uuid4()
+        with pytest.raises(ValueError, match="must be positive"):
+            LLMVerify(
+                chunks_by_id={chunk_id: _chunk("context")},
+                max_pairs_per_batch=max_pairs_per_batch,
+            )
 
     async def test_returns_no_match_on_client_exception(self) -> None:
         """An injected client that raises produces NO_MATCH (fail-safe)."""
@@ -255,12 +287,7 @@ class TestLLMVerify:
     async def test_compare_with_non_default_env_retry_does_not_abort(
         self, monkeypatch
     ) -> None:
-        """A non-default, env-backed RetryConfig no longer aborts resolution.
-
-        Exercises the real (unmocked) build_client_registry — this used to
-        raise for any non-default RetryConfig before BAML's static
-        retry_policy syntax was replaced with Python-level retry.
-        """
+        """A non-default, env-backed RetryConfig works with a configured client."""
         monkeypatch.setenv(
             "EXTRACTION_LLM_CLIENTS",
             '[{"name": "c", "provider": "openai", "model": "gpt-4o-mini"}]',
@@ -322,6 +349,18 @@ class TestInBatchCandidateSource:
         assert candidates == []
 
 
+class TestPersistedCandidateSource:
+    """Persisted candidates only originate from newly extracted mentions."""
+
+    async def test_returns_configured_candidate_indices(self) -> None:
+        """The source does not invent reverse or persisted-to-persisted pairs."""
+        source = PersistedCandidateSource({0: [2, 3]})
+        entities = [_entity("Ada"), _entity("Grace"), _entity("Ada L."), _entity("A.")]
+
+        assert await source.candidates_for(0, entities) == [2, 3]
+        assert await source.candidates_for(2, entities) == []
+
+
 # ── _group_matches (union-find) ────────────────────────────────────────
 
 
@@ -375,9 +414,9 @@ class TestResolver:
             _entity("Ada Lovelace", label="Person"),
             _entity("Charles Babbage", label="Person"),
         ]
-        groups = await resolver.resolve(entities)
+        result = await resolver.resolve(entities)
         # Ada Lovelace pair should be in one group, Charles alone
-        all_indices = [g.entity_indices for g in groups]
+        all_indices = [g.entity_indices for g in result.groups]
         pair_group = next(g for g in all_indices if 0 in g)
         assert set(pair_group) == {0, 1}
         charles_group = next(g for g in all_indices if 2 in g)
@@ -393,8 +432,8 @@ class TestResolver:
             _entity("Ada", label="Person"),
             _entity("Charles", label="Person"),
         ]
-        groups = await resolver.resolve(entities)
-        assert len(groups) == 2
+        result = await resolver.resolve(entities)
+        assert len(result.groups) == 2
 
     async def test_respects_label_boundaries(self) -> None:
         """Same text but different labels are not compared."""
@@ -406,6 +445,58 @@ class TestResolver:
             _entity("Apple", label="Person"),
             _entity("Apple", label="Organization"),
         ]
-        groups = await resolver.resolve(entities)
+        result = await resolver.resolve(entities)
         # Different labels → different groups
-        assert len(groups) == 2
+        assert len(result.groups) == 2
+
+    async def test_records_non_exact_match_evidence(self) -> None:
+        """A fuzzy match retains its exact input pair for graph persistence."""
+        resolver = Resolver(
+            comparators=[FuzzyMatch(match_above=0.80)],
+            candidate_source=InBatchCandidateSource(),
+        )
+        result = await resolver.resolve([_entity("Apple Inc"), _entity("Apple Inc.")])
+        assert len(result.matches) == 1
+        assert result.matches[0].left_index == 0
+        assert result.matches[0].right_index == 1
+        assert result.matches[0].comparator == "FuzzyMatch"
+
+    async def test_batches_uncertain_pairs_with_pair_id_verdicts(self) -> None:
+        """Only a valid verdict for its requested pair can create a match."""
+        chunk = _chunk()
+
+        class BatchClient:
+            """Return intentionally unordered and incomplete batch output."""
+
+            async def VerifyEntityMatches(
+                self, pairs: list[object], options: dict
+            ) -> list[dict[str, str]]:
+                """Return verdicts that prove pair identifiers control matching."""
+                assert len(pairs) == 3
+                assert options == {}
+                return [
+                    {"pair_id": "1:2", "verdict": "match", "reasoning": "same"},
+                    {"pair_id": "0:1", "verdict": "invalid"},
+                ]
+
+        entities = [
+            _entity("Ada", chunk_id=chunk.id),
+            _entity("Charles", chunk_id=chunk.id),
+            _entity("Charles Babbage", chunk_id=chunk.id),
+        ]
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(match_above=1.0, no_match_below=0.0),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=BatchClient()),
+            ],
+            candidate_source=InBatchCandidateSource(),
+        )
+
+        result = await resolver.resolve(entities)
+
+        assert sorted(group.entity_indices for group in result.groups) == [[0], [1, 2]]
+        assert len(result.matches) == 1
+        assert result.matches[0].left_index == 1
+        assert result.matches[0].right_index == 2
+        assert result.matches[0].reasoning == "same"

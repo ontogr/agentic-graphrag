@@ -13,18 +13,24 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 
 
-def _document(text: str, outline=None) -> Document:
+def _document(
+    text: str,
+    outline=None,
+    content_hash: str = "h",
+    record_id: str | None = None,
+) -> Document:
     return Document(
         text=text,
         title="t",
         uri="u",
         source_format=SourceFormat.TXT,
         family=DocumentFamily.PROSE,
-        content_hash="h",
+        content_hash=content_hash,
         loader_name="text",
         char_count=len(text),
         line_count=text.count("\n") + 1,
         heading_outline=outline or [],
+        record_id=record_id,
     )
 
 
@@ -38,7 +44,9 @@ class TestChunkDocument:
         assert len(chunks) > 1
         assert all(isinstance(c, Chunk) for c in chunks)
         for chunk in chunks:
-            assert chunk.document_id == doc.id
+            assert chunk.document_id == Document.node_id_for(
+                document_key=doc.resolved_document_key
+            )
             assert chunk.provenance.kind == "text"
             assert (
                 chunk.text
@@ -50,6 +58,20 @@ class TestChunkDocument:
         doc = _document("word " * 200)
         chunks = chunk_document(doc, default_chunker(chunk_size=64))
         assert [c.index for c in chunks] == list(range(len(chunks)))
+
+    def test_content_versions_use_distinct_chunk_ids(self) -> None:
+        """Chunks retain history when a document version uses the same span."""
+        first = _document("first", content_hash="first", record_id="document")
+        second = _document("other", content_hash="other", record_id="document")
+        chunker = default_chunker(chunk_size=1024)
+
+        first_chunk = chunk_document(first, chunker)[0]
+        second_chunk = chunk_document(second, chunker)[0]
+
+        assert first_chunk.document_id == second_chunk.document_id
+        assert first.resolved_id == second.resolved_id
+        assert first_chunk.provenance.char_start == second_chunk.provenance.char_start
+        assert first_chunk.id != second_chunk.id
 
     def test_line_numbers_derived_from_char_span(self) -> None:
         """Line numbers derived from char span."""

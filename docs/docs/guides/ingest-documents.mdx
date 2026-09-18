@@ -139,6 +139,27 @@ def report(stats: LoadStats) -> None:
 result = await graph.add(source="./corpus", on_progress=report)
 ```
 
+## Update or delete a document
+
+Use `Graph.update` to ingest new content under the same stable `document_key`.
+If the content hash is unchanged, the operation does not re-chunk or rewrite the
+document.
+
+```python
+result = await graph.update("memory://manual", text="Revised document text")
+print(result.no_op)
+print(result.chunks_closed)
+```
+
+Use `Graph.delete_document` to remove a document from current retrieval without
+deleting its chunks or extracted entities. The graph keeps those records for
+provenance.
+
+```python
+result = await graph.delete_document("memory://manual")
+print(result.chunks_closed)
+```
+
 ## Supported formats
 
 Loaders are chosen by file extension. Core loaders are always available; docling

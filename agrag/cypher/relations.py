@@ -10,6 +10,15 @@ from typing import Any
 from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
 
 
+def close_part_of_query() -> str:
+    """Build Cypher that closes currently valid document-to-chunk edges."""
+    return (
+        "MATCH (d:_AgragNode:Document {id: $document_node_id})"
+        "-[r:PART_OF]->() WHERE r.invalid_at IS NULL "
+        "SET r.invalid_at = datetime() RETURN count(r) AS closed"
+    )
+
+
 def bfs_expand_query(
     *,
     depth: int = 2,
@@ -219,7 +228,8 @@ def upsert_relation_query(rel_type: str) -> str:
         A parameterized Cypher query expecting a ``$records`` list parameter whose
         items carry ``id``, ``start_id``, ``end_id``, and ``properties`` keys.
         ``properties`` may include ``source_chunk_ids``; other keys are
-        applied as-is.
+        applied as-is. The query returns one row with ``id`` for every record
+        whose endpoints matched and was processed.
     """
     safe_type = validate_identifier(rel_type)
     return (
@@ -237,5 +247,6 @@ def upsert_relation_query(rel_type: str) -> str:
         f"[x IN existing_source_chunk_ids "
         f"WHERE NOT x IN coalesce(record.properties.source_chunk_ids, [])] "
         f"+ coalesce(record.properties.source_chunk_ids, []) "
-        f"SET r.id = record.id"
+        f"SET r.id = record.id "
+        f"RETURN record.id AS id"
     )
