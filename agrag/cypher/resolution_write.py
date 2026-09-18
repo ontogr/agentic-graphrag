@@ -47,3 +47,17 @@ def delete_resolved_as_query() -> str:
         f"(r:{RESOLVED_ENTITY_LABEL} {{id: $resolved_entity_id}}) "
         "DELETE edge"
     )
+
+
+def replace_component_materializations_query() -> str:
+    """Build Cypher deleting prior materializations for supplied raw members."""
+    return (
+        "UNWIND $member_ids AS member_id "
+        f"MATCH (member:{NODE_IDENTITY_LABEL} {{id: member_id}})"
+        f"-[membership:{RESOLVED_AS_RELATION}]->"
+        f"(resolved:{RESOLVED_ENTITY_LABEL}) "
+        "WITH collect(DISTINCT membership) AS memberships, "
+        "collect(DISTINCT resolved) AS resolved_entities "
+        "FOREACH (membership IN memberships | DELETE membership) "
+        "FOREACH (resolved IN resolved_entities | DETACH DELETE resolved)"
+    )

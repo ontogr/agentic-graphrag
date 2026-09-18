@@ -1,13 +1,22 @@
 """Tests for non-destructive entity-resolution materialization."""
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.graph_record import UpsertFailure, UpsertResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
-from agrag.ingestion.materialize import compute_resolved_entity, matches_id
+from agrag.ingestion.materialize import (
+    MatchDecision,
+    compute_resolved_entity,
+    matches_id,
+    write_match_and_materialize,
+)
 
 
 def _schema() -> GraphSchema:
@@ -54,3 +63,76 @@ class TestComputeResolvedEntity:
         """A materialized cluster must have at least two members."""
         with pytest.raises(ValueError, match="at least two"):
             await compute_resolved_entity([_entity("Ada")], _schema())
+
+
+def _store(
+    *,
+    node_result: UpsertResult | None = None,
+    relation_result: UpsertResult | None = None,
+) -> SimpleNamespace:
+    """Build a transaction-capable graph-store test double."""
+    transaction = SimpleNamespace(
+        execute_write=AsyncMock(return_value=[{"id": "match"}]),
+        upsert_nodes=AsyncMock(return_value=node_result),
+        upsert_relations=AsyncMock(return_value=relation_result),
+    )
+
+    @asynccontextmanager
+    async def open_transaction():
+        yield transaction
+
+    return SimpleNamespace(
+        transaction=open_transaction, current_transaction=transaction
+    )
+
+
+class TestWriteMatchAndMaterialize:
+    """Match materialization uses one atomic graph transaction."""
+
+    async def test_replaces_existing_component_materialization(self) -> None:
+        """A match writes its edge and replacement membership in one transaction."""
+        first, second = _entity("Ada"), _entity("Ada Lovelace")
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
+        )
+        decision = MatchDecision(
+            entity_a_id=first.id,
+            entity_b_id=second.id,
+            comparator="FuzzyMatch",
+            decided_at=datetime.now(UTC),
+        )
+
+        resolved = await write_match_and_materialize(
+            decision, graph_store=store, schema=_schema(), members=[second, first]
+        )
+
+        assert resolved.member_ids == sorted([first.id, second.id], key=str)
+        assert store.current_transaction.execute_write.await_count == 2
+        store.current_transaction.upsert_nodes.assert_awaited_once()
+        store.current_transaction.upsert_relations.assert_awaited_once()
+
+    async def test_raises_when_a_bulk_write_reports_failure(self) -> None:
+        """A failed membership write prevents a partial materialization result."""
+        first, second = _entity("Ada"), _entity("Ada Lovelace")
+        store = _store(
+            node_result=UpsertResult(written=1),
+            relation_result=UpsertResult(
+                written=1,
+                failures=[
+                    UpsertFailure(
+                        id="failed", error_type="WriteError", error_message="failed"
+                    )
+                ],
+            ),
+        )
+        decision = MatchDecision(
+            entity_a_id=first.id,
+            entity_b_id=second.id,
+            comparator="FuzzyMatch",
+            decided_at=datetime.now(UTC),
+        )
+
+        with pytest.raises(RuntimeError, match="failed"):
+            await write_match_and_materialize(
+                decision, graph_store=store, schema=_schema(), members=[first, second]
+            )
