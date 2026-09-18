@@ -63,7 +63,7 @@ from agrag.ingestion.graph import (
 )
 from agrag.ingestion.merge import MergePlan
 from agrag.ingestion.reports import AddResult
-from agrag.ingestion.resolve import ResolutionGroup
+from agrag.ingestion.resolve import ResolutionGroup, ResolutionResult, ResolvedMatch
 from agrag.loaders.corpus.types import ErrorPolicy
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
@@ -3154,9 +3154,16 @@ class TestGraphAddPipeline:
                 mock_instance = mock.AsyncMock()
                 from agrag.ingestion.resolve import ResolutionGroup  # noqa: PLC0415
 
-                mock_instance.resolve.return_value = [
-                    ResolutionGroup(entity_indices=[0, 1])
-                ]
+                mock_instance.resolve_with_matches.return_value = ResolutionResult(
+                    groups=[ResolutionGroup(entity_indices=[0, 1])],
+                    matches=[
+                        ResolvedMatch(
+                            left_index=0,
+                            right_index=1,
+                            comparator="FuzzyMatch",
+                        )
+                    ],
+                )
                 mock_resolver.return_value = mock_instance
                 with mock.patch.object(
                     gmod, "compute_merge", new_callable=mock.AsyncMock
@@ -3177,24 +3184,18 @@ class TestGraphAddPipeline:
                         [],
                     )
                     with mock.patch.object(
-                        gmod, "apply_merge", new_callable=mock.AsyncMock
-                    ) as mock_apply:
+                        gmod, "write_match_and_materialize", new_callable=mock.AsyncMock
+                    ) as mock_materialize:
                         report = await graph.consolidate(apply=False)
                         assert len(report.would_merge) == 1
                         assert report.applied is False
-                        mock_apply.assert_not_called()
+                        mock_materialize.assert_not_called()
                         report2 = await graph.consolidate(apply=True)
                         assert report2.applied is True
-                        assert mock_apply.call_count == 1
+                        assert mock_materialize.call_count == 1
 
-    async def test_consolidate_apply_reembeds_survivor(self) -> None:
-        """Applying a consolidation re-embeds the survivor's final text.
-
-        Regression test: apply_merge alone never computes an embedding, so
-        without this, a survivor whose canonical name changed by
-        consolidation would keep whatever embedding it had before, and
-        vector search would keep ranking it by that stale text.
-        """
+    async def test_consolidate_apply_preserves_raw_entities(self) -> None:
+        """Consolidation writes no raw entity replacement or tombstone records."""
         store = MockStore()
         e1 = Entity(
             id=uuid4(),
@@ -3232,9 +3233,16 @@ class TestGraphAddPipeline:
                 mock_instance = mock.AsyncMock()
                 from agrag.ingestion.resolve import ResolutionGroup  # noqa: PLC0415
 
-                mock_instance.resolve.return_value = [
-                    ResolutionGroup(entity_indices=[0, 1])
-                ]
+                mock_instance.resolve_with_matches.return_value = ResolutionResult(
+                    groups=[ResolutionGroup(entity_indices=[0, 1])],
+                    matches=[
+                        ResolvedMatch(
+                            left_index=0,
+                            right_index=1,
+                            comparator="FuzzyMatch",
+                        )
+                    ],
+                )
                 mock_resolver.return_value = mock_instance
                 with mock.patch.object(
                     gmod, "compute_merge", new_callable=mock.AsyncMock
@@ -3258,16 +3266,10 @@ class TestGraphAddPipeline:
                         report = await graph.consolidate(apply=True)
 
         assert report.failures == []
-        embedding_calls = [
-            call
-            for call in store.execute_write_calls
-            if call[1] and "records" in call[1] and "vector" in call[1]["records"][0]
-        ]
-        # At least one embedding write: entity and/or chunk.
-        assert len(embedding_calls) >= 1
+        assert store.upsert_nodes_calls == []
 
-    async def test_consolidate_apply_clears_embedding_on_failure(self) -> None:
-        """A failed re-embed during apply clears the stale embedding and reports it."""
+    async def test_consolidate_apply_does_not_embed_raw_entities(self) -> None:
+        """Consolidation does not alter raw vectors before resolved vectors exist."""
         store = MockStore()
         e1 = Entity(
             id=uuid4(),
@@ -3310,9 +3312,16 @@ class TestGraphAddPipeline:
                 mock_instance = mock.AsyncMock()
                 from agrag.ingestion.resolve import ResolutionGroup  # noqa: PLC0415
 
-                mock_instance.resolve.return_value = [
-                    ResolutionGroup(entity_indices=[0, 1])
-                ]
+                mock_instance.resolve_with_matches.return_value = ResolutionResult(
+                    groups=[ResolutionGroup(entity_indices=[0, 1])],
+                    matches=[
+                        ResolvedMatch(
+                            left_index=0,
+                            right_index=1,
+                            comparator="FuzzyMatch",
+                        )
+                    ],
+                )
                 mock_resolver.return_value = mock_instance
                 with mock.patch.object(
                     gmod, "compute_merge", new_callable=mock.AsyncMock
@@ -3335,13 +3344,13 @@ class TestGraphAddPipeline:
                     ):
                         report = await graph.consolidate(apply=True)
 
-        assert len(report.failures) == 1
+        assert report.failures == []
         clear_calls = [
             call
             for call in store.execute_write_calls
             if "REMOVE n.embedding" in call[0]
         ]
-        assert len(clear_calls) == 1
+        assert clear_calls == []
 
     async def test_consolidate_no_entities(self) -> None:
         """Less than 2 entities yields no would_merge."""

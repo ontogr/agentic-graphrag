@@ -65,6 +65,7 @@ from agrag.ingestion._lexical_backbone import (
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.match_decision import MatchDecision
 from agrag.ingestion.match_persistence import write_match_and_materialize
+from agrag.ingestion.materialize import materialize_component
 from agrag.ingestion.merge import (
     MergePlan,
     apply_merge,
@@ -2240,25 +2241,20 @@ class Graph:
         return entities
 
     async def consolidate(self, *, apply: bool = False) -> ConsolidationReport:
-        """Run full tiered resolution against everything persisted.
+        """Resolve persisted raw entities into non-destructive components.
 
-        Dry-run by default: produces a report of what would merge before any
-        node is touched. Pass apply=True to write the merges.
-
-        For each EntityType label in self._schema, fetches every persisted
-        entity with that label and runs the same comparator sequence add() uses
-        in-batch (ExactMatch, FuzzyMatch, LLMVerify) pairwise across all of
-        them — O(n^2) within each label's population.
-        Confirmed matches become MergePlans via compute_merge.
+        Dry-run by default reports the resolved components without changing
+        raw entities. Pass apply=True to persist semantic match edges and
+        component materializations.
 
         Args:
             apply: Write the computed merges. False produces a report only.
 
         Returns:
-            A report of every group consolidate() found, applied or not.
+            A report of every resolved component found, applied or not.
         """
-        would_merge: list = []
-        # For each label, fetch all entities, then pairwise compare via Resolver
+        would_merge = []
+        decisions: list[MatchDecision] = []
         for entity_type in self._schema.entities:
             label = entity_type.label
             all_entities = await self._all_entities_by_label(label)
@@ -2276,65 +2272,46 @@ class Graph:
                 ],
                 candidate_source=InBatchCandidateSource(),
             )
-            groups = await resolver.resolve(synthetic_mentions)
-            # Filter groups of one (no merge)
-            for group in groups:
+            result = await resolver.resolve_with_matches(synthetic_mentions)
+            matched_indices = {
+                index
+                for match in result.matches
+                for index in (match.left_index, match.right_index)
+            }
+            for group in result.groups:
                 if len(group.entity_indices) <= 1:
                     continue
-                # Collect existing_entities for this group
+                if not matched_indices.intersection(group.entity_indices):
+                    continue
                 group_entities = [all_entities[i] for i in group.entity_indices]
-                # compute_merge with mentions=[] (per plan)
                 try:
-                    plan, _failures = await compute_merge(
-                        existing_entities=group_entities,
-                        mentions=[],
-                        schema=self._schema,
+                    would_merge.append(
+                        await materialize_component(group_entities, schema=self._schema)
                     )
                 except Exception:
                     continue
-                would_merge.append(plan)
+            decisions.extend(
+                MatchDecision.create(
+                    left_entity_id=all_entities[match.left_index].id,
+                    right_entity_id=all_entities[match.right_index].id,
+                    comparator=match.comparator,
+                    score=match.score,
+                    reasoning=match.reasoning,
+                )
+                for match in result.matches
+            )
 
         consolidation_failures: list[StageFailure] = []
-        if apply and would_merge:
-            survivors: dict[UUID, Entity] = {}
-            for plan in would_merge:
-                await apply_merge(
-                    plan, graph_store=self._graph_store, schema=self._schema
-                )
-                survivors[plan.survivor.id] = plan.survivor
-                if plan.tombstone_ids:
-                    try:
-                        await _delete_vectors(
-                            self._vector_store,
-                            self._retrieval_settings.entity_collection,
-                            list(plan.tombstone_ids),
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        consolidation_failures.append(
-                            StageFailure(
-                                item_id="tombstone_vector_store",
-                                error_type=type(exc).__name__,
-                                error_message=str(exc),
-                            )
-                        )
-            # Every survivor's node was just (re)written, possibly with a new
-            # canonical name or description; its embedding must match that
-            # final text, the same way add()'s embedding stage keeps one in
-            # sync with a merge it just applied.
-            if survivors:
-                consolidation_failures = await _embed_and_upsert_survivors(
-                    survivors,
-                    embedder=self._embedder,
-                    graph_store=self._graph_store,
-                    error_policy=ErrorPolicy.SKIP,
-                    vector_store=self._vector_store,
-                    vector_collection=self._retrieval_settings.entity_collection,
-                    labels_by_id={ent.id: ent.label for ent in survivors.values()},
-                )
+        if apply and decisions:
+            await write_match_and_materialize(
+                decisions,
+                graph_store=self._graph_store,
+                schema=self._schema,
+            )
 
         return ConsolidationReport(
             would_merge=would_merge,
-            applied=apply and bool(would_merge),
+            applied=apply and bool(decisions),
             failures=consolidation_failures,
         )
 

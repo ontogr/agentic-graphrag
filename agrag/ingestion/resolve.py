@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
@@ -110,7 +110,7 @@ class ResolvedMatch(BaseModel):
     comparator: str
     score: float | None = None
     reasoning: str | None = None
-    decided_at: datetime
+    decided_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ResolutionResult(BaseModel):
