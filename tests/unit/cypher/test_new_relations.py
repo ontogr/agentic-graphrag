@@ -129,6 +129,12 @@ class TestBfsExpandQuery:
         assert "->" not in q
         assert "<-" not in q
 
+    @pytest.mark.parametrize("direction", ["OUTGOING", "outgoing ", "sideways"])
+    def test_invalid_direction_raises_value_error(self, direction: str) -> None:
+        """Unsupported directions fail before query construction."""
+        with pytest.raises(ValueError, match="expected one of"):
+            bfs_expand_query(direction=direction)
+
     def test_direction_and_relation_types_together(self) -> None:
         """A typed traversal keeps the direction arrow around the type pattern."""
         q, _ = bfs_expand_query(

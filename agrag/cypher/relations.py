@@ -84,6 +84,7 @@ def bfs_expand_query(
 
     Raises:
         ValueError: A relation type is not a safe Cypher identifier.
+            An unsupported direction also raises ValueError.
     """
     from agrag.cypher.entities import filter_clause  # noqa: PLC0415
 

@@ -230,7 +230,10 @@ class TestResearchAttemptLimiter:
                 _tool_call_request("look_up_entity", {"query": "q"}), handler
             )
 
-        assert handler.await_count == 11
+        await limiter.awrap_tool_call(
+            _tool_call_request("task", {"subagent_type": "researcher"}), handler
+        )
+        assert handler.await_count == 12
 
     def test_rejects_empty_model_list(self) -> None:
         """An empty model list raises ValueError."""

@@ -11,6 +11,7 @@ BFS, direction/depth/limit threading, community expansion, and relationship
 type filtering.
 """
 
+from typing import Any
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -38,7 +39,7 @@ def _entity(name: str = "Acme", label: str = "Organization") -> Entity:
     return Entity(id=uuid4(), label=label, name=name)
 
 
-def _result(entity: Entity) -> SearchResult:
+def _result(entity: Any) -> SearchResult:
     """Wrap an entity in a SearchResult as a retriever would."""
     return SearchResult(item=entity, score=1.0, method="entity")
 
@@ -75,10 +76,7 @@ class TestExtractEntityIds:
             text="text",
             provenance=TextProvenance(char_start=0, char_end=4),
         )
-        ids = extract_entity_ids(
-            [_result(entity), _result(resolved), _result(chunk)]
-            # type: ignore[list-item]
-        )
+        ids = extract_entity_ids([_result(entity), _result(resolved), _result(chunk)])
         assert ids == [entity.id, resolved.member_ids[1]]
 
 
