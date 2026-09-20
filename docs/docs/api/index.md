@@ -4228,6 +4228,7 @@ never returned as BFS results.
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – A relation type is not a safe Cypher identifier.
+  An unsupported direction also raises ValueError.
 
 ##### `agrag.cypher.relations.chunks_mentioning_entities_query`
 
