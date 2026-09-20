@@ -90,6 +90,11 @@ class EntityRetriever(Retriever):
         if effective_limit <= 0:
             return []
         labels = filters.labels if filters and filters.labels else self._entity_labels
+        search_filters = (
+            filters.model_copy(update={"document_ids": []})
+            if filters and filters.document_ids
+            else filters
+        )
         hits = await vector_search(
             query,
             embedder=self._embedder,
@@ -98,7 +103,7 @@ class EntityRetriever(Retriever):
             collection=self._settings.entity_collection,
             labels=labels,
             limit=effective_limit,
-            filters=filters,
+            filters=search_filters,
             settings=self._settings,
         )
         results: list[SearchResult] = []

@@ -122,7 +122,9 @@ def entities_in_documents_query() -> str:
     return (
         "MATCH (chunk:_AgragNode:Chunk)-[:MENTIONED_IN]->"
         "(entity:_AgragNode) "
-        "WHERE chunk.document_id IN $document_ids "
+        "WHERE EXISTS { "
+        "MATCH (document:_AgragNode:Document)-[part:PART_OF]->(chunk) "
+        "WHERE document.id IN $document_ids AND part.invalid_at IS NULL } "
         "AND entity.merged_into IS NULL "
         "RETURN DISTINCT entity.id AS id"
     )
