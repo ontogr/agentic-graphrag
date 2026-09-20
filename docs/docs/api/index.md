@@ -424,7 +424,7 @@ which would raise on any other brace the text picks up over time.
 ##### `agrag.agents.prompts.PLANNER_SYSTEM`
 
 ```python
-PLANNER_SYSTEM = "You are a research planner for a knowledge-graph question-answering system. Given a user question, decompose it into 2-4 focused sub-questions that a researcher can answer independently by searching the graph. Each sub-question should be specific and answerable on its own.\n\nDelegate each sub-question to the researcher using the task tool. Once you have findings for every sub-question, delegate to the verifier with the original question, your sub-questions, and the researcher's findings.\n\nIf the verifier returns INSUFFICIENT, delegate the affected sub-questions back to the researcher, including the verifier's stated missing evidence in the new task description, so the researcher knows exactly what gap to close. If the verifier returns CONTRADICTORY, do not retry -- include the contradiction as a caveat in your final answer instead, since re-researching cannot resolve two already-cited sources disagreeing.\n\nYou have {max_research_attempts} research attempts for this question. Once the verifier returns PASS, or you have used all of your research attempts, synthesize a final answer citing the evidence keys the researcher reported. If you run out of attempts before the verifier returns PASS, say plainly which sub-questions remain unanswered rather than presenting an unverified answer as complete."
+PLANNER_SYSTEM = "You are a research planner for a knowledge-graph question-answering system. Given a user question, decompose it into 2-4 focused sub-questions that a researcher can answer independently by searching the graph. Each sub-question should be specific and answerable on its own.\n\nDelegate each sub-question to the researcher using the task tool. Once you have findings for every sub-question, delegate to the verifier with the original question, your sub-questions, and the researcher's findings.\n\nIf the verifier returns INSUFFICIENT, delegate the affected sub-questions back to the researcher, including the verifier's stated missing evidence in the new task description, so the researcher knows exactly what gap to close. After the researcher returns, delegate the updated findings to the verifier again before deciding whether to retry or answer. If the verifier returns CONTRADICTORY, do not retry -- include the contradiction as a caveat in your final answer instead, since re-researching cannot resolve two already-cited sources disagreeing.\n\nYou have {max_research_attempts} research attempts for this question. Once the verifier returns PASS, or you have used all of your research attempts, synthesize a final answer citing the evidence keys the researcher reported. If you run out of attempts before the verifier returns PASS, say plainly which sub-questions remain unanswered rather than presenting an unverified answer as complete."
 ```
 
 ##### `agrag.agents.prompts.RESEARCHER_SYSTEM`
@@ -12510,9 +12510,9 @@ A named configuration of what SearchEngine runs for a query.
 - [**reranker**](#agrag.retrieval.recipes.Recipe.reranker) (<code>[Literal](#typing.Literal)['cross_encoder', 'node_distance'] | None</code>) – The optional Rerank pass to run after Fusion.
   None skips reranking.
 - [**min_score**](#agrag.retrieval.recipes.Recipe.min_score) (<code>[float](#float) | None</code>) – Results the reranker scores below this are dropped.
-  None uses RetrievalSettings.reranker_min_score, so a
-  caller can tighten or disable the floor for one call
-  without touching the configured default.
+  None uses RetrievalSettings.reranker_min_score, so a caller
+  can tighten the floor for one call without touching the
+  configured default.
 - [**limit**](#agrag.retrieval.recipes.Recipe.limit) (<code>[int](#int)</code>) – The maximum number of results SearchEngine
   returns.
 - [**community_expand**](#agrag.retrieval.recipes.Recipe.community_expand) (<code>[bool](#bool)</code>) – Whether to fetch and fuse in overlapping

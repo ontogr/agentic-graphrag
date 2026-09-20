@@ -83,8 +83,8 @@ def _format_retry_diagnostic(exc: BaseException) -> str:
     message = _scrub_diagnostic_message(str(exc))
     if not message:
         return category
-    escaped = message.replace("<", "&lt;").replace(">", "&gt;")[:
-        _DIAGNOSTIC_MESSAGE_MAX_CHARS
+    escaped = message.replace("<", "&lt;").replace(">", "&gt;")[
+        :_DIAGNOSTIC_MESSAGE_MAX_CHARS
     ]
     return f"{category}: {escaped}"
 
