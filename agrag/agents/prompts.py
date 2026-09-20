@@ -18,7 +18,9 @@ the original question, your sub-questions, and the researcher's findings.
 If the verifier returns INSUFFICIENT, delegate the affected sub-questions \
 back to the researcher, including the verifier's stated missing evidence \
 in the new task description, so the researcher knows exactly what gap to \
-close. If the verifier returns CONTRADICTORY, do not retry -- include the \
+close. After the researcher returns, delegate the updated findings to the \
+verifier again before deciding whether to retry or answer. If the verifier \
+returns CONTRADICTORY, do not retry -- include the \
 contradiction as a caveat in your final answer instead, since \
 re-researching cannot resolve two already-cited sources disagreeing.
 

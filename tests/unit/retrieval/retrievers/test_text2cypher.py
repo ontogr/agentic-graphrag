@@ -602,7 +602,7 @@ class TestRetryDiagnostic:
         assert "MATCH" not in diagnostic
         assert "RETURNX" not in diagnostic
         assert "Ignore" not in diagnostic
-        assert "<value>" in diagnostic
+        assert "&lt;value&gt;" in diagnostic
 
     def test_falls_back_to_the_exception_category(self) -> None:
         """When nothing safe survives, the category alone is returned."""

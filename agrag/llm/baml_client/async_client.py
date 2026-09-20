@@ -97,8 +97,9 @@ class BamlAsyncClient:
                 "chunk_text": chunk_text,
             })
             return typing.cast(types.BAMLExtractionResult, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    async def GenerateCypherQuery(self, question: str,schema_description: str,failure_context: typing.Optional[str] = None,
-        baml_options: BamlCallOptions = {},
+    async def GenerateCypherQuery(self, question: str,schema_description: str,
+        baml_options: BamlCallOptions = {}, *,
+        failure_context: typing.Optional[str] = None,
     ) -> str:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
@@ -178,8 +179,9 @@ class BamlStreamClient:
           lambda x: typing.cast(types.BAMLExtractionResult, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def GenerateCypherQuery(self, question: str,schema_description: str,failure_context: typing.Optional[str] = None,
-        baml_options: BamlCallOptions = {},
+    def GenerateCypherQuery(self, question: str,schema_description: str,
+        baml_options: BamlCallOptions = {}, *,
+        failure_context: typing.Optional[str] = None,
     ) -> baml_py.BamlStream[str, str]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="GenerateCypherQuery", args={
             "question": question,"schema_description": schema_description,"failure_context": failure_context,
@@ -241,8 +243,9 @@ class BamlHttpRequestClient:
             "chunk_text": chunk_text,
         }, mode="request")
         return __result__
-    async def GenerateCypherQuery(self, question: str,schema_description: str,failure_context: typing.Optional[str] = None,
-        baml_options: BamlCallOptions = {},
+    async def GenerateCypherQuery(self, question: str,schema_description: str,
+        baml_options: BamlCallOptions = {}, *,
+        failure_context: typing.Optional[str] = None,
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateCypherQuery", args={
             "question": question,"schema_description": schema_description,"failure_context": failure_context,
@@ -284,8 +287,9 @@ class BamlHttpStreamRequestClient:
             "chunk_text": chunk_text,
         }, mode="stream")
         return __result__
-    async def GenerateCypherQuery(self, question: str,schema_description: str,failure_context: typing.Optional[str] = None,
-        baml_options: BamlCallOptions = {},
+    async def GenerateCypherQuery(self, question: str,schema_description: str,
+        baml_options: BamlCallOptions = {}, *,
+        failure_context: typing.Optional[str] = None,
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GenerateCypherQuery", args={
             "question": question,"schema_description": schema_description,"failure_context": failure_context,

@@ -219,7 +219,7 @@ class TestSimpleAgent:
         if call is None:
             pytest.fail("engine.search was not awaited")
         _, kwargs = call
-        assert kwargs["filters"] is filters
+        assert kwargs["filters"] == filters
 
     async def test_simple_agent_searches_hybrid_directly(self) -> None:
         """_SimpleAgent never touches the tool layer."""
@@ -455,7 +455,8 @@ class TestRunScopedAgentSubagents:
         if call is None:
             pytest.fail("engine.search was not awaited")
         _, kwargs = call
-        assert kwargs["filters"] is filters
+        assert kwargs["filters"] == filters
+        assert kwargs["filters"] is not filters
 
     async def test_run_scoped_agent_applies_recursion_limit(
         self, monkeypatch: pytest.MonkeyPatch

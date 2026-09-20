@@ -20,9 +20,9 @@ class Recipe(BaseModel):
         reranker: The optional Rerank pass to run after Fusion.
             None skips reranking.
         min_score: Results the reranker scores below this are dropped.
-            None uses RetrievalSettings.reranker_min_score, so a
-            caller can tighten or disable the floor for one call
-            without touching the configured default.
+            None uses RetrievalSettings.reranker_min_score, so a caller
+            can tighten the floor for one call without touching the
+            configured default.
         limit: The maximum number of results SearchEngine
             returns.
         community_expand: Whether to fetch and fuse in overlapping

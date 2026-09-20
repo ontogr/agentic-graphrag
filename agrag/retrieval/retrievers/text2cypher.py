@@ -83,7 +83,10 @@ def _format_retry_diagnostic(exc: BaseException) -> str:
     message = _scrub_diagnostic_message(str(exc))
     if not message:
         return category
-    return f"{category}: {message}"
+    escaped = message.replace("<", "&lt;").replace(">", "&gt;")[:
+        _DIAGNOSTIC_MESSAGE_MAX_CHARS
+    ]
+    return f"{category}: {escaped}"
 
 
 def _scrub_diagnostic_message(message: str) -> str:
@@ -649,6 +652,8 @@ class Text2CypherRetriever(Retriever):
 
         for key, val in row.items():
             if key in ("id", "entity_id", "n"):
+                continue
+            if _parse_relationship(val) is not None:
                 continue
             node_id = _node_id_prop(val)
             if node_id is None or _node_get(val, "name") is None:

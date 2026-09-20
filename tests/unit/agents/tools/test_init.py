@@ -124,7 +124,8 @@ class TestBaseScopeEnforcement:
             engine.search.reset_mock()
             await tool.ainvoke({"query": "aspirin"})
             _, kwargs = engine.search.await_args
-            assert kwargs["filters"] is base
+            assert kwargs["filters"] == base
+            assert kwargs["filters"] is not base
 
     async def test_base_filters_and_tool_filters_are_intersected(self) -> None:
         """A narrower tool argument is intersected with the base scope."""

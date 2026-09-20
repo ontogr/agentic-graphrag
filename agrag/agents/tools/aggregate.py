@@ -5,12 +5,13 @@ reasoning; this tool exists so the arithmetic on them is exact rather than
 recalled from a language model's head. It queries nothing.
 """
 
+from decimal import Decimal
 from typing import Literal
 
 from langchain_core.tools import tool
 
 
-def _format(value: float) -> str:
+def _format(value: float | Decimal) -> str:
     """Render a computed number without trailing floating-point noise.
 
     Args:
@@ -19,7 +20,10 @@ def _format(value: float) -> str:
     Returns:
         The number as text, e.g. ``"2"`` or ``"3.5"``.
     """
-    return f"{value:g}"
+    decimal_value = Decimal(str(value))
+    if decimal_value == decimal_value.to_integral_value():
+        return str(int(decimal_value))
+    return format(decimal_value.normalize(), "f")
 
 
 @tool("compute_over_evidence")
@@ -58,5 +62,5 @@ def compute_over_evidence(
     if operation == "count":
         return _format(float(len(values)))
     if operation == "sum":
-        return _format(sum(values))
+        return _format(sum((Decimal(str(value)) for value in values), Decimal()))
     return f'Unknown operation "{operation}": use count, sum, or compare.'

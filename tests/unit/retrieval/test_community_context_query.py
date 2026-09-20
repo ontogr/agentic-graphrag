@@ -225,7 +225,7 @@ class TestExpandWithCommunities:
             "agrag.retrieval.community_context.community_context",
             AsyncMock(return_value=[]),
         ) as lookup:
-            await expand_with_communities(
+            results = await expand_with_communities(
                 [],
                 [uuid4()],
                 graph_store=AsyncMock(),
@@ -235,6 +235,7 @@ class TestExpandWithCommunities:
             )
 
         assert lookup.call_args.kwargs["top_k"] == 2
+        assert results == []
 
     async def test_expand_with_communities_passes_filters_through(self) -> None:
         """The caller's scope reaches the community lookup unchanged."""
@@ -243,7 +244,7 @@ class TestExpandWithCommunities:
             "agrag.retrieval.community_context.community_context",
             AsyncMock(return_value=[]),
         ) as lookup:
-            await expand_with_communities(
+            results = await expand_with_communities(
                 [],
                 [uuid4()],
                 graph_store=AsyncMock(),
@@ -253,6 +254,7 @@ class TestExpandWithCommunities:
             )
 
         assert lookup.call_args.kwargs["filters"] is filters
+        assert results == []
 
     async def test_expand_with_communities_failure_keeps_fused_results(self) -> None:
         """A community lookup failure returns the fused list unchanged."""

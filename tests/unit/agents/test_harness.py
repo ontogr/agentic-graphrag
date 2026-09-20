@@ -7,6 +7,7 @@ module never requires deepagents to be installed.
 
 import subprocess
 import sys
+from collections.abc import Iterator
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,9 +20,13 @@ from agrag.agents.harness import (
 
 
 @pytest.fixture(autouse=True)
-def _clean_guard() -> None:
-    """Start each test with an empty registration guard."""
+def _clean_guard() -> Iterator[None]:
+    """Isolate registration-guard changes made by each test."""
+    previous = set(_HARNESS_PROFILE_REGISTERED)
     _HARNESS_PROFILE_REGISTERED.clear()
+    yield
+    _HARNESS_PROFILE_REGISTERED.clear()
+    _HARNESS_PROFILE_REGISTERED.update(previous)
 
 
 class TestEnsureHarnessProfile:

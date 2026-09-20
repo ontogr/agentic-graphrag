@@ -7,6 +7,7 @@ retrieval method they use.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from agrag.agents.tools.search import (
@@ -69,18 +70,22 @@ def make_tools(
     )
     from agrag.retrieval.filters import SearchFilters  # noqa: PLC0415
 
+    bound_filters = deepcopy(filters)
+
     tools: list[Any] = [
-        make_search_source_text_tool(engine, ledger, filters=filters),
-        make_look_up_entity_tool(engine, ledger, filters=filters),
-        make_explore_related_tool(engine, ledger, filters=filters),
-        make_answer_from_graph_structure_tool(engine, ledger, filters=filters),
-        make_answer_thematic_question_tool(engine, ledger, filters=filters),
-        make_list_relationship_types_tool(engine, ledger, filters=filters),
-        make_find_related_entities_tool(engine, ledger, filters=filters),
-        make_describe_entity_tool(engine, ledger, filters=filters),
-        make_traverse_from_entity_tool(engine, ledger, filters=filters),
+        make_search_source_text_tool(engine, ledger, filters=bound_filters),
+        make_look_up_entity_tool(engine, ledger, filters=bound_filters),
+        make_explore_related_tool(engine, ledger, filters=bound_filters),
+        make_answer_from_graph_structure_tool(engine, ledger, filters=bound_filters),
+        make_answer_thematic_question_tool(engine, ledger, filters=bound_filters),
+        make_list_relationship_types_tool(engine, ledger, filters=bound_filters),
+        make_find_related_entities_tool(engine, ledger, filters=bound_filters),
+        make_describe_entity_tool(engine, ledger, filters=bound_filters),
+        make_traverse_from_entity_tool(engine, ledger, filters=bound_filters),
         compute_over_evidence,
     ]
-    if filters is None or filters == SearchFilters():
-        tools.append(make_query_graph_directly_tool(engine, ledger, filters=filters))
+    if bound_filters is None or bound_filters == SearchFilters():
+        tools.append(
+            make_query_graph_directly_tool(engine, ledger, filters=bound_filters)
+        )
     return tools

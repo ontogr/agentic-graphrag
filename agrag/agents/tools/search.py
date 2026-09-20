@@ -424,7 +424,11 @@ def make_query_graph_directly_tool(
     """
     from langchain_core.tools import tool  # noqa: PLC0415
 
+    from agrag.retrieval.filters import SearchFilters  # noqa: PLC0415
     from agrag.retrieval.recipes import TEXT2CYPHER  # noqa: PLC0415
+
+    if filters is not None and filters != SearchFilters():
+        raise ValueError("query_graph_directly cannot run with scoped filters")
 
     @tool("query_graph_directly")
     async def query_graph_directly(query: str) -> str:
