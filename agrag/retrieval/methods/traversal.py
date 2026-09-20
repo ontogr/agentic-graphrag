@@ -85,7 +85,7 @@ async def find_entity(
         settings: Retrieval configuration.
         entity_labels: The labels native entity search runs against by
             default, one vector index each.
-        filters: Scope to resolve within. Only ``labels`` and
+        filters: Scope to resolve within. Labels, document ids, and
             ``properties`` are projected through, matching the
             projection a plain search's own entity step applies; a
             ``filters.labels`` value replaces ``entity_labels`` rather
@@ -99,8 +99,12 @@ async def find_entity(
         The top-ranked SearchResult, or None when nothing matched.
     """
     projected = (
-        SearchFilters(labels=filters.labels, properties=filters.properties)
-        if filters and (filters.labels or filters.properties)
+        SearchFilters(
+            labels=filters.labels,
+            document_ids=filters.document_ids,
+            properties=filters.properties,
+        )
+        if filters and (filters.labels or filters.document_ids or filters.properties)
         else None
     )
     retriever = EntityRetriever(
@@ -203,25 +207,42 @@ async def list_relationship_types(
     *,
     graph_store: GraphStore,
     relation_type_filter: str | None = None,
+    filters: SearchFilters | None = None,
 ) -> list[str]:
     """List the relationship types directly attached to a resolved entity.
 
     Depth-1 only: it reports what is attached to the seed, never what
-    lies past it. Takes no ``filters``, unlike the functions above --
-    it returns type names, never entity content or property values, so
-    there is nothing for a data scope to leak.
+    lies past it. Any relation type allowlist in ``filters`` is applied
+    before the query runs.
 
     Args:
         seed: The resolved entity to read attached types from.
         graph_store: The graph to read.
         relation_type_filter: Only report this type, if present.
+        filters: Scope that limits which relationship types are visible.
 
     Returns:
         The distinct attached relationship type names.
     """
+    if (
+        relation_type_filter
+        and filters
+        and filters.relation_types
+        and relation_type_filter not in filters.relation_types
+    ):
+        raise ScopeDeniedError(
+            f"relation type {relation_type_filter!r} is outside the permitted "
+            f"relation types {filters.relation_types!r}"
+        )
     seed_ids = extract_entity_ids([seed])
     query = relationship_types_from_query(
-        relation_types=[relation_type_filter] if relation_type_filter else None
+        relation_types=(
+            [relation_type_filter]
+            if relation_type_filter
+            else filters.relation_types
+            if filters and filters.relation_types
+            else None
+        )
     )
     rows = await graph_store.execute_read(
         query, {"seed_ids": [str(seed_id) for seed_id in seed_ids]}

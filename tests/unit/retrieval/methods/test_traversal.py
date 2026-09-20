@@ -11,7 +11,6 @@ BFS, direction/depth/limit threading, community expansion, and that
 list_relationship_types takes no filters argument at all.
 """
 
-from inspect import signature
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -199,8 +198,8 @@ class TestFindEntity:
 
         assert retriever_cls.return_value.retrieve.call_args.kwargs["filters"] is None
 
-    async def test_find_entity_document_ids_alone_project_to_none(self) -> None:
-        """A document_ids-only scope does not reach retrieve() as a filter."""
+    async def test_find_entity_preserves_document_scope(self) -> None:
+        """A document_ids scope reaches entity resolution."""
         with patch(
             "agrag.retrieval.methods.traversal.EntityRetriever"
         ) as retriever_cls:
@@ -215,7 +214,9 @@ class TestFindEntity:
                 filters=SearchFilters(document_ids=["doc-1"]),
             )
 
-        assert retriever_cls.return_value.retrieve.call_args.kwargs["filters"] is None
+        assert retriever_cls.return_value.retrieve.call_args.kwargs["filters"] == (
+            SearchFilters(document_ids=["doc-1"])
+        )
 
 
 class TestIntersectRelationTypes:
@@ -440,6 +441,16 @@ class TestListRelationshipTypes:
         query, _ = store.execute_read.call_args.args
         assert "[r:TREATS]" in query
 
-    def test_list_relationship_types_takes_no_filters_parameter(self) -> None:
-        """This function deliberately takes no filters: it leaks no content."""
-        assert "filters" not in signature(list_relationship_types).parameters
+    async def test_list_relationship_types_applies_relation_scope(self) -> None:
+        """A relation allowlist reaches the relationship type query."""
+        store = AsyncMock()
+        store.execute_read.return_value = []
+
+        await list_relationship_types(
+            _result(_entity()),
+            graph_store=store,
+            filters=SearchFilters(relation_types=["TREATS"]),
+        )
+
+        query, _ = store.execute_read.call_args.args
+        assert "[r:TREATS]" in query

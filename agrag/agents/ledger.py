@@ -5,6 +5,7 @@ from uuid import UUID
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.search_result import SearchResult
 
@@ -14,6 +15,7 @@ _PREFIX_MAP = {
     "Relation": "R",
     "Chunk": "C",
     "Community": "G",
+    "QueryValue": "V",
 }
 
 
@@ -77,6 +79,8 @@ class Ledger:
             return f"[{key}] Relation: {item.type}({item.source_id}, {item.target_id})"
         if isinstance(item, Community):
             return f"[{key}] Community: {item.title} — {item.summary[:200]}"
+        if isinstance(item, QueryValue):
+            return f"[{key}] Value: {item.value}"
         return f"[{key}] {type(item).__name__}"
 
     def resolve(self, key: str) -> SearchResult | None:

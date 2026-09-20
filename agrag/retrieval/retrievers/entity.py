@@ -6,6 +6,7 @@ from uuid import UUID
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.entities import hydrate_entities_by_id_query
+from agrag.cypher.relations import entities_in_documents_query
 from agrag.cypher.resolution_read import fetch_active_resolved_member_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
@@ -63,7 +64,7 @@ class EntityRetriever(Retriever):
             else list(self._settings.entity_labels)
         )
 
-    async def retrieve(  # noqa: PLR0912
+    async def retrieve(  # noqa: PLR0912, PLR0915
         self,
         query: str,
         *,
@@ -102,6 +103,9 @@ class EntityRetriever(Retriever):
         )
         results: list[SearchResult] = []
         if hits:
+            allowed_ids = await self._allowed_entity_ids(filters)
+            if allowed_ids is not None:
+                hits = [hit for hit in hits if str(hit.id) in allowed_ids]
             ids = [str(h.id) for h in hits]
             entities_by_id: dict[str, Entity] = {}
             try:
@@ -181,6 +185,22 @@ class EntityRetriever(Retriever):
         )
         results.sort(key=lambda result: result.score, reverse=True)
         return results[:effective_limit]
+
+    async def _allowed_entity_ids(
+        self, filters: SearchFilters | None
+    ) -> set[str] | None:
+        """Return entity ids mentioned by a document scope, when one exists."""
+        if not filters or not filters.document_ids:
+            return None
+        rows = await self._graph_store.execute_read(
+            entities_in_documents_query(),
+            {"document_ids": filters.document_ids},
+        )
+        return {
+            str(row["id"])
+            for row in rows
+            if isinstance(row, dict) and row.get("id") is not None
+        }
 
     async def _active_resolved_member_ids(self, ids: list[UUID]) -> set[UUID]:
         """Return raw hit ids that active resolved entities supersede."""

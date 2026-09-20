@@ -80,8 +80,14 @@ class BFSRetriever(Retriever):
             filters=filters.to_property_filter() if filters else None,
             relation_types=filters.relation_types if filters else None,
             direction=direction,
+            document_ids=filters.document_ids if filters else None,
         )
-        params = {"seed_ids": [str(sid) for sid in seed_ids], **filter_params}
+        params = {
+            "seed_ids": [str(sid) for sid in seed_ids],
+            **filter_params,
+        }
+        if filters and filters.document_ids:
+            params["document_ids"] = filters.document_ids
 
         rows = await self._graph_store.execute_read(query, params)
 

@@ -25,6 +25,8 @@ SCOPE_DENIED = (
     "Retry within the scope this agent was given."
 )
 
+MAX_TOOL_LIMIT = 100
+
 
 def scoped_filters(
     base: "SearchFilters | None",
@@ -122,6 +124,8 @@ def _narrowed_recipe(
     Returns:
         The recipe to search with.
     """
+    if not 1 <= limit <= MAX_TOOL_LIMIT:
+        raise ValueError(f"limit must be between 1 and {MAX_TOOL_LIMIT}")
     updates: dict[str, Any] = {}
     if limit != recipe.limit:
         updates["limit"] = limit

@@ -101,7 +101,11 @@ class SearchEngine:
         self._settings = settings or RetrievalSettings()
         self._graph_schema = graph_schema if graph_schema is not None else GENERIC
         schema_labels = [entity.label for entity in self._graph_schema.entities]
-        if entity_labels is not None and set(entity_labels) != set(schema_labels):
+        if (
+            graph_schema is not None
+            and entity_labels is not None
+            and set(entity_labels) != set(schema_labels)
+        ):
             raise ValueError(
                 "entity_labels must name exactly the graph_schema's entity "
                 f"labels. Schema '{self._graph_schema.name}' declares "
@@ -109,7 +113,11 @@ class SearchEngine:
                 "entity_labels and let the schema drive native entity "
                 "search, or pass the schema those labels belong to."
             )
-        self._entity_labels = schema_labels
+        self._entity_labels = (
+            schema_labels
+            if graph_schema is not None
+            else list(entity_labels or self._settings.entity_labels)
+        )
 
     @property
     def graph_schema(self) -> GraphSchema:
@@ -199,7 +207,11 @@ class SearchEngine:
         )
 
     async def list_relationship_types(
-        self, seed: SearchResult, *, relation_type_filter: str | None = None
+        self,
+        seed: SearchResult,
+        *,
+        relation_type_filter: str | None = None,
+        filters: SearchFilters | None = None,
     ) -> list[str]:
         """List the relationship types directly attached to an entity.
 
@@ -210,6 +222,7 @@ class SearchEngine:
             seed: The resolved entity to read attached types from,
                 normally from :meth:`find_entity`.
             relation_type_filter: Only report this type, if present.
+            filters: Scope that limits visible relationship types.
 
         Returns:
             The distinct attached relationship type names.
@@ -218,6 +231,7 @@ class SearchEngine:
             seed,
             graph_store=self._graph_store,
             relation_type_filter=relation_type_filter,
+            filters=filters,
         )
 
     async def search(  # noqa: PLR0912, PLR0915

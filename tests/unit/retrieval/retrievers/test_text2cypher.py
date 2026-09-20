@@ -20,13 +20,10 @@ AsyncMock store's ``execute_read`` side effects.
 """
 
 import json
-import logging
 import sys
 import types
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
-
-import pytest
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.entity import Entity
@@ -125,6 +122,22 @@ class TestText2CypherBounds:
 
         executed = gs.execute_read.await_args_list[-1].args[0]
         assert executed == "MATCH (n:Person) RETURN n LIMIT 1000"
+
+    async def test_keeps_scalar_rows_for_direct_query_answers(self) -> None:
+        """Count and property rows are returned instead of reported empty."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = [{"count": 3}]
+        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+
+        with patch.object(
+            retriever,
+            "_generate_cypher",
+            return_value="MATCH (n:Person) RETURN count(n) AS count",
+        ):
+            results = await retriever.retrieve("how many people?")
+
+        assert len(results) == 1
+        assert results[0].item.value == {"count": 3}
 
     async def test_keeps_existing_row_limit(self) -> None:
         """A generated query that already declares LIMIT is left alone."""
@@ -246,34 +259,20 @@ class TestText2CypherRowShapes:
         assert results[0].item.id == chunk_id
         assert results[0].item.text == "Hello world"
 
-    async def test_scalar_row_is_logged_not_dropped_silently(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """A scalar row is logged as a warning, not silently dropped.
-
-        A query like ``RETURN count(p)`` cannot become a SearchResult
-        (count is not an Entity, Relation, or Chunk). The retriever
-        must not pretend there were no results; it must log the row
-        so the caller can see a structured answer was returned.
-        """
+    async def test_scalar_row_is_returned_as_a_query_value(self) -> None:
+        """A scalar row remains available to the direct-query tool."""
         gs = AsyncMock()
         gs.execute_read.return_value = [{"count(p)": 42}]
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
 
-        with (
-            patch.object(
-                retriever,
-                "_generate_cypher",
-                return_value="MATCH (p:Person) RETURN count(p)",
-            ),
-            caplog.at_level(
-                logging.WARNING, logger="agrag.retrieval.retrievers.text2cypher"
-            ),
+        with patch.object(
+            retriever,
+            "_generate_cypher",
+            return_value="MATCH (p:Person) RETURN count(p)",
         ):
             results = await retriever.retrieve("how many people?")
 
-        assert results == []
-        assert any("count(p)" in record.message for record in caplog.records)
+        assert results[0].item.value == {"count(p)": 42}
 
     async def test_relation_with_embedded_start_end(self) -> None:
         """A relationship row carrying embedded start/end nodes is parsed."""
@@ -415,26 +414,18 @@ class TestText2CypherRowAliases:
         assert isinstance(results[0].item, Chunk)
         assert results[0].item.id == chunk_id
 
-    async def test_scalar_row_under_a_free_alias_is_still_dropped(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """A scalar row is logged, not invented into an item."""
+    async def test_scalar_row_under_a_free_alias_is_returned(self) -> None:
+        """A scalar row under any alias remains a direct-query result."""
         gs = AsyncMock()
         gs.execute_read.return_value = [{"total": 7}]
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
 
-        with (
-            patch.object(
-                retriever, "_generate_cypher", return_value="MATCH (n) RETURN count(n)"
-            ),
-            caplog.at_level(
-                logging.WARNING, logger="agrag.retrieval.retrievers.text2cypher"
-            ),
+        with patch.object(
+            retriever, "_generate_cypher", return_value="MATCH (n) RETURN count(n)"
         ):
             results = await retriever.retrieve("how many?")
 
-        assert results == []
-        assert any("total" in record.message for record in caplog.records)
+        assert results[0].item.value == {"total": 7}
 
 
 class TestText2CypherSchemaGrounding:

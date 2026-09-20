@@ -125,7 +125,7 @@ class TestListRelationshipTypesTool:
         await tool.ainvoke({"entity": "Acme", "relation_type_filter": "TREATS"})
 
         engine.list_relationship_types.assert_awaited_once_with(
-            resolved, relation_type_filter="TREATS"
+            resolved, relation_type_filter="TREATS", filters=None
         )
 
     async def test_no_types_message(self) -> None:

@@ -10,6 +10,7 @@ from uuid import UUID
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.graph_schema import GraphSchema
+from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.safety import (
@@ -495,14 +496,12 @@ class Text2CypherRetriever(Retriever):
                             SearchResult(item=chunk, score=1.0, method=method)
                         )
                     else:
-                        # A scalar row (a count or a bare property value)
-                        # cannot become a SearchResult; log it so the answer is
-                        # not silently discarded.
-                        logger.warning(
-                            "text2cypher row has no entity, relation, or chunk "
-                            "item and is dropped: %s (query: %.100s)",
-                            row,
-                            cypher_query,
+                        results.append(
+                            SearchResult(
+                                item=QueryValue(value=dict(row)),
+                                score=1.0,
+                                method=method,
+                            )
                         )
 
         return results

@@ -36,6 +36,7 @@ def bfs_expand_query(
     filters: dict[str, Any] | None = None,
     relation_types: Sequence[str] | None = None,
     direction: TraversalDirection = "both",
+    document_ids: Sequence[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Build Cypher for BFS expansion from seed entity ids.
 
@@ -74,6 +75,8 @@ def bfs_expand_query(
             cross. None or empty crosses every type.
         direction: Which way a hop walks each relationship. Defaults
             to ``"both"``.
+        document_ids: Optional document ids that must mention each result
+            entity through a ``MENTIONED_IN`` edge.
 
     Returns:
         A ``(query, params)`` tuple. The query expects ``$seed_ids``
@@ -92,7 +95,14 @@ def bfs_expand_query(
     base_where = (
         "neighbor:_AgragNode AND NOT neighbor:Chunk AND NOT neighbor.id IN $seed_ids"
     )
-    where = f"{base_where}{filter_suffix}"
+    document_suffix = (
+        " AND EXISTS { "
+        "MATCH (neighbor)<-[:MENTIONED_IN]-(scoped_chunk:_AgragNode:Chunk) "
+        "WHERE scoped_chunk.document_id IN $document_ids }"
+        if document_ids
+        else ""
+    )
+    where = f"{base_where}{filter_suffix}{document_suffix}"
     type_pattern = relationship_type_pattern(relation_types)
     left_arrow, right_arrow = _DIRECTION_ARROW[direction]
     query = (
@@ -105,6 +115,17 @@ def bfs_expand_query(
         f"LIMIT {safe_limit}"
     )
     return query, filter_params
+
+
+def entities_in_documents_query() -> str:
+    """Build a query for live entities mentioned in selected documents."""
+    return (
+        "MATCH (chunk:_AgragNode:Chunk)-[:MENTIONED_IN]->"
+        "(entity:_AgragNode) "
+        "WHERE chunk.document_id IN $document_ids "
+        "AND entity.merged_into IS NULL "
+        "RETURN DISTINCT entity.id AS id"
+    )
 
 
 def relationship_types_from_query(

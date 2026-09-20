@@ -713,7 +713,14 @@ tool finds and what each argument narrows.
 
 **Attributes:**
 
+- [**MAX_TOOL_LIMIT**](#agrag.agents.tools.search.MAX_TOOL_LIMIT) –
 - [**SCOPE_DENIED**](#agrag.agents.tools.search.SCOPE_DENIED) –
+
+###### `agrag.agents.tools.search.MAX_TOOL_LIMIT`
+
+```python
+MAX_TOOL_LIMIT = 100
+```
 
 ###### `agrag.agents.tools.search.SCOPE_DENIED`
 
@@ -1336,6 +1343,7 @@ Shared data models used by agrag components.
 - [**graph_record**](#agrag.common.data_models.graph_record) – Graph storage record shapes for GraphStore.
 - [**graph_schema**](#agrag.common.data_models.graph_schema) – The GraphSchema contract: entity and relation types extraction validates against.
 - [**provenance**](#agrag.common.data_models.provenance) – Provenance types for a chunk.
+- [**query_value**](#agrag.common.data_models.query_value) – A scalar value returned by a direct graph query.
 - [**relation**](#agrag.common.data_models.relation) – The canonical, deduped graph relationship that merge mechanics produces.
 - [**resolved_entity**](#agrag.common.data_models.resolved_entity) – Materialized identity clusters for non-destructive entity resolution.
 - [**search_result**](#agrag.common.data_models.search_result) – One retrieved item, tagged with source and relevance score.
@@ -2882,6 +2890,37 @@ line_end: int | None = None
 line_start: int | None = None
 ```
 
+##### `agrag.common.data_models.query_value`
+
+A scalar value returned by a direct graph query.
+
+**Classes:**
+
+- [**QueryValue**](#agrag.common.data_models.query_value.QueryValue) – One scalar row returned by a generated graph query.
+
+###### `agrag.common.data_models.query_value.QueryValue`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One scalar row returned by a generated graph query.
+
+**Attributes:**
+
+- [**id**](#agrag.common.data_models.query_value.QueryValue.id) (<code>[UUID](#uuid.UUID)</code>) –
+- [**value**](#agrag.common.data_models.query_value.QueryValue.value) (<code>[Any](#typing.Any)</code>) –
+
+####### `agrag.common.data_models.query_value.QueryValue.id`
+
+```python
+id: UUID = Field(default_factory=uuid4)
+```
+
+####### `agrag.common.data_models.query_value.QueryValue.value`
+
+```python
+value: Any
+```
+
 ##### `agrag.common.data_models.relation`
 
 The canonical, deduped graph relationship that merge mechanics produces.
@@ -3115,8 +3154,9 @@ One retrieved item, tagged with where it came from.
 
 **Attributes:**
 
-- [**item**](#agrag.common.data_models.search_result.SearchResult.item) (<code>[Union](#typing.Union)\[[Entity](#agrag.common.data_models.entity.Entity), [ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity), [Relation](#agrag.common.data_models.relation.Relation), [Chunk](#agrag.common.data_models.chunk.Chunk), [Community](#agrag.common.data_models.community.Community)\]</code>) – The retrieved Entity, ResolvedEntity, Relation, Chunk, or
-  Community, already resolved through any merged_into chain.
+- [**item**](#agrag.common.data_models.search_result.SearchResult.item) (<code>[Union](#typing.Union)\[[Entity](#agrag.common.data_models.entity.Entity), [ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity), [Relation](#agrag.common.data_models.relation.Relation), [Chunk](#agrag.common.data_models.chunk.Chunk), [Community](#agrag.common.data_models.community.Community), [QueryValue](#agrag.common.data_models.query_value.QueryValue)\]</code>) – The retrieved Entity, ResolvedEntity, Relation, Chunk, or
+  Community, or scalar query value, already resolved through any
+  merged_into chain.
 - [**score**](#agrag.common.data_models.search_result.SearchResult.score) (<code>[float](#float)</code>) – The method's own relevance score. Not comparable
   across methods until Fusion normalizes it.
 - [**method**](#agrag.common.data_models.search_result.SearchResult.method) (<code>[str](#str)</code>) – The name of the retrieval method that produced
@@ -3138,7 +3178,7 @@ Return the (type, id) key Fusion deduplicates on.
 ####### `agrag.common.data_models.search_result.SearchResult.item`
 
 ```python
-item: Union[Entity, ResolvedEntity, Relation, Chunk, Community]
+item: Union[Entity, ResolvedEntity, Relation, Chunk, Community, QueryValue]
 ```
 
 ####### `agrag.common.data_models.search_result.SearchResult.method`
@@ -4115,6 +4155,7 @@ identifier-validation contract shared by every Cypher builder.
 - [**bfs_expand_query**](#agrag.cypher.relations.bfs_expand_query) – Build Cypher for BFS expansion from seed entity ids.
 - [**chunks_mentioning_entities_query**](#agrag.cypher.relations.chunks_mentioning_entities_query) – Build Cypher finding chunks that mention given entities.
 - [**close_part_of_query**](#agrag.cypher.relations.close_part_of_query) – Build Cypher that closes currently valid document-to-chunk edges.
+- [**entities_in_documents_query**](#agrag.cypher.relations.entities_in_documents_query) – Build a query for live entities mentioned in selected documents.
 - [**entities_mentioned_in_chunks_query**](#agrag.cypher.relations.entities_mentioned_in_chunks_query) – Build Cypher finding entities mentioned by given chunks.
 - [**fetch_all_relations_query**](#agrag.cypher.relations.fetch_all_relations_query) – Build Cypher paginating every live domain relationship.
 - [**fetch_all_relations_query_cursor**](#agrag.cypher.relations.fetch_all_relations_query_cursor) – Build Cypher paginating every live domain relationship via keyset.
@@ -4135,7 +4176,7 @@ TraversalDirection = Literal['outgoing', 'incoming', 'both']
 ##### `agrag.cypher.relations.bfs_expand_query`
 
 ```python
-bfs_expand_query(*, depth:int = 2, limit:int = 50, filters:dict[str, Any] | None = None, relation_types:Sequence[str] | None = None, direction:TraversalDirection = 'both') -> tuple[str, dict[str, Any]]
+bfs_expand_query(*, depth:int = 2, limit:int = 50, filters:dict[str, Any] | None = None, relation_types:Sequence[str] | None = None, direction:TraversalDirection = 'both', document_ids:Sequence[str] | None = None) -> tuple[str, dict[str, Any]]
 ```
 
 Build Cypher for BFS expansion from seed entity ids.
@@ -4176,6 +4217,8 @@ never returned as BFS results.
   cross. None or empty crosses every type.
 - **direction** (<code>[TraversalDirection](#agrag.cypher.relations.TraversalDirection)</code>) – Which way a hop walks each relationship. Defaults
   to `"both"`.
+- **document_ids** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – Optional document ids that must mention each result
+  entity through a `MENTIONED_IN` edge.
 
 **Returns:**
 
@@ -4208,6 +4251,14 @@ close_part_of_query() -> str
 ```
 
 Build Cypher that closes currently valid document-to-chunk edges.
+
+##### `agrag.cypher.relations.entities_in_documents_query`
+
+```python
+entities_in_documents_query() -> str
+```
+
+Build a query for live entities mentioned in selected documents.
 
 ##### `agrag.cypher.relations.entities_mentioned_in_chunks_query`
 
@@ -12256,7 +12307,7 @@ into traversal seeds.
 - **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings)</code>) – Retrieval configuration.
 - **entity_labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The labels native entity search runs against by
   default, one vector index each.
-- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Scope to resolve within. Only `labels` and
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Scope to resolve within. Labels, document ids, and
   `properties` are projected through, matching the
   projection a plain search's own entity step applies; a
   `filters.labels` value replaces `entity_labels` rather
@@ -12273,21 +12324,21 @@ into traversal seeds.
 ###### `agrag.retrieval.methods.traversal.list_relationship_types`
 
 ```python
-list_relationship_types(seed:SearchResult, *, graph_store:GraphStore, relation_type_filter:str | None = None) -> list[str]
+list_relationship_types(seed:SearchResult, *, graph_store:GraphStore, relation_type_filter:str | None = None, filters:SearchFilters | None = None) -> list[str]
 ```
 
 List the relationship types directly attached to a resolved entity.
 
 Depth-1 only: it reports what is attached to the seed, never what
-lies past it. Takes no `filters`, unlike the functions above --
-it returns type names, never entity content or property values, so
-there is nothing for a data scope to leak.
+lies past it. Any relation type allowlist in `filters` is applied
+before the query runs.
 
 **Parameters:**
 
 - **seed** (<code>[SearchResult](#agrag.common.data_models.search_result.SearchResult)</code>) – The resolved entity to read attached types from.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – The graph to read.
 - **relation_type_filter** (<code>[str](#str) | None</code>) – Only report this type, if present.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Scope that limits which relationship types are visible.
 
 **Returns:**
 
@@ -13146,7 +13197,7 @@ The schema retrieval is grounded in, GENERIC when none was given.
 ###### `agrag.retrieval.search_engine.SearchEngine.list_relationship_types`
 
 ```python
-list_relationship_types(seed:SearchResult, *, relation_type_filter:str | None = None) -> list[str]
+list_relationship_types(seed:SearchResult, *, relation_type_filter:str | None = None, filters:SearchFilters | None = None) -> list[str]
 ```
 
 List the relationship types directly attached to an entity.
@@ -13159,6 +13210,7 @@ what lies past it.
 - **seed** (<code>[SearchResult](#agrag.common.data_models.search_result.SearchResult)</code>) – The resolved entity to read attached types from,
   normally from :meth:`find_entity`.
 - **relation_type_filter** (<code>[str](#str) | None</code>) – Only report this type, if present.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Scope that limits visible relationship types.
 
 **Returns:**
 

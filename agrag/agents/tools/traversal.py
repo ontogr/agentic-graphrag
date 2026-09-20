@@ -119,7 +119,7 @@ def make_list_relationship_types_tool(
         item = _entity_item(resolved)
         name = item.name if item is not None else entity
         types = await engine.list_relationship_types(
-            resolved, relation_type_filter=relation_type_filter
+            resolved, relation_type_filter=relation_type_filter, filters=filters
         )
         if not types:
             return f"No relationships found on {name}."
@@ -297,7 +297,9 @@ def make_traverse_from_entity_tool(
                 )
                 if len(results) > _TRAVERSAL_WIDE_FANOUT:
                     item = _entity_item(resolved)
-                    types = await engine.list_relationship_types(resolved)
+                    types = await engine.list_relationship_types(
+                        resolved, filters=filters
+                    )
                     return _too_wide_message(
                         item.name if item is not None else entity,
                         len(results),

@@ -15,6 +15,7 @@ import pytest
 
 from agrag.agents.ledger import Ledger
 from agrag.agents.tools.search import (
+    MAX_TOOL_LIMIT,
     make_answer_from_graph_structure_tool,
     make_answer_thematic_question_tool,
     make_explore_related_tool,
@@ -113,6 +114,15 @@ class TestLookUpEntityTool:
         await tool.ainvoke({"query": "aspirin"})
 
         engine.search.assert_awaited_once_with("aspirin", ENTITY, filters=None)
+
+    async def test_limit_above_shared_bound_is_rejected(self) -> None:
+        """Discovery tools reject limits that could flood model context."""
+        engine = AsyncMock()
+        tool = make_look_up_entity_tool(engine, Ledger())
+
+        with pytest.raises(ValueError, match="limit must be between"):
+            await tool.ainvoke({"query": "aspirin", "limit": MAX_TOOL_LIMIT + 1})
+        engine.search.assert_not_awaited()
 
     async def test_labels_become_a_filter(self) -> None:
         """A labels argument reaches the search as a label filter."""
