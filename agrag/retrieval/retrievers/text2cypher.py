@@ -62,6 +62,17 @@ _INSTRUCTION_MARKERS = (
     "override",
     "pretend",
 )
+_ENVIRONMENT_FAILURE_TYPES = frozenset(
+    {"DriverError", "ServiceUnavailable", "SessionExpired"}
+)
+
+
+def _is_environment_failure(exc: BaseException) -> bool:
+    """Return whether a query failure indicates an unavailable database."""
+    return (
+        isinstance(exc, (ConnectionError, OSError, TimeoutError))
+        or type(exc).__name__ in _ENVIRONMENT_FAILURE_TYPES
+    )
 
 
 def _format_retry_diagnostic(exc: BaseException) -> str:
@@ -431,7 +442,7 @@ class Text2CypherRetriever(Retriever):
         self._schema = schema
         self._settings = settings or RetrievalSettings()
 
-    async def retrieve(
+    async def retrieve(  # noqa: PLR0912
         self,
         query: str,
         *,
@@ -466,6 +477,8 @@ class Text2CypherRetriever(Retriever):
         except UnsafeCypherError:
             return []
         except Exception as exc:
+            if _is_environment_failure(exc):
+                return []
             try:
                 cypher_query = await self._generate_cypher(
                     query, failure_context=_format_retry_diagnostic(exc)
