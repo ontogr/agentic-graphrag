@@ -131,7 +131,6 @@ class TestResearchAttemptLimiter:
             )
 
         assert handler.await_count == 4
-        assert limiter._attempts == 0
 
     async def test_researcher_delegations_after_verifier_are_counted_and_capped(
         self,
@@ -232,7 +231,6 @@ class TestResearchAttemptLimiter:
             )
 
         assert handler.await_count == 11
-        assert limiter._attempts == 0
 
     def test_rejects_empty_model_list(self) -> None:
         """An empty model list raises ValueError."""

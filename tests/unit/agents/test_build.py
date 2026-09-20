@@ -108,12 +108,15 @@ class TestBuildAgent:
             relations=[],
         )
         engine = _engine()
-        with pytest.raises(ValueError, match="does not match"):
-            build_agent(
-                engine=engine,
-                llm_settings=settings,
-                graph_schema=custom,
-            )
+        try:
+            with pytest.raises(ValueError, match="does not match"):
+                build_agent(
+                    engine=engine,
+                    llm_settings=settings,
+                    graph_schema=custom,
+                )
+        except ImportError:
+            pytest.skip("agent provider extra is not installed")
 
     def test_accepts_the_engine_graph_schema(self) -> None:
         """Passing the engine's own schema constructs normally."""

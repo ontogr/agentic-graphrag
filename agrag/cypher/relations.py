@@ -89,6 +89,11 @@ def bfs_expand_query(
 
     safe_depth = max(1, min(depth, 10))
     safe_limit = max(1, min(limit, 1000))
+    if direction not in _DIRECTION_ARROW:
+        raise ValueError(
+            f"unsupported direction {direction!r}; expected one of "
+            f"{tuple(_DIRECTION_ARROW)}"
+        )
 
     where_clause, filter_params = filter_clause(filters or {}, node_var="neighbor")
     filter_suffix = f" AND {where_clause[6:]}" if where_clause else ""

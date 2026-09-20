@@ -284,7 +284,7 @@ class TestToolsIntegration:
     async def _seed_document_chunk(self, document_id: str, text: str) -> None:
         """Write one chunk belonging to a named document partition."""
         chunk = Chunk(
-            document_id=uuid4(),
+            document_id=UUID(document_id),
             index=0,
             text=text,
             provenance=TextProvenance(char_start=0, char_end=len(text)),
@@ -760,10 +760,9 @@ class TestAgentBuildIntegration:
         not _agent_llm_configured(), reason="LLM endpoint not configured"
     )
     async def test_attempt_cap_bounds_retries_not_the_initial_pass(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
     ) -> None:
         """One retry is allowed; the initial decomposition is not clamped."""
-        monkeypatch.setenv("AGENT_MAX_RESEARCH_ATTEMPTS", "1")
         alice = await self._seed_entity(self.label, "Alice")
         acme = await self._seed_entity(self.other_label, "Acme")
         await self._seed_relation("WORKS_FOR", alice, acme)

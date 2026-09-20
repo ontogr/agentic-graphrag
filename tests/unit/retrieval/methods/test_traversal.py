@@ -7,8 +7,8 @@ Covers entity-id extraction for both entity and resolved-entity results (a
 resolved entity seeds traversal with its members' raw ids, never its own id),
 entity resolution's label/property projection, the relation-type allowlist and
 its scope-denied refusal, the deliberate non-forwarding of document_ids into
-BFS, direction/depth/limit threading, community expansion, and that
-list_relationship_types takes no filters argument at all.
+BFS, direction/depth/limit threading, community expansion, and relationship
+type filtering.
 """
 
 from unittest.mock import AsyncMock, patch
@@ -16,7 +16,9 @@ from uuid import uuid4
 
 import pytest
 
+from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.retrieval.errors import ScopeDeniedError
@@ -68,8 +70,14 @@ class TestExtractEntityIds:
         """Repeat ids are kept once and non-entity items are skipped."""
         entity = _entity()
         resolved = _resolved([entity.id, uuid4()])
+        chunk = Chunk(
+            document_id=uuid4(),
+            text="text",
+            provenance=TextProvenance(char_start=0, char_end=4),
+        )
         ids = extract_entity_ids(
-            [_result(entity), _result(resolved)]  # type: ignore[list-item]
+            [_result(entity), _result(resolved), _result(chunk)]
+            # type: ignore[list-item]
         )
         assert ids == [entity.id, resolved.member_ids[1]]
 
