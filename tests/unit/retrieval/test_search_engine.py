@@ -753,6 +753,14 @@ class TestSearchEngine:
 
         assert mock_retriever.call_args.kwargs["schema"] is GENERIC
 
+    def test_generic_schema_supplies_native_labels_when_settings_are_empty(
+        self,
+    ) -> None:
+        """Native search uses GENERIC labels when no label config is set."""
+        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+
+        assert engine._entity_labels == [entity.label for entity in GENERIC.entities]
+
     def test_graph_schema_passed_reaches_text2cypher(self) -> None:
         """A passed schema is the one text2cypher generates against."""
         engine = SearchEngine(

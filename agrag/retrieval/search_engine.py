@@ -116,7 +116,7 @@ class SearchEngine:
         self._entity_labels = (
             schema_labels
             if graph_schema is not None
-            else list(entity_labels or self._settings.entity_labels)
+            else list(entity_labels or self._settings.entity_labels or schema_labels)
         )
 
     @property

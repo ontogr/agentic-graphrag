@@ -401,8 +401,8 @@ class Text2CypherRetriever(Retriever):
     entity id are resolved through resolve_entity before becoming a
     SearchResult; relationship and chunk rows are parsed directly, under
     the prompt's own aliases or any alias the model chose instead.
-    Scalar rows (for example counts or property values) cannot become a
-    SearchResult and are logged instead of being silently dropped.
+    Scalar rows (for example counts or property values) become cited
+    ``QueryValue`` results so direct-query answers are not lost.
     """
 
     name = "text2cypher"
@@ -450,9 +450,8 @@ class Text2CypherRetriever(Retriever):
 
         Returns:
             SearchResults from the generated query: entity results
-                resolved through ``resolve_entity``; relation and chunk
-                rows parsed directly. Rows with no entity, relation, or
-                chunk item are logged and skipped.
+                resolved through ``resolve_entity``; relation, chunk, and
+                scalar rows parsed directly.
         """
         try:
             cypher_query = await self._generate_cypher(query)
@@ -614,7 +613,7 @@ class Text2CypherRetriever(Retriever):
         return None
 
     @staticmethod
-    def _extract_entity_id(row: dict) -> UUID | None:
+    def _extract_entity_id(row: dict) -> UUID | None:  # noqa: PLR0912
         """Try to find a UUID entity id in a result row.
 
         Accepts the aliases the generation prompt asks for, then falls back
@@ -625,9 +624,11 @@ class Text2CypherRetriever(Retriever):
         a name, so a chunk or relationship value cannot be mistaken for
         one.
         """
-        for key in ("id", "entity_id", "n"):
+        for key in ("entity_id", "n"):
             val = row.get(key)
             if val is None:
+                continue
+            if key == "entity_id" and not isinstance(val, dict):
                 continue
             if isinstance(val, UUID):
                 return val

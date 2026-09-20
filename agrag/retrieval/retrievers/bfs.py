@@ -77,7 +77,11 @@ class BFSRetriever(Retriever):
         query, filter_params = bfs_expand_query(
             depth=effective_depth,
             limit=effective_limit,
-            filters=filters.to_property_filter() if filters else None,
+            filters=(
+                SearchFilters(properties=filters.properties).to_property_filter()
+                if filters
+                else None
+            ),
             relation_types=filters.relation_types if filters else None,
             direction=direction,
             document_ids=filters.document_ids if filters else None,

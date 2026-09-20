@@ -13036,8 +13036,8 @@ a bounded, sanitized diagnostic of the failure. Rows that carry an
 entity id are resolved through resolve_entity before becoming a
 SearchResult; relationship and chunk rows are parsed directly, under
 the prompt's own aliases or any alias the model chose instead.
-Scalar rows (for example counts or property values) cannot become a
-SearchResult and are logged instead of being silently dropped.
+Scalar rows (for example counts or property values) become cited
+`QueryValue` results so direct-query answers are not lost.
 
 **Functions:**
 
@@ -13085,9 +13085,8 @@ raising.
 **Returns:**
 
 - <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – SearchResults from the generated query: entity results
-  resolved through `resolve_entity`; relation and chunk
-  rows parsed directly. Rows with no entity, relation, or
-  chunk item are logged and skipped.
+  resolved through `resolve_entity`; relation, chunk, and
+  scalar rows parsed directly.
 
 ###### `agrag.retrieval.retrievers.text2cypher.logger`
 

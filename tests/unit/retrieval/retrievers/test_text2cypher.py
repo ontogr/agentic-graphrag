@@ -139,6 +139,18 @@ class TestText2CypherBounds:
         assert len(results) == 1
         assert results[0].item.value == {"count": 3}
 
+    async def test_keeps_uuid_scalar_under_id_alias(self) -> None:
+        """A bare UUID property is not mistaken for an entity node."""
+        value = uuid4()
+        gs = AsyncMock()
+        gs.execute_read.return_value = [{"id": str(value)}]
+        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+
+        with patch.object(retriever, "_generate_cypher", return_value="RETURN id"):
+            results = await retriever.retrieve("return the id")
+
+        assert results[0].item.value == {"id": str(value)}
+
     async def test_keeps_existing_row_limit(self) -> None:
         """A generated query that already declares LIMIT is left alone."""
         gs = AsyncMock()
