@@ -4,12 +4,15 @@ Uses an AsyncMock graph store and inspects the generated Cypher query and
 parameters directly. Covers empty/None seed ids short-circuiting to no
 results, a depth override reaching the variable-length path pattern
 (``*1..N``), SearchFilters properties reaching query parameters,
-relation_types restricting the relationship pattern, and that no filters
-means no filter parameters are added.
+relation_types restricting the relationship pattern, that no filters means no
+filter parameters are added, and that direction is threaded through to the
+query builder (defaulting to "both").
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
+
+import pytest
 
 from agrag.common.data_models.entity import Entity
 from agrag.retrieval.filters import SearchFilters
@@ -114,3 +117,54 @@ class TestBFSRetriever:
         call_args = gs.execute_read.call_args
         params = call_args.args[1]
         assert "filter_label" not in params
+
+    @pytest.mark.parametrize("direction", ["outgoing", "incoming", "both"])
+    async def test_direction_reaches_query_builder(self, direction: str) -> None:
+        """The direction passed to retrieve() reaches bfs_expand_query."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        retriever = BFSRetriever(graph_store=gs)
+        with patch(
+            "agrag.retrieval.retrievers.bfs.bfs_expand_query",
+            MagicMock(return_value=("MATCH (n) RETURN n", {})),
+        ) as builder:
+            await retriever.retrieve("test", seed_ids=[uuid4()], direction=direction)
+
+        assert builder.call_args.kwargs["direction"] == direction
+
+    async def test_direction_defaults_to_both(self) -> None:
+        """With no direction argument the builder still receives "both"."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        retriever = BFSRetriever(graph_store=gs)
+        with patch(
+            "agrag.retrieval.retrievers.bfs.bfs_expand_query",
+            MagicMock(return_value=("MATCH (n) RETURN n", {})),
+        ) as builder:
+            await retriever.retrieve("test", seed_ids=[uuid4()])
+
+        assert builder.call_args.kwargs["direction"] == "both"
+
+    async def test_outgoing_direction_reaches_the_query(self) -> None:
+        """direction="outgoing" produces a forward-arrow traversal."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        retriever = BFSRetriever(graph_store=gs)
+        await retriever.retrieve(
+            "test", seed_ids=[uuid4()], direction="outgoing", depth=1
+        )
+
+        query = gs.execute_read.call_args.args[0]
+        assert "(start)-[*1..1]->(neighbor)" in query
+
+    async def test_incoming_direction_reaches_the_query(self) -> None:
+        """direction="incoming" produces a reverse-arrow traversal."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        retriever = BFSRetriever(graph_store=gs)
+        await retriever.retrieve(
+            "test", seed_ids=[uuid4()], direction="incoming", depth=1
+        )
+
+        query = gs.execute_read.call_args.args[0]
+        assert "(start)<-[*1..1]-(neighbor)" in query

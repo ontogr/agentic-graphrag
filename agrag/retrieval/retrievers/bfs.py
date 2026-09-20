@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from agrag.common.data_models.search_result import SearchResult
-from agrag.cypher.relations import bfs_expand_query
+from agrag.cypher.relations import TraversalDirection, bfs_expand_query
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.graph import _parse_entity_node
 from agrag.retrieval.filters import SearchFilters
@@ -47,6 +47,7 @@ class BFSRetriever(Retriever):
         limit: int | None = None,
         seed_ids: list[UUID] | None = None,
         depth: int | None = None,
+        direction: TraversalDirection = "both",
     ) -> list[SearchResult]:
         """Run BFS expansion from seed entity ids.
 
@@ -61,6 +62,8 @@ class BFSRetriever(Retriever):
                 returns empty.
             depth: BFS hops. None uses
                 RetrievalSettings.traversal_depth.
+            direction: Which way a hop walks each relationship,
+                relative to the seed entity. Defaults to ``"both"``.
 
         Returns:
             SearchResults with entities and relations found via BFS.
@@ -76,6 +79,7 @@ class BFSRetriever(Retriever):
             limit=effective_limit,
             filters=filters.to_property_filter() if filters else None,
             relation_types=filters.relation_types if filters else None,
+            direction=direction,
         )
         params = {"seed_ids": [str(sid) for sid in seed_ids], **filter_params}
 

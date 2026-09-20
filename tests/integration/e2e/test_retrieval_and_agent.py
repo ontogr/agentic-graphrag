@@ -133,7 +133,6 @@ class TestRetrievalE2E:
         self.condition_label = validate_identifier(f"Condition_{uuid4().hex[:8]}")
         self.embedder = _FixedEmbedder()
         self.settings = RetrievalSettings(
-            entity_labels=[self.drug_label, self.condition_label],
             entity_top_k=10,
             chunk_top_k=10,
         )
@@ -290,6 +289,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("Aspirin", ENTITY)
 
@@ -308,6 +308,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("Aspirin", ENTITY)
 
@@ -324,6 +325,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("headache treatment", CHUNK)
 
@@ -339,6 +341,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("headache", CHUNK)
 
@@ -359,6 +362,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("Aspirin headache", HYBRID)
 
@@ -374,6 +378,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("Aspirin", HYBRID)
 
@@ -395,6 +400,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("Aspirin", HYBRID)
 
@@ -416,6 +422,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("Aspirin", ENTITY)
 
@@ -435,6 +442,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("Aspirin", ENTITY)
         assert isinstance(results, list)
@@ -447,6 +455,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("headache", CHUNK)
         assert isinstance(results, list)
@@ -459,6 +468,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("", ENTITY)
         assert isinstance(results, list)
@@ -473,6 +483,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         recipe = Recipe(methods=["entity"], limit=1)
         results = await engine.search("Aspirin", recipe)
@@ -505,6 +516,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
 
         entity_results = await engine.search("Aspirin", ENTITY)
@@ -593,6 +605,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
 
         # Both entities should be findable.
@@ -617,6 +630,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
 
         settings = AgentLLMSettings.from_openai_compatible_env()
@@ -653,6 +667,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
 
         settings = AgentLLMSettings.from_openai_compatible_env()
@@ -756,6 +771,7 @@ class TestRetrievalE2E:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("Aspirin", ENTITY)
 

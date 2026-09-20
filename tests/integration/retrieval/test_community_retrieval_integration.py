@@ -20,6 +20,7 @@ from agrag.common.data_models.community import (
 )
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
@@ -93,8 +94,13 @@ class TestCommunityRetrievalIntegration:
         await self.store.connect()
         self.label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         self.embedder = _FixedEmbedder()
+        self.schema = GraphSchema(
+            name="community_retrieval_integration",
+            version="1",
+            entities=[EntityType(label=self.label, description="A test entity.")],
+            relations=[],
+        )
         self.settings = RetrievalSettings(
-            entity_labels=[self.label],
             entity_top_k=10,
             chunk_top_k=10,
             community_top_k=5,
@@ -332,6 +338,7 @@ class TestCommunityRetrievalIntegration:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
 
         async def _fake_rerank(
@@ -367,6 +374,7 @@ class TestCommunityRetrievalIntegration:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         recipe = Recipe(methods=["entity"], bfs=True, community_expand=True, limit=10)
 
@@ -391,7 +399,7 @@ class TestCommunityRetrievalIntegration:
             )
 
         with patch(
-            "agrag.retrieval.search_engine.community_context",
+            "agrag.retrieval.community_context.community_context",
             side_effect=_spy_context,
         ):
             await engine.search("Alice", recipe)
@@ -425,6 +433,7 @@ class TestCommunityRetrievalIntegration:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
 
         captured: dict[str, list[SearchResult]] = {}
@@ -492,6 +501,7 @@ class TestCommunityRetrievalIntegration:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         recipe = Recipe(
             methods=["entity"],
@@ -532,6 +542,7 @@ class TestCommunityRetrievalIntegration:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         filters = SearchFilters(
             labels=["Person"],
@@ -582,6 +593,7 @@ class TestCommunityRetrievalIntegration:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         # THEMATIC has limit 5. These bounds are only meaningful with a hit
         # to bound, so a cold index must not pass as an empty result set.

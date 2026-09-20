@@ -36,8 +36,6 @@ class RetrievalSettings(BaseSettings):
             matters.
         reranker_min_score: Results scoring below this after rerank
             are dropped. None disables the threshold.
-        text2cypher_max_retries: Maximum retry attempts for a
-            text2cypher generation that produces invalid Cypher.
         text2cypher_timeout_seconds: Server-side transaction timeout
             applied to generated read queries. The database terminates
             a generated query that runs longer, so a pathological
@@ -78,7 +76,6 @@ class RetrievalSettings(BaseSettings):
     traversal_limit: int = 50
     rrf_k: int = 60
     reranker_min_score: float | None = None
-    text2cypher_max_retries: int = 3
     text2cypher_timeout_seconds: float | None = 10.0
     text2cypher_max_rows: int = 1000
     cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"

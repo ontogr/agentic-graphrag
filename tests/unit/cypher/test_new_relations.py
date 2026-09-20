@@ -9,6 +9,9 @@ multiple filters, excluding Chunk-labeled neighbors, and clamping depth to
 Also covers chunks_mentioning_entities_query and
 entities_mentioned_in_chunks_query traversing MENTIONED_IN in each
 direction while filtering tombstoned nodes.
+
+Directions are asserted at the string level (the exact arrow in the pattern),
+and relationship_types_from_query is asserted to stay depth-1 only.
 """
 
 import pytest
@@ -17,6 +20,7 @@ from agrag.cypher.relations import (
     bfs_expand_query,
     chunks_mentioning_entities_query,
     entities_mentioned_in_chunks_query,
+    relationship_types_from_query,
 )
 
 
@@ -100,6 +104,98 @@ class TestBfsExpandQuery:
         """Limit below 1 is clamped to 1."""
         q, _ = bfs_expand_query(limit=0)
         assert "LIMIT 1" in q
+
+    def test_direction_defaults_to_both(self) -> None:
+        """With no direction argument the traversal stays undirected."""
+        q, _ = bfs_expand_query(depth=2)
+        assert "(start)-[*1..2]-(neighbor)" in q
+
+    def test_direction_outgoing_uses_forward_arrow(self) -> None:
+        """direction="outgoing" walks relationships leaving the seed."""
+        q, _ = bfs_expand_query(depth=2, direction="outgoing")
+        assert "(start)-[*1..2]->(neighbor)" in q
+        assert "<-" not in q
+
+    def test_direction_incoming_uses_reverse_arrow(self) -> None:
+        """direction="incoming" walks relationships entering the seed."""
+        q, _ = bfs_expand_query(depth=2, direction="incoming")
+        assert "(start)<-[*1..2]-(neighbor)" in q
+        assert "->" not in q
+
+    def test_direction_both_uses_undirected_pattern(self) -> None:
+        """direction="both" matches the relationship either way."""
+        q, _ = bfs_expand_query(depth=2, direction="both")
+        assert "(start)-[*1..2]-(neighbor)" in q
+        assert "->" not in q
+        assert "<-" not in q
+
+    def test_direction_and_relation_types_together(self) -> None:
+        """A typed traversal keeps the direction arrow around the type pattern."""
+        q, _ = bfs_expand_query(
+            depth=1, relation_types=["TREATS"], direction="outgoing"
+        )
+        assert "(start)-[:TREATS*1..1]->(neighbor)" in q
+
+
+class TestRelationshipTypesFromQuery:
+    """relationship_types_from_query lists attached types, depth-1 only."""
+
+    def test_projects_distinct_types(self) -> None:
+        """The query returns one row per distinct attached type."""
+        q = relationship_types_from_query()
+        assert "RETURN DISTINCT type(r) AS rel_type" in q
+
+    def test_expects_seed_ids(self) -> None:
+        """The query expects $seed_ids and binds seed nodes by id."""
+        q = relationship_types_from_query()
+        assert "UNWIND $seed_ids AS seed_id" in q
+        assert "MATCH (seed:_AgragNode {id: seed_id})" in q
+
+    def test_stays_depth_one(self) -> None:
+        """The query is depth-1 only: no variable-length path anywhere."""
+        q = relationship_types_from_query(
+            relation_types=["TREATS"], direction="outgoing"
+        )
+        assert "*1.." not in q
+        assert "*]" not in q
+
+    def test_relation_types_reuse_the_type_pattern(self) -> None:
+        """relation_types produce the same pattern bfs_expand_query builds."""
+        q = relationship_types_from_query(relation_types=["TREATS", "CAUSES"])
+        bfs, _ = bfs_expand_query(depth=1, relation_types=["TREATS", "CAUSES"])
+        assert "[r:TREATS|CAUSES]" in q
+        assert "[:TREATS|CAUSES*1..1]" in bfs
+
+    def test_no_relation_types_leaves_pattern_untyped(self) -> None:
+        """Without relation_types the relationship pattern stays untyped."""
+        q = relationship_types_from_query()
+        assert "[r]-" in q
+
+    def test_unsafe_relation_type_raises(self) -> None:
+        """An injection attempt in a relation type is rejected."""
+        with pytest.raises(ValueError):
+            relationship_types_from_query(
+                relation_types=["TREATS]->() MATCH (x) DETACH DELETE x //"]
+            )
+
+    def test_direction_outgoing_uses_forward_arrow(self) -> None:
+        """direction="outgoing" reads relationships leaving the seed."""
+        q = relationship_types_from_query(direction="outgoing")
+        assert "(seed)-[r]->(neighbor)" in q
+        assert "<-" not in q
+
+    def test_direction_incoming_uses_reverse_arrow(self) -> None:
+        """direction="incoming" reads relationships entering the seed."""
+        q = relationship_types_from_query(direction="incoming")
+        assert "(seed)<-[r]-(neighbor)" in q
+        assert "->" not in q
+
+    def test_direction_both_uses_undirected_pattern(self) -> None:
+        """direction="both" reads relationships either way."""
+        q = relationship_types_from_query(direction="both")
+        assert "(seed)-[r]-(neighbor)" in q
+        assert "->" not in q
+        assert "<-" not in q
 
 
 class TestChunksMentioningEntitiesQuery:

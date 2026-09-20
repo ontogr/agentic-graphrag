@@ -25,8 +25,13 @@ import pytest
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.graph_schema import (
+    GENERIC,
+    EntityType,
+    GraphSchema,
+    RelationType,
+)
 from agrag.common.data_models.provenance import TextProvenance
-from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.retrieval.errors import (
@@ -34,6 +39,7 @@ from agrag.retrieval.errors import (
     UnknownRecipeMethodError,
 )
 from agrag.retrieval.filters import SearchFilters
+from agrag.retrieval.methods.traversal import extract_entity_ids
 from agrag.retrieval.recipes import ENTITY, HYBRID, Recipe
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
@@ -49,6 +55,24 @@ class MockEmbedder:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Return mock vectors for a batch."""
         return [[0.1, 0.2] for _ in texts]
+
+
+# A non-GENERIC schema, so a test cannot pass by matching the fallback's labels.
+_CLINICAL_SCHEMA = GraphSchema(
+    name="clinical",
+    version="1",
+    entities=[
+        EntityType(label="Drug", description="A medication."),
+        EntityType(label="Disease", description="A diagnosed condition."),
+    ],
+    relations=[
+        RelationType(
+            label="TREATS",
+            description="A drug treats a disease.",
+            patterns=[("Drug", "Disease")],
+        )
+    ],
+)
 
 
 class TestSearchEngine:
@@ -355,7 +379,7 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_resolve,
             patch(
-                "agrag.retrieval.search_engine.community_context",
+                "agrag.retrieval.community_context.community_context",
                 new_callable=AsyncMock,
             ) as mock_cc,
         ):
@@ -396,7 +420,7 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_resolve,
             patch(
-                "agrag.retrieval.search_engine.community_context",
+                "agrag.retrieval.community_context.community_context",
                 new_callable=AsyncMock,
             ) as mock_cc,
         ):
@@ -446,7 +470,7 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_resolve,
             patch(
-                "agrag.retrieval.search_engine.community_context",
+                "agrag.retrieval.community_context.community_context",
                 new_callable=AsyncMock,
             ) as mock_cc,
             patch(
@@ -667,6 +691,7 @@ class TestSearchEngine:
             graph_store=gs,
             embedder=MockEmbedder(),
             entity_labels=["Drug", "Disease"],
+            graph_schema=_CLINICAL_SCHEMA,
         )
 
         with (
@@ -688,6 +713,83 @@ class TestSearchEngine:
             assert raw_call.kwargs["labels"] == ["Drug", "Disease"]
             assert raw_call.kwargs["collection"] == "agrag_entities"
             assert resolved_call.kwargs["labels"] == ("ResolvedEntity",)
+
+    async def test_graph_schema_labels_drive_entity_search(self) -> None:
+        """A custom schema's labels drive native search with no second input."""
+        ent = Entity(id=uuid4(), label="Drug", name="Aspirin")
+        engine = SearchEngine(
+            graph_store=AsyncMock(),
+            embedder=MockEmbedder(),
+            graph_schema=_CLINICAL_SCHEMA,
+        )
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_ev,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_er,
+        ):
+            mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
+            mock_er.return_value = ent
+
+            await engine.search("Aspirin", ENTITY)
+
+            assert mock_ev.call_args_list[0].kwargs["labels"] == ["Drug", "Disease"]
+
+    def test_graph_schema_none_falls_back_to_generic(self) -> None:
+        """Omitting the schema resolves to the shared GENERIC constant."""
+        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+
+        assert engine.graph_schema is GENERIC
+
+        with patch(
+            "agrag.retrieval.search_engine.Text2CypherRetriever"
+        ) as mock_retriever:
+            engine._build_retrievers()
+
+        assert mock_retriever.call_args.kwargs["schema"] is GENERIC
+
+    def test_graph_schema_passed_reaches_text2cypher(self) -> None:
+        """A passed schema is the one text2cypher generates against."""
+        engine = SearchEngine(
+            graph_store=AsyncMock(),
+            embedder=MockEmbedder(),
+            graph_schema=_CLINICAL_SCHEMA,
+        )
+
+        assert engine.graph_schema is _CLINICAL_SCHEMA
+
+        with patch(
+            "agrag.retrieval.search_engine.Text2CypherRetriever"
+        ) as mock_retriever:
+            engine._build_retrievers()
+
+        assert mock_retriever.call_args.kwargs["schema"] is _CLINICAL_SCHEMA
+
+    def test_entity_labels_must_match_graph_schema(self) -> None:
+        """Entity labels outside the schema are rejected, not ignored."""
+        with pytest.raises(ValueError, match="entity_labels must name exactly"):
+            SearchEngine(
+                graph_store=AsyncMock(),
+                embedder=MockEmbedder(),
+                entity_labels=["Person"],
+                graph_schema=_CLINICAL_SCHEMA,
+            )
+
+    def test_entity_labels_matching_the_schema_are_accepted(self) -> None:
+        """Entity labels naming exactly the schema's labels pass validation."""
+        engine = SearchEngine(
+            graph_store=AsyncMock(),
+            embedder=MockEmbedder(),
+            entity_labels=["Disease", "Drug"],
+            graph_schema=_CLINICAL_SCHEMA,
+        )
+
+        assert engine.graph_schema is _CLINICAL_SCHEMA
 
     async def test_raises_when_every_method_fails(self) -> None:
         """A total retriever outage raises instead of returning no hits."""
@@ -803,7 +905,7 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_resolve,
             patch(
-                "agrag.retrieval.search_engine.community_context",
+                "agrag.retrieval.community_context.community_context",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("community store unavailable"),
             ),
@@ -817,21 +919,230 @@ class TestSearchEngine:
         assert [result.item for result in results] == [entity]
         assert "Community expansion failed" in caplog.text
 
-    def test_extract_entity_ids_uses_resolved_entity_members(self) -> None:
-        """A ResolvedEntity contributes its raw member ids, not its own id."""
-        entity = Entity(id=uuid4(), label="Person", name="Ada")
-        member_a, member_b = uuid4(), uuid4()
-        resolved = ResolvedEntity(
-            id=uuid4(),
-            label="Person",
-            name="Cluster",
-            member_ids=[member_a, member_b],
+    async def test_recipe_min_score_overrides_settings_value(self) -> None:
+        """A per-call min_score beats the configured rerank threshold."""
+        ent = Entity(id=uuid4(), label="Person", name="Alice")
+        engine = SearchEngine(
+            graph_store=AsyncMock(),
+            embedder=MockEmbedder(),
+            settings=RetrievalSettings(reranker_min_score=0.2),
         )
-        results = [
-            SearchResult(item=entity, score=0.9, method="test"),
-            SearchResult(item=resolved, score=0.8, method="test"),
+        recipe = Recipe(methods=["entity"], reranker="cross_encoder", min_score=0.9)
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_ev,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_er,
+            patch(
+                "agrag.retrieval.search_engine.cross_encoder_rerank",
+                new_callable=AsyncMock,
+            ) as mock_rerank,
+        ):
+            mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
+            mock_er.return_value = ent
+            mock_rerank.return_value = []
+
+            await engine.search("test", recipe)
+
+            assert mock_rerank.await_args.kwargs["min_score"] == 0.9
+
+    async def test_recipe_min_score_none_falls_back_to_settings(self) -> None:
+        """A recipe that sets no floor still uses the configured threshold."""
+        ent = Entity(id=uuid4(), label="Person", name="Alice")
+        engine = SearchEngine(
+            graph_store=AsyncMock(),
+            embedder=MockEmbedder(),
+            settings=RetrievalSettings(reranker_min_score=0.2),
+        )
+        recipe = Recipe(methods=["entity"], reranker="cross_encoder")
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_ev,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_er,
+            patch(
+                "agrag.retrieval.search_engine.cross_encoder_rerank",
+                new_callable=AsyncMock,
+            ) as mock_rerank,
+        ):
+            mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
+            mock_er.return_value = ent
+            mock_rerank.return_value = []
+
+            await engine.search("test", recipe)
+
+            assert mock_rerank.await_args.kwargs["min_score"] == 0.2
+
+    async def test_search_bfs_seeding_calls_extract_entity_ids(self) -> None:
+        """search() seeds BFS through the relocated free function."""
+        entity = Entity(id=uuid4(), label="Person", name="Ada")
+        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+        recipe = Recipe(methods=["entity"], bfs=True, bfs_depth=1)
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_vs,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "agrag.retrieval.search_engine.extract_entity_ids",
+                wraps=extract_entity_ids,
+            ) as mock_extract,
+            patch(
+                "agrag.retrieval.search_engine.BFSRetriever",
+            ) as mock_bfs,
+        ):
+            mock_vs.return_value = [VectorHit(id=entity.id, score=0.9, payload={})]
+            mock_resolve.return_value = entity
+            mock_bfs.return_value.retrieve = AsyncMock(return_value=[])
+
+            await engine.search("Ada", recipe)
+
+        assert mock_extract.call_count == 1
+        assert mock_bfs.return_value.retrieve.call_args.kwargs["seed_ids"] == [
+            entity.id
         ]
 
-        ids = SearchEngine._extract_entity_ids(results)
+    async def test_search_community_expand_calls_expand_with_communities(
+        self,
+    ) -> None:
+        """search() enriches through the shared community-expansion helper."""
+        entity = Entity(id=uuid4(), label="Person", name="Ada")
+        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+        recipe = Recipe(methods=["entity"], community_expand=True, community_top_k=2)
+        doc_id = str(uuid4())
 
-        assert ids == [entity.id, member_a, member_b]
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+            ) as mock_vs,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "agrag.retrieval.search_engine.expand_with_communities",
+                new_callable=AsyncMock,
+            ) as mock_expand,
+        ):
+            mock_vs.return_value = [VectorHit(id=entity.id, score=0.9, payload={})]
+            mock_resolve.return_value = entity
+            mock_expand.return_value = []
+
+            await engine.search(
+                "Ada", recipe, filters=SearchFilters(document_ids=[doc_id])
+            )
+
+        kwargs = mock_expand.call_args.kwargs
+        assert kwargs["top_k"] == 2
+        assert kwargs["filters"].document_ids == [doc_id]
+        assert mock_expand.call_args.args[1] == [entity.id]
+
+    async def test_find_entity_delegates_to_methods_traversal(self) -> None:
+        """find_entity forwards this engine's stores and labels."""
+        graph_store = AsyncMock()
+        embedder = MockEmbedder()
+        engine = SearchEngine(
+            graph_store=graph_store,
+            embedder=embedder,
+            graph_schema=_CLINICAL_SCHEMA,
+        )
+        expected = SearchResult(
+            item=Entity(id=uuid4(), label="Drug", name="Aspirin"),
+            score=1.0,
+            method="entity",
+        )
+        scope = SearchFilters(properties={"tenant_id": "tenant-a"})
+
+        with patch(
+            "agrag.retrieval.search_engine._find_entity",
+            new_callable=AsyncMock,
+            return_value=expected,
+        ) as delegate:
+            found = await engine.find_entity("Aspirin", filters=scope)
+
+        assert found is expected
+        kwargs = delegate.call_args.kwargs
+        assert delegate.call_args.args[0] == "Aspirin"
+        assert kwargs["graph_store"] is graph_store
+        assert kwargs["embedder"] is embedder
+        assert kwargs["vector_store"] is None
+        assert kwargs["entity_labels"] == ["Drug", "Disease"]
+        assert kwargs["filters"] is scope
+        assert isinstance(kwargs["settings"], RetrievalSettings)
+
+    async def test_traverse_delegates_to_methods_traversal(self) -> None:
+        """Traverse forwards the seed, direction, and scope."""
+        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+        seed = SearchResult(
+            item=Entity(id=uuid4(), label="Person", name="Ada"),
+            score=1.0,
+            method="entity",
+        )
+        scope = SearchFilters(relation_types=["WORKS_FOR"])
+
+        with patch(
+            "agrag.retrieval.search_engine._traverse",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as delegate:
+            await engine.traverse(
+                seed,
+                relation_type="WORKS_FOR",
+                direction="outgoing",
+                depth=2,
+                limit=5,
+                community_expand=True,
+                community_top_k=1,
+                filters=scope,
+            )
+
+        kwargs = delegate.call_args.kwargs
+        assert delegate.call_args.args[0] is seed
+        assert kwargs["relation_type"] == "WORKS_FOR"
+        assert kwargs["direction"] == "outgoing"
+        assert kwargs["depth"] == 2
+        assert kwargs["limit"] == 5
+        assert kwargs["community_expand"] is True
+        assert kwargs["community_top_k"] == 1
+        assert kwargs["filters"] is scope
+        assert isinstance(kwargs["settings"], RetrievalSettings)
+
+    async def test_list_relationship_types_delegates_to_methods_traversal(
+        self,
+    ) -> None:
+        """list_relationship_types forwards the seed and its type filter."""
+        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+        seed = SearchResult(
+            item=Entity(id=uuid4(), label="Person", name="Ada"),
+            score=1.0,
+            method="entity",
+        )
+
+        with patch(
+            "agrag.retrieval.search_engine._list_relationship_types",
+            new_callable=AsyncMock,
+            return_value=["WORKS_FOR"],
+        ) as delegate:
+            types = await engine.list_relationship_types(
+                seed, relation_type_filter="WORKS_FOR"
+            )
+
+        assert types == ["WORKS_FOR"]
+        assert delegate.call_args.args[0] is seed
+        assert delegate.call_args.kwargs["relation_type_filter"] == "WORKS_FOR"

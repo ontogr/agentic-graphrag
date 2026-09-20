@@ -4,19 +4,32 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from typing import Any
-from uuid import UUID
 
 from agrag.common.data_models.community import Community
+from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
 from agrag.common.data_models.search_result import SearchResult
+from agrag.cypher.relations import TraversalDirection
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.retrieval.community_context import community_context
+from agrag.retrieval.community_context import expand_with_communities
 from agrag.retrieval.errors import (
     AllRetrievalMethodsFailedError,
     UnknownRecipeMethodError,
 )
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.fusion import fuse
+from agrag.retrieval.methods.traversal import (
+    extract_entity_ids,
+)
+from agrag.retrieval.methods.traversal import (
+    find_entity as _find_entity,
+)
+from agrag.retrieval.methods.traversal import (
+    list_relationship_types as _list_relationship_types,
+)
+from agrag.retrieval.methods.traversal import (
+    traverse as _traverse,
+)
 from agrag.retrieval.recipes import Recipe
 from agrag.retrieval.rerank.cross_encoder import cross_encoder_rerank
 from agrag.retrieval.rerank.node_distance import node_distance_rerank
@@ -49,6 +62,7 @@ class SearchEngine:
         vector_store: VectorStore | None = None,
         settings: RetrievalSettings | None = None,
         entity_labels: Sequence[str] | None = None,
+        graph_schema: GraphSchema | None = None,
     ) -> None:
         """Construct a SearchEngine.
 
@@ -66,21 +80,144 @@ class SearchEngine:
                 empty result set, not an error.
             settings: Retrieval configuration; defaults from
                 environment.
-            entity_labels: The schema entity labels native entity
-                search runs against, one vector index each, as
-                provisioned by ``Graph.open``. Pass
-                ``[entity.label for entity in schema.entities]``.
-                None uses settings.entity_labels. Ignored when a
-                vector_store is configured.
+            entity_labels: The entity labels native entity search runs
+                against, one vector index each, as provisioned by
+                ``Graph.open``. Retained as a checked input only: it must
+                name exactly the labels graph_schema declares, since the
+                schema is what native search and generated Cypher both
+                read. Omit it and let the schema drive both. Ignored when
+                a vector_store is configured.
+            graph_schema: The graph's declared schema, ground truth for
+                native entity labels and for generated Cypher. None uses
+                ``GENERIC``.
+
+        Raises:
+            ValueError: entity_labels does not name exactly the labels
+                graph_schema declares.
         """
         self._graph_store = graph_store
         self._embedder = embedder
         self._vector_store = vector_store
         self._settings = settings or RetrievalSettings()
-        self._entity_labels = (
-            list(entity_labels)
-            if entity_labels is not None
-            else list(self._settings.entity_labels)
+        self._graph_schema = graph_schema if graph_schema is not None else GENERIC
+        schema_labels = [entity.label for entity in self._graph_schema.entities]
+        if entity_labels is not None and set(entity_labels) != set(schema_labels):
+            raise ValueError(
+                "entity_labels must name exactly the graph_schema's entity "
+                f"labels. Schema '{self._graph_schema.name}' declares "
+                f"{schema_labels}, got {list(entity_labels)}. Drop "
+                "entity_labels and let the schema drive native entity "
+                "search, or pass the schema those labels belong to."
+            )
+        self._entity_labels = schema_labels
+
+    @property
+    def graph_schema(self) -> GraphSchema:
+        """The schema retrieval is grounded in, GENERIC when none was given."""
+        return self._graph_schema
+
+    async def find_entity(
+        self, name: str, *, filters: SearchFilters | None = None
+    ) -> SearchResult | None:
+        """Resolve a named entity to its top search hit, or None.
+
+        Searches this engine's configured entity_labels by default. A
+        filters.labels value, when set, overrides which labels are
+        searched rather than narrowing within entity_labels -- the same
+        EntityRetriever behavior search()'s own entity search already
+        relies on.
+
+        Args:
+            name: The entity name (or description) to resolve.
+            filters: Scope to resolve within. An entity that exists
+                only outside it resolves to None, the same as one that
+                does not exist.
+
+        Returns:
+            The top-ranked SearchResult, or None when nothing matched.
+        """
+        return await _find_entity(
+            name,
+            graph_store=self._graph_store,
+            embedder=self._embedder,
+            vector_store=self._vector_store,
+            settings=self._settings,
+            entity_labels=self._entity_labels,
+            filters=filters,
+        )
+
+    async def traverse(
+        self,
+        seed: SearchResult,
+        *,
+        relation_type: str | None = None,
+        direction: TraversalDirection = "both",
+        depth: int = 1,
+        limit: int = 10,
+        community_expand: bool = False,
+        community_top_k: int = 3,
+        filters: SearchFilters | None = None,
+    ) -> list[SearchResult]:
+        """Expand one resolved entity into its neighbours.
+
+        Args:
+            seed: The resolved entity to expand from, normally from
+                :meth:`find_entity`.
+            relation_type: Restrict the traversal to this one
+                relationship type.
+            direction: Which way a hop walks each relationship,
+                relative to the seed entity.
+            depth: Maximum hops.
+            limit: Maximum neighbours returned.
+            community_expand: Also fuse in the reports of communities
+                overlapping the seed.
+            community_top_k: Maximum community reports to add when
+                ``community_expand`` is set.
+            filters: Scope for the traversal. Its ``relation_types`` is
+                an allowlist a ``relation_type`` argument cannot widen;
+                its ``properties`` applies to neighbour nodes.
+
+        Returns:
+            The neighbouring entities, deduplicated, highest-ranked
+            first, with any requested community reports fused in.
+
+        Raises:
+            ScopeDeniedError: relation_type names a type the caller's
+                scope does not permit.
+        """
+        return await _traverse(
+            seed,
+            graph_store=self._graph_store,
+            settings=self._settings,
+            relation_type=relation_type,
+            direction=direction,
+            depth=depth,
+            limit=limit,
+            community_expand=community_expand,
+            community_top_k=community_top_k,
+            filters=filters,
+        )
+
+    async def list_relationship_types(
+        self, seed: SearchResult, *, relation_type_filter: str | None = None
+    ) -> list[str]:
+        """List the relationship types directly attached to an entity.
+
+        Depth-1 only: it reports what is attached to the seed, never
+        what lies past it.
+
+        Args:
+            seed: The resolved entity to read attached types from,
+                normally from :meth:`find_entity`.
+            relation_type_filter: Only report this type, if present.
+
+        Returns:
+            The distinct attached relationship type names.
+        """
+        return await _list_relationship_types(
+            seed,
+            graph_store=self._graph_store,
+            relation_type_filter=relation_type_filter,
         )
 
     async def search(  # noqa: PLR0912, PLR0915
@@ -200,7 +337,7 @@ class SearchEngine:
         # expansion adds neighbours. These seed both BFS and the
         # node-distance reranker, which needs seeds that are not
         # themselves the candidates it is ordering.
-        search_seed_ids = self._extract_entity_ids(fused)
+        search_seed_ids = extract_entity_ids(fused)
 
         # BFS expansion as sequential follow-up.
         if recipe.bfs:
@@ -231,32 +368,29 @@ class SearchEngine:
                 )
 
         if recipe.community_expand:
-            community_seed_ids = self._extract_entity_ids(fused)
-            try:
-                community_results = await community_context(
-                    community_seed_ids,
-                    graph_store=self._graph_store,
-                    top_k=recipe.community_top_k,
-                    filters=community_filters,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Community expansion failed; continuing: %s", exc)
-                community_results = []
-            if community_results:
-                fused = fuse(
-                    {"methods": fused, "community": community_results},
-                    rrf_k=self._settings.rrf_k,
-                )
+            fused = await expand_with_communities(
+                fused,
+                extract_entity_ids(fused),
+                graph_store=self._graph_store,
+                top_k=recipe.community_top_k,
+                filters=community_filters,
+                rrf_k=self._settings.rrf_k,
+            )
 
         # Rerank.
         if recipe.reranker == "cross_encoder":
             community_items = [r for r in fused if isinstance(r.item, Community)]
             other_items = [r for r in fused if not isinstance(r.item, Community)]
+            min_score = (
+                recipe.min_score
+                if recipe.min_score is not None
+                else self._settings.reranker_min_score
+            )
             reranked_other = await cross_encoder_rerank(
                 query,
                 other_items,
                 model=self._settings.cross_encoder_model,
-                min_score=self._settings.reranker_min_score,
+                min_score=min_score,
             )
             reserved = (
                 min(len(community_items), recipe.community_top_k)
@@ -275,38 +409,6 @@ class SearchEngine:
             )
 
         return fused[: recipe.limit]
-
-    @staticmethod
-    def _extract_entity_ids(
-        results: list[SearchResult],
-    ) -> list[UUID]:
-        """Return raw entity ids from results, preserving order.
-
-        Used for BFS seeds and node-distance reranking. Keeps the
-        first-seen id of each entity so the fusion ranking is
-        respected. A ResolvedEntity contributes its raw member ids,
-        since graph traversal and distance run over raw entity nodes.
-        Chunks and other non-entity result items are skipped.
-        """
-        from agrag.common.data_models.entity import Entity  # noqa: PLC0415
-        from agrag.common.data_models.resolved_entity import (  # noqa: PLC0415
-            ResolvedEntity,
-        )
-
-        seen: set[UUID] = set()
-        ids: list[UUID] = []
-        for r in results:
-            if isinstance(r.item, Entity):
-                item_ids: list[UUID] = [r.item.id]
-            elif isinstance(r.item, ResolvedEntity):
-                item_ids = r.item.member_ids
-            else:
-                continue
-            for item_id in item_ids:
-                if item_id not in seen:
-                    seen.add(item_id)
-                    ids.append(item_id)
-        return ids
 
     @staticmethod
     def _validate_recipe_methods(
@@ -348,6 +450,7 @@ class SearchEngine:
             ),
             "text2cypher": Text2CypherRetriever(
                 graph_store=self._graph_store,
+                schema=self._graph_schema,
                 settings=self._settings,
             ),
         }

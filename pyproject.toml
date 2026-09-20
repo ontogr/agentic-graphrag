@@ -58,7 +58,7 @@ extract = [
 ]
 agents = [
     "langgraph>=1.2",
-    "deepagents>=0.7",
+    "deepagents>=0.7.15",
     "langchain-openai>=1.0",
 ]
 community = ["graspologic-native>=1.2.5"]

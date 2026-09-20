@@ -23,7 +23,7 @@ pip install 'agentic-graphrag[agents]'
 import asyncio
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.graphdb.neo4j import Neo4jGraphStore, Neo4jSettings
-from agrag.embedding.sentence_transformer import SentenceTransformerEmbedder
+from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.recipes import HYBRID
 
@@ -54,9 +54,14 @@ asyncio.run(main())
 import asyncio
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
+from agrag.graphdb.neo4j import Neo4jGraphStore, Neo4jSettings
 from agrag.retrieval.search_engine import SearchEngine
 
 async def main():
+    graph_store = Neo4jGraphStore(settings=Neo4jSettings())
+    embedder = SentenceTransformerEmbedder()
     engine = SearchEngine(
         graph_store=graph_store,
         embedder=embedder,
@@ -65,6 +70,7 @@ async def main():
     agent = build_agent(
         engine=engine,
         llm_settings=AgentLLMSettings.from_openai_compatible_env(),
+        graph_schema=GENERIC,
     )
 
     result = await agent.ainvoke({
@@ -73,10 +79,12 @@ async def main():
         ]
     })
 
-    print(result["messages"][-1]["content"])
+    print(result["messages"][-1].content)
 
 asyncio.run(main())
 ```
+
+The agent returns LangChain message objects, so the last message's text is `.content`. `graph_schema` tells the researcher's prompt and the generated-query tool which labels and relationship types the graph uses. Omit it to use the engine's own schema, which falls back to `GENERIC` when the engine was built without one. Pass a schema that differs from the engine's schema, and `build_agent` raises `ValueError`, so the prompt can never describe a graph the engine does not search.
 
 ### Scoping agent retrieval
 
@@ -97,6 +105,41 @@ agent = build_agent(
 Your application fixes the filters at build time. The tools apply the
 filters internally, and the model cannot see or override them.
 
+Build-time filters and per-call tool parameters are two different controls. The `filters` argument above is invisible to the model and fixed by the caller. The tool parameters in the next section, such as `labels`, `document_ids`, `limit`, `min_score`, `relation_type`, and `direction`, are visible to the model and chosen by it for each call, but they can only narrow the build-time scope, never widen it. A request outside the scope is refused instead of searched.
+
+The `document_ids` dimension of build-time filters scopes the five discovery tools (`search_source_text` and friends) but has no effect on the four entity-traversal tools (`find_related_entities`, `describe_entity`, `traverse_from_entity`, `list_relationship_types`), since entities are not document-scoped the way chunks are. The `labels` and `properties` dimensions scope both groups, and `relation_types` scopes traversal as an allowlist. The eleventh tool, `query_graph_directly`, is outside both groups: unscoped agents receive it, caller-scoped agents do not.
+
+## Researcher tools
+
+The researcher subagent receives eleven tools when the agent is unscoped, ten when caller-set base filters are non-empty. The tools fall into three groups plus a calculator.
+
+Discovery tools find entry points into the graph:
+
+| Tool | Purpose | Key parameters |
+|------|---------|----------------|
+| `search_source_text` | Find passages of source text that mention the query terms | `query`, `limit`, `document_ids` |
+| `look_up_entity` | Find entities that match a name or description | `query`, `limit`, `labels` |
+| `explore_related` | Search entities and source text together for a topic | `query`, `limit`, `labels`, `document_ids` |
+| `answer_from_graph_structure` | Answer from reranked entity and passage evidence | `query`, `limit`, `min_score` |
+| `answer_thematic_question` | Answer a broad question from community summaries | `query`, `limit` |
+| `list_relationship_types` | List the relationship types attached to an entity | `entity`, `relation_type_filter` |
+
+Structural navigation tools read what the graph stores about one entity:
+
+| Tool | Purpose | Key parameters |
+|------|---------|----------------|
+| `describe_entity` | Show an entity's own recorded properties, not its neighbours | `entity` |
+
+Relational tools follow relationships between entities:
+
+| Tool | Purpose | Key parameters |
+|------|---------|----------------|
+| `find_related_entities` | Find the entities one relationship type away from an entity | `entity`, `relation_type`, `direction`, `community_expand` |
+| `traverse_from_entity` | Walk outward from an entity, with a fallback to relationship types when the neighbourhood is too wide | `entity`, `relation_type`, `direction`, `depth` |
+| `query_graph_directly` | Ask a structural question in one generated read-only Cypher query; present only for unscoped agents | `query` |
+
+`compute_over_evidence` stands outside the three groups. It computes a count, a sum, or a comparison over numbers the researcher already read from earlier tool results. It never queries the graph. The design rationale for this tool set is recorded in `agrag_agents.md` in the `test-agentic-graphrag` companion repository's `thoughts` notes.
+
 ## Available Recipes
 
 | Recipe | Methods | BFS | Reranker |
@@ -106,6 +149,8 @@ filters internally, and the model cannot see or override them.
 | `HYBRID` | entity, chunk | No | None |
 | `HYBRID_RERANKED` | entity, chunk | No | cross_encoder |
 | `GRAPH_EXPAND` | entity | Yes | None |
+| `THEMATIC` | community | No | None |
+| `TEXT2CYPHER` | text2cypher | No | None |
 
 ## Configuration
 

@@ -74,3 +74,17 @@ class TestAgentSettings:
         """Custom recursion limit overrides default."""
         s = AgentSettings(recursion_limit=100)
         assert s.recursion_limit == 100
+
+    def test_max_research_attempts_default_is_three(self) -> None:
+        """Default retry budget is three."""
+        s = AgentSettings()
+        assert s.max_research_attempts == 3
+
+    def test_max_research_attempts_env_override(self) -> None:
+        """AGENT_MAX_RESEARCH_ATTEMPTS overrides the default."""
+        os.environ["AGENT_MAX_RESEARCH_ATTEMPTS"] = "5"
+        try:
+            s = AgentSettings()
+            assert s.max_research_attempts == 5
+        finally:
+            del os.environ["AGENT_MAX_RESEARCH_ATTEMPTS"]
