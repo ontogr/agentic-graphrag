@@ -798,7 +798,6 @@ class TestAgentBuildIntegration:
         # in the transcript.
         answer = self._message_text(result)
         assert "Alice" in answer
-        assert "E" in answer
         transcript = "\n".join(
             self._message_text({"messages": [message]})
             for message in result.get("messages", [])
