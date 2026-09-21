@@ -51,8 +51,8 @@ def _resolved(member_ids: list) -> ResolvedEntity:
     )
 
 
-class TestExtractEntityIds:
-    """extract_entity_ids reads raw ids, not resolved-entity ids."""
+class TestTraversal:
+    """Tests scoped entity lookup and graph traversal helpers."""
 
     def test_extract_entity_ids_handles_entity(self) -> None:
         """A plain entity contributes its own id."""
@@ -78,10 +78,6 @@ class TestExtractEntityIds:
         )
         ids = extract_entity_ids([_result(entity), _result(resolved), _result(chunk)])
         assert ids == [entity.id, resolved.member_ids[1]]
-
-
-class TestFindEntity:
-    """find_entity projects a scope onto one entity search."""
 
     async def test_find_entity_found(self) -> None:
         """A hit returns the whole SearchResult, not just its item."""
@@ -224,10 +220,6 @@ class TestFindEntity:
             SearchFilters(document_ids=["doc-1"])
         )
 
-
-class TestIntersectRelationTypes:
-    """_intersect_relation_types enforces the caller's allowlist."""
-
     @pytest.mark.parametrize(
         ("base", "requested", "expected"),
         [
@@ -246,10 +238,6 @@ class TestIntersectRelationTypes:
     def test_intersect_relation_types_non_member_is_empty(self) -> None:
         """A request outside a non-empty allowlist intersects to nothing."""
         assert _intersect_relation_types(["WORKS_FOR"], "FOUNDED") == []
-
-
-class TestTraverse:
-    """traverse seeds BFS from a resolved entity under the caller's scope."""
 
     async def _traverse(self, seed: SearchResult, **kwargs) -> tuple:
         """Run traverse against a mocked BFSRetriever and return the mocks."""
@@ -398,10 +386,6 @@ class TestTraverse:
                 )
 
         expand.assert_not_called()
-
-
-class TestListRelationshipTypes:
-    """list_relationship_types reports attached types, depth-1 only."""
 
     async def test_list_relationship_types_reaches_query_builder_with_seed_ids(
         self,

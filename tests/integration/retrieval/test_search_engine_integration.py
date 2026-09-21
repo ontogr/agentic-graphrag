@@ -88,8 +88,6 @@ class _FixedEmbedder(Embedder):
         return vectors
 
 
-@pytest.mark.integration
-@pytest.mark.enable_socket
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestSearchEngineIntegration:
     """SearchEngine searches a real Neo4j graph store."""
@@ -409,8 +407,6 @@ class TestSearchEngineIntegration:
             await self.store.execute_write(f"MATCH (n:{org_label}) DETACH DELETE n")
 
 
-@pytest.mark.integration
-@pytest.mark.enable_socket
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestTraversalIntegration:
     """SearchEngine and its traversal tools walk a real, directed graph."""

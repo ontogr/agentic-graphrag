@@ -1,4 +1,4 @@
-"""Tests for the researcher and verifier subagent specs."""
+"""Validate the researcher and verifier subagent specifications and wiring."""
 
 from typing import Any
 

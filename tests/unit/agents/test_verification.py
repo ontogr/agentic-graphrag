@@ -1,4 +1,4 @@
-"""Tests for the verifier's structured verdict model."""
+"""Validate verdict statuses and evidence defaults for verifier responses."""
 
 from typing import Any
 

@@ -59,7 +59,7 @@ def _engine() -> MagicMock:
 
 
 class TestBuildAgent:
-    """build_agent constructs an agent graph."""
+    """Tests agent construction and per-invocation agent wrappers."""
 
     def test_builds_simple_agent_without_deepagents(
         self, monkeypatch: pytest.MonkeyPatch
@@ -140,10 +140,10 @@ class TestBuildAgent:
             pytest.skip("langchain-openai not installed")
         assert isinstance(agent, _SimpleAgent | _RunScopedAgent)
 
-    async def test_build_agent_registers_the_resolved_model_provider(
+    async def test_build_agent_registers_the_configured_provider_key(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The harness key comes from the built model, not the config name."""
+        """The harness key maps openai-generic to the OpenAI provider."""
         captured: dict = {}
         _capture_deepagents(monkeypatch, captured)
 
@@ -156,13 +156,9 @@ class TestBuildAgent:
 
         monkeypatch.setattr(importlib.util, "find_spec", with_deepagents)
 
-        class _StubModel:
-            def _get_ls_params(self) -> dict:
-                return {"ls_provider": "openai"}
-
         monkeypatch.setattr(
             "agrag.agents.build.build_chat_model",
-            lambda config: _StubModel(),
+            lambda config: MagicMock(),
         )
         ensure_calls: list = []
         monkeypatch.setattr(
@@ -183,10 +179,6 @@ class TestBuildAgent:
         await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
 
         assert ensure_calls == ["openai"]
-
-
-class TestSimpleAgent:
-    """_SimpleAgent stays on the single-search path."""
 
     async def test_simple_agent_creates_fresh_ledger_per_run(self) -> None:
         """Each ainvoke call gets a fresh Ledger."""
@@ -239,10 +231,6 @@ class TestSimpleAgent:
             pytest.fail("engine.search was not awaited")
         args, _ = call
         assert args[1] is HYBRID
-
-
-class TestRunScopedAgentSubagents:
-    """ainvoke builds the planner/researcher/verifier subagent graph."""
 
     async def test_ainvoke_passes_subagents_not_flat_tools(
         self, monkeypatch: pytest.MonkeyPatch

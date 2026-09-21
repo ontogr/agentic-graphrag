@@ -105,7 +105,7 @@ re-registration.
 **Functions:**
 
 - [**ensure_harness_profile**](#agrag.agents.harness.ensure_harness_profile) – Register the harness profile for provider, once per process.
-- [**model_provider_key**](#agrag.agents.harness.model_provider_key) – Return the provider key DeepAgents resolves a profile by.
+- [**model_provider_key**](#agrag.agents.harness.model_provider_key) – Return the DeepAgents provider key for a configured agent provider.
 
 ##### `agrag.agents.harness.ensure_harness_profile`
 
@@ -124,27 +124,18 @@ Register the harness profile for provider, once per process.
 ##### `agrag.agents.harness.model_provider_key`
 
 ```python
-model_provider_key(model:Any, *, fallback:str) -> str
+model_provider_key(provider:str) -> str
 ```
 
-Return the provider key DeepAgents resolves a profile by.
-
-DeepAgents looks a pre-built model up by the provider its own
-`_get_ls_params` reports, which is not always the provider name
-this package configured: `openai-generic` builds a
-`ChatOpenAI`, which reports `openai`. Registering the
-configured name alone would miss, so read the built model and
-fall back to the configured name when it says nothing usable.
+Return the DeepAgents provider key for a configured agent provider.
 
 **Parameters:**
 
-- **model** (<code>[Any](#typing.Any)</code>) – The built chat model the agent calls.
-- **fallback** (<code>[str](#str)</code>) – The configured provider name, used when the model
-  reports no provider.
+- **provider** (<code>[str](#str)</code>) – The configured agent provider.
 
 **Returns:**
 
-- <code>[str](#str)</code> – The resolved provider key, or the fallback.
+- <code>[str](#str)</code> – The provider key used by DeepAgents harness profiles.
 
 #### `agrag.agents.ledger`
 

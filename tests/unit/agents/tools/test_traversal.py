@@ -68,8 +68,8 @@ _TOOL_FACTORIES = {
 }
 
 
-class TestEntityResolution:
-    """Every traversal tool resolves its entity first, exactly once."""
+class TestTraversal:
+    """Tests scoped entity and relationship traversal tool calls."""
 
     @pytest.mark.parametrize("factory_name", list(_TOOL_FACTORIES))
     async def test_entity_not_found_short_circuits(self, factory_name: str) -> None:
@@ -101,10 +101,6 @@ class TestEntityResolution:
 
         engine.find_entity.assert_awaited_once_with("Acme", filters=scope)
 
-
-class TestListRelationshipTypesTool:
-    """list_relationship_types reports an entity's attached types."""
-
     async def test_renders_distinct_types(self) -> None:
         """The rendered text names every distinct type, sorted."""
         engine = _engine(_result())
@@ -128,7 +124,7 @@ class TestListRelationshipTypesTool:
             resolved, relation_type_filter="TREATS", filters=None
         )
 
-    async def test_denied_relation_type_is_refused(self) -> None:
+    async def test_list_relationship_types_denied_is_refused(self) -> None:
         """An out-of-scope relationship type returns an authorization refusal."""
         engine = _engine(_result())
         engine.list_relationship_types.side_effect = ScopeDeniedError("not permitted")
@@ -151,10 +147,6 @@ class TestListRelationshipTypesTool:
         rendered = await tool.ainvoke({"entity": "Acme"})
 
         assert rendered == "[E1] Entity: Acme (Organization)\nNo relationships found."
-
-
-class TestFindRelatedEntitiesTool:
-    """find_related_entities follows one named relationship."""
 
     async def test_relation_type_and_direction_reach_traverse(self) -> None:
         """The named relationship and direction reach engine.traverse."""
@@ -197,7 +189,7 @@ class TestFindRelatedEntitiesTool:
 
         assert engine.traverse.await_args.kwargs["community_expand"] is True
 
-    async def test_base_filters_reach_traverse(self) -> None:
+    async def test_find_related_entities_base_filters_reach_traverse(self) -> None:
         """The caller's scope bounds the traversal, not only the resolution."""
         resolved = _result()
         engine = _engine(resolved)
@@ -220,7 +212,7 @@ class TestFindRelatedEntitiesTool:
         assert "[E1]" in rendered
         assert "[E2]" in rendered
 
-    async def test_denied_relation_type_is_refused(self) -> None:
+    async def test_find_related_entities_denied_relation_type_is_refused(self) -> None:
         """A traversal the caller's scope refuses returns the refusal text."""
         engine = _engine(_result())
         engine.traverse.side_effect = ScopeDeniedError("FOUNDED not permitted")
@@ -231,10 +223,6 @@ class TestFindRelatedEntitiesTool:
         rendered = await tool.ainvoke({"entity": "Acme", "relation_type": "FOUNDED"})
 
         assert "outside this agent's permitted scope" in rendered
-
-
-class TestDescribeEntityTool:
-    """describe_entity shows an entity's own properties."""
 
     async def test_renders_every_property(self) -> None:
         """Every property key and value appears, not just a citation line."""
@@ -276,10 +264,6 @@ class TestDescribeEntityTool:
 
         engine.traverse.assert_not_awaited()
         engine.list_relationship_types.assert_not_awaited()
-
-
-class TestTraverseFromEntityTool:
-    """traverse_from_entity adapts to what the entity's fan-out looks like."""
 
     async def test_relation_type_given_skips_fanout_check(self) -> None:
         """A named relationship traverses once, without listing types first."""
@@ -330,7 +314,7 @@ class TestTraverseFromEntityTool:
         engine.list_relationship_types.assert_not_awaited()
         assert "[E1]" in rendered
 
-    async def test_base_filters_reach_traverse(self) -> None:
+    async def test_traverse_from_entity_base_filters_reach_traverse(self) -> None:
         """The caller's scope bounds this traversal too."""
         resolved = _result()
         engine = _engine(resolved)
@@ -342,7 +326,7 @@ class TestTraverseFromEntityTool:
         engine.find_entity.assert_awaited_once_with("Acme", filters=scope)
         assert engine.traverse.await_args.kwargs["filters"] is scope
 
-    async def test_denied_relation_type_is_refused(self) -> None:
+    async def test_traverse_from_entity_denied_relation_type_is_refused(self) -> None:
         """A traversal the caller's scope refuses returns the refusal text."""
         engine = _engine(_result())
         engine.traverse.side_effect = ScopeDeniedError("FOUNDED not permitted")

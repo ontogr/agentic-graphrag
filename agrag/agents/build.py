@@ -84,9 +84,7 @@ def build_agent(
             middleware=middleware,
             filters=filters,
             graph_schema=schema,
-            model_provider=model_provider_key(
-                model, fallback=llm_settings.clients[0].provider
-            ),
+            model_provider=model_provider_key(llm_settings.clients[0].provider),
         )
 
     # Fallback: a simple wrapper when deepagents is not installed,

@@ -46,8 +46,8 @@ def _entity() -> SearchResult:
     )
 
 
-class TestSearchSourceTextTool:
-    """search_source_text searches passages, narrowed per call."""
+class TestSearch:
+    """Tests scoped discovery tool calls and their rendered evidence."""
 
     async def test_default_limit_passes_the_chunk_preset(self) -> None:
         """A call with no arguments searches with the CHUNK preset itself."""
@@ -115,10 +115,6 @@ class TestSearchSourceTextTool:
 
         assert await tool.ainvoke({"query": "aspirin"}) == "No results found."
 
-
-class TestLookUpEntityTool:
-    """look_up_entity searches entities, narrowed per call."""
-
     async def test_default_call_uses_the_entity_preset(self) -> None:
         """A call with no arguments searches with the ENTITY preset."""
         engine = AsyncMock()
@@ -173,10 +169,6 @@ class TestLookUpEntityTool:
         assert engine.search.await_args.args[1].limit == 4
         assert ENTITY.limit == 10
 
-
-class TestExploreRelatedTool:
-    """explore_related fans out to entities and passages."""
-
     async def test_default_call_uses_the_hybrid_preset(self) -> None:
         """A call with no arguments searches with the HYBRID preset."""
         engine = AsyncMock()
@@ -202,10 +194,6 @@ class TestExploreRelatedTool:
             HYBRID,
             filters=SearchFilters(labels=["Drug"], document_ids=["doc-1"]),
         )
-
-
-class TestAnswerFromGraphStructureTool:
-    """answer_from_graph_structure reranks, with an optional score floor."""
 
     async def test_no_min_score_passes_the_preset_unmodified(self) -> None:
         """Omitting min_score leaves the shared preset untouched."""
@@ -244,10 +232,6 @@ class TestAnswerFromGraphStructureTool:
         assert recipe.min_score == pytest.approx(0.1)
         assert HYBRID_RERANKED.limit == 10
 
-
-class TestAnswerThematicQuestionTool:
-    """answer_thematic_question searches community summaries."""
-
     async def test_default_call_uses_the_thematic_preset(self) -> None:
         """A call with no arguments searches with the THEMATIC preset."""
         engine = AsyncMock()
@@ -260,7 +244,7 @@ class TestAnswerThematicQuestionTool:
             "what is this graph about?", THEMATIC, filters=None
         )
 
-    async def test_limit_reaches_the_recipe(self) -> None:
+    async def test_thematic_limit_reaches_the_recipe(self) -> None:
         """A caller-supplied limit overrides only this call's recipe."""
         engine = AsyncMock()
         engine.search.return_value = []
@@ -277,10 +261,6 @@ class TestAnswerThematicQuestionTool:
         tool = make_answer_thematic_question_tool(engine, Ledger())
 
         assert set(tool.args_schema.model_fields) == {"query", "limit"}
-
-
-class TestQueryGraphDirectlyTool:
-    """query_graph_directly runs one generated read-only Cypher query."""
 
     async def test_uses_the_text2cypher_recipe(self) -> None:
         """A call searches with the TEXT2CYPHER preset, unmodified."""

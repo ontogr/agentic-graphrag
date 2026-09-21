@@ -89,9 +89,8 @@ The deep-agent path returns LangChain message objects, so the last message's tex
 
 ### Scoping agent retrieval
 
-Without extra arguments, the agent's tools search the whole graph. Pass
-`SearchFilters` to restrict every tool search to a document set,
-tenant, or label scope:
+By default, the agent's tools search the whole graph. Pass `SearchFilters` to
+limit every tool search by document set, tenant, or label:
 
 ```python
 from agrag.retrieval.filters import SearchFilters
@@ -103,12 +102,23 @@ agent = build_agent(
 )
 ```
 
-Your application fixes the filters at build time. The tools apply the
-filters internally, and the model cannot see or override them.
+Set the filters when your application builds the agent. The tools enforce the
+filters. The model cannot see or change them.
 
-Build-time filters and per-call tool parameters are two different controls. The `filters` argument above is invisible to the model and fixed by the caller. The tool parameters in the next section, such as `labels`, `document_ids`, `limit`, `min_score`, `relation_type`, and `direction`, are visible to the model and chosen by it for each call, but they can only narrow the build-time scope, never widen it. A request outside the scope is refused instead of searched.
+Build-time filters and per-call tool parameters have different roles. The
+caller sets `filters`, and the model cannot see them. The model chooses the
+tool parameters for each call, such as `labels`, `document_ids`, `limit`,
+`min_score`, `relation_type`, and `direction`. These parameters can only
+narrow the build-time scope. They cannot widen it. The tools refuse requests
+outside the scope.
 
-The `document_ids` dimension of build-time filters scopes the five discovery tools and entity lookup. It also constrains neighbors returned by `find_related_entities` and `traverse_from_entity`. The `labels` and `properties` dimensions scope entity lookup and traversal neighbors, while `relation_types` is a traversal allowlist. `list_relationship_types` uses only the relation-type allowlist. The eleventh tool, `query_graph_directly`, is outside both groups: unscoped agents receive it, caller-scoped agents do not.
+The `document_ids` filter applies to the five discovery tools and entity
+lookup. It also limits neighbors from `find_related_entities` and
+`traverse_from_entity`. The `labels` and `properties` filters apply to entity
+lookup and traversal neighbors. `relation_types` is a traversal allowlist.
+`list_relationship_types` uses only this allowlist. The eleventh tool,
+`query_graph_directly`, is outside both groups. Unscoped agents receive it.
+Caller-scoped agents do not.
 
 ## Researcher tools
 
