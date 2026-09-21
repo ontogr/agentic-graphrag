@@ -225,3 +225,27 @@ class TestPromptSerialization:
         assert "name" not in text
         assert "dosage" not in text
         assert "Biologic" not in text
+
+    def test_empty_patterns_are_explicit(self) -> None:
+        """Empty relation patterns render as an explicit absence of patterns."""
+        schema = GraphSchema(
+            name="empty-patterns",
+            version="1",
+            entities=[EntityType(label="A", description="A")],
+            relations=[RelationType(label="LINKS", description="Links", patterns=[])],
+        )
+
+        assert "valid patterns: (none)" in schema.to_prompt_description()
+        assert "- LINKS: (none)" in schema.to_compact_summary()
+
+    def test_empty_relations_are_explicit(self) -> None:
+        """Schemas without relations state that the relation list is empty."""
+        schema = GraphSchema(
+            name="no-relations",
+            version="1",
+            entities=[EntityType(label="A", description="A")],
+            relations=[],
+        )
+
+        assert "Relation types:\n(none)" in schema.to_prompt_description()
+        assert "Relation types:\n(none)" in schema.to_compact_summary()

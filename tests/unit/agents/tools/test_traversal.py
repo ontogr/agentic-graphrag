@@ -136,7 +136,7 @@ class TestListRelationshipTypesTool:
 
         rendered = await tool.ainvoke({"entity": "Acme"})
 
-        assert rendered == "No relationships found on Acme."
+        assert rendered == "[E1] Entity: Acme (Organization)\nNo relationships found."
 
 
 class TestFindRelatedEntitiesTool:

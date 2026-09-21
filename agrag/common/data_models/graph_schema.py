@@ -131,9 +131,12 @@ class GraphSchema(BaseModel):
             if entity.subtypes:
                 lines.append(f"  subtypes: {', '.join(entity.subtypes)}")
         lines.append("Relation types:")
+        if not self.relations:
+            lines.append("(none)")
         for relation in self.relations:
             lines.append(f"- {relation.label}: {relation.description}")
-            lines.append(f"  valid patterns: {_format_patterns(relation.patterns)}")
+            patterns = _format_patterns(relation.patterns) or "(none)"
+            lines.append(f"  valid patterns: {patterns}")
         return "\n".join(lines)
 
     def to_compact_summary(self) -> str:
@@ -150,8 +153,11 @@ class GraphSchema(BaseModel):
         """
         entity_labels = ", ".join(entity.label for entity in self.entities)
         lines = [f"Entity labels: {entity_labels}", "Relation types:"]
+        if not self.relations:
+            lines.append("(none)")
         for relation in self.relations:
-            lines.append(f"- {relation.label}: {_format_patterns(relation.patterns)}")
+            patterns = _format_patterns(relation.patterns) or "(none)"
+            lines.append(f"- {relation.label}: {patterns}")
         return "\n".join(lines)
 
 

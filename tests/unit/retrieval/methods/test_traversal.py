@@ -332,17 +332,18 @@ class TestTraverse:
 
         bfs_cls.assert_not_called()
 
-    async def test_traverse_base_filters_document_ids_not_forwarded_to_bfs(
+    async def test_traverse_base_filters_are_forwarded_to_bfs(
         self,
     ) -> None:
-        """A document_ids scope is deliberately not forwarded into BFS."""
+        """Document and label scopes are enforced by BFS."""
         _, bfs_cls = await self._traverse(
             _result(_entity()),
-            filters=SearchFilters(document_ids=["doc-1"]),
+            filters=SearchFilters(document_ids=["doc-1"], labels=["Drug"]),
         )
 
         filters = bfs_cls.return_value.retrieve.call_args.kwargs["filters"]
-        assert filters.document_ids == []
+        assert filters.document_ids == ["doc-1"]
+        assert filters.labels == ["Drug"]
 
     async def test_traverse_direction_and_depth_reach_bfs_retriever(self) -> None:
         """Direction and depth are threaded through to BFSRetriever."""

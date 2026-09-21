@@ -182,6 +182,8 @@ async def traverse(
         query="",
         filters=SearchFilters(
             relation_types=allowed_relation_types,
+            labels=filters.labels if filters else [],
+            document_ids=filters.document_ids if filters else [],
             properties=filters.properties if filters else {},
         ),
         seed_ids=seed_ids,
@@ -207,6 +209,7 @@ async def list_relationship_types(
     *,
     graph_store: GraphStore,
     relation_type_filter: str | None = None,
+    direction: TraversalDirection = "both",
     filters: SearchFilters | None = None,
 ) -> list[str]:
     """List the relationship types directly attached to a resolved entity.
@@ -219,6 +222,7 @@ async def list_relationship_types(
         seed: The resolved entity to read attached types from.
         graph_store: The graph to read.
         relation_type_filter: Only report this type, if present.
+        direction: Which way to inspect relationships, relative to the seed.
         filters: Scope that limits which relationship types are visible.
 
     Returns:
@@ -242,7 +246,8 @@ async def list_relationship_types(
             else filters.relation_types
             if filters and filters.relation_types
             else None
-        )
+        ),
+        direction=direction,
     )
     rows = await graph_store.execute_read(
         query, {"seed_ids": [str(seed_id) for seed_id in seed_ids]}

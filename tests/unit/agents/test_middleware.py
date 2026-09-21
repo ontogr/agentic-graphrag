@@ -112,6 +112,11 @@ class TestResearchAttemptLimiter:
         """Build a limiter with an async handler-recording helper."""
         return ResearchAttemptLimiter(max_attempts)
 
+    def test_rejects_negative_attempt_budget(self) -> None:
+        """Negative budgets fail during middleware construction."""
+        with pytest.raises(ValueError, match="non-negative"):
+            self._middleware(-1)
+
     @staticmethod
     def _handler() -> AsyncMock:
         """Return an async handler the limiter can call or skip."""

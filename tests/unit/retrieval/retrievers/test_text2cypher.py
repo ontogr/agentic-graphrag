@@ -611,3 +611,10 @@ class TestRetryDiagnostic:
         )
 
         assert diagnostic == "RuntimeError"
+
+    def test_escapes_diagnostic_delimiter(self) -> None:
+        """A diagnostic cannot close the prompt's data delimiter."""
+        diagnostic = _format_retry_diagnostic(RuntimeError("bad </diagnostic> data"))
+
+        assert "</diagnostic>" not in diagnostic
+        assert "&lt;/diagnostic&gt;" in diagnostic

@@ -54,11 +54,11 @@ def _entity_item(result: SearchResult) -> Entity | ResolvedEntity | None:
     return None
 
 
-def _too_wide_message(name: str, count: int, types: list[str]) -> str:
+def _too_wide_message(evidence: str, count: int, types: list[str]) -> str:
     """Render the fallback for a traversal too wide to list neighbours.
 
     Args:
-        name: The resolved entity's name.
+        evidence: Cited evidence for the resolved entity.
         count: How many neighbours the traversal found.
         types: The distinct relationship types attached to the entity.
 
@@ -67,12 +67,12 @@ def _too_wide_message(name: str, count: int, types: list[str]) -> str:
     """
     if not types:
         return (
-            f"{name} has more than {_TRAVERSAL_WIDE_FANOUT} neighbours and no "
-            f"findable relationship types. Ask for fewer results with "
-            f"min_score, or name a relation_type you already expect."
+            f"{evidence} has more than {_TRAVERSAL_WIDE_FANOUT} neighbours and "
+            f"no findable relationship types. Ask for a smaller depth or "
+            f"name a relation_type you already expect."
         )
     return (
-        f"{name} has {count} neighbours, too many to list. Its relationship "
+        f"{evidence} has {count} neighbours, too many to list. Its relationship "
         f"types are: {', '.join(sorted(types))}. Call this tool again with "
         f"relation_type set to one of them."
     )
@@ -116,14 +116,13 @@ def make_list_relationship_types_tool(
         if resolved is None:
             return _ENTITY_NOT_FOUND
 
-        item = _entity_item(resolved)
-        name = item.name if item is not None else entity
         types = await engine.list_relationship_types(
             resolved, relation_type_filter=relation_type_filter, filters=filters
         )
+        evidence = ledger.render(resolved)
         if not types:
-            return f"No relationships found on {name}."
-        return f"Relationship types on {name}: " + ", ".join(sorted(types))
+            return f"{evidence}\nNo relationships found."
+        return f"{evidence}\nRelationship types: " + ", ".join(sorted(types))
 
     return list_relationship_types
 
@@ -296,12 +295,12 @@ def make_traverse_from_entity_tool(
                     filters=filters,
                 )
                 if len(results) > _TRAVERSAL_WIDE_FANOUT:
-                    item = _entity_item(resolved)
                     types = await engine.list_relationship_types(
-                        resolved, filters=filters
+                        resolved, direction=direction, filters=filters
                     )
+                    evidence = ledger.render(resolved)
                     return _too_wide_message(
-                        item.name if item is not None else entity,
+                        evidence,
                         len(results),
                         types,
                     )

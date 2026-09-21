@@ -24,6 +24,7 @@ from agrag.agents.tools.search import (
     make_search_source_text_tool,
 )
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.search_result import SearchResult
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.recipes import (
@@ -267,6 +268,20 @@ class TestQueryGraphDirectlyTool:
         engine.search.assert_awaited_once_with(
             "how many drugs treat headaches?", TEXT2CYPHER, filters=None
         )
+
+    async def test_renders_scalar_query_values(self) -> None:
+        """Count rows are returned as cited values."""
+        engine = AsyncMock()
+        engine.search.return_value = [
+            SearchResult(
+                item=QueryValue(value={"count": 3}), score=1.0, method="text2cypher"
+            )
+        ]
+        tool = make_query_graph_directly_tool(engine, Ledger())
+
+        rendered = await tool.ainvoke({"query": "how many people?"})
+
+        assert rendered == "[V1] Value: {'count': 3}"
 
     def test_exposes_query_only(self) -> None:
         """The tool's schema offers no limit or filter parameters."""

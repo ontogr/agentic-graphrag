@@ -211,6 +211,7 @@ class SearchEngine:
         seed: SearchResult,
         *,
         relation_type_filter: str | None = None,
+        direction: TraversalDirection = "both",
         filters: SearchFilters | None = None,
     ) -> list[str]:
         """List the relationship types directly attached to an entity.
@@ -222,6 +223,8 @@ class SearchEngine:
             seed: The resolved entity to read attached types from,
                 normally from :meth:`find_entity`.
             relation_type_filter: Only report this type, if present.
+            direction: Which way to inspect relationships, relative to the
+                seed entity.
             filters: Scope that limits visible relationship types.
 
         Returns:
@@ -231,6 +234,7 @@ class SearchEngine:
             seed,
             graph_store=self._graph_store,
             relation_type_filter=relation_type_filter,
+            direction=direction,
             filters=filters,
         )
 
@@ -361,9 +365,17 @@ class SearchEngine:
             bfs_filters = (
                 SearchFilters(
                     relation_types=filters.relation_types,
+                    labels=filters.labels,
+                    document_ids=filters.document_ids,
                     properties=filters.properties,
                 )
-                if filters and (filters.relation_types or filters.properties)
+                if filters
+                and (
+                    filters.relation_types
+                    or filters.labels
+                    or filters.document_ids
+                    or filters.properties
+                )
                 else None
             )
             bfs_kwargs: dict[str, Any] = {

@@ -79,12 +79,13 @@ async def main():
         ]
     })
 
-    print(result["messages"][-1].content)
+    last_message = result["messages"][-1]
+    print(last_message["content"] if isinstance(last_message, dict) else last_message.content)
 
 asyncio.run(main())
 ```
 
-The agent returns LangChain message objects, so the last message's text is `.content`. `graph_schema` tells the researcher's prompt and the generated-query tool which labels and relationship types the graph uses. Omit it to use the engine's own schema, which falls back to `GENERIC` when the engine was built without one. Pass a schema that differs from the engine's schema, and `build_agent` raises `ValueError`, so the prompt can never describe a graph the engine does not search.
+The deep-agent path returns LangChain message objects, so the last message's text is `.content`; the optional-dependency fallback returns dictionaries, as shown above. `graph_schema` tells the researcher's prompt and the generated-query tool which labels and relationship types the graph uses. Omit it to use the engine's own schema, which falls back to `GENERIC` when the engine was built without one. Pass a schema that differs from the engine's schema, and `build_agent` raises `ValueError`, so the prompt can never describe a graph the engine does not search.
 
 ### Scoping agent retrieval
 

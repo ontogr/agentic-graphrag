@@ -7,11 +7,13 @@ from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.relation import Relation
+from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 
 
 _PREFIX_MAP = {
     "Entity": "E",
+    "ResolvedEntity": "E",
     "Relation": "R",
     "Chunk": "C",
     "Community": "G",
@@ -70,7 +72,7 @@ class Ledger:
         key = self.cite(result)
         item = result.item
 
-        if isinstance(item, Entity):
+        if isinstance(item, (Entity, ResolvedEntity)):
             return f"[{key}] Entity: {item.name} ({item.label})"
         if isinstance(item, Chunk):
             preview = item.text[:200]

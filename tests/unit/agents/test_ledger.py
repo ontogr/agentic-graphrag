@@ -12,6 +12,7 @@ from uuid import uuid4
 from agrag.agents.ledger import Ledger
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 
 
@@ -80,6 +81,13 @@ class TestLedger:
         assert text.startswith("[")
         assert "Alice" in text
         assert "Person" in text
+
+    def test_render_resolved_entity(self) -> None:
+        """Resolved entities use entity citation keys and details."""
+        item = ResolvedEntity(id=uuid4(), label="Person", name="Alice")
+        text = Ledger().render(SearchResult(item=item, score=1.0, method="entity"))
+
+        assert text == "[E1] Entity: Alice (Person)"
 
     def test_render_community(self) -> None:
         """render() returns markdown with title and summary for a community."""

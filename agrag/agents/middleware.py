@@ -79,6 +79,8 @@ class ResearchAttemptLimiter(AgentMiddleware):
             max_attempts: How many researcher re-delegations after the
                 first verifier consultation the planner may make.
         """
+        if max_attempts < 0:
+            raise ValueError("max_attempts must be non-negative")
         self._max_attempts = max_attempts
         self._attempts = 0
         self._verifier_consulted = False

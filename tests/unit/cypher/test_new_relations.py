@@ -177,6 +177,14 @@ class TestRelationshipTypesFromQuery:
         q = relationship_types_from_query()
         assert "[r]-" in q
 
+    def test_excludes_system_edges_and_nodes(self) -> None:
+        """Discovery does not advertise non-traversable graph structure."""
+        q = relationship_types_from_query()
+
+        assert "NOT neighbor:Chunk" in q
+        assert "NOT neighbor:Community" in q
+        assert "NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF']" in q
+
     def test_unsafe_relation_type_raises(self) -> None:
         """An injection attempt in a relation type is rejected."""
         with pytest.raises(ValueError):

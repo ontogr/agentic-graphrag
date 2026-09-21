@@ -85,6 +85,7 @@ class BFSRetriever(Retriever):
             relation_types=filters.relation_types if filters else None,
             direction=direction,
             document_ids=filters.document_ids if filters else None,
+            labels=filters.labels if filters else None,
         )
         params = {
             "seed_ids": [str(sid) for sid in seed_ids],
