@@ -90,6 +90,7 @@ class EntityRetriever(Retriever):
         if effective_limit <= 0:
             return []
         labels = filters.labels if filters and filters.labels else self._entity_labels
+        allowed_ids = await self._allowed_entity_ids(filters)
         search_filters = (
             filters.model_copy(update={"document_ids": []})
             if filters and filters.document_ids
@@ -108,7 +109,6 @@ class EntityRetriever(Retriever):
         )
         results: list[SearchResult] = []
         if hits:
-            allowed_ids = await self._allowed_entity_ids(filters)
             if allowed_ids is not None:
                 hits = [hit for hit in hits if str(hit.id) in allowed_ids]
             ids = [str(h.id) for h in hits]
@@ -157,11 +157,15 @@ class EntityRetriever(Retriever):
         resolved_limit = (
             limit if limit is not None else self._settings.resolved_entity_top_k
         )
-        resolved_filters = filters
+        resolved_filters = (
+            filters.model_copy(update={"document_ids": []})
+            if filters and filters.document_ids
+            else filters
+        )
         if filters is not None and filters.labels:
             resolved_filters = SearchFilters(
                 relation_types=filters.relation_types,
-                document_ids=filters.document_ids,
+                document_ids=[],
                 properties={**filters.properties, "label": filters.labels},
             )
         try:
@@ -187,6 +191,10 @@ class EntityRetriever(Retriever):
             for hit in resolved_hits
             if (entity := resolved_by_id.get(hit.id)) is not None
             and (not filters or not filters.labels or entity.label in filters.labels)
+            and (
+                allowed_ids is None
+                or any(str(member_id) in allowed_ids for member_id in entity.member_ids)
+            )
         )
         results.sort(key=lambda result: result.score, reverse=True)
         return results[:effective_limit]

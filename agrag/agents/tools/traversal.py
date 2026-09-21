@@ -116,9 +116,12 @@ def make_list_relationship_types_tool(
         if resolved is None:
             return _ENTITY_NOT_FOUND
 
-        types = await engine.list_relationship_types(
-            resolved, relation_type_filter=relation_type_filter, filters=filters
-        )
+        try:
+            types = await engine.list_relationship_types(
+                resolved, relation_type_filter=relation_type_filter, filters=filters
+            )
+        except ScopeDeniedError:
+            return SCOPE_DENIED
         evidence = ledger.render(resolved)
         if not types:
             return f"{evidence}\nNo relationships found."

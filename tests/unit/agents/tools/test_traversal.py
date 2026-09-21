@@ -128,6 +128,20 @@ class TestListRelationshipTypesTool:
             resolved, relation_type_filter="TREATS", filters=None
         )
 
+    async def test_denied_relation_type_is_refused(self) -> None:
+        """An out-of-scope relationship type returns an authorization refusal."""
+        engine = _engine(_result())
+        engine.list_relationship_types.side_effect = ScopeDeniedError("not permitted")
+        tool = make_list_relationship_types_tool(
+            engine, Ledger(), filters=SearchFilters(relation_types=["TREATS"])
+        )
+
+        rendered = await tool.ainvoke(
+            {"entity": "Acme", "relation_type_filter": "FOUNDED"}
+        )
+
+        assert "outside this agent's permitted scope" in rendered
+
     async def test_no_types_message(self) -> None:
         """An entity with no attached relationships says so."""
         engine = _engine(_result())

@@ -96,6 +96,58 @@ class TestEntityRetriever:
 
         assert [result.item for result in results] == [resolved]
 
+    async def test_document_scope_keeps_resolved_entity_with_scoped_member(
+        self,
+    ) -> None:
+        """Document scope filters resolved entities by their member evidence."""
+        scoped_member_id = uuid4()
+        resolved = ResolvedEntity(
+            id=uuid4(),
+            label="Person",
+            name="Ada Lovelace",
+            member_ids=[scoped_member_id],
+        )
+        outside_scope = ResolvedEntity(
+            id=uuid4(),
+            label="Person",
+            name="Grace Hopper",
+            member_ids=[uuid4()],
+        )
+        graph_store = AsyncMock()
+        graph_store.execute_read.return_value = [{"id": str(scoped_member_id)}]
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                side_effect=[
+                    [],
+                    [
+                        VectorHit(id=resolved.id, score=0.9, payload={}),
+                        VectorHit(id=outside_scope.id, score=0.8, payload={}),
+                    ],
+                ],
+            ) as vector_search_mock,
+            patch(
+                "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
+                new_callable=AsyncMock,
+                return_value={
+                    resolved.id: resolved,
+                    outside_scope.id: outside_scope,
+                },
+            ),
+        ):
+            retriever = EntityRetriever(
+                graph_store=graph_store, embedder=MockEmbedder()
+            )
+            results = await retriever.retrieve(
+                "Ada", filters=SearchFilters(document_ids=["doc-1"])
+            )
+
+        assert [result.item for result in results] == [resolved]
+        resolved_filters = vector_search_mock.await_args_list[1].kwargs["filters"]
+        assert resolved_filters.document_ids == []
+
     async def test_skips_unresolvable_entities(self) -> None:
         """Entities that fail to resolve are skipped."""
         gs = AsyncMock()
