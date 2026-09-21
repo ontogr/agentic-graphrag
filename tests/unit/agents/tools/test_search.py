@@ -157,9 +157,7 @@ class TestLookUpEntityTool:
             engine, Ledger(), filters=SearchFilters(document_ids=["doc-1"])
         )
 
-        rendered = await tool.ainvoke(
-            {"query": "aspirin", "document_ids": ["doc-2"]}
-        )
+        rendered = await tool.ainvoke({"query": "aspirin", "document_ids": ["doc-2"]})
 
         assert "outside this agent's permitted scope" in rendered
         engine.search.assert_not_awaited()
