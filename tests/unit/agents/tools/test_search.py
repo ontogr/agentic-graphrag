@@ -137,6 +137,33 @@ class TestLookUpEntityTool:
             "aspirin", ENTITY, filters=SearchFilters(labels=["Drug"])
         )
 
+    async def test_base_scope_intersects_requested_labels(self) -> None:
+        """An entity search cannot widen its caller's label scope."""
+        engine = AsyncMock()
+        engine.search.return_value = []
+        tool = make_look_up_entity_tool(
+            engine, Ledger(), filters=SearchFilters(labels=["Drug", "Condition"])
+        )
+
+        await tool.ainvoke({"query": "aspirin", "labels": ["Condition", "Person"]})
+
+        assert engine.search.await_args.kwargs["filters"].labels == ["Condition"]
+
+    async def test_out_of_scope_document_is_refused(self) -> None:
+        """A source-text search refuses a document outside caller scope."""
+        engine = AsyncMock()
+        engine.search.return_value = []
+        tool = make_search_source_text_tool(
+            engine, Ledger(), filters=SearchFilters(document_ids=["doc-1"])
+        )
+
+        rendered = await tool.ainvoke(
+            {"query": "aspirin", "document_ids": ["doc-2"]}
+        )
+
+        assert "outside this agent's permitted scope" in rendered
+        engine.search.assert_not_awaited()
+
     async def test_limit_reaches_the_recipe(self) -> None:
         """A caller-supplied limit overrides only this call's recipe."""
         engine = AsyncMock()
