@@ -272,6 +272,10 @@ shared across runs.
 - **max_attempts** (<code>[int](#int)</code>) – How many researcher re-delegations after the
   first verifier consultation the planner may make.
 
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – max_attempts is negative.
+
 ###### `agrag.agents.middleware.ResearchAttemptLimiter.awrap_tool_call`
 
 ```python
@@ -4219,7 +4223,8 @@ never returned as BFS results.
   to `"both"`.
 - **document_ids** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – Optional document ids that must mention each result
   entity through a `MENTIONED_IN` edge.
-- **labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – Optional labels required on returned neighbors.
+- **labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – Optional labels that returned neighbors must have at
+  least one of.
 
 **Returns:**
 
@@ -12383,9 +12388,8 @@ Expand one resolved entity into its neighbours.
   immutable allowlist the caller set, not something a
   `relation_type` argument can widen: a request outside it
   is refused without querying the graph. `properties`
-  applies to neighbour nodes. `document_ids` is deliberately
-  not forwarded, since entities are not document-scoped the
-  way chunks are.
+  `document_ids`, and `labels` constrain returned
+  neighbour nodes.
 
 **Returns:**
 
@@ -12807,7 +12811,8 @@ Run BFS expansion from seed entity ids.
   kept for interface consistency).
 - **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied to traversal. relation_types
   restrict which relationships the traversal crosses;
-  property filters apply to neighbor nodes.
+  property filters, document_ids, and labels restrict
+  returned neighbor nodes.
 - **limit** (<code>[int](#int) | None</code>) – Maximum results. None uses traversal_limit.
 - **seed_ids** (<code>[list](#list)\[[UUID](#uuid.UUID)\] | None</code>) – The entity ids to expand from. If None, BFS
   returns empty.
@@ -13281,7 +13286,8 @@ Expand one resolved entity into its neighbours.
   `community_expand` is set.
 - **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Scope for the traversal. Its `relation_types` is
   an allowlist a `relation_type` argument cannot widen;
-  its `properties` applies to neighbour nodes.
+  its `properties`, `document_ids`, and `labels`
+  constrain returned neighbour nodes.
 
 **Returns:**
 

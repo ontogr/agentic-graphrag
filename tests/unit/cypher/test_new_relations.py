@@ -47,6 +47,13 @@ class TestBfsExpandQuery:
         q, _ = bfs_expand_query()
         assert "$seed_ids" in q
 
+    def test_multiple_labels_allow_neighbors_with_any_scoped_label(self) -> None:
+        """A multi-label scope accepts neighbors with any allowed label."""
+        query, params = bfs_expand_query(labels=["Drug", "Condition"])
+
+        assert "AND (neighbor:Drug OR neighbor:Condition)" in query
+        assert params == {}
+
     def test_no_filters_returns_empty_params(self) -> None:
         """Without filters the params dict is empty."""
         _, params = bfs_expand_query()

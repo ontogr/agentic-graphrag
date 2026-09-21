@@ -154,9 +154,8 @@ async def traverse(
             immutable allowlist the caller set, not something a
             ``relation_type`` argument can widen: a request outside it
             is refused without querying the graph. ``properties``
-            applies to neighbour nodes. ``document_ids`` is deliberately
-            not forwarded, since entities are not document-scoped the
-            way chunks are.
+            ``document_ids``, and ``labels`` constrain returned
+            neighbour nodes.
 
     Returns:
         The neighbouring entities, deduplicated, highest-ranked first,

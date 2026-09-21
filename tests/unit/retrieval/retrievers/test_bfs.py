@@ -93,6 +93,22 @@ class TestBFSRetriever:
         assert "filter_status" in query
         assert params["filter_status"] == "active"
 
+    async def test_labels_restrict_neighbors_without_query_parameters(self) -> None:
+        """A label scope becomes a validated neighbor label predicate."""
+        graph_store = AsyncMock()
+        graph_store.execute_read.return_value = []
+        retriever = BFSRetriever(graph_store=graph_store)
+
+        await retriever.retrieve(
+            "test",
+            seed_ids=[uuid4()],
+            filters=SearchFilters(labels=["Drug"]),
+        )
+
+        query, params = graph_store.execute_read.call_args.args
+        assert "AND neighbor:Drug" in query
+        assert not any("label" in parameter for parameter in params)
+
     async def test_relation_types_restrict_traversal(self) -> None:
         """relation_types reach the Cypher relationship pattern."""
         gs = AsyncMock()

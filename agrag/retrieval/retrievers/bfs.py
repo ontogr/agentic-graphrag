@@ -56,7 +56,8 @@ class BFSRetriever(Retriever):
                 kept for interface consistency).
             filters: Constraints applied to traversal. relation_types
                 restrict which relationships the traversal crosses;
-                property filters apply to neighbor nodes.
+                property filters, document_ids, and labels restrict
+                returned neighbor nodes.
             limit: Maximum results. None uses traversal_limit.
             seed_ids: The entity ids to expand from. If None, BFS
                 returns empty.

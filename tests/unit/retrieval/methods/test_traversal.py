@@ -6,9 +6,9 @@ module's namespace, so no database, embedding, or model call is made.
 Covers entity-id extraction for both entity and resolved-entity results (a
 resolved entity seeds traversal with its members' raw ids, never its own id),
 entity resolution's label/property projection, the relation-type allowlist and
-its scope-denied refusal, the deliberate non-forwarding of document_ids into
-BFS, direction/depth/limit threading, community expansion, and relationship
-type filtering.
+its scope-denied refusal, document and label scope forwarding into BFS,
+direction/depth/limit threading, community expansion, and relationship type
+filtering.
 """
 
 from typing import Any

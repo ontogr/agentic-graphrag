@@ -183,7 +183,8 @@ class SearchEngine:
                 ``community_expand`` is set.
             filters: Scope for the traversal. Its ``relation_types`` is
                 an allowlist a ``relation_type`` argument cannot widen;
-                its ``properties`` applies to neighbour nodes.
+                its ``properties``, ``document_ids``, and ``labels``
+                constrain returned neighbour nodes.
 
         Returns:
             The neighbouring entities, deduplicated, highest-ranked

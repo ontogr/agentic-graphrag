@@ -78,7 +78,8 @@ def bfs_expand_query(
             to ``"both"``.
         document_ids: Optional document ids that must mention each result
             entity through a ``MENTIONED_IN`` edge.
-        labels: Optional labels required on returned neighbors.
+        labels: Optional labels that returned neighbors must have at
+            least one of.
 
     Returns:
         A ``(query, params)`` tuple. The query expects ``$seed_ids``
@@ -110,8 +111,12 @@ def bfs_expand_query(
         if document_ids
         else ""
     )
-    label_suffix = "".join(
-        f" AND neighbor:{validate_identifier(label)}" for label in labels or []
+    safe_labels = [validate_identifier(label) for label in labels or []]
+    label_predicate = " OR ".join(f"neighbor:{label}" for label in safe_labels)
+    label_suffix = (
+        f" AND ({label_predicate})"
+        if len(safe_labels) > 1
+        else (f" AND {label_predicate}" if label_predicate else "")
     )
     where = f"{base_where}{filter_suffix}{document_suffix}{label_suffix}"
     type_pattern = relationship_type_pattern(relation_types)
