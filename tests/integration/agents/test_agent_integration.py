@@ -687,8 +687,8 @@ class TestAgentBuildIntegration:
     @pytest.mark.skipif(
         not _agent_llm_configured(), reason="LLM endpoint not configured"
     )
-    async def test_multi_hop_question_cites_two_tools(self) -> None:
-        """The planner delegates more than once and synthesizes across tools."""
+    async def test_multi_hop_question_cites_evidence(self) -> None:
+        """A multi-hop answer cites evidence from its research transcript."""
         alice = await self._seed_entity(self.label, "Alice")
         acme = await self._seed_entity(self.other_label, "Acme")
         await self._seed_relation("WORKS_FOR", alice, acme)
