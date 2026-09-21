@@ -350,7 +350,7 @@ class TestRunScopedAgentSubagents:
         )
         await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
 
-        assert "7 research attempts" in captured["system_prompt"]
+        assert "7 post-verifier research retries" in captured["system_prompt"]
 
     async def test_ainvoke_calls_ensure_harness_profile_with_configured_provider(
         self, monkeypatch: pytest.MonkeyPatch
