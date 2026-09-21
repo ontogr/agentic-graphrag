@@ -23,7 +23,7 @@ pip install 'agentic-graphrag[agents]'
 import asyncio
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.graphdb.neo4j import Neo4jGraphStore, Neo4jSettings
-from agrag.embedding.sentence_transformer import SentenceTransformerEmbedder
+from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.recipes import HYBRID
 
@@ -54,9 +54,14 @@ asyncio.run(main())
 import asyncio
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
+from agrag.graphdb.neo4j import Neo4jGraphStore, Neo4jSettings
 from agrag.retrieval.search_engine import SearchEngine
 
 async def main():
+    graph_store = Neo4jGraphStore(settings=Neo4jSettings())
+    embedder = SentenceTransformerEmbedder()
     engine = SearchEngine(
         graph_store=graph_store,
         embedder=embedder,
@@ -65,6 +70,7 @@ async def main():
     agent = build_agent(
         engine=engine,
         llm_settings=AgentLLMSettings.from_openai_compatible_env(),
+        graph_schema=GENERIC,
     )
 
     result = await agent.ainvoke({
@@ -73,16 +79,18 @@ async def main():
         ]
     })
 
-    print(result["messages"][-1]["content"])
+    last_message = result["messages"][-1]
+    print(last_message["content"] if isinstance(last_message, dict) else last_message.content)
 
 asyncio.run(main())
 ```
 
+The deep-agent path returns LangChain message objects, so the last message's text is `.content`; the optional-dependency fallback returns dictionaries, as shown above. `graph_schema` tells the researcher's prompt and the generated-query tool which labels and relationship types the graph uses. Omit it to use the engine's own schema, which falls back to `GENERIC` when the engine was built without one. Pass a schema that differs from the engine's schema, and `build_agent` raises `ValueError`, so the prompt can never describe a graph the engine does not search.
+
 ### Scoping agent retrieval
 
-Without extra arguments, the agent's tools search the whole graph. Pass
-`SearchFilters` to restrict every tool search to a document set,
-tenant, or label scope:
+By default, the agent's tools search the whole graph. Pass `SearchFilters` to
+limit every tool search by document set, tenant, or label:
 
 ```python
 from agrag.retrieval.filters import SearchFilters
@@ -94,8 +102,54 @@ agent = build_agent(
 )
 ```
 
-Your application fixes the filters at build time. The tools apply the
-filters internally, and the model cannot see or override them.
+Set the filters when your application builds the agent. The tools enforce the
+filters. The model cannot see or change them.
+
+Build-time filters and per-call tool parameters have different roles. The
+caller sets `filters`, and the model cannot see them. The model chooses the
+tool parameters for each call, such as `labels`, `document_ids`, `limit`,
+`min_score`, `relation_type`, and `direction`. These parameters can only
+narrow the build-time scope. They cannot widen it. The tools refuse requests
+outside the scope.
+
+The `document_ids` filter applies to the five discovery tools and entity
+lookup. It also limits neighbors from `find_related_entities` and
+`traverse_from_entity`. The `labels` and `properties` filters apply to entity
+lookup and traversal neighbors. `relation_types` is a traversal allowlist.
+`list_relationship_types` uses only this allowlist. The eleventh tool,
+`query_graph_directly`, is outside both groups. Unscoped agents receive it.
+Caller-scoped agents do not.
+
+## Researcher tools
+
+The researcher subagent receives eleven tools when the agent is unscoped, ten when caller-set base filters are non-empty. The tools fall into three groups plus a calculator.
+
+Discovery tools find entry points into the graph:
+
+| Tool | Purpose | Key parameters |
+|------|---------|----------------|
+| `search_source_text` | Find passages of source text that mention the query terms | `query`, `limit`, `document_ids` |
+| `look_up_entity` | Find entities that match a name or description | `query`, `limit`, `labels` |
+| `explore_related` | Search entities and source text together for a topic | `query`, `limit`, `labels`, `document_ids` |
+| `answer_from_graph_structure` | Answer from reranked entity and passage evidence | `query`, `limit`, `min_score` |
+| `answer_thematic_question` | Answer a broad question from community summaries | `query`, `limit` |
+
+Structural navigation tools read what the graph stores about one entity:
+
+| Tool | Purpose | Key parameters |
+|------|---------|----------------|
+| `describe_entity` | Show an entity's own recorded properties, not its neighbours | `entity` |
+| `list_relationship_types` | List the relationship types attached to an entity | `entity`, `relation_type_filter` |
+
+Relational tools follow relationships between entities:
+
+| Tool | Purpose | Key parameters |
+|------|---------|----------------|
+| `find_related_entities` | Find the entities one relationship type away from an entity | `entity`, `relation_type`, `direction`, `community_expand` |
+| `traverse_from_entity` | Walk outward from an entity, with a fallback to relationship types when the neighbourhood is too wide | `entity`, `relation_type`, `direction`, `depth` |
+| `query_graph_directly` | Ask a structural question in one generated read-only Cypher query; present only for unscoped agents | `query` |
+
+`compute_over_evidence` stands outside the three groups. It computes a count, a sum, or a comparison over numbers the researcher already read from earlier tool results. It never queries the graph. The design rationale for this tool set is recorded in `agrag_agents.md` in the `test-agentic-graphrag` companion repository's `thoughts` notes.
 
 ## Available Recipes
 
@@ -106,6 +160,8 @@ filters internally, and the model cannot see or override them.
 | `HYBRID` | entity, chunk | No | None |
 | `HYBRID_RERANKED` | entity, chunk | No | cross_encoder |
 | `GRAPH_EXPAND` | entity | Yes | None |
+| `THEMATIC` | community | No | None |
+| `TEXT2CYPHER` | text2cypher | No | None |
 
 ## Configuration
 

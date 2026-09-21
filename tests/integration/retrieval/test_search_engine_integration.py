@@ -5,6 +5,7 @@ Run against the Docker Compose Neo4j instance from
 """
 
 import importlib.util
+import os
 from collections.abc import AsyncGenerator, Sequence
 from uuid import UUID, uuid4
 
@@ -13,7 +14,9 @@ import pytest
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import (
     validate_identifier,
@@ -34,6 +37,26 @@ from agrag.retrieval.settings import RetrievalSettings
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
+
+
+def _cross_encoder_weights_cached() -> bool:
+    """Return True when the reranker's weights are already on disk.
+
+    Loading them downloads the model, so the test that needs real scores
+    skips rather than making the suite reach the network for it.
+    """
+    if importlib.util.find_spec("sentence_transformers") is None:
+        return False
+    cache = os.environ.get("HF_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache", "huggingface"
+    )
+    snapshots = os.path.join(
+        cache,
+        "hub",
+        "models--cross-encoder--ms-marco-MiniLM-L-6-v2",
+        "snapshots",
+    )
+    return os.path.isdir(snapshots)
 
 
 class _FixedEmbedder(Embedder):
@@ -65,8 +88,6 @@ class _FixedEmbedder(Embedder):
         return vectors
 
 
-@pytest.mark.integration
-@pytest.mark.enable_socket
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestSearchEngineIntegration:
     """SearchEngine searches a real Neo4j graph store."""
@@ -79,8 +100,13 @@ class TestSearchEngineIntegration:
         self.label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         self.chunk_ids: list[UUID] = []
         self.embedder = _FixedEmbedder()
+        self.schema = GraphSchema(
+            name="search_engine_integration",
+            version="1",
+            entities=[EntityType(label=self.label, description="A test entity.")],
+            relations=[],
+        )
         self.settings = RetrievalSettings(
-            entity_labels=[self.label],
             entity_top_k=10,
             chunk_top_k=10,
         )
@@ -180,6 +206,7 @@ class TestSearchEngineIntegration:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("Alice", ENTITY)
 
@@ -200,6 +227,7 @@ class TestSearchEngineIntegration:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("headache treatment", CHUNK)
 
@@ -214,6 +242,7 @@ class TestSearchEngineIntegration:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         results = await engine.search("Alice", HYBRID)
 
@@ -264,6 +293,7 @@ class TestSearchEngineIntegration:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         # GRAPH_EXPAND searches entities first, then BFS expands.
         results = await engine.search("Alice", GRAPH_EXPAND)
@@ -278,6 +308,7 @@ class TestSearchEngineIntegration:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         # Filter by label that doesn't exist.
         filters = SearchFilters(labels=["NonExistent"])
@@ -294,11 +325,42 @@ class TestSearchEngineIntegration:
             graph_store=self.store,
             embedder=self.embedder,
             settings=self.settings,
+            graph_schema=self.schema,
         )
         recipe = Recipe(methods=["entity"], limit=3)
         results = await engine.search("test", recipe)
 
         assert len(results) <= 3
+
+    @pytest.mark.skipif(
+        not _cross_encoder_weights_cached(), reason="cross-encoder weights not cached"
+    )
+    async def test_recipe_min_score_filters_a_real_reranked_list(self) -> None:
+        """A per-call min_score genuinely drops results after real reranking."""
+        await self._seed_entities(["Alice", "Bob"])
+        engine = SearchEngine(
+            graph_store=self.store,
+            embedder=self.embedder,
+            settings=self.settings,
+            graph_schema=self.schema,
+        )
+        unfiltered = Recipe(methods=["entity"], reranker="cross_encoder", limit=10)
+        positive_only = Recipe(
+            methods=["entity"], reranker="cross_encoder", limit=10, min_score=0.0
+        )
+        rerank_everything = Recipe(
+            methods=["entity"], reranker="cross_encoder", limit=10, min_score=1e6
+        )
+
+        whole = await engine.search("Alice", unfiltered)
+        above_zero = await engine.search("Alice", positive_only)
+        filtered = await engine.search("Alice", rerank_everything)
+
+        assert whole
+        assert all(result.method == "cross_encoder" for result in whole)
+        assert all(result.score >= 0.0 for result in above_zero)
+        assert len(above_zero) < len(whole)
+        assert filtered == []
 
     async def test_cypher_where_labels_match_native_node_labels(self) -> None:
         """SearchFilters(labels=[...]) includes matching labels, excludes others."""
@@ -343,3 +405,185 @@ class TestSearchEngineIntegration:
         finally:
             await self.store.execute_write(f"MATCH (n:{person_label}) DETACH DELETE n")
             await self.store.execute_write(f"MATCH (n:{org_label}) DETACH DELETE n")
+
+
+@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+class TestTraversalIntegration:
+    """SearchEngine and its traversal tools walk a real, directed graph."""
+
+    @pytest.fixture(autouse=True)
+    async def setup_store(self) -> AsyncGenerator[None, None]:
+        """Set up a fresh store for each test and delete only its own rows."""
+        self.store = build_graph_store("neo4j")
+        await self.store.connect()
+        suffix = uuid4().hex[:8]
+        self.person_label = validate_identifier(f"Person_{suffix}")
+        self.org_label = validate_identifier(f"Organization_{suffix}")
+        self.embedder = _FixedEmbedder()
+        self.settings = RetrievalSettings()
+        self.schema = GraphSchema(
+            name="traversal_integration",
+            version="1",
+            entities=[
+                EntityType(label=self.person_label, description="A person."),
+                EntityType(label=self.org_label, description="An organization."),
+            ],
+            relations=[],
+        )
+        self.engine = SearchEngine(
+            graph_store=self.store,
+            embedder=self.embedder,
+            settings=self.settings,
+            graph_schema=self.schema,
+        )
+        yield
+        for label in (self.person_label, self.org_label):
+            await self.store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+        await self.store.close()
+
+    async def _write_entity(self, label: str, name: str) -> Entity:
+        """Write one searchable entity and return it."""
+        entity = Entity(id=uuid4(), label=label, name=name)
+        entity.embedding = await self.embedder.embed_one(name)
+        await self.store.upsert_nodes(
+            label,
+            [
+                NodeRecord(
+                    id=entity.id,
+                    labels=[label],
+                    properties={
+                        "name": name,
+                        "merge_key": entity.merge_key,
+                        "merged_from": [],
+                        "merge_count": 1,
+                        "source_chunk_ids": [],
+                        "embedding": entity.embedding,
+                        "created_at": entity.created_at.isoformat(),
+                    },
+                )
+            ],
+        )
+        await self.store.ensure_vector_index(
+            label=label,
+            vector_property="embedding",
+            dimensions=4,
+            distance=Distance.COSINE,
+        )
+        return entity
+
+    async def _write_relation(
+        self, rel_type: str, start_id: UUID, end_id: UUID
+    ) -> None:
+        """Write one directed relationship."""
+        await self.store.upsert_relations(
+            [
+                RelationRecord(
+                    id=uuid4(),
+                    type=rel_type,
+                    start_id=start_id,
+                    end_id=end_id,
+                    properties={},
+                )
+            ]
+        )
+
+    async def _resolved_seed(self, name: str) -> SearchResult:
+        """Resolve a seeded entity the way a traversal tool does."""
+        resolved = await self.engine.find_entity(name)
+        assert resolved is not None, f"{name} did not resolve"
+        return resolved
+
+    async def test_outgoing_traversal_follows_a_relationship_forward(self) -> None:
+        """A FOUNDED edge is reachable from its source, not its target."""
+        person = await self._write_entity(self.person_label, "Ada")
+        org = await self._write_entity(self.org_label, "Engines")
+        await self._write_relation("FOUNDED", person.id, org.id)
+
+        outward = await self.engine.traverse(
+            await self._resolved_seed("Ada"), direction="outgoing"
+        )
+
+        assert [result.item.id for result in outward] == [org.id]
+
+    async def test_incoming_traversal_follows_a_relationship_backward(self) -> None:
+        """The same FOUNDED edge is reachable from its target, reversed."""
+        person = await self._write_entity(self.person_label, "Ada")
+        org = await self._write_entity(self.org_label, "Engines")
+        await self._write_relation("FOUNDED", person.id, org.id)
+
+        inward = await self.engine.traverse(
+            await self._resolved_seed("Engines"), direction="incoming"
+        )
+
+        assert [result.item.id for result in inward] == [person.id]
+
+    async def test_direction_is_not_ignored(self) -> None:
+        """Reversing the direction on either endpoint finds nothing."""
+        person = await self._write_entity(self.person_label, "Ada")
+        org = await self._write_entity(self.org_label, "Engines")
+        await self._write_relation("FOUNDED", person.id, org.id)
+
+        backwards = await self.engine.traverse(
+            await self._resolved_seed("Ada"), direction="incoming"
+        )
+        forwards = await self.engine.traverse(
+            await self._resolved_seed("Engines"), direction="outgoing"
+        )
+
+        assert backwards == []
+        assert forwards == []
+
+    async def test_wide_fanout_falls_back_to_relationship_types(self) -> None:
+        """A high-degree entity is reported as its types, not its neighbours."""
+        from agrag.agents.ledger import Ledger  # noqa: PLC0415
+        from agrag.agents.tools import make_tools  # noqa: PLC0415
+
+        hub = await self._write_entity(self.person_label, "Hub")
+        for index in range(13):
+            neighbour = await self._write_entity(self.person_label, f"Knows {index}")
+            await self._write_relation("KNOWS", hub.id, neighbour.id)
+        for index in range(12):
+            neighbour = await self._write_entity(self.org_label, f"Employer {index}")
+            await self._write_relation("WORKS_FOR", hub.id, neighbour.id)
+
+        tools = make_tools(self.engine, Ledger())
+        tool = next(tool for tool in tools if tool.name == "traverse_from_entity")
+
+        rendered = await tool.ainvoke({"entity": "Hub"})
+
+        assert "KNOWS, WORKS_FOR" in rendered
+        assert "Knows 0" not in rendered
+
+    async def test_narrowed_traversal_returns_real_neighbours(self) -> None:
+        """Naming a relationship type from that list returns the neighbours."""
+        from agrag.agents.ledger import Ledger  # noqa: PLC0415
+        from agrag.agents.tools import make_tools  # noqa: PLC0415
+
+        hub = await self._write_entity(self.person_label, "Hub")
+        for index in range(21):
+            neighbour = await self._write_entity(self.person_label, f"Knows {index}")
+            await self._write_relation("KNOWS", hub.id, neighbour.id)
+        for index in range(3):
+            neighbour = await self._write_entity(self.org_label, f"Employer {index}")
+            await self._write_relation("WORKS_FOR", hub.id, neighbour.id)
+
+        tools = make_tools(self.engine, Ledger())
+        tool = next(tool for tool in tools if tool.name == "traverse_from_entity")
+
+        rendered = await tool.ainvoke({"entity": "Hub", "relation_type": "WORKS_FOR"})
+
+        assert "Employer 0" in rendered
+        assert "Knows 0" not in rendered
+
+    async def test_list_relationship_types_reports_real_types(self) -> None:
+        """The types query reads the real attached relationship types."""
+        hub = await self._write_entity(self.person_label, "Hub")
+        org = await self._write_entity(self.org_label, "Engines")
+        await self._write_relation("FOUNDED", hub.id, org.id)
+        await self._write_relation("WORKS_FOR", hub.id, org.id)
+
+        types = await self.engine.list_relationship_types(
+            await self._resolved_seed("Hub")
+        )
+
+        assert sorted(types) == ["FOUNDED", "WORKS_FOR"]

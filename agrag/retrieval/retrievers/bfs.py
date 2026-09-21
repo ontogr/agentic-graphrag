@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from agrag.common.data_models.search_result import SearchResult
-from agrag.cypher.relations import bfs_expand_query
+from agrag.cypher.relations import TraversalDirection, bfs_expand_query
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.graph import _parse_entity_node
 from agrag.retrieval.filters import SearchFilters
@@ -47,6 +47,7 @@ class BFSRetriever(Retriever):
         limit: int | None = None,
         seed_ids: list[UUID] | None = None,
         depth: int | None = None,
+        direction: TraversalDirection = "both",
     ) -> list[SearchResult]:
         """Run BFS expansion from seed entity ids.
 
@@ -55,12 +56,15 @@ class BFSRetriever(Retriever):
                 kept for interface consistency).
             filters: Constraints applied to traversal. relation_types
                 restrict which relationships the traversal crosses;
-                property filters apply to neighbor nodes.
+                property filters, document_ids, and labels restrict
+                returned neighbor nodes.
             limit: Maximum results. None uses traversal_limit.
             seed_ids: The entity ids to expand from. If None, BFS
                 returns empty.
             depth: BFS hops. None uses
                 RetrievalSettings.traversal_depth.
+            direction: Which way a hop walks each relationship,
+                relative to the seed entity. Defaults to ``"both"``.
 
         Returns:
             SearchResults with entities and relations found via BFS.
@@ -74,10 +78,22 @@ class BFSRetriever(Retriever):
         query, filter_params = bfs_expand_query(
             depth=effective_depth,
             limit=effective_limit,
-            filters=filters.to_property_filter() if filters else None,
+            filters=(
+                SearchFilters(properties=filters.properties).to_property_filter()
+                if filters
+                else None
+            ),
             relation_types=filters.relation_types if filters else None,
+            direction=direction,
+            document_ids=filters.document_ids if filters else None,
+            labels=filters.labels if filters else None,
         )
-        params = {"seed_ids": [str(sid) for sid in seed_ids], **filter_params}
+        params = {
+            "seed_ids": [str(sid) for sid in seed_ids],
+            **filter_params,
+        }
+        if filters and filters.document_ids:
+            params["document_ids"] = filters.document_ids
 
         rows = await self._graph_store.execute_read(query, params)
 

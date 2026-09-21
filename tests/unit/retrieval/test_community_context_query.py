@@ -1,10 +1,15 @@
 """Tests for the community_context enrichment helper."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from agrag.common.data_models.community import Community
-from agrag.retrieval.community_context import community_context
+from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.search_result import SearchResult
+from agrag.retrieval.community_context import (
+    community_context,
+    expand_with_communities,
+)
 from agrag.retrieval.filters import SearchFilters
 
 
@@ -175,3 +180,98 @@ class TestCommunityContext:
 
         query, _params = mock_store.execute_read.call_args.args
         assert "WHERE" not in query
+
+
+class TestExpandWithCommunities:
+    """expand_with_communities fuses overlapping reports into a result list."""
+
+    async def test_expand_with_communities_fuses_community_results_into_fused_list(
+        self,
+    ) -> None:
+        """Non-empty community results are fused into the caller's list."""
+        entity = Entity(id=uuid4(), label="Person", name="Alice")
+        fused = [SearchResult(item=entity, score=1.0, method="entity")]
+        community = Community(
+            id=uuid4(),
+            title="T",
+            summary="S",
+            rating=5.0,
+            rating_explanation="because",
+        )
+
+        with patch(
+            "agrag.retrieval.community_context.community_context",
+            AsyncMock(
+                return_value=[
+                    SearchResult(item=community, score=5.0, method="community")
+                ]
+            ),
+        ):
+            results = await expand_with_communities(
+                fused,
+                [entity.id],
+                graph_store=AsyncMock(),
+                top_k=3,
+                filters=None,
+                rrf_k=60,
+            )
+
+        assert any(result.item.id == community.id for result in results)
+        assert any(result.item.id == entity.id for result in results)
+
+    async def test_expand_with_communities_respects_top_k(self) -> None:
+        """The caller's top_k reaches the community lookup."""
+        with patch(
+            "agrag.retrieval.community_context.community_context",
+            AsyncMock(return_value=[]),
+        ) as lookup:
+            results = await expand_with_communities(
+                [],
+                [uuid4()],
+                graph_store=AsyncMock(),
+                top_k=2,
+                filters=None,
+                rrf_k=60,
+            )
+
+        assert lookup.call_args.kwargs["top_k"] == 2
+        assert results == []
+
+    async def test_expand_with_communities_passes_filters_through(self) -> None:
+        """The caller's scope reaches the community lookup unchanged."""
+        filters = SearchFilters(document_ids=["doc-1"])
+        with patch(
+            "agrag.retrieval.community_context.community_context",
+            AsyncMock(return_value=[]),
+        ) as lookup:
+            results = await expand_with_communities(
+                [],
+                [uuid4()],
+                graph_store=AsyncMock(),
+                top_k=3,
+                filters=filters,
+                rrf_k=60,
+            )
+
+        assert lookup.call_args.kwargs["filters"] is filters
+        assert results == []
+
+    async def test_expand_with_communities_failure_keeps_fused_results(self) -> None:
+        """A community lookup failure returns the fused list unchanged."""
+        entity = Entity(id=uuid4(), label="Person", name="Alice")
+        fused = [SearchResult(item=entity, score=1.0, method="entity")]
+
+        with patch(
+            "agrag.retrieval.community_context.community_context",
+            AsyncMock(side_effect=RuntimeError("community store unavailable")),
+        ):
+            results = await expand_with_communities(
+                fused,
+                [entity.id],
+                graph_store=AsyncMock(),
+                top_k=3,
+                filters=None,
+                rrf_k=60,
+            )
+
+        assert results == fused

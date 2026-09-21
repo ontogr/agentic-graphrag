@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field, model_validator
 _RESERVED_ENTITY_PROPERTY_NAMES = frozenset({"label", "text"})
 
 
+def _format_patterns(patterns: list[tuple[str, str]]) -> str:
+    """Render relation patterns as a comma-separated (source, target) list."""
+    return ", ".join(f"({source}, {target})" for source, target in patterns)
+
+
 class EntityType(BaseModel):
     """One kind of entity a schema recognizes.
 
@@ -102,6 +107,58 @@ class GraphSchema(BaseModel):
                         f"is not a declared entity"
                     )
         return self
+
+    def to_prompt_description(self) -> str:
+        """Serialize this schema in full for an LLM prompt.
+
+        Every entity type's label, description, declared properties, and
+        subtypes are listed, followed by every relation type's label,
+        description, and valid (source, target) patterns. Use
+        :meth:`to_compact_summary` instead when prompt space is tight.
+
+        Returns:
+            A plain-text schema description, one fact per line.
+        """
+        lines = [f"Schema {self.name} (version {self.version})", "Entity types:"]
+        for entity in self.entities:
+            lines.append(f"- {entity.label}: {entity.description}")
+            if entity.properties:
+                declared = ", ".join(
+                    f"{name}: {type_name}"
+                    for name, type_name in entity.properties.items()
+                )
+                lines.append(f"  properties: {declared}")
+            if entity.subtypes:
+                lines.append(f"  subtypes: {', '.join(entity.subtypes)}")
+        lines.append("Relation types:")
+        if not self.relations:
+            lines.append("(none)")
+        for relation in self.relations:
+            lines.append(f"- {relation.label}: {relation.description}")
+            patterns = _format_patterns(relation.patterns) or "(none)"
+            lines.append(f"  valid patterns: {patterns}")
+        return "\n".join(lines)
+
+    def to_compact_summary(self) -> str:
+        """Serialize only entity labels and relation patterns for a prompt.
+
+        Descriptions, properties, and subtypes are omitted, so this is the
+        shape to inject where prompt space is tight.
+        :meth:`to_prompt_description` carries the same labels with their
+        full detail.
+
+        Returns:
+            A plain-text summary of entity labels and valid relation
+            patterns.
+        """
+        entity_labels = ", ".join(entity.label for entity in self.entities)
+        lines = [f"Entity labels: {entity_labels}", "Relation types:"]
+        if not self.relations:
+            lines.append("(none)")
+        for relation in self.relations:
+            patterns = _format_patterns(relation.patterns) or "(none)"
+            lines.append(f"- {relation.label}: {patterns}")
+        return "\n".join(lines)
 
 
 _GENERIC_LABELS = ["Person", "Organization", "Location", "Event", "Product"]

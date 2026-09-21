@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.graph_schema import GraphSchema
+from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.safety import (
@@ -23,7 +25,164 @@ from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
 
 
+if TYPE_CHECKING:
+    from baml_py import ClientRegistry
+
+    from agrag.llm.baml_client.runtime import BamlCallOptions
+
+
 logger = logging.getLogger(__name__)
+
+# A retry diagnostic is untrusted database output that reaches the next
+# generation prompt, so it is bounded and stripped of anything that could
+# carry graph content or read as an instruction.
+_DIAGNOSTIC_MESSAGE_MAX_CHARS = 400
+_UUID_PATTERN = re.compile(
+    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
+)
+_QUOTED_VALUE_PATTERN = re.compile(r"'[^']*'|\"[^\"]*\"|`[^`]*`")
+_CYPHER_CLAUSE_PATTERN = re.compile(
+    r"\b(?:MATCH|RETURN|WHERE|WITH|UNWIND|CREATE|MERGE|DELETE|DETACH|SET|"
+    r"REMOVE|CALL|YIELD|LIMIT|ORDER\s+BY|SKIP)\b",
+    flags=re.IGNORECASE,
+)
+_INSTRUCTION_MARKERS = (
+    "ignore",
+    "disregard",
+    "forget",
+    "instead",
+    "you must",
+    "you should",
+    "do not",
+    "don't",
+    "system prompt",
+    "instruction",
+    "assistant",
+    "override",
+    "pretend",
+)
+_ENVIRONMENT_FAILURE_TYPES = frozenset(
+    {"DriverError", "ServiceUnavailable", "SessionExpired"}
+)
+
+
+def _is_environment_failure(exc: BaseException) -> bool:
+    """Return whether a query failure indicates an unavailable database."""
+    return (
+        isinstance(exc, (ConnectionError, OSError, TimeoutError))
+        or type(exc).__name__ in _ENVIRONMENT_FAILURE_TYPES
+    )
+
+
+def _format_retry_diagnostic(exc: BaseException) -> str:
+    """Build a bounded, sanitized diagnostic for a failed query attempt.
+
+    The generated query, graph values, identifiers, and instruction-like
+    phrasing are removed before the text reaches the next generation call.
+    What survives is the exception's category plus a short excerpt of its
+    message, which the generation prompt delimits as data.
+
+    Args:
+        exc: The exception the failed EXPLAIN or execution raised.
+
+    Returns:
+        One line naming the exception category, followed by up to 400
+        characters of scrubbed message text when any survived.
+    """
+    category = type(exc).__name__
+    message = _scrub_diagnostic_message(str(exc))
+    if not message:
+        return category
+    escaped = message.replace("<", "&lt;").replace(">", "&gt;")[
+        :_DIAGNOSTIC_MESSAGE_MAX_CHARS
+    ]
+    return f"{category}: {escaped}"
+
+
+def _scrub_diagnostic_message(message: str) -> str:
+    """Strip unsafe content from a database error message.
+
+    Rewrites UUID-like values and quoted values, then drops any line that
+    still carries Cypher clause text or instruction-like phrasing. Surviving
+    lines are joined with single spaces, so the result has no newlines to
+    break out of the delimited prompt block.
+
+    Args:
+        message: The raw exception message.
+
+    Returns:
+        At most 400 characters of scrubbed message text, empty when nothing
+        safe survived.
+    """
+    redacted = _UUID_PATTERN.sub("<id>", message)
+    redacted = _QUOTED_VALUE_PATTERN.sub("<value>", redacted)
+    kept: list[str] = []
+    for line in redacted.splitlines():
+        if _CYPHER_CLAUSE_PATTERN.search(line):
+            continue
+        lowered = line.lower()
+        if any(marker in lowered for marker in _INSTRUCTION_MARKERS):
+            continue
+        stripped = line.strip()
+        if stripped:
+            kept.append(stripped)
+    scrubbed = " ".join(kept)
+    return scrubbed[:_DIAGNOSTIC_MESSAGE_MAX_CHARS].strip()
+
+
+# Models routinely wrap a generated query in a markdown code fence. The
+# fence is not Cypher, so it would fail EXPLAIN and burn the one retry.
+_FENCED_CODE_PATTERN = re.compile(
+    r"\A\s*```[A-Za-z0-9_-]*\s*\n?(?P<body>.*?)\n?\s*```\s*\Z", re.DOTALL
+)
+
+
+def _strip_code_fence(text: str) -> str:
+    """Return the Cypher inside a markdown code fence, else the text itself.
+
+    Args:
+        text: The model's raw response.
+
+    Returns:
+        The unwrapped query, with surrounding whitespace removed.
+    """
+    match = _FENCED_CODE_PATTERN.match(text)
+    if match is None:
+        return text.strip()
+    return match.group("body").strip()
+
+
+def _baml_call_options() -> "BamlCallOptions":
+    """Return the BAML client options the shared ``LLM_*`` config selects.
+
+    Without these options the call uses the generated client's built-in
+    OpenAI client, which reads ``OPENAI_API_KEY`` and a fixed model name. An
+    environment with no ``LLM_BASE_URL``/``LLM_MODEL_ID`` set returns an
+    empty mapping, leaving the call on that built-in client.
+
+    Returns:
+        Options carrying a client registry for the configured
+        OpenAI-compatible endpoint, or an empty mapping when none is
+        configured.
+    """
+    try:
+        from agrag.ingestion.extract import ExtractionLLMSettings  # noqa: PLC0415
+        from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
+    except ImportError:
+        return {}
+
+    try:
+        settings = ExtractionLLMSettings.from_openai_compatible_env()
+    except RuntimeError:
+        return {}
+
+    return {
+        "client_registry": cast(
+            "ClientRegistry",
+            build_client_registry(settings.clients, strategy=settings.strategy),
+        )
+    }
 
 
 def _append_row_limit(query: str, max_rows: int) -> str:
@@ -247,14 +406,17 @@ def _chunk_provenance_data(raw: object) -> object:
 class Text2CypherRetriever(Retriever):
     """Let the agent ask structured questions via generated Cypher.
 
-    Calls a BAML function to generate a read-only Cypher query,
-    runs reject_write_cypher as a safety pre-filter, then bounds the
-    query with a row limit and a server-side transaction timeout
-    before EXPLAIN and execution. Rows that carry an entity id are
-    resolved through resolve_entity before becoming a SearchResult;
-    relationship and chunk rows are parsed directly. Scalar rows (for
-    example counts or property values) cannot become a SearchResult
-    and are logged instead of being silently dropped.
+    Calls a BAML function to generate a read-only Cypher query
+    against the graph's declared schema, runs reject_write_cypher as a
+    safety pre-filter, then bounds the query with a row limit and a
+    server-side transaction timeout before EXPLAIN and execution. A
+    query that fails to plan or to execute is regenerated once, carrying
+    a bounded, sanitized diagnostic of the failure. Rows that carry an
+    entity id are resolved through resolve_entity before becoming a
+    SearchResult; relationship and chunk rows are parsed directly, under
+    the prompt's own aliases or any alias the model chose instead.
+    Scalar rows (for example counts or property values) become cited
+    ``QueryValue`` results so direct-query answers are not lost.
     """
 
     name = "text2cypher"
@@ -263,19 +425,24 @@ class Text2CypherRetriever(Retriever):
         self,
         *,
         graph_store: GraphStore,
+        schema: GraphSchema,
         settings: RetrievalSettings | None = None,
     ) -> None:
         """Construct a Text2CypherRetriever.
 
         Args:
             graph_store: Where the generated query runs.
+            schema: The graph's declared schema. Generation is grounded in
+                this schema's labels and relation patterns, so a query the
+                graph cannot answer is not generated.
             settings: Retrieval configuration; defaults from
                 environment.
         """
         self._graph_store = graph_store
+        self._schema = schema
         self._settings = settings or RetrievalSettings()
 
-    async def retrieve(
+    async def retrieve(  # noqa: PLR0912
         self,
         query: str,
         *,
@@ -284,6 +451,12 @@ class Text2CypherRetriever(Retriever):
     ) -> list[SearchResult]:
         """Generate and execute a Cypher query for the question.
 
+        A query that fails to plan or to execute is regenerated once, with a
+        bounded, sanitized diagnostic of the first failure attached to the
+        generation call. A failure at any stage of the second attempt, or a
+        query rejected by the write gate, returns no results rather than
+        raising.
+
         Args:
             query: The natural-language question.
             filters: Ignored; text2cypher applies its own filters.
@@ -291,44 +464,28 @@ class Text2CypherRetriever(Retriever):
 
         Returns:
             SearchResults from the generated query: entity results
-                resolved through ``resolve_entity``; relation and chunk
-                rows parsed directly. Rows with no entity, relation, or
-                chunk item are logged and skipped.
+                resolved through ``resolve_entity``; relation, chunk, and
+                scalar rows parsed directly.
         """
         try:
             cypher_query = await self._generate_cypher(query)
         except Exception:
             return []
 
-        # Safety gate.
         try:
-            reject_write_cypher(cypher_query)
+            rows = await self._execute_query(cypher_query)
         except UnsafeCypherError:
             return []
-
-        # Bound the query: a server-side timeout caps how long a
-        # pathological traversal can run, and the row limit caps what
-        # the database returns.
-        bounded_query = _append_row_limit(
-            cypher_query, self._settings.text2cypher_max_rows
-        )
-        timeout = self._settings.text2cypher_timeout_seconds
-
-        # EXPLAIN (read transaction, so a write would fail here too).
-        # Runs on the bounded query so a bad LIMIT placement fails here
-        # instead of at execution time.
-        try:
-            await self._graph_store.execute_read(
-                f"EXPLAIN {bounded_query}", timeout=timeout
-            )
-        except Exception:
-            return []
-
-        # Execute for real.
-        try:
-            rows = await self._graph_store.execute_read(bounded_query, timeout=timeout)
-        except Exception:
-            return []
+        except Exception as exc:
+            if _is_environment_failure(exc):
+                return []
+            try:
+                cypher_query = await self._generate_cypher(
+                    query, failure_context=_format_retry_diagnostic(exc)
+                )
+                rows = await self._execute_query(cypher_query)
+            except Exception:
+                return []
 
         method = f"text2cypher: {cypher_query[:100]}"
         results: list[SearchResult] = []
@@ -354,23 +511,53 @@ class Text2CypherRetriever(Retriever):
                             SearchResult(item=chunk, score=1.0, method=method)
                         )
                     else:
-                        # A scalar row (count, property value, unknown alias)
-                        # cannot become a SearchResult; log it so the answer is
-                        # not silently discarded.
-                        logger.warning(
-                            "text2cypher row has no entity, relation, or chunk "
-                            "item and is dropped: %s (query: %.100s)",
-                            row,
-                            cypher_query,
+                        results.append(
+                            SearchResult(
+                                item=QueryValue(value=dict(row)),
+                                score=1.0,
+                                method=method,
+                            )
                         )
 
         return results
 
-    async def _generate_cypher(self, question: str) -> str:
+    async def _execute_query(self, cypher_query: str) -> list[dict[str, Any]]:
+        """Gate, bound, plan, and run one generated read query.
+
+        The row limit and the server-side timeout cap a pathological
+        traversal, and the query is planned before it runs so a malformed
+        one fails here rather than mid-execution.
+
+        Args:
+            cypher_query: The generated read query.
+
+        Returns:
+            The rows the query returned.
+
+        Raises:
+            UnsafeCypherError: The query contains a write clause.
+            Exception: The query failed to plan or to execute.
+        """
+        reject_write_cypher(cypher_query)
+        bounded_query = _append_row_limit(
+            cypher_query, self._settings.text2cypher_max_rows
+        )
+        timeout = self._settings.text2cypher_timeout_seconds
+        await self._graph_store.execute_read(
+            f"EXPLAIN {bounded_query}", timeout=timeout
+        )
+        return await self._graph_store.execute_read(bounded_query, timeout=timeout)
+
+    async def _generate_cypher(
+        self, question: str, *, failure_context: str | None = None
+    ) -> str:
         """Generate a Cypher query from a question.
 
         Args:
             question: The natural-language question.
+            failure_context: A sanitized diagnostic from a prior failed
+                attempt, or None on the first attempt. The prompt marks it
+                as data to repair against, never as instructions.
 
         Returns:
             The generated Cypher query string.
@@ -382,22 +569,23 @@ class Text2CypherRetriever(Retriever):
         """
         from agrag.llm.baml_client import b as baml_client  # noqa: PLC0415
 
-        return await baml_client.GenerateCypherQuery(
+        generated = await baml_client.GenerateCypherQuery(
             question=question,
-            schema_description="Generic schema with Person, "
-            "Organization, Location, Event, Product entities "
-            "and RELATED_TO, MENTIONED_IN relations.",
+            schema_description=self._schema.to_prompt_description(),
+            failure_context=failure_context,
+            baml_options=_baml_call_options(),
         )
+        return _strip_code_fence(generated)
 
     @staticmethod
     def _extract_relation(row: dict) -> Relation | None:
-        """Build a Relation from a row whose first value is a relationship.
+        """Build a Relation from a row carrying a relationship.
 
-        Accepts the common RETURN shapes ``[r, ...]`` and
-        ``[rel, ...]`` (alias and key both probed) where the value
-        carries ``id``, ``type``, plus either ``start_id``/``end_id``
-        properties or an embedded start/end node map. Returns None
-        for any row shape the retriever cannot interpret.
+        Accepts the aliases the generation prompt asks for, then falls
+        back to any other value shaped like a relationship: a relationship
+        carries ``id``, ``type``, and either ``start_id``/``end_id``
+        properties or embedded start/end nodes, which no entity or chunk
+        node does. Returns None for any row shape it cannot interpret.
         """
         for key in ("r", "rel", "relationship"):
             val = row.get(key)
@@ -406,15 +594,24 @@ class Text2CypherRetriever(Retriever):
             rel = _parse_relationship(val)
             if rel is not None:
                 return rel
+        for key, val in row.items():
+            if key == "id":
+                continue
+            rel = _parse_relationship(val)
+            if rel is not None:
+                return rel
         return None
 
     @staticmethod
     def _extract_chunk(row: dict) -> Chunk | None:
-        """Build a Chunk from a row whose first value is a Chunk node.
+        """Build a Chunk from a row carrying a chunk node.
 
-        Accepts the common alias ``c`` and the key ``chunk``. The
-        parsing rules mirror ``ChunkRetriever._parse_chunk_node`` so
-        a row from either path lands in the same Chunk shape.
+        Accepts the aliases the generation prompt asks for, then falls back
+        to any other value shaped like a chunk: ``_parse_chunk_node``
+        requires a chunk's own ``id``, ``document_id``, and provenance, so
+        an entity or relationship value cannot parse as one. The parsing
+        rules mirror ``ChunkRetriever._parse_chunk_node``, so a row from
+        either path lands in the same Chunk shape.
         """
         for key in ("c", "chunk"):
             val = row.get(key)
@@ -423,14 +620,31 @@ class Text2CypherRetriever(Retriever):
             chunk = _parse_chunk_node(val)
             if chunk is not None:
                 return chunk
+        for key, val in row.items():
+            if key == "id":
+                continue
+            chunk = _parse_chunk_node(val)
+            if chunk is not None:
+                return chunk
         return None
 
     @staticmethod
-    def _extract_entity_id(row: dict) -> UUID | None:
-        """Try to find a UUID entity id in a result row."""
-        for key in ("id", "entity_id", "n"):
+    def _extract_entity_id(row: dict) -> UUID | None:  # noqa: PLR0912
+        """Try to find a UUID entity id in a result row.
+
+        Accepts the aliases the generation prompt asks for, then falls back
+        to any other value that is an entity node: a model names the
+        returned node freely, so a row under an unexpected alias would
+        otherwise be dropped. The fallback requires both an id and a name,
+        since an entity is the only item this retriever parses that carries
+        a name, so a chunk or relationship value cannot be mistaken for
+        one.
+        """
+        for key in ("entity_id", "n"):
             val = row.get(key)
             if val is None:
+                continue
+            if key == "entity_id" and not isinstance(val, dict):
                 continue
             if isinstance(val, UUID):
                 return val
@@ -448,4 +662,17 @@ class Text2CypherRetriever(Retriever):
                     return UUID(str(inner_id))
                 except ValueError:
                     continue
+
+        for key, val in row.items():
+            if key in ("id", "entity_id", "n"):
+                continue
+            if _parse_relationship(val) is not None:
+                continue
+            node_id = _node_id_prop(val)
+            if node_id is None or _node_get(val, "name") is None:
+                continue
+            try:
+                return UUID(str(node_id))
+            except ValueError:
+                continue
         return None

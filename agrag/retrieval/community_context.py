@@ -1,5 +1,6 @@
 """Community-report enrichment: local-search-style budget-capped context."""
 
+import logging
 from collections.abc import Mapping
 from typing import Any, cast
 from uuid import UUID
@@ -9,6 +10,10 @@ from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.community_read import communities_for_entities_query
 from agrag.graphdb.base import GraphStore
 from agrag.retrieval.filters import SearchFilters
+from agrag.retrieval.fusion import fuse
+
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_community_node(node: object) -> Community | None:
@@ -46,6 +51,58 @@ def _parse_community_node(node: object) -> Community | None:
         return community
     except Exception:
         return None
+
+
+async def expand_with_communities(
+    fused: list[SearchResult],
+    seed_ids: list[UUID],
+    *,
+    graph_store: GraphStore,
+    top_k: int,
+    filters: SearchFilters | None,
+    rrf_k: int,
+) -> list[SearchResult]:
+    """Fuse community reports overlapping seed entities into a result list.
+
+    A convenience over :func:`community_context`: looks up the communities
+    that overlap ``seed_ids`` and fuses whatever comes back into ``fused``
+    under a ``"community"`` key, so callers that already have a fused
+    result list do not repeat the fetch-then-fuse pattern (or the
+    error handling below).
+
+    A community lookup that raises is logged and swallowed rather than
+    propagating: community reports are enrichment on top of results that
+    already exist, so a community-store failure must not discard them.
+
+    Args:
+        fused: The already-fused results to enrich. Returned unchanged
+            when no community overlaps the seeds.
+        seed_ids: The entity ids to look for overlapping communities.
+        graph_store: Where the overlap lookup runs.
+        top_k: The maximum number of communities to add.
+        filters: Applied to the candidate community node; see
+            :func:`community_context` for what a scoped filter does and
+            does not match. Community nodes carry no entity label and no
+            document scope of their own, so a document- or
+            property-scoped caller gets no community enrichment at all --
+            consistent with a plain search, not an error.
+        rrf_k: The reciprocal-rank-fusion constant, from
+            ``RetrievalSettings.rrf_k``.
+
+    Returns:
+        ``fused`` with the overlapping communities fused in, or ``fused``
+        itself when there were none.
+    """
+    try:
+        community_results = await community_context(
+            seed_ids, graph_store=graph_store, top_k=top_k, filters=filters
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Community expansion failed; continuing: %s", exc)
+        return fused
+    if not community_results:
+        return fused
+    return fuse({"methods": fused, "community": community_results}, rrf_k=rrf_k)
 
 
 async def community_context(

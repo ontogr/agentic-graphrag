@@ -86,6 +86,14 @@ class AgentSettings(BaseSettings):
     Attributes:
         recursion_limit: The maximum LangGraph step count before
             the loop stops and reports incomplete progress.
+            Env: ``AGENT_RECURSION_LIMIT``.
+        max_research_attempts: The maximum number of times the
+            planner may re-delegate to the researcher after
+            receiving ``INSUFFICIENT`` from the verifier. The
+            planner's initial decomposition into sub-questions is
+            not bounded by this field; the LangGraph recursion
+            limit remains the backstop for that pass.
+            Env: ``AGENT_MAX_RESEARCH_ATTEMPTS``.
 
     Env prefix: ``AGENT_``.
     """
@@ -95,3 +103,4 @@ class AgentSettings(BaseSettings):
     )
 
     recursion_limit: int = 50
+    max_research_attempts: int = 3

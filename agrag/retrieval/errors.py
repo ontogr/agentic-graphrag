@@ -5,6 +5,17 @@ class RetrievalError(Exception):
     """The base class for every retrieval error."""
 
 
+class ScopeDeniedError(RetrievalError):
+    """A request asked for data outside the caller's permitted scope.
+
+    The caller's scope is an authorization boundary the requesting
+    layer can narrow but never widen. Raised instead of searching the
+    wider scope or silently running the request unrestricted, so a
+    caller can report the refusal rather than answer from data it was
+    never allowed to see.
+    """
+
+
 class AllRetrievalMethodsFailedError(RetrievalError):
     """Every retrieval method a Recipe named failed.
 
@@ -49,5 +60,6 @@ class UnknownRecipeMethodError(RetrievalError):
 __all__ = [
     "AllRetrievalMethodsFailedError",
     "RetrievalError",
+    "ScopeDeniedError",
     "UnknownRecipeMethodError",
 ]

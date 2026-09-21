@@ -291,9 +291,20 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
             for comm in report.communities:
                 assert comm.embedding is not None
                 assert len(comm.embedding) == dim
-            settings = RetrievalSettings(entity_labels=[person_label, org_label])
+            settings = RetrievalSettings()
             engine = SearchEngine(
-                graph_store=store, embedder=embedder, settings=settings
+                graph_store=store,
+                embedder=embedder,
+                settings=settings,
+                graph_schema=GraphSchema(
+                    name="community_e2e",
+                    version="1",
+                    entities=[
+                        EntityType(label=person_label, description="A person."),
+                        EntityType(label=org_label, description="An organization."),
+                    ],
+                    relations=[],
+                ),
             )
             hybrid = await engine.search("Acme works", HYBRID_RERANKED)
             assert any(isinstance(r.item, Entity) for r in hybrid)
@@ -308,7 +319,7 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
             assert isinstance(g1.item, Community)
             # make_tools reuses same engine/ledger.
             tools = make_tools(engine, ledger)
-            assert len(tools) == 6
+            assert len(tools) == 11
     finally:
         await _cleanup_community_test_data(store, person_label, org_label)
         await store.close()
@@ -403,9 +414,20 @@ async def test_community_via_graph_add_e2e(e2e_schema: GraphSchema) -> None:
             assert captured_ids == needed
             assert str(isolated.id) not in captured_ids
             # Both query paths.
-            settings = RetrievalSettings(entity_labels=[person_label, org_label])
+            settings = RetrievalSettings()
             engine = SearchEngine(
-                graph_store=store, embedder=embedder, settings=settings
+                graph_store=store,
+                embedder=embedder,
+                settings=settings,
+                graph_schema=GraphSchema(
+                    name="community_e2e",
+                    version="1",
+                    entities=[
+                        EntityType(label=person_label, description="A person."),
+                        EntityType(label=org_label, description="An organization."),
+                    ],
+                    relations=[],
+                ),
             )
             hybrid = await engine.search("Acme works", HYBRID_RERANKED)
             assert any(isinstance(r.item, Entity) for r in hybrid)

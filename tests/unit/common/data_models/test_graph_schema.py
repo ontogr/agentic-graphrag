@@ -4,7 +4,9 @@ Verifies the shipped GENERIC schema is internally consistent (every relation
 pattern references a declared entity label) and has its expected five entity
 types and one relation, that a GraphSchema survives a JSON dump/validate
 round trip unchanged, that EntityType defaults to empty properties and
-subtypes, and that it rejects property names reserved by the vector payload.
+subtypes, that it rejects property names reserved by the vector payload, and
+that its two prompt serializations carry the schema's labels and patterns
+(the full one with descriptions and properties, the compact one without).
 """
 
 import pytest
@@ -15,6 +17,35 @@ from agrag.common.data_models.graph_schema import (
     EntityType,
     GraphSchema,
     RelationType,
+)
+
+
+# A schema exercising every serialized field: two entity types, declared
+# properties, a subtype, and two relations with distinct pattern lists.
+_CLINICAL_SCHEMA = GraphSchema(
+    name="clinical",
+    version="2",
+    entities=[
+        EntityType(
+            label="Drug",
+            description="A medication.",
+            properties={"name": "str", "dosage": "float"},
+            subtypes=["Biologic"],
+        ),
+        EntityType(label="Condition", description="A diagnosed condition."),
+    ],
+    relations=[
+        RelationType(
+            label="TREATS",
+            description="A drug treats a condition.",
+            patterns=[("Drug", "Condition")],
+        ),
+        RelationType(
+            label="INDICATES",
+            description="Two conditions co-occur.",
+            patterns=[("Condition", "Condition"), ("Drug", "Condition")],
+        ),
+    ],
 )
 
 
@@ -146,3 +177,75 @@ class TestEntityTypeReservedPropertyNames:
             properties={"role": "str", "age": "int"},
         )
         assert entity.properties == {"role": "str", "age": "int"}
+
+
+class TestPromptSerialization:
+    """GraphSchema serializes itself for LLM prompts."""
+
+    def test_to_prompt_description_includes_every_entity_and_relation(self) -> None:
+        """Labels, descriptions, properties, subtypes, and patterns all appear."""
+        text = _CLINICAL_SCHEMA.to_prompt_description()
+
+        assert text == (
+            "Schema clinical (version 2)\n"
+            "Entity types:\n"
+            "- Drug: A medication.\n"
+            "  properties: name: str, dosage: float\n"
+            "  subtypes: Biologic\n"
+            "- Condition: A diagnosed condition.\n"
+            "Relation types:\n"
+            "- TREATS: A drug treats a condition.\n"
+            "  valid patterns: (Drug, Condition)\n"
+            "- INDICATES: Two conditions co-occur.\n"
+            "  valid patterns: (Condition, Condition), (Drug, Condition)"
+        )
+
+    def test_to_prompt_description_on_generic(self) -> None:
+        """GENERIC lists its five entity labels and every RELATED_TO pattern."""
+        text = GENERIC.to_prompt_description()
+
+        for label in ("Person", "Organization", "Location", "Event", "Product"):
+            assert f"- {label}: " in text
+        assert "- RELATED_TO: A generic relationship between two entities." in text
+        assert "(Person, Person)" in text
+        assert "(Product, Product)" in text
+
+    def test_to_compact_summary_omits_descriptions_and_properties(self) -> None:
+        """Labels and patterns survive; descriptions, properties, subtypes do not."""
+        text = _CLINICAL_SCHEMA.to_compact_summary()
+
+        assert text == (
+            "Entity labels: Drug, Condition\n"
+            "Relation types:\n"
+            "- TREATS: (Drug, Condition)\n"
+            "- INDICATES: (Condition, Condition), (Drug, Condition)"
+        )
+        assert "A medication." not in text
+        assert "A diagnosed condition." not in text
+        assert "name" not in text
+        assert "dosage" not in text
+        assert "Biologic" not in text
+
+    def test_empty_patterns_are_explicit(self) -> None:
+        """Empty relation patterns render as an explicit absence of patterns."""
+        schema = GraphSchema(
+            name="empty-patterns",
+            version="1",
+            entities=[EntityType(label="A", description="A")],
+            relations=[RelationType(label="LINKS", description="Links", patterns=[])],
+        )
+
+        assert "valid patterns: (none)" in schema.to_prompt_description()
+        assert "- LINKS: (none)" in schema.to_compact_summary()
+
+    def test_empty_relations_are_explicit(self) -> None:
+        """Schemas without relations state that the relation list is empty."""
+        schema = GraphSchema(
+            name="no-relations",
+            version="1",
+            entities=[EntityType(label="A", description="A")],
+            relations=[],
+        )
+
+        assert "Relation types:\n(none)" in schema.to_prompt_description()
+        assert "Relation types:\n(none)" in schema.to_compact_summary()

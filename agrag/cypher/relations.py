@@ -5,9 +5,19 @@ identifier-validation contract shared by every Cypher builder.
 """
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
+
+
+TraversalDirection = Literal["outgoing", "incoming", "both"]
+
+
+_DIRECTION_ARROW: dict[TraversalDirection, tuple[str, str]] = {
+    "outgoing": ("-", "->"),
+    "incoming": ("<-", "-"),
+    "both": ("-", "-"),
+}
 
 
 def close_part_of_query() -> str:
@@ -25,11 +35,14 @@ def bfs_expand_query(
     limit: int = 50,
     filters: dict[str, Any] | None = None,
     relation_types: Sequence[str] | None = None,
+    direction: TraversalDirection = "both",
+    document_ids: Sequence[str] | None = None,
+    labels: Sequence[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Build Cypher for BFS expansion from seed entity ids.
 
-    Traverses outgoing relationships from a set of seed entities, bounded
-    by ``depth`` hops and ``limit`` total result nodes. The depth is
+    Traverses relationships from a set of seed entities, bounded by
+    ``depth`` hops and ``limit`` total result nodes. The depth is
     formatted into the query text (not a parameter) because Neo4j does
     not accept a parameter for a variable-length relationship bound. It
     must come from ``RetrievalSettings``, never from user input.
@@ -37,6 +50,13 @@ def bfs_expand_query(
     ``relation_types`` restricts which relationships a traversal may
     cross. Neo4j does not accept a parameter for relationship types
     either, so each type is validated and formatted into the pattern.
+
+    ``direction`` picks which way each hop walks: relationships leaving
+    the seed (``"outgoing"``), entering it (``"incoming"``), or either
+    way (``"both"``, the default). Direction is a property of the
+    pattern's arrow, so it is formatted into the query text like the
+    depth and the type pattern are -- it must never be interpolated from
+    user input without validation against ``TraversalDirection``.
 
     ``depth`` is clamped to [1, 10] and ``limit`` to [1, 1000] so
     misconfigured or malicious settings cannot produce unbounded
@@ -54,6 +74,12 @@ def bfs_expand_query(
             A scalar value means exact match, a list means any of.
         relation_types: Optional relationship types the traversal may
             cross. None or empty crosses every type.
+        direction: Which way a hop walks each relationship. Defaults
+            to ``"both"``.
+        document_ids: Optional document ids that must mention each result
+            entity through a ``MENTIONED_IN`` edge.
+        labels: Optional labels that returned neighbors must have at
+            least one of.
 
     Returns:
         A ``(query, params)`` tuple. The query expects ``$seed_ids``
@@ -61,32 +87,123 @@ def bfs_expand_query(
 
     Raises:
         ValueError: A relation type is not a safe Cypher identifier.
+            An unsupported direction also raises ValueError.
     """
     from agrag.cypher.entities import filter_clause  # noqa: PLC0415
 
     safe_depth = max(1, min(depth, 10))
     safe_limit = max(1, min(limit, 1000))
+    if direction not in _DIRECTION_ARROW:
+        raise ValueError(
+            f"unsupported direction {direction!r}; expected one of "
+            f"{tuple(_DIRECTION_ARROW)}"
+        )
 
     where_clause, filter_params = filter_clause(filters or {}, node_var="neighbor")
     filter_suffix = f" AND {where_clause[6:]}" if where_clause else ""
     base_where = (
         "neighbor:_AgragNode AND NOT neighbor:Chunk AND NOT neighbor.id IN $seed_ids"
     )
-    where = f"{base_where}{filter_suffix}"
-    type_pattern = (
-        ":" + "|".join(validate_identifier(rel_type) for rel_type in relation_types)
-        if relation_types
+    document_suffix = (
+        " AND EXISTS { "
+        "MATCH (neighbor)<-[:MENTIONED_IN]-(scoped_chunk:_AgragNode:Chunk) "
+        "WHERE scoped_chunk.document_id IN $document_ids }"
+        if document_ids
         else ""
     )
+    safe_labels = [validate_identifier(label) for label in labels or []]
+    label_predicate = " OR ".join(f"neighbor:{label}" for label in safe_labels)
+    label_suffix = (
+        f" AND ({label_predicate})"
+        if len(safe_labels) > 1
+        else (f" AND {label_predicate}" if label_predicate else "")
+    )
+    where = f"{base_where}{filter_suffix}{document_suffix}{label_suffix}"
+    type_pattern = relationship_type_pattern(relation_types)
+    left_arrow, right_arrow = _DIRECTION_ARROW[direction]
     query = (
         f"UNWIND $seed_ids AS seed_id "
         f"MATCH (start:_AgragNode {{id: seed_id}}) "
-        f"MATCH path = (start)-[{type_pattern}*1..{safe_depth}]-(neighbor) "
+        f"MATCH path = (start){left_arrow}[{type_pattern}*1..{safe_depth}]"
+        f"{right_arrow}(neighbor) "
         f"WHERE {where} "
         f"RETURN DISTINCT neighbor, neighbor.id AS id "
         f"LIMIT {safe_limit}"
     )
     return query, filter_params
+
+
+def entities_in_documents_query() -> str:
+    """Build a query for live entities mentioned in selected documents."""
+    return (
+        "MATCH (chunk:_AgragNode:Chunk)-[:MENTIONED_IN]->"
+        "(entity:_AgragNode) "
+        "WHERE EXISTS { "
+        "MATCH (document:_AgragNode:Document)-[part:PART_OF]->(chunk) "
+        "WHERE document.id IN $document_ids AND part.invalid_at IS NULL } "
+        "AND entity.merged_into IS NULL "
+        "RETURN DISTINCT entity.id AS id"
+    )
+
+
+def relationship_types_from_query(
+    *,
+    relation_types: Sequence[str] | None = None,
+    direction: TraversalDirection = "both",
+) -> str:
+    """Build Cypher listing the relationship types touching seed entities.
+
+    Depth-1 only, by construction: it reads ``type(r)`` off the
+    relationships directly attached to each seed entity and never
+    traverses past them, so it has no depth bound to clamp the way
+    :func:`bfs_expand_query` does and cannot be widened into a multi-hop
+    walk by a caller. Use it to discover which types exist before
+    narrowing a real traversal, not as a substitute for one.
+
+    Args:
+        relation_types: Optional relationship types to list. None or
+            empty lists every type directly attached to the seeds.
+        direction: Which relationships to consider, read relative to
+            the seed entity: those leaving it (``"outgoing"``), those
+            entering it (``"incoming"``), or both.
+
+    Returns:
+        Parameterized Cypher expecting ``$seed_ids`` (list of string
+        ids), returning one row per distinct attached type under
+        ``rel_type``.
+
+    Raises:
+        ValueError: A relation type is not a safe Cypher identifier.
+    """
+    type_pattern = relationship_type_pattern(relation_types)
+    left_arrow, right_arrow = _DIRECTION_ARROW[direction]
+    return (
+        f"UNWIND $seed_ids AS seed_id "
+        f"MATCH (seed:_AgragNode {{id: seed_id}}) "
+        f"MATCH (seed){left_arrow}[r{type_pattern}]{right_arrow}(neighbor) "
+        f"WHERE NOT neighbor:Chunk AND NOT neighbor:Community "
+        f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
+        f"RETURN DISTINCT type(r) AS rel_type"
+    )
+
+
+def relationship_type_pattern(relation_types: Sequence[str] | None) -> str:
+    """Return the validated Cypher type pattern for a set of types.
+
+    Args:
+        relation_types: The types to restrict a relationship pattern
+            to. None or empty returns an untyped pattern.
+
+    Returns:
+        A ``:TYPE|TYPE`` pattern, or an empty string when no types were
+        given.
+
+    Raises:
+        ValueError: A relation type is not a safe Cypher identifier.
+    """
+    if not relation_types:
+        return ""
+    return ":" + "|".join(validate_identifier(rel_type) for rel_type in relation_types)
 
 
 def chunks_mentioning_entities_query() -> str:
