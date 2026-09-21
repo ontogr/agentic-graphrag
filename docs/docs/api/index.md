@@ -424,7 +424,7 @@ which would raise on any other brace the text picks up over time.
 ##### `agrag.agents.prompts.PLANNER_SYSTEM`
 
 ```python
-PLANNER_SYSTEM = "You are a research planner for a knowledge-graph question-answering system. Given a user question, decompose it into 2-4 focused sub-questions that a researcher can answer independently by searching the graph. Each sub-question should be specific and answerable on its own.\n\nDelegate each sub-question to the researcher using the task tool. Once you have findings for every sub-question, delegate to the verifier with the original question, your sub-questions, and the researcher's findings.\n\nIf the verifier returns INSUFFICIENT, delegate the affected sub-questions back to the researcher, including the verifier's stated missing evidence in the new task description, so the researcher knows exactly what gap to close. After the researcher returns, delegate the updated findings to the verifier again before deciding whether to retry or answer. If the verifier returns CONTRADICTORY, do not retry -- include the contradiction as a caveat in your final answer instead, since re-researching cannot resolve two already-cited sources disagreeing.\n\nYou have {max_research_attempts} research attempts for this question. Once the verifier returns PASS, or you have used all of your research attempts, synthesize a final answer citing the evidence keys the researcher reported. If you run out of attempts before the verifier returns PASS, say plainly which sub-questions remain unanswered rather than presenting an unverified answer as complete."
+PLANNER_SYSTEM = "You are a research planner for a knowledge-graph question-answering system. Given a user question, decompose it into 2-4 focused sub-questions that a researcher can answer independently by searching the graph. Each sub-question should be specific and answerable on its own.\n\nDelegate each sub-question to the researcher using the task tool. Once you have findings for every sub-question, delegate to the verifier with the original question, your sub-questions, and the researcher's findings.\n\nIf the verifier returns INSUFFICIENT, delegate the affected sub-questions back to the researcher, including the verifier's stated missing evidence in the new task description, so the researcher knows exactly what gap to close. After the researcher returns, delegate the updated findings to the verifier again before deciding whether to retry or answer. If the verifier returns CONTRADICTORY, do not retry -- include the contradiction as a caveat in your final answer instead, since re-researching cannot resolve two already-cited sources disagreeing.\n\nYou have {max_research_attempts} post-verifier research retries for this question. The initial decomposition and researcher delegations before the first verifier consultation do not count against this budget. Once the verifier returns PASS, or you have used all retries, synthesize a final answer citing the evidence keys the researcher reported. If you run out of attempts before the verifier returns PASS, say plainly which sub-questions remain unanswered rather than presenting an unverified answer as complete."
 ```
 
 ##### `agrag.agents.prompts.RESEARCHER_SYSTEM`
@@ -4176,7 +4176,7 @@ TraversalDirection = Literal['outgoing', 'incoming', 'both']
 ##### `agrag.cypher.relations.bfs_expand_query`
 
 ```python
-bfs_expand_query(*, depth:int = 2, limit:int = 50, filters:dict[str, Any] | None = None, relation_types:Sequence[str] | None = None, direction:TraversalDirection = 'both', document_ids:Sequence[str] | None = None) -> tuple[str, dict[str, Any]]
+bfs_expand_query(*, depth:int = 2, limit:int = 50, filters:dict[str, Any] | None = None, relation_types:Sequence[str] | None = None, direction:TraversalDirection = 'both', document_ids:Sequence[str] | None = None, labels:Sequence[str] | None = None) -> tuple[str, dict[str, Any]]
 ```
 
 Build Cypher for BFS expansion from seed entity ids.
@@ -4219,6 +4219,7 @@ never returned as BFS results.
   to `"both"`.
 - **document_ids** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – Optional document ids that must mention each result
   entity through a `MENTIONED_IN` edge.
+- **labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – Optional labels required on returned neighbors.
 
 **Returns:**
 
@@ -12325,7 +12326,7 @@ into traversal seeds.
 ###### `agrag.retrieval.methods.traversal.list_relationship_types`
 
 ```python
-list_relationship_types(seed:SearchResult, *, graph_store:GraphStore, relation_type_filter:str | None = None, filters:SearchFilters | None = None) -> list[str]
+list_relationship_types(seed:SearchResult, *, graph_store:GraphStore, relation_type_filter:str | None = None, direction:TraversalDirection = 'both', filters:SearchFilters | None = None) -> list[str]
 ```
 
 List the relationship types directly attached to a resolved entity.
@@ -12339,6 +12340,7 @@ before the query runs.
 - **seed** (<code>[SearchResult](#agrag.common.data_models.search_result.SearchResult)</code>) – The resolved entity to read attached types from.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – The graph to read.
 - **relation_type_filter** (<code>[str](#str) | None</code>) – Only report this type, if present.
+- **direction** (<code>[TraversalDirection](#agrag.cypher.relations.TraversalDirection)</code>) – Which way to inspect relationships, relative to the seed.
 - **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Scope that limits which relationship types are visible.
 
 **Returns:**
@@ -13197,7 +13199,7 @@ The schema retrieval is grounded in, GENERIC when none was given.
 ###### `agrag.retrieval.search_engine.SearchEngine.list_relationship_types`
 
 ```python
-list_relationship_types(seed:SearchResult, *, relation_type_filter:str | None = None, filters:SearchFilters | None = None) -> list[str]
+list_relationship_types(seed:SearchResult, *, relation_type_filter:str | None = None, direction:TraversalDirection = 'both', filters:SearchFilters | None = None) -> list[str]
 ```
 
 List the relationship types directly attached to an entity.
@@ -13210,6 +13212,8 @@ what lies past it.
 - **seed** (<code>[SearchResult](#agrag.common.data_models.search_result.SearchResult)</code>) – The resolved entity to read attached types from,
   normally from :meth:`find_entity`.
 - **relation_type_filter** (<code>[str](#str) | None</code>) – Only report this type, if present.
+- **direction** (<code>[TraversalDirection](#agrag.cypher.relations.TraversalDirection)</code>) – Which way to inspect relationships, relative to the
+  seed entity.
 - **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Scope that limits visible relationship types.
 
 **Returns:**
