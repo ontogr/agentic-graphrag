@@ -9,9 +9,12 @@ listing every citation assigned so far.
 
 from uuid import uuid4
 
+import pytest
+
 from agrag.agents.ledger import Ledger
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 
@@ -88,6 +91,16 @@ class TestLedger:
         text = Ledger().render(SearchResult(item=item, score=1.0, method="entity"))
 
         assert text == "[E1] Entity: Alice (Person)"
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [(3, "[V1] Value: 3"), ({"count": 3}, "[V1] Value: {'count': 3}")],
+    )
+    def test_render_query_value(self, value: object, expected: str) -> None:
+        """Query values use value citation keys and render their complete row."""
+        result = SearchResult(item=QueryValue(value=value), score=1.0, method="cypher")
+
+        assert Ledger().render(result) == expected
 
     def test_render_community(self) -> None:
         """render() returns markdown with title and summary for a community."""

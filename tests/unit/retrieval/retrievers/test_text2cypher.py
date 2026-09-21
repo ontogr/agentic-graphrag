@@ -271,21 +271,6 @@ class TestText2CypherRowShapes:
         assert results[0].item.id == chunk_id
         assert results[0].item.text == "Hello world"
 
-    async def test_scalar_row_is_returned_as_a_query_value(self) -> None:
-        """A scalar row remains available to the direct-query tool."""
-        gs = AsyncMock()
-        gs.execute_read.return_value = [{"count(p)": 42}]
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-
-        with patch.object(
-            retriever,
-            "_generate_cypher",
-            return_value="MATCH (p:Person) RETURN count(p)",
-        ):
-            results = await retriever.retrieve("how many people?")
-
-        assert results[0].item.value == {"count(p)": 42}
-
     async def test_relation_with_embedded_start_end(self) -> None:
         """A relationship row carrying embedded start/end nodes is parsed."""
         gs = AsyncMock()

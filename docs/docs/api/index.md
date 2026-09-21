@@ -1347,7 +1347,7 @@ Shared data models used by agrag components.
 - [**graph_record**](#agrag.common.data_models.graph_record) – Graph storage record shapes for GraphStore.
 - [**graph_schema**](#agrag.common.data_models.graph_schema) – The GraphSchema contract: entity and relation types extraction validates against.
 - [**provenance**](#agrag.common.data_models.provenance) – Provenance types for a chunk.
-- [**query_value**](#agrag.common.data_models.query_value) – A scalar value returned by a direct graph query.
+- [**query_value**](#agrag.common.data_models.query_value) – A result row returned by a direct graph query.
 - [**relation**](#agrag.common.data_models.relation) – The canonical, deduped graph relationship that merge mechanics produces.
 - [**resolved_entity**](#agrag.common.data_models.resolved_entity) – Materialized identity clusters for non-destructive entity resolution.
 - [**search_result**](#agrag.common.data_models.search_result) – One retrieved item, tagged with source and relevance score.
@@ -2896,17 +2896,17 @@ line_start: int | None = None
 
 ##### `agrag.common.data_models.query_value`
 
-A scalar value returned by a direct graph query.
+A result row returned by a direct graph query.
 
 **Classes:**
 
-- [**QueryValue**](#agrag.common.data_models.query_value.QueryValue) – One scalar row returned by a generated graph query.
+- [**QueryValue**](#agrag.common.data_models.query_value.QueryValue) – One result row returned by a generated graph query.
 
 ###### `agrag.common.data_models.query_value.QueryValue`
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
 
-One scalar row returned by a generated graph query.
+One result row returned by a generated graph query.
 
 **Attributes:**
 
