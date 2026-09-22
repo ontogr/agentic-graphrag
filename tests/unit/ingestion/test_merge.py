@@ -332,6 +332,25 @@ class TestResolveDescription:
         assert conflicted is True
         assert failure is None
 
+    async def test_non_string_candidates_converted_before_summarization(self) -> None:
+        """Non-string candidates are converted for the BAML string array."""
+
+        class MockClient:
+            async def SummarizeDescriptions(  # noqa: N802
+                self, descriptions, baml_options
+            ):
+                assert descriptions == ["42", "{'source': 'import'}"]
+                assert all(isinstance(description, str) for description in descriptions)
+                assert baml_options == {}
+                return "summarized"
+
+        value, conflicted, failure = await _resolve_description(
+            [42, {"source": "import"}], client=MockClient()
+        )
+        assert value == "summarized"
+        assert conflicted is True
+        assert failure is None
+
     async def test_multiple_distinct_with_failing_client_fallback(self) -> None:
         """Failing client falls back to concatenation and StageFailure."""
 

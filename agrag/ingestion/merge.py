@@ -224,7 +224,7 @@ async def _resolve_description(
             active_client = default_client
             retry = retry_obj if retry_obj is not None else NO_RETRY
 
-        descriptions = cast("list[str]", distinct)
+        descriptions = [str(candidate) for candidate in distinct]
         result = await call_with_retry(
             lambda: active_client.SummarizeDescriptions(
                 descriptions=descriptions, baml_options=baml_options
