@@ -116,9 +116,9 @@ class TestPreclusterAmbiguous:
         """A pair below the active threshold stays out of auto-merge."""
         ids = [uuid4(), uuid4()]
 
-        assert precluster_ambiguous(
-            ids, {(0, 1): 0.97}, hard_merge_threshold=0.99
-        ) == []
+        assert (
+            precluster_ambiguous(ids, {(0, 1): 0.97}, hard_merge_threshold=0.99) == []
+        )
 
     def test_unknown_pairs_count_as_maximally_distant(self) -> None:
         """Pairs absent from similarities cannot join a group."""

@@ -4843,10 +4843,10 @@ Cypher reads for local entity-resolution materialization.
 **Functions:**
 
 - [**fetch_active_component_members_query**](#agrag.cypher.resolution_read.fetch_active_component_members_query) – Build Cypher returning active match components from seed ids.
-- [**fetch_active_matches_among_ids_query**](#agrag.cypher.resolution_read.fetch_active_matches_among_ids_query) – Build Cypher returning active match edges inside an id set.
+- [**fetch_active_matches_among_ids_query**](#agrag.cypher.resolution_read.fetch_active_matches_among_ids_query) – Build Cypher returning visible active match edges inside an id set.
 - [**fetch_active_resolved_member_ids_query**](#agrag.cypher.resolution_read.fetch_active_resolved_member_ids_query) – Build Cypher finding raw hits hidden by an active materialization.
-- [**fetch_entities_with_open_evidence_query**](#agrag.cypher.resolution_read.fetch_entities_with_open_evidence_query) – Build Cypher returning candidate ids mentioned by an open chunk.
-- [**fetch_entity_cluster_memberships_query**](#agrag.cypher.resolution_read.fetch_entity_cluster_memberships_query) – Build Cypher returning each candidate's cluster and its members.
+- [**fetch_entities_with_open_evidence_query**](#agrag.cypher.resolution_read.fetch_entities_with_open_evidence_query) – Build Cypher returning candidate ids with visible open evidence.
+- [**fetch_entity_cluster_memberships_query**](#agrag.cypher.resolution_read.fetch_entity_cluster_memberships_query) – Build Cypher returning visible cluster memberships for candidates.
 - [**fetch_match_endpoints_query**](#agrag.cypher.resolution_read.fetch_match_endpoints_query) – Build Cypher returning both endpoints of one match edge.
 - [**hydrate_resolved_entities_by_id_query**](#agrag.cypher.resolution_read.hydrate_resolved_entities_by_id_query) – Build Cypher hydrating materializations returned by vector search.
 
@@ -4877,7 +4877,7 @@ passes.
 fetch_active_matches_among_ids_query() -> str
 ```
 
-Build Cypher returning active match edges inside an id set.
+Build Cypher returning visible active match edges inside an id set.
 
 ##### `agrag.cypher.resolution_read.fetch_active_resolved_member_ids_query`
 
@@ -4902,7 +4902,7 @@ an uncommitted job's materialization never hides a raw hit.
 fetch_entities_with_open_evidence_query() -> str
 ```
 
-Build Cypher returning candidate ids mentioned by an open chunk.
+Build Cypher returning candidate ids with visible open evidence.
 
 ##### `agrag.cypher.resolution_read.fetch_entity_cluster_memberships_query`
 
@@ -4910,7 +4910,7 @@ Build Cypher returning candidate ids mentioned by an open chunk.
 fetch_entity_cluster_memberships_query() -> str
 ```
 
-Build Cypher returning each candidate's cluster and its members.
+Build Cypher returning visible cluster memberships for candidates.
 
 ##### `agrag.cypher.resolution_read.fetch_match_endpoints_query`
 
@@ -4950,7 +4950,7 @@ Cypher writes for non-destructive entity resolution.
 - [**delete_resolved_entities_query**](#agrag.cypher.resolution_write.delete_resolved_entities_query) – Build Cypher deleting resolved nodes left with no members.
 - [**enqueue_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.enqueue_resolved_entity_vector_deletions_query) – Build Cypher persisting vector ids whose deletion needs a retry.
 - [**fetch_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.fetch_resolved_entity_vector_deletions_query) – Build Cypher reading vector deletions that still need a retry.
-- [**replace_component_materializations_query**](#agrag.cypher.resolution_write.replace_component_materializations_query) – Build Cypher deleting prior materializations for supplied raw members.
+- [**replace_component_materializations_query**](#agrag.cypher.resolution_write.replace_component_materializations_query) – Build Cypher replacing memberships without deleting shared resolved nodes.
 - [**set_resolved_entity_sync_status_query**](#agrag.cypher.resolution_write.set_resolved_entity_sync_status_query) – Build Cypher setting the vector synchronization state of derived nodes.
 - [**upsert_matches_query**](#agrag.cypher.resolution_write.upsert_matches_query) – Build Cypher that idempotently records a confirmed entity match.
 
@@ -5016,7 +5016,7 @@ Build Cypher reading vector deletions that still need a retry.
 replace_component_materializations_query() -> str
 ```
 
-Build Cypher deleting prior materializations for supplied raw members.
+Build Cypher replacing memberships without deleting shared resolved nodes.
 
 ##### `agrag.cypher.resolution_write.set_resolved_entity_sync_status_query`
 
@@ -12406,7 +12406,7 @@ since no signal supports a merge.
 ###### `agrag.ingestion.resolve.zone_classifier.precluster_ambiguous`
 
 ```python
-precluster_ambiguous(ids:list[UUID], similarities:Mapping[tuple[int, int], float]) -> list[list[UUID]]
+precluster_ambiguous(ids:list[UUID], similarities:Mapping[tuple[int, int], float], *, hard_merge_threshold:float = HARD_MERGE_THRESHOLD) -> list[list[UUID]]
 ```
 
 Find tight ambiguous sub-clusters that can merge without LLM review.
@@ -12421,6 +12421,7 @@ distant and never join a group.
 - **ids** (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Candidate entity identifiers.
 - **similarities** (<code>[Mapping](#collections.abc.Mapping)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\]</code>) – Cosine similarity keyed by `(left, right)` index
   into `ids`, symmetric entries optional.
+- **hard_merge_threshold** (<code>[float](#float)</code>) – Similarity required for an automatic merge.
 
 **Returns:**
 
