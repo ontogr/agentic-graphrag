@@ -318,8 +318,10 @@ class TestResolveDescription:
         """Multiple distinct calls the mock client and returns its result."""
 
         class MockClient:
-            async def SummarizeDescriptions(self, descs, baml_options):  # noqa: N802
-                assert descs == ["d1", "d2"]
+            async def SummarizeDescriptions(  # noqa: N802
+                self, descriptions, baml_options
+            ):
+                assert descriptions == ["d1", "d2"]
                 assert baml_options == {}
                 return "summarized"
 
@@ -330,33 +332,22 @@ class TestResolveDescription:
         assert conflicted is True
         assert failure is None
 
-    async def test_multiple_distinct_success_via_keyword_fallback(self) -> None:
-        """Positional TypeError falls back to keyword call."""
+    async def test_non_string_candidates_converted_before_summarization(self) -> None:
+        """Non-string candidates are converted for the BAML string array."""
 
         class MockClient:
             async def SummarizeDescriptions(  # noqa: N802
-                self, *, descriptions, baml_options
+                self, descriptions, baml_options
             ):
-                return "kw:" + "|".join(descriptions)
+                assert descriptions == ["42", "{'source': 'import'}"]
+                assert all(isinstance(description, str) for description in descriptions)
+                assert baml_options == {}
+                return "summarized"
 
         value, conflicted, failure = await _resolve_description(
-            ["a", "b"], client=MockClient()
+            [42, {"source": "import"}], client=MockClient()
         )
-        assert value == "kw:a|b"
-        assert conflicted is True
-        assert failure is None
-
-    async def test_multiple_distinct_with_singular_method(self) -> None:
-        """Fallback to SummarizeDescription when plural missing."""
-
-        class MockClient:
-            async def SummarizeDescription(self, descs, baml_options):  # noqa: N802
-                return "singular:" + descs[0]
-
-        value, conflicted, failure = await _resolve_description(
-            ["x", "y"], client=MockClient()
-        )
-        assert value == "singular:x"
+        assert value == "summarized"
         assert conflicted is True
         assert failure is None
 
@@ -406,24 +397,49 @@ class TestResolveDescription:
         assert conflicted is True
         assert isinstance(failure, StageFailure)
 
-    async def test_default_client_missing_summarize_fallback(self) -> None:
-        """Default baml client without summarize falls back."""
-        # b has no SummarizeDescriptions, so it should fallback
-        value, conflicted, failure = await _resolve_description(
-            ["a", "b"], client=None, settings=None
+    async def test_default_client_path_success(self) -> None:
+        """Default client path resolves settings and summarizes through it."""
+        settings = SimpleNamespace(
+            clients=[LLMClientConfig(name="c", provider="openai", model="gpt-4o")],
+            strategy="single",
+            retry=RetryConfig(max_retries=0),
         )
-        # Either ValidationError path or missing function path, both fallback
-        assert value == "a | b"
+        mock_registry = object()
+
+        class MockDefaultClient:
+            async def SummarizeDescriptions(  # noqa: N802
+                self, descriptions, baml_options
+            ):
+                assert baml_options["client_registry"] is mock_registry
+                return "default:" + "|".join(descriptions)
+
+        with (
+            patch(
+                "agrag.ingestion.extract.ExtractionLLMSettings",
+                return_value=settings,
+            ),
+            patch(
+                "agrag.llm.client_registry.build_client_registry",
+                return_value=mock_registry,
+            ),
+            patch("agrag.llm.baml_client.b", MockDefaultClient()),
+        ):
+            value, conflicted, failure = await _resolve_description(
+                ["a", "b"], client=None, settings=None
+            )
+        assert value == "default:a|b"
         assert conflicted is True
-        assert isinstance(failure, StageFailure)
+        assert failure is None
 
     async def test_dedupe_distinct_before_llm(self) -> None:
         """Duplicate descriptions are deduped before LLM call."""
         seen: list[list[object]] = []
 
         class MockClient:
-            async def SummarizeDescriptions(self, descs, baml_options):  # noqa: N802
-                seen.append(list(descs))
+            async def SummarizeDescriptions(  # noqa: N802
+                self, descriptions, baml_options
+            ):
+                seen.append(list(descriptions))
                 return "ok"
 
         value, _, _ = await _resolve_description(
@@ -442,9 +458,11 @@ class TestResolveDescription:
         mock_registry = object()
 
         class MockDefaultClient:
-            async def SummarizeDescriptions(self, descs, baml_options):  # noqa: N802
+            async def SummarizeDescriptions(  # noqa: N802
+                self, descriptions, baml_options
+            ):
                 assert baml_options["client_registry"] is mock_registry
-                return "via settings:" + "|".join(str(d) for d in descs)
+                return "via settings:" + "|".join(str(d) for d in descriptions)
 
         with (
             patch(
@@ -491,7 +509,9 @@ class TestMergeProperties:
         """Description field is resolved via _resolve_description."""
 
         class MockClient:
-            async def SummarizeDescriptions(self, descs, baml_options):  # noqa: N802
+            async def SummarizeDescriptions(  # noqa: N802
+                self, descriptions, baml_options
+            ):
                 return "merged desc"
 
         props, conflicts, failures = await _merge_properties(
@@ -739,7 +759,9 @@ class TestComputeMerge:
         """Description LLM path succeeds via compute_merge."""
 
         class MockClient:
-            async def SummarizeDescriptions(self, descs, baml_options):  # noqa: N802
+            async def SummarizeDescriptions(  # noqa: N802
+                self, descriptions, baml_options
+            ):
                 return "summarized desc"
 
         e1 = _entity(name="Ada", properties={"description": "d1"})

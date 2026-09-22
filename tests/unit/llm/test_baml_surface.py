@@ -30,3 +30,24 @@ class TestGenerateCypherQuerySurface:
         """The parser can parse a GenerateCypherQuery response."""
         assert hasattr(baml_parser, "LlmResponseParser")
         assert hasattr(baml_parser.LlmResponseParser, "GenerateCypherQuery")
+
+
+class TestSummarizeDescriptionsSurface:
+    """SummarizeDescriptions must exist on the generated client."""
+
+    def test_function_exists_on_async_client(self) -> None:
+        """b.SummarizeDescriptions is callable."""
+        assert hasattr(b, "SummarizeDescriptions")
+        assert callable(b.SummarizeDescriptions)
+
+    def test_function_has_expected_parameters(self) -> None:
+        """SummarizeDescriptions accepts descriptions and baml_options."""
+        sig = inspect.signature(b.SummarizeDescriptions)
+        param_names = list(sig.parameters.keys())
+        assert "descriptions" in param_names
+        assert "baml_options" in param_names
+
+    def test_parser_handles_summarize_descriptions(self) -> None:
+        """The parser can parse a SummarizeDescriptions response."""
+        assert hasattr(baml_parser, "LlmResponseParser")
+        assert hasattr(baml_parser.LlmResponseParser, "SummarizeDescriptions")
