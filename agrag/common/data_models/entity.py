@@ -1,4 +1,4 @@
-"""A graph entity assembled from mentions resolution confirmed as the same thing."""
+"""A permanent mention-level graph node, accumulated by exact-name matching."""
 
 from uuid import UUID
 
@@ -10,7 +10,13 @@ from agrag.common.text import normalize_text
 
 
 class Entity(DataPoint):
-    """A resolved entity, assembled from one or more ExtractedEntity mentions.
+    """A permanent mention-level node, never destroyed once written.
+
+    Each Entity is one raw record: exact-match accumulation only folds a
+    new mention into the existing node for its normalized name. Fuzzy,
+    embedding, and LLM matches never absorb a node; they persist as
+    MATCHES edges with a derived ResolvedEntity instead, so both raw
+    records and their relationships survive resolution.
 
     Attributes:
         label: The EntityType label this entity was resolved as.

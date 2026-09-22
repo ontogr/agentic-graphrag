@@ -5,7 +5,6 @@ import contextlib
 import glob
 import hashlib
 import unicodedata
-from collections import defaultdict
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Union
@@ -32,9 +31,13 @@ from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
     ResolvedEntity,
 )
+from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
     fetch_all_by_label_query,
+    hydrate_entities_by_id_query,
 )
+from agrag.cypher.relations import entities_in_documents_query
+from agrag.cypher.resolution_read import fetch_active_matches_among_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._document_lifecycle import (
@@ -42,6 +45,7 @@ from agrag.ingestion._document_lifecycle import (
     find_document,
 )
 from agrag.ingestion._ingest_pipeline import (
+    _delete_vectors,
     _parse_entity_node,
     _synthetic_entity_mention,
     _upsert_vectors,
@@ -54,12 +58,15 @@ from agrag.ingestion.materialize import (
     MatchDecision,
     deactivate_match_and_rematerialize,
     match_decision_components,
+    matches_id,
+    prune_orphaned_entities,
     write_matches_and_materialize,
 )
 from agrag.ingestion.reports import (
     AddResult,
     CommunityDetectionReport,
     ConsolidationReport,
+    ReevaluationReport,
     UpdateResult,
 )
 from agrag.ingestion.resolve import (
@@ -68,7 +75,6 @@ from agrag.ingestion.resolve import (
     GraphCandidateSource,
     LLMVerify,
     PersistedCandidateSource,
-    ResolutionGroup,
     Resolver,
     persisted_candidate_indices,
 )
@@ -137,63 +143,6 @@ def _resolve_paths(source: SourcesType) -> tuple[list[Path], bool]:
         else:
             paths.append(path)
     return paths, single_file
-
-
-def _union_groups_by_existing_entity(
-    groups: list[ResolutionGroup], exact_matches: dict[int, Entity]
-) -> list[ResolutionGroup]:
-    """Union resolver groups that exact-match the same persisted entity.
-
-    Two mentions can land in separate resolver groups -- in-batch fuzzy/LLM
-    resolution never compared them directly -- while each independently
-    exact-matches the same persisted entity through a different accepted
-    alias (see upsert_merge_alias_query). Computing and applying one merge
-    plan per resolver group in that case would have the second group's
-    apply_merge overwrite the first's contribution: each computes against
-    the same snapshot with no knowledge of the other's changes. Unioning
-    first means one plan is computed per canonical persisted entity,
-    folding in every mention that resolves to it.
-
-    Args:
-        groups: The resolver's own groups.
-        exact_matches: Mention index to persisted Entity, from
-            _global_exact_match.
-
-    Returns:
-        Groups covering the same entity_indices, but any two resolver
-        groups that shared an exact-matched entity id merged into one.
-    """
-    parent = list(range(len(groups)))
-
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    def union(a: int, b: int) -> None:
-        root_a, root_b = find(a), find(b)
-        if root_a != root_b:
-            parent[root_a] = root_b
-
-    entity_to_group: dict[UUID, int] = {}
-    for group_index, group in enumerate(groups):
-        for idx in group.entity_indices:
-            entity = exact_matches.get(idx)
-            if entity is None:
-                continue
-            if entity.id in entity_to_group:
-                union(group_index, entity_to_group[entity.id])
-            else:
-                entity_to_group[entity.id] = group_index
-
-    merged: dict[int, list[int]] = defaultdict(list)
-    for group_index, group in enumerate(groups):
-        merged[find(group_index)].extend(group.entity_indices)
-
-    return [
-        ResolutionGroup(entity_indices=sorted(indices)) for indices in merged.values()
-    ]
 
 
 def _synthesize_consolidation_mentions(
@@ -429,7 +378,14 @@ class Graph:
                 for a large corpus when not needed.
 
         Returns:
-            A summary of what was added per pipeline stage.
+            A summary of what was added per pipeline stage. Resolution runs
+            automatically: exact identity plus fuzzy, embedding, and
+            capped LLM zones over one combined mention list, with
+            confirmed matches persisted as MATCHES edges and derived
+            ResolvedEntity nodes. LLM verification calls stay bounded
+            at ceil(L * MAX_LLM_PAIRS / 10) requests for L labels;
+            inspect result.resolution.ambiguous_count for the pairs no
+            tier could decide.
 
         Raises:
             ValueError: The call got zero, or more than one, of ``source``, ``text``,
@@ -654,7 +610,9 @@ class Graph:
         unchanged content hash is a no-op returning before any chunking,
         extraction, or writes. Otherwise closes the document's open
         ``PART_OF`` edges and ingests the fresh content under the same
-        ``Document`` node through the shared pipeline core. A source must
+        ``Document`` node through the shared pipeline core. Entities that
+        lose their last evidence are pruned after the fresh ingest
+        completes, so replacement mentions count as evidence. A source must
         resolve to exactly one document.
 
         Args:
@@ -737,7 +695,9 @@ class Graph:
             )
 
         chunks_closed = 0
+        candidates: list[UUID] = []
         if found is not None:
+            candidates = await self._document_entity_candidates(found.document_node_id)
             chunks_closed = await close_open_part_of_edges(
                 self._graph_store, document_node_id=found.document_node_id
             )
@@ -764,6 +724,7 @@ class Graph:
             ingestion=IngestStats(documents=1),
             return_chunks=False,
         )
+        await self._prune_document_entities(candidates)
         return UpdateResult(
             document_key=document_key,
             no_op=False,
@@ -779,7 +740,9 @@ class Graph:
         Currency is read transitively through ``PART_OF``: closing the
         open edges removes the document from retrieval while its chunks,
         the ``Document`` node, and contributed entities stay in the graph
-        for provenance. An unknown ``document_key`` is a no-op.
+        for provenance. An unknown ``document_key`` is a no-op. Entities
+        mentioned only by this document's chunks lose their last evidence
+        and are pruned with their shrunken clusters.
 
         Args:
             document_key: The stable key of the document to delete.
@@ -797,15 +760,69 @@ class Graph:
         found = await find_document(self._graph_store, document_key=document_key)
         if found is None:
             return UpdateResult(document_key=document_key, no_op=True)
+        candidates = await self._document_entity_candidates(found.document_node_id)
         chunks_closed = await close_open_part_of_edges(
             self._graph_store, document_node_id=found.document_node_id
         )
+        await self._prune_document_entities(candidates)
         return UpdateResult(
             document_key=document_key,
             no_op=False,
             previous_content_hash=found.current_content_hash,
             chunks_closed=chunks_closed,
         )
+
+    async def _document_entity_candidates(self, document_node_id: UUID) -> list[UUID]:
+        """Return live entity ids mentioned by a document's open chunks.
+
+        Args:
+            document_node_id: The persisted Document node's id.
+
+        Returns:
+            The mentioned entity ids in first-seen order.
+        """
+        rows = await self._graph_store.execute_read(
+            entities_in_documents_query(), {"document_ids": [str(document_node_id)]}
+        )
+        candidates: list[UUID] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                candidate = UUID(str(row["id"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if candidate not in candidates:
+                candidates.append(candidate)
+        return candidates
+
+    async def _prune_document_entities(self, candidates: list[UUID]) -> None:
+        """Prune orphaned candidates and drop their stale vectors.
+
+        Best effort: a vector-store failure never fails the document
+        operation that already committed its graph writes.
+
+        Args:
+            candidates: Entity ids that may have lost their last evidence.
+                Empty skips the pruning pass entirely.
+        """
+        if not candidates:
+            return
+        pruning = await prune_orphaned_entities(
+            candidates, graph_store=self._graph_store, schema=self._schema
+        )
+        with contextlib.suppress(Exception):
+            await _delete_vectors(
+                self._vector_store,
+                self._retrieval_settings.entity_collection,
+                pruning.removed_entity_ids,
+            )
+        with contextlib.suppress(Exception):
+            await _delete_vectors(
+                self._vector_store,
+                self._retrieval_settings.resolved_entity_collection,
+                pruning.removed_resolved_entity_ids,
+            )
 
     def _chunk_documents(self, documents: list[Document]) -> list[Chunk]:
         """Chunk a batch of documents with the right chunker each.
@@ -890,6 +907,34 @@ class Graph:
             skip += limit
         return entities
 
+    async def _hydrate_input_entities(self, unique_ids: list[UUID]) -> list[Entity]:
+        """Fetch live entities for the given ids, preserving input order.
+
+        Args:
+            unique_ids: Deduped entity ids to fetch.
+
+        Returns:
+            The live entities in input order.
+
+        Raises:
+            ValueError: An id has no live persisted entity.
+        """
+        rows = await self._graph_store.execute_read(
+            hydrate_entities_by_id_query(), {"ids": [str(e) for e in unique_ids]}
+        )
+        entities_by_id: dict[UUID, Entity] = {}
+        for row in rows:
+            node = row.get("n", row) if isinstance(row, dict) else row
+            entity = _parse_entity_node(node)
+            if entity is not None:
+                entities_by_id[entity.id] = entity
+        missing = [e for e in unique_ids if e not in entities_by_id]
+        if missing:
+            raise ValueError(
+                "Unknown entity ids: " + ", ".join(str(m) for m in missing)
+            )
+        return [entities_by_id[e] for e in unique_ids]
+
     async def deactivate_match(self, match_id: UUID) -> list[ResolvedEntity]:
         """Deactivate a semantic match and synchronize replacement retrieval vectors."""
         result = await deactivate_match_and_rematerialize(
@@ -915,17 +960,23 @@ class Graph:
         For each EntityType label in self._schema, fetches every persisted
         entity with that label, bounds the pairs actually compared with
         GraphCandidateSource's ANN-backed persisted_candidate_indices, and
-        runs the same comparator sequence add() uses in-batch (ExactMatch,
-        FuzzyMatch, LLMVerify) over those candidate pairs. Confirmed non-exact
-        matches preserve both raw Entity nodes and their relationships.
+        runs the same zone-routed resolution add() uses (exact, fuzzy
+        fast-path, embedding similarity, capped LLM review) over those
+        candidate pairs. Confirmed non-exact matches preserve both raw
+        Entity nodes and their relationships.
+
+        LLM verification calls stay bounded: at most
+        ceil(L * MAX_LLM_PAIRS / 10) requests for L labels. See Graph.add.
 
         Args:
             apply: Materialize the confirmed matches. False produces a report only.
 
         Returns:
-            A report of every confirmed non-exact match, applied or not.
+            A report of every confirmed non-exact match, applied or not,
+            plus the count of uncertain LLM verdicts.
         """
         would_match: list[MatchDecision] = []
+        ambiguous_count = 0
         entities_by_id: dict[UUID, Entity] = {}
         # For each label, fetch all entities, then pairwise compare via Resolver
         for entity_type in self._schema.entities:
@@ -956,8 +1007,10 @@ class Graph:
                     LLMVerify(chunks_by_id=dummy_chunks_by_id),
                 ],
                 candidate_source=PersistedCandidateSource(candidate_indices),
+                embedder=self._embedder,
             )
             resolution_result = await resolver.resolve(synthetic_mentions)
+            ambiguous_count += resolution_result.ambiguous_count
             entities_by_id.update({entity.id: entity for entity in all_entities})
             for match in resolution_result.matches:
                 would_match.append(
@@ -1017,6 +1070,149 @@ class Graph:
             would_match=would_match,
             applied=apply and bool(materialized_entities),
             failures=consolidation_failures,
+            ambiguous_count=ambiguous_count,
+        )
+
+    async def reevaluate(self, entity_ids: list[UUID]) -> ReevaluationReport:
+        """Reevaluate matches among the given entities, adding and removing edges.
+
+        Fetches exactly the supplied entities, compares same-label pairs
+        only among this set through one zone-routed Resolver pass, writes
+        confirmed matches that lack an active edge, and deactivates active
+        edges among the set the resolver did not confirm. Exact-text pairs
+        never gain or lose edges. Nothing outside the input set is compared
+        or touched, and nothing calls this automatically.
+
+        LLM verification calls stay bounded at ceil(L * MAX_LLM_PAIRS / 10)
+        requests for L labels, as in Graph.add.
+
+        Args:
+            entity_ids: The persisted entities to reevaluate, deduped with
+                input order preserved.
+
+        Returns:
+            Which entities were reevaluated, which matches were added,
+            which match edges were deactivated, and how many inputs had no
+            incident added or removed edge.
+
+        Raises:
+            ValueError: An id has no live persisted entity.
+        """
+        unique_ids = list(dict.fromkeys(entity_ids))
+        if not unique_ids:
+            return ReevaluationReport()
+        entities_by_id = {
+            entity.id: entity
+            for entity in await self._hydrate_input_entities(unique_ids)
+        }
+        entities = [entities_by_id[e] for e in unique_ids]
+        mentions, dummy_chunks = _synthesize_consolidation_mentions(entities)
+        candidates_by_index = {
+            index: [
+                other
+                for other, peer in enumerate(mentions)
+                if other != index and peer.label == mention.label
+            ]
+            for index, mention in enumerate(mentions)
+        }
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(),
+                LLMVerify(chunks_by_id=dummy_chunks),
+            ],
+            candidate_source=PersistedCandidateSource(
+                {index: peers for index, peers in candidates_by_index.items() if peers}
+            ),
+            embedder=self._embedder,
+        )
+        resolution = await resolver.resolve(mentions)
+        confirmed = {
+            frozenset((unique_ids[m.left_index], unique_ids[m.right_index])): m
+            for m in resolution.matches
+        }
+        exact_pairs = {
+            frozenset((unique_ids[left], unique_ids[right]))
+            for left in range(len(mentions))
+            for right in range(left + 1, len(mentions))
+            if normalize_text(mentions[left].text)
+            == normalize_text(mentions[right].text)
+        }
+        edge_rows = await self._graph_store.execute_read(
+            fetch_active_matches_among_ids_query(),
+            {"ids": [str(e) for e in unique_ids]},
+        )
+        active: dict[frozenset[UUID], UUID] = {}
+        for row in edge_rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                pair = frozenset((UUID(str(row["a_id"])), UUID(str(row["b_id"]))))
+                match_id = UUID(str(row["match_id"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if len(pair) == 2:
+                active.setdefault(pair, match_id)
+        decisions = sorted(
+            (
+                MatchDecision(
+                    entity_a_id=first,
+                    entity_b_id=second,
+                    comparator=match.comparator,
+                    score=match.score,
+                    reasoning=match.reasoning,
+                    decided_at=match.decided_at,
+                )
+                for pair, match in confirmed.items()
+                if pair not in active
+                for first, second in (sorted(pair, key=str),)
+            ),
+            key=lambda d: str(matches_id(d.entity_a_id, d.entity_b_id)),
+        )
+        materialized: list[ResolvedEntity] = []
+        replaced: list[UUID] = []
+        matches_added: list[MatchDecision] = []
+        for component in match_decision_components(decisions):
+            member_ids = {d.entity_a_id for d in component} | {
+                d.entity_b_id for d in component
+            }
+            materialization = await write_matches_and_materialize(
+                component,
+                graph_store=self._graph_store,
+                schema=self._schema,
+                members=[entities_by_id[m] for m in member_ids],
+            )
+            materialized.append(materialization.resolved_entity)
+            replaced.extend(materialization.removed_entity_ids)
+            matches_added.extend(component)
+        matches_removed: list[UUID] = []
+        removed_pairs: set[frozenset[UUID]] = set()
+        for pair, match_id in sorted(active.items(), key=lambda item: str(item[1])):
+            if pair in confirmed or pair in exact_pairs:
+                continue
+            deactivation = await deactivate_match_and_rematerialize(
+                match_id, graph_store=self._graph_store, schema=self._schema
+            )
+            materialized.extend(deactivation.resolved_entities)
+            replaced.extend(deactivation.removed_entity_ids)
+            matches_removed.append(match_id)
+            removed_pairs.add(pair)
+        await _synchronize_resolved_entity_vectors(
+            materialized,
+            list(dict.fromkeys(replaced)),
+            embedder=self._embedder,
+            graph_store=self._graph_store,
+            vector_store=self._vector_store,
+            vector_collection=self._retrieval_settings.resolved_entity_collection,
+            error_policy=ErrorPolicy.SKIP,
+        )
+        touched = {e for d in matches_added for e in (d.entity_a_id, d.entity_b_id)}
+        touched |= {e for pair in removed_pairs for e in pair}
+        return ReevaluationReport(
+            entities_reevaluated=unique_ids,
+            matches_added=matches_added,
+            matches_removed=matches_removed,
+            unchanged_count=sum(1 for e in unique_ids if e not in touched),
         )
 
     async def _delete_stale_community_vectors(self) -> None:

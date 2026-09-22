@@ -47,3 +47,37 @@ def fetch_active_resolved_member_ids_query() -> str:
         "WHERE resolved.vector_sync_status = 'synced' "
         "RETURN entity_id"
     )
+
+
+def fetch_active_matches_among_ids_query() -> str:
+    """Build Cypher returning active match edges inside an id set."""
+    return (
+        "UNWIND $ids AS entity_id "
+        f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
+        f"-[match:{MATCHES_RELATION}]->(b:{NODE_IDENTITY_LABEL}) "
+        "WHERE match.active = true AND b.id IN $ids "
+        "RETURN match.id AS match_id, a.id AS a_id, b.id AS b_id"
+    )
+
+
+def fetch_entities_with_open_evidence_query() -> str:
+    """Build Cypher returning candidate ids mentioned by an open chunk."""
+    return (
+        "UNWIND $ids AS entity_id "
+        f"MATCH (chunk:{NODE_IDENTITY_LABEL}:Chunk)-[:MENTIONED_IN]->"
+        f"(entity:{NODE_IDENTITY_LABEL} {{id: entity_id}}) "
+        f"MATCH (document:{NODE_IDENTITY_LABEL}:Document)-[part:PART_OF]->(chunk) "
+        "WHERE part.invalid_at IS NULL "
+        "RETURN DISTINCT entity.id AS id"
+    )
+
+
+def fetch_entity_cluster_memberships_query() -> str:
+    """Build Cypher returning each candidate's cluster and its members."""
+    return (
+        "UNWIND $ids AS entity_id "
+        f"MATCH (entity:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
+        f"-[membership:{RESOLVED_AS_RELATION}]->(resolved:{RESOLVED_ENTITY_LABEL}) "
+        "RETURN entity_id, resolved.id AS resolved_id, "
+        "resolved.member_ids AS member_ids"
+    )

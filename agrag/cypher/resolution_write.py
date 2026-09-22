@@ -5,7 +5,7 @@ from agrag.common.data_models.resolved_entity import (
     RESOLVED_AS_RELATION,
     RESOLVED_ENTITY_LABEL,
 )
-from agrag.cypher.entities import NODE_IDENTITY_LABEL
+from agrag.cypher.entities import MERGE_ALIAS_LABEL, NODE_IDENTITY_LABEL
 
 
 _PENDING_VECTOR_DELETION_LABEL = "ResolvedEntityVectorDeletion"
@@ -56,6 +56,46 @@ def set_resolved_entity_sync_status_query() -> str:
         f"MATCH (resolved:{RESOLVED_ENTITY_LABEL} {{id: record.id}}) "
         "SET resolved.vector_sync_status = record.status, "
         "resolved.vector_sync_error = record.error"
+    )
+
+
+def delete_entities_query() -> str:
+    """Build Cypher deleting entities and their mention/cluster edges."""
+    return (
+        "UNWIND $ids AS entity_id "
+        f"MATCH (entity:{NODE_IDENTITY_LABEL} {{id: entity_id}}) "
+        "OPTIONAL MATCH (entity)-[mention:MENTIONED_IN]-() "
+        f"OPTIONAL MATCH (entity)-[membership:{RESOLVED_AS_RELATION}]->"
+        f"(:{RESOLVED_ENTITY_LABEL}) "
+        "WITH entity, entity.id AS entity_id, "
+        "collect(DISTINCT mention) AS mentions, "
+        "collect(DISTINCT membership) AS memberships "
+        "FOREACH (mention IN mentions | DELETE mention) "
+        "FOREACH (membership IN memberships | DELETE membership) "
+        "WITH entity, entity_id "
+        "DETACH DELETE entity "
+        "RETURN entity_id"
+    )
+
+
+def delete_resolved_entities_query() -> str:
+    """Build Cypher deleting resolved nodes left with no members."""
+    return (
+        "UNWIND $ids AS resolved_id "
+        f"MATCH (resolved:{RESOLVED_ENTITY_LABEL} {{id: resolved_id}}) "
+        "DETACH DELETE resolved "
+        "RETURN resolved_id"
+    )
+
+
+def delete_merge_aliases_for_entities_query() -> str:
+    """Build Cypher deleting merge aliases owned by removed entities."""
+    return (
+        "UNWIND $ids AS entity_id "
+        f"MATCH (alias:{MERGE_ALIAS_LABEL} {{entity_id: entity_id}}) "
+        "WITH alias, alias.entity_id AS entity_id "
+        "DETACH DELETE alias "
+        "RETURN entity_id"
     )
 
 

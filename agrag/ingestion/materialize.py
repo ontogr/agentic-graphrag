@@ -16,10 +16,15 @@ from agrag.common.data_models.resolved_entity import (
 )
 from agrag.cypher.resolution_read import (
     fetch_active_component_members_query,
+    fetch_entities_with_open_evidence_query,
+    fetch_entity_cluster_memberships_query,
     fetch_match_endpoints_query,
 )
 from agrag.cypher.resolution_write import (
     deactivate_match_query,
+    delete_entities_query,
+    delete_merge_aliases_for_entities_query,
+    delete_resolved_entities_query,
     replace_component_materializations_query,
     upsert_matches_query,
 )
@@ -51,6 +56,14 @@ class DeactivationResult(BaseModel):
 
     resolved_entities: list[ResolvedEntity]
     removed_entity_ids: list[UUID]
+
+
+class PruningResult(BaseModel):
+    """Ids removed and clusters rebuilt by deletion-triggered pruning."""
+
+    removed_entity_ids: list[UUID]
+    removed_resolved_entity_ids: list[UUID]
+    rematerialized_entities: list[ResolvedEntity]
 
 
 def decisions_by_component(
@@ -366,4 +379,161 @@ async def deactivate_match_and_rematerialize(
             for entity_id in dict.fromkeys(removed_entity_ids)
             if entity_id not in materialized_ids
         ],
+    )
+
+
+def _uuid_list(rows: object, key: str) -> list[UUID]:
+    """Parse string ids out of graph-store rows, skipping unreadable ones."""
+    parsed: list[UUID] = []
+    if not isinstance(rows, list):
+        return parsed
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        value = row.get(key)
+        if isinstance(value, list):
+            for item in value:
+                try:
+                    parsed.append(UUID(str(item)))
+                except ValueError:
+                    continue
+        elif value is not None:
+            try:
+                parsed.append(UUID(str(value)))
+            except ValueError:
+                continue
+    return parsed
+
+
+async def prune_orphaned_entities(
+    candidate_entity_ids: list[UUID], *, graph_store: GraphStore, schema: GraphSchema
+) -> PruningResult:
+    """Delete candidates with no open-chunk evidence and rebuild clusters.
+
+    A candidate mentioned by any chunk with an open PART_OF edge keeps its
+    node. Any other candidate loses its node with its incident MENTIONED_IN
+    and RESOLVED_AS edges; each affected cluster is then recomputed over
+    its remaining members, or deleted when fewer than two remain and the
+    survivor returns to plain status. Merge aliases owned by removed
+    entities are deleted too, so re-ingesting a pruned name starts clean
+    instead of colliding with an alias pointing at a missing node.
+
+    Only the supplied candidates are ever deleted. Evidence is checked per
+    candidate id, never with a graph-wide scan.
+    """
+    from agrag.cypher.entities import hydrate_entities_by_id_query  # noqa: PLC0415
+    from agrag.ingestion._ingest_pipeline import _parse_entity_node  # noqa: PLC0415
+
+    unique_ids = list(dict.fromkeys(candidate_entity_ids))
+    empty = PruningResult(
+        removed_entity_ids=[],
+        removed_resolved_entity_ids=[],
+        rematerialized_entities=[],
+    )
+    if not unique_ids:
+        return empty
+    evidenced_rows = await graph_store.execute_read(
+        fetch_entities_with_open_evidence_query(),
+        {"ids": [str(entity_id) for entity_id in unique_ids]},
+    )
+    evidenced = set(_uuid_list(evidenced_rows, "id"))
+    orphans = [entity_id for entity_id in unique_ids if entity_id not in evidenced]
+    if not orphans:
+        return empty
+    membership_rows = await graph_store.execute_read(
+        fetch_entity_cluster_memberships_query(),
+        {"ids": [str(entity_id) for entity_id in orphans]},
+    )
+    clusters: dict[str, list[str]] = {}
+    if isinstance(membership_rows, list):
+        for row in membership_rows:
+            if not isinstance(row, dict):
+                continue
+            resolved_id = row.get("resolved_id")
+            member_ids = row.get("member_ids") or []
+            if resolved_id is not None and isinstance(member_ids, list):
+                clusters.setdefault(str(resolved_id), [str(m) for m in member_ids])
+    deleted_rows = await graph_store.execute_write(
+        delete_entities_query(), {"ids": [str(entity_id) for entity_id in orphans]}
+    )
+    removed_entity_ids = _uuid_list(deleted_rows, "entity_id")
+    await graph_store.execute_write(
+        delete_merge_aliases_for_entities_query(),
+        {"ids": [str(entity_id) for entity_id in orphans]},
+    )
+    removed_set = {str(entity_id) for entity_id in orphans}
+    removed_resolved_entity_ids: list[UUID] = []
+    rematerialized: list[ResolvedEntity] = []
+    for resolved_id, member_ids in clusters.items():
+        remaining_ids = [m for m in dict.fromkeys(member_ids) if m not in removed_set]
+        hydrate_rows = (
+            await graph_store.execute_read(
+                hydrate_entities_by_id_query(), {"ids": remaining_ids}
+            )
+            if remaining_ids
+            else []
+        )
+        members = [
+            entity
+            for row in hydrate_rows
+            if (
+                entity := _parse_entity_node(
+                    row.get("member", row.get("n", row))
+                    if isinstance(row, dict)
+                    else row
+                )
+            )
+            is not None
+        ]
+        if len(members) >= 2:
+            async with graph_store.transaction() as transaction:
+                replacement_rows = await transaction.execute_write(
+                    replace_component_materializations_query(),
+                    {"member_ids": [str(member.id) for member in members]},
+                )
+                removed_resolved_entity_ids.extend(
+                    _uuid_list(replacement_rows, "removed_resolved_entity_ids")
+                )
+                resolved = await compute_resolved_entity(members, schema)
+                _raise_for_write_failure(
+                    await transaction.upsert_nodes(
+                        RESOLVED_ENTITY_LABEL, [resolved.to_node_record()]
+                    )
+                )
+                _raise_for_write_failure(
+                    await transaction.upsert_relations(
+                        [
+                            RelationRecord(
+                                id=uuid5(
+                                    NAMESPACE_OID,
+                                    f"RESOLVED_AS:{member.id}:{resolved.id}",
+                                ),
+                                type=RESOLVED_AS_RELATION,
+                                start_id=member.id,
+                                end_id=resolved.id,
+                                properties={},
+                            )
+                            for member in sorted(members, key=lambda m: str(m.id))
+                        ]
+                    )
+                )
+            rematerialized.append(resolved)
+        elif len(members) == 1:
+            async with graph_store.transaction() as transaction:
+                replacement_rows = await transaction.execute_write(
+                    replace_component_materializations_query(),
+                    {"member_ids": [str(members[0].id)]},
+                )
+                removed_resolved_entity_ids.extend(
+                    _uuid_list(replacement_rows, "removed_resolved_entity_ids")
+                )
+        else:
+            pruned_rows = await graph_store.execute_write(
+                delete_resolved_entities_query(), {"ids": [resolved_id]}
+            )
+            removed_resolved_entity_ids.extend(_uuid_list(pruned_rows, "resolved_id"))
+    return PruningResult(
+        removed_entity_ids=removed_entity_ids,
+        removed_resolved_entity_ids=list(dict.fromkeys(removed_resolved_entity_ids)),
+        rematerialized_entities=rematerialized,
     )

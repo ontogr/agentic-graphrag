@@ -102,7 +102,7 @@ class MergePlan(BaseModel):
     merge_count_delta: int = 0
 
 
-def _select_canonical(
+def select_canonical(
     entities: list[Entity], entity_type: EntityType | None
 ) -> tuple[Entity, list[Entity]]:
     """Return the canonical survivor and the rest, from two or more entities.
@@ -174,7 +174,7 @@ def _resolve_property(
     return distinct, True  # MERGE_ALL
 
 
-async def _resolve_description(
+async def resolve_description(
     candidates: list[object],
     *,
     settings: Any | None = None,
@@ -253,7 +253,7 @@ async def _resolve_description(
         return fallback, True, failure
 
 
-async def _merge_properties(
+async def merge_properties(
     property_sources: list[dict[str, object]],
     rules: PropertyRules,
     *,
@@ -282,7 +282,7 @@ async def _merge_properties(
             if source.get(field_name) is not None
         ]
         if field_name == "description":
-            value, conflicted, failure = await _resolve_description(
+            value, conflicted, failure = await resolve_description(
                 candidates,
                 settings=description_settings,
                 client=description_client,
@@ -352,7 +352,7 @@ async def compute_merge(  # noqa: PLR0912
     entity_type = next((t for t in schema.entities if t.label == label), None)
 
     if len(existing_entities) >= 2:
-        survivor_base, absorbed = _select_canonical(existing_entities, entity_type)
+        survivor_base, absorbed = select_canonical(existing_entities, entity_type)
     elif existing_entities:
         survivor_base, absorbed = existing_entities[0], []
     else:
@@ -362,7 +362,7 @@ async def compute_merge(  # noqa: PLR0912
         {"name": entity.name, **entity.properties} for entity in existing_entities
     ] + [{"name": mention.text, **mention.properties} for mention in mentions]
 
-    resolved_fields, conflicts, desc_failures = await _merge_properties(
+    resolved_fields, conflicts, desc_failures = await merge_properties(
         field_sources,
         rules,
         description_settings=description_settings,
@@ -460,8 +460,7 @@ async def compute_merge(  # noqa: PLR0912
 class _TransferredRelationship:
     """One relationship row eligible for the post-merge dedup pass.
 
-    Rows come from either ``fetch_node_relationships_query`` (the survivor's
-    neighbourhood after all transfers land) or, in tests, directly.
+    Rows are built directly in tests.
     """
 
     other_id: UUID
@@ -477,8 +476,8 @@ def _parse_relationship_rows(
     """Parse relationship-query rows, skipping any that fail to parse.
 
     Args:
-        rows: Rows from ``fetch_node_relationships_query``, each carrying one
-            edge's other-end id, type, id, and full property map.
+        rows: Relationship rows, each carrying one edge's other-end id,
+            type, id, and full property map.
 
     Returns:
         The rows that parsed successfully. A row with an unreadable
@@ -687,20 +686,15 @@ async def apply_merge(
 ) -> None:
     """Write a computed MergePlan to storage.
 
-    Every call runs inside one GraphStore transaction: when tombstone_ids is
-    non-empty, it first clears merge_key from every entity about to be
-    absorbed, since canonical selection can pick a different node as
-    survivor than the one a property rule (e.g. KEEP_FIRST) resolves the
-    name from, so the survivor's resolved merge_key can equal a still-live
-    tombstone's own merge_key -- writing the survivor before clearing that
-    would collide with the per-label merge_key uniqueness constraint. It
-    then always upserts the survivor and records a merge-key alias for its
-    current name, and, when tombstone_ids is non-empty, also tombstones,
-    deletes edges that would become meaningless self-links, transfers what
-    remains, and dedupes the survivor's resulting neighbourhood. A failure
-    partway through leaves no half-written state: no survivor without its
-    alias, no tombstone without its edges transferred, no transferred edge
-    without its duplicate cleaned up.
+    Every call runs inside one GraphStore transaction: it upserts the
+    survivor and records a merge-key alias for its current name. A
+    failure partway through leaves no half-written state: no survivor
+    without its alias.
+
+    Destructive merging is retired: a plan with non-empty tombstone_ids
+    is rejected before any write runs, and callers must persist the
+    match through MATCHES edges and materialize a ResolvedEntity
+    instead.
 
     Args:
         plan: The merge to write.
@@ -708,9 +702,10 @@ async def apply_merge(
         schema: The schema the survivor's label belongs to.
 
     Raises:
+        ValueError: plan.tombstone_ids is non-empty.
         GraphStoreAliasConflictError: An accepted merge_key is already owned
-            by a live entity outside this merge's own survivor and tombstone
-            ids -- a concurrent writer accepted that name as an alias of, or
+            by a live entity outside this merge's own survivor id -- a
+            concurrent writer accepted that name as an alias of, or
             created it as the canonical name of, a different entity.
         GraphStoreDataIntegrityError: A candidate conflicting alias owner's
             merged_into chain cycles, points at a missing node, or does not
@@ -722,29 +717,19 @@ async def apply_merge(
         upsert_survivor_query,
         validate_identifier,
     )
-    from agrag.cypher.merge import (  # noqa: PLC0415
-        apply_relationship_dedup_delete_query,
-        apply_relationship_dedup_update_query,
-        clear_tombstone_merge_keys_query,
-        delete_internal_relationships_query,
-        fetch_node_relationships_query,
-        tombstone_query,
-        transfer_relationships_query,
-    )
     from agrag.graphdb.errors import GraphStoreAliasConflictError  # noqa: PLC0415
     from agrag.graphdb.serialize import node_params  # noqa: PLC0415
 
+    if plan.tombstone_ids:
+        raise ValueError(
+            "Destructive merge is retired: apply_merge no longer absorbs "
+            "entities. Persist the match with MATCHES edges and materialize "
+            "a ResolvedEntity instead."
+        )
     validate_identifier(plan.survivor.label)
     survivor_id = str(plan.survivor.id)
-    tombstone_ids = [str(tid) for tid in plan.tombstone_ids]
 
     async with graph_store.transaction() as txn:
-        if tombstone_ids:
-            await txn.execute_write(
-                clear_tombstone_merge_keys_query(plan.survivor.label),
-                {"tombstone_ids": tombstone_ids},
-            )
-
         # Everything except source_chunk_ids/merged_from/merge_count is
         # applied as-is; those three go through upsert_survivor_query's
         # atomic accumulation instead, using node_params only to get their
@@ -770,17 +755,13 @@ async def apply_merge(
             upsert_merge_alias_query(),
             {"merge_keys": accepted_merge_keys, "entity_id": survivor_id},
         )
-        # A tombstone's own historical merge_key legitimately still names
-        # it, not the survivor -- fetch_by_merge_keys_query's caller follows
-        # merged_into to reach the survivor from there. An owner outside
-        # this merge's own survivor/tombstone ids is only a real conflict
-        # once its own merged_into chain is followed: upsert_merge_alias_query
-        # never rewrites an alias once created, so an alias an earlier,
-        # unrelated merge accepted still points at that merge's own survivor
-        # id even after that entity is itself later absorbed here. Resolving
-        # the chain first tells that historical owner apart from a
-        # genuinely different live entity that claimed the same name.
-        known_ids = {survivor_id, *tombstone_ids}
+        # An alias an earlier, unrelated merge accepted still points at
+        # that merge's own survivor id even after that entity is itself
+        # later absorbed elsewhere, since upsert_merge_alias_query never
+        # rewrites an alias once created. Resolving the owner's
+        # merged_into chain first tells that historical owner apart from
+        # a genuinely different live entity that claimed the same name.
+        known_ids = {survivor_id}
         candidate_conflicts = {
             row["merge_key"]: row["entity_id"]
             for row in alias_rows
@@ -794,59 +775,14 @@ async def apply_merge(
         if conflicts:
             raise GraphStoreAliasConflictError(conflicts)
 
-        if not tombstone_ids:
-            return
-
-        await txn.execute_write(
-            tombstone_query(plan.survivor.label, vector_property="embedding"),
-            {"tombstone_ids": tombstone_ids, "survivor_id": survivor_id},
-        )
-
-        # Edges wholly inside the absorbed set, and edges directly between an
-        # absorbed node and the survivor itself, must go before any transfer
-        # runs: transferring either would create a meaningless self-loop, or
-        # (for the former) a stale survivor -> tombstone edge once the first
-        # transfer moves the other end.
-        await txn.execute_write(
-            delete_internal_relationships_query(),
-            {"tombstone_ids": tombstone_ids, "survivor_id": survivor_id},
-        )
-
-        for tombstone_id in tombstone_ids:
-            for outgoing in (True, False):
-                await txn.execute_write(
-                    transfer_relationships_query(outgoing=outgoing),
-                    {"tombstone_id": tombstone_id, "survivor_id": survivor_id},
-                )
-
-        # Re-fetch the survivor's whole neighbourhood, one direction at a
-        # time, rather than deduping each transfer's own return rows: a
-        # duplicate can pair a freshly transferred edge against one the
-        # survivor already had, or against another tombstone's transfer.
-        for outgoing in (True, False):
-            rows = await txn.execute_write(
-                fetch_node_relationships_query(outgoing=outgoing),
-                {"node_id": survivor_id},
-            )
-            updates, deletes = _plan_relationship_dedup(_parse_relationship_rows(rows))
-            if updates:
-                await txn.execute_write(
-                    apply_relationship_dedup_update_query(), {"updates": updates}
-                )
-            if deletes:
-                await txn.execute_write(
-                    apply_relationship_dedup_delete_query(), {"delete_ids": deletes}
-                )
-
 
 def mentioned_in_id(chunk_id: UUID, entity_id: UUID) -> UUID:
     """Return the deterministic id for a new Chunk -[:MENTIONED_IN]-> Entity edge.
 
     Only a fresh id for a pair with no persisted edge yet is guaranteed to equal
-    this. An entity merge can transfer an existing edge onto a new entity id
-    while keeping its old id (see ``transfer_relationships_query``), so a
-    caller writing to an already-persisted pair should look up the edge by
-    its endpoints first and fall back to this id only when none is found.
+    this. A caller writing to an already-persisted pair should look up the
+    edge by its endpoints first and fall back to this id only when none is
+    found.
 
     Args:
         chunk_id: The Chunk's id.

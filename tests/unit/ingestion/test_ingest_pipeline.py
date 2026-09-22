@@ -7,12 +7,16 @@ cross-batch index threading.
 """
 
 from collections.abc import Sequence
+from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
+import pytest
+
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
     ExtractedRelation,
@@ -25,6 +29,7 @@ from agrag.embedding.base import Embedder
 from agrag.ingestion._ingest_pipeline import extract_chunks, ingest_chunks
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from agrag.ingestion.resolve.candidate_source import GraphCandidateSource
 from agrag.ingestion.stats import IngestStats
 from agrag.loaders.corpus.types import ErrorPolicy
 from agrag.retrieval.settings import RetrievalSettings
@@ -97,6 +102,12 @@ def _store() -> tuple[AsyncMock, dict[str, list[Any]]]:
     store.upsert_relations.side_effect = _upsert_relations
     store.execute_read.return_value = []
     store.execute_write.return_value = []
+
+    @asynccontextmanager
+    async def _transaction():
+        yield store
+
+    store.transaction = _transaction
     return store, calls
 
 
@@ -170,6 +181,65 @@ class TestIngestChunks:
         assert result.extraction.chunks_processed == 0
         assert result.storage.nodes_written == 0
         assert result.chunks == []
+
+    async def test_global_candidate_writes_no_mentioned_in(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A persisted candidate match never fabricates chunk evidence.
+
+        Regression test: synthetic persisted-candidate mentions share
+        ``mention_to_entity`` with real mentions, but their chunks were
+        never written. Indexing them into this batch's chunk list raised
+        ``IndexError``; they must be skipped instead.
+        """
+        store, calls = _store()
+        doc = _doc(key="synthetic")
+        chunk = _chunk(doc, text="Ada Lovelace wrote the first algorithm.")
+        chunk_id = uuid4()
+        chunk.id = chunk_id
+        persisted = Entity(id=uuid4(), label="Person", name="Zed Unrelated")
+        consulted: list[str] = []
+
+        async def _candidates(
+            self: GraphCandidateSource, mention: ExtractedEntity
+        ) -> list[Entity]:
+            consulted.append(mention.text)
+            return [persisted]
+
+        monkeypatch.setattr(GraphCandidateSource, "global_candidates_for", _candidates)
+        result = await ingest_chunks(
+            [chunk],
+            [doc],
+            [
+                ExtractedEntity(
+                    chunk_id=chunk_id,
+                    label="Person",
+                    text="Ada Lovelace",
+                    char_start=0,
+                    char_end=12,
+                )
+            ],
+            [],
+            [],
+            graph_store=store,
+            embedder=_ZeroEmbedder(),
+            vector_store=None,
+            graph_schema=GENERIC,
+            retrieval_settings=RetrievalSettings(),
+            error_policy=ErrorPolicy.RAISE,
+            ingestion=IngestStats(documents=1),
+            return_chunks=False,
+        )
+        assert result.merge.failures == []
+        assert consulted == ["Ada Lovelace"]
+        mentioned = [
+            rec
+            for batch in calls["relations"]
+            for rec in batch
+            if rec.type == "MENTIONED_IN"
+        ]
+        assert len(mentioned) == 1
+        assert mentioned[0].start_id == chunk_id
 
 
 class TestIngestMatchesAdd:

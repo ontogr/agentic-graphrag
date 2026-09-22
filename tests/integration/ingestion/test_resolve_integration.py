@@ -5,6 +5,7 @@ The full Resolver flow chains ExactMatch → FuzzyMatch → LLMVerify end-to-end
 """
 
 import os
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -17,10 +18,20 @@ from agrag.ingestion.resolve import (
     ComparisonVerdict,
     ExactMatch,
     FuzzyMatch,
-    InBatchCandidateSource,
+    GraphCandidateSource,
     LLMVerify,
     Resolver,
 )
+
+
+def _candidate_source() -> GraphCandidateSource:
+    """Build a GraphCandidateSource for in-batch blocking tests.
+
+    candidates_for never touches a store, so both dependencies are mocks.
+    """
+    return GraphCandidateSource(
+        graph_store=AsyncMock(), embedder=MagicMock(), vector_store=None
+    )
 
 
 _DOC_ID = uuid4()
@@ -123,20 +134,20 @@ class TestLLMVerifyIntegration:
 class TestFuzzyMatchIntegration:
     """FuzzyMatch compares entity pairs using rapidfuzz similarity."""
 
-    async def test_no_match_for_distinct_entities(self) -> None:
-        """FuzzyMatch returns NO_MATCH when entities are too dissimilar."""
+    async def test_uncertain_for_distinct_entities(self) -> None:
+        """FuzzyMatch returns UNCERTAIN when entities are too dissimilar."""
         a = _entity("Ada Lovelace")
         b = _entity("Quantum Physics")
         comparator = FuzzyMatch()
 
         verdict = await comparator.compare(a, b)
 
-        assert verdict == ComparisonVerdict.NO_MATCH
+        assert verdict == ComparisonVerdict.UNCERTAIN
 
     async def test_match_for_renamed_entities(self) -> None:
         """FuzzyMatch returns MATCH when reordered names are very similar."""
         a = _entity("Ada Lovelace")
-        b = _entity("Lovelace, Ada")
+        b = _entity("Lovelace Ada")
         comparator = FuzzyMatch()
 
         verdict = await comparator.compare(a, b)
@@ -172,7 +183,7 @@ class TestResolverIntegration:
                 FuzzyMatch(),
                 LLMVerify(chunks_by_id={chunk_id: chunk}, settings=settings),
             ],
-            candidate_source=InBatchCandidateSource(),
+            candidate_source=_candidate_source(),
         )
         result = await resolver.resolve(entities)
 
@@ -192,9 +203,9 @@ class TestResolverIntegration:
             "Lady Lovelace wrote notes on the engine."
         )
         chunk_id = chunk.id
-        # "Ada Lovelace" vs "Lady Lovelace" — similarity ~0.80, between
-        # FuzzyMatch's no_match_below (0.70) and match_above (0.92), so
-        # FuzzyMatch returns UNCERTAIN and LLMVerify is reached.
+        # "Ada Lovelace" vs "Lady Lovelace" — similarity ~0.88, below
+        # FuzzyMatch's fast-path threshold (0.97), so FuzzyMatch returns
+        # UNCERTAIN and LLMVerify is reached.
         entities = [
             _entity("Ada Lovelace", chunk_id=chunk_id),
             _entity("Lady Lovelace", chunk_id=chunk_id),
@@ -206,7 +217,7 @@ class TestResolverIntegration:
                 FuzzyMatch(),
                 LLMVerify(chunks_by_id={chunk_id: chunk}, settings=settings),
             ],
-            candidate_source=InBatchCandidateSource(),
+            candidate_source=_candidate_source(),
         )
         result = await resolver.resolve(entities)
 

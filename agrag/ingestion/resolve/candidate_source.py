@@ -127,21 +127,6 @@ class GraphCandidateSource(CandidateSource):
         return entities
 
 
-class InBatchCandidateSource(CandidateSource):
-    """Compatibility candidate source for the existing Resolver callers."""
-
-    async def candidates_for(
-        self, index: int, entities: list[ExtractedEntity]
-    ) -> list[int]:
-        """Return every other mention sharing the indexed mention's label."""
-        label = entities[index].label
-        return [
-            other_index
-            for other_index, entity in enumerate(entities)
-            if other_index != index and entity.label == label
-        ]
-
-
 class PersistedCandidateSource(CandidateSource):
     """Supplies only candidate pairs between new mentions and raw graph entities."""
 

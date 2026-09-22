@@ -41,13 +41,8 @@ from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorHit, VectorRecord
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.errors import (
-    GraphStoreAliasConflictError,
-    GraphStoreConstraintViolationError,
-    GraphStoreDataIntegrityError,
-)
+from agrag.graphdb.errors import GraphStoreDataIntegrityError
 from agrag.ingestion._ingest_pipeline import (
-    _apply_merge_with_conflict_retry,
     _delete_vectors,
     _embed_and_upsert_chunks,
     _embed_and_upsert_survivors,
@@ -64,12 +59,9 @@ from agrag.ingestion.graph import (
     Graph,
     _resolve_paths,
     _synthesize_consolidation_mentions,
-    _union_groups_by_existing_entity,
 )
 from agrag.ingestion.materialize import MaterializationResult
-from agrag.ingestion.merge import MergePlan
 from agrag.ingestion.reports import AddResult
-from agrag.ingestion.resolve import ResolutionGroup
 from agrag.loaders.corpus.types import ErrorPolicy
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
@@ -1004,70 +996,6 @@ class TestResolveTombstoneChain:
         assert entity.name == "Robert"
 
 
-class TestUnionGroupsByExistingEntity:
-    """_union_groups_by_existing_entity merges groups sharing an exact match."""
-
-    def test_two_groups_matching_the_same_entity_are_unioned(self) -> None:
-        """Two singleton groups that alias to the same entity become one group.
-
-        Regression test: in-batch comparators never compared "Bob" and
-        "Robert" directly, so the resolver kept them in separate groups.
-        Both independently exact-match the same persisted entity through
-        different accepted aliases; without unioning, computing and
-        applying one plan per resolver group would have the second
-        group's apply_merge overwrite the first's contribution.
-        """
-        entity = Entity(id=uuid4(), label="Person", name="Robert", properties={})
-        groups = [
-            ResolutionGroup(entity_indices=[0]),
-            ResolutionGroup(entity_indices=[1]),
-        ]
-        exact_matches = {0: entity, 1: entity}
-        result = _union_groups_by_existing_entity(groups, exact_matches)
-        assert len(result) == 1
-        assert result[0].entity_indices == [0, 1]
-
-    def test_groups_matching_different_entities_stay_separate(self) -> None:
-        """Groups exact-matching different entities are not unioned."""
-        e1 = Entity(id=uuid4(), label="Person", name="Ada", properties={})
-        e2 = Entity(id=uuid4(), label="Person", name="Bob", properties={})
-        groups = [
-            ResolutionGroup(entity_indices=[0]),
-            ResolutionGroup(entity_indices=[1]),
-        ]
-        exact_matches = {0: e1, 1: e2}
-        result = _union_groups_by_existing_entity(groups, exact_matches)
-        assert len(result) == 2
-
-    def test_groups_with_no_exact_match_stay_separate(self) -> None:
-        """A group with no exact-matched entity at all is left alone."""
-        groups = [
-            ResolutionGroup(entity_indices=[0]),
-            ResolutionGroup(entity_indices=[1]),
-        ]
-        result = _union_groups_by_existing_entity(groups, {})
-        assert len(result) == 2
-
-    def test_transitively_unions_three_groups(self) -> None:
-        """A -- entity -- B and B -- entity -- C unions A, B, and C together."""
-        e1 = Entity(id=uuid4(), label="Person", name="X", properties={})
-        e2 = Entity(id=uuid4(), label="Person", name="Y", properties={})
-        groups = [
-            ResolutionGroup(entity_indices=[0]),
-            ResolutionGroup(entity_indices=[1]),
-            ResolutionGroup(entity_indices=[2]),
-        ]
-        # Group 0 and group 1 share e1; group 1 and group 2 share e2 via
-        # entity_indices 1 and 2 both resolving to e2.
-        exact_matches = {0: e1, 1: e1, 2: e2}
-        # Make group 1 also touch e2 so it bridges groups 0 and 2.
-        groups[1] = ResolutionGroup(entity_indices=[1, 3])
-        exact_matches[3] = e2
-        result = _union_groups_by_existing_entity(groups, exact_matches)
-        assert len(result) == 1
-        assert result[0].entity_indices == [0, 1, 2, 3]
-
-
 class TestSynthesizeConsolidationMentions:
     """_synthesize_consolidation_mentions builds per-entity dummy context."""
 
@@ -1124,230 +1052,6 @@ class TestSynthesizeConsolidationMentions:
         assert mention.chunk_id == chunk.id
         assert mention.text == "Ada Lovelace"
         assert chunk.text == "Ada Lovelace"
-
-
-class TestApplyMergeWithConflictRetry:
-    """_apply_merge_with_conflict_retry recovers from a concurrent create race."""
-
-    async def test_retries_and_merges_into_the_winner(self) -> None:
-        """A constraint violation on a brand-new entity re-resolves and retries.
-
-        Regression test: two concurrent add() calls for the same normalized
-        name can both miss the exact-match lookup and both try to create a
-        live node for the same merge_key. merge_key_constraint_query rejects
-        whichever lands second; this must recover by re-resolving to the
-        entity that won the race, rather than losing the mention or
-        crashing the whole add() call.
-        """
-        winner_id = uuid4()
-        mention = ExtractedEntity(
-            chunk_id=uuid4(), label="Person", text="Bob", char_start=0, char_end=3
-        )
-        losing_plan = MergePlan(
-            survivor=Entity(id=uuid4(), label="Person", name="Bob", properties={}),
-            tombstone_ids=[],
-            conflicts=[],
-        )
-
-        store = MockStore()
-        store.execute_read_responses = [
-            [
-                {
-                    "n": {
-                        "id": str(winner_id),
-                        "labels": ["Person"],
-                        "properties": {
-                            "name": "Bob",
-                            "merge_key": "Person:bob",
-                            "merged_from": [],
-                            "merge_count": 1,
-                            "source_chunk_ids": [],
-                            "created_at": "2020-01-01T00:00:00+00:00",
-                        },
-                    }
-                }
-            ]
-        ]
-
-        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
-
-        call_count = 0
-
-        async def fake_apply_merge(
-            plan: MergePlan, *, graph_store: object, schema: object
-        ) -> None:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise GraphStoreConstraintViolationError("merge_key already exists")
-
-        with mock.patch.object(gmod, "apply_merge", side_effect=fake_apply_merge):
-            plan, desc_failures = await _apply_merge_with_conflict_retry(
-                losing_plan,
-                graph_store=store,
-                schema=GENERIC,
-                existing_entities=[],
-                mentions=[mention],
-                is_new_entity=True,
-            )
-
-        assert call_count == 2
-        assert plan.survivor.id == winner_id
-        assert desc_failures == []
-
-    async def test_reraises_when_not_a_new_entity(self) -> None:
-        """A violation while updating an existing entity is not this race: reraise."""
-        plan = MergePlan(
-            survivor=Entity(id=uuid4(), label="Person", name="Bob", properties={}),
-            tombstone_ids=[],
-            conflicts=[],
-        )
-        store = MockStore()
-        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
-
-        async def fake_apply_merge(*args: object, **kwargs: object) -> None:
-            raise GraphStoreConstraintViolationError("boom")
-
-        with (
-            mock.patch.object(gmod, "apply_merge", side_effect=fake_apply_merge),
-            pytest.raises(GraphStoreConstraintViolationError),
-        ):
-            await _apply_merge_with_conflict_retry(
-                plan,
-                graph_store=store,
-                schema=GENERIC,
-                existing_entities=[],
-                mentions=[],
-                is_new_entity=False,
-            )
-
-    async def test_reraises_when_winner_cannot_be_found(self) -> None:
-        """If the constraint says it exists but re-resolution finds nothing, reraise."""
-        plan = MergePlan(
-            survivor=Entity(id=uuid4(), label="Person", name="Bob", properties={}),
-            tombstone_ids=[],
-            conflicts=[],
-        )
-        store = MockStore()
-        store.execute_read_responses = [[]]
-        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
-
-        async def fake_apply_merge(*args: object, **kwargs: object) -> None:
-            raise GraphStoreConstraintViolationError("boom")
-
-        with (
-            mock.patch.object(gmod, "apply_merge", side_effect=fake_apply_merge),
-            pytest.raises(GraphStoreConstraintViolationError),
-        ):
-            await _apply_merge_with_conflict_retry(
-                plan,
-                graph_store=store,
-                schema=GENERIC,
-                existing_entities=[],
-                mentions=[],
-                is_new_entity=True,
-            )
-
-    async def test_alias_conflict_merges_into_the_true_owner(self) -> None:
-        """A merge-key alias claimed by another entity re-resolves and retries.
-
-        Regression test: canonical "Bob" is created by one writer while this
-        call separately resolves mentions "Robert" and "Bob" as the same
-        entity, accepting "Bob" as an alias of "Robert". Neither writer's
-        own node merge_key collides -- apply_merge raises
-        GraphStoreAliasConflictError itself instead of a backend constraint
-        -- so recovery must fold the real "Bob" owner into existing_entities
-        and merge both mentions into it, rather than leaving two live
-        entities that both believe they own the name "Bob".
-        """
-        bob_owner_id = uuid4()
-        robert_mention = ExtractedEntity(
-            chunk_id=uuid4(), label="Person", text="Robert", char_start=0, char_end=6
-        )
-        bob_mention = ExtractedEntity(
-            chunk_id=uuid4(), label="Person", text="Bob", char_start=0, char_end=3
-        )
-        losing_plan = MergePlan(
-            survivor=Entity(id=uuid4(), label="Person", name="Robert", properties={}),
-            tombstone_ids=[],
-            conflicts=[],
-            accepted_merge_keys=["Person:robert", "Person:bob"],
-        )
-
-        store = MockStore()
-        store.execute_read_responses = [
-            [
-                {
-                    "n": {
-                        "id": str(bob_owner_id),
-                        "labels": ["Person"],
-                        "properties": {
-                            "name": "Bob",
-                            "merge_key": "Person:bob",
-                            "merged_from": [],
-                            "merge_count": 1,
-                            "source_chunk_ids": [],
-                            "created_at": "2020-01-01T00:00:00+00:00",
-                        },
-                    }
-                }
-            ]
-        ]
-
-        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
-
-        call_count = 0
-
-        async def fake_apply_merge(
-            plan: MergePlan, *, graph_store: object, schema: object
-        ) -> None:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise GraphStoreAliasConflictError({"Person:bob": str(bob_owner_id)})
-
-        with mock.patch.object(gmod, "apply_merge", side_effect=fake_apply_merge):
-            plan, desc_failures = await _apply_merge_with_conflict_retry(
-                losing_plan,
-                graph_store=store,
-                schema=GENERIC,
-                existing_entities=[],
-                mentions=[robert_mention, bob_mention],
-                is_new_entity=True,
-            )
-
-        assert call_count == 2
-        assert plan.survivor.id == bob_owner_id
-        assert plan.tombstone_ids == []
-        assert desc_failures == []
-
-    async def test_alias_conflict_reraises_when_owner_cannot_be_found(self) -> None:
-        """If the alias claim reports an owner re-resolution cannot find, reraise."""
-        plan = MergePlan(
-            survivor=Entity(id=uuid4(), label="Person", name="Robert", properties={}),
-            tombstone_ids=[],
-            conflicts=[],
-            accepted_merge_keys=["Person:robert", "Person:bob"],
-        )
-        store = MockStore()
-        store.execute_read_responses = [[]]
-        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
-
-        async def fake_apply_merge(*args: object, **kwargs: object) -> None:
-            raise GraphStoreAliasConflictError({"Person:bob": str(uuid4())})
-
-        with (
-            mock.patch.object(gmod, "apply_merge", side_effect=fake_apply_merge),
-            pytest.raises(GraphStoreAliasConflictError),
-        ):
-            await _apply_merge_with_conflict_retry(
-                plan,
-                graph_store=store,
-                schema=GENERIC,
-                existing_entities=[],
-                mentions=[],
-                is_new_entity=True,
-            )
 
 
 class TestGlobalRelationLookup:

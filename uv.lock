@@ -52,6 +52,8 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
     { name = "rapidfuzz" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "selectolax" },
 ]
 
@@ -145,6 +147,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "qdrant-client", marker = "extra == 'qdrant'", specifier = ">=1.12" },
     { name = "rapidfuzz", specifier = ">=3.0" },
+    { name = "scipy", specifier = ">=1.14" },
     { name = "selectolax", specifier = ">=0.3.21" },
     { name = "sentence-transformers", marker = "extra == 'embed-local'", specifier = ">=5" },
     { name = "transformers", marker = "extra == 'extract'", specifier = "<4.56" },

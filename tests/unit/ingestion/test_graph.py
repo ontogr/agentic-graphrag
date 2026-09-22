@@ -21,6 +21,10 @@ import pytest
 
 import agrag.ingestion.graph as graph_module
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.community import (
+    COMMUNITY_LABEL,
+    MEMBER_OF_RELATION,
+)
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractionResult
@@ -31,6 +35,11 @@ from agrag.common.data_models.graph_record import (
 )
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.provenance import PageProvenance
+from agrag.common.data_models.resolved_entity import (
+    MATCHES_RELATION,
+    RESOLVED_AS_RELATION,
+    RESOLVED_ENTITY_LABEL,
+)
 from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
@@ -158,6 +167,61 @@ async def _open_graph() -> Graph:
         embedder=_MockEmbedder(),
         extractor=_MockExtractor(),
     )
+
+
+class _RecordingOpenStore(_MockGraphStore):
+    """Records the Graph.open provisioning calls it receives."""
+
+    def __init__(self) -> None:
+        """Create the store with empty provisioning call logs."""
+        super().__init__()
+        self.labels_calls: list[list[str]] = []
+        self.relation_calls: list[list[str]] = []
+        self.vector_index_labels: list[str] = []
+
+    async def register_labels(self, labels: Sequence[str]) -> None:
+        self.labels_calls.append(list(labels))
+
+    async def register_relation_types(self, types: Sequence[str]) -> None:
+        self.relation_calls.append(list(types))
+
+    async def ensure_vector_index(
+        self, *, label: str, vector_property: str, dimensions: int, distance: Distance
+    ) -> None:
+        self.vector_index_labels.append(label)
+
+
+class TestGraphOpenRegistration:
+    """Graph.open provisions resolved-entity storage."""
+
+    async def test_open_registers_resolved_entity_names(self) -> None:
+        """The derived label and match relations register alongside Community's."""
+        store = _RecordingOpenStore()
+        await Graph.open(
+            schema=GENERIC,
+            graph_store=store,
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+        )
+
+        assert RESOLVED_ENTITY_LABEL in store.labels_calls[0]
+        assert COMMUNITY_LABEL in store.labels_calls[0]
+        assert MATCHES_RELATION in store.relation_calls[0]
+        assert RESOLVED_AS_RELATION in store.relation_calls[0]
+        assert MEMBER_OF_RELATION in store.relation_calls[0]
+
+    async def test_open_ensures_resolved_entity_vector_index(self) -> None:
+        """Native vector search covers the derived label like Community's."""
+        store = _RecordingOpenStore()
+        await Graph.open(
+            schema=GENERIC,
+            graph_store=store,
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+        )
+
+        assert RESOLVED_ENTITY_LABEL in store.vector_index_labels
+        assert COMMUNITY_LABEL in store.vector_index_labels
 
 
 class TestGraphAdd:

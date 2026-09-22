@@ -2,7 +2,6 @@
 
 from agrag.ingestion.resolve.candidate_source import (
     GraphCandidateSource,
-    InBatchCandidateSource,
     PersistedCandidateSource,
     exact_match_lookup,
     persisted_candidate_indices,
@@ -32,7 +31,6 @@ __all__ = [
     "ExactMatch",
     "FuzzyMatch",
     "GraphCandidateSource",
-    "InBatchCandidateSource",
     "PersistedCandidateSource",
     "persisted_candidate_indices",
     "LLMVerify",

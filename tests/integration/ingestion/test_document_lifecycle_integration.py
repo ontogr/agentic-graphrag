@@ -221,8 +221,10 @@ class TestDocumentLifecycle:
             )
             await store.close()
 
-    async def test_delete_document_soft_closes_and_keeps_nodes(self) -> None:
-        """Delete closes every PART_OF edge without removing any nodes."""
+    async def test_delete_document_prunes_entities_without_surviving_evidence(
+        self,
+    ) -> None:
+        """Delete closes PART_OF edges, keeps chunks, and prunes orphaned entities."""
         store = build_graph_store("neo4j")
         await store.connect()
         probe_name = f"Zzxqy Deleteprobe {uuid4().hex[:8]}"
@@ -282,16 +284,12 @@ class TestDocumentLifecycle:
                 "MATCH (e:Person {name: $name}) RETURN count(e) AS n",
                 {"name": probe_name},
             )
-            assert rows[0]["n"] >= 1
+            assert rows[0]["n"] == 0
 
             again = await graph.delete_document(key)
             assert again.chunks_closed == 0
         finally:
-            rows = await store.execute_read(
-                "MATCH (e:Person {name: $name}) RETURN e.merge_key AS merge_key",
-                {"name": probe_name},
-            )
-            merge_keys = [row["merge_key"] for row in rows if row.get("merge_key")]
+            merge_keys = [f"Person:{probe_name.strip().casefold()}"]
             await store.execute_write(
                 "MATCH (d:Document {document_key: $key}) "
                 "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "

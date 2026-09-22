@@ -38,11 +38,7 @@ from agrag.cypher.entities import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.errors import (
-    GraphStoreAliasConflictError,
-    GraphStoreConstraintViolationError,
-    GraphStoreDataIntegrityError,
-)
+from agrag.graphdb.errors import GraphStoreDataIntegrityError
 from agrag.ingestion._lexical_backbone import (
     build_document_record,
     build_next_chunk_records,
@@ -55,7 +51,6 @@ from agrag.ingestion.materialize import (
     write_matches_and_materialize,
 )
 from agrag.ingestion.merge import (
-    MergePlan,
     apply_merge,
     compute_merge,
     mentioned_in_id,
@@ -66,7 +61,6 @@ from agrag.ingestion.resolve import (
     ExactMatch,
     FuzzyMatch,
     GraphCandidateSource,
-    InBatchCandidateSource,
     LLMVerify,
     PersistedCandidateSource,
     Resolver,
@@ -251,7 +245,9 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             chunks=list(chunks) if return_chunks else [],
         )
 
-    # Global exact-match + in-batch resolution (buffered over whole call)
+    # Zone-routed resolution over one combined mention list: real mentions
+    # plus one synthetic mention per persisted ANN candidate, so a new
+    # mention can join a persisted cluster through exactly one Resolver pass.
     exact_matches = await _global_exact_match(entities, graph_store=graph_store)
 
     # Build chunks_by_id for LLMVerify
@@ -260,27 +256,76 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         if ch.id is not None:
             chunks_by_id[ch.id] = ch
 
-    # Resolver: ExactMatch, FuzzyMatch, LLMVerify
+    # One candidate source for both paths: candidates_for is pure
+    # same-label in-batch blocking and never touches a store.
+    candidate_source = GraphCandidateSource(
+        graph_store=graph_store,
+        embedder=embedder,
+        vector_store=vector_store,
+        vector_collection=retrieval_settings.entity_collection,
+        entity_labels=[entity.label for entity in graph_schema.entities],
+    )
+    combined_mentions: list[ExtractedEntity] = list(entities)
+    persisted_candidates: dict[int, list[int]] = {}
+    persisted_ids: dict[int, UUID] = {}
+    candidate_entities: dict[UUID, Entity] = {}
+    for mention_index, mention in enumerate(entities):
+        try:
+            candidates = await candidate_source.global_candidates_for(mention)
+        except Exception:  # noqa: BLE001
+            candidates = []
+        seen_candidate_ids: set[UUID] = set()
+        exact_match = exact_matches.get(mention_index)
+        for candidate in candidates:
+            if candidate.id in seen_candidate_ids:
+                continue
+            seen_candidate_ids.add(candidate.id)
+            if exact_match is not None and candidate.id == exact_match.id:
+                continue
+            candidate_index = len(combined_mentions)
+            candidate_mention, candidate_chunk = _synthetic_entity_mention(candidate)
+            combined_mentions.append(candidate_mention)
+            chunks_by_id[candidate_mention.chunk_id] = candidate_chunk
+            persisted_candidates.setdefault(mention_index, []).append(candidate_index)
+            persisted_ids[candidate_index] = candidate.id
+            candidate_entities[candidate.id] = candidate
+    # Same-label real pairs plus the persisted map. Synthetics never
+    # initiate: no entry is keyed by a synthetic index.
+    candidates_by_index: dict[int, list[int]] = {}
+    for index, _mention in enumerate(entities):
+        real_peers = await candidate_source.candidates_for(index, entities)
+        if real_peers:
+            candidates_by_index[index] = list(real_peers)
+    for index, synthetic in persisted_candidates.items():
+        candidates_by_index.setdefault(index, []).extend(synthetic)
+    # Resolver: ExactMatch, FuzzyMatch, LLMVerify, routed by zone.
     resolver = Resolver(
         comparators=[
             ExactMatch(),
             FuzzyMatch(),
             LLMVerify(chunks_by_id=chunks_by_id),
         ],
-        candidate_source=InBatchCandidateSource(),
+        candidate_source=PersistedCandidateSource(candidates_by_index),
+        embedder=embedder,
     )
-    resolution_result = await resolver.resolve(entities) if entities else None
+    resolution_result = await resolver.resolve(combined_mentions) if entities else None
     semantic_groups = resolution_result.groups if resolution_result is not None else []
     groups = exact_resolution_groups(entities, exact_matches)
 
-    # Compute resolution stats
+    # Compute resolution stats. Groups over the combined list include
+    # synthetic singletons, so only groups holding a real mention count.
     exact_match_hits = len(exact_matches)
     # Groups include singletons; in_batch_groups is resolver group count.
-    # ambiguous_count: no direct metric yet, use 0.
     resolution = ResolutionStats(
         exact_match_hits=exact_match_hits,
-        in_batch_groups=len(semantic_groups),
-        ambiguous_count=0,
+        in_batch_groups=sum(
+            1
+            for group in semantic_groups
+            if any(index < len(entities) for index in group.entity_indices)
+        ),
+        ambiguous_count=(
+            resolution_result.ambiguous_count if resolution_result is not None else 0
+        ),
     )
 
     # Merge and write
@@ -335,47 +380,17 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
 
         conflicts_resolved += len(plan.conflicts)
 
-        # Track merge stats
+        # Track merge stats. Exact groups hold at most one existing
+        # entity, so tombstone_ids is always empty here.
         if not existing_for_group:
             nodes_created += 1
-        elif len(existing_for_group) == 1:
-            nodes_updated += 1
         else:
-            # Tombstone case: survivor + absorbed
-            nodes_merged += len(plan.tombstone_ids)
-            # nodes_merged counts tombstoned; survivor is already existing
-            # so no nodes_created/updated increment for multi-merge.
-            pass
+            nodes_updated += 1
 
-        # Apply merge (writes survivor and handles tombstone)
+        # Apply merge. An alias conflict another writer won propagates
+        # under RAISE, like any other write failure below.
         try:
-            plan, retry_desc_failures = await _apply_merge_with_conflict_retry(
-                plan,
-                graph_store=graph_store,
-                schema=graph_schema,
-                existing_entities=existing_for_group,
-                mentions=group_mentions,
-                is_new_entity=not existing_for_group,
-            )
-            if retry_desc_failures:
-                merge_failures.extend(retry_desc_failures)
-            if plan.tombstone_ids:
-                try:
-                    await _delete_vectors(
-                        vector_store,
-                        retrieval_settings.entity_collection,
-                        list(plan.tombstone_ids),
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    if error_policy is ErrorPolicy.RAISE:
-                        raise
-                    merge_failures.append(
-                        StageFailure(
-                            item_id="tombstone_vector_store",
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
-                        )
-                    )
+            await apply_merge(plan, graph_store=graph_store, schema=graph_schema)
         except Exception as exc:  # noqa: BLE001
             if error_policy is ErrorPolicy.RAISE:
                 raise
@@ -393,47 +408,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             mention_to_entity[idx] = plan.survivor.id
 
     if resolution_result is not None:
-        persisted_mentions: list[ExtractedEntity] = list(entities)
-        persisted_candidates: dict[int, list[int]] = {}
-        persisted_ids: dict[int, UUID] = {}
-        candidate_entities: dict[UUID, Entity] = {}
-        candidate_source = GraphCandidateSource(
-            graph_store=graph_store,
-            embedder=embedder,
-            vector_store=vector_store,
-            vector_collection=retrieval_settings.entity_collection,
-            entity_labels=[entity.label for entity in graph_schema.entities],
-        )
-        for mention_index, mention in enumerate(entities):
-            try:
-                candidates = await candidate_source.global_candidates_for(mention)
-            except Exception:  # noqa: BLE001
-                candidates = []
-            for candidate in candidates:
-                if candidate.id == mention_to_entity.get(mention_index):
-                    continue
-                candidate_index = len(persisted_mentions)
-                candidate_mention, candidate_chunk = _synthetic_entity_mention(
-                    candidate
-                )
-                persisted_mentions.append(candidate_mention)
-                chunks_by_id[candidate_mention.chunk_id] = candidate_chunk
-                persisted_candidates.setdefault(mention_index, []).append(
-                    candidate_index
-                )
-                persisted_ids[candidate_index] = candidate.id
-                candidate_entities[candidate.id] = candidate
-        if persisted_candidates:
-            persisted_result = await Resolver(
-                comparators=[
-                    ExactMatch(),
-                    FuzzyMatch(),
-                    LLMVerify(chunks_by_id=chunks_by_id),
-                ],
-                candidate_source=PersistedCandidateSource(persisted_candidates),
-            ).resolve(persisted_mentions)
-            resolution_result.matches.extend(persisted_result.matches)
-            mention_to_entity.update(persisted_ids)
+        mention_to_entity.update(persisted_ids)
         for decisions in decisions_by_component(
             resolution_result.matches, mention_to_entity
         ):
@@ -545,9 +520,13 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         )
         relation_records.append(relation_obj.to_relation_record())
 
-    # MENTIONED_IN edges: one per (chunk, entity) pair
+    # MENTIONED_IN edges: one per (chunk, entity) pair, for real mentions
+    # only. Synthetic persisted-candidate indices (>= len(entities)) carry
+    # no chunk evidence from this call: their chunks were never written.
     mentioned_pairs: set[tuple[UUID, UUID]] = set()
     for idx, entity_id in mention_to_entity.items():
+        if idx >= len(entities):
+            continue
         # mention's chunk_id
         chunk_id = entities[idx].chunk_id
         mentioned_pairs.add((chunk_id, entity_id))
@@ -1456,12 +1435,11 @@ async def _embed_and_upsert_survivors(
 
     Both the write and the failure-path clear below are guarded by
     _embedding_guard_fields: a record only applies when the node's current
-    name/description still match what this call started with. add() and
-    consolidate(apply=True) can run concurrently against the same entity
-    (see _apply_merge_with_conflict_retry), so without this guard an older,
-    slower call's write or clear can land after a newer call's and leave a
-    vector computed for stale text, or wipe a vector the newer call just
-    wrote.
+    name/description still match what this call started with. Concurrent
+    add() calls can interleave against the same entity, so without this
+    guard an older, slower call's write or clear can land after a newer
+    call's and leave a vector computed for stale text, or wipe a vector
+    the newer call just wrote.
 
     On failure, clears any embedding already on the survivor nodes rather
     than leaving one computed for their prior text in place: vector search
@@ -1555,117 +1533,3 @@ async def _embed_and_upsert_survivors(
                 )
             ]
     return []
-
-
-async def _apply_merge_with_conflict_retry(
-    plan: MergePlan,
-    *,
-    graph_store: GraphStore,
-    schema: GraphSchema,
-    existing_entities: list[Entity],
-    mentions: list[ExtractedEntity],
-    is_new_entity: bool,
-) -> tuple[MergePlan, list[Any]]:
-    """Apply a merge plan, recovering once from a concurrent race.
-
-    Two distinct races can surface here, both as a
-    GraphStoreConstraintViolationError:
-
-    - A brand-new entity's write can lose a create race: two concurrent
-      add() calls resolving the same normalized name each run their
-      exact-match lookup before either has written anything, so neither
-      sees the other, and both then try to create a live node for the same
-      merge_key. merge_key_constraint_query rejects whichever write lands
-      second; this recovers by re-resolving the name to whichever entity
-      won the race and merging into it instead, the way a normal update
-      would have if the exact-match lookup had seen it in time. Only
-      possible when is_new_entity, since updating an already-known
-      canonical entity writes that entity's own already-established
-      merge_key, which cannot newly collide.
-    - An accepted merge_key -- one of the group's mention- or
-      absorbed-entity-derived names, not necessarily the survivor's own --
-      can be claimed, mid-transaction, by a live entity outside this
-      merge's own survivor/tombstone set: for example, one writer creates a
-      canonical entity named "Bob" while this call separately resolves
-      "Bob" as an accepted alias of a different canonical entity named
-      "Robert". Neither writer's own node merge_key collides in that case,
-      so apply_merge raises GraphStoreAliasConflictError itself instead of
-      relying on the backend's constraint. This recovers by re-resolving
-      every conflicting merge_key to its real owner and recomputing the
-      merge with those owners folded into existing_entities. Possible
-      whether or not is_new_entity, since it is unrelated to whether the
-      survivor's own node is new.
-
-    Args:
-        plan: The merge to apply.
-        graph_store: Where the merge is written.
-        schema: The schema the survivor's label belongs to.
-        existing_entities: The persisted entities plan was originally
-            computed from, needed to recompute the merge with a
-            newly-discovered conflicting entity folded in.
-        mentions: The mentions compute_merge originally folded into plan,
-            needed to recompute the merge against the real canonical entity.
-        is_new_entity: Whether plan was building a brand-new entity (no
-            existing_entities) -- gates recovery from a bare create-race
-            constraint violation, the only case that can mean.
-
-    Returns:
-        The plan that was actually applied (plan itself, or the recomputed
-        one after recovering from a conflict) and any description-LLM
-        failures the recovery's own compute_merge call raised.
-
-    Raises:
-        GraphStoreConstraintViolationError: The violation was not a race
-            this can recover from (a create-race violation on a non-new
-            entity, or an owner that still cannot be found after retry).
-    """
-    try:
-        await apply_merge(plan, graph_store=graph_store, schema=schema)
-        return plan, []
-    except GraphStoreAliasConflictError as exc:
-        label = plan.survivor.label
-        synthetics = []
-        for merge_key in exc.conflicts:
-            name = merge_key.removeprefix(f"{label}:")
-            synthetics.append(
-                ExtractedEntity(
-                    chunk_id=uuid4(),
-                    label=label,
-                    text=name,
-                    char_start=0,
-                    char_end=len(name),
-                )
-            )
-        resolved = await _global_exact_match(synthetics, graph_store=graph_store)
-        if len(resolved) != len(synthetics):
-            raise
-        owners = {entity.id: entity for entity in resolved.values()}
-        merged_existing = list(
-            {
-                entity.id: entity for entity in [*existing_entities, *owners.values()]
-            }.values()
-        )
-        retried_plan, desc_failures = await compute_merge(
-            existing_entities=merged_existing, mentions=mentions, schema=schema
-        )
-        await apply_merge(retried_plan, graph_store=graph_store, schema=schema)
-        return retried_plan, desc_failures
-    except GraphStoreConstraintViolationError:
-        if not is_new_entity:
-            raise
-        synthetic = ExtractedEntity(
-            chunk_id=uuid4(),
-            label=plan.survivor.label,
-            text=plan.survivor.name,
-            char_start=0,
-            char_end=len(plan.survivor.name),
-        )
-        resolved = await _global_exact_match([synthetic], graph_store=graph_store)
-        canonical = resolved.get(0)
-        if canonical is None:
-            raise
-        retried_plan, desc_failures = await compute_merge(
-            existing_entities=[canonical], mentions=mentions, schema=schema
-        )
-        await apply_merge(retried_plan, graph_store=graph_store, schema=schema)
-        return retried_plan, desc_failures
