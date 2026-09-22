@@ -199,11 +199,11 @@ def rollback_job_query() -> str:
         deleted nodes and relationships.
     """
     return (
-        "MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
+        "OPTIONAL MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
         "AND r._pending_created = true "
         "DELETE r "
         "WITH count(r) AS deleted_relationships "
-        "MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
+        "OPTIONAL MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
         "SET r.active = coalesce(r._pending_previous_active, r.active) "
         "REMOVE r._pending_job_id, r._pending_created, r._pending_previous_active "
         "WITH deleted_relationships "

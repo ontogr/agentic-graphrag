@@ -485,9 +485,9 @@ async def prune_orphaned_entities(
     removed_entity_ids = _uuid_list(deleted_rows, "entity_id")
     await graph_store.execute_write(
         delete_merge_aliases_for_entities_query(),
-        {"ids": [str(entity_id) for entity_id in orphans]},
+        {"ids": [str(entity_id) for entity_id in removed_entity_ids]},
     )
-    removed_set = {str(entity_id) for entity_id in orphans}
+    removed_set = {str(entity_id) for entity_id in removed_entity_ids}
     removed_resolved_entity_ids: list[UUID] = []
     rematerialized: list[ResolvedEntity] = []
     for resolved_id, member_ids in clusters.items():

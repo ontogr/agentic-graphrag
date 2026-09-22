@@ -128,6 +128,7 @@ class TestRollbackJobQuery:
         assert "n._pending_job_id = $job_id" in query
         assert "DETACH DELETE n" in query
         assert "r._pending_job_id = $job_id" in query
+        assert query.count("OPTIONAL MATCH ()-[r]->()") == 2
         assert f"MATCH (job:{CUTOVER_JOB_LABEL} " in query
         assert "DETACH DELETE job" in query
         assert query.index("DETACH DELETE n") < query.index("DETACH DELETE job")

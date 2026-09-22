@@ -173,6 +173,7 @@ class MilvusVectorStore(VectorStore):
         self._settings = settings or MilvusSettings()
         self._client: Any = client
         self._client_lock = asyncio.Lock()
+        self._schema_migration_lock = asyncio.Lock()
         self._collection_metrics: dict[str, str] = {}
 
     async def _ensure_client(self) -> Any:
@@ -330,20 +331,21 @@ class MilvusVectorStore(VectorStore):
                 raise CollectionDimensionMismatchError(
                     expected=existing, actual=dimensions
                 )
-            existing_fields = await self._existing_field_names(client, name)
-            missing_fields = set(_REQUIRED_FIELDS - existing_fields)
-            has_sparse_index = await self._has_index(client, name, _SPARSE_FIELD)
-            has_pending_index = await self._has_index(client, name, _PENDING_FIELD)
-            pending_field_ready = _PENDING_FIELD not in missing_fields
-            if _PENDING_FIELD in missing_fields and not (
-                missing_fields - {_PENDING_FIELD}
-            ):
-                await self._add_pending_field(client, name)
-                missing_fields.remove(_PENDING_FIELD)
-                pending_field_ready = True
-            if not has_pending_index and pending_field_ready:
-                await self._create_pending_index(client, name)
-                has_pending_index = True
+            async with self._schema_migration_lock:
+                existing_fields = await self._existing_field_names(client, name)
+                missing_fields = set(_REQUIRED_FIELDS - existing_fields)
+                has_sparse_index = await self._has_index(client, name, _SPARSE_FIELD)
+                has_pending_index = await self._has_index(client, name, _PENDING_FIELD)
+                pending_field_ready = _PENDING_FIELD not in missing_fields
+                if _PENDING_FIELD in missing_fields and not (
+                    missing_fields - {_PENDING_FIELD}
+                ):
+                    await self._add_pending_field(client, name)
+                    missing_fields.remove(_PENDING_FIELD)
+                    pending_field_ready = True
+                if not has_pending_index and pending_field_ready:
+                    await self._create_pending_index(client, name)
+                    has_pending_index = True
             if missing_fields or not has_sparse_index or not has_pending_index:
                 raise VectorStoreError(
                     f"collection {name!r} already exists without the fields "
