@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any
+from unittest import mock
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -22,13 +23,21 @@ import pytest
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.extraction import ExtractionResult
+from agrag.common.data_models.extraction import (
+    ExtractedEntity,
+    ExtractedRelation,
+    ExtractionResult,
+)
 from agrag.common.data_models.graph_record import (
     NodeRecord,
     RelationRecord,
     UpsertResult,
 )
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models.graph_schema import (
+    GENERIC,
+    EntityType,
+    GraphSchema,
+)
 from agrag.common.data_models.provenance import PageProvenance
 from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.embedding.base import Embedder
@@ -36,10 +45,12 @@ from agrag.graphdb.base import GraphStore
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import (
+    SYSTEM_RELATION_TYPES,
     _embed_and_upsert_chunks,
     _embed_and_upsert_survivors,
     _vector_record,
 )
+from agrag.ingestion.resolve import ResolutionResult
 from agrag.loaders.corpus.errors import UnsupportedFormatError
 from agrag.loaders.corpus.readers.prose import TextLoader
 from agrag.loaders.corpus.types import ErrorPolicy
@@ -477,6 +488,156 @@ class TestGraphAdd:
         result = await graph.add(str(tmp_path / "*"))
         assert result.ingestion.documents == 1
         assert result.ingestion.sources == 1
+
+
+class _RelationExtractor(Extractor):
+    """Extractor returning two related mentions for every chunk."""
+
+    async def extract(self, chunk: Chunk, schema) -> ExtractionResult:  # type: ignore[no-untyped-def]
+        return ExtractionResult(
+            entities=[
+                ExtractedEntity(
+                    chunk_id=chunk.id,
+                    label="Person",
+                    text="Alice",
+                    char_start=0,
+                    char_end=5,
+                ),
+                ExtractedEntity(
+                    chunk_id=chunk.id,
+                    label="Organization",
+                    text="Acme",
+                    char_start=14,
+                    char_end=18,
+                ),
+            ],
+            relations=[
+                ExtractedRelation(
+                    chunk_id=chunk.id,
+                    label="WORKS_AT",
+                    source_index=0,
+                    target_index=1,
+                )
+            ],
+            extractor_name="fake",
+        )
+
+
+class TestResolutionContextWiring:
+    """Graph.add and Graph.consolidate pass real LLM verification context."""
+
+    async def test_in_batch_resolution_gets_relation_neighbors(self) -> None:
+        """The in-batch resolve call is seeded from the batch's relations."""
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_RelationExtractor(),
+        )
+        resolver_instance = AsyncMock()
+        resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
+
+        with mock.patch(
+            "agrag.ingestion.graph.Resolver", return_value=resolver_instance
+        ):
+            await graph.add(text="Alice works at Acme")
+
+        assert resolver_instance.resolve.await_args.kwargs["neighbors_by_index"] == {
+            0: ["WORKS_AT Acme"],
+            1: ["WORKS_AT Alice"],
+        }
+
+    async def test_persisted_candidate_similarity_reaches_resolve(self) -> None:
+        """A candidate hit's real embedding score is seeded into resolution."""
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_RelationExtractor(),
+        )
+        candidate_id = uuid4()
+
+        async def fake_vector_search(text: str, **kwargs: Any) -> list[VectorHit]:
+            if text == "Alice":
+                return [
+                    VectorHit(
+                        id=candidate_id,
+                        score=0.91,
+                        payload={"name": "Alice"},
+                    )
+                ]
+            return []
+
+        resolver_instance = AsyncMock()
+        resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
+        fetch_neighbors = AsyncMock(return_value={candidate_id: ["WORKS_AT Acme"]})
+
+        with (
+            mock.patch(
+                "agrag.ingestion.resolve.candidate_source.vector_search",
+                new=fake_vector_search,
+            ),
+            mock.patch(
+                "agrag.ingestion.graph.Resolver", return_value=resolver_instance
+            ),
+            mock.patch(
+                "agrag.ingestion.graph.fetch_persisted_neighbors", fetch_neighbors
+            ),
+        ):
+            await graph.add(text="Alice works at Acme")
+
+        # In-batch resolution runs first, the persisted-candidate pass second.
+        calls = resolver_instance.resolve.await_args_list
+        assert len(calls) == 2
+        persisted_kwargs = calls[1].kwargs
+        assert persisted_kwargs["similarity_by_pair"] == {(0, 2): 0.91}
+        assert persisted_kwargs["neighbors_by_index"][2] == ["WORKS_AT Acme"]
+        assert fetch_neighbors.await_args.args[0] == [candidate_id]
+
+    async def test_consolidate_neighbors_are_keyed_by_entity_index(self) -> None:
+        """Consolidate's neighbor context is keyed by entity list position."""
+        schema = GraphSchema(
+            name="test",
+            version="1",
+            entities=[EntityType(label="Person", description="p")],
+            relations=[],
+        )
+        graph = await Graph.open(
+            schema=schema,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+        )
+        first = Entity(id=uuid4(), label="Person", name="Alice", properties={})
+        second = Entity(id=uuid4(), label="Person", name="alice", properties={})
+        resolver_instance = AsyncMock()
+        resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
+        fetch_neighbors = AsyncMock(return_value={first.id: ["KNOWS Bob"]})
+
+        with (
+            mock.patch.object(
+                graph,
+                "_all_entities_by_label",
+                new_callable=AsyncMock,
+                return_value=[first, second],
+            ),
+            mock.patch(
+                "agrag.ingestion.graph.Resolver", return_value=resolver_instance
+            ),
+            mock.patch(
+                "agrag.ingestion.graph.fetch_persisted_neighbors", fetch_neighbors
+            ),
+        ):
+            await graph.consolidate(apply=False)
+
+        assert fetch_neighbors.await_args.args[0] == [first.id, second.id]
+        assert (
+            fetch_neighbors.await_args.kwargs["exclude_relation_types"]
+            == SYSTEM_RELATION_TYPES
+        )
+        kwargs = resolver_instance.resolve.await_args.kwargs
+        assert kwargs["neighbors_by_index"] == {0: ["KNOWS Bob"], 1: []}
+        assert kwargs["similarity_by_pair"] == {}
 
 
 class TestGraphOpen:

@@ -3550,6 +3550,7 @@ the dependency points one way (store -> cypher).
 - [**clear_property_query**](#agrag.cypher.entities.clear_property_query) – Build Cypher removing one property from a batch of nodes, guarded by text.
 - [**fetch_all_by_label_query**](#agrag.cypher.entities.fetch_all_by_label_query) – Build Cypher paginating every node with label, for consolidate().
 - [**fetch_by_merge_keys_query**](#agrag.cypher.entities.fetch_by_merge_keys_query) – Build Cypher for a batched exact-match lookup by merge key.
+- [**fetch_entity_neighbors_query**](#agrag.cypher.entities.fetch_entity_neighbors_query) – Build Cypher for a bounded, per-entity sample of neighboring relations.
 - [**fetch_relations_between_query**](#agrag.cypher.entities.fetch_relations_between_query) – Build Cypher for batched lookup of existing relations by endpoints.
 - [**filter_clause**](#agrag.cypher.entities.filter_clause) – Build a Cypher WHERE clause and parameters from a flat-dict filter.
 - [**hydrate_chunks_by_id_query**](#agrag.cypher.entities.hydrate_chunks_by_id_query) – Build Cypher fetching chunks by id.
@@ -3674,6 +3675,22 @@ map those mentions back.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $merge_keys (list of strings).
+
+##### `agrag.cypher.entities.fetch_entity_neighbors_query`
+
+```python
+fetch_entity_neighbors_query() -> str
+```
+
+Build Cypher for a bounded, per-entity sample of neighboring relations.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting `$ids` (entity id strings),
+- <code>[str](#str)</code> – `$exclude_types` (relation types to skip, such as resolution's own
+- <code>[str](#str)</code> – system relation types), and `$limit` (maximum neighbors returned
+- <code>[str](#str)</code> – per id). Returns `entity_id`, `rel_type`, and `neighbor_name`
+- <code>[str](#str)</code> – for each sampled relation, in either direction.
 
 ##### `agrag.cypher.entities.fetch_relations_between_query`
 
@@ -9391,8 +9408,10 @@ Entity resolution public API.
 
 **Functions:**
 
+- [**build_relation_neighbors**](#agrag.ingestion.resolve.build_relation_neighbors) – Build LLMVerify neighbor context from one batch's extracted relations.
 - [**exact_match_lookup**](#agrag.ingestion.resolve.exact_match_lookup) – Return persisted exact matches, including resolved tombstone aliases.
 - [**exact_resolution_groups**](#agrag.ingestion.resolve.exact_resolution_groups) – Group mentions only when they share exact raw-entity identity.
+- [**fetch_persisted_neighbors**](#agrag.ingestion.resolve.fetch_persisted_neighbors) – Fetch a bounded neighbor-relationship sample for persisted entities.
 - [**persisted_candidate_indices**](#agrag.ingestion.resolve.persisted_candidate_indices) – Return ANN candidate indices, with a bounded exhaustive fallback.
 
 ##### `agrag.ingestion.resolve.CandidateSource`
@@ -9631,7 +9650,7 @@ entity_labels = tuple(entity_labels)
 ###### `agrag.ingestion.resolve.GraphCandidateSource.global_candidates_for`
 
 ```python
-global_candidates_for(mention:ExtractedEntity) -> list[Entity]
+global_candidates_for(mention:ExtractedEntity) -> list[tuple[Entity, float]]
 ```
 
 Return persisted entities found by the shared vector-search route.
@@ -9642,6 +9661,19 @@ only carries `label` and `text` (the embedding source text), so
 candidates are hydrated from the graph by hit id instead; a hit that
 fails to hydrate, for example a tombstoned or deleted node, is
 skipped rather than reconstructed from `text`.
+
+Each candidate is paired with the cosine similarity of the
+`VectorHit` it came from. The association is keyed by hit id, never
+by position: either branch can drop an entity (malformed payload,
+label mismatch, failed hydration) without dropping the corresponding
+score, so zipping the two lists positionally would silently shift
+scores onto the wrong entities.
+
+**Returns:**
+
+- <code>[list](#list)\[[tuple](#tuple)\[[Entity](#agrag.common.data_models.entity.Entity), [float](#float)\]\]</code> – `(Entity, score)` pairs in hit order. `score` is `0.0` for
+- <code>[list](#list)\[[tuple](#tuple)\[[Entity](#agrag.common.data_models.entity.Entity), [float](#float)\]\]</code> – an entity whose id is absent from the hit map, which should not
+- <code>[list](#list)\[[tuple](#tuple)\[[Entity](#agrag.common.data_models.entity.Entity), [float](#float)\]\]</code> – happen since candidate ids come from those same hits.
 
 ###### `agrag.ingestion.resolve.GraphCandidateSource.graph_store`
 
@@ -9748,7 +9780,7 @@ Return the LLM's verdict, or NO_MATCH if the call itself fails.
 ###### `agrag.ingestion.resolve.LLMVerify.compare_batch`
 
 ```python
-compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]]) -> dict[tuple[int, int], ComparisonResult]
+compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, neighbors_by_index:dict[int, list[str]] | None = None, similarity_by_pair:dict[tuple[int, int], float] | None = None) -> dict[tuple[int, int], ComparisonResult]
 ```
 
 Verify ambiguous candidate pairs across bounded LLM requests.
@@ -9756,6 +9788,15 @@ Verify ambiguous candidate pairs across bounded LLM requests.
 Splits into requests of at most `max_pairs_per_batch` pairs so one
 oversized population cannot exceed the model's context limit.
 Invalid, missing, and uncertain model responses do not merge entities.
+
+**Parameters:**
+
+- **pairs** (<code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]\]</code>) – `(left_index, right_index, left, right)` tuples to verify.
+- **neighbors_by_index** (<code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\] | None</code>) – Entity index to its neighboring-relationship
+  context strings. Looked up globally, so every chunk sees the
+  same map.
+- **similarity_by_pair** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – `(left, right)`-keyed similarity score to
+  send alongside each pair, defaulting to `0.0`.
 
 ###### `agrag.ingestion.resolve.LLMVerify.compare_with_evidence`
 
@@ -9944,7 +9985,7 @@ comparators = comparators
 ###### `agrag.ingestion.resolve.Resolver.resolve`
 
 ```python
-resolve(entities:list[ExtractedEntity]) -> ResolutionResult
+resolve(entities:list[ExtractedEntity], *, neighbors_by_index:dict[int, list[str]] | None = None, similarity_by_pair:dict[tuple[int, int], float] | None = None) -> ResolutionResult
 ```
 
 Resolve entity groups and retain each confirmed non-exact match.
@@ -9955,6 +9996,13 @@ Resolve entity groups and retain each confirmed non-exact match.
   same call are ever compared against each other — resolving
   against previously-resolved entities from an earlier call is
   not supported by this Resolver.
+- **neighbors_by_index** (<code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\] | None</code>) – Entity index to that entity's neighboring-
+  relationship context for LLM verification, when the caller has
+  such a source. Omitted by callers that do not.
+- **similarity_by_pair** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – Already-known real similarity scores keyed by
+  `(min(left, right), max(left, right))`. Seeded into the
+  comparison tiers; a caller-seeded score always wins over one a
+  later comparator computes for the same pair. Not mutated.
 
 **Returns:**
 
@@ -10014,6 +10062,28 @@ Return fail-safe verdicts keyed by requested candidate pair identifiers.
 Unknown, duplicate, missing, and malformed results resolve to `NO_MATCH`.
 This avoids assigning a valid LLM response to a different candidate pair.
 
+##### `agrag.ingestion.resolve.build_relation_neighbors`
+
+```python
+build_relation_neighbors(entities:list[ExtractedEntity], relations:Sequence[ExtractedRelation], *, max_neighbors:int = MAX_NEIGHBORS_PER_ENTITY) -> dict[int, list[str]]
+```
+
+Build LLMVerify neighbor context from one batch's extracted relations.
+
+**Parameters:**
+
+- **entities** (<code>[list](#list)\[[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]</code>) – The batch's mentions, indexed as `relations` references
+  them.
+- **relations** (<code>[Sequence](#collections.abc.Sequence)\[[ExtractedRelation](#agrag.common.data_models.extraction.ExtractedRelation)\]</code>) – Relation mentions from the same extraction batch.
+- **max_neighbors** (<code>[int](#int)</code>) – Maximum neighbor strings kept per entity index.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – Entity index to a list of `"{relation_label} {other_entity_text}"`
+- <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – strings, each direction of a relation contributing one entry to
+- <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – both endpoints, capped at `max_neighbors` per index. An index with no
+- <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – relation names has no key at all.
+
 ##### `agrag.ingestion.resolve.candidate_source`
 
 Candidate generation for in-batch and persisted graph entities.
@@ -10027,8 +10097,14 @@ Candidate generation for in-batch and persisted graph entities.
 
 **Functions:**
 
+- [**build_relation_neighbors**](#agrag.ingestion.resolve.candidate_source.build_relation_neighbors) – Build LLMVerify neighbor context from one batch's extracted relations.
 - [**exact_match_lookup**](#agrag.ingestion.resolve.candidate_source.exact_match_lookup) – Return persisted exact matches, including resolved tombstone aliases.
+- [**fetch_persisted_neighbors**](#agrag.ingestion.resolve.candidate_source.fetch_persisted_neighbors) – Fetch a bounded neighbor-relationship sample for persisted entities.
 - [**persisted_candidate_indices**](#agrag.ingestion.resolve.candidate_source.persisted_candidate_indices) – Return ANN candidate indices, with a bounded exhaustive fallback.
+
+**Attributes:**
+
+- [**MAX_NEIGHBORS_PER_ENTITY**](#agrag.ingestion.resolve.candidate_source.MAX_NEIGHBORS_PER_ENTITY) –
 
 ###### `agrag.ingestion.resolve.candidate_source.CandidateSource`
 
@@ -10095,7 +10171,7 @@ entity_labels = tuple(entity_labels)
 ####### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.global_candidates_for`
 
 ```python
-global_candidates_for(mention:ExtractedEntity) -> list[Entity]
+global_candidates_for(mention:ExtractedEntity) -> list[tuple[Entity, float]]
 ```
 
 Return persisted entities found by the shared vector-search route.
@@ -10106,6 +10182,19 @@ only carries `label` and `text` (the embedding source text), so
 candidates are hydrated from the graph by hit id instead; a hit that
 fails to hydrate, for example a tombstoned or deleted node, is
 skipped rather than reconstructed from `text`.
+
+Each candidate is paired with the cosine similarity of the
+`VectorHit` it came from. The association is keyed by hit id, never
+by position: either branch can drop an entity (malformed payload,
+label mismatch, failed hydration) without dropping the corresponding
+score, so zipping the two lists positionally would silently shift
+scores onto the wrong entities.
+
+**Returns:**
+
+- <code>[list](#list)\[[tuple](#tuple)\[[Entity](#agrag.common.data_models.entity.Entity), [float](#float)\]\]</code> – `(Entity, score)` pairs in hit order. `score` is `0.0` for
+- <code>[list](#list)\[[tuple](#tuple)\[[Entity](#agrag.common.data_models.entity.Entity), [float](#float)\]\]</code> – an entity whose id is absent from the hit map, which should not
+- <code>[list](#list)\[[tuple](#tuple)\[[Entity](#agrag.common.data_models.entity.Entity), [float](#float)\]\]</code> – happen since candidate ids come from those same hits.
 
 ####### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.graph_store`
 
@@ -10149,6 +10238,12 @@ candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
 
 Return every other mention sharing the indexed mention's label.
 
+###### `agrag.ingestion.resolve.candidate_source.MAX_NEIGHBORS_PER_ENTITY`
+
+```python
+MAX_NEIGHBORS_PER_ENTITY = 5
+```
+
 ###### `agrag.ingestion.resolve.candidate_source.PersistedCandidateSource`
 
 ```python
@@ -10181,6 +10276,28 @@ candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
 
 Return persisted candidates for a newly extracted mention.
 
+###### `agrag.ingestion.resolve.candidate_source.build_relation_neighbors`
+
+```python
+build_relation_neighbors(entities:list[ExtractedEntity], relations:Sequence[ExtractedRelation], *, max_neighbors:int = MAX_NEIGHBORS_PER_ENTITY) -> dict[int, list[str]]
+```
+
+Build LLMVerify neighbor context from one batch's extracted relations.
+
+**Parameters:**
+
+- **entities** (<code>[list](#list)\[[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]</code>) – The batch's mentions, indexed as `relations` references
+  them.
+- **relations** (<code>[Sequence](#collections.abc.Sequence)\[[ExtractedRelation](#agrag.common.data_models.extraction.ExtractedRelation)\]</code>) – Relation mentions from the same extraction batch.
+- **max_neighbors** (<code>[int](#int)</code>) – Maximum neighbor strings kept per entity index.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – Entity index to a list of `"{relation_label} {other_entity_text}"`
+- <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – strings, each direction of a relation contributing one entry to
+- <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – both endpoints, capped at `max_neighbors` per index. An index with no
+- <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – relation names has no key at all.
+
 ###### `agrag.ingestion.resolve.candidate_source.exact_match_lookup`
 
 ```python
@@ -10189,10 +10306,37 @@ exact_match_lookup(mentions:list[ExtractedEntity], *, graph_store:GraphStore) ->
 
 Return persisted exact matches, including resolved tombstone aliases.
 
+###### `agrag.ingestion.resolve.candidate_source.fetch_persisted_neighbors`
+
+```python
+fetch_persisted_neighbors(entity_ids:Sequence[UUID], *, graph_store:GraphStore, exclude_relation_types:Sequence[str], max_neighbors:int = MAX_NEIGHBORS_PER_ENTITY) -> dict[UUID, list[str]]
+```
+
+Fetch a bounded neighbor-relationship sample for persisted entities.
+
+**Parameters:**
+
+- **entity_ids** (<code>[Sequence](#collections.abc.Sequence)\[[UUID](#uuid.UUID)\]</code>) – Persisted entity ids to fetch neighbors for.
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Store to read from.
+- **exclude_relation_types** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – Relation types to omit, such as resolution's
+  own system relation types (`MATCHES`, `RESOLVED_AS`, etc.) —
+  passed by the caller rather than imported here, since importing
+  `agrag.ingestion.graph`'s `SYSTEM_RELATION_TYPES` into this
+  module would invert the existing import direction
+  (`graph.py` already imports from this module).
+- **max_neighbors** (<code>[int](#int)</code>) – Maximum neighbor strings kept per entity id.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[UUID](#uuid.UUID), [list](#list)\[[str](#str)\]\]</code> – Entity id to a list of `"{rel_type} {neighbor_name}"` strings. An
+- <code>[dict](#dict)\[[UUID](#uuid.UUID), [list](#list)\[[str](#str)\]\]</code> – id with no matching relations, and a malformed row, contribute
+- <code>[dict](#dict)\[[UUID](#uuid.UUID), [list](#list)\[[str](#str)\]\]</code> – nothing, so that id is simply absent from the map — every caller
+- <code>[dict](#dict)\[[UUID](#uuid.UUID), [list](#list)\[[str](#str)\]\]</code> – reads through `.get(id, [])`.
+
 ###### `agrag.ingestion.resolve.candidate_source.persisted_candidate_indices`
 
 ```python
-persisted_candidate_indices(mentions:list[ExtractedEntity], entities:list[Entity], *, source:GraphCandidateSource, fallback_limit:int = 128) -> dict[int, list[int]]
+persisted_candidate_indices(mentions:list[ExtractedEntity], entities:list[Entity], *, source:GraphCandidateSource, fallback_limit:int = 128) -> tuple[dict[int, list[int]], dict[tuple[int, int], float]]
 ```
 
 Return ANN candidate indices, with a bounded exhaustive fallback.
@@ -10200,6 +10344,14 @@ Return ANN candidate indices, with a bounded exhaustive fallback.
 The fallback only applies when no indexed candidates are available. It
 keeps first-time and small-graph consolidation deterministic without
 returning to an unbounded pairwise scan for established graphs.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[int](#int), [list](#list)\[[int](#int)\]\]</code> – Mention index to its candidate entity indices, plus each compared
+- <code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\]</code> – pair's real embedding cosine similarity keyed by `(min, max)`
+- <code>[tuple](#tuple)\[[dict](#dict)\[[int](#int), [list](#list)\[[int](#int)\]\], [dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\]\]</code> – index order (matching how `Resolver.resolve` builds its own pair
+- <code>[tuple](#tuple)\[[dict](#dict)\[[int](#int), [list](#list)\[[int](#int)\]\], [dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\]\]</code> – keys). The exhaustive-fallback branch reports no scores, so its
+- <code>[tuple](#tuple)\[[dict](#dict)\[[int](#int), [list](#list)\[[int](#int)\]\], [dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\]\]</code> – similarity map is empty.
 
 ##### `agrag.ingestion.resolve.comparators`
 
@@ -10448,7 +10600,7 @@ Return the LLM's verdict, or NO_MATCH if the call itself fails.
 ####### `agrag.ingestion.resolve.comparators.LLMVerify.compare_batch`
 
 ```python
-compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]]) -> dict[tuple[int, int], ComparisonResult]
+compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, neighbors_by_index:dict[int, list[str]] | None = None, similarity_by_pair:dict[tuple[int, int], float] | None = None) -> dict[tuple[int, int], ComparisonResult]
 ```
 
 Verify ambiguous candidate pairs across bounded LLM requests.
@@ -10456,6 +10608,15 @@ Verify ambiguous candidate pairs across bounded LLM requests.
 Splits into requests of at most `max_pairs_per_batch` pairs so one
 oversized population cannot exceed the model's context limit.
 Invalid, missing, and uncertain model responses do not merge entities.
+
+**Parameters:**
+
+- **pairs** (<code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]\]</code>) – `(left_index, right_index, left, right)` tuples to verify.
+- **neighbors_by_index** (<code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\] | None</code>) – Entity index to its neighboring-relationship
+  context strings. Looked up globally, so every chunk sees the
+  same map.
+- **similarity_by_pair** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – `(left, right)`-keyed similarity score to
+  send alongside each pair, defaulting to `0.0`.
 
 ####### `agrag.ingestion.resolve.comparators.LLMVerify.compare_with_evidence`
 
@@ -10519,10 +10680,37 @@ resolves to the same raw Entity. Other mentions join only when their
 labels and normalized names match. Semantic matches deliberately remain
 separate raw records and are materialized through `MATCHES` later.
 
+##### `agrag.ingestion.resolve.fetch_persisted_neighbors`
+
+```python
+fetch_persisted_neighbors(entity_ids:Sequence[UUID], *, graph_store:GraphStore, exclude_relation_types:Sequence[str], max_neighbors:int = MAX_NEIGHBORS_PER_ENTITY) -> dict[UUID, list[str]]
+```
+
+Fetch a bounded neighbor-relationship sample for persisted entities.
+
+**Parameters:**
+
+- **entity_ids** (<code>[Sequence](#collections.abc.Sequence)\[[UUID](#uuid.UUID)\]</code>) – Persisted entity ids to fetch neighbors for.
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Store to read from.
+- **exclude_relation_types** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – Relation types to omit, such as resolution's
+  own system relation types (`MATCHES`, `RESOLVED_AS`, etc.) —
+  passed by the caller rather than imported here, since importing
+  `agrag.ingestion.graph`'s `SYSTEM_RELATION_TYPES` into this
+  module would invert the existing import direction
+  (`graph.py` already imports from this module).
+- **max_neighbors** (<code>[int](#int)</code>) – Maximum neighbor strings kept per entity id.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[UUID](#uuid.UUID), [list](#list)\[[str](#str)\]\]</code> – Entity id to a list of `"{rel_type} {neighbor_name}"` strings. An
+- <code>[dict](#dict)\[[UUID](#uuid.UUID), [list](#list)\[[str](#str)\]\]</code> – id with no matching relations, and a malformed row, contribute
+- <code>[dict](#dict)\[[UUID](#uuid.UUID), [list](#list)\[[str](#str)\]\]</code> – nothing, so that id is simply absent from the map — every caller
+- <code>[dict](#dict)\[[UUID](#uuid.UUID), [list](#list)\[[str](#str)\]\]</code> – reads through `.get(id, [])`.
+
 ##### `agrag.ingestion.resolve.persisted_candidate_indices`
 
 ```python
-persisted_candidate_indices(mentions:list[ExtractedEntity], entities:list[Entity], *, source:GraphCandidateSource, fallback_limit:int = 128) -> dict[int, list[int]]
+persisted_candidate_indices(mentions:list[ExtractedEntity], entities:list[Entity], *, source:GraphCandidateSource, fallback_limit:int = 128) -> tuple[dict[int, list[int]], dict[tuple[int, int], float]]
 ```
 
 Return ANN candidate indices, with a bounded exhaustive fallback.
@@ -10530,6 +10718,14 @@ Return ANN candidate indices, with a bounded exhaustive fallback.
 The fallback only applies when no indexed candidates are available. It
 keeps first-time and small-graph consolidation deterministic without
 returning to an unbounded pairwise scan for established graphs.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[int](#int), [list](#list)\[[int](#int)\]\]</code> – Mention index to its candidate entity indices, plus each compared
+- <code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\]</code> – pair's real embedding cosine similarity keyed by `(min, max)`
+- <code>[tuple](#tuple)\[[dict](#dict)\[[int](#int), [list](#list)\[[int](#int)\]\], [dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\]\]</code> – index order (matching how `Resolver.resolve` builds its own pair
+- <code>[tuple](#tuple)\[[dict](#dict)\[[int](#int), [list](#list)\[[int](#int)\]\], [dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\]\]</code> – keys). The exhaustive-fallback branch reports no scores, so its
+- <code>[tuple](#tuple)\[[dict](#dict)\[[int](#int), [list](#list)\[[int](#int)\]\], [dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\]\]</code> – similarity map is empty.
 
 ##### `agrag.ingestion.resolve.resolver`
 
@@ -10782,7 +10978,7 @@ Return the LLM's verdict, or NO_MATCH if the call itself fails.
 ####### `agrag.ingestion.resolve.resolver.LLMVerify.compare_batch`
 
 ```python
-compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]]) -> dict[tuple[int, int], ComparisonResult]
+compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, neighbors_by_index:dict[int, list[str]] | None = None, similarity_by_pair:dict[tuple[int, int], float] | None = None) -> dict[tuple[int, int], ComparisonResult]
 ```
 
 Verify ambiguous candidate pairs across bounded LLM requests.
@@ -10790,6 +10986,15 @@ Verify ambiguous candidate pairs across bounded LLM requests.
 Splits into requests of at most `max_pairs_per_batch` pairs so one
 oversized population cannot exceed the model's context limit.
 Invalid, missing, and uncertain model responses do not merge entities.
+
+**Parameters:**
+
+- **pairs** (<code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]\]</code>) – `(left_index, right_index, left, right)` tuples to verify.
+- **neighbors_by_index** (<code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\] | None</code>) – Entity index to its neighboring-relationship
+  context strings. Looked up globally, so every chunk sees the
+  same map.
+- **similarity_by_pair** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – `(left, right)`-keyed similarity score to
+  send alongside each pair, defaulting to `0.0`.
 
 ####### `agrag.ingestion.resolve.resolver.LLMVerify.compare_with_evidence`
 
@@ -10946,7 +11151,7 @@ comparators = comparators
 ####### `agrag.ingestion.resolve.resolver.Resolver.resolve`
 
 ```python
-resolve(entities:list[ExtractedEntity]) -> ResolutionResult
+resolve(entities:list[ExtractedEntity], *, neighbors_by_index:dict[int, list[str]] | None = None, similarity_by_pair:dict[tuple[int, int], float] | None = None) -> ResolutionResult
 ```
 
 Resolve entity groups and retain each confirmed non-exact match.
@@ -10957,6 +11162,13 @@ Resolve entity groups and retain each confirmed non-exact match.
   same call are ever compared against each other — resolving
   against previously-resolved entities from an earlier call is
   not supported by this Resolver.
+- **neighbors_by_index** (<code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\] | None</code>) – Entity index to that entity's neighboring-
+  relationship context for LLM verification, when the caller has
+  such a source. Omitted by callers that do not.
+- **similarity_by_pair** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – Already-known real similarity scores keyed by
+  `(min(left, right), max(left, right))`. Seeded into the
+  comparison tiers; a caller-seeded score always wins over one a
+  later comparator computes for the same pair. Not mutated.
 
 **Returns:**
 

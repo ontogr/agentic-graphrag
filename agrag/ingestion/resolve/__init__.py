@@ -4,7 +4,9 @@ from agrag.ingestion.resolve.candidate_source import (
     GraphCandidateSource,
     InBatchCandidateSource,
     PersistedCandidateSource,
+    build_relation_neighbors,
     exact_match_lookup,
+    fetch_persisted_neighbors,
     persisted_candidate_indices,
 )
 from agrag.ingestion.resolve.exact_groups import exact_resolution_groups
@@ -34,6 +36,8 @@ __all__ = [
     "GraphCandidateSource",
     "InBatchCandidateSource",
     "PersistedCandidateSource",
+    "build_relation_neighbors",
+    "fetch_persisted_neighbors",
     "persisted_candidate_indices",
     "LLMVerify",
     "ResolvedMatch",
