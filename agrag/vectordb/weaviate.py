@@ -151,9 +151,7 @@ class WeaviateVectorStore(VectorStore):
         """Build a Weaviate filter from a flat-dict payload filter.
 
         A pending record (one whose ``_pending`` payload boolean is true)
-        is excluded unless the filter asks for pending records only. The
-        exclusion is a negated equality, so records written before the
-        flag existed still match.
+        is excluded unless the filter asks for pending records only.
 
         Args:
             filters: A flat-dict filter: a scalar value means exact match, a
@@ -180,7 +178,7 @@ class WeaviateVectorStore(VectorStore):
         if (filters or {}).get(PENDING_VECTOR_FLAG) is True:
             conditions.append(pending.equal(True))
         else:
-            conditions.append(WeaviateFilter.not_(pending.equal(True)))
+            conditions.append(pending.equal(False))
         return WeaviateFilter.all_of(conditions)
 
     @staticmethod
@@ -388,6 +386,11 @@ class WeaviateVectorStore(VectorStore):
                             _PENDING_PROPERTY if key == PENDING_VECTOR_FLAG else key
                         ): value
                         for key, value in record.payload.items()
+                    }
+                    | {
+                        _PENDING_PROPERTY: record.payload.get(
+                            PENDING_VECTOR_FLAG, False
+                        )
                     },
                     vector={_VECTOR_NAME: record.vector},
                     uuid=str(record.id),

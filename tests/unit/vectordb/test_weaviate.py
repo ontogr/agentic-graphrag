@@ -234,7 +234,7 @@ class TestWritesAndReads:
         insert_many = client._collection.data.insert_many
         insert_many.assert_called_once()
         [obj] = insert_many.call_args.args[0]
-        assert obj.properties == {"text": "a"}
+        assert obj.properties == {"text": "a", "pending": False}
         assert obj.vector == {"vector": [0.1, 0.2]}
         assert obj.uuid == str(record.id)
 
