@@ -18,6 +18,7 @@ import pytest
 from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
     clear_property_query,
+    fetch_entity_neighbors_query,
     filter_clause,
     is_safe_identifier,
     set_embedding_query,
@@ -174,6 +175,32 @@ class TestUpsertMergeAliasQuery:
         assert "SET a.entity_id = $entity_id" not in q.replace(
             "ON CREATE SET a.entity_id = $entity_id", ""
         )
+
+
+class TestFetchEntityNeighborsQuery:
+    """fetch_entity_neighbors_query bounds a per-id neighbor sample."""
+
+    def test_builds_the_exact_expected_cypher(self) -> None:
+        """The query is a UNWIND-batched, per-entity bounded subquery."""
+        assert fetch_entity_neighbors_query() == (
+            "UNWIND $ids AS entity_id "
+            "CALL { "
+            "WITH entity_id "
+            f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: entity_id}})-[r]-"
+            f"(m:{NODE_IDENTITY_LABEL}) "
+            "WHERE NOT type(r) IN $exclude_types "
+            "RETURN type(r) AS rel_type, m.name AS neighbor_name "
+            "LIMIT $limit "
+            "} "
+            "RETURN entity_id, rel_type, neighbor_name"
+        )
+
+    def test_binds_every_value_as_a_parameter(self) -> None:
+        """Ids, excluded types, and the limit are all bound, not interpolated."""
+        query = fetch_entity_neighbors_query()
+        assert "$ids" in query
+        assert "$exclude_types" in query
+        assert "$limit" in query
 
 
 class TestFilterClause:

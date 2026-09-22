@@ -2,16 +2,26 @@
 
 LLMVerify hits a real OpenAI-compatible endpoint to verify entity pairs.
 The full Resolver flow chains ExactMatch → FuzzyMatch → LLMVerify end-to-end.
+
+``fetch_entity_neighbors_query`` is also exercised against a real Neo4j
+instance, since its per-entity bounded ``CALL { ... }`` subquery is the only
+one of its kind in this codebase's Cypher.
 """
 
+import importlib.util
 import os
+from collections.abc import AsyncGenerator
 from uuid import UUID, uuid4
 
 import pytest
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
+from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.cypher.entities import validate_identifier
+from agrag.graphdb import build_graph_store
 from agrag.ingestion.extract import ExtractionLLMSettings
 from agrag.ingestion.resolve import (
     ComparisonVerdict,
@@ -21,6 +31,10 @@ from agrag.ingestion.resolve import (
     LLMVerify,
     Resolver,
 )
+from agrag.ingestion.resolve.candidate_source import fetch_persisted_neighbors
+
+
+neo4j_missing = importlib.util.find_spec("neo4j") is None
 
 
 _DOC_ID = uuid4()
@@ -55,6 +69,72 @@ def _entity(
 def _has_llm_endpoint() -> bool:
     """Return True when the LLM endpoint env vars are set."""
     return bool(os.environ.get("LLM_BASE_URL") and os.environ.get("LLM_MODEL_ID"))
+
+
+# ── Persisted neighbors ────────────────────────────────────────────────
+
+
+@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+class TestFetchPersistedNeighborsIntegration:
+    """``fetch_entity_neighbors_query`` reads bounded real graph neighbors."""
+
+    @pytest.fixture(autouse=True)
+    async def setup_store(self) -> AsyncGenerator[None, None]:
+        """Set up a fresh store with a unique entity label."""
+        self.store = build_graph_store("neo4j")
+        await self.store.connect()
+        self.label = validate_identifier(f"Neighbor_{uuid4().hex[:8]}")
+        yield
+        await self.store.execute_write(f"MATCH (n:{self.label}) DETACH DELETE n")
+        await self.store.close()
+
+    async def test_bounds_and_filters_neighbors_in_both_directions(self) -> None:
+        """One batched read caps each id and omits excluded relation types."""
+        hub = Entity(id=uuid4(), label=self.label, name="Hub")
+        others = [
+            Entity(id=uuid4(), label=self.label, name=f"Other {i}") for i in range(7)
+        ]
+        await self.store.upsert_nodes(
+            self.label, [hub.to_node_record(), *(o.to_node_record() for o in others)]
+        )
+        await self.store.upsert_relations(
+            [
+                RelationRecord(
+                    id=uuid4(),
+                    type="KNOWS",
+                    start_id=hub.id,
+                    end_id=other.id,
+                    properties={},
+                )
+                for other in others
+            ]
+            + [
+                # A resolution-owned system edge, which the caller excludes.
+                RelationRecord(
+                    id=uuid4(),
+                    type="MATCHES",
+                    start_id=hub.id,
+                    end_id=others[0].id,
+                    properties={},
+                )
+            ]
+        )
+
+        neighbors = await fetch_persisted_neighbors(
+            [hub.id, others[0].id],
+            graph_store=self.store,
+            exclude_relation_types=["MATCHES"],
+            max_neighbors=5,
+        )
+
+        assert len(neighbors[hub.id]) == 5
+        assert all(
+            name.startswith("KNOWS ") and name != "KNOWS Hub"
+            for name in neighbors[hub.id]
+        )
+        assert "MATCHES Other 0" not in neighbors[hub.id]
+        # The undirected match means the edge's other endpoint sees the hub.
+        assert neighbors[others[0].id] == ["KNOWS Hub"]
 
 
 # ── LLMVerify ──────────────────────────────────────────────────────────

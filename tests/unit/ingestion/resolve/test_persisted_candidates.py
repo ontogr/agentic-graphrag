@@ -31,15 +31,21 @@ class _CandidateSource:
         candidates: dict[str, list[Entity]],
         *,
         raises_for: set[str] | None = None,
+        scores: dict[str, list[float]] | None = None,
     ) -> None:
         self.candidates = candidates
         self.raises_for = raises_for or set()
+        self.scores = scores or {}
 
-    async def global_candidates_for(self, mention: ExtractedEntity) -> list[Entity]:
-        """Return configured candidates by mention text."""
+    async def global_candidates_for(
+        self, mention: ExtractedEntity
+    ) -> list[tuple[Entity, float]]:
+        """Return configured candidates and their scores by mention text."""
         if mention.text in self.raises_for:
             raise RuntimeError("candidate lookup failed")
-        return self.candidates.get(mention.text, [])
+        candidates = self.candidates.get(mention.text, [])
+        scores = self.scores.get(mention.text, [0.0] * len(candidates))
+        return list(zip(candidates, scores, strict=True))
 
 
 class TestPersistedCandidateIndices:
@@ -49,37 +55,40 @@ class TestPersistedCandidateIndices:
         """Only returned same-label raw nodes become resolver pairs."""
         first, second, other = _entity("Ada"), _entity("Ada L."), _entity("Org", "Org")
 
-        indices = await persisted_candidate_indices(
+        indices, similarity = await persisted_candidate_indices(
             [_mention(first), _mention(second), _mention(other)],
             [first, second, other],
             source=_CandidateSource({"Ada": [second, other]}),  # type: ignore[arg-type]
         )
 
         assert indices == {0: [1]}
+        assert similarity == {(0, 1): 0.0}
 
     async def test_uses_bounded_full_scan_when_index_has_no_candidates(self) -> None:
         """Small first-time graphs still compare every same-label raw entity."""
         first, second = _entity("Ada"), _entity("Ada L.")
 
-        indices = await persisted_candidate_indices(
+        indices, similarity = await persisted_candidate_indices(
             [_mention(first), _mention(second)],
             [first, second],
             source=_CandidateSource({}),  # type: ignore[arg-type]
         )
 
         assert indices == {0: [1], 1: [0]}
+        assert similarity == {}
 
     async def test_skips_full_scan_fallback_above_bound(self) -> None:
         """A large, first-time population does not fall back to a full scan."""
         entities = [_entity(f"Person {i}") for i in range(130)]
 
-        indices = await persisted_candidate_indices(
+        indices, similarity = await persisted_candidate_indices(
             [_mention(entity) for entity in entities],
             entities,
             source=_CandidateSource({}),  # type: ignore[arg-type]
         )
 
         assert indices == {}
+        assert similarity == {}
 
     async def test_lookup_failure_leaves_only_that_mention_without_candidates(
         self,
@@ -87,10 +96,24 @@ class TestPersistedCandidateIndices:
         """A candidate-lookup failure for one mention does not affect others."""
         first, second, third = _entity("Ada"), _entity("Ada L."), _entity("Grace")
 
-        indices = await persisted_candidate_indices(
+        indices, similarity = await persisted_candidate_indices(
             [_mention(first), _mention(second), _mention(third)],
             [first, second, third],
             source=_CandidateSource({"Grace": [second]}, raises_for={"Ada"}),  # type: ignore[arg-type]
         )
 
         assert indices == {2: [1]}
+        assert similarity == {(1, 2): 0.0}
+
+    async def test_reports_real_embedding_similarity_per_pair(self) -> None:
+        """Each compared pair keeps the ANN score of its own candidate hit."""
+        first, second = _entity("Ada"), _entity("Ada L.")
+
+        indices, similarity = await persisted_candidate_indices(
+            [_mention(first), _mention(second)],
+            [first, second],
+            source=_CandidateSource({"Ada": [second]}, scores={"Ada": [0.93]}),  # type: ignore[arg-type]
+        )
+
+        assert indices == {0: [1]}
+        assert similarity == {(0, 1): 0.93}

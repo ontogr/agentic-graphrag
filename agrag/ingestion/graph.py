@@ -95,7 +95,9 @@ from agrag.ingestion.resolve import (
     PersistedCandidateSource,
     ResolutionGroup,
     Resolver,
+    build_relation_neighbors,
     exact_resolution_groups,
+    fetch_persisted_neighbors,
     persisted_candidate_indices,
 )
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
@@ -1593,6 +1595,10 @@ class Graph:
                 chunks_by_id[ch.id] = ch
 
         # Resolver: ExactMatch, FuzzyMatch, LLMVerify
+        # Neighbor context from this batch's own extracted relations. Similarity
+        # for these pairs comes from FuzzyMatch inside Resolver._resolve_pairs;
+        # in-batch mentions have no embeddings today.
+        neighbors_by_index = build_relation_neighbors(entities, relations)
         resolver = Resolver(
             comparators=[
                 ExactMatch(),
@@ -1601,7 +1607,11 @@ class Graph:
             ],
             candidate_source=InBatchCandidateSource(),
         )
-        resolution_result = await resolver.resolve(entities) if entities else None
+        resolution_result = (
+            await resolver.resolve(entities, neighbors_by_index=neighbors_by_index)
+            if entities
+            else None
+        )
         semantic_groups = (
             resolution_result.groups if resolution_result is not None else []
         )
@@ -1738,12 +1748,13 @@ class Graph:
                 vector_collection=self._retrieval_settings.entity_collection,
                 entity_labels=[entity.label for entity in self._schema.entities],
             )
+            similarity_by_pair: dict[tuple[int, int], float] = {}
             for mention_index, mention in enumerate(entities):
                 try:
                     candidates = await candidate_source.global_candidates_for(mention)
                 except Exception:  # noqa: BLE001
                     candidates = []
-                for candidate in candidates:
+                for candidate, candidate_similarity in candidates:
                     if candidate.id == mention_to_entity.get(mention_index):
                         continue
                     candidate_index = len(persisted_mentions)
@@ -1757,6 +1768,25 @@ class Graph:
                     )
                     persisted_ids[candidate_index] = candidate.id
                     candidate_entities[candidate.id] = candidate
+                    pair = (
+                        min(mention_index, candidate_index),
+                        max(mention_index, candidate_index),
+                    )
+                    similarity_by_pair[pair] = candidate_similarity
+            # Real graph relationships for both sides of every persisted pair:
+            # the batch's own mentions from their extracted relations, each
+            # persisted candidate from its stored edges.
+            neighbors_by_index = build_relation_neighbors(entities, relations)
+            if persisted_ids:
+                persisted_neighbors = await fetch_persisted_neighbors(
+                    list(persisted_ids.values()),
+                    graph_store=self._graph_store,
+                    exclude_relation_types=SYSTEM_RELATION_TYPES,
+                )
+                for candidate_index, entity_id in persisted_ids.items():
+                    neighbors_by_index[candidate_index] = persisted_neighbors.get(
+                        entity_id, []
+                    )
             if persisted_candidates:
                 persisted_result = await Resolver(
                     comparators=[
@@ -1765,7 +1795,11 @@ class Graph:
                         LLMVerify(chunks_by_id=chunks_by_id),
                     ],
                     candidate_source=PersistedCandidateSource(persisted_candidates),
-                ).resolve(persisted_mentions)
+                ).resolve(
+                    persisted_mentions,
+                    neighbors_by_index=neighbors_by_index,
+                    similarity_by_pair=similarity_by_pair,
+                )
                 resolution_result.matches.extend(persisted_result.matches)
                 mention_to_entity.update(persisted_ids)
             for decisions in decisions_by_component(
@@ -1884,6 +1918,13 @@ class Graph:
         # MENTIONED_IN edges: one per (chunk, entity) pair
         mentioned_pairs: set[tuple[UUID, UUID]] = set()
         for idx, entity_id in mention_to_entity.items():
+            # Indexed by mention position, but mention_to_entity also carries
+            # the persisted-candidate pass's synthetic indices (see
+            # persisted_ids above), which have no newly extracted mention and
+            # no index in entities. A persisted node already has its own
+            # MENTIONED_IN edges, so only real mentions link here.
+            if idx >= len(entities):
+                continue
             # mention's chunk_id
             chunk_id = entities[idx].chunk_id
             mentioned_pairs.add((chunk_id, entity_id))
@@ -2385,7 +2426,16 @@ class Graph:
                 vector_collection=self._retrieval_settings.entity_collection,
                 entity_labels=[entity.label for entity in self._schema.entities],
             )
-            candidate_indices = await persisted_candidate_indices(
+            persisted_neighbors = await fetch_persisted_neighbors(
+                [entity.id for entity in all_entities],
+                graph_store=self._graph_store,
+                exclude_relation_types=SYSTEM_RELATION_TYPES,
+            )
+            neighbors_by_index = {
+                index: persisted_neighbors.get(entity.id, [])
+                for index, entity in enumerate(all_entities)
+            }
+            candidate_indices, similarity_by_pair = await persisted_candidate_indices(
                 synthetic_mentions,
                 all_entities,
                 source=candidate_source,
@@ -2398,7 +2448,11 @@ class Graph:
                 ],
                 candidate_source=PersistedCandidateSource(candidate_indices),
             )
-            resolution_result = await resolver.resolve(synthetic_mentions)
+            resolution_result = await resolver.resolve(
+                synthetic_mentions,
+                neighbors_by_index=neighbors_by_index,
+                similarity_by_pair=similarity_by_pair,
+            )
             entities_by_id.update({entity.id: entity for entity in all_entities})
             for match in resolution_result.matches:
                 would_match.append(

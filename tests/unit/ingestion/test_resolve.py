@@ -284,6 +284,57 @@ class TestLLMVerify:
         assert sleeps == [0.05, 0.1]
         assert verdict is ComparisonVerdict.MATCH
 
+    async def test_compare_batch_sends_real_neighbors_and_similarity(self) -> None:
+        """The batched request carries real neighbor context and score.
+
+        Regression: ``_compare_batch_chunk`` used to hardcode
+        ``neighbors_a=[]``, ``neighbors_b=[]``, and ``similarity=0.0`` even
+        though the BAML schema promises all three.
+        """
+        chunk = _chunk("context text")
+        seen: list[dict] = []
+
+        class RecordingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                seen.extend(pairs)
+                return []
+
+        a = _entity("Ada", chunk_id=chunk.id)
+        b = _entity("Ada L.", chunk_id=chunk.id)
+        verifier = LLMVerify(chunks_by_id={chunk.id: chunk}, client=RecordingClient())
+
+        await verifier.compare_batch(
+            [(0, 1, a, b)],
+            neighbors_by_index={0: ["WORKS_AT Acme"], 1: ["WORKS_AT Acme"]},
+            similarity_by_pair={(0, 1): 0.83},
+        )
+
+        assert seen[0]["neighbors_a"] == ["WORKS_AT Acme"]
+        assert seen[0]["neighbors_b"] == ["WORKS_AT Acme"]
+        assert seen[0]["similarity"] == 0.83
+
+    async def test_compare_batch_without_context_stays_backward_compatible(
+        self,
+    ) -> None:
+        """Omitting the new context keeps the old empty placeholders."""
+        chunk = _chunk("context text")
+        seen: list[dict] = []
+
+        class RecordingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                seen.extend(pairs)
+                return []
+
+        a = _entity("Ada", chunk_id=chunk.id)
+        b = _entity("Charles", chunk_id=chunk.id)
+        verifier = LLMVerify(chunks_by_id={chunk.id: chunk}, client=RecordingClient())
+
+        await verifier.compare_batch([(0, 1, a, b)])
+
+        assert seen[0]["neighbors_a"] == []
+        assert seen[0]["neighbors_b"] == []
+        assert seen[0]["similarity"] == 0.0
+
     async def test_compare_with_non_default_env_retry_does_not_abort(
         self, monkeypatch
     ) -> None:
@@ -500,3 +551,156 @@ class TestResolver:
         assert result.matches[0].left_index == 1
         assert result.matches[0].right_index == 2
         assert result.matches[0].reasoning == "same"
+
+    async def test_neighbors_reach_the_llm_verify_tier(self) -> None:
+        """Neighbor context passed to resolve() arrives in the LLM request."""
+        chunk = _chunk()
+        seen: list[dict] = []
+
+        class RecordingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                seen.extend(pairs)
+                return []
+
+        entities = [
+            _entity("Ada Lovelace", chunk_id=chunk.id),
+            _entity("Lady Lovelace", chunk_id=chunk.id),
+        ]
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(match_above=1.0, no_match_below=0.0),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=RecordingClient()),
+            ],
+            candidate_source=InBatchCandidateSource(),
+        )
+
+        await resolver.resolve(entities, neighbors_by_index={0: ["KNOWS Ada"]})
+
+        assert seen[0]["neighbors_a"] == ["KNOWS Ada"]
+        assert seen[0]["neighbors_b"] == []
+
+    async def test_compare_batch_forwards_context_to_every_chunk(self) -> None:
+        """Chunked requests each carry the global context maps, unsliced."""
+        chunk = _chunk("context text")
+        seen: list[dict] = []
+
+        class RecordingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                seen.extend(pairs)
+                return []
+
+        a = _entity("Ada", chunk_id=chunk.id)
+        b = _entity("Ada L.", chunk_id=chunk.id)
+        c = _entity("Ada Lovelace", chunk_id=chunk.id)
+        verifier = LLMVerify(
+            chunks_by_id={chunk.id: chunk},
+            client=RecordingClient(),
+            max_pairs_per_batch=1,
+        )
+
+        await verifier.compare_batch(
+            [(0, 1, a, b), (1, 2, b, c)],
+            neighbors_by_index={
+                0: ["KNOWS Acme"],
+                1: ["KNOWS Acme"],
+                2: ["KNOWS Acme"],
+            },
+            similarity_by_pair={(0, 1): 0.83, (1, 2): 0.61},
+        )
+
+        assert len(seen) == 2
+        assert [payload["pair_id"] for payload in seen] == ["0:1", "1:2"]
+        assert seen[0]["similarity"] == 0.83
+        assert seen[1]["similarity"] == 0.61
+        assert all(payload["neighbors_a"] == ["KNOWS Acme"] for payload in seen)
+        assert all(payload["neighbors_b"] == ["KNOWS Acme"] for payload in seen)
+
+    async def test_fuzzy_score_reaches_the_llm_verify_tier(self) -> None:
+        """A pair that stays UNCERTAIN carries its FuzzyMatch score to the LLM.
+
+        Driven the existing way — ``resolve()`` with no context arguments —
+        which also proves the new parameters are additive: neighbor context
+        stays empty while the pair still gains FuzzyMatch's score.
+        """
+        chunk = _chunk()
+        seen: list[dict] = []
+
+        class RecordingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                seen.extend(pairs)
+                return []
+
+        a = _entity("Ada Lovelace", chunk_id=chunk.id)
+        b = _entity("Lady Lovelace", chunk_id=chunk.id)
+        fuzzy = FuzzyMatch(match_above=1.0, no_match_below=0.0)
+        expected_score = (await fuzzy.compare_with_evidence(a, b)).score
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                fuzzy,
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=RecordingClient()),
+            ],
+            candidate_source=InBatchCandidateSource(),
+        )
+
+        await resolver.resolve([a, b])
+
+        assert expected_score is not None and expected_score > 0.0
+        assert seen[0]["similarity"] == expected_score
+        assert seen[0]["neighbors_a"] == []
+        assert seen[0]["neighbors_b"] == []
+
+    async def test_seeded_similarity_wins_over_a_later_fuzzy_score(self) -> None:
+        """A caller-seeded real score is never overwritten by FuzzyMatch."""
+        chunk = _chunk()
+        seen: list[dict] = []
+
+        class RecordingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                seen.extend(pairs)
+                return []
+
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(match_above=1.0, no_match_below=0.0),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=RecordingClient()),
+            ],
+            candidate_source=InBatchCandidateSource(),
+        )
+        entities = [
+            _entity("Ada Lovelace", chunk_id=chunk.id),
+            _entity("Lady Lovelace", chunk_id=chunk.id),
+        ]
+
+        await resolver.resolve(entities, similarity_by_pair={(0, 1): 0.42})
+
+        assert seen[0]["similarity"] == 0.42
+
+    async def test_resolve_does_not_mutate_the_callers_similarity_map(self) -> None:
+        """The seed map is copied, so resolving never changes the caller's dict."""
+        chunk = _chunk()
+        seed: dict[tuple[int, int], float] = {}
+
+        class RecordingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                return []
+
+        entities = [
+            _entity("Ada Lovelace", chunk_id=chunk.id),
+            _entity("Lady Lovelace", chunk_id=chunk.id),
+        ]
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(match_above=1.0, no_match_below=0.0),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=RecordingClient()),
+            ],
+            candidate_source=InBatchCandidateSource(),
+        )
+
+        await resolver.resolve(entities, similarity_by_pair=seed)
+        await resolver.resolve(entities, similarity_by_pair=seed)
+
+        assert seed == {}

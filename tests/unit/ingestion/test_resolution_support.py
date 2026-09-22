@@ -62,7 +62,7 @@ class TestResolutionSupport:
             char_end=3,
         )
         assert [
-            entity.id for entity in await source.global_candidates_for(mention)
+            entity.id for entity, _ in await source.global_candidates_for(mention)
         ] == [entity_id]
 
     async def test_restores_label_for_native_graph_candidates(
@@ -86,7 +86,7 @@ class TestResolutionSupport:
             char_end=3,
         )
         assert [
-            entity.id for entity in await source.global_candidates_for(mention)
+            entity.id for entity, _ in await source.global_candidates_for(mention)
         ] == [entity_id]
 
     def test_builds_resolution_queries(self) -> None:

@@ -226,24 +226,46 @@ class LLMVerify(Comparator):
         return ComparisonVerdict.MATCH if is_match else ComparisonVerdict.NO_MATCH
 
     async def compare_batch(
-        self, pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]]
+        self,
+        pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]],
+        *,
+        neighbors_by_index: dict[int, list[str]] | None = None,
+        similarity_by_pair: dict[tuple[int, int], float] | None = None,
     ) -> dict[tuple[int, int], ComparisonResult]:
         """Verify ambiguous candidate pairs across bounded LLM requests.
 
         Splits into requests of at most ``max_pairs_per_batch`` pairs so one
         oversized population cannot exceed the model's context limit.
         Invalid, missing, and uncertain model responses do not merge entities.
+
+        Args:
+            pairs: ``(left_index, right_index, left, right)`` tuples to verify.
+            neighbors_by_index: Entity index to its neighboring-relationship
+                context strings. Looked up globally, so every chunk sees the
+                same map.
+            similarity_by_pair: ``(left, right)``-keyed similarity score to
+                send alongside each pair, defaulting to ``0.0``.
         """
         if not pairs:
             return {}
         results: dict[tuple[int, int], ComparisonResult] = {}
         for start in range(0, len(pairs), self.max_pairs_per_batch):
             chunk = pairs[start : start + self.max_pairs_per_batch]
-            results.update(await self._compare_batch_chunk(chunk))
+            results.update(
+                await self._compare_batch_chunk(
+                    chunk,
+                    neighbors_by_index=neighbors_by_index,
+                    similarity_by_pair=similarity_by_pair,
+                )
+            )
         return results
 
     async def _compare_batch_chunk(
-        self, pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]]
+        self,
+        pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]],
+        *,
+        neighbors_by_index: dict[int, list[str]] | None = None,
+        similarity_by_pair: dict[tuple[int, int], float] | None = None,
     ) -> dict[tuple[int, int], ComparisonResult]:
         """Verify one bounded chunk of ambiguous candidate pairs in one LLM request."""
         if self._client is not None:
@@ -267,13 +289,15 @@ class LLMVerify(Comparator):
                     "pair_id": pair_id,
                     "entity_a": first.text,
                     "context_a": self._context_for(first),
-                    "neighbors_a": [],
+                    "neighbors_a": (neighbors_by_index or {}).get(left, []),
                     "entity_b": second.text,
                     "context_b": self._context_for(second),
-                    "neighbors_b": [],
-                    "similarity": 0.0,
+                    "neighbors_b": (neighbors_by_index or {}).get(right, []),
+                    "similarity": (similarity_by_pair or {}).get((left, right), 0.0),
                 }
-                for pair_id, (_, _, first, second) in zip(pair_ids, pairs, strict=True)
+                for pair_id, (left, right, first, second) in zip(
+                    pair_ids, pairs, strict=True
+                )
             ]
             results = await call_with_retry(
                 lambda: client.VerifyEntityMatches(  # ty: ignore[unresolved-attribute]
@@ -371,7 +395,13 @@ class Resolver:
         self.comparators = comparators
         self.candidate_source = candidate_source
 
-    async def resolve(self, entities: list[ExtractedEntity]) -> ResolutionResult:
+    async def resolve(
+        self,
+        entities: list[ExtractedEntity],
+        *,
+        neighbors_by_index: dict[int, list[str]] | None = None,
+        similarity_by_pair: dict[tuple[int, int], float] | None = None,
+    ) -> ResolutionResult:
         """Resolve entity groups and retain each confirmed non-exact match.
 
         Args:
@@ -379,6 +409,13 @@ class Resolver:
                 same call are ever compared against each other — resolving
                 against previously-resolved entities from an earlier call is
                 not supported by this Resolver.
+            neighbors_by_index: Entity index to that entity's neighboring-
+                relationship context for LLM verification, when the caller has
+                such a source. Omitted by callers that do not.
+            similarity_by_pair: Already-known real similarity scores keyed by
+                ``(min(left, right), max(left, right))``. Seeded into the
+                comparison tiers; a caller-seeded score always wins over one a
+                later comparator computes for the same pair. Not mutated.
 
         Returns:
             Groups for every input index and evidence for every confirmed
@@ -394,7 +431,12 @@ class Resolver:
                     continue
                 compared.add(pair)
                 pairs.append(pair)
-        edges, matches = await self._resolve_pairs(pairs, entities)
+        edges, matches = await self._resolve_pairs(
+            pairs,
+            entities,
+            neighbors_by_index or {},
+            dict(similarity_by_pair or {}),
+        )
         groups = _group_matches(len(entities), edges)
         return ResolutionResult(
             groups=[ResolutionGroup(entity_indices=group) for group in groups],
@@ -402,9 +444,19 @@ class Resolver:
         )
 
     async def _resolve_pairs(
-        self, pairs: list[tuple[int, int]], entities: list[ExtractedEntity]
+        self,
+        pairs: list[tuple[int, int]],
+        entities: list[ExtractedEntity],
+        neighbors_by_index: dict[int, list[str]],
+        similarity_by_pair: dict[tuple[int, int], float],
     ) -> tuple[list[tuple[int, int]], list[ResolvedMatch]]:
-        """Resolve candidate pairs comparator tier by comparator tier."""
+        """Resolve candidate pairs comparator tier by comparator tier.
+
+        ``similarity_by_pair`` starts as whatever real scores the caller
+        already knows and is filled in by any comparator that reports a score
+        for a pair not already present, so a seeded (more accurate) score is
+        never overwritten by a later, coarser tier.
+        """
         unresolved = pairs
         edges: list[tuple[int, int]] = []
         matches: list[ResolvedMatch] = []
@@ -414,7 +466,9 @@ class Resolver:
                     [
                         (left, right, entities[left], entities[right])
                         for left, right in unresolved
-                    ]
+                    ],
+                    neighbors_by_index=neighbors_by_index,
+                    similarity_by_pair=similarity_by_pair,
                 )
             else:
                 results = {
@@ -426,6 +480,8 @@ class Resolver:
             next_unresolved: list[tuple[int, int]] = []
             for pair in unresolved:
                 comparison = results[pair]
+                if comparison.score is not None and pair not in similarity_by_pair:
+                    similarity_by_pair[pair] = comparison.score
                 if comparison.verdict is ComparisonVerdict.MATCH:
                     edges.append(pair)
                     if not isinstance(comparator, ExactMatch):
