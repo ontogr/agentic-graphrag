@@ -31,7 +31,7 @@ Agentic layer: planner/researcher/verifier over SearchEngine.
 - [**ledger**](#agrag.agents.ledger) – Citation ledger: assigns and tracks stable keys for one agent run.
 - [**middleware**](#agrag.agents.middleware) – Agent middleware for composing models and bounding the research loop.
 - [**model**](#agrag.agents.model) – Translate LLMClientConfig into the matching LangChain chat model.
-- [**prompts**](#agrag.agents.prompts) – Agent prompt templates for planner, researcher, verifier.
+- [**prompts**](#agrag.agents.prompts) – Agent prompt templates for planner, researcher, verifier, and fallback.
 - [**settings**](#agrag.agents.settings) – Env-backed LLM and loop config for the agent layer.
 - [**subagents**](#agrag.agents.subagents) – Subagent specs for the researcher and verifier roles.
 - [**tools**](#agrag.agents.tools) – Agent tools: thin wrappers calling SearchEngine with fixed Recipes.
@@ -89,8 +89,8 @@ so one question's retry budget does not spend another's.
 **Returns:**
 
 - <code>[Any](#typing.Any)</code> – A compiled agent graph ready for invoke/ainvoke, or a
-- <code>[Any](#typing.Any)</code> – simple single-search fallback when deepagents is not
-- <code>[Any](#typing.Any)</code> – installed.
+- <code>[Any](#typing.Any)</code> – single-search-plus-synthesis fallback when deepagents is
+- <code>[Any](#typing.Any)</code> – not installed.
 
 #### `agrag.agents.harness`
 
@@ -404,7 +404,7 @@ every client per model call.
 
 #### `agrag.agents.prompts`
 
-Agent prompt templates for planner, researcher, verifier.
+Agent prompt templates for planner, researcher, verifier, and fallback.
 
 Each constant carries at most one `{placeholder}` token, substituted
 with `str.replace()` at agent-build time — never `str.format()`,
@@ -414,6 +414,7 @@ which would raise on any other brace the text picks up over time.
 
 - [**PLANNER_SYSTEM**](#agrag.agents.prompts.PLANNER_SYSTEM) –
 - [**RESEARCHER_SYSTEM**](#agrag.agents.prompts.RESEARCHER_SYSTEM) –
+- [**SIMPLE_ANSWER_SYSTEM**](#agrag.agents.prompts.SIMPLE_ANSWER_SYSTEM) –
 - [**VERIFIER_SYSTEM**](#agrag.agents.prompts.VERIFIER_SYSTEM) –
 
 ##### `agrag.agents.prompts.PLANNER_SYSTEM`
@@ -426,6 +427,12 @@ PLANNER_SYSTEM = "You are a research planner for a knowledge-graph question-answ
 
 ```python
 RESEARCHER_SYSTEM = 'You are a researcher with access to a knowledge graph, described below. Use the available tools to find evidence for the sub-question you have been given. Cite every claim with the citation keys (E1, C3, etc.) returned by tools. Base your findings only on evidence found through tools, not on general knowledge.\n\n{schema_summary}\n\nIf you were given feedback about missing evidence from a previous attempt, address that feedback specifically before broadening your search.\n\nOnce you judge the evidence sufficient to answer the sub-question -- not before -- stop calling tools and report your findings with citations. Prefer fewer, more targeted tool calls over exhaustively calling every available tool.'
+```
+
+##### `agrag.agents.prompts.SIMPLE_ANSWER_SYSTEM`
+
+```python
+SIMPLE_ANSWER_SYSTEM = 'You are a knowledge-graph question-answering assistant. You will be given a question and evidence retrieved from the graph, each item carrying a citation key in brackets (e.g. [E1], [C3]). Answer the question using only this evidence. Cite every claim with its bracketed key. If the evidence does not support an answer, say so plainly instead of guessing.'
 ```
 
 ##### `agrag.agents.prompts.VERIFIER_SYSTEM`

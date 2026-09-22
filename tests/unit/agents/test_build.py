@@ -5,8 +5,10 @@ and stubs the ``deepagents`` module in ``sys.modules`` to capture the
 subagents, middleware, and recursion limit passed to ``create_deep_agent``
 without installing the real dependency. The retrieval engine and LLM are
 mocked with ``MagicMock``/``AsyncMock``. Covers per-run citation ledger and
-research-attempt-limiter isolation, the harness profile registration, and
-that search filters reach the engine through both agent implementations.
+research-attempt-limiter isolation, the harness profile registration, that
+search filters reach the engine through both agent implementations, and
+that ``_SimpleAgent`` synthesizes its answer through a model call rather
+than returning raw concatenated evidence.
 """
 
 import importlib.util
@@ -182,22 +184,33 @@ class TestBuildAgent:
 
     async def test_simple_agent_creates_fresh_ledger_per_run(self) -> None:
         """Each ainvoke call gets a fresh Ledger."""
-        ent = Entity(id=uuid4(), label="Person", name="Alice")
-        result = SearchResult(item=ent, score=0.9, method="entity")
+        first_result = SearchResult(
+            item=Entity(id=uuid4(), label="Person", name="Alice"),
+            score=0.9,
+            method="entity",
+        )
+        second_result = SearchResult(
+            item=Entity(id=uuid4(), label="Person", name="Bob"),
+            score=0.9,
+            method="entity",
+        )
         engine = MagicMock()
-        engine.search = AsyncMock(return_value=[result])
+        engine.search = AsyncMock(side_effect=[[first_result], [second_result]])
+        model = AsyncMock(ainvoke=AsyncMock(return_value=MagicMock(text="answer")))
 
         agent = _SimpleAgent(
-            model=MagicMock(),
+            model=model,
             engine=engine,
         )
 
-        r1 = await agent.ainvoke({"messages": [{"role": "user", "content": "first"}]})
-        r2 = await agent.ainvoke({"messages": [{"role": "user", "content": "second"}]})
+        await agent.ainvoke({"messages": [{"role": "user", "content": "first"}]})
+        await agent.ainvoke({"messages": [{"role": "user", "content": "second"}]})
 
         # Both runs should start citation numbering from E1.
-        assert "[E1]" in r1["messages"][0]["content"]
-        assert "[E1]" in r2["messages"][0]["content"]
+        first_prompt = model.ainvoke.call_args_list[0].args[0][1]["content"]
+        second_prompt = model.ainvoke.call_args_list[1].args[0][1]["content"]
+        assert "[E1]" in first_prompt
+        assert "[E1]" in second_prompt
 
     async def test_simple_agent_passes_filters_to_search(self) -> None:
         """_SimpleAgent scopes its search with the given filters."""
@@ -206,8 +219,9 @@ class TestBuildAgent:
         engine = MagicMock()
         engine.search = AsyncMock(return_value=[result])
         filters = SearchFilters(document_ids=["doc-1"])
+        model = AsyncMock(ainvoke=AsyncMock(return_value=MagicMock(text="answer")))
 
-        agent = _SimpleAgent(model=MagicMock(), engine=engine, filters=filters)
+        agent = _SimpleAgent(model=model, engine=engine, filters=filters)
         await agent.ainvoke({"messages": [{"role": "user", "content": "question"}]})
 
         call = engine.search.await_args
@@ -231,6 +245,41 @@ class TestBuildAgent:
             pytest.fail("engine.search was not awaited")
         args, _ = call
         assert args[1] is HYBRID
+
+    async def test_simple_agent_synthesizes_answer_via_model_call(self) -> None:
+        """_SimpleAgent calls the model to synthesize the returned answer."""
+        ent = Entity(id=uuid4(), label="Person", name="Alice")
+        result = SearchResult(item=ent, score=0.9, method="entity")
+        engine = MagicMock()
+        engine.search = AsyncMock(return_value=[result])
+        model = AsyncMock(
+            ainvoke=AsyncMock(return_value=MagicMock(text="cited answer"))
+        )
+
+        agent = _SimpleAgent(model=model, engine=engine)
+        result_data = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": "who is Alice?"}]}
+        )
+
+        model.ainvoke.assert_awaited_once()
+        prompt = model.ainvoke.call_args.args[0][1]["content"]
+        assert "who is Alice?" in prompt
+        assert "[E1]" in prompt
+        assert result_data["messages"][0]["content"] == "cited answer"
+
+    async def test_simple_agent_skips_model_call_when_no_evidence(self) -> None:
+        """_SimpleAgent never calls the model when search returns nothing."""
+        engine = MagicMock()
+        engine.search = AsyncMock(return_value=[])
+        model = AsyncMock()
+
+        agent = _SimpleAgent(model=model, engine=engine)
+        result_data = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": "q"}]}
+        )
+
+        model.ainvoke.assert_not_awaited()
+        assert result_data["messages"][0]["content"] == "No relevant evidence found."
 
     async def test_ainvoke_passes_subagents_not_flat_tools(
         self, monkeypatch: pytest.MonkeyPatch
