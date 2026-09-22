@@ -19,6 +19,7 @@ from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
     clear_property_query,
     filter_clause,
+    hydrate_chunks_by_id_query,
     is_safe_identifier,
     set_embedding_query,
     upsert_merge_alias_query,
@@ -227,3 +228,18 @@ class TestGuardedPropertyWrites:
         query = clear_property_query("embedding")
         assert "RETURN n.id AS id" in query
         assert "REMOVE n.embedding" in query
+
+
+class TestHydrateChunksByIdQuery:
+    """hydrate_chunks_by_id_query hides superseded chunks at read time."""
+
+    def test_filters_to_open_part_of_edges(self) -> None:
+        """A chunk behind only closed PART_OF edges is never returned."""
+        query = hydrate_chunks_by_id_query()
+        assert "p.invalid_at IS NULL" in query
+
+    def test_returns_chunks_without_any_part_of_edge(self) -> None:
+        """Direct or legacy chunks with no PART_OF edge still hydrate."""
+        query = hydrate_chunks_by_id_query()
+        assert "NOT EXISTS" in query
+        assert "-[:PART_OF]->(n)" in query

@@ -46,9 +46,7 @@ from agrag.graphdb.errors import (
     GraphStoreConstraintViolationError,
     GraphStoreDataIntegrityError,
 )
-from agrag.ingestion.extract import Extractor
-from agrag.ingestion.graph import (
-    Graph,
+from agrag.ingestion._ingest_pipeline import (
     _apply_merge_with_conflict_retry,
     _delete_vectors,
     _embed_and_upsert_chunks,
@@ -57,12 +55,16 @@ from agrag.ingestion.graph import (
     _global_exact_match,
     _global_relation_lookup,
     _parse_entity_node,
-    _resolve_paths,
     _resolve_tombstone_chain,
-    _synthesize_consolidation_mentions,
     _synthetic_entity_mention,
-    _union_groups_by_existing_entity,
     _upsert_vectors,
+)
+from agrag.ingestion.extract import Extractor
+from agrag.ingestion.graph import (
+    Graph,
+    _resolve_paths,
+    _synthesize_consolidation_mentions,
+    _union_groups_by_existing_entity,
 )
 from agrag.ingestion.materialize import MaterializationResult
 from agrag.ingestion.merge import MergePlan
@@ -1167,7 +1169,7 @@ class TestApplyMergeWithConflictRetry:
             ]
         ]
 
-        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
 
         call_count = 0
 
@@ -1201,7 +1203,7 @@ class TestApplyMergeWithConflictRetry:
             conflicts=[],
         )
         store = MockStore()
-        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
 
         async def fake_apply_merge(*args: object, **kwargs: object) -> None:
             raise GraphStoreConstraintViolationError("boom")
@@ -1228,7 +1230,7 @@ class TestApplyMergeWithConflictRetry:
         )
         store = MockStore()
         store.execute_read_responses = [[]]
-        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
 
         async def fake_apply_merge(*args: object, **kwargs: object) -> None:
             raise GraphStoreConstraintViolationError("boom")
@@ -1292,7 +1294,7 @@ class TestApplyMergeWithConflictRetry:
             ]
         ]
 
-        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
 
         call_count = 0
 
@@ -1329,7 +1331,7 @@ class TestApplyMergeWithConflictRetry:
         )
         store = MockStore()
         store.execute_read_responses = [[]]
-        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
 
         async def fake_apply_merge(*args: object, **kwargs: object) -> None:
             raise GraphStoreAliasConflictError({"Person:bob": str(uuid4())})
@@ -2456,6 +2458,49 @@ class TestGraphAddPipeline:
             expected_endpoints
         )
 
+    async def test_add_includes_next_chunk_records(self) -> None:
+        """add() includes NEXT_CHUNK edges alongside PART_OF records."""
+        store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
+        graph = await Graph.open(
+            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
+        )
+        result = await graph.add(text="one two three four five six", return_chunks=True)
+        next_records = [
+            rec
+            for batch in store.upsert_relations_calls
+            for rec in batch
+            if rec.type == "NEXT_CHUNK"
+        ]
+        chunk_ids = [chunk.id for chunk in result.chunks]
+        assert len(next_records) == max(len(chunk_ids) - 1, 0)
+        assert all(rec.properties == {} for rec in next_records)
+
+    async def test_add_same_content_twice_converges_part_of_edges(self) -> None:
+        """Re-adding identical content rebuilds the same PART_OF edge ids."""
+        store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
+        graph = await Graph.open(
+            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
+        )
+        docs = [_distinct_doc("uri-a", content_hash="same-content")]
+
+        await graph.add(documents=docs, return_chunks=True)
+        first_ids = {
+            rec.id
+            for batch in store.upsert_relations_calls
+            for rec in batch
+            if rec.type == "PART_OF"
+        }
+        calls_before = len(store.upsert_relations_calls)
+        await graph.add(documents=docs, return_chunks=True)
+        second_ids = {
+            rec.id
+            for batch in store.upsert_relations_calls[calls_before:]
+            for rec in batch
+            if rec.type == "PART_OF"
+        }
+        assert first_ids
+        assert first_ids == second_ids
+
     async def test_add_source_path(self, tmp_path: Path) -> None:
         """Source file path is loaded via walk."""
         f = tmp_path / "a.txt"
@@ -2791,7 +2836,7 @@ class TestGraphAddPipeline:
             extractor=RelExtractor(),
         )
 
-        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
 
         async def fake_compute(  # type: ignore[no-untyped-def]
             *, existing_entities, mentions, schema, **kw
@@ -2889,7 +2934,7 @@ class TestGraphAddPipeline:
             extractor=AliceExtractor(),
         )
 
-        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+        import agrag.ingestion._ingest_pipeline as gmod  # noqa: PLC0415
 
         async def fake_compute(  # type: ignore[no-untyped-def]
             *, existing_entities, mentions, schema, **kw

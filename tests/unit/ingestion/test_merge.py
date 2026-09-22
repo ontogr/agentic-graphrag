@@ -35,6 +35,8 @@ from agrag.ingestion.merge import (
     apply_merge,
     compute_merge,
     mentioned_in_id,
+    next_chunk_id,
+    part_of_id,
     relation_id,
 )
 from agrag.ingestion.stats import StageFailure
@@ -1402,3 +1404,40 @@ class TestMentionedInId:
         """Swapped order yields different id."""
         c, e = uuid4(), uuid4()
         assert mentioned_in_id(c, e) != mentioned_in_id(e, c)
+
+
+class TestNextChunkId:
+    """next_chunk_id deterministic ids."""
+
+    def test_deterministic(self) -> None:
+        """Same ordered pair always returns the same id."""
+        a, b = uuid4(), uuid4()
+        assert next_chunk_id(a, b) == next_chunk_id(a, b)
+
+    def test_known_value(self) -> None:
+        """Known pair matches uuid5 with OID namespace."""
+        a = UUID("11111111-1111-1111-1111-111111111111")
+        b = UUID("22222222-2222-2222-2222-222222222222")
+        expected = uuid5(NAMESPACE_OID, f"NEXT_CHUNK:{a}:{b}")
+        assert next_chunk_id(a, b) == expected
+
+
+class TestPartOfId:
+    """part_of_id versioned deterministic ids."""
+
+    def test_deterministic_for_same_version(self) -> None:
+        """Same triple always returns the same id."""
+        d, c = uuid4(), uuid4()
+        assert part_of_id(d, c, "v1") == part_of_id(d, c, "v1")
+
+    def test_distinct_versions_differ(self) -> None:
+        """Each document version gets a separate relationship id."""
+        d, c = uuid4(), uuid4()
+        assert part_of_id(d, c, "v1") != part_of_id(d, c, "v2")
+
+    def test_known_value(self) -> None:
+        """Known triple matches uuid5 with OID namespace."""
+        d = UUID("11111111-1111-1111-1111-111111111111")
+        c = UUID("22222222-2222-2222-2222-222222222222")
+        expected = uuid5(NAMESPACE_OID, f"PART_OF:{d}:{c}:v1")
+        assert part_of_id(d, c, "v1") == expected

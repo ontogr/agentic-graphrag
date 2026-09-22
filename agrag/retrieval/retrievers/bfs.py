@@ -5,7 +5,7 @@ from uuid import UUID
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.relations import TraversalDirection, bfs_expand_query
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion.graph import _parse_entity_node
+from agrag.ingestion._ingest_pipeline import _parse_entity_node
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.identity import resolve_entity
 from agrag.retrieval.retrievers.base import Retriever

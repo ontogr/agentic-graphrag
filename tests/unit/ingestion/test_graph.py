@@ -19,6 +19,7 @@ from uuid import uuid4
 
 import pytest
 
+import agrag.ingestion.graph as graph_module
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
@@ -34,12 +35,12 @@ from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion import Graph
-from agrag.ingestion.extract import Extractor
-from agrag.ingestion.graph import (
+from agrag.ingestion._ingest_pipeline import (
     _embed_and_upsert_chunks,
     _embed_and_upsert_survivors,
     _vector_record,
 )
+from agrag.ingestion.extract import Extractor
 from agrag.loaders.corpus.errors import UnsupportedFormatError
 from agrag.loaders.corpus.readers.prose import TextLoader
 from agrag.loaders.corpus.types import ErrorPolicy
@@ -272,8 +273,82 @@ class TestGraphAdd:
         assert result.chunks_closed == 2
         assert result.add_result is None
 
-    async def test_update_closes_edges_before_ingesting_changed_content(self) -> None:
-        """Update closes the old version before calling the add pipeline."""
+    async def test_delete_document_writes_nothing_but_closing_edges(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Delete closes edges exactly once without ingesting or upserting."""
+        store = _MockGraphStore()
+        graph = await Graph.open(
+            schema=GENERIC,
+            graph_store=store,
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+        )
+        node_id = uuid4()
+        store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[{"id": str(node_id), "current_content_hash": "hash"}]
+        )
+        store.execute_write = AsyncMock(  # type: ignore[method-assign]
+            return_value=[{"closed": 2}]
+        )
+        ingest_mock = AsyncMock()
+        monkeypatch.setattr(graph_module, "ingest_chunks", ingest_mock)
+        close_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+        real_close = graph_module.close_open_part_of_edges
+
+        async def _count_close(*args: object, **kwargs: object) -> int:
+            close_calls.append((args, kwargs))
+            return await real_close(*args, **kwargs)
+
+        monkeypatch.setattr(graph_module, "close_open_part_of_edges", _count_close)
+        node_calls: list[object] = []
+        relation_calls: list[object] = []
+        real_upsert_nodes = store.upsert_nodes
+        real_upsert_relations = store.upsert_relations
+
+        async def _spy_nodes(*args: object, **kwargs: object) -> object:
+            node_calls.append((args, kwargs))
+            return await real_upsert_nodes(*args, **kwargs)
+
+        async def _spy_relations(*args: object, **kwargs: object) -> object:
+            relation_calls.append((args, kwargs))
+            return await real_upsert_relations(*args, **kwargs)
+
+        store.upsert_nodes = _spy_nodes  # type: ignore[method-assign]
+        store.upsert_relations = _spy_relations  # type: ignore[method-assign]
+
+        result = await graph.delete_document("memory://doc")
+
+        assert result.no_op is False
+        assert result.new_content_hash is None
+        assert result.chunks_closed == 2
+        assert result.add_result is None
+        assert len(close_calls) == 1
+        ingest_mock.assert_not_awaited()
+        assert node_calls == []
+        assert relation_calls == []
+
+    async def test_delete_document_twice_closes_zero_new_edges(self) -> None:
+        """A second delete closes nothing further: closing is idempotent."""
+        graph = await _open_graph()
+        node_id = uuid4()
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[{"id": str(node_id), "current_content_hash": "hash"}]
+        )
+        graph._graph_store.execute_write = AsyncMock(  # type: ignore[method-assign]
+            side_effect=[[{"closed": 2}], [{"closed": 0}]]
+        )
+
+        first = await graph.delete_document("memory://doc")
+        second = await graph.delete_document("memory://doc")
+
+        assert first.chunks_closed == 2
+        assert second.chunks_closed == 0
+
+    async def test_update_closes_edges_before_ingesting_changed_content(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Update closes the old version before calling the ingest pipeline."""
         graph = await _open_graph()
         node_id = uuid4()
         graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
@@ -283,7 +358,8 @@ class TestGraphAdd:
             return_value=[{"closed": 3}]
         )
         add_result = await graph.add(text="seed")
-        graph.add = AsyncMock(return_value=add_result)  # type: ignore[method-assign]
+        ingest_mock = AsyncMock(return_value=add_result)
+        monkeypatch.setattr(graph_module, "ingest_chunks", ingest_mock)
 
         result = await graph.update("memory://doc", text="new")
 
@@ -291,7 +367,104 @@ class TestGraphAdd:
         assert result.previous_content_hash == "old"
         assert result.chunks_closed == 3
         assert result.add_result is add_result
-        graph.add.assert_awaited_once()
+        ingest_mock.assert_awaited_once()
+
+    async def test_update_no_op_never_ingests(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unchanged update never reaches the ingest pipeline or the extractor."""
+        graph = await _open_graph()
+        node_id = uuid4()
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                {
+                    "id": str(node_id),
+                    "current_content_hash": (
+                        "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+                    ),
+                }
+            ]
+        )
+        ingest_mock = AsyncMock()
+        monkeypatch.setattr(graph_module, "ingest_chunks", ingest_mock)
+
+        result = await graph.update("memory://doc", text="test")
+
+        assert result.no_op is True
+        assert result.add_result is None
+        ingest_mock.assert_not_awaited()
+
+    async def test_update_not_found_behaves_like_fresh_add(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unknown document_key ingests with nothing to close first."""
+        graph = await _open_graph()
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[]
+        )
+        closes: list[object] = []
+        real_close = graph_module.close_open_part_of_edges
+
+        async def _spy_close(*args: object, **kwargs: object) -> int:
+            closes.append((args, kwargs))
+            return await real_close(*args, **kwargs)
+
+        monkeypatch.setattr(graph_module, "close_open_part_of_edges", _spy_close)
+        real_ingest = graph_module.ingest_chunks
+        ingest_calls = 0
+
+        async def _count_ingest(*args: object, **kwargs: object) -> object:
+            nonlocal ingest_calls
+            ingest_calls += 1
+            return await real_ingest(*args, **kwargs)
+
+        monkeypatch.setattr(graph_module, "ingest_chunks", _count_ingest)
+
+        result = await graph.update("memory://doc", text="brand new")
+
+        assert result.no_op is False
+        assert result.previous_content_hash is None
+        assert result.chunks_closed == 0
+        assert result.add_result is not None
+        assert closes == []
+        assert ingest_calls == 1
+
+    async def test_update_change_closes_before_adding(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Changed content closes old edges before the fresh ingest runs."""
+        graph = await _open_graph()
+        node_id = uuid4()
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[{"id": str(node_id), "current_content_hash": "old"}]
+        )
+        events: list[str] = []
+        real_close = graph_module.close_open_part_of_edges
+
+        async def _spy_close(*args: object, **kwargs: object) -> int:
+            events.append("close")
+            return await real_close(*args, **kwargs)
+
+        monkeypatch.setattr(graph_module, "close_open_part_of_edges", _spy_close)
+        real_ingest = graph_module.ingest_chunks
+
+        async def _spy_ingest(*args: object, **kwargs: object) -> object:
+            events.append("ingest")
+            return await real_ingest(*args, **kwargs)
+
+        monkeypatch.setattr(graph_module, "ingest_chunks", _spy_ingest)
+
+        result = await graph.update("memory://doc", text="new")
+
+        assert result.no_op is False
+        assert events == ["close", "ingest"]
+
+    async def test_update_rejects_missing_input(self) -> None:
+        """Update with neither text nor source raises like add does."""
+        graph = await _open_graph()
+
+        with pytest.raises(ValueError, match="exactly one"):
+            await graph.update("memory://doc")
 
     async def test_update_rejects_multiple_inputs(self) -> None:
         """Update requires exactly one replacement source."""

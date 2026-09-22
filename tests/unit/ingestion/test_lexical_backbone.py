@@ -103,7 +103,7 @@ class TestBuildPartOfRecords:
             _chunk(document_id, text="one!", index=1, start=4),
             _chunk(document_id, text="two!!", index=2, start=8),
         ]
-        records = build_part_of_records(document_node_id, chunks)
+        records = build_part_of_records(document_node_id, chunks, version_id="v1")
         assert len(records) == 3
         assert len({record.id for record in records}) == 3
 
@@ -111,7 +111,9 @@ class TestBuildPartOfRecords:
         """Every record has valid_at set and invalid_at unset."""
         document_id = uuid4()
         document_node_id = uuid4()
-        [record] = build_part_of_records(document_node_id, [_chunk(document_id)])
+        [record] = build_part_of_records(
+            document_node_id, [_chunk(document_id)], version_id="v1"
+        )
         assert record.properties["valid_at"] is not None
         assert record.properties["invalid_at"] is None
 
@@ -120,24 +122,34 @@ class TestBuildPartOfRecords:
         document_id = uuid4()
         document_node_id = uuid4()
         chunk = _chunk(document_id)
-        [record] = build_part_of_records(document_node_id, [chunk])
+        [record] = build_part_of_records(document_node_id, [chunk], version_id="v1")
         assert record.type == "PART_OF"
         assert record.start_id == document_node_id
         assert record.end_id == chunk.id
         assert chunk.id is not None
-        assert record.id == part_of_id(
-            document_node_id, chunk.id, record.properties["version_id"]
-        )
-        assert record.properties["version_id"]
+        assert record.id == part_of_id(document_node_id, chunk.id, "v1")
+        assert record.properties["version_id"] == "v1"
 
-    def test_new_version_gets_distinct_edge_ids(self) -> None:
-        """Restoring content creates a new PART_OF history interval."""
+    def test_same_version_converges(self) -> None:
+        """Rebuilding the same version returns the same edge ids."""
         document_id, document_node_id = uuid4(), uuid4()
         chunk = _chunk(document_id)
 
         first, second = (
-            build_part_of_records(document_node_id, [chunk]),
-            build_part_of_records(document_node_id, [chunk]),
+            build_part_of_records(document_node_id, [chunk], version_id="v1"),
+            build_part_of_records(document_node_id, [chunk], version_id="v1"),
+        )
+
+        assert first[0].id == second[0].id
+
+    def test_new_version_gets_distinct_edge_ids(self) -> None:
+        """New content creates a new PART_OF history interval."""
+        document_id, document_node_id = uuid4(), uuid4()
+        chunk = _chunk(document_id)
+
+        first, second = (
+            build_part_of_records(document_node_id, [chunk], version_id="v1"),
+            build_part_of_records(document_node_id, [chunk], version_id="v2"),
         )
 
         assert first[0].id != second[0].id
@@ -150,8 +162,8 @@ class TestBuildPartOfRecords:
         chunk_a = _chunk(doc_a_id)
         chunk_b = _chunk(doc_b_id)
 
-        records_a = build_part_of_records(node_a, [chunk_a])
-        records_b = build_part_of_records(node_b, [chunk_b])
+        records_a = build_part_of_records(node_a, [chunk_a], version_id="v1")
+        records_b = build_part_of_records(node_b, [chunk_b], version_id="v1")
 
         assert records_a[0].start_id == node_a
         assert records_a[0].end_id == chunk_a.id
@@ -161,6 +173,25 @@ class TestBuildPartOfRecords:
 
 class TestBuildNextChunkRecords:
     """build_next_chunk_records links adjacent chunks per document."""
+
+    def test_n_chunks_produce_n_minus_one(self) -> None:
+        """An N-chunk document produces exactly N-1 edges, not N or N+1."""
+        document_id = uuid4()
+        chunks = [_chunk(document_id, index=i, start=i * 4) for i in range(4)]
+        records = build_next_chunk_records(chunks)
+        assert len(records) == 3
+
+    def test_single_chunk_produces_zero(self) -> None:
+        """A single-chunk document produces zero NEXT_CHUNK edges."""
+        assert build_next_chunk_records([_chunk(uuid4())]) == []
+
+    def test_records_carry_no_temporal_properties(self) -> None:
+        """NEXT_CHUNK records carry no valid_at/invalid_at, per ADR 0040."""
+        document_id = uuid4()
+        chunks = [_chunk(document_id, index=0), _chunk(document_id, index=1)]
+        [first, *_] = build_next_chunk_records(chunks)
+        assert first.properties == {}
+        assert first.type == "NEXT_CHUNK"
 
     def test_orders_chunks_and_keeps_documents_separate(self) -> None:
         """Edges follow chunk indexes and never cross document boundaries."""

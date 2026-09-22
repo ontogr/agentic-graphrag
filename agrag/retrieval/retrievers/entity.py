@@ -117,7 +117,9 @@ class EntityRetriever(Retriever):
                 rows = await self._graph_store.execute_read(
                     hydrate_entities_by_id_query(), {"ids": ids}
                 )
-                from agrag.ingestion.graph import _parse_entity_node  # noqa: PLC0415
+                from agrag.ingestion._ingest_pipeline import (  # noqa: PLC0415
+                    _parse_entity_node,
+                )
 
                 for row in rows:
                     try:

@@ -26,8 +26,9 @@ from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.errors import GraphStoreAliasConflictError
 from agrag.graphdb.neo4j import Neo4jGraphStore
+from agrag.ingestion._ingest_pipeline import _apply_merge_with_conflict_retry
 from agrag.ingestion.extract import Extractor
-from agrag.ingestion.graph import Graph, _apply_merge_with_conflict_retry
+from agrag.ingestion.graph import Graph
 from agrag.ingestion.merge import (
     PropertyRules,
     PropertyStrategy,

@@ -10,7 +10,11 @@ concurrent writer's contribution is not lost.
 
 import pytest
 
-from agrag.cypher.relations import close_part_of_query, upsert_relation_query
+from agrag.cypher.relations import (
+    close_part_of_query,
+    entities_in_documents_query,
+    upsert_relation_query,
+)
 
 
 def test_close_part_of_query_only_closes_open_edges() -> None:
@@ -20,6 +24,21 @@ def test_close_part_of_query_only_closes_open_edges() -> None:
     assert "r.invalid_at IS NULL" in query
     assert "SET r.invalid_at = datetime()" in query
     assert "RETURN count(r) AS closed" in query
+
+
+class TestEntitiesInDocumentsQuery:
+    """entities_in_documents_query reads only through open PART_OF edges."""
+
+    def test_filters_to_open_part_of_edges(self) -> None:
+        """Superseded chunks cannot contribute their entities."""
+        query = entities_in_documents_query()
+        assert "part.invalid_at IS NULL" in query
+        assert "$document_ids" in query
+
+    def test_excludes_tombstoned_entities(self) -> None:
+        """Merged-away entities never surface through the traversal."""
+        query = entities_in_documents_query()
+        assert "entity.merged_into IS NULL" in query
 
 
 class TestUpsertRelationQuery:

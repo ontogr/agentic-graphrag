@@ -221,7 +221,9 @@ async def write_matches_and_materialize(
             {"seed_ids": [str(member.id) for member in members]},
         )
         if component_rows:
-            from agrag.ingestion.graph import _parse_entity_node  # noqa: PLC0415
+            from agrag.ingestion._ingest_pipeline import (  # noqa: PLC0415
+                _parse_entity_node,
+            )
 
             persisted_members = {
                 entity.id: entity
@@ -278,7 +280,7 @@ async def deactivate_match_and_rematerialize(
     match_id: UUID, *, graph_store: GraphStore, schema: GraphSchema
 ) -> DeactivationResult:
     """Deactivate a match and return its replacements and deleted derived IDs."""
-    from agrag.ingestion.graph import _parse_entity_node  # noqa: PLC0415
+    from agrag.ingestion._ingest_pipeline import _parse_entity_node  # noqa: PLC0415
 
     async with graph_store.transaction() as transaction:
         endpoint_rows = await transaction.execute_read(

@@ -104,7 +104,7 @@ class GraphCandidateSource(CandidateSource):
         any name containing ":" (e.g. "Star Trek: Voyager"), so this fetches
         the actual nodes instead.
         """
-        from agrag.ingestion.graph import _parse_entity_node  # noqa: PLC0415
+        from agrag.ingestion._ingest_pipeline import _parse_entity_node  # noqa: PLC0415
 
         ids = [str(hit.id) for hit in hits]
         try:
@@ -203,8 +203,6 @@ async def exact_match_lookup(
     mentions: list[ExtractedEntity], *, graph_store: GraphStore
 ) -> dict[int, Entity]:
     """Return persisted exact matches, including resolved tombstone aliases."""
-    # Keep the established lookup behavior byte-for-byte until Phase 4 moves
-    # the ingestion pipeline. That phase removes the legacy graph helper.
-    from agrag.ingestion.graph import _global_exact_match  # noqa: PLC0415
+    from agrag.ingestion._ingest_pipeline import _global_exact_match  # noqa: PLC0415
 
     return await _global_exact_match(mentions, graph_store=graph_store)

@@ -1370,8 +1370,10 @@ One retrieval-sized piece of a Document.
 
 **Attributes:**
 
-- [**document_id**](#agrag.common.data_models.chunk.Chunk.document_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the parent Document. Use this id to look up fields
-  such as `record_index` on the parent Document.
+- [**document_id**](#agrag.common.data_models.chunk.Chunk.document_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the persisted Document graph node this chunk
+  belongs to (see `Document.node_id_for`). Stable across content
+  versions of the same logical document; per-version identity lives
+  in `Chunk.id` instead.
 - [**index**](#agrag.common.data_models.chunk.Chunk.index) (<code>[int](#int)</code>) – The position of the chunk within its document, from 0.
 - [**text**](#agrag.common.data_models.chunk.Chunk.text) (<code>[str](#str)</code>) – The chunk text.
 - [**provenance**](#agrag.common.data_models.chunk.Chunk.provenance) (<code>[TextProvenance](#agrag.common.data_models.provenance.TextProvenance) | [PageProvenance](#agrag.common.data_models.provenance.PageProvenance)</code>) – The location of this chunk in its source. The shape of this
@@ -7459,6 +7461,30 @@ delete_document(document_key:str) -> UpdateResult
 
 Soft-delete a document by closing its current PART_OF edges.
 
+Currency is read transitively through `PART_OF`: closing the
+open edges removes the document from retrieval while its chunks,
+the `Document` node, and contributed entities stay in the graph
+for provenance. An unknown `document_key` is a no-op.
+
+**Parameters:**
+
+- **document_key** (<code>[str](#str)</code>) – The stable key of the document to delete.
+
+**Returns:**
+
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – The deletion summary: `no_op=True` when nothing was stored
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – under the key, otherwise `chunks_closed` with
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – `new_content_hash=None` and no `add_result`.
+
+<details class="note" open markdown="1">
+<summary>Note</summary>
+
+The close-only degenerate case of `Graph.update()`; both
+call into the same shared document-lifecycle helpers. See
+`Graph.add()` for the shared ingestion behavior.
+
+</details>
+
 ##### `agrag.ingestion.Graph.detect_communities`
 
 ```python
@@ -7546,15 +7572,45 @@ update(document_key:str, *, text:str | None = None, source:SourcesType | None = 
 
 Replace one document version, closing its former PART_OF edges.
 
-An unchanged content hash is a no-op. The update path uses the same
-`add` pipeline as fresh ingestion after it closes the old edges. A
-source must resolve to exactly one document.
+Looks up the persisted `Document` node by `document_key`. An
+unchanged content hash is a no-op returning before any chunking,
+extraction, or writes. Otherwise closes the document's open
+`PART_OF` edges and ingests the fresh content under the same
+`Document` node through the shared pipeline core. A source must
+resolve to exactly one document.
+
+**Parameters:**
+
+- **document_key** (<code>[str](#str)</code>) – The stable key of the document to replace.
+- **text** (<code>[str](#str) | None</code>) – Replacement text, exactly one of `text`/`source`.
+- **source** (<code>[SourcesType](#agrag.ingestion.graph.SourcesType) | None</code>) – A single-file source, glob, or path list resolving to
+  exactly one document.
+- **loader** (<code>[Loader](#agrag.loaders.corpus.base.Loader) | None</code>) – A loader override for a single-file `source`.
+- **error_policy** (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – RAISE propagates a stage failure; any other
+  policy records it and continues.
+
+**Returns:**
+
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – The update summary. A no-op reports `no_op=True` with no
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – `add_result`; a change reports `chunks_closed` plus the
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – fresh ingestion's `add_result`; an unknown `document_key`
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – ingests fresh with `previous_content_hash=None` and
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – `chunks_closed=0`.
 
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – Both or neither of `text` and `source` are given, a loader
   override targets multiple sources, or a source resolves to any number
   of documents other than one.
+
+<details class="note" open markdown="1">
+<summary>Note</summary>
+
+The fresh-content path shares `ingest_chunks()` with
+`Graph.add()`; both callers observe the same pipeline behavior
+for the same input.
+
+</details>
 
 #### `agrag.ingestion.community`
 
@@ -8260,6 +8316,30 @@ delete_document(document_key:str) -> UpdateResult
 
 Soft-delete a document by closing its current PART_OF edges.
 
+Currency is read transitively through `PART_OF`: closing the
+open edges removes the document from retrieval while its chunks,
+the `Document` node, and contributed entities stay in the graph
+for provenance. An unknown `document_key` is a no-op.
+
+**Parameters:**
+
+- **document_key** (<code>[str](#str)</code>) – The stable key of the document to delete.
+
+**Returns:**
+
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – The deletion summary: `no_op=True` when nothing was stored
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – under the key, otherwise `chunks_closed` with
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – `new_content_hash=None` and no `add_result`.
+
+<details class="note" open markdown="1">
+<summary>Note</summary>
+
+The close-only degenerate case of `Graph.update()`; both
+call into the same shared document-lifecycle helpers. See
+`Graph.add()` for the shared ingestion behavior.
+
+</details>
+
 ###### `agrag.ingestion.graph.Graph.detect_communities`
 
 ```python
@@ -8347,15 +8427,45 @@ update(document_key:str, *, text:str | None = None, source:SourcesType | None = 
 
 Replace one document version, closing its former PART_OF edges.
 
-An unchanged content hash is a no-op. The update path uses the same
-`add` pipeline as fresh ingestion after it closes the old edges. A
-source must resolve to exactly one document.
+Looks up the persisted `Document` node by `document_key`. An
+unchanged content hash is a no-op returning before any chunking,
+extraction, or writes. Otherwise closes the document's open
+`PART_OF` edges and ingests the fresh content under the same
+`Document` node through the shared pipeline core. A source must
+resolve to exactly one document.
+
+**Parameters:**
+
+- **document_key** (<code>[str](#str)</code>) – The stable key of the document to replace.
+- **text** (<code>[str](#str) | None</code>) – Replacement text, exactly one of `text`/`source`.
+- **source** (<code>[SourcesType](#agrag.ingestion.graph.SourcesType) | None</code>) – A single-file source, glob, or path list resolving to
+  exactly one document.
+- **loader** (<code>[Loader](#agrag.loaders.corpus.base.Loader) | None</code>) – A loader override for a single-file `source`.
+- **error_policy** (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – RAISE propagates a stage failure; any other
+  policy records it and continues.
+
+**Returns:**
+
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – The update summary. A no-op reports `no_op=True` with no
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – `add_result`; a change reports `chunks_closed` plus the
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – fresh ingestion's `add_result`; an unknown `document_key`
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – ingests fresh with `previous_content_hash=None` and
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – `chunks_closed=0`.
 
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – Both or neither of `text` and `source` are given, a loader
   override targets multiple sources, or a source resolves to any number
   of documents other than one.
+
+<details class="note" open markdown="1">
+<summary>Note</summary>
+
+The fresh-content path shares `ingest_chunks()` with
+`Graph.add()`; both callers observe the same pipeline behavior
+for the same input.
+
+</details>
 
 ##### `agrag.ingestion.graph.SYSTEM_RELATION_TYPES`
 
