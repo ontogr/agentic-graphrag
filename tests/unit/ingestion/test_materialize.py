@@ -245,6 +245,8 @@ class TestDeactivateMatch:
 
         assert result.removed_entity_ids == [stale_id]
         assert len(result.resolved_entities) == 1
+        replacement_call = store.current_transaction.execute_write.await_args_list[1]
+        assert replacement_call.args[1]["pending_job_id"] is None
 
     async def test_excludes_and_dedupes_ids_the_split_already_recreated(
         self, monkeypatch

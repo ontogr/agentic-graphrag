@@ -51,6 +51,16 @@ def test_node_params_converts_a_uuid_pending_tag() -> None:
     assert node_params(rec)["pending_job_id"] == str(job_id)
 
 
+def test_tag_pending_does_not_mutate_source_record() -> None:
+    """Tagging a write must not leak job metadata into a caller's record."""
+    record = NodeRecord(id=uuid4(), labels=["Chunk"], properties={"text": "a"})
+
+    tagged = tag_pending(record, "job-1")
+
+    assert record.properties == {"text": "a"}
+    assert tagged is not record
+
+
 def test_relation_params_splits_out_the_pending_tag() -> None:
     """An edge carries its tag on the same separate key."""
     rec = tag_pending(

@@ -134,8 +134,15 @@ def tag_pending(record: _RecordT, job_id: UUID | str | None) -> _RecordT:
         job_id: The in-flight job's id, or None outside a job.
 
     Returns:
-        The same record, tagged when a job id was given.
+        A tagged copy when a job id was given; otherwise the original record.
     """
     if job_id is not None:
-        record.properties[PENDING_JOB_ID_PROPERTY] = str(job_id)
+        return record.model_copy(
+            update={
+                "properties": {
+                    **record.properties,
+                    PENDING_JOB_ID_PROPERTY: str(job_id),
+                }
+            }
+        )
     return record

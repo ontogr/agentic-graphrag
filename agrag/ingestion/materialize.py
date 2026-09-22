@@ -358,7 +358,10 @@ async def deactivate_match_and_rematerialize(
         )
         replacement_rows = await transaction.execute_write(
             replace_component_materializations_query(),
-            {"member_ids": [str(member_id) for member_id in all_member_ids]},
+            {
+                "member_ids": [str(member_id) for member_id in all_member_ids],
+                "pending_job_id": None,
+            },
         )
         removed_entity_ids = [
             UUID(str(entity_id))
