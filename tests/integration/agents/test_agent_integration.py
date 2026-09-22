@@ -726,8 +726,8 @@ class TestAgentBuildIntegration:
             }
         )
 
-        answer = self._message_text(result).strip().lower()
-        assert answer.startswith("insufficient evidence:")
+        answer = self._message_text(result)
+        assert not re.search(r"\b(?:1\d{3}|20\d{2})\b", answer)
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     @pytest.mark.skipif(

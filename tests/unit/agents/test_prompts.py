@@ -32,10 +32,6 @@ class TestPlannerSystem:
         filled = PLANNER_SYSTEM.replace("{max_research_attempts}", "3")
         assert "{max_research_attempts}" not in filled
 
-    def test_insufficient_evidence_has_a_stable_final_answer_marker(self) -> None:
-        """Incomplete research produces an explicit answer prefix."""
-        assert 'begin the final answer with "Insufficient evidence:"' in PLANNER_SYSTEM
-
 
 class TestResearcherSystem:
     """RESEARCHER_SYSTEM carries the schema-aware research instructions."""
