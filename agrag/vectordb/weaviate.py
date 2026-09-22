@@ -28,7 +28,7 @@ from agrag.vectordb.settings import WeaviateSettings
 
 
 _VECTOR_NAME = "vector"
-_PENDING_PROPERTY = "pending"
+_PENDING_PROPERTY = "agrag_pending"
 
 # The page size _existing_dimension pages through while looking for a
 # vector-bearing object. Not a correctness knob: a smaller value means more
@@ -169,6 +169,8 @@ class WeaviateVectorStore(VectorStore):
         for key, value in (filters or {}).items():
             if key == PENDING_VECTOR_FLAG:
                 continue
+            if key == _PENDING_PROPERTY:
+                raise ValueError(f"{_PENDING_PROPERTY!r} is reserved for internal use")
             prop = WeaviateFilter.by_property(key)
             if isinstance(value, list):
                 conditions.append(prop.contains_any(value))
@@ -180,6 +182,12 @@ class WeaviateVectorStore(VectorStore):
         else:
             conditions.append(pending.equal(False))
         return WeaviateFilter.all_of(conditions)
+
+    @staticmethod
+    def _validate_payload(payload: dict[str, Any]) -> None:
+        """Reject payload keys reserved for Weaviate internal metadata."""
+        if _PENDING_PROPERTY in payload:
+            raise ValueError(f"{_PENDING_PROPERTY!r} is reserved for internal use")
 
     @staticmethod
     def _to_hit(obj: Any) -> VectorHit:
@@ -370,6 +378,8 @@ class WeaviateVectorStore(VectorStore):
             VectorStoreError: At least one record in a batch failed to write.
         """
         require_positive_batch_size(batch_size)
+        for record in records:
+            self._validate_payload(record.payload)
         client = await self._ensure_client()
 
         # Deferred until after _ensure_client so a missing extra surfaces as
