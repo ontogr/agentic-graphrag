@@ -7,7 +7,7 @@ from agrag.agents.harness import ensure_harness_profile, model_provider_key
 from agrag.agents.ledger import Ledger
 from agrag.agents.middleware import ResearchAttemptLimiter
 from agrag.agents.model import build_chat_model, build_model_middleware
-from agrag.agents.prompts import PLANNER_SYSTEM
+from agrag.agents.prompts import PLANNER_SYSTEM, SIMPLE_ANSWER_SYSTEM
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
 from agrag.agents.subagents import make_researcher_spec, make_verifier_spec
 from agrag.agents.tools import make_tools
@@ -60,8 +60,8 @@ def build_agent(
 
     Returns:
         A compiled agent graph ready for invoke/ainvoke, or a
-        simple single-search fallback when deepagents is not
-        installed.
+        single-search-plus-synthesis fallback when deepagents is
+        not installed.
     """
     settings = agent_settings or AgentSettings()
     model = build_chat_model(llm_settings.clients[0])
@@ -172,8 +172,13 @@ class _RunScopedAgent:
 class _SimpleAgent:
     """Fallback agent when deepagents is not installed.
 
-    Performs a single hybrid search per invocation, so there is no
-    agent loop and ``AgentSettings.recursion_limit`` does not apply.
+    Performs a single hybrid search per invocation, then one LLM
+    call to synthesize a cited answer from the results -- still no
+    agent loop, tool calls, or multi-client composition
+    (``build_model_middleware``'s fallback/round-robin strategies
+    wrap ``create_deep_agent``'s loop, not a bare model call, and
+    this class already only receives ``clients[0]``). There is no
+    agent loop, so ``AgentSettings.recursion_limit`` does not apply.
     """
 
     def __init__(
@@ -192,7 +197,8 @@ class _SimpleAgent:
         """Run the agent with a fresh ledger (simplified path).
 
         Creates a new ``Ledger`` and tool set per invocation so
-        citation state does not span runs.
+        citation state does not span runs. Runs one search, then one
+        LLM call to synthesize a cited answer from the results.
 
         Args:
             input_data: Dict with ``messages`` key.
@@ -210,9 +216,21 @@ class _SimpleAgent:
 
         results = await self._engine.search(question, HYBRID, filters=self._filters)
         evidence = [ledger.render(r) for r in results]
-        answer = (
-            "Based on the knowledge graph:\n" + "\n".join(evidence)
-            if evidence
-            else "No relevant evidence found."
+        if not evidence:
+            return {
+                "messages": [
+                    {"role": "assistant", "content": "No relevant evidence found."}
+                ]
+            }
+
+        response = await self._model.ainvoke(
+            [
+                {"role": "system", "content": SIMPLE_ANSWER_SYSTEM},
+                {
+                    "role": "user",
+                    "content": f"Question: {question}\n\nEvidence:\n"
+                    + "\n".join(evidence),
+                },
+            ]
         )
-        return {"messages": [{"role": "assistant", "content": answer}]}
+        return {"messages": [{"role": "assistant", "content": response.text}]}

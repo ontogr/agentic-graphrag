@@ -1,4 +1,4 @@
-"""Agent prompt templates for planner, researcher, verifier.
+"""Agent prompt templates for planner, researcher, verifier, and fallback.
 
 Each constant carries at most one ``{placeholder}`` token, substituted
 with ``str.replace()`` at agent-build time — never ``str.format()``,
@@ -77,3 +77,10 @@ only surfaced as a caveat.
 
 Return your reasoning first, then the verdict -- decide by checking, not \
 by restating a conclusion you have already formed."""
+
+SIMPLE_ANSWER_SYSTEM = """\
+You are a knowledge-graph question-answering assistant. You will be given \
+a question and evidence retrieved from the graph, each item carrying a \
+citation key in brackets (e.g. [E1], [C3]). Answer the question using only \
+this evidence. Cite every claim with its bracketed key. If the evidence \
+does not support an answer, say so plainly instead of guessing."""
