@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
 from pydantic import BaseModel
@@ -23,7 +23,10 @@ from agrag.ingestion.stats import StageFailure
 
 
 if TYPE_CHECKING:
+    from baml_py import ClientRegistry
+
     from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+    from agrag.llm.baml_client.runtime import BamlCallOptions
 
 
 class PropertyStrategy(StrEnum):
@@ -203,22 +206,17 @@ async def resolve_description(
         from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
         from agrag.llm.retry import NO_RETRY, call_with_retry  # noqa: PLC0415
 
+        baml_options: BamlCallOptions = {}
         if client is not None:
-            baml_options: dict[str, Any] = {}
             retry = NO_RETRY
             active_client = client
         else:
-            baml_options = {}
-            retry_obj = None
-            try:
-                active_settings = settings or ExtractionLLMSettings()  # type: ignore[call-arg]
-                registry = build_client_registry(
-                    active_settings.clients, strategy=active_settings.strategy
-                )
-                baml_options = {"client_registry": registry}
-                retry_obj = active_settings.retry
-            except Exception:
-                raise
+            active_settings = settings or ExtractionLLMSettings()  # type: ignore[call-arg]
+            registry = build_client_registry(
+                active_settings.clients, strategy=active_settings.strategy
+            )
+            baml_options["client_registry"] = cast("ClientRegistry", registry)
+            retry_obj = active_settings.retry
             try:
                 from agrag.llm.baml_client import b as default_client  # noqa: PLC0415
             except ImportError as exc:
@@ -226,22 +224,13 @@ async def resolve_description(
             active_client = default_client
             retry = retry_obj if retry_obj is not None else NO_RETRY
 
-        summarize = getattr(active_client, "SummarizeDescriptions", None)
-        if summarize is None:
-            summarize = getattr(active_client, "SummarizeDescription", None)
-        if summarize is None:
-            raise AttributeError("No summarization function on BAML client")
-
-        try:
-            result = await call_with_retry(
-                lambda: summarize(distinct, baml_options),
-                retry,  # type: ignore[misc]
-            )
-        except TypeError:
-            result = await call_with_retry(
-                lambda: summarize(descriptions=distinct, baml_options=baml_options),  # type: ignore[misc]
-                retry,
-            )
+        descriptions = [str(candidate) for candidate in distinct]
+        result = await call_with_retry(
+            lambda: active_client.SummarizeDescriptions(
+                descriptions=descriptions, baml_options=baml_options
+            ),
+            retry,  # type: ignore[misc]
+        )
         return result, True, None
     except Exception as exc:  # noqa: BLE001
         fallback = " | ".join(str(v) for v in distinct)

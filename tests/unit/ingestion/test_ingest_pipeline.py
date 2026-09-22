@@ -9,6 +9,7 @@ cross-batch index threading.
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
+from unittest import mock
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
@@ -25,10 +26,12 @@ from agrag.common.data_models.extraction import (
 from agrag.common.data_models.graph_record import UpsertResult
 from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.common.data_models.vector_record import VectorHit
 from agrag.embedding.base import Embedder
 from agrag.ingestion._ingest_pipeline import extract_chunks, ingest_chunks
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
+from agrag.ingestion.resolve import ResolutionResult
 from agrag.ingestion.resolve.candidate_source import GraphCandidateSource
 from agrag.ingestion.stats import IngestStats
 from agrag.loaders.corpus.types import ErrorPolicy
@@ -213,9 +216,9 @@ class TestIngestChunks:
 
         async def _candidates(
             self: GraphCandidateSource, mention: ExtractedEntity
-        ) -> list[Entity]:
+        ) -> list[tuple[Entity, float]]:
             consulted.append(mention.text)
-            return [persisted]
+            return [(persisted, 0.0)]
 
         monkeypatch.setattr(GraphCandidateSource, "global_candidates_for", _candidates)
         result = await ingest_chunks(
@@ -377,3 +380,111 @@ class TestExtractChunks:
         doc = _doc(key="typed")
         chunk = _chunk(doc)
         assert isinstance(chunk.document_id, UUID)
+
+
+class _RelationExtractor(Extractor):
+    """Extractor returning two related mentions for every chunk."""
+
+    async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
+        """Return an Alice/Acme pair joined by a WORKS_AT relation."""
+        return ExtractionResult(
+            entities=[
+                ExtractedEntity(
+                    chunk_id=chunk.id,
+                    label="Person",
+                    text="Alice",
+                    char_start=0,
+                    char_end=5,
+                ),
+                ExtractedEntity(
+                    chunk_id=chunk.id,
+                    label="Organization",
+                    text="Acme",
+                    char_start=14,
+                    char_end=18,
+                ),
+            ],
+            relations=[
+                ExtractedRelation(
+                    chunk_id=chunk.id,
+                    label="WORKS_AT",
+                    source_index=0,
+                    target_index=1,
+                )
+            ],
+            extractor_name="fake",
+        )
+
+
+class TestResolutionContextWiring:
+    """ingest_chunks passes real LLM verification context to Resolver.
+
+    Both the in-batch and persisted-candidate pairs feed one combined
+    Resolver.resolve call (see ingest_chunks), unlike Graph.consolidate's
+    two separate passes, so both kinds of context are asserted on that one
+    call. The equivalent coverage for Graph.consolidate lives in
+    tests/unit/ingestion/test_graph.py.
+    """
+
+    async def test_in_batch_resolution_gets_relation_neighbors(self) -> None:
+        """The combined resolve call is seeded from the batch's relations."""
+        store, _ = _store()
+        doc = _doc(key="a")
+        chunk = _chunk(doc, text="Alice works at Acme")
+        resolver_instance = AsyncMock()
+        resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
+
+        with mock.patch(
+            "agrag.ingestion._ingest_pipeline.Resolver", return_value=resolver_instance
+        ):
+            await _ingest([doc], [chunk], store, extractor=_RelationExtractor())
+
+        assert resolver_instance.resolve.await_args.kwargs["neighbors_by_index"] == {
+            0: ["WORKS_AT Acme"],
+            1: ["WORKS_AT Alice"],
+        }
+
+    async def test_persisted_candidate_similarity_reaches_resolve(self) -> None:
+        """A candidate hit's real embedding score is seeded into resolution.
+
+        Only one Resolver.resolve call happens for the whole batch: the
+        persisted candidate joins the same combined mention list the
+        in-batch pairs use, rather than a second pass over it.
+        """
+        store, _ = _store()
+        doc = _doc(key="a")
+        chunk = _chunk(doc, text="Alice works at Acme")
+        candidate_id = uuid4()
+
+        async def fake_vector_search(text: str, **kwargs: Any) -> list[VectorHit]:
+            if text == "Alice":
+                return [
+                    VectorHit(id=candidate_id, score=0.91, payload={"name": "Alice"})
+                ]
+            return []
+
+        resolver_instance = AsyncMock()
+        resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
+        fetch_neighbors = AsyncMock(return_value={candidate_id: ["WORKS_AT Acme"]})
+
+        with (
+            mock.patch(
+                "agrag.ingestion.resolve.candidate_source.vector_search",
+                new=fake_vector_search,
+            ),
+            mock.patch(
+                "agrag.ingestion._ingest_pipeline.Resolver",
+                return_value=resolver_instance,
+            ),
+            mock.patch(
+                "agrag.ingestion._ingest_pipeline.fetch_persisted_neighbors",
+                fetch_neighbors,
+            ),
+        ):
+            await _ingest([doc], [chunk], store, extractor=_RelationExtractor())
+
+        assert len(resolver_instance.resolve.await_args_list) == 1
+        kwargs = resolver_instance.resolve.await_args.kwargs
+        assert kwargs["similarity_by_pair"] == {(0, 2): 0.91}
+        assert kwargs["neighbors_by_index"][2] == ["WORKS_AT Acme"]
+        assert fetch_neighbors.await_args.args[0] == [candidate_id]

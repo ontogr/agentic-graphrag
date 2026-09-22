@@ -23,6 +23,13 @@ class TestPlannerSystem:
         assert "CONTRADICTORY" in PLANNER_SYSTEM
         assert "do not retry" in PLANNER_SYSTEM
 
+    def test_exhausted_retries_require_gap_disclosure(self) -> None:
+        """Incomplete research must disclose unanswered sub-questions."""
+        assert "say plainly which sub-questions remain unanswered" in PLANNER_SYSTEM
+        assert (
+            "rather than presenting an unverified answer as complete" in PLANNER_SYSTEM
+        )
+
     def test_has_max_research_attempts_placeholder(self) -> None:
         """The attempt-count placeholder is present before substitution."""
         assert "{max_research_attempts}" in PLANNER_SYSTEM

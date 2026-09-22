@@ -127,6 +127,12 @@ print(report.matches_removed)
 There is no automatic trigger: a caller that learns something new calls
 `reevaluate()` explicitly.
 
+`Resolver.resolve()` also takes an optional `neighbors_by_index` map of
+per-entity neighboring-relationship strings, which batched `LLMVerify`
+verification sends to the model as extra context. `Graph.add()` and
+`Graph.consolidate()` build one automatically from a batch's extracted
+relations and each persisted entity's stored graph edges.
+
 ## Define your own schema
 
 ```python

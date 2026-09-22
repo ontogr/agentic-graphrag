@@ -752,6 +752,163 @@ class TestZoneRouting:
         assert client.calls <= 2
         assert result.ambiguous_count == 0
 
+    async def test_neighbors_reach_the_llm_verify_tier(self) -> None:
+        """Neighbor context passed to resolve() arrives in the LLM request."""
+        chunk = _chunk()
+        seen: list[dict] = []
+
+        class RecordingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                seen.extend(pairs)
+                return []
+
+        entities = [
+            _entity("Ada Lovelace", chunk_id=chunk.id),
+            _entity("Lady Lovelace", chunk_id=chunk.id),
+        ]
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(match_above=1.0),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=RecordingClient()),
+            ],
+            candidate_source=_candidate_source(),
+        )
+
+        await resolver.resolve(entities, neighbors_by_index={0: ["KNOWS Ada"]})
+
+        assert seen[0]["neighbors_a"] == ["KNOWS Ada"]
+        assert seen[0]["neighbors_b"] == []
+
+    async def test_compare_batch_forwards_context_to_every_chunk(self) -> None:
+        """Chunked requests each carry the global context maps, unsliced."""
+        chunk = _chunk("context text")
+        seen: list[dict] = []
+
+        class RecordingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                seen.extend(pairs)
+                return []
+
+        a = _entity("Ada", chunk_id=chunk.id)
+        b = _entity("Ada L.", chunk_id=chunk.id)
+        c = _entity("Ada Lovelace", chunk_id=chunk.id)
+        verifier = LLMVerify(
+            chunks_by_id={chunk.id: chunk},
+            client=RecordingClient(),
+            max_pairs_per_batch=1,
+        )
+
+        await verifier.compare_batch(
+            [(0, 1, a, b), (1, 2, b, c)],
+            neighbors_by_index={
+                0: ["KNOWS Acme"],
+                1: ["KNOWS Acme"],
+                2: ["KNOWS Acme"],
+            },
+            similarities={(0, 1): 0.83, (1, 2): 0.61},
+        )
+
+        assert len(seen) == 2
+        assert [payload["pair_id"] for payload in seen] == ["0:1", "1:2"]
+        assert seen[0]["similarity"] == 0.83
+        assert seen[1]["similarity"] == 0.61
+        assert all(payload["neighbors_a"] == ["KNOWS Acme"] for payload in seen)
+        assert all(payload["neighbors_b"] == ["KNOWS Acme"] for payload in seen)
+
+    async def test_fuzzy_score_reaches_the_llm_verify_tier(self) -> None:
+        """A pair that stays UNCERTAIN carries its FuzzyMatch score to the LLM.
+
+        Driven the existing way -- resolve() with no context arguments --
+        which also proves the new parameters are additive: neighbor context
+        stays empty while the pair still gains FuzzyMatch's score.
+        """
+        chunk = _chunk()
+        seen: list[dict] = []
+
+        class RecordingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                seen.extend(pairs)
+                return []
+
+        a = _entity("Ada Lovelace", chunk_id=chunk.id)
+        b = _entity("Lady Lovelace", chunk_id=chunk.id)
+        fuzzy = FuzzyMatch(match_above=1.0)
+        expected_score = (await fuzzy.compare_with_evidence(a, b)).score
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                fuzzy,
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=RecordingClient()),
+            ],
+            candidate_source=_candidate_source(),
+        )
+
+        await resolver.resolve([a, b])
+
+        assert expected_score is not None and expected_score > 0.0
+        assert seen[0]["similarity"] == expected_score
+        assert seen[0]["neighbors_a"] == []
+        assert seen[0]["neighbors_b"] == []
+
+    async def test_seeded_similarity_wins_over_a_later_fuzzy_score(self) -> None:
+        """A caller-seeded real score, not FuzzyMatch's, reaches the LLM.
+
+        Seeded at 0.85: inside the ambiguous band, so the pair reaches the
+        LLM tier instead of being routed by zone alone.
+        """
+        chunk = _chunk()
+        seen: list[dict] = []
+
+        class RecordingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                seen.extend(pairs)
+                return []
+
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(match_above=1.0),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=RecordingClient()),
+            ],
+            candidate_source=_candidate_source(),
+        )
+        entities = [
+            _entity("Ada Lovelace", chunk_id=chunk.id),
+            _entity("Lady Lovelace", chunk_id=chunk.id),
+        ]
+
+        await resolver.resolve(entities, similarity_by_pair={(0, 1): 0.85})
+
+        assert seen[0]["similarity"] == 0.85
+
+    async def test_resolve_does_not_mutate_the_callers_similarity_map(self) -> None:
+        """Resolving never writes into the caller's seed dict."""
+        chunk = _chunk()
+        seed: dict[tuple[int, int], float] = {}
+
+        class RecordingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                return []
+
+        entities = [
+            _entity("Ada Lovelace", chunk_id=chunk.id),
+            _entity("Lady Lovelace", chunk_id=chunk.id),
+        ]
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(match_above=1.0),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=RecordingClient()),
+            ],
+            candidate_source=_candidate_source(),
+        )
+
+        await resolver.resolve(entities, similarity_by_pair=seed)
+        await resolver.resolve(entities, similarity_by_pair=seed)
+
+        assert seed == {}
+
     def test_llm_batch_size_must_be_positive(self) -> None:
         """A non-positive batch size cannot bound LLM requests."""
         with pytest.raises(ValueError, match="must be positive"):

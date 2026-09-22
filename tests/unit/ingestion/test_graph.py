@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any
+from unittest import mock
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -34,7 +35,11 @@ from agrag.common.data_models.graph_record import (
     RelationRecord,
     UpsertResult,
 )
-from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models.graph_schema import (
+    GENERIC,
+    EntityType,
+    GraphSchema,
+)
 from agrag.common.data_models.provenance import PageProvenance
 from agrag.common.data_models.resolved_entity import (
     MATCHES_RELATION,
@@ -51,6 +56,8 @@ from agrag.ingestion._ingest_pipeline import (
     _vector_record,
 )
 from agrag.ingestion.extract import Extractor
+from agrag.ingestion.graph import SYSTEM_RELATION_TYPES
+from agrag.ingestion.resolve import ResolutionResult
 from agrag.loaders.corpus.errors import UnsupportedFormatError
 from agrag.loaders.corpus.readers.prose import TextLoader
 from agrag.loaders.corpus.types import ErrorPolicy
@@ -735,6 +742,61 @@ class TestGraphAdd:
         result = await graph.add(str(tmp_path / "*"))
         assert result.ingestion.documents == 1
         assert result.ingestion.sources == 1
+
+
+class TestConsolidateResolutionContext:
+    """Graph.consolidate passes real LLM verification context to Resolver.
+
+    The equivalent coverage for Graph.add lives in
+    tests/unit/ingestion/test_ingest_pipeline.py, against ingest_chunks --
+    the shared pipeline core add() delegates to -- since that is where the
+    neighbor and similarity context is actually built for that path.
+    """
+
+    async def test_consolidate_neighbors_are_keyed_by_entity_index(self) -> None:
+        """Consolidate's neighbor context is keyed by entity list position."""
+        schema = GraphSchema(
+            name="test",
+            version="1",
+            entities=[EntityType(label="Person", description="p")],
+            relations=[],
+        )
+        graph = await Graph.open(
+            schema=schema,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+        )
+        first = Entity(id=uuid4(), label="Person", name="Alice", properties={})
+        second = Entity(id=uuid4(), label="Person", name="alice", properties={})
+        resolver_instance = AsyncMock()
+        resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
+        fetch_neighbors = AsyncMock(return_value={first.id: ["KNOWS Bob"]})
+
+        with (
+            mock.patch.object(
+                graph,
+                "_all_entities_by_label",
+                new_callable=AsyncMock,
+                return_value=[first, second],
+            ),
+            mock.patch(
+                "agrag.ingestion.graph.Resolver", return_value=resolver_instance
+            ),
+            mock.patch(
+                "agrag.ingestion.graph.fetch_persisted_neighbors", fetch_neighbors
+            ),
+        ):
+            await graph.consolidate(apply=False)
+
+        assert fetch_neighbors.await_args.args[0] == [first.id, second.id]
+        assert (
+            fetch_neighbors.await_args.kwargs["exclude_relation_types"]
+            == SYSTEM_RELATION_TYPES
+        )
+        kwargs = resolver_instance.resolve.await_args.kwargs
+        assert kwargs["neighbors_by_index"] == {0: ["KNOWS Bob"], 1: []}
+        assert kwargs["similarity_by_pair"] == {}
 
 
 class TestGraphOpen:

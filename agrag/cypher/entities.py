@@ -377,6 +377,30 @@ def fetch_relations_between_query(rel_type: str) -> str:
     )
 
 
+def fetch_entity_neighbors_query() -> str:
+    """Build Cypher for a bounded, per-entity sample of neighboring relations.
+
+    Returns:
+        Parameterized Cypher expecting ``$ids`` (entity id strings),
+        ``$exclude_types`` (relation types to skip, such as resolution's own
+        system relation types), and ``$limit`` (maximum neighbors returned
+        per id). Returns ``entity_id``, ``rel_type``, and ``neighbor_name``
+        for each sampled relation, in either direction.
+    """
+    return (
+        "UNWIND $ids AS entity_id "
+        "CALL { "
+        "WITH entity_id "
+        "MATCH (n:"
+        f"{NODE_IDENTITY_LABEL} {{id: entity_id}})-[r]-(m:{NODE_IDENTITY_LABEL}) "
+        "WHERE NOT type(r) IN $exclude_types "
+        "RETURN type(r) AS rel_type, m.name AS neighbor_name "
+        "LIMIT $limit "
+        "} "
+        "RETURN entity_id, rel_type, neighbor_name"
+    )
+
+
 def set_chunk_embedding_query(vector_property: str) -> str:
     """Build Cypher setting a vector property on Chunk nodes.
 

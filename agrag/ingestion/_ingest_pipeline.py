@@ -69,7 +69,9 @@ from agrag.ingestion.resolve import (
     LLMVerify,
     PersistedCandidateSource,
     Resolver,
+    build_relation_neighbors,
     exact_resolution_groups,
+    fetch_persisted_neighbors,
 )
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
 from agrag.ingestion.stats import (
@@ -283,6 +285,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     persisted_candidates: dict[int, list[int]] = {}
     persisted_ids: dict[int, UUID] = {}
     candidate_entities: dict[UUID, Entity] = {}
+    similarity_by_pair: dict[tuple[int, int], float] = {}
     for mention_index, mention in enumerate(entities):
         try:
             candidates = await candidate_source.global_candidates_for(mention)
@@ -290,7 +293,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             candidates = []
         seen_candidate_ids: set[UUID] = set()
         exact_match = exact_matches.get(mention_index)
-        for candidate in candidates:
+        for candidate, candidate_similarity in candidates:
             if candidate.id in seen_candidate_ids:
                 continue
             seen_candidate_ids.add(candidate.id)
@@ -303,6 +306,11 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             persisted_candidates.setdefault(mention_index, []).append(candidate_index)
             persisted_ids[candidate_index] = candidate.id
             candidate_entities[candidate.id] = candidate
+            pair = (
+                min(mention_index, candidate_index),
+                max(mention_index, candidate_index),
+            )
+            similarity_by_pair[pair] = candidate_similarity
     # Same-label real pairs plus the persisted map. Synthetics never
     # initiate: no entry is keyed by a synthetic index.
     candidates_by_index: dict[int, list[int]] = {}
@@ -312,6 +320,19 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             candidates_by_index[index] = list(real_peers)
     for index, synthetic in persisted_candidates.items():
         candidates_by_index.setdefault(index, []).extend(synthetic)
+    # Neighbor context for LLM review: the batch's own mentions from their
+    # extracted relations, each persisted candidate from its stored edges.
+    from agrag.ingestion.graph import SYSTEM_RELATION_TYPES  # noqa: PLC0415
+
+    neighbors_by_index = build_relation_neighbors(entities, relations)
+    if persisted_ids:
+        persisted_neighbors = await fetch_persisted_neighbors(
+            list(persisted_ids.values()),
+            graph_store=graph_store,
+            exclude_relation_types=SYSTEM_RELATION_TYPES,
+        )
+        for candidate_index, entity_id in persisted_ids.items():
+            neighbors_by_index[candidate_index] = persisted_neighbors.get(entity_id, [])
     # Resolver: ExactMatch, FuzzyMatch, LLMVerify, routed by zone.
     resolver = Resolver(
         comparators=[
@@ -322,7 +343,15 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         candidate_source=PersistedCandidateSource(candidates_by_index),
         embedder=embedder,
     )
-    resolution_result = await resolver.resolve(combined_mentions) if entities else None
+    resolution_result = (
+        await resolver.resolve(
+            combined_mentions,
+            neighbors_by_index=neighbors_by_index,
+            similarity_by_pair=similarity_by_pair,
+        )
+        if entities
+        else None
+    )
     semantic_groups = resolution_result.groups if resolution_result is not None else []
     groups = exact_resolution_groups(entities, exact_matches)
 

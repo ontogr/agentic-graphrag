@@ -217,14 +217,25 @@ class LLMVerify(Comparator):
         pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]],
         *,
         similarities: dict[tuple[int, int], float] | None = None,
+        neighbors_by_index: dict[int, list[str]] | None = None,
     ) -> dict[tuple[int, int], ComparisonResult]:
         """Verify ambiguous candidate pairs across bounded LLM requests.
 
         Splits into requests of at most ``max_pairs_per_batch`` pairs so one
         oversized population cannot exceed the model's context limit.
         Invalid, missing, and uncertain model responses do not merge entities.
+
+        Args:
+            pairs: ``(left_index, right_index, left, right)`` tuples to verify.
+            similarities: Embedding similarity per pair, sent to the model
+                as decision context. Defaults to 0.0 when unknown.
+            neighbors_by_index: Entity index to its neighboring-relationship
+                context strings. Looked up globally, so every chunk sees the
+                same map.
         """
-        results, _ = await self.compare_batch_detailed(pairs, similarities=similarities)
+        results, _ = await self.compare_batch_detailed(
+            pairs, similarities=similarities, neighbors_by_index=neighbors_by_index
+        )
         return results
 
     async def compare_batch_detailed(
@@ -232,6 +243,7 @@ class LLMVerify(Comparator):
         pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]],
         *,
         similarities: dict[tuple[int, int], float] | None = None,
+        neighbors_by_index: dict[int, list[str]] | None = None,
     ) -> tuple[dict[tuple[int, int], ComparisonResult], int]:
         """Verify pairs and count how many verdicts came back uncertain.
 
@@ -239,6 +251,9 @@ class LLMVerify(Comparator):
             pairs: The candidate pairs to verify.
             similarities: Embedding similarity per pair, sent to the model
                 as decision context. Defaults to 0.0 when unknown.
+            neighbors_by_index: Entity index to its neighboring-relationship
+                context strings. Looked up globally, so every chunk sees the
+                same map.
 
         Returns:
             The per-pair results and the count of raw uncertain verdicts,
@@ -251,7 +266,7 @@ class LLMVerify(Comparator):
         for start in range(0, len(pairs), self.max_pairs_per_batch):
             chunk = pairs[start : start + self.max_pairs_per_batch]
             chunk_results, chunk_uncertain = await self._compare_batch_chunk(
-                chunk, similarities=similarities
+                chunk, similarities=similarities, neighbors_by_index=neighbors_by_index
             )
             results.update(chunk_results)
             uncertain += chunk_uncertain
@@ -262,6 +277,7 @@ class LLMVerify(Comparator):
         pairs: list[tuple[int, int, ExtractedEntity, ExtractedEntity]],
         *,
         similarities: dict[tuple[int, int], float] | None = None,
+        neighbors_by_index: dict[int, list[str]] | None = None,
     ) -> tuple[dict[tuple[int, int], ComparisonResult], int]:
         """Verify one bounded chunk of ambiguous candidate pairs in one LLM request."""
         if self._client is not None:
@@ -286,10 +302,10 @@ class LLMVerify(Comparator):
                     "pair_id": pair_id,
                     "entity_a": first.text,
                     "context_a": self._context_for(first),
-                    "neighbors_a": [],
+                    "neighbors_a": (neighbors_by_index or {}).get(left, []),
                     "entity_b": second.text,
                     "context_b": self._context_for(second),
-                    "neighbors_b": [],
+                    "neighbors_b": (neighbors_by_index or {}).get(right, []),
                     "similarity": known.get((left, right), 0.0),
                 }
                 for pair_id, (left, right, first, second) in zip(
@@ -472,7 +488,13 @@ class Resolver:
                 "llm_batch_size must fit the LLMVerify max_pairs_per_batch"
             )
 
-    async def resolve(self, entities: list[ExtractedEntity]) -> ResolutionResult:
+    async def resolve(
+        self,
+        entities: list[ExtractedEntity],
+        *,
+        neighbors_by_index: dict[int, list[str]] | None = None,
+        similarity_by_pair: dict[tuple[int, int], float] | None = None,
+    ) -> ResolutionResult:
         """Resolve entity groups and retain each confirmed non-exact match.
 
         Args:
@@ -480,6 +502,16 @@ class Resolver:
                 same call are ever compared against each other — resolving
                 against previously-resolved entities from an earlier call is
                 not supported by this Resolver.
+            neighbors_by_index: Entity index to that entity's neighboring-
+                relationship context for LLM verification, when the caller has
+                such a source. Omitted by callers that do not.
+            similarity_by_pair: Already-known real similarity scores keyed by
+                ``(min(left, right), max(left, right))``, such as an ANN
+                backend's hit score. Never drives zone routing -- that scale
+                is not comparable to this Resolver's own cosine similarity --
+                but reaches the LLM as decision context, preferred over a
+                freshly embedded score, for a pair that lands on the boundary
+                anyway. Not mutated.
 
         Returns:
             Groups for every input index, evidence for every confirmed
@@ -495,7 +527,9 @@ class Resolver:
                     continue
                 compared.add(pair)
                 pairs.append(pair)
-        edges, matches, ambiguous_count = await self._resolve_pairs(pairs, entities)
+        edges, matches, ambiguous_count = await self._resolve_pairs(
+            pairs, entities, neighbors_by_index or {}, similarity_by_pair or {}
+        )
         groups = _group_matches(len(entities), edges)
         return ResolutionResult(
             groups=[ResolutionGroup(entity_indices=group) for group in groups],
@@ -504,7 +538,11 @@ class Resolver:
         )
 
     async def _resolve_pairs(
-        self, pairs: list[tuple[int, int]], entities: list[ExtractedEntity]
+        self,
+        pairs: list[tuple[int, int]],
+        entities: list[ExtractedEntity],
+        neighbors_by_index: dict[int, list[str]],
+        similarity_by_pair: dict[tuple[int, int], float],
     ) -> tuple[list[tuple[int, int]], list[ResolvedMatch], int]:
         """Route candidate pairs through the exact, fuzzy, embedding, and LLM zones.
 
@@ -512,7 +550,10 @@ class Resolver:
         ``max_llm_pairs`` and pooled across labels into requests of
         ``llm_batch_size``, so one call makes at most
         ``ceil(L * max_llm_pairs / llm_batch_size)`` LLM requests for
-        ``L`` labels.
+        ``L`` labels. ``similarity_by_pair`` never drives zone routing --
+        an ANN backend's score is not on the same scale as this tier's own
+        cosine similarity, so it only reaches the LLM as decision context
+        for a pair that lands on the boundary anyway.
         """
         edges: list[tuple[int, int]] = []
         matches: list[ResolvedMatch] = []
@@ -545,7 +586,14 @@ class Resolver:
             fuzzy_uncertain, entities, edges, matches
         )
         boundary = self._precluster_tier(ambiguous, scored, edges, matches)
-        ambiguous_count = await self._llm_tier(boundary, entities, edges, matches)
+        ambiguous_count = await self._llm_tier(
+            boundary,
+            entities,
+            edges,
+            matches,
+            neighbors_by_index=neighbors_by_index,
+            similarity_by_pair=similarity_by_pair,
+        )
         return edges, matches, ambiguous_count
 
     async def _embedding_tier(
@@ -673,6 +721,9 @@ class Resolver:
         entities: list[ExtractedEntity],
         edges: list[tuple[int, int]],
         matches: list[ResolvedMatch],
+        *,
+        neighbors_by_index: dict[int, list[str]],
+        similarity_by_pair: dict[tuple[int, int], float],
     ) -> int:
         """Verify capped boundary pairs with the LLM and merge its matches.
 
@@ -697,12 +748,14 @@ class Resolver:
                 for left, right in selected_chunk
             ]
             chunk_similarities = {
-                (left, right): similarity
+                (left, right): similarity_by_pair.get((left, right), similarity)
                 for left, right, similarity in boundary
                 if (left, right) in selected_chunk
             }
             results, chunk_uncertain = await self._llm.compare_batch_detailed(
-                chunk, similarities=chunk_similarities
+                chunk,
+                similarities=chunk_similarities,
+                neighbors_by_index=neighbors_by_index,
             )
             ambiguous_count += chunk_uncertain
             for (left, right), comparison in results.items():

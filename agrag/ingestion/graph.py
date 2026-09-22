@@ -75,6 +75,7 @@ from agrag.ingestion.resolve import (
     LLMVerify,
     PersistedCandidateSource,
     Resolver,
+    fetch_persisted_neighbors,
     persisted_candidate_indices,
 )
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
@@ -1340,7 +1341,16 @@ class Graph:
                 vector_collection=self._retrieval_settings.entity_collection,
                 entity_labels=[entity.label for entity in self._schema.entities],
             )
-            candidate_indices = await persisted_candidate_indices(
+            persisted_neighbors = await fetch_persisted_neighbors(
+                [entity.id for entity in all_entities],
+                graph_store=self._graph_store,
+                exclude_relation_types=SYSTEM_RELATION_TYPES,
+            )
+            neighbors_by_index = {
+                index: persisted_neighbors.get(entity.id, [])
+                for index, entity in enumerate(all_entities)
+            }
+            candidate_indices, similarity_by_pair = await persisted_candidate_indices(
                 synthetic_mentions,
                 all_entities,
                 source=candidate_source,
@@ -1354,7 +1364,11 @@ class Graph:
                 candidate_source=PersistedCandidateSource(candidate_indices),
                 embedder=self._embedder,
             )
-            resolution_result = await resolver.resolve(synthetic_mentions)
+            resolution_result = await resolver.resolve(
+                synthetic_mentions,
+                neighbors_by_index=neighbors_by_index,
+                similarity_by_pair=similarity_by_pair,
+            )
             ambiguous_count += resolution_result.ambiguous_count
             entities_by_id.update({entity.id: entity for entity in all_entities})
             for match in resolution_result.matches:
