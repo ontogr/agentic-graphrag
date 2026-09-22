@@ -3845,8 +3845,9 @@ the read needs no datetime parsing at the boundary.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting no parameters. Returns each
-- <code>[str](#str)</code> – incomplete job's id, status, affected-entity snapshot, and whether
-- <code>[str](#str)</code> – its lease has lapsed.
+- <code>[str](#str)</code> – incomplete job's id, status, lease token, affected-entity snapshot,
+- <code>[str](#str)</code> – and whether its lease has lapsed. The lease token is required to
+- <code>[str](#str)</code> – fence the subsequent recovery claim.
 
 #### `agrag.cypher.cutover_job_write`
 
@@ -3882,7 +3883,6 @@ anything else means a live job already holds it.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $document_key, $verb,
-- <code>[str](#str)</code> – $expected_lease_token,
 - <code>[str](#str)</code> – $lease_token, $lease_expires_at (ISO-8601 string, stored as a
 - <code>[str](#str)</code> – native datetime for expiry comparison), $affected_entity_ids
 - <code>[str](#str)</code> – (list of string ids, snapshotted before any pending write), and
@@ -4030,8 +4030,9 @@ the whole run out at its first transition.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $document_key, $verb,
-- <code>[str](#str)</code> – $lease_token, $affected_entity_ids (the new run's snapshot, empty
-- <code>[str](#str)</code> – until the caller needs it), $created_at, and $lease_expires_at
+- <code>[str](#str)</code> – $expected_lease_token, $lease_token, $affected_entity_ids (the new
+- <code>[str](#str)</code> – run's snapshot, empty until the caller needs it), $created_at, and
+- <code>[str](#str)</code> – $lease_expires_at
 - <code>[str](#str)</code> – (ISO-8601 string). Returns the node's lease_token when the steal
 - <code>[str](#str)</code> – succeeded, no row otherwise.
 
@@ -4664,17 +4665,13 @@ close_part_of_query() -> str
 
 Build Cypher that closes currently valid document-to-chunk edges.
 
-Pending visibility matters here: the superseding version's edges are
-already written when this runs, so a null `$job_id` would close the
-new version along with the old one and leave the document with no
-current chunks. The job-scoped guard closes the superseded version
-and leaves the writing job's own edges open.
+Only committed edges are closed. Pending edges belong to an in-flight
+cutover and remain open until that job commits.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $document_node_id and $job_id
-- <code>[str](#str)</code> – (the in-flight Cutover Job's id, or null outside a job). Returns
-- <code>[str](#str)</code> – the number of edges closed.
+- <code>[str](#str)</code> – Parameterized Cypher expecting $document_node_id. Returns the
+- <code>[str](#str)</code> – number of committed edges closed.
 
 ##### `agrag.cypher.relations.entities_in_documents_query`
 
@@ -4979,7 +4976,7 @@ Cypher writes for non-destructive entity resolution.
 
 - [**clear_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.clear_resolved_entity_vector_deletions_query) – Build Cypher removing successfully retried vector deletions.
 - [**deactivate_match_query**](#agrag.cypher.resolution_write.deactivate_match_query) – Build Cypher that retains but deactivates a match edge.
-- [**delete_entities_query**](#agrag.cypher.resolution_write.delete_entities_query) – Build Cypher deleting entities and their mention/cluster edges.
+- [**delete_entities_query**](#agrag.cypher.resolution_write.delete_entities_query) – Build Cypher deleting orphaned entities with a final evidence check.
 - [**delete_merge_aliases_for_entities_query**](#agrag.cypher.resolution_write.delete_merge_aliases_for_entities_query) – Build Cypher deleting merge aliases owned by removed entities.
 - [**delete_resolved_entities_query**](#agrag.cypher.resolution_write.delete_resolved_entities_query) – Build Cypher deleting resolved nodes left with no members.
 - [**enqueue_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.enqueue_resolved_entity_vector_deletions_query) – Build Cypher persisting vector ids whose deletion needs a retry.
@@ -5010,7 +5007,7 @@ Build Cypher that retains but deactivates a match edge.
 delete_entities_query() -> str
 ```
 
-Build Cypher deleting entities and their mention/cluster edges.
+Build Cypher deleting orphaned entities with a final evidence check.
 
 ##### `agrag.cypher.resolution_write.delete_merge_aliases_for_entities_query`
 
