@@ -30,8 +30,9 @@ first verifier consultation do not count against this budget. Once the \
 verifier returns PASS, or you have used all retries, synthesize a final \
 answer citing the evidence keys the \
 researcher reported. If you run out of attempts before the verifier \
-returns PASS, say plainly which sub-questions remain unanswered rather \
-than presenting an unverified answer as complete."""
+returns PASS, begin the final answer with "Insufficient evidence:" and say \
+plainly which sub-questions remain unanswered rather than presenting an \
+unverified answer as complete."""
 
 RESEARCHER_SYSTEM = """\
 You are a researcher with access to a knowledge graph, described below. \
