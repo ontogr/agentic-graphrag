@@ -77,6 +77,7 @@ def replace_component_materializations_query() -> str:
         "WITH collect(DISTINCT membership) AS memberships, "
         "collect(DISTINCT resolved) AS resolved_entities "
         "FOREACH (membership IN memberships | DELETE membership) "
+        "WITH resolved_entities "
         "UNWIND resolved_entities AS resolved "
         "WITH resolved, resolved.id AS resolved_id "
         f"OPTIONAL MATCH (remaining:{NODE_IDENTITY_LABEL})"
