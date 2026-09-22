@@ -80,13 +80,22 @@ class TestResolutionReadQueries:
         )
 
     def test_fetch_entities_with_open_evidence_query(self) -> None:
-        """Pruning only treats open-chunk mentions as surviving evidence."""
+        """Pruning only treats visible open-chunk mentions as evidence."""
         assert fetch_entities_with_open_evidence_query() == (
             "UNWIND $ids AS entity_id "
             "MATCH (chunk:_AgragNode:Chunk)-[mention:MENTIONED_IN]->"
             "(entity:_AgragNode {id: entity_id}) "
             "MATCH (document:_AgragNode:Document)-[part:PART_OF]->(chunk) "
             "WHERE part.invalid_at IS NULL "
+            "AND (entity._pending_job_id IS NULL "
+            "OR entity._pending_job_id = $job_id) "
+            "AND (chunk._pending_job_id IS NULL "
+            "OR chunk._pending_job_id = $job_id) "
+            "AND (mention._pending_job_id IS NULL "
+            "OR mention._pending_job_id = $job_id) "
+            "AND (document._pending_job_id IS NULL "
+            "OR document._pending_job_id = $job_id) "
+            "AND (part._pending_job_id IS NULL OR part._pending_job_id = $job_id) "
             "RETURN DISTINCT entity.id AS id"
         )
 
