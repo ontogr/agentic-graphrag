@@ -297,7 +297,7 @@ async def merge_properties(
     return resolved, conflicts, failures
 
 
-def _new_survivor_id(label: str, name: str, job_id: UUID | None) -> UUID:
+def _new_survivor_id(label: str, name: str, job_id: UUID | str | None) -> UUID:
     """Return the id for a brand-new merge survivor.
 
     Inside a Cutover Job the id derives from (job_id, merge_key), so
@@ -326,7 +326,7 @@ async def compute_merge(  # noqa: PLR0912
     rules: PropertyRules | None = None,
     description_settings: Any | None = None,
     description_client: Any | None = None,
-    job_id: UUID | None = None,
+    job_id: UUID | str | None = None,
 ) -> tuple[MergePlan, list[Any]]:
     """Compute how existing_entities and mentions combine into one Entity.
 

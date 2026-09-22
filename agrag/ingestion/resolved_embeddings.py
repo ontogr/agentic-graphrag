@@ -73,7 +73,7 @@ async def embed_resolved_entities(
     vector_store: VectorStore | None,
     vector_collection: str,
     error_policy: ErrorPolicy,
-    pending_job_id: UUID | None = None,
+    pending_job_id: UUID | str | None = None,
 ) -> list[StageFailure]:
     """Write resolved-entity embeddings to the graph and optional vector store.
 
@@ -179,7 +179,7 @@ async def _synchronize_resolved_entity_vectors(
     vector_store: VectorStore | None,
     vector_collection: str,
     error_policy: ErrorPolicy,
-    pending_job_id: UUID | None = None,
+    pending_job_id: UUID | str | None = None,
 ) -> list[StageFailure]:
     """Replace stale resolved vectors and synchronize current materializations.
 

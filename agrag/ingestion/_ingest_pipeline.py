@@ -848,7 +848,7 @@ def _vector_record(
     label: str,
     text: str,
     properties: dict[str, object] | None = None,
-    pending_job_id: UUID | None = None,
+    pending_job_id: UUID | str | None = None,
 ) -> VectorRecord:
     """Build a VectorRecord whose payload matches the retrievers' reads.
 
@@ -945,7 +945,7 @@ def _node_properties(node: object) -> dict[str, Any]:
 
 
 async def _persisted_chunk_ids(
-    graph_store: GraphStore, chunk_ids: set[UUID], *, job_id: UUID | None = None
+    graph_store: GraphStore, chunk_ids: set[UUID], *, job_id: UUID | str | None = None
 ) -> set[UUID]:
     """Return the subset of chunk_ids that exist as Chunk nodes.
 
@@ -1234,7 +1234,7 @@ async def _global_exact_match(
     mentions: list[ExtractedEntity],
     *,
     graph_store: GraphStore,
-    job_id: UUID | None = None,
+    job_id: UUID | str | None = None,
 ) -> dict[int, Entity]:
     """Return each mention index's matching persisted Entity, if it has one.
 
@@ -1313,7 +1313,7 @@ async def _global_relation_lookup(
     triples: list[tuple[UUID, UUID, str]],
     *,
     graph_store: GraphStore,
-    job_id: UUID | None = None,
+    job_id: UUID | str | None = None,
 ) -> dict[tuple[UUID, UUID, str], tuple[UUID, list[UUID]]]:
     """Return each triple's already-persisted relation id and source_chunk_ids.
 
@@ -1406,7 +1406,7 @@ async def _embed_and_upsert_chunks(
     error_policy: ErrorPolicy,
     vector_store: VectorStore | None = None,
     vector_collection: str = "",
-    pending_job_id: UUID | None = None,
+    pending_job_id: UUID | str | None = None,
 ) -> list[StageFailure]:
     """Embed every chunk's text and write the vectors back onto their nodes.
 
@@ -1538,7 +1538,7 @@ async def _embed_and_upsert_survivors(
     vector_store: VectorStore | None = None,
     vector_collection: str = "",
     labels_by_id: dict[UUID, str] | None = None,
-    pending_job_id: UUID | None = None,
+    pending_job_id: UUID | str | None = None,
 ) -> list[StageFailure]:
     """Embed every survivor's current text and write only the vector.
 

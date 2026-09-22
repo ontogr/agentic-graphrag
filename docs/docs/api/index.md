@@ -4984,7 +4984,7 @@ Cypher writes for non-destructive entity resolution.
 - [**delete_resolved_entities_query**](#agrag.cypher.resolution_write.delete_resolved_entities_query) – Build Cypher deleting resolved nodes left with no members.
 - [**enqueue_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.enqueue_resolved_entity_vector_deletions_query) – Build Cypher persisting vector ids whose deletion needs a retry.
 - [**fetch_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.fetch_resolved_entity_vector_deletions_query) – Build Cypher reading vector deletions that still need a retry.
-- [**replace_component_materializations_query**](#agrag.cypher.resolution_write.replace_component_materializations_query) – Build Cypher replacing memberships without deleting shared resolved nodes.
+- [**replace_component_materializations_query**](#agrag.cypher.resolution_write.replace_component_materializations_query) – Build Cypher replacing memberships outside a pending cutover.
 - [**set_resolved_entity_sync_status_query**](#agrag.cypher.resolution_write.set_resolved_entity_sync_status_query) – Build Cypher setting the vector synchronization state of derived nodes.
 - [**upsert_matches_query**](#agrag.cypher.resolution_write.upsert_matches_query) – Build Cypher that idempotently records a confirmed entity match.
 
@@ -5050,7 +5050,12 @@ Build Cypher reading vector deletions that still need a retry.
 replace_component_materializations_query() -> str
 ```
 
-Build Cypher replacing memberships without deleting shared resolved nodes.
+Build Cypher replacing memberships outside a pending cutover.
+
+A pending cutover must not delete the previously committed
+materialization: rollback can remove only rows created by that cutover.
+The pending node remains alongside the old one until a later
+consolidation pass replaces it after commit.
 
 ##### `agrag.cypher.resolution_write.set_resolved_entity_sync_status_query`
 
