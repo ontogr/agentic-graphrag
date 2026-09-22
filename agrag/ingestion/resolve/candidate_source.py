@@ -39,7 +39,7 @@ def build_relation_neighbors(
     Returns:
         Entity index to a list of ``"{relation_label} {other_entity_text}"``
         strings, each direction of a relation contributing one entry to
-        both endpoints, capped at ``max_neighbors`` per index. An index no
+        both endpoints, capped at ``max_neighbors`` per index. An index with no
         relation names has no key at all.
     """
     neighbors: dict[int, list[str]] = {}
@@ -116,7 +116,9 @@ async def fetch_persisted_neighbors(
             neighbor_name = str(row["neighbor_name"])
         except (KeyError, ValueError):
             continue
-        neighbors.setdefault(entity_id, []).append(f"{rel_type} {neighbor_name}")
+        bucket = neighbors.setdefault(entity_id, [])
+        if len(bucket) < max_neighbors:
+            bucket.append(f"{rel_type} {neighbor_name}")
     return neighbors
 
 

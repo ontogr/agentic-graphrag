@@ -10081,7 +10081,7 @@ Build LLMVerify neighbor context from one batch's extracted relations.
 
 - <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – Entity index to a list of `"{relation_label} {other_entity_text}"`
 - <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – strings, each direction of a relation contributing one entry to
-- <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – both endpoints, capped at `max_neighbors` per index. An index no
+- <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – both endpoints, capped at `max_neighbors` per index. An index with no
 - <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – relation names has no key at all.
 
 ##### `agrag.ingestion.resolve.candidate_source`
@@ -10295,7 +10295,7 @@ Build LLMVerify neighbor context from one batch's extracted relations.
 
 - <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – Entity index to a list of `"{relation_label} {other_entity_text}"`
 - <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – strings, each direction of a relation contributing one entry to
-- <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – both endpoints, capped at `max_neighbors` per index. An index no
+- <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – both endpoints, capped at `max_neighbors` per index. An index with no
 - <code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\]</code> – relation names has no key at all.
 
 ###### `agrag.ingestion.resolve.candidate_source.exact_match_lookup`

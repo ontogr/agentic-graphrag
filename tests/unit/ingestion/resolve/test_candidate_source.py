@@ -316,6 +316,29 @@ class TestFetchPersistedNeighbors:
 
         assert neighbors == {entity_id: ["KNOWS Ada"]}
 
+    async def test_caps_repeated_rows_for_the_same_entity(self) -> None:
+        """Duplicate requested ids do not let returned rows exceed the cap."""
+        entity_id = uuid4()
+        graph_store = AsyncMock()
+        graph_store.execute_read.return_value = [
+            {
+                "entity_id": str(entity_id),
+                "rel_type": "KNOWS",
+                "neighbor_name": f"Person {index}",
+            }
+            for index in range(MAX_NEIGHBORS_PER_ENTITY + 2)
+        ]
+
+        neighbors = await fetch_persisted_neighbors(
+            [entity_id, entity_id],
+            graph_store=graph_store,
+            exclude_relation_types=[],
+        )
+
+        assert neighbors[entity_id] == [
+            f"KNOWS Person {index}" for index in range(MAX_NEIGHBORS_PER_ENTITY)
+        ]
+
     async def test_empty_ids_skips_the_read(self) -> None:
         """No ids means no query at all."""
         graph_store = AsyncMock()
