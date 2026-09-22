@@ -9670,7 +9670,7 @@ instead.
 ##### `agrag.ingestion.merge.compute_merge`
 
 ```python
-compute_merge(*, existing_entities:list[Entity], mentions:list[ExtractedEntity], schema:GraphSchema, rules:PropertyRules | None = None, description_settings:Any | None = None, description_client:Any | None = None, job_id:UUID | None = None) -> tuple[MergePlan, list[Any]]
+compute_merge(*, existing_entities:list[Entity], mentions:list[ExtractedEntity], schema:GraphSchema, rules:PropertyRules | None = None, description_settings:Any | None = None, description_client:Any | None = None, job_id:UUID | str | None = None) -> tuple[MergePlan, list[Any]]
 ```
 
 Compute how existing_entities and mentions combine into one Entity.
@@ -9688,7 +9688,7 @@ canonical survivor and marks the rest for tombstoning.
 - **rules** (<code>[PropertyRules](#agrag.ingestion.merge.PropertyRules) | None</code>) – Per-property conflict resolution. Defaults to keep_first.
 - **description_settings** (<code>[Any](#typing.Any) | None</code>) – LLM settings for description summarization.
 - **description_client** (<code>[Any](#typing.Any) | None</code>) – Injected LLM client for tests.
-- **job_id** (<code>[UUID](#uuid.UUID) | None</code>) – The Cutover Job this merge runs under. A brand-new entity
+- **job_id** (<code>[UUID](#uuid.UUID) | [str](#str) | None</code>) – The Cutover Job this merge runs under. A brand-new entity
   derives its id from (job_id, merge_key) instead of uuid4, so
   replaying the job after a crash reproduces the same id. None
   keeps today's random-id behavior for callers outside a job.
@@ -12504,7 +12504,7 @@ Embedding and vector synchronization for materialized resolved entities.
 ##### `agrag.ingestion.resolved_embeddings.embed_resolved_entities`
 
 ```python
-embed_resolved_entities(entities:list[ResolvedEntity], *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, vector_collection:str, error_policy:ErrorPolicy, pending_job_id:UUID | None = None) -> list[StageFailure]
+embed_resolved_entities(entities:list[ResolvedEntity], *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, vector_collection:str, error_policy:ErrorPolicy, pending_job_id:UUID | str | None = None) -> list[StageFailure]
 ```
 
 Write resolved-entity embeddings to the graph and optional vector store.
