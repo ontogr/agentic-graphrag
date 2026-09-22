@@ -1469,7 +1469,7 @@ async def _embed_and_upsert_chunks(
                     "expected_text": ch.text,
                 }
             )
-        await graph_store.execute_write(
+        matched_rows = await graph_store.execute_write(
             set_chunk_embedding_query("embedding"), {"records": records}
         )
     except Exception as exc:  # noqa: BLE001
@@ -1493,7 +1493,15 @@ async def _embed_and_upsert_chunks(
         ]
     if vector_store is not None:
         vector_records = []
+        matched_ids = {
+            UUID(str(row["id"]))
+            for row in matched_rows
+            if isinstance(row, dict) and row.get("id")
+        }
         for ch in chunks:
+            if ch.id not in matched_ids:
+                ch.embedding = None
+                continue
             if ch.id is None or not ch.embedding:
                 continue
             vector_records.append(
@@ -1598,7 +1606,7 @@ async def _embed_and_upsert_survivors(
         for ent, vec in zip(survivors.values(), vectors, strict=True):
             ent.embedding = vec
             records.append({**_embedding_guard_fields(ent), "vector": vec})
-        await graph_store.execute_write(
+        matched_rows = await graph_store.execute_write(
             set_embedding_query("embedding"), {"records": records}
         )
     except Exception as exc:  # noqa: BLE001
@@ -1623,6 +1631,11 @@ async def _embed_and_upsert_survivors(
         ]
     if vector_store is not None:
         label_map = labels_by_id or {}
+        matched_ids = {
+            UUID(str(row["id"]))
+            for row in matched_rows
+            if isinstance(row, dict) and row.get("id")
+        }
         vector_records = [
             _vector_record(
                 ent.id,
@@ -1633,6 +1646,7 @@ async def _embed_and_upsert_survivors(
                 pending_job_id=pending_job_id,
             )
             for ent in survivors.values()
+            if ent.id in matched_ids
         ]
         try:
             await _upsert_vectors(vector_store, vector_collection, vector_records)

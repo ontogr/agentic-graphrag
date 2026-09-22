@@ -49,7 +49,8 @@ class TestResolutionWriteQueries:
     def test_replace_component_materializations_query(self) -> None:
         """Only fully orphaned materializations are deleted."""
         assert replace_component_materializations_query() == (
-            "UNWIND $member_ids AS member_id "
+            "UNWIND CASE WHEN $pending_job_id IS NULL THEN $member_ids ELSE [] END "
+            "AS member_id "
             "MATCH (member:_AgragNode {id: member_id})"
             "-[membership:RESOLVED_AS]->"
             "(resolved:ResolvedEntity) "

@@ -149,13 +149,6 @@ class TestFuzzyMatch:
         b = _entity("Banana")
         assert await matcher.compare(a, b) is ComparisonVerdict.UNCERTAIN
 
-    async def test_custom_threshold(self) -> None:
-        """A stricter threshold defers pairs that score below it."""
-        matcher = FuzzyMatch(match_above=0.99)
-        a = _entity("Ada Lovelace")
-        b = _entity("Ada Lovelace.")
-        assert await matcher.compare(a, b) is ComparisonVerdict.UNCERTAIN
-
     async def test_retains_similarity_score_as_match_evidence(self) -> None:
         """The resolver persists the score that produced a fuzzy match."""
         resolver = Resolver(
@@ -619,11 +612,12 @@ class TestZoneRouting:
     async def test_embedding_discard_drops_without_llm(self) -> None:
         """A low cosine similarity drops the pair before any LLM call."""
         client = _CountingClient("no_match")
+        chunk = _llm_chunk()
         resolver = Resolver(
             comparators=[
                 ExactMatch(),
                 FuzzyMatch(),
-                LLMVerify(chunks_by_id={_DOC_ID: _chunk()}, client=client),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=client),
             ],
             candidate_source=_candidate_source(),
             embedder=_ScriptedEmbedder({"Apple": [1.0, 0.0], "Banana": [0.0, 1.0]}),

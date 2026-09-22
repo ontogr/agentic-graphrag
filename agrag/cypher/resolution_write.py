@@ -58,9 +58,16 @@ def deactivate_match_query() -> str:
 
 
 def replace_component_materializations_query() -> str:
-    """Build Cypher replacing memberships without deleting shared resolved nodes."""
+    """Build Cypher replacing memberships outside a pending cutover.
+
+    A pending cutover must not delete the previously committed
+    materialization: rollback can remove only rows created by that cutover.
+    The pending node remains alongside the old one until a later
+    consolidation pass replaces it after commit.
+    """
     return (
-        "UNWIND $member_ids AS member_id "
+        "UNWIND CASE WHEN $pending_job_id IS NULL THEN $member_ids ELSE [] END "
+        "AS member_id "
         f"MATCH (member:{NODE_IDENTITY_LABEL} {{id: member_id}})"
         f"-[membership:{RESOLVED_AS_RELATION}]->"
         f"(resolved:{RESOLVED_ENTITY_LABEL}) "

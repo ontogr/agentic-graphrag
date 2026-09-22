@@ -763,14 +763,17 @@ async def apply_merge(
         # applied as-is; those three go through upsert_survivor_query's
         # atomic accumulation instead, using node_params only to get their
         # driver-safe encoding, not their values.
-        record = tag_pending(plan.survivor.to_node_record(), pending_job_id)
+        record = plan.survivor.to_node_record()
         survivor_properties = dict(record.properties)
         survivor_properties.pop("source_chunk_ids", None)
         survivor_properties.pop("merged_from", None)
         survivor_properties.pop("merge_count", None)
         params = node_params(
-            NodeRecord(
-                id=record.id, labels=record.labels, properties=survivor_properties
+            tag_pending(
+                NodeRecord(
+                    id=record.id, labels=record.labels, properties=survivor_properties
+                ),
+                pending_job_id,
             )
         )
         params["new_source_chunk_ids"] = [str(cid) for cid in plan.new_source_chunk_ids]

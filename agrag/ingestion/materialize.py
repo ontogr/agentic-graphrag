@@ -266,7 +266,10 @@ async def write_matches_and_materialize(
         resolved = await compute_resolved_entity(members, schema)
         removed_rows = await transaction.execute_write(
             replace_component_materializations_query(),
-            {"member_ids": [str(member.id) for member in members]},
+            {
+                "member_ids": [str(member.id) for member in members],
+                "pending_job_id": pending_job_id,
+            },
         )
         removed_entity_ids = [
             UUID(str(entity_id))

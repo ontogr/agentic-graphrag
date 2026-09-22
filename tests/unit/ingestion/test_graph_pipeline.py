@@ -1174,9 +1174,11 @@ class _GuardedNodeStore(MockStore):
         if rows:
             return rows
         records = (parameters or {}).get("records", [])
+        matched_ids: list[str] = []
         for record in records:
             node = self.nodes.get(record["id"])
             if node is None:
+                matched_ids.append(record["id"])
                 continue
             # Entity guard: name + description.
             if "expected_name" in record and node["name"] != record["expected_name"]:
@@ -1198,6 +1200,9 @@ class _GuardedNodeStore(MockStore):
                 if node.get("merged_into") is not None:
                     continue
                 node["embedding"] = record["vector"]
+                matched_ids.append(record["id"])
+        if "SET n.embedding" in query:
+            return [{"id": record_id} for record_id in matched_ids]
         return []
 
 
@@ -1522,6 +1527,36 @@ class TestVectorStoreHelpers:
 
 class TestEmbedChunksDualWrite:
     """_embed_and_upsert_chunks mirrors vectors into the VectorStore."""
+
+    async def test_stale_chunk_is_not_mirrored(self) -> None:
+        """A chunk skipped by the graph text guard is not mirrored."""
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Old text",
+            provenance=TextProvenance(char_start=0, char_end=8),
+        )
+        store = _GuardedNodeStore(
+            {
+                str(ch.id): {
+                    "text": "New text",
+                    "embedding": [0.9, 0.9],
+                }
+            }
+        )
+        vector_store = RecordingVectorStore()
+
+        await _embed_and_upsert_chunks(
+            [ch],
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.RAISE,
+            vector_store=vector_store,
+            vector_collection="chunks",
+        )
+
+        assert vector_store.upserts == []
 
     async def test_success_upserts_chunk_vectors(self) -> None:
         """A successful embed upserts one record per chunk with its text."""

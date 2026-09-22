@@ -187,19 +187,22 @@ async def _roll_forward(
         return False
     if not claimed:
         return False
-    pruned = True
+    pruned = prune is not None or not affected_entity_ids
     if prune is not None and affected_entity_ids:
         try:
             await prune(affected_entity_ids)
         except Exception:  # noqa: BLE001
             pruned = False
-    with contextlib.suppress(Exception):
+    vectors_cleared = True
+    try:
         await clear_pending_vectors(
             vector_store=vector_store,
             collections=vector_collections,
             job_id=UUID(job_id),
         )
-    if pruned:
+    except Exception:  # noqa: BLE001
+        vectors_cleared = False
+    if pruned and vectors_cleared:
         with contextlib.suppress(Exception):
             await graph_store.execute_write(
                 finish_cleaning_query(), {"job_id": job_id, "lease_token": token}

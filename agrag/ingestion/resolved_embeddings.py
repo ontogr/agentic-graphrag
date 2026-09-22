@@ -209,6 +209,12 @@ async def _synchronize_resolved_entity_vectors(
     being left orphaned with no cleanup record.
     """
     failures: list[StageFailure] = []
+    # A vector store has no transaction with the graph. Reusing the stable
+    # resolved id here would overwrite a committed vector, and rollback
+    # could then delete that committed value. Native graph vectors remain
+    # pending and are visible after the cutover commits; the external copy
+    # is refreshed by the next non-pending synchronization pass.
+    pending_vector_store = None if pending_job_id is not None else vector_store
     republished_ids = {str(entity.id) for entity in entities}
     pending = await _pending_vector_deletions(graph_store)
     pending.update(
@@ -241,12 +247,12 @@ async def _synchronize_resolved_entity_vectors(
             )
             if error_policy is ErrorPolicy.RAISE:
                 raise
-    if vector_store is not None and pending:
+    if pending_vector_store is not None and pending:
         failures.extend(
             await _delete_pending_vectors(
                 pending,
                 graph_store=graph_store,
-                vector_store=vector_store,
+                vector_store=pending_vector_store,
                 error_policy=error_policy,
             )
         )
@@ -260,7 +266,7 @@ async def _synchronize_resolved_entity_vectors(
             entities_to_sync,
             embedder=embedder,
             graph_store=graph_store,
-            vector_store=vector_store,
+            vector_store=pending_vector_store,
             vector_collection=vector_collection,
             error_policy=error_policy,
             pending_job_id=pending_job_id,
@@ -276,12 +282,12 @@ async def _synchronize_resolved_entity_vectors(
         for item_id, collection in assumed_current.items()
         if item_id not in uncleared_stale_ids and item_id not in synced_ids
     }
-    if superseded and vector_store is not None:
+    if superseded and pending_vector_store is not None:
         failures.extend(
             await _delete_pending_vectors(
                 superseded,
                 graph_store=graph_store,
-                vector_store=vector_store,
+                vector_store=pending_vector_store,
                 error_policy=error_policy,
             )
         )

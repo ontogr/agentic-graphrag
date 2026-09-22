@@ -179,6 +179,31 @@ class TestWriteMatchesAndMaterialize:
                 [decision], graph_store=store, schema=_schema(), members=[first, second]
             )
 
+    async def test_pending_job_does_not_delete_committed_materialization(self) -> None:
+        """A pending materialization leaves rollback-owned old rows intact."""
+        first, second = _entity("Ada"), _entity("Ada Lovelace")
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
+        )
+        decision = MatchDecision(
+            entity_a_id=first.id,
+            entity_b_id=second.id,
+            comparator="FuzzyMatch",
+            decided_at=datetime.now(UTC),
+        )
+
+        result = await write_matches_and_materialize(
+            [decision],
+            graph_store=store,
+            schema=_schema(),
+            members=[first, second],
+            pending_job_id=str(uuid4()),
+        )
+
+        assert result.removed_entity_ids == []
+        replacement_call = store.current_transaction.execute_write.await_args_list[1]
+        assert replacement_call.args[1]["pending_job_id"] is not None
+
 
 class TestDeactivateMatch:
     """Match corrections report stale materializations for vector cleanup."""

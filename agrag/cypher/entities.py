@@ -428,7 +428,8 @@ def set_chunk_embedding_query(vector_property: str) -> str:
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
         f"WHERE n.text = record.expected_text "
         f"AND n.merged_into IS NULL "
-        f"SET n.{safe_property} = record.vector"
+        f"SET n.{safe_property} = record.vector "
+        f"RETURN n.id AS id"
     )
 
 
