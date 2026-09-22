@@ -160,6 +160,22 @@ result = await graph.delete_document("memory://manual")
 print(result.chunks_closed)
 ```
 
+## Crash safety
+
+`add`, `update`, and `delete_document` each run as a Cutover Job. Every node,
+edge, and vector a call writes is tagged with that job's id, and every
+retrieval path excludes tagged writes, so an in-flight call is never visible to
+a search. One transaction then flips the job to committed, closes the
+superseded version's `PART_OF` edges, and clears the tags; deletion-triggered
+pruning runs after that, scoped to the entities the replaced version mentioned.
+
+If the process dies mid-call, the next `Graph.open()` recovers automatically:
+a job that died before its commit is rolled back, deleting its tagged writes,
+and a job that died after committing is rolled forward. Either way the graph
+converges to as-if-never-happened or as-if-completed. A document's job is
+guarded by a lease that expires after `CUTOVER_JOB_LEASE_TTL_SECONDS` seconds
+(60 by default), after which another worker may take the document over.
+
 ## Supported formats
 
 Loaders are chosen by file extension. Core loaders are always available; docling

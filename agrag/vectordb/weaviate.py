@@ -7,7 +7,12 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
-from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
+from agrag.common.data_models.vector_record import (
+    PENDING_VECTOR_FLAG,
+    Distance,
+    VectorHit,
+    VectorRecord,
+)
 from agrag.common.validation import (
     require_positive_batch_size,
     require_valid_alpha,
@@ -144,25 +149,37 @@ class WeaviateVectorStore(VectorStore):
     def _compile_filter(self, filters: dict[str, Any] | None) -> Any:
         """Build a Weaviate filter from a flat-dict payload filter.
 
+        A pending record (one whose ``_pending`` payload boolean is true)
+        is excluded unless the filter asks for pending records only. The
+        exclusion is a negated equality, so records written before the
+        flag existed still match.
+
         Args:
             filters: A flat-dict filter: a scalar value means exact match, a
                 list value means any of, and all keys are AND-ed together.
-                ``None`` means no filter.
+                ``None`` means no filter. ``_pending=True`` selects only
+                in-flight records; leaving the key out, or setting it
+                ``False``, excludes them.
 
         Returns:
-            A Weaviate ``Filter``, or ``None`` when ``filters`` is empty.
+            A Weaviate ``Filter`` matching the requested records.
         """
-        if not filters:
-            return None
         from weaviate.classes.query import Filter as WeaviateFilter  # noqa: PLC0415
 
         conditions = []
-        for key, value in filters.items():
+        for key, value in (filters or {}).items():
+            if key == PENDING_VECTOR_FLAG:
+                continue
             prop = WeaviateFilter.by_property(key)
             if isinstance(value, list):
                 conditions.append(prop.contains_any(value))
             else:
                 conditions.append(prop.equal(value))
+        pending = WeaviateFilter.by_property(PENDING_VECTOR_FLAG)
+        if (filters or {}).get(PENDING_VECTOR_FLAG) is True:
+            conditions.append(pending.equal(True))
+        else:
+            conditions.append(WeaviateFilter.not_(pending.equal(True)))
         return WeaviateFilter.all_of(conditions)
 
     @staticmethod

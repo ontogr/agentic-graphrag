@@ -90,6 +90,7 @@ class BFSRetriever(Retriever):
         )
         params = {
             "seed_ids": [str(sid) for sid in seed_ids],
+            "job_id": None,
             **filter_params,
         }
         if filters and filters.document_ids:

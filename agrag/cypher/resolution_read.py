@@ -18,33 +18,73 @@ def fetch_match_endpoints_query() -> str:
 
 
 def fetch_active_component_members_query() -> str:
-    """Build Cypher returning active match components from seed ids."""
+    """Build Cypher returning active match components from seed ids.
+
+    Pending visibility is job-scoped, not a plain exclusion: the
+    materialization pass runs inside its own job's pending phase and must
+    see the entities and matches that same job just wrote, while still
+    excluding every other in-flight job's. A null ``$job_id`` reduces both
+    guards to committed-only, which is what every caller outside a job
+    passes.
+
+    Returns:
+        Parameterized Cypher expecting $seed_ids (list of string ids) and
+        $job_id (the in-flight job's id, or null outside a job). Returns
+        each seed id with its distinct active component members.
+    """
     return (
         "UNWIND $seed_ids AS seed_id "
         f"MATCH (seed:{NODE_IDENTITY_LABEL} {{id: seed_id}})"
         f"-[matches:{MATCHES_RELATION}*0..]-(member:{NODE_IDENTITY_LABEL}) "
         "WHERE ALL(match IN matches WHERE match.active = true) "
+        "AND ALL(match IN matches WHERE match._pending_job_id IS NULL "
+        "OR match._pending_job_id = $job_id) "
+        "AND (seed._pending_job_id IS NULL OR seed._pending_job_id = $job_id) "
+        "AND (member._pending_job_id IS NULL OR member._pending_job_id = $job_id) "
         "RETURN DISTINCT seed_id, member"
     )
 
 
 def hydrate_resolved_entities_by_id_query() -> str:
-    """Build Cypher hydrating materializations returned by vector search."""
+    """Build Cypher hydrating materializations returned by vector search.
+
+    Pending visibility is job-scoped: a null ``$job_id`` reduces the
+    guard to committed-only, so retrieval never hydrates a
+    ResolvedEntity an uncommitted job materialized.
+
+    Returns:
+        Parameterized Cypher expecting $ids (list of string ids) and
+        $job_id (the in-flight job's id, or null outside a job).
+    """
     return (
         "UNWIND $ids AS resolved_entity_id "
         f"MATCH (resolved:{RESOLVED_ENTITY_LABEL} {{id: resolved_entity_id}}) "
         "WHERE resolved.vector_sync_status = 'synced' "
+        "AND (resolved._pending_job_id IS NULL "
+        "OR resolved._pending_job_id = $job_id) "
         "RETURN resolved"
     )
 
 
 def fetch_active_resolved_member_ids_query() -> str:
-    """Build Cypher finding raw hits hidden by an active materialization."""
+    """Build Cypher finding raw hits hidden by an active materialization.
+
+    Pending visibility is job-scoped on both the edge and the resolved
+    node: a null ``$job_id`` reduces both guards to committed-only, so
+    an uncommitted job's materialization never hides a raw hit.
+
+    Returns:
+        Parameterized Cypher expecting $ids (list of string ids) and
+        $job_id (the in-flight job's id, or null outside a job).
+    """
     return (
         "UNWIND $ids AS entity_id "
         f"MATCH (entity:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
-        f"-[:{RESOLVED_AS_RELATION}]->(resolved:{RESOLVED_ENTITY_LABEL}) "
+        f"-[edge:{RESOLVED_AS_RELATION}]->(resolved:{RESOLVED_ENTITY_LABEL}) "
         "WHERE resolved.vector_sync_status = 'synced' "
+        "AND (edge._pending_job_id IS NULL OR edge._pending_job_id = $job_id) "
+        "AND (resolved._pending_job_id IS NULL "
+        "OR resolved._pending_job_id = $job_id) "
         "RETURN entity_id"
     )
 

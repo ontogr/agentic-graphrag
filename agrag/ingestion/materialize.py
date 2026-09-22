@@ -187,11 +187,21 @@ async def write_matches_and_materialize(
     graph_store: GraphStore,
     schema: GraphSchema,
     members: list[Entity],
+    pending_job_id: str | None = None,
 ) -> MaterializationResult:
     """Persist matches and materialize their supplied connected component.
 
     Callers fetch the bounded affected component before invoking this function.
     The resolved node is always recomputed from that current membership.
+
+    Args:
+        decisions: The confirmed matches to persist.
+        graph_store: Where matches and materializations are written.
+        schema: The schema the members belong to.
+        members: The component members the resolved node is computed from.
+        pending_job_id: The in-flight Cutover Job's id, tagging the match
+            edges and materialized nodes until that job commits. None
+            writes untagged, for callers outside a job.
 
     Raises:
         ValueError: No decisions are supplied, or a decision references a
@@ -208,6 +218,8 @@ async def write_matches_and_materialize(
         raise ValueError(
             "Every match decision must reference a supplied component member"
         )
+    from agrag.common.data_models.graph_record import tag_pending  # noqa: PLC0415
+
     async with graph_store.transaction() as transaction:
         for decision in decisions:
             first_id, second_id = sorted(
@@ -223,6 +235,7 @@ async def write_matches_and_materialize(
                     "score": decision.score,
                     "reasoning": decision.reasoning,
                     "decided_at": decision.decided_at.isoformat(),
+                    "pending_job_id": pending_job_id,
                 },
             )
             if not match_rows:
@@ -231,7 +244,10 @@ async def write_matches_and_materialize(
                 )
         component_rows = await transaction.execute_read(
             fetch_active_component_members_query(),
-            {"seed_ids": [str(member.id) for member in members]},
+            {
+                "seed_ids": [str(member.id) for member in members],
+                "job_id": pending_job_id,
+            },
         )
         if component_rows:
             from agrag.ingestion._ingest_pipeline import (  # noqa: PLC0415
@@ -260,24 +276,28 @@ async def write_matches_and_materialize(
         ]
         _raise_for_write_failure(
             await transaction.upsert_nodes(
-                RESOLVED_ENTITY_LABEL, [resolved.to_node_record()]
+                RESOLVED_ENTITY_LABEL,
+                [tag_pending(resolved.to_node_record(), pending_job_id)],
             )
         )
         _raise_for_write_failure(
             await transaction.upsert_relations(
                 [
-                    RelationRecord(
-                        id=uuid5(
-                            NAMESPACE_OID, f"RESOLVED_AS:{member.id}:{resolved.id}"
+                    tag_pending(
+                        RelationRecord(
+                            id=uuid5(
+                                NAMESPACE_OID, f"RESOLVED_AS:{member.id}:{resolved.id}"
+                            ),
+                            type=RESOLVED_AS_RELATION,
+                            start_id=member.id,
+                            end_id=resolved.id,
+                            properties={
+                                "decided_at": max(
+                                    decision.decided_at for decision in decisions
+                                ).isoformat()
+                            },
                         ),
-                        type=RESOLVED_AS_RELATION,
-                        start_id=member.id,
-                        end_id=resolved.id,
-                        properties={
-                            "decided_at": max(
-                                decision.decided_at for decision in decisions
-                            ).isoformat()
-                        },
+                        pending_job_id,
                     )
                     for member in members
                 ]
@@ -315,7 +335,10 @@ async def deactivate_match_and_rematerialize(
             raise ValueError(f"Match {match_id} does not exist")
         component_rows = await transaction.execute_read(
             fetch_active_component_members_query(),
-            {"seed_ids": [str(endpoint_id) for endpoint_id in endpoints]},
+            {
+                "seed_ids": [str(endpoint_id) for endpoint_id in endpoints],
+                "job_id": None,
+            },
         )
         by_seed: dict[str, list[Entity]] = defaultdict(list)
         for row in component_rows:
@@ -468,7 +491,7 @@ async def prune_orphaned_entities(
         remaining_ids = [m for m in dict.fromkeys(member_ids) if m not in removed_set]
         hydrate_rows = (
             await graph_store.execute_read(
-                hydrate_entities_by_id_query(), {"ids": remaining_ids}
+                hydrate_entities_by_id_query(), {"ids": remaining_ids, "job_id": None}
             )
             if remaining_ids
             else []

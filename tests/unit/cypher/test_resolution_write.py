@@ -30,7 +30,8 @@ class TestResolutionWriteQueries:
             "DELETE existing "
             "MERGE (a)-[r:MATCHES {id: $match_id}]->(b) "
             "SET r.active = true, r.comparator = $comparator, r.score = $score, "
-            "r.reasoning = $reasoning, r.decided_at = $decided_at "
+            "r.reasoning = $reasoning, r.decided_at = $decided_at, "
+            "r._pending_job_id = $pending_job_id "
             "RETURN r"
         )
 

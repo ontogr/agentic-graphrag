@@ -8,6 +8,8 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
+from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
+
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -140,12 +142,19 @@ def fetch_by_merge_keys_query() -> str:
     map those mentions back.
 
     Returns:
-        Parameterized Cypher expecting $merge_keys (list of strings).
+        Parameterized Cypher expecting $merge_keys (list of strings) and
+        $job_id (the in-flight Cutover Job's id, or null outside a job).
+        An alias written by this same job resolves through the guard, so
+        in-job exact-match lookups see the job's own writes; every other
+        job's alias is excluded, and outside a job the guard reduces to
+        committed-only.
     """
     return (
         f"UNWIND $merge_keys AS merge_key "
         f"MATCH (a:{MERGE_ALIAS_LABEL} {{merge_key: merge_key}}) "
+        f"WHERE a._pending_job_id IS NULL OR a._pending_job_id = $job_id "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: a.entity_id}}) "
+        f"WHERE n._pending_job_id IS NULL OR n._pending_job_id = $job_id "
         f"RETURN merge_key, n"
     )
 
@@ -168,6 +177,13 @@ def upsert_merge_alias_query() -> str:
     caller follows that entity's ``merged_into`` chain from here instead of
     this table being kept in sync with every later merge.
 
+    An alias written by an in-flight Cutover Job carries that job's id, so
+    the exact-match lookup (which filters pending nodes) never resolves a
+    mention into uncommitted data, and a rollback deletes the alias with
+    the entity it names instead of leaving a dangling owner. A null
+    ``pending_job_id`` sets no property, preserving today's behavior for
+    callers outside a job.
+
     The returned rows are what let a caller detect the case ``ON CREATE
     SET`` alone cannot: an accepted merge_key already owned by some other
     live entity, not one this same merge is writing or absorbing. Neither
@@ -176,15 +192,18 @@ def upsert_merge_alias_query() -> str:
     entity_id against its own survivor and tombstone ids itself.
 
     Returns:
-        Parameterized Cypher expecting $merge_keys (list of strings) and
-        $entity_id. Returns each merge_key alongside the entity_id that now
-        owns it -- $entity_id when this call claimed or already owned it,
-        another entity's id when a different one claimed it first.
+        Parameterized Cypher expecting $merge_keys (list of strings),
+        $entity_id, and $pending_job_id (the in-flight job's id, or null
+        outside a job — null sets no property). Returns each merge_key
+        alongside the entity_id that now owns it -- $entity_id when this
+        call claimed or already owned it, another entity's id when a
+        different one claimed it first.
     """
     return (
         f"UNWIND $merge_keys AS merge_key "
         f"MERGE (a:{MERGE_ALIAS_LABEL} {{merge_key: merge_key}}) "
-        f"ON CREATE SET a.entity_id = $entity_id "
+        f"ON CREATE SET a.entity_id = $entity_id, "
+        f"a.{PENDING_JOB_ID_PROPERTY} = $pending_job_id "
         f"RETURN merge_key, a.entity_id AS entity_id"
     )
 
@@ -402,6 +421,10 @@ def resolve_merged_into_query() -> str:
     relationship, so a chain is followed one hop per call: ``merged_into``
     is null on a live node and holds the next id on a tombstone.
 
+    A pending node resolves to itself: the identity path must see its own
+    job's in-flight writes, and an uncommitted job's node is only ever
+    reached through that same job's own reads.
+
     Returns:
         A parameterized query expecting an $id parameter, returning the
         node as ``node`` and its survivor id as ``merged_into``.
@@ -419,13 +442,21 @@ def hydrate_entities_by_id_query() -> str:
     ``MATCH (n) WHERE n.id IN $ids`` would surface one. This query
     filters on ``merged_into IS NULL`` to return only live nodes.
 
+    Pending visibility is job-scoped: the merge-apply and pruning paths
+    run inside their own job's pending phase and must see the entities
+    that same job just wrote, while still excluding every other
+    in-flight job's. A null ``$job_id`` reduces the guard to
+    committed-only, which is what every caller outside a job passes.
+
     Returns:
-        Parameterized Cypher expecting $ids (list of string ids).
+        Parameterized Cypher expecting $ids (list of string ids) and
+        $job_id (the in-flight job's id, or null outside a job).
     """
     return (
         f"UNWIND $ids AS id "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: id}}) "
         f"WHERE n.merged_into IS NULL "
+        f"AND (n._pending_job_id IS NULL OR n._pending_job_id = $job_id) "
         f"RETURN n"
     )
 
@@ -437,17 +468,26 @@ def hydrate_chunks_by_id_query() -> str:
     document versions cannot surface in retrieval. Chunks without any
     PART_OF edge are also returned for direct or legacy chunk fixtures.
 
+    Pending visibility is job-scoped: the storage stage runs inside its
+    own job's pending phase and must see the chunks that same job just
+    wrote (the partial-write fallback checks exactly those), while still
+    excluding every other in-flight job's. A null ``$job_id`` reduces the
+    guard to committed-only, which is what every caller outside a job
+    passes.
+
     Returns:
-        Parameterized Cypher expecting $ids (list of string ids).
+        Parameterized Cypher expecting $ids (list of string ids) and
+        $job_id (the in-flight job's id, or null outside a job).
     """
     return (
         f"UNWIND $ids AS id "
         f"MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) "
-        f"WHERE NOT EXISTS {{ "
+        f"WHERE (NOT EXISTS {{ "
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[:PART_OF]->(n) "
         f"}} OR EXISTS {{ "
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
-        f"WHERE p.invalid_at IS NULL }} "
+        f"WHERE p.invalid_at IS NULL }}) "
+        f"AND (n._pending_job_id IS NULL OR n._pending_job_id = $job_id) "
         f"RETURN n"
     )
 

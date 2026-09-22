@@ -478,25 +478,39 @@ class TestFilterEscaping:
         """An operator-looking value stays inside an escaped literal."""
         store = MilvusVectorStore(settings=MilvusSettings())
         expr = store._compile_filter({"kind": 'x" or 1==1'})
-        assert expr == 'payload["kind"] == "x\\" or 1==1"'
+        assert 'payload["kind"] == "x\\" or 1==1"' in expr
 
     def test_compile_list_value(self) -> None:
         """A list value renders as an ``in`` clause."""
         store = MilvusVectorStore(settings=MilvusSettings())
         expr = store._compile_filter({"cat": ["a", "b"]})
-        assert expr == 'payload["cat"] in ["a", "b"]'
+        assert 'payload["cat"] in ["a", "b"]' in expr
 
     def test_compile_references_payload_json_field(self) -> None:
         """A scalar filter compiles against the payload JSON field, not a bare field."""
         store = MilvusVectorStore(settings=MilvusSettings())
         expr = store._compile_filter({"kind": "doc"})
-        assert expr == 'payload["kind"] == "doc"'
+        assert 'payload["kind"] == "doc"' in expr
 
-    def test_compile_empty_is_blank(self) -> None:
-        """An empty filter compiles to an empty expression."""
+    def test_compile_excludes_pending_records_by_default(self) -> None:
+        """No pending flag requested still excludes an in-flight job's vectors."""
         store = MilvusVectorStore(settings=MilvusSettings())
-        assert store._compile_filter(None) == ""
-        assert store._compile_filter({}) == ""
+
+        assert store._compile_filter(None) == 'not (payload["_pending"] == true)'
+        assert store._compile_filter({}) == 'not (payload["_pending"] == true)'
+        assert store._compile_filter({"_pending": False}) == (
+            'not (payload["_pending"] == true)'
+        )
+
+    def test_compile_selects_only_pending_when_asked(self) -> None:
+        """An explicit pending request spends the filter on in-flight records."""
+        store = MilvusVectorStore(settings=MilvusSettings())
+
+        expr = store._compile_filter({"_pending": True, "_pending_job_id": "j"})
+
+        assert 'payload["_pending"] == true' in expr
+        assert 'payload["_pending_job_id"] == "j"' in expr
+        assert "not (" not in expr
 
 
 class TestMissingExtra:

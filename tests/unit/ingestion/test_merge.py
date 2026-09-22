@@ -577,6 +577,53 @@ class TestComputeMerge:
         assert mention.chunk_id in plan.survivor.source_chunk_ids
         assert failures == []
 
+    async def test_job_id_replays_same_survivor_id(self) -> None:
+        """Same job id replays the same new-entity id."""
+        job_id = uuid4()
+        plan_a, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[_mention(text="Ada")],
+            schema=_schema(),
+            job_id=job_id,
+        )
+        plan_b, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[_mention(text="Ada")],
+            schema=_schema(),
+            job_id=job_id,
+        )
+        expected = uuid5(
+            NAMESPACE_OID, f"CutoverJob:{job_id}:{plan_a.survivor.merge_key}"
+        )
+        assert plan_a.survivor.id == plan_b.survivor.id == expected
+
+    async def test_different_job_ids_mint_different_ids(self) -> None:
+        """Different job ids mint different new-entity ids."""
+        plan_a, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[_mention(text="Ada")],
+            schema=_schema(),
+            job_id=uuid4(),
+        )
+        plan_b, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[_mention(text="Ada")],
+            schema=_schema(),
+            job_id=uuid4(),
+        )
+        assert plan_a.survivor.id != plan_b.survivor.id
+
+    async def test_job_id_keeps_existing_id(self) -> None:
+        """A job id never overrides an existing entity's id."""
+        existing = _entity(name="Ada")
+        plan, _ = await compute_merge(
+            existing_entities=[existing],
+            mentions=[_mention(text="Ada")],
+            schema=_schema(),
+            job_id=uuid4(),
+        )
+        assert plan.survivor.id == existing.id
+
     async def test_keeps_id_when_one_existing(self) -> None:
         """One existing keeps its id."""
         existing = _entity(name="Ada")
@@ -1041,12 +1088,15 @@ class TestApplyMerge:
         assert "merged_from" not in record["properties"]
         assert "merge_count" not in record["properties"]
         alias_calls = [
-            c for c in calls if set(c.args[1]) == {"merge_keys", "entity_id"}
+            c
+            for c in calls
+            if set(c.args[1]) == {"merge_keys", "entity_id", "pending_job_id"}
         ]
         assert len(alias_calls) == 1
         assert alias_calls[0].args[1] == {
             "merge_keys": [survivor.merge_key],
             "entity_id": str(survivor.id),
+            "pending_job_id": None,
         }
 
     async def test_nonempty_tombstones_raise_before_any_write(self) -> None:
@@ -1080,7 +1130,7 @@ class TestApplyMerge:
         )
 
         async def _exec_write(query, params=None):
-            if params and set(params) == {"merge_keys", "entity_id"}:
+            if params and "pending_job_id" in params:
                 return [
                     {"merge_key": "Person:robert", "entity_id": str(survivor.id)},
                     {"merge_key": "Person:bob", "entity_id": str(foreign_owner_id)},
@@ -1117,7 +1167,7 @@ class TestApplyMerge:
         )
 
         async def _exec_write(query, params=None):
-            if params and set(params) == {"merge_keys", "entity_id"}:
+            if params and "pending_job_id" in params:
                 return [
                     {"merge_key": "Person:robert", "entity_id": str(survivor.id)},
                     {

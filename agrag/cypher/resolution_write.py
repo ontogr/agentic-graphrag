@@ -1,5 +1,6 @@
 """Cypher writes for non-destructive entity resolution."""
 
+from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.resolved_entity import (
     MATCHES_RELATION,
     RESOLVED_AS_RELATION,
@@ -12,7 +13,20 @@ _PENDING_VECTOR_DELETION_LABEL = "ResolvedEntityVectorDeletion"
 
 
 def upsert_matches_query() -> str:
-    """Build Cypher that idempotently records a confirmed entity match."""
+    """Build Cypher that idempotently records a confirmed entity match.
+
+    A match written by an in-flight Cutover Job carries that job's id, so
+    component reads (which filter pending matches) never traverse
+    uncommitted edges. A null ``$pending_job_id`` sets no property,
+    preserving today's behavior for callers outside a job. Re-confirming
+    an already-committed edge under a job re-tags it until that job
+    commits, which is correct: the edge is under active revision.
+
+    Returns:
+        Parameterized Cypher expecting $entity_a_id, $entity_b_id,
+        $match_id, $comparator, $score, $reasoning, $decided_at, and
+        $pending_job_id (the in-flight job's id, or null outside a job).
+    """
     return (
         f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: $entity_a_id}}), "
         f"(b:{NODE_IDENTITY_LABEL} {{id: $entity_b_id}}) "
@@ -20,7 +34,8 @@ def upsert_matches_query() -> str:
         "DELETE existing "
         f"MERGE (a)-[r:{MATCHES_RELATION} {{id: $match_id}}]->(b) "
         "SET r.active = true, r.comparator = $comparator, r.score = $score, "
-        "r.reasoning = $reasoning, r.decided_at = $decided_at "
+        "r.reasoning = $reasoning, r.decided_at = $decided_at, "
+        f"r.{PENDING_JOB_ID_PROPERTY} = $pending_job_id "
         "RETURN r"
     )
 

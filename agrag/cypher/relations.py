@@ -7,6 +7,7 @@ identifier-validation contract shared by every Cypher builder.
 from collections.abc import Sequence
 from typing import Any, Literal
 
+from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
 
 
@@ -21,10 +22,23 @@ _DIRECTION_ARROW: dict[TraversalDirection, tuple[str, str]] = {
 
 
 def close_part_of_query() -> str:
-    """Build Cypher that closes currently valid document-to-chunk edges."""
+    """Build Cypher that closes currently valid document-to-chunk edges.
+
+    Pending visibility matters here: the superseding version's edges are
+    already written when this runs, so a null ``$job_id`` would close the
+    new version along with the old one and leave the document with no
+    current chunks. The job-scoped guard closes the superseded version
+    and leaves the writing job's own edges open.
+
+    Returns:
+        Parameterized Cypher expecting $document_node_id and $job_id
+        (the in-flight Cutover Job's id, or null outside a job). Returns
+        the number of edges closed.
+    """
     return (
         "MATCH (d:_AgragNode:Document {id: $document_node_id})"
-        "-[r:PART_OF]->() WHERE r.invalid_at IS NULL "
+        "-[r:PART_OF]->() "
+        f"WHERE r.invalid_at IS NULL AND {pending_filter_clause('r', 'job_id')} "
         "SET r.invalid_at = datetime() RETURN count(r) AS closed"
     )
 
@@ -38,6 +52,7 @@ def bfs_expand_query(
     direction: TraversalDirection = "both",
     document_ids: Sequence[str] | None = None,
     labels: Sequence[str] | None = None,
+    job_id: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Build Cypher for BFS expansion from seed entity ids.
 
@@ -80,10 +95,14 @@ def bfs_expand_query(
             entity through a ``MENTIONED_IN`` edge.
         labels: Optional labels that returned neighbors must have at
             least one of.
+        job_id: The in-flight Cutover Job's id, or null outside a job.
+            A null ``$job_id`` reduces the pending guards to
+            committed-only, so no retrieval path ever returns a node or
+            crosses an edge written by an uncommitted job.
 
     Returns:
         A ``(query, params)`` tuple. The query expects ``$seed_ids``
-        (list of string ids) plus any filter parameters.
+        (list of string ids), ``$job_id``, plus any filter parameters.
 
     Raises:
         ValueError: A relation type is not a safe Cypher identifier.
@@ -102,7 +121,11 @@ def bfs_expand_query(
     where_clause, filter_params = filter_clause(filters or {}, node_var="neighbor")
     filter_suffix = f" AND {where_clause[6:]}" if where_clause else ""
     base_where = (
-        "neighbor:_AgragNode AND NOT neighbor:Chunk AND NOT neighbor.id IN $seed_ids"
+        "neighbor:_AgragNode AND NOT neighbor:Chunk AND NOT neighbor.id IN $seed_ids "
+        "AND (neighbor._pending_job_id IS NULL "
+        "OR neighbor._pending_job_id = $job_id) "
+        "AND ALL(r IN relationships(path) WHERE r._pending_job_id IS NULL "
+        "OR r._pending_job_id = $job_id)"
     )
     document_suffix = (
         " AND EXISTS { "
@@ -134,7 +157,17 @@ def bfs_expand_query(
 
 
 def entities_in_documents_query() -> str:
-    """Build a query for live entities mentioned in selected documents."""
+    """Build a query for live entities mentioned in selected documents.
+
+    Pending visibility is job-scoped: a null ``$job_id`` reduces the
+    guard to committed-only, so document scoping never surfaces an
+    entity an uncommitted job wrote.
+
+    Returns:
+        Parameterized Cypher expecting $document_ids (list of string
+        ids) and $job_id (the in-flight job's id, or null outside a
+        job).
+    """
     return (
         "MATCH (chunk:_AgragNode:Chunk)-[:MENTIONED_IN]->"
         "(entity:_AgragNode) "
@@ -142,6 +175,8 @@ def entities_in_documents_query() -> str:
         "MATCH (document:_AgragNode:Document)-[part:PART_OF]->(chunk) "
         "WHERE document.id IN $document_ids AND part.invalid_at IS NULL } "
         "AND entity.merged_into IS NULL "
+        "AND (entity._pending_job_id IS NULL "
+        "OR entity._pending_job_id = $job_id) "
         "RETURN DISTINCT entity.id AS id"
     )
 
@@ -150,6 +185,7 @@ def relationship_types_from_query(
     *,
     relation_types: Sequence[str] | None = None,
     direction: TraversalDirection = "both",
+    job_id: str | None = None,
 ) -> str:
     """Build Cypher listing the relationship types touching seed entities.
 
@@ -166,11 +202,14 @@ def relationship_types_from_query(
         direction: Which relationships to consider, read relative to
             the seed entity: those leaving it (``"outgoing"``), those
             entering it (``"incoming"``), or both.
+        job_id: The in-flight Cutover Job's id, or null outside a job.
+            A null ``$job_id`` reduces the pending guard to
+            committed-only, so no in-flight job's edges add types.
 
     Returns:
         Parameterized Cypher expecting ``$seed_ids`` (list of string
-        ids), returning one row per distinct attached type under
-        ``rel_type``.
+        ids) and ``$job_id``, returning one row per distinct attached
+        type under ``rel_type``.
 
     Raises:
         ValueError: A relation type is not a safe Cypher identifier.
@@ -183,6 +222,7 @@ def relationship_types_from_query(
         f"MATCH (seed){left_arrow}[r{type_pattern}]{right_arrow}(neighbor) "
         f"WHERE NOT neighbor:Chunk AND NOT neighbor:Community "
         f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
+        f"AND (r._pending_job_id IS NULL OR r._pending_job_id = $job_id) "
         f"RETURN DISTINCT type(r) AS rel_type"
     )
 
@@ -210,16 +250,19 @@ def chunks_mentioning_entities_query() -> str:
     """Build Cypher finding chunks that mention given entities.
 
     Walks the MENTIONED_IN edge from Chunk to Entity. Returns chunks
-    that reference any of the given entity ids.
+    that reference any of the given entity ids. Pending visibility is
+    job-scoped: a null ``$job_id`` reduces the guard to committed-only.
 
     Returns:
-        Parameterized Cypher expecting $entity_ids (list of string ids).
+        Parameterized Cypher expecting $entity_ids (list of string ids)
+        and $job_id (the in-flight job's id, or null outside a job).
     """
     return (
         "UNWIND $entity_ids AS entity_id "
         "MATCH (c:_AgragNode:Chunk)-[:MENTIONED_IN]-> "
         "(e:_AgragNode {{id: entity_id}}) "
         "WHERE c.merged_into IS NULL "
+        "AND (c._pending_job_id IS NULL OR c._pending_job_id = $job_id) "
         "RETURN DISTINCT c, c.id AS id"
     )
 
@@ -228,16 +271,20 @@ def entities_mentioned_in_chunks_query() -> str:
     """Build Cypher finding entities mentioned by given chunks.
 
     Walks the MENTIONED_IN edge from Chunk to Entity in reverse. Returns
-    entities referenced by any of the given chunk ids.
+    entities referenced by any of the given chunk ids. Pending
+    visibility is job-scoped: a null ``$job_id`` reduces the guard to
+    committed-only.
 
     Returns:
-        Parameterized Cypher expecting $chunk_ids (list of string ids).
+        Parameterized Cypher expecting $chunk_ids (list of string ids)
+        and $job_id (the in-flight job's id, or null outside a job).
     """
     return (
         "UNWIND $chunk_ids AS chunk_id "
         "MATCH (c:_AgragNode:Chunk {{id: chunk_id}})"
         "-[:MENTIONED_IN]->(e:_AgragNode) "
         "WHERE e.merged_into IS NULL "
+        "AND (e._pending_job_id IS NULL OR e._pending_job_id = $job_id) "
         "RETURN DISTINCT e, e.id AS id"
     )
 
@@ -267,6 +314,7 @@ def fetch_all_relations_query() -> str:
         f"AND NOT a:Chunk AND NOT b:Chunk "
         f"AND NOT a:Community AND NOT b:Community "
         f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
+        f"AND r._pending_job_id IS NULL "
         f"RETURN a.id AS source_id, b.id AS target_id, "
         f"r.source_chunk_ids AS source_chunk_ids, "
         f"type(r) AS rel_type "
@@ -281,6 +329,8 @@ def fetch_all_relations_query_cursor() -> str:
     where ``SKIP`` becomes expensive. Orders by ``(a.id, b.id, type(r),
     r.id)`` and pages by the last seen tuple; the first page uses
     ``last_a=""``, ``last_b=""``, ``last_type=""`` and ``last_rel_id=""``.
+    Like the offset variant, it excludes every edge an in-flight Cutover
+    Job wrote.
 
     The relationship type and id break ties on ``(a.id, b.id)``: two
     distinct relationships (different types, or the same type with
@@ -306,6 +356,7 @@ def fetch_all_relations_query_cursor() -> str:
         f"AND NOT a:Chunk AND NOT b:Chunk "
         f"AND NOT a:Community AND NOT b:Community "
         f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
+        f"AND r._pending_job_id IS NULL "
         f"RETURN a.id AS source_id, b.id AS target_id, "
         f"r.source_chunk_ids AS source_chunk_ids, "
         f"type(r) AS rel_type, coalesce(r.id, '') AS rel_id "

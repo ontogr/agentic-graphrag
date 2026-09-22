@@ -24,6 +24,7 @@ from agrag.cypher.entities import (
 )
 from agrag.cypher.relations import upsert_relation_query
 from agrag.cypher.schema import (
+    cutover_job_document_key_constraint_query,
     merge_alias_constraint_query,
     merge_key_constraint_query,
     node_id_constraint_query,
@@ -179,6 +180,8 @@ class Neo4jGraphStore(GraphStore):
         self._identity_constraint_lock = asyncio.Lock()
         self._merge_alias_constraint_ready = False
         self._merge_alias_constraint_lock = asyncio.Lock()
+        self._cutover_job_constraint_ready = False
+        self._cutover_job_constraint_lock = asyncio.Lock()
         self._relation_type_constraints_ready: set[str] = set()
         self._relation_constraint_lock = asyncio.Lock()
 
@@ -310,6 +313,7 @@ class Neo4jGraphStore(GraphStore):
 
         await self._ensure_identity_constraint()
         await self._ensure_merge_alias_constraint()
+        await self._ensure_cutover_job_constraint()
         async with self.session() as session:
             tx = await session.begin_transaction()
             try:
@@ -338,6 +342,7 @@ class Neo4jGraphStore(GraphStore):
         """
         await self._ensure_identity_constraint()
         await self._ensure_merge_alias_constraint()
+        await self._ensure_cutover_job_constraint()
         for label in await self._all_labels():
             await self.execute_write(node_id_constraint_query(label))
             # Merge-key uniqueness backs concurrent add() safety: two writers for
@@ -380,6 +385,22 @@ class Neo4jGraphStore(GraphStore):
                 return
             await self.execute_write(merge_alias_constraint_query())
             self._merge_alias_constraint_ready = True
+
+    async def _ensure_cutover_job_constraint(self) -> None:
+        """Create the CutoverJob document_key uniqueness constraint once.
+
+        Backs ``acquire_lease_query``'s ``MERGE`` the same way
+        ``_ensure_identity_constraint`` backs node upserts: without it, two
+        concurrent first-time acquirers for the same document_key could each
+        find no match and create separate job nodes.
+        """
+        if self._cutover_job_constraint_ready:
+            return
+        async with self._cutover_job_constraint_lock:
+            if self._cutover_job_constraint_ready:
+                return
+            await self.execute_write(cutover_job_document_key_constraint_query())
+            self._cutover_job_constraint_ready = True
 
     async def _ensure_relation_constraint(self, rel_type: str) -> None:
         """Create a relationship type's ``id`` uniqueness constraint once.

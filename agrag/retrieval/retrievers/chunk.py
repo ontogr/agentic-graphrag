@@ -87,7 +87,7 @@ class ChunkRetriever(Retriever):
         ids = [str(h.id) for h in hits]
         try:
             rows = await self._graph_store.execute_read(
-                hydrate_chunks_by_id_query(), {"ids": ids}
+                hydrate_chunks_by_id_query(), {"ids": ids, "job_id": None}
             )
         except Exception:
             return []

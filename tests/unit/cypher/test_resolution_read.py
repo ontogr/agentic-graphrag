@@ -33,25 +33,35 @@ class TestResolutionReadQueries:
             "MATCH (seed:_AgragNode {id: seed_id})"
             "-[matches:MATCHES*0..]-(member:_AgragNode) "
             "WHERE ALL(match IN matches WHERE match.active = true) "
+            "AND ALL(match IN matches WHERE match._pending_job_id IS NULL "
+            "OR match._pending_job_id = $job_id) "
+            "AND (seed._pending_job_id IS NULL OR seed._pending_job_id = $job_id) "
+            "AND (member._pending_job_id IS NULL OR member._pending_job_id = $job_id) "
             "RETURN DISTINCT seed_id, member"
         )
 
     def test_hydrate_resolved_entities_by_id_query(self) -> None:
-        """Hydration only surfaces synced materializations."""
+        """Hydration only surfaces synced, committed materializations."""
         assert hydrate_resolved_entities_by_id_query() == (
             "UNWIND $ids AS resolved_entity_id "
             "MATCH (resolved:ResolvedEntity {id: resolved_entity_id}) "
             "WHERE resolved.vector_sync_status = 'synced' "
+            "AND (resolved._pending_job_id IS NULL "
+            "OR resolved._pending_job_id = $job_id) "
             "RETURN resolved"
         )
 
     def test_fetch_active_resolved_member_ids_query(self) -> None:
-        """A raw hit is only suppressed once its materialization is synced."""
+        """A raw hit is suppressed only by a synced, committed materialization."""
         assert fetch_active_resolved_member_ids_query() == (
             "UNWIND $ids AS entity_id "
             "MATCH (entity:_AgragNode {id: entity_id})"
-            "-[:RESOLVED_AS]->(resolved:ResolvedEntity) "
+            "-[edge:RESOLVED_AS]->(resolved:ResolvedEntity) "
             "WHERE resolved.vector_sync_status = 'synced' "
+            "AND (edge._pending_job_id IS NULL "
+            "OR edge._pending_job_id = $job_id) "
+            "AND (resolved._pending_job_id IS NULL "
+            "OR resolved._pending_job_id = $job_id) "
             "RETURN entity_id"
         )
 

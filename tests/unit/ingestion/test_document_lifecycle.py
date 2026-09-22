@@ -80,4 +80,4 @@ async def test_close_open_part_of_edges_targets_the_requested_document() -> None
     query, parameters = store.execute_write.await_args.args
     assert "MATCH (d:_AgragNode:Document {id: $document_node_id})" in query
     assert "r.invalid_at IS NULL" in query
-    assert parameters == {"document_node_id": str(document_node_id)}
+    assert parameters == {"document_node_id": str(document_node_id), "job_id": None}

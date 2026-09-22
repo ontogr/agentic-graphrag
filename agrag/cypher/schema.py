@@ -6,7 +6,9 @@ identifier-validation contract shared by every Cypher builder.
 
 from typing import Any
 
+from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.common.data_models.vector_record import Distance
+from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import MERGE_ALIAS_LABEL, filter_clause, validate_identifier
 
 
@@ -119,6 +121,26 @@ def merge_alias_constraint_query() -> str:
     )
 
 
+def cutover_job_document_key_constraint_query() -> str:
+    """Build a CREATE CONSTRAINT query making the job table's key unique.
+
+    One global constraint, not per label: ``CUTOVER_JOB_LABEL`` is a fixed
+    label, and ``document_key`` names the document a job mutates, so a
+    single uniqueness constraint on it is sufficient. This alone prevents
+    two job nodes for the same key; exclusivity among non-terminal jobs is
+    enforced by the lease queries, not the constraint alone, since the
+    constraint permits a new job node once rollback deletes the old one.
+
+    Returns:
+        A Cypher query creating the uniqueness constraint if absent.
+    """
+    return (
+        f"CREATE CONSTRAINT {CUTOVER_JOB_LABEL.lower()}_document_key_unique "
+        "IF NOT EXISTS "
+        f"FOR (job:{CUTOVER_JOB_LABEL}) REQUIRE job.document_key IS UNIQUE"
+    )
+
+
 def vector_index_name(label: str, vector_property: str) -> str:
     """Derive the deterministic name a vector index is created under.
 
@@ -182,6 +204,10 @@ def vector_search_query(
 ) -> tuple[str, dict[str, Any]]:
     """Build a native vector search query and its filter parameters.
 
+    A node written by an in-flight Cutover Job (one carrying a non-null
+    ``_pending_job_id``) is always excluded: the native vector index
+    would otherwise surface an uncommitted job's nodes to retrieval.
+
     Args:
         index_name: The vector index name from ``vector_index_name``.
         filters: An optional flat-dict filter applied with ``WHERE``.
@@ -192,9 +218,13 @@ def vector_search_query(
         and ``vector``).
     """
     query = "CALL db.index.vector.queryNodes($index, $k, $vector) YIELD node, score "
+    query += f"WHERE {pending_filter_clause('node')} "
     params: dict[str, Any] = {}
     if filters:
         where, params = filter_clause(filters)
-        query += where + " "
+        if where:
+            # The pending guard already opened the WHERE clause, so the
+            # filter joins it as a conjunction rather than a second WHERE.
+            query += f"AND {where.removeprefix('WHERE ')} "
     query += "RETURN node, score"
     return query, params

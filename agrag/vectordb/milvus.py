@@ -7,7 +7,12 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
-from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
+from agrag.common.data_models.vector_record import (
+    PENDING_VECTOR_FLAG,
+    Distance,
+    VectorHit,
+    VectorRecord,
+)
 from agrag.common.validation import (
     require_positive_batch_size,
     require_valid_alpha,
@@ -213,24 +218,35 @@ class MilvusVectorStore(VectorStore):
     def _compile_filter(self, filters: dict[str, Any] | None) -> str:
         """Build a Milvus filter expression from a flat-dict payload filter.
 
+        A pending record (one whose ``_pending`` payload boolean is true)
+        is excluded unless the filter asks for pending records only. The
+        exclusion is written as a negation of the equality so records
+        written before the flag existed still match.
+
         Args:
             filters: A flat-dict filter: a scalar value means exact match, a
                 list value means any of, and all keys are AND-ed together.
-                ``None`` means no filter.
+                ``None`` means no filter. ``_pending='''True'''`` selects only
+                in-flight records; leaving the key out, or setting it
+                ``False``, excludes them.
 
         Returns:
-            A Milvus ``filter`` expression string, or ``""`` when ``filters`` is
-            empty.
+            A Milvus ``filter`` expression string.
         """
-        if not filters:
-            return ""
+        pending_field = _payload_field_path(PENDING_VECTOR_FLAG)
         clauses = []
-        for key, value in filters.items():
+        for key, value in (filters or {}).items():
+            if key == PENDING_VECTOR_FLAG:
+                continue
             field = _payload_field_path(key)
             if isinstance(value, list):
                 clauses.append(f"{field} in {_escape_list(value)}")
             else:
                 clauses.append(f"{field} == {_escape_scalar(value)}")
+        if (filters or {}).get(PENDING_VECTOR_FLAG) is True:
+            clauses.append(f"{pending_field} == true")
+        else:
+            clauses.append(f"not ({pending_field} == true)")
         return " and ".join(clauses)
 
     @staticmethod

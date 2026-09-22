@@ -115,7 +115,7 @@ class EntityRetriever(Retriever):
             entities_by_id: dict[str, Entity] = {}
             try:
                 rows = await self._graph_store.execute_read(
-                    hydrate_entities_by_id_query(), {"ids": ids}
+                    hydrate_entities_by_id_query(), {"ids": ids, "job_id": None}
                 )
                 from agrag.ingestion._ingest_pipeline import (  # noqa: PLC0415
                     _parse_entity_node,
@@ -209,7 +209,10 @@ class EntityRetriever(Retriever):
             return None
         rows = await self._graph_store.execute_read(
             entities_in_documents_query(),
-            {"document_ids": filters.document_ids},
+            {
+                "document_ids": filters.document_ids,
+                "job_id": None,
+            },
         )
         return {
             str(row["id"])

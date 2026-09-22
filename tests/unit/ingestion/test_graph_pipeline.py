@@ -39,6 +39,7 @@ from agrag.common.data_models.graph_schema import (
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorHit, VectorRecord
+from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.errors import GraphStoreDataIntegrityError
@@ -65,9 +66,10 @@ from agrag.ingestion.reports import AddResult
 from agrag.loaders.corpus.types import ErrorPolicy
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
+from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
-class MockStore(GraphStore):
+class MockStore(CutoverJobLeaseFake, GraphStore):
     """In-memory GraphStore that records calls for assertions."""
 
     def __init__(self) -> None:
@@ -111,9 +113,15 @@ class MockStore(GraphStore):
         *,
         timeout: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Record the read and return the next canned response."""
+        """Record the read and return the next canned response.
+
+        The crash-recovery scan ``Graph.open()`` runs first finds no
+        leftover jobs here, so it never consumes a canned response.
+        """
         del timeout
         self.execute_read_calls.append((query, parameters))
+        if query == find_incomplete_jobs_query():
+            return []
         if self._read_index < len(self.execute_read_responses):
             response = self.execute_read_responses[self._read_index]
             self._read_index += 1
@@ -123,8 +131,11 @@ class MockStore(GraphStore):
     async def execute_write(
         self, query: str, parameters: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Record the write."""
+        """Record the write, answering Cutover Job queries in-memory."""
         self.execute_write_calls.append((query, parameters))
+        handled = self.handle_cutover_query(query, parameters)
+        if handled is not None:
+            return handled
         return []
 
     async def setup_constraints(self) -> None:
@@ -1157,7 +1168,11 @@ class _GuardedNodeStore(MockStore):
     async def execute_write(
         self, query: str, parameters: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        await super().execute_write(query, parameters)
+        rows = await super().execute_write(query, parameters)
+        # The Cutover Job machinery answers its own queries; only the
+        # embedding writes reach the guard below.
+        if rows:
+            return rows
         records = (parameters or {}).get("records", [])
         for record in records:
             node = self.nodes.get(record["id"])
@@ -2126,7 +2141,11 @@ class TestGraphAddPipeline:
         }
 
     async def test_add_two_documents_writes_two_document_records(self) -> None:
-        """A batch spanning two distinct documents writes two Document records."""
+        """A batch spanning two distinct documents writes two Document records.
+
+        Each document commits as its own Cutover Job — the lease is per
+        document — so the two records arrive as two writes, one per job.
+        """
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
         graph = await Graph.open(
             schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
@@ -2142,8 +2161,10 @@ class TestGraphAddPipeline:
             for label, nodes in store.upsert_nodes_calls
             if label == DOCUMENT_LABEL
         ]
-        assert len(document_calls) == 1
-        written_keys = {rec.properties["document_key"] for rec in document_calls[0]}
+        assert len(document_calls) == 2
+        written_keys = {
+            rec.properties["document_key"] for batch in document_calls for rec in batch
+        }
         assert written_keys == {"uri-a", "uri-b"}
         part_of_records = [
             rec

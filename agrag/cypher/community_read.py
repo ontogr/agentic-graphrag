@@ -19,15 +19,20 @@ def communities_for_entities_query(where_clause: str = "") -> str:
             an unscoped one.
 
     Returns:
-        Parameterized Cypher expecting $entity_ids (list of string ids)
+        Parameterized Cypher expecting $entity_ids (list of string ids),
+        $job_id (the in-flight Cutover Job's id, or null outside a job),
         and $top_k (max rows to return; must be non-negative, since
         Neo4j rejects a negative LIMIT). Returns each overlapping
         community node and its overlap count, highest overlap first.
+        Community nodes are never written by a Cutover Job, but the
+        member entity anchor is: the ``$job_id`` guard keeps a
+        community from being found through a pending member edge.
     """
     return (
         "UNWIND $entity_ids AS entity_id "
         f"MATCH (e:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
-        f"-[:{MEMBER_OF_RELATION}]->(c:{COMMUNITY_LABEL}) "
+        f"-[r:{MEMBER_OF_RELATION}]->(c:{COMMUNITY_LABEL}) "
+        "WHERE r._pending_job_id IS NULL OR r._pending_job_id = $job_id "
         f"{where_clause + ' ' if where_clause else ''}"
         "WITH c, count(DISTINCT entity_id) AS overlap "
         "RETURN c, overlap ORDER BY overlap DESC LIMIT $top_k"

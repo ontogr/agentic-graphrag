@@ -20,11 +20,16 @@ from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.document import DOCUMENT_LABEL, Document
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
-from agrag.common.data_models.graph_record import RelationRecord, UpsertResult
+from agrag.common.data_models.graph_record import (
+    PENDING_JOB_ID_PROPERTY,
+    RelationRecord,
+    UpsertResult,
+    tag_pending,
+)
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
-from agrag.common.data_models.vector_record import VectorRecord
+from agrag.common.data_models.vector_record import PENDING_VECTOR_FLAG, VectorRecord
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
     NODE_IDENTITY_LABEL,
@@ -175,6 +180,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     error_policy: ErrorPolicy,
     ingestion: IngestStats,
     return_chunks: bool = False,
+    job_id: UUID | None = None,
 ) -> AddResult:
     """Run resolution, merge, and storage for already-chunked input.
 
@@ -206,6 +212,11 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             from its own walk.
         return_chunks: Whether to include the ingested chunks in the
             returned result.
+        job_id: The in-flight Cutover Job's id. Every node, edge, and
+            vector this call writes is tagged with it until that job
+            commits; brand-new entities derive deterministic ids from it.
+            None writes untagged with random new-entity ids, for callers
+            outside a job.
 
     Returns:
         The per-stage summary for this ingestion.
@@ -216,13 +227,14 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         since ``update()``'s fresh-content path is defined as this core
         over newly chunked content.
     """
+    pending_job_id = str(job_id) if job_id is not None else None
     # If no chunks/entities, we can early return with empty stages
     if not chunks:
         if documents:
             await graph_store.upsert_nodes(
                 DOCUMENT_LABEL,
                 [
-                    build_document_record(document)
+                    tag_pending(build_document_record(document), job_id)
                     for document in distinct_documents(documents)
                 ],
             )
@@ -248,7 +260,9 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     # Zone-routed resolution over one combined mention list: real mentions
     # plus one synthetic mention per persisted ANN candidate, so a new
     # mention can join a persisted cluster through exactly one Resolver pass.
-    exact_matches = await _global_exact_match(entities, graph_store=graph_store)
+    exact_matches = await _global_exact_match(
+        entities, graph_store=graph_store, job_id=job_id
+    )
 
     # Build chunks_by_id for LLMVerify
     chunks_by_id: dict[UUID, Chunk] = {}
@@ -362,6 +376,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                 existing_entities=existing_for_group,
                 mentions=group_mentions,
                 schema=graph_schema,
+                job_id=job_id,
             )
         except Exception as exc:  # noqa: BLE001
             if error_policy is ErrorPolicy.RAISE:
@@ -390,7 +405,12 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         # Apply merge. An alias conflict another writer won propagates
         # under RAISE, like any other write failure below.
         try:
-            await apply_merge(plan, graph_store=graph_store, schema=graph_schema)
+            await apply_merge(
+                plan,
+                graph_store=graph_store,
+                schema=graph_schema,
+                pending_job_id=pending_job_id,
+            )
         except Exception as exc:  # noqa: BLE001
             if error_policy is ErrorPolicy.RAISE:
                 raise
@@ -425,6 +445,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                     graph_store=graph_store,
                     schema=graph_schema,
                     members=members,
+                    pending_job_id=pending_job_id,
                 )
             except Exception as exc:  # noqa: BLE001
                 if error_policy is ErrorPolicy.RAISE:
@@ -449,6 +470,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                     vector_store=vector_store,
                     vector_collection=retrieval_settings.resolved_entity_collection,
                     error_policy=error_policy,
+                    pending_job_id=job_id,
                 )
             )
 
@@ -518,7 +540,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             target_id=tgt_id,
             source_chunk_ids=union_ids,
         )
-        relation_records.append(relation_obj.to_relation_record())
+        relation_records.append(tag_pending(relation_obj.to_relation_record(), job_id))
 
     # MENTIONED_IN edges: one per (chunk, entity) pair, for real mentions
     # only. Synthetic persisted-candidate indices (>= len(entities)) carry
@@ -554,12 +576,15 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             else mentioned_in_id(chunk_id, entity_id)
         )
         # Build record directly
-        rec = RelationRecord(
-            id=edge_id,
-            type="MENTIONED_IN",
-            start_id=chunk_id,
-            end_id=entity_id,
-            properties={"created_at": datetime.now().isoformat()},
+        rec = tag_pending(
+            RelationRecord(
+                id=edge_id,
+                type="MENTIONED_IN",
+                start_id=chunk_id,
+                end_id=entity_id,
+                properties={"created_at": datetime.now().isoformat()},
+            ),
+            job_id,
         )
         mentioned_in_records.append(rec)
 
@@ -569,7 +594,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     chunk_ids: set[UUID] = set()
     for ch in chunks:
         try:
-            chunk_records.append(ch.to_node_record())
+            chunk_records.append(tag_pending(ch.to_node_record(), job_id))
             if ch.id is not None:
                 chunk_ids.add(ch.id)
         except Exception as exc:  # noqa: BLE001
@@ -600,7 +625,10 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         Document.node_id_for(document_key=document_key): document
         for document_key, document in documents_by_key.items()
     }
-    document_records = [build_document_record(doc) for doc in documents_by_id.values()]
+    document_records = [
+        tag_pending(build_document_record(doc), job_id)
+        for doc in documents_by_id.values()
+    ]
     for document_id, document in documents_by_id.items():
         document_node_id = Document.node_id_for(
             document_key=document.resolved_document_key
@@ -609,13 +637,16 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         # identical re-ingest rebuilds the same edge ids and converges.
         version_id = str(Document.id_for(content_hash=document.content_hash))
         relation_records.extend(
-            build_part_of_records(
+            tag_pending(record, job_id)
+            for record in build_part_of_records(
                 document_node_id,
                 chunks_by_document_id.get(document_id, []),
                 version_id=version_id,
             )
         )
-    relation_records.extend(build_next_chunk_records(chunks))
+    relation_records.extend(
+        tag_pending(record, job_id) for record in build_next_chunk_records(chunks)
+    )
 
     # Write chunk nodes
     storage_failures: list[StageFailure] = [
@@ -672,7 +703,9 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     # instead of leaving them unsearchable until the source is re-ingested.
     embeddable_ids = chunk_ids - chunk_failure_ids
     if not chunks_written:
-        embeddable_ids = await _persisted_chunk_ids(graph_store, chunk_ids)
+        embeddable_ids = await _persisted_chunk_ids(
+            graph_store, chunk_ids, job_id=job_id
+        )
     if embeddable_ids:
         storage_failures.extend(
             await _embed_and_upsert_chunks(
@@ -682,6 +715,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                 error_policy=error_policy,
                 vector_store=vector_store,
                 vector_collection=retrieval_settings.chunk_collection,
+                pending_job_id=job_id,
             )
         )
 
@@ -732,6 +766,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                 vector_store=vector_store,
                 vector_collection=retrieval_settings.entity_collection,
                 labels_by_id={ent.id: ent.label for ent in survivors.values()},
+                pending_job_id=job_id,
             )
         )
     storage_failures_capped = cap_failures(storage_failures)
@@ -783,6 +818,7 @@ def _vector_record(
     label: str,
     text: str,
     properties: dict[str, object] | None = None,
+    pending_job_id: UUID | None = None,
 ) -> VectorRecord:
     """Build a VectorRecord whose payload matches the retrievers' reads.
 
@@ -796,6 +832,10 @@ def _vector_record(
         label: The graph label the domain object carries.
         text: The embedding_text the vector was computed from.
         properties: Additional payload fields for metadata filtering.
+        pending_job_id: The in-flight Cutover Job's id, mirrored into the
+            payload as an explicit boolean plus the job id for
+            commit-time clearing. None writes an untagged payload, for
+            callers outside a job.
 
     Returns:
         The record ready for VectorStore.upsert.
@@ -803,6 +843,14 @@ def _vector_record(
     payload = {"label": label, "text": text}
     if properties:
         payload.update(properties)
+    # The pending flag is always written explicitly: committed records
+    # carry False, so a search's committed-only default filter (an
+    # equality on this key) never excludes a pre-existing record.
+    if pending_job_id is not None:
+        payload[PENDING_VECTOR_FLAG] = True
+        payload[PENDING_JOB_ID_PROPERTY] = str(pending_job_id)
+    else:
+        payload[PENDING_VECTOR_FLAG] = False
     return VectorRecord(id=record_id, vector=vector, payload=payload)
 
 
@@ -867,7 +915,7 @@ def _node_properties(node: object) -> dict[str, Any]:
 
 
 async def _persisted_chunk_ids(
-    graph_store: GraphStore, chunk_ids: set[UUID]
+    graph_store: GraphStore, chunk_ids: set[UUID], *, job_id: UUID | None = None
 ) -> set[UUID]:
     """Return the subset of chunk_ids that exist as Chunk nodes.
 
@@ -879,6 +927,9 @@ async def _persisted_chunk_ids(
     Args:
         graph_store: Where the chunk nodes are read.
         chunk_ids: The ids this call tried to write.
+        job_id: The in-flight job's id, so chunks this same job just wrote
+            (still carrying its pending tag) count as landed. None reads
+            committed chunks only.
 
     Returns:
         The ids found, or an empty set when the graph cannot be read. The
@@ -889,7 +940,11 @@ async def _persisted_chunk_ids(
         return set()
     try:
         rows = await graph_store.execute_read(
-            hydrate_chunks_by_id_query(), {"ids": [str(cid) for cid in chunk_ids]}
+            hydrate_chunks_by_id_query(),
+            {
+                "ids": [str(cid) for cid in chunk_ids],
+                "job_id": str(job_id) if job_id is not None else None,
+            },
         )
     except Exception:  # noqa: BLE001
         return set()
@@ -1146,7 +1201,10 @@ async def _resolve_tombstone_chain(
 
 
 async def _global_exact_match(
-    mentions: list[ExtractedEntity], *, graph_store: GraphStore
+    mentions: list[ExtractedEntity],
+    *,
+    graph_store: GraphStore,
+    job_id: UUID | None = None,
 ) -> dict[int, Entity]:
     """Return each mention index's matching persisted Entity, if it has one.
 
@@ -1164,6 +1222,9 @@ async def _global_exact_match(
     Args:
         mentions: The entity mentions to look up.
         graph_store: Where the lookup runs.
+        job_id: The in-flight Cutover Job's id, so the alias/node guards
+            admit this job's own pending writes while excluding every
+            other in-flight job's. None reads committed-only.
 
     Returns:
         A map from mention index to its matching Entity.
@@ -1187,7 +1248,11 @@ async def _global_exact_match(
         if not unique_mks:
             continue
         rows = await graph_store.execute_read(
-            fetch_by_merge_keys_query(), {"merge_keys": unique_mks}
+            fetch_by_merge_keys_query(),
+            {
+                "merge_keys": unique_mks,
+                "job_id": str(job_id) if job_id is not None else None,
+            },
         )
         for row in rows:
             node = row.get("n") if isinstance(row, dict) and "n" in row else row
@@ -1302,6 +1367,7 @@ async def _embed_and_upsert_chunks(
     error_policy: ErrorPolicy,
     vector_store: VectorStore | None = None,
     vector_collection: str = "",
+    pending_job_id: UUID | None = None,
 ) -> list[StageFailure]:
     """Embed every chunk's text and write the vectors back onto their nodes.
 
@@ -1340,6 +1406,9 @@ async def _embed_and_upsert_chunks(
             Ignored when vector_store is None.
         error_policy: RAISE propagates the failure after clearing; any
             other policy returns it instead.
+        pending_job_id: The in-flight job's id, mirrored into vector
+            payloads until that job commits. None writes untagged
+            payloads, for callers outside a job.
 
     Returns:
         One StageFailure per chunk whose embed or write step raised.
@@ -1395,6 +1464,7 @@ async def _embed_and_upsert_chunks(
                     label=CHUNK_LABEL,
                     text=ch.text,
                     properties={"document_id": str(ch.document_id)},
+                    pending_job_id=pending_job_id,
                 )
             )
         try:
@@ -1421,6 +1491,7 @@ async def _embed_and_upsert_survivors(
     vector_store: VectorStore | None = None,
     vector_collection: str = "",
     labels_by_id: dict[UUID, str] | None = None,
+    pending_job_id: UUID | None = None,
 ) -> list[StageFailure]:
     """Embed every survivor's current text and write only the vector.
 
@@ -1470,6 +1541,9 @@ async def _embed_and_upsert_survivors(
             VectorStore payload. Survivors missing from the map are
             written with an empty label. Ignored when vector_store is
             None.
+        pending_job_id: The in-flight job's id, mirrored into vector
+            payloads until that job commits. None writes untagged
+            payloads, for callers outside a job.
 
     Returns:
         A single-item list with the failure, or empty on success.
@@ -1517,6 +1591,7 @@ async def _embed_and_upsert_survivors(
                 label=label_map.get(ent.id, ""),
                 text=ent.embedding_text,
                 properties=dict(ent.properties),
+                pending_job_id=pending_job_id,
             )
             for ent in survivors.values()
         ]

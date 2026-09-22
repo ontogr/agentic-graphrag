@@ -1331,6 +1331,7 @@ Shared data models used by agrag components.
 
 - [**chunk**](#agrag.common.data_models.chunk) – The Chunk model: one retrieval-sized piece of a Document.
 - [**community**](#agrag.common.data_models.community) – The Community model: a Leiden-detected entity cluster with an LLM report.
+- [**cutover_job**](#agrag.common.data_models.cutover_job) – Crash-recoverable state for one add/update/delete_document call.
 - [**data_point**](#agrag.common.data_models.data_point) – The base class for a graph node.
 - [**document**](#agrag.common.data_models.document) – The Document model: one unit of source text, before chunking.
 - [**entity**](#agrag.common.data_models.entity) – A permanent mention-level graph node, accumulated by exact-name matching.
@@ -1626,6 +1627,153 @@ Return this community as a GraphStore write record.
 
 ```python
 MEMBER_OF_RELATION = 'MEMBER_OF'
+```
+
+##### `agrag.common.data_models.cutover_job`
+
+Crash-recoverable state for one add/update/delete_document call.
+
+**Classes:**
+
+- [**CutoverJob**](#agrag.common.data_models.cutover_job.CutoverJob) – Crash-recoverable state for one add/update/delete_document call.
+- [**CutoverJobStatus**](#agrag.common.data_models.cutover_job.CutoverJobStatus) – Lifecycle phase of a Cutover Job.
+
+**Attributes:**
+
+- [**CUTOVER_JOB_LABEL**](#agrag.common.data_models.cutover_job.CUTOVER_JOB_LABEL) –
+
+###### `agrag.common.data_models.cutover_job.CUTOVER_JOB_LABEL`
+
+```python
+CUTOVER_JOB_LABEL = 'CutoverJob'
+```
+
+###### `agrag.common.data_models.cutover_job.CutoverJob`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+Crash-recoverable state for one add/update/delete_document call.
+
+**Attributes:**
+
+- [**document_key**](#agrag.common.data_models.cutover_job.CutoverJob.document_key) (<code>[str](#str)</code>) – The document this job mutates. Unique among
+  non-terminal jobs (enforced by a graph constraint plus lease
+  fencing, not the constraint alone).
+- [**verb**](#agrag.common.data_models.cutover_job.CutoverJob.verb) (<code>[Literal](#typing.Literal)['add', 'update', 'delete_document']</code>) – Which public method created this job.
+- [**status**](#agrag.common.data_models.cutover_job.CutoverJob.status) (<code>[CutoverJobStatus](#agrag.common.data_models.cutover_job.CutoverJobStatus)</code>) – Current phase, see CutoverJobStatus.
+- [**affected_entity_ids**](#agrag.common.data_models.cutover_job.CutoverJob.affected_entity_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – The snapshot taken before any pending write
+  began — the only entities the cleanup phase may touch.
+- [**lease_token**](#agrag.common.data_models.cutover_job.CutoverJob.lease_token) (<code>[UUID](#uuid.UUID)</code>) – Current lease holder's fencing token.
+- [**lease_expires_at**](#agrag.common.data_models.cutover_job.CutoverJob.lease_expires_at) (<code>[datetime](#datetime.datetime)</code>) – When the current lease expires.
+
+**Functions:**
+
+- [**to_node_record**](#agrag.common.data_models.cutover_job.CutoverJob.to_node_record) – Return this job as a graph write record.
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.affected_entity_ids`
+
+```python
+affected_entity_ids: list[UUID] = Field(default_factory=list)
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.document_key`
+
+```python
+document_key: str
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.id`
+
+```python
+id: UUID
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.lease_expires_at`
+
+```python
+lease_expires_at: datetime
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.lease_token`
+
+```python
+lease_token: UUID
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.status`
+
+```python
+status: CutoverJobStatus
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.to_node_record`
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this job as a graph write record.
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.verb`
+
+```python
+verb: Literal['add', 'update', 'delete_document']
+```
+
+###### `agrag.common.data_models.cutover_job.CutoverJobStatus`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+Lifecycle phase of a Cutover Job.
+
+**Attributes:**
+
+- [**CLEANING**](#agrag.common.data_models.cutover_job.CutoverJobStatus.CLEANING) –
+- [**COMMITTED**](#agrag.common.data_models.cutover_job.CutoverJobStatus.COMMITTED) –
+- [**DONE**](#agrag.common.data_models.cutover_job.CutoverJobStatus.DONE) –
+- [**PENDING**](#agrag.common.data_models.cutover_job.CutoverJobStatus.PENDING) –
+- [**ROLLED_BACK**](#agrag.common.data_models.cutover_job.CutoverJobStatus.ROLLED_BACK) –
+
+####### `agrag.common.data_models.cutover_job.CutoverJobStatus.CLEANING`
+
+```python
+CLEANING = 'cleaning'
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJobStatus.COMMITTED`
+
+```python
+COMMITTED = 'committed'
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJobStatus.DONE`
+
+```python
+DONE = 'done'
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJobStatus.PENDING`
+
+```python
+PENDING = 'pending'
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJobStatus.ROLLED_BACK`
+
+```python
+ROLLED_BACK = 'rolled_back'
 ```
 
 ##### `agrag.common.data_models.data_point`
@@ -2433,12 +2581,27 @@ These are a temporary, minimal stopgap, not the canonical Entity/Relation
 domain model resolution will eventually produce. See the future
 storage/merge-mechanics work this decouples from.
 
+Pending-visibility convention: a node or edge written by an in-flight
+Cutover Job carries `_pending_job_id` (the job's id) in its properties;
+committed data never carries this key. Retrieval query builders exclude
+such rows with `pending_filter_clause`. Vector-store payloads mirror the
+tag as an explicit boolean `_pending` field, cleared at commit, because
+payload filters match on present values rather than key absence.
+
 **Classes:**
 
 - [**NodeRecord**](#agrag.common.data_models.graph_record.NodeRecord) – One graph node, ready to write.
 - [**RelationRecord**](#agrag.common.data_models.graph_record.RelationRecord) – One graph relationship, ready to write.
 - [**UpsertFailure**](#agrag.common.data_models.graph_record.UpsertFailure) – One record that failed to write within a bulk upsert call.
 - [**UpsertResult**](#agrag.common.data_models.graph_record.UpsertResult) – Outcome of a bulk `upsert_nodes`/`upsert_relations` call.
+
+**Functions:**
+
+- [**tag_pending**](#agrag.common.data_models.graph_record.tag_pending) – Stamp a write record with the Cutover Job that wrote it.
+
+**Attributes:**
+
+- [**PENDING_JOB_ID_PROPERTY**](#agrag.common.data_models.graph_record.PENDING_JOB_ID_PROPERTY) – Graph property marking a node or edge as written by an in-flight job.
 
 ###### `agrag.common.data_models.graph_record.NodeRecord`
 
@@ -2474,6 +2637,20 @@ labels: list[str] = Field(min_length=1)
 ```python
 properties: dict[str, Any]
 ```
+
+###### `agrag.common.data_models.graph_record.PENDING_JOB_ID_PROPERTY`
+
+```python
+PENDING_JOB_ID_PROPERTY = '_pending_job_id'
+```
+
+Graph property marking a node or edge as written by an in-flight job.
+
+Carried on every node or edge a Cutover Job writes; committed data never
+carries it. Retrieval query builders exclude rows carrying it, the commit
+step removes it atomically, and rollback deletes every row carrying it.
+Vector-store payloads mirror it under the same key for commit-time
+clearing.
 
 ###### `agrag.common.data_models.graph_record.RelationRecord`
 
@@ -2574,6 +2751,26 @@ failures: list[UpsertFailure] = Field(default_factory=list)
 ```python
 written: int = 0
 ```
+
+###### `agrag.common.data_models.graph_record.tag_pending`
+
+```python
+tag_pending(record:_RecordT, job_id:UUID | str | None) -> _RecordT
+```
+
+Stamp a write record with the Cutover Job that wrote it.
+
+No-op outside a job, so pipeline stages thread their optional job id
+through this unconditionally instead of branching at every write.
+
+**Parameters:**
+
+- **record** (<code>[\_RecordT](#agrag.common.data_models.graph_record._RecordT)</code>) – The node or relationship record about to be written.
+- **job_id** (<code>[UUID](#uuid.UUID) | [str](#str) | None</code>) – The in-flight job's id, or None outside a job.
+
+**Returns:**
+
+- <code>[\_RecordT](#agrag.common.data_models.graph_record._RecordT)</code> – The same record, tagged when a job id was given.
 
 ##### `agrag.common.data_models.graph_schema`
 
@@ -3206,6 +3403,10 @@ Vector storage record shapes shared by VectorStore and GraphStore.
 - [**VectorHit**](#agrag.common.data_models.vector_record.VectorHit) – One search result: a matched id, its score, and its stored payload.
 - [**VectorRecord**](#agrag.common.data_models.vector_record.VectorRecord) – One vector and its payload, ready to write to a collection or index.
 
+**Attributes:**
+
+- [**PENDING_VECTOR_FLAG**](#agrag.common.data_models.vector_record.PENDING_VECTOR_FLAG) – Payload flag marking a vector as written by an in-flight Cutover Job.
+
 ###### `agrag.common.data_models.vector_record.Distance`
 
 Bases: <code>[StrEnum](#enum.StrEnum)</code>
@@ -3235,6 +3436,24 @@ DOT = 'Dot'
 ```python
 EUCLID = 'Euclid'
 ```
+
+###### `agrag.common.data_models.vector_record.PENDING_VECTOR_FLAG`
+
+```python
+PENDING_VECTOR_FLAG = '_pending'
+```
+
+Payload flag marking a vector as written by an in-flight Cutover Job.
+
+Mirrored at write time and cleared at commit. Payload filters only match
+on present values, so pending-exclusion needs this explicit boolean
+rather than relying on the job-id key's absence.
+
+Every backend's filter compiler reads the flag two ways: a filter that
+omits it, or sets it `False`, excludes records flagged true while
+still returning records written before the flag existed, and a filter
+that sets it `True` returns only the flagged records, which is the
+maintenance path that has to see a job's own in-flight vectors.
 
 ###### `agrag.common.data_models.vector_record.VectorHit`
 
@@ -3478,6 +3697,8 @@ points one way (store -> cypher).
 
 - [**community_read**](#agrag.cypher.community_read) – Cypher for community retrieval reads.
 - [**community_write**](#agrag.cypher.community_write) – Cypher for the community-detection full-replace write path.
+- [**cutover_job_read**](#agrag.cypher.cutover_job_read) – Cypher reads for the Cutover Job crash-recovery machine.
+- [**cutover_job_write**](#agrag.cypher.cutover_job_write) – Cypher writes for the Cutover Job crash-recovery machine.
 - [**entities**](#agrag.cypher.entities) – Cypher builders for node writes and filters.
 - [**relations**](#agrag.cypher.relations) – Cypher builders for relationship writes and graph traversal.
 - [**resolution_read**](#agrag.cypher.resolution_read) – Cypher reads for local entity-resolution materialization.
@@ -3515,10 +3736,14 @@ Build Cypher finding communities overlapping given entity ids.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids)
+- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids),
+- <code>[str](#str)</code> – $job_id (the in-flight Cutover Job's id, or null outside a job),
 - <code>[str](#str)</code> – and $top_k (max rows to return; must be non-negative, since
 - <code>[str](#str)</code> – Neo4j rejects a negative LIMIT). Returns each overlapping
 - <code>[str](#str)</code> – community node and its overlap count, highest overlap first.
+- <code>[str](#str)</code> – Community nodes are never written by a Cutover Job, but the
+- <code>[str](#str)</code> – member entity anchor is: the `$job_id` guard keeps a
+- <code>[str](#str)</code> – community from being found through a pending member edge.
 
 #### `agrag.cypher.community_write`
 
@@ -3543,6 +3768,221 @@ deleted, rather than a single unbatched DETACH DELETE.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $limit. Returns the count deleted.
+
+#### `agrag.cypher.cutover_job_read`
+
+Cypher reads for the Cutover Job crash-recovery machine.
+
+**Functions:**
+
+- [**find_incomplete_jobs_query**](#agrag.cypher.cutover_job_read.find_incomplete_jobs_query) – Build Cypher returning every job that still needs crash recovery.
+
+##### `agrag.cypher.cutover_job_read.find_incomplete_jobs_query`
+
+```python
+find_incomplete_jobs_query() -> str
+```
+
+Build Cypher returning every job that still needs crash recovery.
+
+The `Graph.open()` resume hook runs this first: a pending job whose
+lease has lapsed rolls back, a committed or cleaning job rolls
+forward, and a pending job whose lease is still live is left alone
+because its worker may be running normally. Done and rolled-back jobs
+never match, so graphs that predate this feature — or finished jobs
+whose nodes were deleted by rollback — simply return nothing.
+
+`lease_expired` is decided in the query rather than by the caller so
+the read needs no datetime parsing at the boundary.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting no parameters. Returns each
+- <code>[str](#str)</code> – incomplete job's id, status, affected-entity snapshot, and whether
+- <code>[str](#str)</code> – its lease has lapsed.
+
+#### `agrag.cypher.cutover_job_write`
+
+Cypher writes for the Cutover Job crash-recovery machine.
+
+**Functions:**
+
+- [**acquire_lease_query**](#agrag.cypher.cutover_job_write.acquire_lease_query) – Build Cypher tentatively creating a job node and returning its lease.
+- [**claim_job_query**](#agrag.cypher.cutover_job_write.claim_job_query) – Build Cypher taking over an interrupted job for resume-on-open.
+- [**clear_pending_tag_query**](#agrag.cypher.cutover_job_write.clear_pending_tag_query) – Build Cypher clearing the pending tag off everything a job wrote.
+- [**commit_job_query**](#agrag.cypher.cutover_job_write.commit_job_query) – Build Cypher flipping a job from pending to committed, fenced by lease.
+- [**finish_cleaning_query**](#agrag.cypher.cutover_job_write.finish_cleaning_query) – Build Cypher marking a job done after its cleanup phase completes.
+- [**rollback_job_query**](#agrag.cypher.cutover_job_write.rollback_job_query) – Build Cypher deleting everything a job wrote, then the job itself.
+- [**start_cleaning_query**](#agrag.cypher.cutover_job_write.start_cleaning_query) – Build Cypher moving a committed job into cleaning, fenced by lease.
+- [**steal_expired_lease_query**](#agrag.cypher.cutover_job_write.steal_expired_lease_query) – Build Cypher taking over a job whose lease lapsed or went terminal.
+
+##### `agrag.cypher.cutover_job_write.acquire_lease_query`
+
+```python
+acquire_lease_query() -> str
+```
+
+Build Cypher tentatively creating a job node and returning its lease.
+
+Follows `upsert_merge_alias_query`'s tentative-create shape: `MERGE`
+on `document_key` (backed by the `CutoverJob.document_key`
+uniqueness constraint) creates the node for the first claimant and
+matches it for everyone else, so concurrent acquirers converge instead
+of duplicating. The caller compares the returned `lease_token`
+against its own: equality means it won the lease (created the node),
+anything else means a live job already holds it.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $document_key, $verb,
+- <code>[str](#str)</code> – $lease_token, $lease_expires_at (ISO-8601 string, stored as a
+- <code>[str](#str)</code> – native datetime for expiry comparison), $affected_entity_ids
+- <code>[str](#str)</code> – (list of string ids, snapshotted before any pending write), and
+- <code>[str](#str)</code> – $created_at. Returns the node's lease_token and status.
+
+##### `agrag.cypher.cutover_job_write.claim_job_query`
+
+```python
+claim_job_query() -> str
+```
+
+Build Cypher taking over an interrupted job for resume-on-open.
+
+The `Graph.open()` resume hook runs this after
+`find_incomplete_jobs_query`: it flips one incomplete job to
+`cleaning` under a fresh fencing token if the job is committed
+(roll forward) or cleaning (a previous resume died mid-cleanup), and
+is refused for a pending job, which the caller rolls back instead —
+a pending job's worker may still be alive, so taking over its writes
+would fork the pipeline. The flip is fenced against the token read
+in the same query, so two simultaneous opens converge: exactly one
+claimant gets back its own token, and the loser sees no row and
+skips the job as claimed.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id and $lease_token (the
+- <code>[str](#str)</code> – claimant's fresh token). Returns the job's new status when the
+- <code>[str](#str)</code> – claim applied, no row when the job is pending or was claimed by
+- <code>[str](#str)</code> – another open first.
+
+##### `agrag.cypher.cutover_job_write.clear_pending_tag_query`
+
+```python
+clear_pending_tag_query() -> str
+```
+
+Build Cypher clearing the pending tag off everything a job wrote.
+
+Runs inside the same transaction as `commit_job_query`: the commit
+flip and the tag removal land atomically, so a crash between them is
+impossible. External vector-store payloads carry the mirrored
+`_pending` boolean and are cleared through the VectorStore API by
+the caller, not here; the native vector-index path reads node
+properties, so it sees this same removal.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id. Returns the count of
+- <code>[str](#str)</code> – nodes and relationships cleared.
+
+##### `agrag.cypher.cutover_job_write.commit_job_query`
+
+```python
+commit_job_query() -> str
+```
+
+Build Cypher flipping a job from pending to committed, fenced by lease.
+
+Follows `set_embedding_query`'s compare-and-swap shape: the write
+applies only while the `WHERE` guard (caller's fencing token still
+current, job still pending) holds, so a worker that lost its lease
+cannot complete a stale commit even if it is still alive and slow.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id and $lease_token. Returns
+- <code>[str](#str)</code> – the job id when the flip applied, no row on fencing failure.
+
+##### `agrag.cypher.cutover_job_write.finish_cleaning_query`
+
+```python
+finish_cleaning_query() -> str
+```
+
+Build Cypher marking a job done after its cleanup phase completes.
+
+Same compare-and-swap shape as `commit_job_query`: only the lease
+holder that started cleaning may finish it.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id and $lease_token. Returns
+- <code>[str](#str)</code> – the job id when the transition applied, no row otherwise.
+
+##### `agrag.cypher.cutover_job_write.rollback_job_query`
+
+```python
+rollback_job_query() -> str
+```
+
+Build Cypher deleting everything a job wrote, then the job itself.
+
+The live graph was never touched — nothing pending was ever visible —
+so rollback is pure deletion: every tagged node (detaching its edges)
+and every tagged edge between committed endpoints goes first, then the
+job node. Reaching this terminal state is observed as the job node's
+absence, which also frees `document_key` for the next job without a
+reuse path.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id. Returns the count of
+- <code>[str](#str)</code> – deleted nodes and relationships.
+
+##### `agrag.cypher.cutover_job_write.start_cleaning_query`
+
+```python
+start_cleaning_query() -> str
+```
+
+Build Cypher moving a committed job into cleaning, fenced by lease.
+
+Same compare-and-swap shape as `commit_job_query`: only the lease
+holder that committed the job may start its cleanup.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id and $lease_token. Returns
+- <code>[str](#str)</code> – the job id when the transition applied, no row otherwise.
+
+##### `agrag.cypher.cutover_job_write.steal_expired_lease_query`
+
+```python
+steal_expired_lease_query() -> str
+```
+
+Build Cypher taking over a job whose lease lapsed or went terminal.
+
+Matches a job for `$document_key` that is either still pending with
+an expired lease (its worker died without committing) or already in a
+terminal state (a previous run finished and left the node behind), and
+resets it to pending under the caller's identity and token. Committed
+and cleaning jobs never match: they are mid-roll-forward under the
+resume hook, and stealing one would fork the cleanup phase.
+
+The steal adopts `$job_id` as well as `$lease_token`: every later
+step of this job's run — commit, clean, done — fences on the new
+job's id, so a node still carrying the previous run's id would fence
+the whole run out at its first transition.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $document_key, $verb,
+- <code>[str](#str)</code> – $lease_token, $affected_entity_ids (the new run's snapshot, empty
+- <code>[str](#str)</code> – until the caller needs it), $created_at, and $lease_expires_at
+- <code>[str](#str)</code> – (ISO-8601 string). Returns the node's lease_token when the steal
+- <code>[str](#str)</code> – succeeded, no row otherwise.
 
 #### `agrag.cypher.entities`
 
@@ -3680,7 +4120,12 @@ map those mentions back.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $merge_keys (list of strings).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $merge_keys (list of strings) and
+- <code>[str](#str)</code> – $job_id (the in-flight Cutover Job's id, or null outside a job).
+- <code>[str](#str)</code> – An alias written by this same job resolves through the guard, so
+- <code>[str](#str)</code> – in-job exact-match lookups see the job's own writes; every other
+- <code>[str](#str)</code> – job's alias is excluded, and outside a job the guard reduces to
+- <code>[str](#str)</code> – committed-only.
 
 ##### `agrag.cypher.entities.fetch_relations_between_query`
 
@@ -3732,9 +4177,17 @@ The query follows only currently valid PART_OF edges, so superseded
 document versions cannot surface in retrieval. Chunks without any
 PART_OF edge are also returned for direct or legacy chunk fixtures.
 
+Pending visibility is job-scoped: the storage stage runs inside its
+own job's pending phase and must see the chunks that same job just
+wrote (the partial-write fallback checks exactly those), while still
+excluding every other in-flight job's. A null `$job_id` reduces the
+guard to committed-only, which is what every caller outside a job
+passes.
+
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids) and
+- <code>[str](#str)</code> – $job_id (the in-flight job's id, or null outside a job).
 
 ##### `agrag.cypher.entities.hydrate_entities_by_id_query`
 
@@ -3748,9 +4201,16 @@ A tombstoned node is never deleted, so a naive
 `MATCH (n) WHERE n.id IN $ids` would surface one. This query
 filters on `merged_into IS NULL` to return only live nodes.
 
+Pending visibility is job-scoped: the merge-apply and pruning paths
+run inside their own job's pending phase and must see the entities
+that same job just wrote, while still excluding every other
+in-flight job's. A null `$job_id` reduces the guard to
+committed-only, which is what every caller outside a job passes.
+
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids) and
+- <code>[str](#str)</code> – $job_id (the in-flight job's id, or null outside a job).
 
 ##### `agrag.cypher.entities.is_safe_identifier`
 
@@ -3802,6 +4262,10 @@ A tombstoned node is never deleted; it only gains a `merged_into`
 property pointing at its survivor. The pointer is a property, not a
 relationship, so a chain is followed one hop per call: `merged_into`
 is null on a live node and holds the next id on a tombstone.
+
+A pending node resolves to itself: the identity path must see its own
+job's in-flight writes, and an uncommitted job's node is only ever
+reached through that same job's own reads.
 
 **Returns:**
 
@@ -3890,6 +4354,13 @@ entity it names is later itself absorbed, `fetch_by_merge_keys_query`'s
 caller follows that entity's `merged_into` chain from here instead of
 this table being kept in sync with every later merge.
 
+An alias written by an in-flight Cutover Job carries that job's id, so
+the exact-match lookup (which filters pending nodes) never resolves a
+mention into uncommitted data, and a rollback deletes the alias with
+the entity it names instead of leaving a dangling owner. A null
+`pending_job_id` sets no property, preserving today's behavior for
+callers outside a job.
+
 The returned rows are what let a caller detect the case `ON CREATE SET` alone cannot: an accepted merge_key already owned by some other
 live entity, not one this same merge is writing or absorbing. Neither
 entity's own node merge_key collides in that case, so nothing at the
@@ -3898,10 +4369,12 @@ entity_id against its own survivor and tombstone ids itself.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $merge_keys (list of strings) and
-- <code>[str](#str)</code> – $entity_id. Returns each merge_key alongside the entity_id that now
-- <code>[str](#str)</code> – owns it -- $entity_id when this call claimed or already owned it,
-- <code>[str](#str)</code> – another entity's id when a different one claimed it first.
+- <code>[str](#str)</code> – Parameterized Cypher expecting $merge_keys (list of strings),
+- <code>[str](#str)</code> – $entity_id, and $pending_job_id (the in-flight job's id, or null
+- <code>[str](#str)</code> – outside a job — null sets no property). Returns each merge_key
+- <code>[str](#str)</code> – alongside the entity_id that now owns it -- $entity_id when this
+- <code>[str](#str)</code> – call claimed or already owned it, another entity's id when a
+- <code>[str](#str)</code> – different one claimed it first.
 
 ##### `agrag.cypher.entities.upsert_node_query`
 
@@ -4026,7 +4499,7 @@ TraversalDirection = Literal['outgoing', 'incoming', 'both']
 ##### `agrag.cypher.relations.bfs_expand_query`
 
 ```python
-bfs_expand_query(*, depth:int = 2, limit:int = 50, filters:dict[str, Any] | None = None, relation_types:Sequence[str] | None = None, direction:TraversalDirection = 'both', document_ids:Sequence[str] | None = None, labels:Sequence[str] | None = None) -> tuple[str, dict[str, Any]]
+bfs_expand_query(*, depth:int = 2, limit:int = 50, filters:dict[str, Any] | None = None, relation_types:Sequence[str] | None = None, direction:TraversalDirection = 'both', document_ids:Sequence[str] | None = None, labels:Sequence[str] | None = None, job_id:str | None = None) -> tuple[str, dict[str, Any]]
 ```
 
 Build Cypher for BFS expansion from seed entity ids.
@@ -4071,11 +4544,15 @@ never returned as BFS results.
   entity through a `MENTIONED_IN` edge.
 - **labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – Optional labels that returned neighbors must have at
   least one of.
+- **job_id** (<code>[str](#str) | None</code>) – The in-flight Cutover Job's id, or null outside a job.
+  A null `$job_id` reduces the pending guards to
+  committed-only, so no retrieval path ever returns a node or
+  crosses an edge written by an uncommitted job.
 
 **Returns:**
 
 - <code>[str](#str)</code> – A `(query, params)` tuple. The query expects `$seed_ids`
-- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – (list of string ids) plus any filter parameters.
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – (list of string ids), `$job_id`, plus any filter parameters.
 
 **Raises:**
 
@@ -4091,11 +4568,13 @@ chunks_mentioning_entities_query() -> str
 Build Cypher finding chunks that mention given entities.
 
 Walks the MENTIONED_IN edge from Chunk to Entity. Returns chunks
-that reference any of the given entity ids.
+that reference any of the given entity ids. Pending visibility is
+job-scoped: a null `$job_id` reduces the guard to committed-only.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids)
+- <code>[str](#str)</code> – and $job_id (the in-flight job's id, or null outside a job).
 
 ##### `agrag.cypher.relations.close_part_of_query`
 
@@ -4105,6 +4584,18 @@ close_part_of_query() -> str
 
 Build Cypher that closes currently valid document-to-chunk edges.
 
+Pending visibility matters here: the superseding version's edges are
+already written when this runs, so a null `$job_id` would close the
+new version along with the old one and leave the document with no
+current chunks. The job-scoped guard closes the superseded version
+and leaves the writing job's own edges open.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $document_node_id and $job_id
+- <code>[str](#str)</code> – (the in-flight Cutover Job's id, or null outside a job). Returns
+- <code>[str](#str)</code> – the number of edges closed.
+
 ##### `agrag.cypher.relations.entities_in_documents_query`
 
 ```python
@@ -4112,6 +4603,16 @@ entities_in_documents_query() -> str
 ```
 
 Build a query for live entities mentioned in selected documents.
+
+Pending visibility is job-scoped: a null `$job_id` reduces the
+guard to committed-only, so document scoping never surfaces an
+entity an uncommitted job wrote.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $document_ids (list of string
+- <code>[str](#str)</code> – ids) and $job_id (the in-flight job's id, or null outside a
+- <code>[str](#str)</code> – job).
 
 ##### `agrag.cypher.relations.entities_mentioned_in_chunks_query`
 
@@ -4122,11 +4623,14 @@ entities_mentioned_in_chunks_query() -> str
 Build Cypher finding entities mentioned by given chunks.
 
 Walks the MENTIONED_IN edge from Chunk to Entity in reverse. Returns
-entities referenced by any of the given chunk ids.
+entities referenced by any of the given chunk ids. Pending
+visibility is job-scoped: a null `$job_id` reduces the guard to
+committed-only.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $chunk_ids (list of string ids).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $chunk_ids (list of string ids)
+- <code>[str](#str)</code> – and $job_id (the in-flight job's id, or null outside a job).
 
 ##### `agrag.cypher.relations.fetch_all_relations_query`
 
@@ -4164,6 +4668,8 @@ Build Cypher paginating every live domain relationship via keyset.
 Keyset variant of :func:`fetch_all_relations_query` for large graphs
 where `SKIP` becomes expensive. Orders by `(a.id, b.id, type(r), r.id)` and pages by the last seen tuple; the first page uses
 `last_a=""`, `last_b=""`, `last_type=""` and `last_rel_id=""`.
+Like the offset variant, it excludes every edge an in-flight Cutover
+Job wrote.
 
 The relationship type and id break ties on `(a.id, b.id)`: two
 distinct relationships (different types, or the same type with
@@ -4202,7 +4708,7 @@ Return the validated Cypher type pattern for a set of types.
 ##### `agrag.cypher.relations.relationship_types_from_query`
 
 ```python
-relationship_types_from_query(*, relation_types:Sequence[str] | None = None, direction:TraversalDirection = 'both') -> str
+relationship_types_from_query(*, relation_types:Sequence[str] | None = None, direction:TraversalDirection = 'both', job_id:str | None = None) -> str
 ```
 
 Build Cypher listing the relationship types touching seed entities.
@@ -4221,12 +4727,15 @@ narrowing a real traversal, not as a substitute for one.
 - **direction** (<code>[TraversalDirection](#agrag.cypher.relations.TraversalDirection)</code>) – Which relationships to consider, read relative to
   the seed entity: those leaving it (`"outgoing"`), those
   entering it (`"incoming"`), or both.
+- **job_id** (<code>[str](#str) | None</code>) – The in-flight Cutover Job's id, or null outside a job.
+  A null `$job_id` reduces the pending guard to
+  committed-only, so no in-flight job's edges add types.
 
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting `$seed_ids` (list of string
-- <code>[str](#str)</code> – ids), returning one row per distinct attached type under
-- <code>[str](#str)</code> – `rel_type`.
+- <code>[str](#str)</code> – ids) and `$job_id`, returning one row per distinct attached
+- <code>[str](#str)</code> – type under `rel_type`.
 
 **Raises:**
 
@@ -4296,6 +4805,19 @@ fetch_active_component_members_query() -> str
 
 Build Cypher returning active match components from seed ids.
 
+Pending visibility is job-scoped, not a plain exclusion: the
+materialization pass runs inside its own job's pending phase and must
+see the entities and matches that same job just wrote, while still
+excluding every other in-flight job's. A null `$job_id` reduces both
+guards to committed-only, which is what every caller outside a job
+passes.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $seed_ids (list of string ids) and
+- <code>[str](#str)</code> – $job_id (the in-flight job's id, or null outside a job). Returns
+- <code>[str](#str)</code> – each seed id with its distinct active component members.
+
 ##### `agrag.cypher.resolution_read.fetch_active_matches_among_ids_query`
 
 ```python
@@ -4311,6 +4833,15 @@ fetch_active_resolved_member_ids_query() -> str
 ```
 
 Build Cypher finding raw hits hidden by an active materialization.
+
+Pending visibility is job-scoped on both the edge and the resolved
+node: a null `$job_id` reduces both guards to committed-only, so
+an uncommitted job's materialization never hides a raw hit.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids) and
+- <code>[str](#str)</code> – $job_id (the in-flight job's id, or null outside a job).
 
 ##### `agrag.cypher.resolution_read.fetch_entities_with_open_evidence_query`
 
@@ -4343,6 +4874,15 @@ hydrate_resolved_entities_by_id_query() -> str
 ```
 
 Build Cypher hydrating materializations returned by vector search.
+
+Pending visibility is job-scoped: a null `$job_id` reduces the
+guard to committed-only, so retrieval never hydrates a
+ResolvedEntity an uncommitted job materialized.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids) and
+- <code>[str](#str)</code> – $job_id (the in-flight job's id, or null outside a job).
 
 #### `agrag.cypher.resolution_write`
 
@@ -4441,6 +4981,19 @@ upsert_matches_query() -> str
 
 Build Cypher that idempotently records a confirmed entity match.
 
+A match written by an in-flight Cutover Job carries that job's id, so
+component reads (which filter pending matches) never traverse
+uncommitted edges. A null `$pending_job_id` sets no property,
+preserving today's behavior for callers outside a job. Re-confirming
+an already-committed edge under a job re-tags it until that job
+commits, which is correct: the edge is under active revision.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_a_id, $entity_b_id,
+- <code>[str](#str)</code> – $match_id, $comparator, $score, $reasoning, $decided_at, and
+- <code>[str](#str)</code> – $pending_job_id (the in-flight job's id, or null outside a job).
+
 #### `agrag.cypher.safety`
 
 Safety gate for generated Cypher queries.
@@ -4523,6 +5076,7 @@ identifier-validation contract shared by every Cypher builder.
 
 **Functions:**
 
+- [**cutover_job_document_key_constraint_query**](#agrag.cypher.schema.cutover_job_document_key_constraint_query) – Build a CREATE CONSTRAINT query making the job table's key unique.
 - [**merge_alias_constraint_query**](#agrag.cypher.schema.merge_alias_constraint_query) – Build a CREATE CONSTRAINT query making the merge-key alias table unique.
 - [**merge_key_constraint_query**](#agrag.cypher.schema.merge_key_constraint_query) – Build a CREATE CONSTRAINT query making `merge_key` unique per label.
 - [**node_id_constraint_query**](#agrag.cypher.schema.node_id_constraint_query) – Build a CREATE CONSTRAINT query making `id` unique per node.
@@ -4531,6 +5085,25 @@ identifier-validation contract shared by every Cypher builder.
 - [**vector_index_name**](#agrag.cypher.schema.vector_index_name) – Derive the deterministic name a vector index is created under.
 - [**vector_index_query**](#agrag.cypher.schema.vector_index_query) – Build a CREATE VECTOR INDEX query for native vector search.
 - [**vector_search_query**](#agrag.cypher.schema.vector_search_query) – Build a native vector search query and its filter parameters.
+
+##### `agrag.cypher.schema.cutover_job_document_key_constraint_query`
+
+```python
+cutover_job_document_key_constraint_query() -> str
+```
+
+Build a CREATE CONSTRAINT query making the job table's key unique.
+
+One global constraint, not per label: `CUTOVER_JOB_LABEL` is a fixed
+label, and `document_key` names the document a job mutates, so a
+single uniqueness constraint on it is sufficient. This alone prevents
+two job nodes for the same key; exclusivity among non-terminal jobs is
+enforced by the lease queries, not the constraint alone, since the
+constraint permits a new job node once rollback deletes the old one.
+
+**Returns:**
+
+- <code>[str](#str)</code> – A Cypher query creating the uniqueness constraint if absent.
 
 ##### `agrag.cypher.schema.merge_alias_constraint_query`
 
@@ -4688,6 +5261,10 @@ vector_search_query(index_name:str, filters:dict[str, Any] | None = None) -> tup
 ```
 
 Build a native vector search query and its filter parameters.
+
+A node written by an in-flight Cutover Job (one carrying a non-null
+`_pending_job_id`) is always excluded: the native vector index
+would otherwise surface an uncommitted job's nodes to retrieval.
 
 **Parameters:**
 
@@ -7235,6 +7812,7 @@ The ingestion package.
 - [**reports**](#agrag.ingestion.reports) – Reports returned by Graph pipeline operations.
 - [**resolve**](#agrag.ingestion.resolve) – Entity resolution public API.
 - [**resolved_embeddings**](#agrag.ingestion.resolved_embeddings) – Embedding and vector synchronization for materialized resolved entities.
+- [**settings**](#agrag.ingestion.settings) – Configuration for the Cutover Job crash-recovery machine.
 - [**stats**](#agrag.ingestion.stats) – Per-stage observability types for the ingestion pipeline.
 
 **Classes:**
@@ -7244,7 +7822,7 @@ The ingestion package.
 #### `agrag.ingestion.Graph`
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -7285,6 +7863,9 @@ by `open()` when missing.
 - **retrieval_settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
   None uses RetrievalSettings defaults. Ignored when
   vector_store is None.
+- **cutover_settings** (<code>[CutoverJobSettings](#agrag.ingestion.settings.CutoverJobSettings) | None</code>) – Lease configuration for the Cutover Jobs
+  add/update/delete_document run through. None uses
+  CutoverJobSettings defaults.
 
 ##### `agrag.ingestion.Graph.add`
 
@@ -7386,7 +7967,9 @@ open edges removes the document from retrieval while its chunks,
 the `Document` node, and contributed entities stay in the graph
 for provenance. An unknown `document_key` is a no-op. Entities
 mentioned only by this document's chunks lose their last evidence
-and are pruned with their shrunken clusters.
+and are pruned with their shrunken clusters. The close and the
+prune run as one job's commit and cleanup, so a crash either
+leaves the document untouched or completes the deletion.
 
 **Parameters:**
 
@@ -7446,7 +8029,7 @@ previous one's.
 ##### `agrag.ingestion.Graph.open`
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -7475,6 +8058,9 @@ dual writes never hit an absent collection.
   __init__.
 - **retrieval_settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
   None uses RetrievalSettings defaults.
+- **cutover_settings** (<code>[CutoverJobSettings](#agrag.ingestion.settings.CutoverJobSettings) | None</code>) – Lease configuration for the Cutover Jobs
+  add/update/delete_document run through. None uses
+  CutoverJobSettings defaults.
 
 **Returns:**
 
@@ -7529,12 +8115,14 @@ Replace one document version, closing its former PART_OF edges.
 
 Looks up the persisted `Document` node by `document_key`. An
 unchanged content hash is a no-op returning before any chunking,
-extraction, or writes. Otherwise closes the document's open
-`PART_OF` edges and ingests the fresh content under the same
-`Document` node through the shared pipeline core. Entities that
-lose their last evidence are pruned after the fresh ingest
-completes, so replacement mentions count as evidence. A source must
-resolve to exactly one document.
+extraction, or writes. Otherwise the fresh content ingests under a
+Cutover Job holding this document's lease, and the commit flips
+the job, closes the document's open `PART_OF` edges, and clears
+every pending tag in one transaction — so a crash either leaves
+the old version untouched or completes the replacement including
+cleanup. Entities that lose their last evidence are pruned after
+the commit, so replacement mentions count as evidence. A source
+must resolve to exactly one document.
 
 **Parameters:**
 
@@ -8149,7 +8737,7 @@ The public Graph API for ingestion.
 ##### `agrag.ingestion.graph.Graph`
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -8190,6 +8778,9 @@ by `open()` when missing.
 - **retrieval_settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
   None uses RetrievalSettings defaults. Ignored when
   vector_store is None.
+- **cutover_settings** (<code>[CutoverJobSettings](#agrag.ingestion.settings.CutoverJobSettings) | None</code>) – Lease configuration for the Cutover Jobs
+  add/update/delete_document run through. None uses
+  CutoverJobSettings defaults.
 
 ###### `agrag.ingestion.graph.Graph.add`
 
@@ -8291,7 +8882,9 @@ open edges removes the document from retrieval while its chunks,
 the `Document` node, and contributed entities stay in the graph
 for provenance. An unknown `document_key` is a no-op. Entities
 mentioned only by this document's chunks lose their last evidence
-and are pruned with their shrunken clusters.
+and are pruned with their shrunken clusters. The close and the
+prune run as one job's commit and cleanup, so a crash either
+leaves the document untouched or completes the deletion.
 
 **Parameters:**
 
@@ -8351,7 +8944,7 @@ previous one's.
 ###### `agrag.ingestion.graph.Graph.open`
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -8380,6 +8973,9 @@ dual writes never hit an absent collection.
   __init__.
 - **retrieval_settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
   None uses RetrievalSettings defaults.
+- **cutover_settings** (<code>[CutoverJobSettings](#agrag.ingestion.settings.CutoverJobSettings) | None</code>) – Lease configuration for the Cutover Jobs
+  add/update/delete_document run through. None uses
+  CutoverJobSettings defaults.
 
 **Returns:**
 
@@ -8434,12 +9030,14 @@ Replace one document version, closing its former PART_OF edges.
 
 Looks up the persisted `Document` node by `document_key`. An
 unchanged content hash is a no-op returning before any chunking,
-extraction, or writes. Otherwise closes the document's open
-`PART_OF` edges and ingests the fresh content under the same
-`Document` node through the shared pipeline core. Entities that
-lose their last evidence are pruned after the fresh ingest
-completes, so replacement mentions count as evidence. A source must
-resolve to exactly one document.
+extraction, or writes. Otherwise the fresh content ingests under a
+Cutover Job holding this document's lease, and the commit flips
+the job, closes the document's open `PART_OF` edges, and clears
+every pending tag in one transaction — so a crash either leaves
+the old version untouched or completes the replacement including
+cleanup. Entities that lose their last evidence are pruned after
+the commit, so replacement mentions count as evidence. A source
+must resolve to exactly one document.
 
 **Parameters:**
 
@@ -8702,13 +9300,23 @@ candidate id, never with a graph-wide scan.
 ##### `agrag.ingestion.materialize.write_matches_and_materialize`
 
 ```python
-write_matches_and_materialize(decisions:list[MatchDecision], *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity]) -> MaterializationResult
+write_matches_and_materialize(decisions:list[MatchDecision], *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity], pending_job_id:str | None = None) -> MaterializationResult
 ```
 
 Persist matches and materialize their supplied connected component.
 
 Callers fetch the bounded affected component before invoking this function.
 The resolved node is always recomputed from that current membership.
+
+**Parameters:**
+
+- **decisions** (<code>[list](#list)\[[MatchDecision](#agrag.ingestion.materialize.MatchDecision)\]</code>) – The confirmed matches to persist.
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where matches and materializations are written.
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The schema the members belong to.
+- **members** (<code>[list](#list)\[[Entity](#agrag.common.data_models.entity.Entity)\]</code>) – The component members the resolved node is computed from.
+- **pending_job_id** (<code>[str](#str) | None</code>) – The in-flight Cutover Job's id, tagging the match
+  edges and materialized nodes until that job commits. None
+  writes untagged, for callers outside a job.
 
 **Raises:**
 
@@ -8909,7 +9517,7 @@ MERGE_ALL = 'merge_all'
 ##### `agrag.ingestion.merge.apply_merge`
 
 ```python
-apply_merge(plan:MergePlan, *, graph_store:GraphStore, schema:GraphSchema) -> None
+apply_merge(plan:MergePlan, *, graph_store:GraphStore, schema:GraphSchema, pending_job_id:str | None = None) -> None
 ```
 
 Write a computed MergePlan to storage.
@@ -8929,6 +9537,9 @@ instead.
 - **plan** (<code>[MergePlan](#agrag.ingestion.merge.MergePlan)</code>) – The merge to write.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where the merge is written.
 - **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The schema the survivor's label belongs to.
+- **pending_job_id** (<code>[str](#str) | None</code>) – The in-flight Cutover Job's id, tagging the
+  survivor node and its aliases until that job commits. None
+  writes untagged, for callers outside a job.
 
 **Raises:**
 
@@ -8944,7 +9555,7 @@ instead.
 ##### `agrag.ingestion.merge.compute_merge`
 
 ```python
-compute_merge(*, existing_entities:list[Entity], mentions:list[ExtractedEntity], schema:GraphSchema, rules:PropertyRules | None = None, description_settings:Any | None = None, description_client:Any | None = None) -> tuple[MergePlan, list[Any]]
+compute_merge(*, existing_entities:list[Entity], mentions:list[ExtractedEntity], schema:GraphSchema, rules:PropertyRules | None = None, description_settings:Any | None = None, description_client:Any | None = None, job_id:UUID | None = None) -> tuple[MergePlan, list[Any]]
 ```
 
 Compute how existing_entities and mentions combine into one Entity.
@@ -8962,6 +9573,10 @@ canonical survivor and marks the rest for tombstoning.
 - **rules** (<code>[PropertyRules](#agrag.ingestion.merge.PropertyRules) | None</code>) – Per-property conflict resolution. Defaults to keep_first.
 - **description_settings** (<code>[Any](#typing.Any) | None</code>) – LLM settings for description summarization.
 - **description_client** (<code>[Any](#typing.Any) | None</code>) – Injected LLM client for tests.
+- **job_id** (<code>[UUID](#uuid.UUID) | None</code>) – The Cutover Job this merge runs under. A brand-new entity
+  derives its id from (job_id, merge_key) instead of uuid4, so
+  replaying the job after a crash reproduces the same id. None
+  keeps today's random-id behavior for callers outside a job.
 
 **Returns:**
 
@@ -11563,7 +12178,7 @@ Embedding and vector synchronization for materialized resolved entities.
 ##### `agrag.ingestion.resolved_embeddings.embed_resolved_entities`
 
 ```python
-embed_resolved_entities(entities:list[ResolvedEntity], *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, vector_collection:str, error_policy:ErrorPolicy) -> list[StageFailure]
+embed_resolved_entities(entities:list[ResolvedEntity], *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, vector_collection:str, error_policy:ErrorPolicy, pending_job_id:UUID | None = None) -> list[StageFailure]
 ```
 
 Write resolved-entity embeddings to the graph and optional vector store.
@@ -11579,6 +12194,39 @@ concurrent materialization can replace or delete a ResolvedEntity between
 this call reading it and writing its embedding; skipping the unmatched
 ones keeps this call from resurrecting a vector, or overwriting a status,
 that the concurrent call already owns.
+
+#### `agrag.ingestion.settings`
+
+Configuration for the Cutover Job crash-recovery machine.
+
+**Classes:**
+
+- [**CutoverJobSettings**](#agrag.ingestion.settings.CutoverJobSettings) – Configuration for the Cutover Job crash-recovery machine.
+
+##### `agrag.ingestion.settings.CutoverJobSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+Configuration for the Cutover Job crash-recovery machine.
+
+**Attributes:**
+
+- [**lease_ttl_seconds**](#agrag.ingestion.settings.CutoverJobSettings.lease_ttl_seconds) (<code>[int](#int)</code>) – How long a worker's lease is valid before another
+  worker may steal it. Env: CUTOVER_JOB_LEASE_TTL_SECONDS.
+
+Env prefix: `CUTOVER_JOB_`.
+
+###### `agrag.ingestion.settings.CutoverJobSettings.lease_ttl_seconds`
+
+```python
+lease_ttl_seconds: int = 60
+```
+
+###### `agrag.ingestion.settings.CutoverJobSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='CUTOVER_JOB_', env_file='.env', extra='ignore')
+```
 
 #### `agrag.ingestion.stats`
 
@@ -13003,6 +13651,11 @@ When it is None, runs GraphStore's native vector_search once per
 label in `labels` and merges the hits, ignoring hybrid_alpha
 since that path is dense-only. One native vector index exists per
 label, so a search over several labels is several searches.
+
+Both paths exclude records an in-flight Cutover Job wrote: the
+VectorStore path with a committed-only payload filter, the native
+path inside the vector query itself. A caller can therefore never
+receive an uncommitted job's node or vector.
 
 **Parameters:**
 

@@ -575,12 +575,13 @@ class TestSetupIdempotent:
             c for c in writes if "INDEX" in c.args[1] and "VECTOR" not in c.args[1]
         ]
         # Chunk + Doc, each with an id and a merge_key uniqueness constraint,
-        # plus the identity-anchor and merge-key-alias constraints every
-        # store sets up once.
-        assert len(constraint_calls) == 6
+        # plus the identity-anchor, merge-key-alias, and CutoverJob
+        # document_key constraints every store sets up once.
+        assert len(constraint_calls) == 7
         assert any(NODE_IDENTITY_LABEL in c.args[1] for c in constraint_calls)
         assert any("merge_key_unique" in c.args[1] for c in constraint_calls)
         assert any("agragmergealias" in c.args[1].lower() for c in constraint_calls)
+        assert any("cutoverjob_document_key" in c.args[1] for c in constraint_calls)
         # Two range indexes per label: plain id index + merge_key index.
         assert len(index_calls) == 4
         assert any("_id_index" in c.args[1] for c in index_calls)

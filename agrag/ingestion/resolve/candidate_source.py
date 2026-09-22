@@ -109,7 +109,7 @@ class GraphCandidateSource(CandidateSource):
         ids = [str(hit.id) for hit in hits]
         try:
             rows = await self.graph_store.execute_read(
-                hydrate_entities_by_id_query(), {"ids": ids}
+                hydrate_entities_by_id_query(), {"ids": ids, "job_id": None}
             )
         except Exception:
             return []

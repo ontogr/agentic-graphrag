@@ -404,7 +404,7 @@ class TestTraversal:
         assert types == ["TREATS", "WORKS_FOR"]
         query, params = store.execute_read.call_args.args
         assert "RETURN DISTINCT type(r) AS rel_type" in query
-        assert params == {"seed_ids": [str(entity.id)]}
+        assert params == {"seed_ids": [str(entity.id)], "job_id": None}
 
     async def test_list_relationship_types_on_resolved_entity_seed(self) -> None:
         """A resolved entity seed queries with its members' raw ids."""
@@ -416,7 +416,7 @@ class TestTraversal:
         await list_relationship_types(_result(resolved), graph_store=store)  # type: ignore[arg-type]
 
         _, params = store.execute_read.call_args.args
-        assert params == {"seed_ids": [str(m) for m in member_ids]}
+        assert params == {"seed_ids": [str(m) for m in member_ids], "job_id": None}
 
     async def test_list_relationship_types_filter_reaches_query(self) -> None:
         """relation_type_filter restricts the generated pattern."""

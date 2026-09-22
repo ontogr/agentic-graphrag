@@ -6,7 +6,7 @@ asserts identical summaries. ``extract_chunks()`` is covered for its
 cross-batch index threading.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock
@@ -33,6 +33,7 @@ from agrag.ingestion.resolve.candidate_source import GraphCandidateSource
 from agrag.ingestion.stats import IngestStats
 from agrag.loaders.corpus.types import ErrorPolicy
 from agrag.retrieval.settings import RetrievalSettings
+from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
 def _doc(*, key: str, text: str = "hello world") -> Document:
@@ -101,7 +102,17 @@ def _store() -> tuple[AsyncMock, dict[str, list[Any]]]:
     store.upsert_nodes.side_effect = _upsert_nodes
     store.upsert_relations.side_effect = _upsert_relations
     store.execute_read.return_value = []
-    store.execute_write.return_value = []
+    lease = CutoverJobLeaseFake()
+
+    async def _execute_write(
+        query: str, parameters: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        handled = lease.handle_cutover_query(query, parameters)
+        return handled if handled is not None else []
+
+    # Graph.add() runs its pipeline as a Cutover Job, so the store has to
+    # answer the lease protocol's queries.
+    store.execute_write.side_effect = _execute_write
 
     @asynccontextmanager
     async def _transaction():

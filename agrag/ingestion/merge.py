@@ -308,6 +308,27 @@ async def merge_properties(
     return resolved, conflicts, failures
 
 
+def _new_survivor_id(label: str, name: str, job_id: UUID | None) -> UUID:
+    """Return the id for a brand-new merge survivor.
+
+    Inside a Cutover Job the id derives from (job_id, merge_key), so
+    replaying the job after a crash reproduces the same id instead of
+    minting a duplicate. Outside a job it stays random.
+
+    Args:
+        label: The survivor's entity label.
+        name: The survivor's resolved name.
+        job_id: The Cutover Job id, or None outside a job.
+
+    Returns:
+        The survivor id.
+    """
+    if job_id is None:
+        return uuid4()
+    merge_key = f"{label}:{normalize_text(name)}"
+    return uuid5(NAMESPACE_OID, f"CutoverJob:{job_id}:{merge_key}")
+
+
 async def compute_merge(  # noqa: PLR0912
     *,
     existing_entities: list[Entity],
@@ -316,6 +337,7 @@ async def compute_merge(  # noqa: PLR0912
     rules: PropertyRules | None = None,
     description_settings: Any | None = None,
     description_client: Any | None = None,
+    job_id: UUID | None = None,
 ) -> tuple[MergePlan, list[Any]]:
     """Compute how existing_entities and mentions combine into one Entity.
 
@@ -331,6 +353,10 @@ async def compute_merge(  # noqa: PLR0912
         rules: Per-property conflict resolution. Defaults to keep_first.
         description_settings: LLM settings for description summarization.
         description_client: Injected LLM client for tests.
+        job_id: The Cutover Job this merge runs under. A brand-new entity
+            derives its id from (job_id, merge_key) instead of uuid4, so
+            replaying the job after a crash reproduces the same id. None
+            keeps today's random-id behavior for callers outside a job.
 
     Returns:
         The computed MergePlan and any description-LLM failures.
@@ -375,7 +401,11 @@ async def compute_merge(  # noqa: PLR0912
     if not isinstance(name, str):
         raise ValueError(f"Resolved name must be str, got {type(name)}")
 
-    survivor_id = survivor_base.id if survivor_base is not None else uuid4()
+    survivor_id = (
+        survivor_base.id
+        if survivor_base is not None
+        else _new_survivor_id(label, name, job_id)
+    )
     merged_from_vals: list[UUID] = []
     if survivor_base is not None:
         merged_from_vals.extend(survivor_base.merged_from)
@@ -682,7 +712,11 @@ async def _resolve_alias_owner(owner_id: str, *, txn: GraphStoreTransaction) -> 
 
 
 async def apply_merge(
-    plan: MergePlan, *, graph_store: GraphStore, schema: GraphSchema
+    plan: MergePlan,
+    *,
+    graph_store: GraphStore,
+    schema: GraphSchema,
+    pending_job_id: str | None = None,
 ) -> None:
     """Write a computed MergePlan to storage.
 
@@ -700,6 +734,9 @@ async def apply_merge(
         plan: The merge to write.
         graph_store: Where the merge is written.
         schema: The schema the survivor's label belongs to.
+        pending_job_id: The in-flight Cutover Job's id, tagging the
+            survivor node and its aliases until that job commits. None
+            writes untagged, for callers outside a job.
 
     Raises:
         ValueError: plan.tombstone_ids is non-empty.
@@ -711,7 +748,10 @@ async def apply_merge(
             merged_into chain cycles, points at a missing node, or does not
             reach a live node within the hop limit.
     """
-    from agrag.common.data_models.graph_record import NodeRecord  # noqa: PLC0415
+    from agrag.common.data_models.graph_record import (  # noqa: PLC0415
+        NodeRecord,
+        tag_pending,
+    )
     from agrag.cypher.entities import (  # noqa: PLC0415
         upsert_merge_alias_query,
         upsert_survivor_query,
@@ -734,7 +774,7 @@ async def apply_merge(
         # applied as-is; those three go through upsert_survivor_query's
         # atomic accumulation instead, using node_params only to get their
         # driver-safe encoding, not their values.
-        record = plan.survivor.to_node_record()
+        record = tag_pending(plan.survivor.to_node_record(), pending_job_id)
         survivor_properties = dict(record.properties)
         survivor_properties.pop("source_chunk_ids", None)
         survivor_properties.pop("merged_from", None)
@@ -753,7 +793,11 @@ async def apply_merge(
         accepted_merge_keys = plan.accepted_merge_keys or [plan.survivor.merge_key]
         alias_rows = await txn.execute_write(
             upsert_merge_alias_query(),
-            {"merge_keys": accepted_merge_keys, "entity_id": survivor_id},
+            {
+                "merge_keys": accepted_merge_keys,
+                "entity_id": survivor_id,
+                "pending_job_id": pending_job_id,
+            },
         )
         # An alias an earlier, unrelated merge accepted still points at
         # that merge's own survivor id even after that entity is itself
