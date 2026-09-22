@@ -447,7 +447,7 @@ class TestCrashAfterCommit:
         control_key = f"crash://control-{uuid4().hex}"
         crashed_key = f"crash://rollforward-{uuid4().hex}"
         first_text = "crashprobe alpha version one. " * 60
-        second_text = "crashprobe beta version two, materially different. " * 60
+        second_text = "replacement beta version two, materially different. " * 60
         try:
             graph = await _open_graph(store, _KeywordExtractor(control_probe))
             await graph.add(documents=[_document(control_key, first_text)])
