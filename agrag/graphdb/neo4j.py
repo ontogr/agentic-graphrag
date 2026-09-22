@@ -29,7 +29,6 @@ from agrag.cypher.schema import (
     merge_alias_constraint_query,
     merge_key_constraint_query,
     node_id_constraint_query,
-    plain_index_query,
     relation_id_constraint_query,
     vector_index_name,
     vector_index_query,
@@ -485,14 +484,15 @@ class Neo4jGraphStore(GraphStore):
         self._known_relation_types.update(types)
 
     async def setup_indexes(self) -> None:
-        """Create a range index on ``id`` for every known label.
+        """Create supporting indexes for every known label.
 
         "Known" means written by this instance or already present in the
         database, so a fresh store can set up indexes for an existing
-        database without first rewriting every record.
+        database without first rewriting every record. ``setup_constraints``
+        already creates the unique ``id`` index, so this method creates only
+        the non-unique merge-key indexes.
         """
         for label in await self._all_labels():
-            await self.execute_write(plain_index_query(label))
             try:
                 from agrag.cypher import entities as _cypher_entities  # noqa: PLC0415
 

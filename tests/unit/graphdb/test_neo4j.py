@@ -588,9 +588,8 @@ class TestSetupIdempotent:
         assert any("merge_key_unique" in c.args[1] for c in constraint_calls)
         assert any("agragmergealias" in c.args[1].lower() for c in constraint_calls)
         assert any("cutoverjob_document_key" in c.args[1] for c in constraint_calls)
-        # Two range indexes per label plus the CutoverJob status index.
-        assert len(index_calls) == 5
-        assert any("_id_index" in c.args[1] for c in index_calls)
+        # One merge-key index per label plus the CutoverJob status index.
+        assert len(index_calls) == 3
         assert any("_merge_key_index" in c.args[1] for c in index_calls)
         assert any("cutover_job_status_index" in c.args[1] for c in index_calls)
 

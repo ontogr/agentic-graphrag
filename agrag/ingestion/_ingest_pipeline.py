@@ -1074,6 +1074,7 @@ def _parse_entity_node(node: object) -> Entity | None:  # noqa: PLR0912,PLR0915
             "created_at",
             "embedding",
             "id",
+            PENDING_JOB_ID_PROPERTY,
         }
         entity_props = {k: v for k, v in props.items() if k not in system_keys}
 

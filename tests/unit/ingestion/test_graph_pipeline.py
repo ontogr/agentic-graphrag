@@ -389,6 +389,7 @@ class TestParseEntityNode:
                 "merge_count": 1,
                 "source_chunk_ids": [str(cid)],
                 "created_at": "2020-01-01T00:00:00+00:00",
+                "_pending_job_id": str(uuid4()),
                 "age": "30",
             },
         }
@@ -397,6 +398,7 @@ class TestParseEntityNode:
         assert ent.label == "Person"
         assert ent.name == "Alice"
         assert ent.properties["age"] == "30"
+        assert "_pending_job_id" not in ent.properties
         assert ent.source_chunk_ids == [cid]
 
     def test_parses_flat_mock(self) -> None:
