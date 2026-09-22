@@ -692,7 +692,11 @@ class Resolver:
                 for left, right, _ in ambiguous.get(label, [])
             }
             auto_merged: set[tuple[int, int]] = set()
-            for cluster in precluster_ambiguous(ids, similarities):
+            for cluster in precluster_ambiguous(
+                ids,
+                similarities,
+                hard_merge_threshold=self.hard_merge_threshold,
+            ):
                 ordered = sorted(member_of[member_id] for member_id in cluster)
                 for first in range(len(ordered)):
                     for second in range(first + 1, len(ordered)):

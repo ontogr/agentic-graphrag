@@ -29,6 +29,18 @@ def test_node_params_splits_out_the_pending_tag() -> None:
     assert params["pending_job_id"] == "job-1"
 
 
+def test_node_params_converts_a_uuid_pending_tag() -> None:
+    """The separate Cutover Job tag is converted for the Neo4j driver."""
+    job_id = uuid4()
+    rec = NodeRecord(
+        id=uuid4(),
+        labels=["Chunk"],
+        properties={"_pending_job_id": job_id},
+    )
+
+    assert node_params(rec)["pending_job_id"] == str(job_id)
+
+
 def test_relation_params_splits_out_the_pending_tag() -> None:
     """An edge carries its tag on the same separate key."""
     rec = RelationRecord(

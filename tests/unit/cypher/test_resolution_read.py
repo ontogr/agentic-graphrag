@@ -72,6 +72,10 @@ class TestResolutionReadQueries:
             "MATCH (a:_AgragNode {id: entity_id})"
             "-[match:MATCHES]->(b:_AgragNode) "
             "WHERE match.active = true AND b.id IN $ids "
+            "AND (a._pending_job_id IS NULL OR a._pending_job_id = $job_id) "
+            "AND (b._pending_job_id IS NULL OR b._pending_job_id = $job_id) "
+            "AND (match._pending_job_id IS NULL "
+            "OR match._pending_job_id = $job_id) "
             "RETURN match.id AS match_id, a.id AS a_id, b.id AS b_id"
         )
 
@@ -79,10 +83,18 @@ class TestResolutionReadQueries:
         """Pruning only treats open-chunk mentions as surviving evidence."""
         assert fetch_entities_with_open_evidence_query() == (
             "UNWIND $ids AS entity_id "
-            "MATCH (chunk:_AgragNode:Chunk)-[:MENTIONED_IN]->"
+            "MATCH (chunk:_AgragNode:Chunk)-[mention:MENTIONED_IN]->"
             "(entity:_AgragNode {id: entity_id}) "
             "MATCH (document:_AgragNode:Document)-[part:PART_OF]->(chunk) "
             "WHERE part.invalid_at IS NULL "
+            "AND (chunk._pending_job_id IS NULL "
+            "OR chunk._pending_job_id = $job_id) "
+            "AND (mention._pending_job_id IS NULL "
+            "OR mention._pending_job_id = $job_id) "
+            "AND (entity._pending_job_id IS NULL OR entity._pending_job_id = $job_id) "
+            "AND (document._pending_job_id IS NULL "
+            "OR document._pending_job_id = $job_id) "
+            "AND (part._pending_job_id IS NULL OR part._pending_job_id = $job_id) "
             "RETURN DISTINCT entity.id AS id"
         )
 
@@ -92,6 +104,12 @@ class TestResolutionReadQueries:
             "UNWIND $ids AS entity_id "
             "MATCH (entity:_AgragNode {id: entity_id})"
             "-[membership:RESOLVED_AS]->(resolved:ResolvedEntity) "
+            "WHERE (entity._pending_job_id IS NULL "
+            "OR entity._pending_job_id = $job_id) "
+            "AND (membership._pending_job_id IS NULL "
+            "OR membership._pending_job_id = $job_id) "
+            "AND (resolved._pending_job_id IS NULL "
+            "OR resolved._pending_job_id = $job_id) "
             "RETURN entity_id, resolved.id AS resolved_id, "
             "resolved.member_ids AS member_ids"
         )

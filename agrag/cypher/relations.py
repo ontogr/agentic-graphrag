@@ -38,7 +38,7 @@ def close_part_of_query() -> str:
     return (
         "MATCH (d:_AgragNode:Document {id: $document_node_id})"
         "-[r:PART_OF]->() "
-        f"WHERE r.invalid_at IS NULL AND {pending_filter_clause('r', 'job_id')} "
+        f"WHERE r.invalid_at IS NULL AND {pending_filter_clause('r')} "
         "SET r.invalid_at = datetime() RETURN count(r) AS closed"
     )
 
@@ -169,14 +169,20 @@ def entities_in_documents_query() -> str:
         job).
     """
     return (
-        "MATCH (chunk:_AgragNode:Chunk)-[:MENTIONED_IN]->"
+        "MATCH (chunk:_AgragNode:Chunk)-[mention:MENTIONED_IN]->"
         "(entity:_AgragNode) "
         "WHERE EXISTS { "
         "MATCH (document:_AgragNode:Document)-[part:PART_OF]->(chunk) "
-        "WHERE document.id IN $document_ids AND part.invalid_at IS NULL } "
+        "WHERE document.id IN $document_ids AND part.invalid_at IS NULL "
+        "AND (document._pending_job_id IS NULL "
+        "OR document._pending_job_id = $job_id) "
+        "AND (part._pending_job_id IS NULL OR part._pending_job_id = $job_id) } "
         "AND entity.merged_into IS NULL "
         "AND (entity._pending_job_id IS NULL "
         "OR entity._pending_job_id = $job_id) "
+        "AND (chunk._pending_job_id IS NULL OR chunk._pending_job_id = $job_id) "
+        "AND (mention._pending_job_id IS NULL "
+        "OR mention._pending_job_id = $job_id) "
         "RETURN DISTINCT entity.id AS id"
     )
 

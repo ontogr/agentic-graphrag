@@ -1499,7 +1499,7 @@ class Graph:
         }
         edge_rows = await self._graph_store.execute_read(
             fetch_active_matches_among_ids_query(),
-            {"ids": [str(e) for e in unique_ids]},
+            {"ids": [str(e) for e in unique_ids], "job_id": None},
         )
         active: dict[frozenset[UUID], UUID] = {}
         for row in edge_rows:

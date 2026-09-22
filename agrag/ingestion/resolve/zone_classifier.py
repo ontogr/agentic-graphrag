@@ -56,12 +56,17 @@ def select_llm_pairs(
         Index pairs ordered by similarity descending, capped at
         ``max_pairs``.
     """
+    if max_pairs <= 0:
+        return []
     ranked = sorted(candidates, key=lambda candidate: candidate[2], reverse=True)
     return [(left, right) for left, right, _ in ranked[:max_pairs]]
 
 
 def precluster_ambiguous(
-    ids: list[UUID], similarities: Mapping[tuple[int, int], float]
+    ids: list[UUID],
+    similarities: Mapping[tuple[int, int], float],
+    *,
+    hard_merge_threshold: float = HARD_MERGE_THRESHOLD,
 ) -> list[list[UUID]]:
     """Find tight ambiguous sub-clusters that can merge without LLM review.
 
@@ -74,6 +79,7 @@ def precluster_ambiguous(
         ids: Candidate entity identifiers.
         similarities: Cosine similarity keyed by ``(left, right)`` index
             into ``ids``, symmetric entries optional.
+        hard_merge_threshold: Similarity required for an automatic merge.
 
     Returns:
         Only multi-member groups; singletons need LLM review or discard.
@@ -87,6 +93,6 @@ def precluster_ambiguous(
         distances[left, right] = distance
         distances[right, left] = distance
     clusters = average_linkage_clusters(
-        ids, distances, cut_distance=1.0 - HARD_MERGE_THRESHOLD
+        ids, distances, cut_distance=1.0 - hard_merge_threshold
     )
     return [cluster for cluster in clusters if len(cluster) > 1]

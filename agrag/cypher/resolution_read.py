@@ -90,34 +90,50 @@ def fetch_active_resolved_member_ids_query() -> str:
 
 
 def fetch_active_matches_among_ids_query() -> str:
-    """Build Cypher returning active match edges inside an id set."""
+    """Build Cypher returning visible active match edges inside an id set."""
     return (
         "UNWIND $ids AS entity_id "
         f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
         f"-[match:{MATCHES_RELATION}]->(b:{NODE_IDENTITY_LABEL}) "
         "WHERE match.active = true AND b.id IN $ids "
+        "AND (a._pending_job_id IS NULL OR a._pending_job_id = $job_id) "
+        "AND (b._pending_job_id IS NULL OR b._pending_job_id = $job_id) "
+        "AND (match._pending_job_id IS NULL "
+        "OR match._pending_job_id = $job_id) "
         "RETURN match.id AS match_id, a.id AS a_id, b.id AS b_id"
     )
 
 
 def fetch_entities_with_open_evidence_query() -> str:
-    """Build Cypher returning candidate ids mentioned by an open chunk."""
+    """Build Cypher returning candidate ids with visible open evidence."""
     return (
         "UNWIND $ids AS entity_id "
-        f"MATCH (chunk:{NODE_IDENTITY_LABEL}:Chunk)-[:MENTIONED_IN]->"
+        f"MATCH (chunk:{NODE_IDENTITY_LABEL}:Chunk)-[mention:MENTIONED_IN]->"
         f"(entity:{NODE_IDENTITY_LABEL} {{id: entity_id}}) "
         f"MATCH (document:{NODE_IDENTITY_LABEL}:Document)-[part:PART_OF]->(chunk) "
         "WHERE part.invalid_at IS NULL "
+        "AND (chunk._pending_job_id IS NULL OR chunk._pending_job_id = $job_id) "
+        "AND (mention._pending_job_id IS NULL "
+        "OR mention._pending_job_id = $job_id) "
+        "AND (entity._pending_job_id IS NULL OR entity._pending_job_id = $job_id) "
+        "AND (document._pending_job_id IS NULL "
+        "OR document._pending_job_id = $job_id) "
+        "AND (part._pending_job_id IS NULL OR part._pending_job_id = $job_id) "
         "RETURN DISTINCT entity.id AS id"
     )
 
 
 def fetch_entity_cluster_memberships_query() -> str:
-    """Build Cypher returning each candidate's cluster and its members."""
+    """Build Cypher returning visible cluster memberships for candidates."""
     return (
         "UNWIND $ids AS entity_id "
         f"MATCH (entity:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
         f"-[membership:{RESOLVED_AS_RELATION}]->(resolved:{RESOLVED_ENTITY_LABEL}) "
+        "WHERE (entity._pending_job_id IS NULL OR entity._pending_job_id = $job_id) "
+        "AND (membership._pending_job_id IS NULL "
+        "OR membership._pending_job_id = $job_id) "
+        "AND (resolved._pending_job_id IS NULL "
+        "OR resolved._pending_job_id = $job_id) "
         "RETURN entity_id, resolved.id AS resolved_id, "
         "resolved.member_ids AS member_ids"
     )

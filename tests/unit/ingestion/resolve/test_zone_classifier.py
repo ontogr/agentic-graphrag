@@ -84,6 +84,12 @@ class TestSelectLlmPairs:
 
         assert select_llm_pairs(candidates, max_pairs=2) == [(2, 3), (4, 5)]
 
+    def test_non_positive_cap_returns_no_pairs(self) -> None:
+        """A non-positive cap cannot bypass the LLM review limit."""
+        candidates = [(0, 1, 0.82), (2, 3, 0.90)]
+
+        assert select_llm_pairs(candidates, max_pairs=-1) == []
+
     def test_default_cap_is_max_llm_pairs(self) -> None:
         """The default cap drops everything past MAX_LLM_PAIRS."""
         candidates = [(i, i + 1, 0.85) for i in range(MAX_LLM_PAIRS + 1)]
@@ -105,6 +111,14 @@ class TestPreclusterAmbiguous:
         ids = [uuid4(), uuid4()]
 
         assert precluster_ambiguous(ids, {(0, 1): 0.85}) == []
+
+    def test_uses_configured_hard_merge_threshold(self) -> None:
+        """A pair below the active threshold stays out of auto-merge."""
+        ids = [uuid4(), uuid4()]
+
+        assert precluster_ambiguous(
+            ids, {(0, 1): 0.97}, hard_merge_threshold=0.99
+        ) == []
 
     def test_unknown_pairs_count_as_maximally_distant(self) -> None:
         """Pairs absent from similarities cannot join a group."""

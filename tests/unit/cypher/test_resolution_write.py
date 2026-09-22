@@ -42,18 +42,23 @@ class TestResolutionWriteQueries:
         )
 
     def test_replace_component_materializations_query(self) -> None:
-        """Stale ids are collected before the derived nodes are deleted."""
+        """Only fully orphaned materializations are deleted."""
         assert replace_component_materializations_query() == (
             "UNWIND $member_ids AS member_id "
             "MATCH (member:_AgragNode {id: member_id})"
             "-[membership:RESOLVED_AS]->"
             "(resolved:ResolvedEntity) "
             "WITH collect(DISTINCT membership) AS memberships, "
-            "collect(DISTINCT resolved) AS resolved_entities, "
-            "collect(DISTINCT resolved.id) AS removed_resolved_entity_ids "
+            "collect(DISTINCT resolved) AS resolved_entities "
             "FOREACH (membership IN memberships | DELETE membership) "
-            "FOREACH (resolved IN resolved_entities | DETACH DELETE resolved) "
-            "RETURN removed_resolved_entity_ids"
+            "UNWIND resolved_entities AS resolved "
+            "WITH resolved, resolved.id AS resolved_id "
+            "OPTIONAL MATCH (remaining:_AgragNode)-[:RESOLVED_AS]->(resolved) "
+            "WITH resolved, resolved_id, count(remaining) AS remaining_members "
+            "FOREACH (_ IN CASE WHEN remaining_members = 0 THEN [1] ELSE [] END | "
+            "DETACH DELETE resolved) "
+            "RETURN collect(CASE WHEN remaining_members = 0 THEN resolved_id END) "
+            "AS removed_resolved_entity_ids"
         )
 
     def test_set_resolved_entity_sync_status_query(self) -> None:

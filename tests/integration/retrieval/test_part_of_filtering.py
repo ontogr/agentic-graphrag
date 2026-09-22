@@ -193,7 +193,7 @@ class TestPartOfFiltering:
 
             rows = await store.execute_read(
                 hydrate_chunks_by_id_query(),
-                {"ids": [*old_ids, *new_ids, *legacy_ids]},
+                {"ids": [*old_ids, *new_ids, *legacy_ids], "job_id": None},
             )
             returned = {_hydrated_id(row) for row in rows}
             assert set(new_ids) <= returned
@@ -212,7 +212,7 @@ class TestPartOfFiltering:
             )
             rows = await store.execute_read(
                 entities_in_documents_query(),
-                {"document_ids": [row["id"] for row in rows]},
+                {"document_ids": [row["id"] for row in rows], "job_id": None},
             )
             assert rows
         finally:

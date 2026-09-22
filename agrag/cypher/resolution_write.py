@@ -49,18 +49,24 @@ def deactivate_match_query() -> str:
 
 
 def replace_component_materializations_query() -> str:
-    """Build Cypher deleting prior materializations for supplied raw members."""
+    """Build Cypher replacing memberships without deleting shared resolved nodes."""
     return (
         "UNWIND $member_ids AS member_id "
         f"MATCH (member:{NODE_IDENTITY_LABEL} {{id: member_id}})"
         f"-[membership:{RESOLVED_AS_RELATION}]->"
         f"(resolved:{RESOLVED_ENTITY_LABEL}) "
         "WITH collect(DISTINCT membership) AS memberships, "
-        "collect(DISTINCT resolved) AS resolved_entities, "
-        "collect(DISTINCT resolved.id) AS removed_resolved_entity_ids "
+        "collect(DISTINCT resolved) AS resolved_entities "
         "FOREACH (membership IN memberships | DELETE membership) "
-        "FOREACH (resolved IN resolved_entities | DETACH DELETE resolved) "
-        "RETURN removed_resolved_entity_ids"
+        "UNWIND resolved_entities AS resolved "
+        "WITH resolved, resolved.id AS resolved_id "
+        f"OPTIONAL MATCH (remaining:{NODE_IDENTITY_LABEL})"
+        f"-[:{RESOLVED_AS_RELATION}]->(resolved) "
+        "WITH resolved, resolved_id, count(remaining) AS remaining_members "
+        "FOREACH (_ IN CASE WHEN remaining_members = 0 THEN [1] ELSE [] END | "
+        "DETACH DELETE resolved) "
+        "RETURN collect(CASE WHEN remaining_members = 0 THEN resolved_id END) "
+        "AS removed_resolved_entity_ids"
     )
 
 

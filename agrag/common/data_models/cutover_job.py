@@ -56,7 +56,7 @@ class CutoverJob(DataPoint):
                 str(entity_id) for entity_id in self.affected_entity_ids
             ],
             "lease_token": str(self.lease_token),
-            "lease_expires_at": self.lease_expires_at.isoformat(),
-            "created_at": self.created_at.isoformat(),
+            "lease_expires_at": self.lease_expires_at,
+            "created_at": self.created_at,
         }
         return NodeRecord(id=self.id, labels=[CUTOVER_JOB_LABEL], properties=properties)

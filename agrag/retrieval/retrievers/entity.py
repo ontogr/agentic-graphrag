@@ -227,7 +227,7 @@ class EntityRetriever(Retriever):
         try:
             rows = await self._graph_store.execute_read(
                 fetch_active_resolved_member_ids_query(),
-                {"ids": [str(item_id) for item_id in ids]},
+                {"ids": [str(item_id) for item_id in ids], "job_id": None},
             )
         except Exception:
             return set()

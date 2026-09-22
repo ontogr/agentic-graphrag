@@ -56,7 +56,7 @@ def node_params(record: NodeRecord) -> dict[str, Any]:
     return {
         "id": str(record.id),
         "properties": _convert(properties),
-        "pending_job_id": pending_job_id,
+        "pending_job_id": _convert(pending_job_id),
     }
 
 
@@ -81,5 +81,5 @@ def relation_params(record: RelationRecord) -> dict[str, Any]:
         "start_id": str(record.start_id),
         "end_id": str(record.end_id),
         "properties": _convert(properties),
-        "pending_job_id": pending_job_id,
+        "pending_job_id": _convert(pending_job_id),
     }

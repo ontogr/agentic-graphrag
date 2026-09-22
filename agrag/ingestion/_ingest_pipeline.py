@@ -713,8 +713,9 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     # Write Document nodes
     try:
         if document_records:
-            await graph_store.upsert_nodes(DOCUMENT_LABEL, document_records)
-            nodes_written += len(document_records)
+            result = await graph_store.upsert_nodes(DOCUMENT_LABEL, document_records)
+            nodes_written += result.written
+            storage_failures.extend(_upsert_stage_failures(result))
     except Exception as exc:  # noqa: BLE001
         if error_policy is ErrorPolicy.RAISE:
             raise

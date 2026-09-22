@@ -28,12 +28,14 @@ def communities_for_entities_query(where_clause: str = "") -> str:
         member entity anchor is: the ``$job_id`` guard keeps a
         community from being found through a pending member edge.
     """
+    filter_predicate = where_clause.removeprefix("WHERE ").strip()
+    filter_suffix = f"AND {filter_predicate} " if filter_predicate else ""
     return (
         "UNWIND $entity_ids AS entity_id "
         f"MATCH (e:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
         f"-[r:{MEMBER_OF_RELATION}]->(c:{COMMUNITY_LABEL}) "
         "WHERE r._pending_job_id IS NULL OR r._pending_job_id = $job_id "
-        f"{where_clause + ' ' if where_clause else ''}"
+        f"{filter_suffix}"
         "WITH c, count(DISTINCT entity_id) AS overlap "
         "RETURN c, overlap ORDER BY overlap DESC LIMIT $top_k"
     )

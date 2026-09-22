@@ -73,6 +73,7 @@ class TestUpsertRelationQuery:
         """
         q = upsert_relation_query("MENTIONS")
         assert "ON CREATE SET r._pending_job_id = record.pending_job_id" in q
+        assert "ON MATCH SET r._pending_job_id" not in q
 
     def test_unions_source_chunk_ids_instead_of_overwriting(self) -> None:
         """source_chunk_ids is read and unioned inside the query, not overwritten.

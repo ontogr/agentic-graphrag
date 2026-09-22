@@ -1,8 +1,8 @@
 """Tests for the CutoverJob crash-recovery state model.
 
 Covers the node-record shape the job persistence queries write: every
-field the lease protocol needs is present under a stable key, and UUID
-and datetime values are stored as plain strings.
+field the lease protocol needs is present under a stable key, and lease
+times retain their native temporal type for Neo4j comparisons.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -42,8 +42,8 @@ class TestCutoverJob:
             "status": "pending",
             "affected_entity_ids": [str(affected[0])],
             "lease_token": str(token),
-            "lease_expires_at": expires.isoformat(),
-            "created_at": job.created_at.isoformat(),
+            "lease_expires_at": expires,
+            "created_at": job.created_at,
         }
 
     def test_status_values_are_stable_strings(self) -> None:

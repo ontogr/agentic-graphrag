@@ -457,7 +457,7 @@ async def prune_orphaned_entities(
         return empty
     evidenced_rows = await graph_store.execute_read(
         fetch_entities_with_open_evidence_query(),
-        {"ids": [str(entity_id) for entity_id in unique_ids]},
+        {"ids": [str(entity_id) for entity_id in unique_ids], "job_id": None},
     )
     evidenced = set(_uuid_list(evidenced_rows, "id"))
     orphans = [entity_id for entity_id in unique_ids if entity_id not in evidenced]
@@ -465,7 +465,7 @@ async def prune_orphaned_entities(
         return empty
     membership_rows = await graph_store.execute_read(
         fetch_entity_cluster_memberships_query(),
-        {"ids": [str(entity_id) for entity_id in orphans]},
+        {"ids": [str(entity_id) for entity_id in orphans], "job_id": None},
     )
     clusters: dict[str, list[str]] = {}
     if isinstance(membership_rows, list):
