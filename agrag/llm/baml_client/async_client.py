@@ -127,6 +127,21 @@ class BamlAsyncClient:
                 "communities": communities,
             })
             return typing.cast(typing.List["types.CommunityReport"], __result__.cast_to(types, types, stream_types, False, __runtime__))
+    async def SummarizeDescriptions(self, descriptions: typing.List[str],
+        baml_options: BamlCallOptions = {},
+    ) -> str:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            # Use streaming internally when on_tick is provided
+            __stream__ = self.stream.SummarizeDescriptions(descriptions=descriptions,
+                baml_options=baml_options)
+            return await __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="SummarizeDescriptions", args={
+                "descriptions": descriptions,
+            })
+            return typing.cast(str, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def VerifyEntityMatch(self, entity_a: str,context_a: str,entity_b: str,context_b: str,
         baml_options: BamlCallOptions = {},
     ) -> bool:
@@ -202,6 +217,18 @@ class BamlStreamClient:
           lambda x: typing.cast(typing.List["types.CommunityReport"], x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
+    def SummarizeDescriptions(self, descriptions: typing.List[str],
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlStream[str, str]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="SummarizeDescriptions", args={
+            "descriptions": descriptions,
+        })
+        return baml_py.BamlStream[str, str](
+          __result__,
+          lambda x: typing.cast(str, x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(str, x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
     def VerifyEntityMatch(self, entity_a: str,context_a: str,entity_b: str,context_b: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlStream[bool, bool]:
@@ -255,6 +282,13 @@ class BamlHttpRequestClient:
             "communities": communities,
         }, mode="request")
         return __result__
+    async def SummarizeDescriptions(self, descriptions: typing.List[str],
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeDescriptions", args={
+            "descriptions": descriptions,
+        }, mode="request")
+        return __result__
     async def VerifyEntityMatch(self, entity_a: str,context_a: str,entity_b: str,context_b: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
@@ -296,6 +330,13 @@ class BamlHttpStreamRequestClient:
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeCommunities", args={
             "communities": communities,
+        }, mode="stream")
+        return __result__
+    async def SummarizeDescriptions(self, descriptions: typing.List[str],
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="SummarizeDescriptions", args={
+            "descriptions": descriptions,
         }, mode="stream")
         return __result__
     async def VerifyEntityMatch(self, entity_a: str,context_a: str,entity_b: str,context_b: str,

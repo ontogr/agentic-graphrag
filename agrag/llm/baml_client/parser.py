@@ -41,6 +41,12 @@ class LlmResponseParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeCommunities", llm_response=llm_response, mode="request")
         return typing.cast(typing.List["types.CommunityReport"], __result__)
 
+    def SummarizeDescriptions(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> str:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeDescriptions", llm_response=llm_response, mode="request")
+        return typing.cast(str, __result__)
+
     def VerifyEntityMatch(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> bool:
@@ -78,6 +84,12 @@ class LlmStreamParser:
     ) -> typing.List["stream_types.CommunityReport"]:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeCommunities", llm_response=llm_response, mode="stream")
         return typing.cast(typing.List["stream_types.CommunityReport"], __result__)
+
+    def SummarizeDescriptions(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> str:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeDescriptions", llm_response=llm_response, mode="stream")
+        return typing.cast(str, __result__)
 
     def VerifyEntityMatch(
         self, llm_response: str, baml_options: BamlCallOptions = {},

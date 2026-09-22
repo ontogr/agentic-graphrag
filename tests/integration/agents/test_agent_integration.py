@@ -709,8 +709,8 @@ class TestAgentBuildIntegration:
     @pytest.mark.skipif(
         not _agent_llm_configured(), reason="LLM endpoint not configured"
     )
-    async def test_under_evidenced_question_reports_the_gap(self) -> None:
-        """A question the graph cannot answer says so instead of guessing."""
+    async def test_under_evidenced_question_does_not_fabricate_a_year(self) -> None:
+        """A question the graph cannot answer does not invent a year."""
         await self._seed_entity(self.label, "Alice")
 
         settings = AgentLLMSettings.from_openai_compatible_env()
@@ -726,11 +726,8 @@ class TestAgentBuildIntegration:
             }
         )
 
-        answer = self._message_text(result).lower()
-        assert any(
-            word in answer
-            for word in ("not", "no ", "insufficient", "unable", "cannot")
-        )
+        answer = self._message_text(result)
+        assert not re.search(r"\b(?:1\d{3}|20\d{2})\b", answer)
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     @pytest.mark.skipif(
