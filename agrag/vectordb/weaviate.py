@@ -278,7 +278,7 @@ class WeaviateVectorStore(VectorStore):
             name=name,
             vector_config=vector_config,
             properties=[
-                Property(name=PENDING_VECTOR_FLAG, data_type=[DataType.BOOL]),
+                Property(name=PENDING_VECTOR_FLAG, data_type=DataType.BOOL),
             ],
         )
 

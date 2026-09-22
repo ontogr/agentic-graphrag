@@ -182,7 +182,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     error_policy: ErrorPolicy,
     ingestion: IngestStats,
     return_chunks: bool = False,
-    job_id: UUID | None = None,
+    job_id: UUID | str | None = None,
 ) -> AddResult:
     """Run resolution, merge, and storage for already-chunked input.
 
