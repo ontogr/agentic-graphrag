@@ -184,10 +184,18 @@ class TestBuildAgent:
 
     async def test_simple_agent_creates_fresh_ledger_per_run(self) -> None:
         """Each ainvoke call gets a fresh Ledger."""
-        ent = Entity(id=uuid4(), label="Person", name="Alice")
-        result = SearchResult(item=ent, score=0.9, method="entity")
+        first_result = SearchResult(
+            item=Entity(id=uuid4(), label="Person", name="Alice"),
+            score=0.9,
+            method="entity",
+        )
+        second_result = SearchResult(
+            item=Entity(id=uuid4(), label="Person", name="Bob"),
+            score=0.9,
+            method="entity",
+        )
         engine = MagicMock()
-        engine.search = AsyncMock(return_value=[result])
+        engine.search = AsyncMock(side_effect=[[first_result], [second_result]])
         model = AsyncMock(ainvoke=AsyncMock(return_value=MagicMock(text="answer")))
 
         agent = _SimpleAgent(
