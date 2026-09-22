@@ -4935,6 +4935,9 @@ fetch_entities_with_open_evidence_query() -> str
 
 Build Cypher returning candidate ids with visible open evidence.
 
+A null `$job_id` only counts committed evidence. A materialization
+pass can instead supply its own pending job id to see its new writes.
+
 ##### `agrag.cypher.resolution_read.fetch_entity_cluster_memberships_query`
 
 ```python
