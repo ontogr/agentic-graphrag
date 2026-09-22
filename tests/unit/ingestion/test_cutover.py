@@ -411,6 +411,36 @@ class TestRunCutoverJobRollback:
         with pytest.raises(RuntimeError, match="original failure"):
             await run_cutover_job(**_write_job(pending, graph_store=store))
 
+    async def test_pending_write_failure_deletes_pending_vectors(self) -> None:
+        """Rollback deletes the job's pending vectors, not just graph rows.
+
+        A rolled-back job's writes were never committed; leaving its
+        pending-tagged vectors behind would orphan them permanently, since
+        nothing else ever revisits a rolled-back job's id.
+        """
+        store = _FakeCutoverStore()
+        vector_store = _FakeVectorStore()
+
+        async def pending(job_id: UUID) -> None:
+            await vector_store.upsert(
+                "col-a",
+                [
+                    VectorRecord(
+                        id=uuid4(),
+                        vector=[0.0],
+                        payload={"_pending_job_id": str(job_id), "_pending": True},
+                    )
+                ],
+            )
+            raise RuntimeError("extraction blew up")
+
+        with pytest.raises(RuntimeError, match="extraction blew up"):
+            await run_cutover_job(
+                **_write_job(pending, graph_store=store, vector_store=vector_store)
+            )
+
+        assert vector_store.records["col-a"] == {}
+
 
 class TestRunCutoverJobRollForward:
     """A cleanup failure leaves the job committed for a later resume."""

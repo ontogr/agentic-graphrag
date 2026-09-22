@@ -26,7 +26,7 @@ from agrag.cypher.cutover_job_write import (
     rollback_job_query,
 )
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion._cutover import clear_pending_vectors
+from agrag.ingestion._cutover import clear_pending_vectors, delete_pending_vectors
 
 
 async def resume_incomplete_jobs(
@@ -40,8 +40,9 @@ async def resume_incomplete_jobs(
 
     Args:
         graph_store: The store just connected and provisioned.
-        vector_store: The optional second write target; used to flip any
-            pending-tagged vector payloads the interrupted jobs left.
+        vector_store: The optional second write target; a rolled-back
+            job's pending vectors are deleted from it, a rolled-forward
+            job's are flipped to committed.
         vector_collections: The collections the pending phase may have
             written to.
         roll_forward: Runs one rolled-forward job's cleanup over its
@@ -70,7 +71,12 @@ async def resume_incomplete_jobs(
         if status == CutoverJobStatus.PENDING:
             if not row.get("lease_expired"):
                 continue
-            if await _roll_back(graph_store, job_id=job_id):
+            if await _roll_back(
+                graph_store,
+                job_id=job_id,
+                vector_store=vector_store,
+                vector_collections=vector_collections,
+            ):
                 handled.append(job_id)
             continue
         if await _roll_forward(
@@ -103,18 +109,29 @@ def _affected_entity_ids(row: dict[str, Any]) -> list[UUID]:
     return ids
 
 
-async def _roll_back(graph_store: GraphStore, *, job_id: str) -> bool:
+async def _roll_back(
+    graph_store: GraphStore,
+    *,
+    job_id: str,
+    vector_store: Any,
+    vector_collections: Sequence[str],
+) -> bool:
     """Delete one abandoned pending job's writes and the job node itself.
 
     The job's worker died without committing, so nothing it wrote was ever
-    visible; deleting the tagged rows restores the graph to its pre-call
-    state.
+    visible; deleting the tagged rows and pending vectors restores the
+    graph to its pre-call state.
 
     Returns:
         Whether the deletion ran without raising.
     """
     try:
         await graph_store.execute_write(rollback_job_query(), {"job_id": job_id})
+        await delete_pending_vectors(
+            vector_store=vector_store,
+            collections=vector_collections,
+            job_id=UUID(job_id),
+        )
     except Exception:  # noqa: BLE001
         return False
     return True

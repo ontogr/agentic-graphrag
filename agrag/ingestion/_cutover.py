@@ -149,10 +149,58 @@ async def clear_pending_vectors(
                 break
 
 
-async def _rollback(*, graph_store: GraphStore, job_id: UUID) -> None:
+async def delete_pending_vectors(
+    *,
+    vector_store: VectorStore | None,
+    collections: Sequence[str],
+    job_id: UUID,
+) -> None:
+    """Delete one job's pending vector payloads, for rollback.
+
+    Scrolls each collection for this job's tag and deletes those records
+    outright. Unlike :func:`clear_pending_vectors`, which flips a
+    committed job's flag, a rolled-back job's writes were never
+    committed, so nothing about them should survive.
+
+    Args:
+        vector_store: The store to delete from, or None to do nothing.
+        collections: The collections this job may have written to.
+        job_id: The rolled-back job whose vectors are deleted.
+    """
+    if vector_store is None:
+        return
+    for collection in collections:
+        page_offset: str | None = None
+        while True:
+            records, page_offset = await vector_store.scroll(
+                collection,
+                limit=100,
+                page_offset=page_offset,
+                filters={
+                    PENDING_VECTOR_FLAG: True,
+                    PENDING_JOB_ID_PROPERTY: str(job_id),
+                },
+            )
+            if not records:
+                break
+            await vector_store.delete(collection, [record.id for record in records])
+            if page_offset is None:
+                break
+
+
+async def _rollback(
+    *,
+    graph_store: GraphStore,
+    vector_store: VectorStore | None,
+    vector_collections: Sequence[str],
+    job_id: UUID,
+) -> None:
     """Delete everything a job wrote, suppressing rollback's own errors."""
     with contextlib.suppress(Exception):
         await graph_store.execute_write(rollback_job_query(), {"job_id": str(job_id)})
+        await delete_pending_vectors(
+            vector_store=vector_store, collections=vector_collections, job_id=job_id
+        )
 
 
 async def run_cutover_job(
@@ -220,7 +268,12 @@ async def run_cutover_job(
     try:
         pending_result = await pending_write(job_id)
     except Exception:
-        await _rollback(graph_store=graph_store, job_id=job_id)
+        await _rollback(
+            graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collections=vector_collections,
+            job_id=job_id,
+        )
         raise
     try:
         async with graph_store.transaction() as txn:
@@ -244,7 +297,12 @@ async def run_cutover_job(
                 )
             await txn.execute_write(clear_pending_tag_query(), {"job_id": job_arg})
     except Exception:
-        await _rollback(graph_store=graph_store, job_id=job_id)
+        await _rollback(
+            graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collections=vector_collections,
+            job_id=job_id,
+        )
         raise
     started = await graph_store.execute_write(
         start_cleaning_query(), {"job_id": job_arg, "lease_token": token_arg}
