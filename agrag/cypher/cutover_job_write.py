@@ -159,7 +159,7 @@ def start_cleaning_query() -> str:
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         "WHERE job.lease_token = $lease_token AND job.status = 'committed' "
-        "SET job.status = 'cleaning' "
+        "SET job.status = 'cleaning', job.lease_expires_at = datetime() "
         "RETURN job.id AS id"
     )
 

@@ -6753,7 +6753,7 @@ driver's managed transactions with no added retry loop.
 - [**register_relation_types**](#agrag.graphdb.Neo4jGraphStore.register_relation_types) – Add types to this instance's known-relation-type set.
 - [**session**](#agrag.graphdb.Neo4jGraphStore.session) – Open a session to the configured database.
 - [**setup_constraints**](#agrag.graphdb.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every known label.
-- [**setup_indexes**](#agrag.graphdb.Neo4jGraphStore.setup_indexes) – Create supporting indexes for every known label.
+- [**setup_indexes**](#agrag.graphdb.Neo4jGraphStore.setup_indexes) – Set up indexes now provided by the store's uniqueness constraints.
 - [**transaction**](#agrag.graphdb.Neo4jGraphStore.transaction) – Open one Neo4j explicit transaction spanning multiple writes.
 - [**upsert_nodes**](#agrag.graphdb.Neo4jGraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag.graphdb.Neo4jGraphStore.upsert_relations) – Write or merge relationships between existing nodes.
@@ -6909,13 +6909,12 @@ endpoint changes.
 setup_indexes() -> None
 ```
 
-Create supporting indexes for every known label.
+Set up indexes now provided by the store's uniqueness constraints.
 
-"Known" means written by this instance or already present in the
-database, so a fresh store can set up indexes for an existing
-database without first rewriting every record. `setup_constraints`
-already creates the unique `id` index, so this method creates only
-the non-unique merge-key indexes.
+Kept as a no-op for callers that provision constraints and indexes in
+separate steps. Neo4j creates backing indexes for the `id` and
+`merge_key` uniqueness constraints, so creating range indexes for
+the same properties would conflict with those constraints.
 
 ##### `agrag.graphdb.Neo4jGraphStore.transaction`
 
@@ -7535,7 +7534,7 @@ driver's managed transactions with no added retry loop.
 - [**register_relation_types**](#agrag.graphdb.neo4j.Neo4jGraphStore.register_relation_types) – Add types to this instance's known-relation-type set.
 - [**session**](#agrag.graphdb.neo4j.Neo4jGraphStore.session) – Open a session to the configured database.
 - [**setup_constraints**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every known label.
-- [**setup_indexes**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_indexes) – Create supporting indexes for every known label.
+- [**setup_indexes**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_indexes) – Set up indexes now provided by the store's uniqueness constraints.
 - [**transaction**](#agrag.graphdb.neo4j.Neo4jGraphStore.transaction) – Open one Neo4j explicit transaction spanning multiple writes.
 - [**upsert_nodes**](#agrag.graphdb.neo4j.Neo4jGraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag.graphdb.neo4j.Neo4jGraphStore.upsert_relations) – Write or merge relationships between existing nodes.
@@ -7691,13 +7690,12 @@ endpoint changes.
 setup_indexes() -> None
 ```
 
-Create supporting indexes for every known label.
+Set up indexes now provided by the store's uniqueness constraints.
 
-"Known" means written by this instance or already present in the
-database, so a fresh store can set up indexes for an existing
-database without first rewriting every record. `setup_constraints`
-already creates the unique `id` index, so this method creates only
-the non-unique merge-key indexes.
+Kept as a no-op for callers that provision constraints and indexes in
+separate steps. Neo4j creates backing indexes for the `id` and
+`merge_key` uniqueness constraints, so creating range indexes for
+the same properties would conflict with those constraints.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.transaction`
 

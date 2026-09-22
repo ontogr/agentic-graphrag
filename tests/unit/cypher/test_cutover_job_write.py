@@ -104,6 +104,7 @@ class TestStartCleaningQuery:
         assert "job.lease_token = $lease_token" in query
         assert "job.status = 'committed'" in query
         assert "SET job.status = 'cleaning'" in query
+        assert "job.lease_expires_at = datetime()" in query
         assert "RETURN job.id AS id" in query
 
 

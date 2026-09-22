@@ -484,23 +484,13 @@ class Neo4jGraphStore(GraphStore):
         self._known_relation_types.update(types)
 
     async def setup_indexes(self) -> None:
-        """Create supporting indexes for every known label.
+        """Set up indexes now provided by the store's uniqueness constraints.
 
-        "Known" means written by this instance or already present in the
-        database, so a fresh store can set up indexes for an existing
-        database without first rewriting every record. ``setup_constraints``
-        already creates the unique ``id`` index, so this method creates only
-        the non-unique merge-key indexes.
+        Kept as a no-op for callers that provision constraints and indexes in
+        separate steps. Neo4j creates backing indexes for the ``id`` and
+        ``merge_key`` uniqueness constraints, so creating range indexes for
+        the same properties would conflict with those constraints.
         """
-        for label in await self._all_labels():
-            try:
-                from agrag.cypher import entities as _cypher_entities  # noqa: PLC0415
-
-                merge_key_fn = getattr(_cypher_entities, "merge_key_index_query", None)
-                if merge_key_fn is not None:
-                    await self.execute_write(merge_key_fn(label))
-            except ImportError:
-                pass
 
     async def _all_labels(self) -> set[str]:
         """Return every node label this instance knows about.
