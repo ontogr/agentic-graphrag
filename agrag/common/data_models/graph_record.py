@@ -21,7 +21,7 @@ committed earlier.
 from typing import Any, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 PENDING_JOB_ID_PROPERTY = "_pending_job_id"
@@ -53,6 +53,14 @@ class NodeRecord(BaseModel):
     labels: list[str] = Field(min_length=1)
     properties: dict[str, Any]
 
+    @field_validator("properties")
+    @classmethod
+    def reject_pending_tag(cls, properties: dict[str, Any]) -> dict[str, Any]:
+        """Reject the job-owned tag in external graph records."""
+        if PENDING_JOB_ID_PROPERTY in properties:
+            raise ValueError(f"{PENDING_JOB_ID_PROPERTY} is reserved")
+        return properties
+
 
 class RelationRecord(BaseModel):
     """One graph relationship, ready to write.
@@ -70,6 +78,14 @@ class RelationRecord(BaseModel):
     start_id: UUID
     end_id: UUID
     properties: dict[str, Any]
+
+    @field_validator("properties")
+    @classmethod
+    def reject_pending_tag(cls, properties: dict[str, Any]) -> dict[str, Any]:
+        """Reject the job-owned tag in external graph records."""
+        if PENDING_JOB_ID_PROPERTY in properties:
+            raise ValueError(f"{PENDING_JOB_ID_PROPERTY} is reserved")
+        return properties
 
 
 class UpsertFailure(BaseModel):

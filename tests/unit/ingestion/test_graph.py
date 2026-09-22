@@ -428,10 +428,10 @@ class TestGraphAdd:
         assert first.chunks_closed == 2
         assert second.chunks_closed == 0
 
-    async def test_update_closes_edges_before_ingesting_changed_content(
+    async def test_update_ingests_before_closing_superseded_edges(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Update closes the old version before calling the ingest pipeline."""
+        """Update ingests the new version before closing superseded edges."""
         store = _MockGraphStore()
         graph = await Graph.open(
             schema=GENERIC,

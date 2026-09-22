@@ -16,6 +16,7 @@ def acquire_lease_query() -> str:
 
     Returns:
         Parameterized Cypher expecting $job_id, $document_key, $verb,
+        $expected_lease_token,
         $lease_token, $lease_expires_at (ISO-8601 string, stored as a
         native datetime for expiry comparison), $affected_entity_ids
         (list of string ids, snapshotted before any pending write), and
@@ -56,8 +57,9 @@ def steal_expired_lease_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{document_key: $document_key}}) "
-        "WHERE job.status IN ['done', 'rolled_back'] "
-        "OR (job.status = 'pending' AND job.lease_expires_at < datetime()) "
+        "WHERE job.lease_token = $expected_lease_token AND ("
+        "job.status IN ['done', 'rolled_back'] "
+        "OR (job.status = 'pending' AND job.lease_expires_at < datetime())) "
         "SET job.id = $job_id, job.status = 'pending', job.verb = $verb, "
         "job.lease_token = $lease_token, "
         "job.lease_expires_at = datetime($lease_expires_at), "
@@ -82,15 +84,18 @@ def claim_job_query() -> str:
     skips the job as claimed.
 
     Returns:
-        Parameterized Cypher expecting $job_id and $lease_token (the
-        claimant's fresh token). Returns the job's new status when the
+        Parameterized Cypher expecting $job_id, $expected_lease_token,
+        $lease_token (the claimant's fresh token), and $lease_expires_at.
+        Returns the job's new status when the
         claim applied, no row when the job is pending or was claimed by
         another open first.
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         "WHERE job.status IN ['committed', 'cleaning'] "
-        "SET job.status = 'cleaning', job.lease_token = $lease_token "
+        "AND job.lease_token = $expected_lease_token "
+        "SET job.status = 'cleaning', job.lease_token = $lease_token, "
+        "job.lease_expires_at = datetime($lease_expires_at) "
         "RETURN job.status AS status"
     )
 

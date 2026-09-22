@@ -1648,11 +1648,18 @@ Crash-recoverable state for one add/update/delete_document call.
 **Attributes:**
 
 - [**CUTOVER_JOB_LABEL**](#agrag.common.data_models.cutover_job.CUTOVER_JOB_LABEL) –
+- [**CUTOVER_JOB_STATUS_INDEX**](#agrag.common.data_models.cutover_job.CUTOVER_JOB_STATUS_INDEX) –
 
 ###### `agrag.common.data_models.cutover_job.CUTOVER_JOB_LABEL`
 
 ```python
 CUTOVER_JOB_LABEL = 'CutoverJob'
+```
+
+###### `agrag.common.data_models.cutover_job.CUTOVER_JOB_STATUS_INDEX`
+
+```python
+CUTOVER_JOB_STATUS_INDEX = 'cutover_job_status_index'
 ```
 
 ###### `agrag.common.data_models.cutover_job.CutoverJob`
@@ -2633,6 +2640,10 @@ One graph node, ready to write.
   whatever key `GraphStore.ensure_vector_index` was configured
   with, if native vector search is in use.
 
+**Functions:**
+
+- [**reject_pending_tag**](#agrag.common.data_models.graph_record.NodeRecord.reject_pending_tag) – Reject the job-owned tag in external graph records.
+
 ####### `agrag.common.data_models.graph_record.NodeRecord.id`
 
 ```python
@@ -2650,6 +2661,14 @@ labels: list[str] = Field(min_length=1)
 ```python
 properties: dict[str, Any]
 ```
+
+####### `agrag.common.data_models.graph_record.NodeRecord.reject_pending_tag`
+
+```python
+reject_pending_tag(properties:dict[str, Any]) -> dict[str, Any]
+```
+
+Reject the job-owned tag in external graph records.
 
 ###### `agrag.common.data_models.graph_record.PENDING_JOB_ID_PROPERTY`
 
@@ -2679,6 +2698,10 @@ One graph relationship, ready to write.
 - [**end_id**](#agrag.common.data_models.graph_record.RelationRecord.end_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the end node.
 - [**properties**](#agrag.common.data_models.graph_record.RelationRecord.properties) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – The relationship's properties.
 
+**Functions:**
+
+- [**reject_pending_tag**](#agrag.common.data_models.graph_record.RelationRecord.reject_pending_tag) – Reject the job-owned tag in external graph records.
+
 ####### `agrag.common.data_models.graph_record.RelationRecord.end_id`
 
 ```python
@@ -2696,6 +2719,14 @@ id: UUID
 ```python
 properties: dict[str, Any]
 ```
+
+####### `agrag.common.data_models.graph_record.RelationRecord.reject_pending_tag`
+
+```python
+reject_pending_tag(properties:dict[str, Any]) -> dict[str, Any]
+```
+
+Reject the job-owned tag in external graph records.
 
 ####### `agrag.common.data_models.graph_record.RelationRecord.start_id`
 
@@ -3851,6 +3882,7 @@ anything else means a live job already holds it.
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $document_key, $verb,
+- <code>[str](#str)</code> – $expected_lease_token,
 - <code>[str](#str)</code> – $lease_token, $lease_expires_at (ISO-8601 string, stored as a
 - <code>[str](#str)</code> – native datetime for expiry comparison), $affected_entity_ids
 - <code>[str](#str)</code> – (list of string ids, snapshotted before any pending write), and
@@ -3877,8 +3909,9 @@ skips the job as claimed.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id and $lease_token (the
-- <code>[str](#str)</code> – claimant's fresh token). Returns the job's new status when the
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $expected_lease_token,
+- <code>[str](#str)</code> – $lease_token (the claimant's fresh token), and $lease_expires_at.
+- <code>[str](#str)</code> – Returns the job's new status when the
 - <code>[str](#str)</code> – claim applied, no row when the job is pending or was claimed by
 - <code>[str](#str)</code> – another open first.
 
@@ -4165,7 +4198,7 @@ Build Cypher for a bounded, per-entity sample of neighboring relations.
 ##### `agrag.cypher.entities.fetch_relations_between_query`
 
 ```python
-fetch_relations_between_query(rel_type:str) -> str
+fetch_relations_between_query(rel_type:str, *, job_id:str | None = None) -> str
 ```
 
 Build Cypher for batched lookup of existing relations by endpoints.
@@ -4173,6 +4206,7 @@ Build Cypher for batched lookup of existing relations by endpoints.
 **Parameters:**
 
 - **rel_type** (<code>[str](#str)</code>) – The relationship type. Must already be validated.
+- **job_id** (<code>[str](#str) | None</code>) – Optional parameter name for same-job pending visibility.
 
 **Returns:**
 
@@ -5130,6 +5164,7 @@ identifier-validation contract shared by every Cypher builder.
 **Functions:**
 
 - [**cutover_job_document_key_constraint_query**](#agrag.cypher.schema.cutover_job_document_key_constraint_query) – Build a CREATE CONSTRAINT query making the job table's key unique.
+- [**cutover_job_status_index_query**](#agrag.cypher.schema.cutover_job_status_index_query) – Build an index for the incomplete CutoverJob recovery scan.
 - [**merge_alias_constraint_query**](#agrag.cypher.schema.merge_alias_constraint_query) – Build a CREATE CONSTRAINT query making the merge-key alias table unique.
 - [**merge_key_constraint_query**](#agrag.cypher.schema.merge_key_constraint_query) – Build a CREATE CONSTRAINT query making `merge_key` unique per label.
 - [**node_id_constraint_query**](#agrag.cypher.schema.node_id_constraint_query) – Build a CREATE CONSTRAINT query making `id` unique per node.
@@ -5157,6 +5192,14 @@ constraint permits a new job node once rollback deletes the old one.
 **Returns:**
 
 - <code>[str](#str)</code> – A Cypher query creating the uniqueness constraint if absent.
+
+##### `agrag.cypher.schema.cutover_job_status_index_query`
+
+```python
+cutover_job_status_index_query() -> str
+```
+
+Build an index for the incomplete CutoverJob recovery scan.
 
 ##### `agrag.cypher.schema.merge_alias_constraint_query`
 
@@ -6949,11 +6992,11 @@ A label with no provisioned vector index has nothing to search,
 so an absent index returns an empty result list rather than a
 driver error.
 
-When `filters` is set, Neo4j's vector procedure applies the filter
-only after selecting its top `k` candidates, so a plain `k=limit`
-call can return fewer matches than actually exist. This escalates
-`k` and retries until `limit` filtered hits come back or the
-escalation reaches `_VECTOR_SEARCH_MAX_K`.
+Neo4j's vector procedure applies pending and caller filters only after
+selecting its top `k` candidates, so a plain `k=limit` call can
+return fewer matches than actually exist. This escalates `k` and
+retries until `limit` visible hits come back or the escalation
+reaches `_VECTOR_SEARCH_MAX_K`.
 
 **Raises:**
 
@@ -7729,11 +7772,11 @@ A label with no provisioned vector index has nothing to search,
 so an absent index returns an empty result list rather than a
 driver error.
 
-When `filters` is set, Neo4j's vector procedure applies the filter
-only after selecting its top `k` candidates, so a plain `k=limit`
-call can return fewer matches than actually exist. This escalates
-`k` and retries until `limit` filtered hits come back or the
-escalation reaches `_VECTOR_SEARCH_MAX_K`.
+Neo4j's vector procedure applies pending and caller filters only after
+selecting its top `k` candidates, so a plain `k=limit` call can
+return fewer matches than actually exist. This escalates `k` and
+retries until `limit` visible hits come back or the escalation
+reaches `_VECTOR_SEARCH_MAX_K`.
 
 **Raises:**
 

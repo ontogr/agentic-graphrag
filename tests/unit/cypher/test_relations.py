@@ -50,13 +50,13 @@ class TestUpsertRelationQuery:
         assert "MATCH (a {id: record.start_id})" in q
         assert "MATCH (b {id: record.end_id})" in q
         assert "MERGE (a)-[r:MENTIONS {id: record.id}]->(b)" in q
-        assert "SET r += record.properties" in q
+        assert "SET r += CASE WHEN can_update THEN record.properties" in q
 
     def test_replaces_stale_relationship_at_old_endpoints(self) -> None:
         """A same-id relationship at different endpoints is deleted first."""
         q = upsert_relation_query("MENTIONS")
         assert "OPTIONAL MATCH (x)-[stale:MENTIONS {id: record.id}]->(y)" in q
-        assert "WHERE x.id <> record.start_id OR y.id <> record.end_id" in q
+        assert "WHERE (x.id <> record.start_id OR y.id <> record.end_id)" in q
         assert "DELETE stale" in q
 
     def test_validates_type(self) -> None:
@@ -92,5 +92,6 @@ class TestUpsertRelationQuery:
         # would read back the value this same write just overwrote instead
         # of what another writer may have already committed.
         assert q.index("existing_source_chunk_ids") < q.index(
-            "SET r += record.properties"
+            "SET r += CASE WHEN can_update THEN record.properties"
         )
+        assert "stale._pending_job_id = record.pending_job_id" in q

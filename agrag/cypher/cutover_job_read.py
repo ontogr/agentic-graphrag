@@ -25,6 +25,7 @@ def find_incomplete_jobs_query() -> str:
         f"MATCH (job:{CUTOVER_JOB_LABEL}) "
         "WHERE job.status IN ['pending', 'committed', 'cleaning'] "
         "RETURN job.id AS id, job.status AS status, "
+        "job.lease_token AS lease_token, "
         "job.affected_entity_ids AS affected_entity_ids, "
         "job.lease_expires_at < datetime() AS lease_expired"
     )

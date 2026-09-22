@@ -99,9 +99,7 @@ class _FakeCutoverStore:
         if job is None:
             return []
         expired = job["lease_expires_at"] < datetime.now(UTC)
-        if job["status"] in ("done", "rolled_back") or (
-            job["status"] == "pending" and expired
-        ):
+        if job["status"] == "done" or (job["status"] == "pending" and expired):
             job["status"] = "pending"
             job["verb"] = params["verb"]
             job["lease_token"] = str(params["lease_token"])
@@ -134,16 +132,14 @@ class _FakeCutoverStore:
         return [{"cleared_nodes": len(self.nodes), "cleared_relationships": 0}]
 
     def _rollback(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Delete every tagged node and mark the job rolled back."""
+        """Delete every tagged node and the completed job record."""
         job_id = str(params["job_id"])
         self.nodes = [
             node
             for node in self.nodes
             if node["properties"].get("_pending_job_id") != job_id
         ]
-        for job in self.jobs.values():
-            if job["id"] == job_id:
-                job["status"] = "rolled_back"
+        self.jobs = {key: job for key, job in self.jobs.items() if job["id"] != job_id}
         return [{"deleted_nodes": 0, "deleted_relationships": 0}]
 
     def transaction(self) -> Any:
@@ -361,16 +357,16 @@ class TestRunCutoverJobLeaseFailure:
         with pytest.raises(CutoverJobLeaseError):
             await run_cutover_job(**_write_job(pending, graph_store=store))
 
-        # Rollback removed the tagged nodes and marked the job rolled back.
+        # Rollback removes tagged nodes and the job record.
         assert store.nodes == []
-        assert store.jobs["doc-1"]["status"] == "rolled_back"
+        assert "doc-1" not in store.jobs
 
 
 class TestRunCutoverJobRollback:
     """A pending_write failure rolls everything back."""
 
     async def test_pending_write_failure_deletes_tagged_writes(self) -> None:
-        """A pending-write failure deletes tagged nodes, marks rolled back."""
+        """A pending-write failure deletes tagged nodes and the job record."""
         store = _FakeCutoverStore()
 
         async def pending(job_id: UUID) -> None:
@@ -381,7 +377,7 @@ class TestRunCutoverJobRollback:
             await run_cutover_job(**_write_job(pending, graph_store=store))
 
         assert store.nodes == []
-        assert store.jobs["doc-1"]["status"] == "rolled_back"
+        assert "doc-1" not in store.jobs
         # Cleanup never ran: the job never committed.
         assert store.transactions == []
 
@@ -397,7 +393,7 @@ class TestRunCutoverJobRollback:
             await run_cutover_job(**_write_job(pending, graph_store=store))
 
         assert store.nodes == []
-        assert store.jobs["doc-1"]["status"] == "rolled_back"
+        assert "doc-1" not in store.jobs
 
     async def test_rollback_errors_are_suppressed(self) -> None:
         """A failing rollback still lets the original error propagate."""

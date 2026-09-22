@@ -72,7 +72,8 @@ async def _acquire_lease(
             "created_at": now.isoformat(),
         },
     )
-    if rows and rows[0].get("lease_token") == str(token):
+    existing_token = rows[0].get("lease_token") if rows else None
+    if existing_token == str(token):
         return job_id, token
     token = uuid4()
     now = datetime.now(UTC)
@@ -81,6 +82,7 @@ async def _acquire_lease(
         {
             "job_id": str(job_id),
             "document_key": document_key,
+            "expected_lease_token": existing_token,
             "verb": verb,
             "lease_token": str(token),
             "lease_expires_at": (
@@ -197,10 +199,11 @@ async def _rollback(
 ) -> None:
     """Delete everything a job wrote, suppressing rollback's own errors."""
     with contextlib.suppress(Exception):
-        await graph_store.execute_write(rollback_job_query(), {"job_id": str(job_id)})
         await delete_pending_vectors(
             vector_store=vector_store, collections=vector_collections, job_id=job_id
         )
+    with contextlib.suppress(Exception):
+        await graph_store.execute_write(rollback_job_query(), {"job_id": str(job_id)})
 
 
 async def run_cutover_job(

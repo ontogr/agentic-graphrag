@@ -28,14 +28,17 @@ class _FakeResumeStore:
             jobs: Each row as find_incomplete_jobs_query would shape it:
                 id, status, affected_entity_ids, lease_expired.
         """
-        self.jobs = {job["id"]: dict(job) for job in jobs}
+        self.jobs = {
+            job["id"]: {**job, "lease_token": job.get("lease_token", str(uuid4()))}
+            for job in jobs
+        }
 
     async def execute_read(
         self, query: str, parameters: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Return every still-incomplete job's row."""
         return [
-            {k: v for k, v in job.items() if k != "lease_token"}
+            dict(job)
             for job in self.jobs.values()
             if job["status"] in ("pending", "committed", "cleaning")
         ]

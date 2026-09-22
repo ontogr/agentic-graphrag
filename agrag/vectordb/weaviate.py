@@ -261,7 +261,11 @@ class WeaviateVectorStore(VectorStore):
 
         # Deferred until after _ensure_client so a missing extra surfaces as
         # VectorStoreMissingExtraError, not a raw ImportError.
-        from weaviate.classes.config import Configure  # noqa: PLC0415
+        from weaviate.classes.config import (  # noqa: PLC0415
+            Configure,
+            DataType,
+            Property,
+        )
 
         distance_value = self._weaviate_distance(distance)
         vector_config = Configure.Vectors.self_provided(
@@ -273,6 +277,9 @@ class WeaviateVectorStore(VectorStore):
         await client.collections.create(
             name=name,
             vector_config=vector_config,
+            properties=[
+                Property(name=PENDING_VECTOR_FLAG, data_type=[DataType.BOOL]),
+            ],
         )
 
     async def _existing_dimension(self, client: Any, name: str) -> int | None:

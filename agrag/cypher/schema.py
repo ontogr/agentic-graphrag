@@ -6,7 +6,10 @@ identifier-validation contract shared by every Cypher builder.
 
 from typing import Any
 
-from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
+from agrag.common.data_models.cutover_job import (
+    CUTOVER_JOB_LABEL,
+    CUTOVER_JOB_STATUS_INDEX,
+)
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import MERGE_ALIAS_LABEL, filter_clause, validate_identifier
@@ -138,6 +141,14 @@ def cutover_job_document_key_constraint_query() -> str:
         f"CREATE CONSTRAINT {CUTOVER_JOB_LABEL.lower()}_document_key_unique "
         "IF NOT EXISTS "
         f"FOR (job:{CUTOVER_JOB_LABEL}) REQUIRE job.document_key IS UNIQUE"
+    )
+
+
+def cutover_job_status_index_query() -> str:
+    """Build an index for the incomplete CutoverJob recovery scan."""
+    return (
+        f"CREATE INDEX {CUTOVER_JOB_STATUS_INDEX} IF NOT EXISTS "
+        f"FOR (job:{CUTOVER_JOB_LABEL}) ON (job.status)"
     )
 
 

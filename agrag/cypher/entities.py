@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
+from agrag.cypher._pending_filter import pending_filter_clause
 
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -252,17 +253,20 @@ def upsert_survivor_query(label: str) -> str:
         f"ON CREATE SET n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id "
         f"SET n:{safe_label} "
         f"WITH n, record, "
+        f"(record.pending_job_id IS NULL OR n.{PENDING_JOB_ID_PROPERTY} IS NULL "
+        f"OR n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id) AS can_update, "
         f"coalesce(n.source_chunk_ids, []) AS existing_source_chunk_ids, "
         f"coalesce(n.merged_from, []) AS existing_merged_from, "
         f"coalesce(n.merge_count, 0) AS existing_merge_count "
-        f"SET n += record.properties "
-        f"SET n.source_chunk_ids = "
-        f"[x IN existing_source_chunk_ids "
-        f"WHERE NOT x IN record.new_source_chunk_ids] + record.new_source_chunk_ids "
-        f"SET n.merged_from = "
-        f"[x IN existing_merged_from "
-        f"WHERE NOT x IN record.new_merged_from] + record.new_merged_from "
-        f"SET n.merge_count = existing_merge_count + record.merge_count_delta "
+        f"SET n += CASE WHEN can_update THEN record.properties ELSE {{}} END "
+        f"SET n.source_chunk_ids = CASE WHEN can_update THEN "
+        f"[x IN existing_source_chunk_ids WHERE NOT x IN record.new_source_chunk_ids] "
+        f"+ record.new_source_chunk_ids ELSE n.source_chunk_ids END "
+        f"SET n.merged_from = CASE WHEN can_update THEN "
+        f"[x IN existing_merged_from WHERE NOT x IN record.new_merged_from] "
+        f"+ record.new_merged_from ELSE n.merged_from END "
+        f"SET n.merge_count = CASE WHEN can_update THEN "
+        f"existing_merge_count + record.merge_count_delta ELSE n.merge_count END "
         f"SET n.id = record.id"
     )
 
@@ -357,11 +361,12 @@ def fetch_all_by_label_query(label: str) -> str:
     )
 
 
-def fetch_relations_between_query(rel_type: str) -> str:
+def fetch_relations_between_query(rel_type: str, *, job_id: str | None = None) -> str:
     """Build Cypher for batched lookup of existing relations by endpoints.
 
     Args:
         rel_type: The relationship type. Must already be validated.
+        job_id: Optional parameter name for same-job pending visibility.
 
     Returns:
         Parameterized Cypher expecting $pairs (list of
@@ -369,9 +374,11 @@ def fetch_relations_between_query(rel_type: str) -> str:
         source_chunk_ids alongside the pair it matched.
     """
     safe_type = validate_identifier(rel_type)
+    pending = pending_filter_clause("r", job_id)
     return (
         f"UNWIND $pairs AS pair "
         f"MATCH (a {{id: pair.source_id}})-[r:{safe_type}]->(b {{id: pair.target_id}}) "
+        f"WHERE {pending} "
         f"RETURN pair.source_id AS source_id, pair.target_id AS target_id, "
         f"r.id AS id, r.source_chunk_ids AS source_chunk_ids"
     )
@@ -520,10 +527,12 @@ def hydrate_chunks_by_id_query() -> str:
         f"UNWIND $ids AS id "
         f"MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) "
         f"WHERE (NOT EXISTS {{ "
-        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[:PART_OF]->(n) "
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
+        f"WHERE (p._pending_job_id IS NULL OR p._pending_job_id = $job_id) "
         f"}} OR EXISTS {{ "
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
-        f"WHERE p.invalid_at IS NULL }}) "
+        f"WHERE p.invalid_at IS NULL "
+        f"AND (p._pending_job_id IS NULL OR p._pending_job_id = $job_id) }}) "
         f"AND (n._pending_job_id IS NULL OR n._pending_job_id = $job_id) "
         f"RETURN n"
     )

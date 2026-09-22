@@ -12,6 +12,7 @@ from agrag.common.data_models.graph_record import NodeRecord
 
 
 CUTOVER_JOB_LABEL = "CutoverJob"
+CUTOVER_JOB_STATUS_INDEX = "cutover_job_status_index"
 
 
 class CutoverJobStatus(StrEnum):

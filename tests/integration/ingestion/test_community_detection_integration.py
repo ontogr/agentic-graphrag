@@ -447,7 +447,8 @@ class TestCommunityDetectionIntegration:
 
         needed = required_member_ids(comms)
         rows = await self.store.execute_read(
-            hydrate_entities_by_id_query(), {"ids": [str(i) for i in needed]}
+            hydrate_entities_by_id_query(),
+            {"ids": [str(i) for i in needed], "job_id": None},
         )
 
         entities_by_id = {

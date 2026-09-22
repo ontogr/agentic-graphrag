@@ -15,6 +15,7 @@ document was abandoned.
 
 import contextlib
 from collections.abc import Awaitable, Callable, Sequence
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -27,6 +28,7 @@ from agrag.cypher.cutover_job_write import (
 )
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._cutover import clear_pending_vectors, delete_pending_vectors
+from agrag.ingestion.settings import CutoverJobSettings
 
 
 async def resume_incomplete_jobs(
@@ -35,6 +37,7 @@ async def resume_incomplete_jobs(
     vector_store: Any = None,
     vector_collections: Sequence[str] = (),
     roll_forward: Callable[[list[UUID]], Awaitable[None]] | None = None,
+    lease_ttl_seconds: int = CutoverJobSettings().lease_ttl_seconds,
 ) -> list[str]:
     """Recover every incomplete Cutover Job found in the graph.
 
@@ -48,6 +51,7 @@ async def resume_incomplete_jobs(
         roll_forward: Runs one rolled-forward job's cleanup over its
             affected-entity snapshot. None rolls forward without pruning,
             which leaves the snapshot on the job node for a later caller.
+        lease_ttl_seconds: Lease duration for a resume claimant.
 
     Returns:
         The recovered job ids, in the order handled. Each was either
@@ -79,6 +83,8 @@ async def resume_incomplete_jobs(
             ):
                 handled.append(job_id)
             continue
+        if row.get("lease_token") is None:
+            continue
         if await _roll_forward(
             graph_store,
             job_id=job_id,
@@ -86,6 +92,8 @@ async def resume_incomplete_jobs(
             vector_store=vector_store,
             vector_collections=vector_collections,
             prune=roll_forward,
+            lease_token=str(row["lease_token"]),
+            lease_ttl_seconds=lease_ttl_seconds,
         ):
             handled.append(job_id)
     return handled
@@ -126,12 +134,12 @@ async def _roll_back(
         Whether the deletion ran without raising.
     """
     try:
-        await graph_store.execute_write(rollback_job_query(), {"job_id": job_id})
         await delete_pending_vectors(
             vector_store=vector_store,
             collections=vector_collections,
             job_id=UUID(job_id),
         )
+        await graph_store.execute_write(rollback_job_query(), {"job_id": job_id})
     except Exception:  # noqa: BLE001
         return False
     return True
@@ -145,6 +153,8 @@ async def _roll_forward(
     vector_store: Any,
     vector_collections: Sequence[str],
     prune: Callable[[list[UUID]], Awaitable[None]] | None,
+    lease_token: str,
+    lease_ttl_seconds: int,
 ) -> bool:
     """Finish one committed-or-cleaning job's remaining cleanup work.
 
@@ -162,9 +172,16 @@ async def _roll_forward(
         first, or a claim that could not be written, reports ``False``.
     """
     token = str(uuid4())
+    expires_at = datetime.now(UTC) + timedelta(seconds=lease_ttl_seconds)
     try:
         claimed = await graph_store.execute_write(
-            claim_job_query(), {"job_id": job_id, "lease_token": token}
+            claim_job_query(),
+            {
+                "job_id": job_id,
+                "expected_lease_token": lease_token,
+                "lease_token": token,
+                "lease_expires_at": expires_at.isoformat(),
+            },
         )
     except Exception:  # noqa: BLE001
         return False

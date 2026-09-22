@@ -22,16 +22,21 @@ class TestResolutionWriteQueries:
     """Resolution write builders emit fixed Cypher."""
 
     def test_upsert_matches_query(self) -> None:
-        """A match upsert deletes any prior edge, then merges one directed edge."""
+        """A pending match upsert preserves an existing committed edge."""
         assert upsert_matches_query() == (
             "MATCH (a:_AgragNode {id: $entity_a_id}), "
             "(b:_AgragNode {id: $entity_b_id}) "
-            "OPTIONAL MATCH (a)-[existing:MATCHES {id: $match_id}]-(b) "
-            "DELETE existing "
             "MERGE (a)-[r:MATCHES {id: $match_id}]->(b) "
-            "SET r.active = true, r.comparator = $comparator, r.score = $score, "
-            "r.reasoning = $reasoning, r.decided_at = $decided_at, "
-            "r._pending_job_id = $pending_job_id "
+            "ON CREATE SET r.active = true, r.comparator = $comparator, "
+            "r.score = $score, r.reasoning = $reasoning, "
+            "r.decided_at = $decided_at, r._pending_job_id = $pending_job_id "
+            "ON MATCH SET r.active = CASE WHEN $pending_job_id IS NULL "
+            "THEN true ELSE r.active END, r.comparator = CASE WHEN "
+            "$pending_job_id IS NULL THEN $comparator ELSE r.comparator END, "
+            "r.score = CASE WHEN $pending_job_id IS NULL THEN $score ELSE r.score END, "
+            "r.reasoning = CASE WHEN $pending_job_id IS NULL THEN $reasoning "
+            "ELSE r.reasoning END, r.decided_at = CASE WHEN $pending_job_id IS NULL "
+            "THEN $decided_at ELSE r.decided_at END "
             "RETURN r"
         )
 

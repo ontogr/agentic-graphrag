@@ -9,6 +9,7 @@ repo's query-builder test convention.
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
+    claim_job_query,
     clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
@@ -39,6 +40,7 @@ class TestStealExpiredLeaseQuery:
     def test_steals_expired_or_terminal_jobs_only(self) -> None:
         """Steal matches expired pending and terminal jobs, nothing else."""
         query = steal_expired_lease_query()
+        assert "job.lease_token = $expected_lease_token" in query
         assert "job.lease_expires_at < datetime()" in query
         assert "job.status IN ['done', 'rolled_back']" in query
         assert "job.status = 'pending'" in query
@@ -56,6 +58,16 @@ class TestStealExpiredLeaseQuery:
         query = steal_expired_lease_query()
         assert "job.affected_entity_ids = $affected_entity_ids" in query
         assert "job.created_at = $created_at" in query
+
+
+class TestClaimJobQuery:
+    """claim_job_query shape."""
+
+    def test_claim_is_fenced_and_refreshes_expiry(self) -> None:
+        """Only the observed lease holder can claim and renew a job."""
+        query = claim_job_query()
+        assert "job.lease_token = $expected_lease_token" in query
+        assert "job.lease_expires_at = datetime($lease_expires_at)" in query
 
 
 class TestCommitJobQuery:

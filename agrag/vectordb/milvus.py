@@ -32,13 +32,21 @@ _VECTOR_FIELD = "vector"
 _TEXT_FIELD = "text"
 _SPARSE_FIELD = "sparse"
 _PAYLOAD_FIELD = "payload"
+_PENDING_FIELD = "pending"
 
 # Every field ensure_collection provisions on a new collection. upsert and
 # hybrid_search always read and write all of them (Milvus has no per-call
 # hybrid toggle), so an existing collection missing any of these, or its
 # sparse (BM25) index, cannot actually serve this adapter's calls.
 _REQUIRED_FIELDS = frozenset(
-    {_ID_FIELD, _VECTOR_FIELD, _TEXT_FIELD, _SPARSE_FIELD, _PAYLOAD_FIELD}
+    {
+        _ID_FIELD,
+        _VECTOR_FIELD,
+        _TEXT_FIELD,
+        _SPARSE_FIELD,
+        _PAYLOAD_FIELD,
+        _PENDING_FIELD,
+    }
 )
 
 # Milvus's self-hosted default gRPC response ceiling is roughly 64MB, but Zilliz
@@ -233,7 +241,7 @@ class MilvusVectorStore(VectorStore):
         Returns:
             A Milvus ``filter`` expression string.
         """
-        pending_field = _payload_field_path(PENDING_VECTOR_FLAG)
+        pending_field = _PENDING_FIELD
         clauses = []
         for key, value in (filters or {}).items():
             if key == PENDING_VECTOR_FLAG:
@@ -325,12 +333,14 @@ class MilvusVectorStore(VectorStore):
             existing_fields = await self._existing_field_names(client, name)
             missing_fields = _REQUIRED_FIELDS - existing_fields
             has_sparse_index = await self._has_index(client, name, _SPARSE_FIELD)
-            if missing_fields or not has_sparse_index:
+            has_pending_index = await self._has_index(client, name, _PENDING_FIELD)
+            if missing_fields or not has_sparse_index or not has_pending_index:
                 raise VectorStoreError(
                     f"collection {name!r} already exists without the fields "
                     "and sparse index this adapter requires "
                     f"(missing fields: {sorted(missing_fields) or 'none'}, "
-                    f"sparse index present: {has_sparse_index}); create a new "
+                    f"sparse index present: {has_sparse_index}, "
+                    f"pending index present: {has_pending_index}); create a new "
                     "collection instead of reusing this one"
                 )
             existing_metric = await self._existing_metric(client, name)
@@ -370,6 +380,7 @@ class MilvusVectorStore(VectorStore):
             ),
             FieldSchema(name=_SPARSE_FIELD, dtype=DataType.SPARSE_FLOAT_VECTOR),
             FieldSchema(name=_PAYLOAD_FIELD, dtype=DataType.JSON),
+            FieldSchema(name=_PENDING_FIELD, dtype=DataType.BOOL),
         ]
         bm25 = Function(
             name="bm25",
@@ -387,6 +398,7 @@ class MilvusVectorStore(VectorStore):
             index_type="SPARSE_INVERTED_INDEX",
             metric_type="BM25",
         )
+        index_params.add_index(field_name=_PENDING_FIELD, index_type="AUTOINDEX")
         await client.create_collection(
             collection_name=name, schema=schema, index_params=index_params
         )
@@ -544,6 +556,9 @@ class MilvusVectorStore(VectorStore):
                     _VECTOR_FIELD: record.vector,
                     _TEXT_FIELD: record.payload.get(_TEXT_FIELD, ""),
                     _PAYLOAD_FIELD: _normalize_payload(record.payload),
+                    _PENDING_FIELD: bool(
+                        record.payload.get(PENDING_VECTOR_FLAG, False)
+                    ),
                 }
                 for record in batch
             ]

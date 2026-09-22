@@ -7,7 +7,11 @@ leaving other scalar property values unchanged.
 
 from uuid import uuid4
 
-from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_record import (
+    NodeRecord,
+    RelationRecord,
+    tag_pending,
+)
 from agrag.graphdb.serialize import node_params, relation_params
 
 
@@ -17,10 +21,13 @@ def test_node_params_splits_out_the_pending_tag() -> None:
     It reaches the graph only through the upsert's ``ON CREATE SET``, so a
     job cannot tag a node it merely writes over.
     """
-    rec = NodeRecord(
-        id=uuid4(),
-        labels=["Chunk"],
-        properties={"text": "a", "_pending_job_id": "job-1"},
+    rec = tag_pending(
+        NodeRecord(
+            id=uuid4(),
+            labels=["Chunk"],
+            properties={"text": "a"},
+        ),
+        "job-1",
     )
 
     params = node_params(rec)
@@ -32,10 +39,13 @@ def test_node_params_splits_out_the_pending_tag() -> None:
 def test_node_params_converts_a_uuid_pending_tag() -> None:
     """The separate Cutover Job tag is converted for the Neo4j driver."""
     job_id = uuid4()
-    rec = NodeRecord(
-        id=uuid4(),
-        labels=["Chunk"],
-        properties={"_pending_job_id": job_id},
+    rec = tag_pending(
+        NodeRecord(
+            id=uuid4(),
+            labels=["Chunk"],
+            properties={},
+        ),
+        job_id,
     )
 
     assert node_params(rec)["pending_job_id"] == str(job_id)
@@ -43,12 +53,15 @@ def test_node_params_converts_a_uuid_pending_tag() -> None:
 
 def test_relation_params_splits_out_the_pending_tag() -> None:
     """An edge carries its tag on the same separate key."""
-    rec = RelationRecord(
-        id=uuid4(),
-        type="MENTIONS",
-        start_id=uuid4(),
-        end_id=uuid4(),
-        properties={"w": 0.5, "_pending_job_id": "job-1"},
+    rec = tag_pending(
+        RelationRecord(
+            id=uuid4(),
+            type="MENTIONS",
+            start_id=uuid4(),
+            end_id=uuid4(),
+            properties={"w": 0.5},
+        ),
+        "job-1",
     )
 
     params = relation_params(rec)

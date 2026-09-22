@@ -426,13 +426,14 @@ class TestExactMatchLookup:
         """Handles flat row form and skips unparsable rows."""
         store = AsyncMock()
         cid = uuid4()
+        entity_id = uuid4()
         m = ExtractedEntity(
             chunk_id=cid, label="Person", text="Bob", char_start=0, char_end=3
         )
         store.execute_read.side_effect = [
             [
                 {
-                    "id": str(uuid4()),
+                    "id": str(entity_id),
                     "merge_key": "Person:bob",
                     "name": "Bob",
                 },
@@ -440,7 +441,8 @@ class TestExactMatchLookup:
             ]
         ]
         result = await exact_match_lookup([m], graph_store=store)
-        assert isinstance(result, dict)
+        assert result[0].id == entity_id
+        assert set(result) == {0}
 
     async def test_handles_no_rows(self) -> None:
         """No rows yields empty map entry."""

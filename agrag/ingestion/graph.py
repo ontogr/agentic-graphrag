@@ -581,6 +581,7 @@ class Graph:
                     vector_store=vector_store,
                     vector_collections=recovery_collections,
                     roll_forward=graph._prune_document_entities,
+                    lease_ttl_seconds=cutover_settings.lease_ttl_seconds,
                 )
         except Exception:
             await graph_store.close()

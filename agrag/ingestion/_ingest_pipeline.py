@@ -537,7 +537,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     # Global relation lookup
     triples_list = list(triple_to_chunk_ids.keys())
     existing_rel_map = await _global_relation_lookup(
-        triples_list, graph_store=graph_store
+        triples_list, graph_store=graph_store, job_id=pending_job_id
     )
 
     # Materialize Relation objects
@@ -1310,7 +1310,10 @@ async def _global_exact_match(
 
 
 async def _global_relation_lookup(
-    triples: list[tuple[UUID, UUID, str]], *, graph_store: GraphStore
+    triples: list[tuple[UUID, UUID, str]],
+    *,
+    graph_store: GraphStore,
+    job_id: UUID | None = None,
 ) -> dict[tuple[UUID, UUID, str], tuple[UUID, list[UUID]]]:
     """Return each triple's already-persisted relation id and source_chunk_ids.
 
@@ -1319,6 +1322,7 @@ async def _global_relation_lookup(
     Args:
         triples: The (source_id, target_id, type) triples to look up.
         graph_store: Where the lookup runs.
+        job_id: The active job whose pending relations are visible.
 
     Returns:
         A map from triple to its existing relation's (id, source_chunk_ids).
@@ -1334,8 +1338,13 @@ async def _global_relation_lookup(
         unique_pairs = list(dict.fromkeys(pairs))
         # Build params as list of {source_id, target_id}
         params = [{"source_id": str(s), "target_id": str(t)} for s, t in unique_pairs]
-        query = fetch_relations_between_query(rel_type)
-        rows = await graph_store.execute_read(query, {"pairs": params})
+        query = fetch_relations_between_query(
+            rel_type, job_id="job_id" if job_id is not None else None
+        )
+        read_params: dict[str, object] = {"pairs": params}
+        if job_id is not None:
+            read_params["job_id"] = str(job_id)
+        rows = await graph_store.execute_read(query, read_params)
         for row in rows:
             try:
                 src = UUID(str(row["source_id"]))
