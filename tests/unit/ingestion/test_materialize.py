@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -185,6 +186,15 @@ class TestWriteMatchesAndMaterialize:
         store = _store(
             node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
         )
+
+        async def replace_materializations(
+            _query: str, parameters: dict[str, Any]
+        ) -> list[dict[str, Any]]:
+            if "pending_job_id" in parameters:
+                return [{"removed_resolved_entity_ids": []}]
+            return [{"removed_resolved_entity_ids": [str(uuid4())]}]
+
+        store.current_transaction.execute_write.side_effect = replace_materializations
         decision = MatchDecision(
             entity_a_id=first.id,
             entity_b_id=second.id,

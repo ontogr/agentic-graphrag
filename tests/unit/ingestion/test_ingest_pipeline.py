@@ -221,29 +221,35 @@ class TestIngestChunks:
             return [(persisted, 0.0)]
 
         monkeypatch.setattr(GraphCandidateSource, "global_candidates_for", _candidates)
-        result = await ingest_chunks(
-            [chunk],
-            [doc],
-            [
-                ExtractedEntity(
-                    chunk_id=chunk_id,
-                    label="Person",
-                    text="Ada Lovelace",
-                    char_start=0,
-                    char_end=12,
-                )
-            ],
-            [],
-            [],
-            graph_store=store,
-            embedder=_ZeroEmbedder(),
-            vector_store=None,
-            graph_schema=GENERIC,
-            retrieval_settings=RetrievalSettings(),
-            error_policy=ErrorPolicy.RAISE,
-            ingestion=IngestStats(documents=1),
-            return_chunks=False,
-        )
+        resolver_instance = AsyncMock()
+        resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
+        with mock.patch(
+            "agrag.ingestion._ingest_pipeline.Resolver",
+            return_value=resolver_instance,
+        ):
+            result = await ingest_chunks(
+                [chunk],
+                [doc],
+                [
+                    ExtractedEntity(
+                        chunk_id=chunk_id,
+                        label="Person",
+                        text="Ada Lovelace",
+                        char_start=0,
+                        char_end=12,
+                    )
+                ],
+                [],
+                [],
+                graph_store=store,
+                embedder=_ZeroEmbedder(),
+                vector_store=None,
+                graph_schema=GENERIC,
+                retrieval_settings=RetrievalSettings(),
+                error_policy=ErrorPolicy.RAISE,
+                ingestion=IngestStats(documents=1),
+                return_chunks=False,
+            )
         assert result.merge.failures == []
         assert consulted == ["Ada Lovelace"]
         mentioned = [

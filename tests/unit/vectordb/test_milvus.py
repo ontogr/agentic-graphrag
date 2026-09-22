@@ -58,6 +58,7 @@ class MockMilvusClient:
             return_value=SimpleNamespace(add_index=mock.MagicMock())
         )
         self.create_collection = mock.AsyncMock()
+        self.add_collection_field = mock.AsyncMock()
         self.load_collection = mock.AsyncMock()
         self.upsert = mock.AsyncMock()
         self.search = mock.AsyncMock(return_value=[[{"id": "x", "distance": 0.9}]])
@@ -141,6 +142,36 @@ class TestEnsureCollection:
         )
         with pytest.raises(VectorStoreError, match="missing fields"):
             await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+
+    async def test_existing_collection_migrates_pending_schema(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """An older collection gains the pending field and index in place."""
+        client.has_collection.return_value = True
+        client.describe_collection.return_value = _describe_collection(
+            dim=4, fields=[field for field in _ALL_ADAPTER_FIELDS if field != "pending"]
+        )
+
+        async def fake_describe_index(*, collection_name: str, index_name: str):
+            if index_name == "pending":
+                raise MilvusException("index not found")
+            return {"metric_type": "BM25"}
+
+        client.describe_index = mock.AsyncMock(side_effect=fake_describe_index)
+        client.add_collection_field = mock.AsyncMock()
+        client.create_index = mock.AsyncMock()
+
+        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+
+        client.add_collection_field.assert_awaited_once_with(
+            collection_name="c",
+            field_name="pending",
+            data_type=mock.ANY,
+            nullable=True,
+            default_value=False,
+        )
+        client.create_index.assert_awaited_once()
+        assert client.create_index.call_args.kwargs["collection_name"] == "c"
 
     async def test_existing_collection_missing_sparse_index_raises(
         self, store: MilvusVectorStore, client

@@ -18,8 +18,9 @@ def find_incomplete_jobs_query() -> str:
 
     Returns:
         Parameterized Cypher expecting no parameters. Returns each
-        incomplete job's id, status, affected-entity snapshot, and whether
-        its lease has lapsed.
+        incomplete job's id, status, lease token, affected-entity snapshot,
+        and whether its lease has lapsed. The lease token is required to
+        fence the subsequent recovery claim.
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL}) "

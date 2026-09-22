@@ -98,7 +98,8 @@ class TestEmbedResolvedEntities:
         """A failed mirror write cannot leave a retrievable stale resolved vector."""
         entity = _entity()
         graph_store = SimpleNamespace(
-            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}]),
+            execute_read=AsyncMock(return_value=[]),
         )
         vector_store = SimpleNamespace(
             upsert=AsyncMock(side_effect=RuntimeError("vector store down")),
@@ -162,7 +163,8 @@ class TestEmbedResolvedEntities:
         """A later pass can make a previously failed derived vector searchable."""
         entity = _entity()
         graph_store = SimpleNamespace(
-            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}]),
+            execute_read=AsyncMock(return_value=[]),
         )
         vector_store = SimpleNamespace(
             upsert=AsyncMock(side_effect=[RuntimeError("vector store down"), None]),

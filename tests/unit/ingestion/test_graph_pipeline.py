@@ -1178,7 +1178,6 @@ class _GuardedNodeStore(MockStore):
         for record in records:
             node = self.nodes.get(record["id"])
             if node is None:
-                matched_ids.append(record["id"])
                 continue
             # Entity guard: name + description.
             if "expected_name" in record and node["name"] != record["expected_name"]:
@@ -1567,7 +1566,7 @@ class TestEmbedChunksDualWrite:
             text="Hello world",
             provenance=TextProvenance(char_start=0, char_end=11),
         )
-        store = _GuardedNodeStore({})
+        store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
         vector_store = RecordingVectorStore()
 
         failures = await _embed_and_upsert_chunks(
@@ -1603,7 +1602,7 @@ class TestEmbedChunksDualWrite:
             text="Hello world",
             provenance=TextProvenance(char_start=0, char_end=11),
         )
-        store = _GuardedNodeStore({})
+        store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
         vector_store = RecordingVectorStore()
 
         await _embed_and_upsert_chunks(
@@ -1628,7 +1627,7 @@ class TestEmbedChunksDualWrite:
             text="Hello world",
             provenance=TextProvenance(char_start=0, char_end=11),
         )
-        store = _GuardedNodeStore({})
+        store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
         vector_store = RecordingVectorStore()
         vector_store.fail = RuntimeError("vector store down")
 
@@ -1659,7 +1658,7 @@ class TestEmbedChunksDualWrite:
             text="Hello world",
             provenance=TextProvenance(char_start=0, char_end=11),
         )
-        store = _GuardedNodeStore({})
+        store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
         vector_store = RecordingVectorStore()
 
         with pytest.raises(RuntimeError, match="embed backend down"):
@@ -1689,7 +1688,7 @@ class TestEmbedChunksDualWrite:
             text="Hello world",
             provenance=TextProvenance(char_start=0, char_end=11),
         )
-        store = _GuardedNodeStore({})
+        store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
         vector_store = _FailingUpsertVectorStore()
 
         failures = await _embed_and_upsert_chunks(
@@ -1720,7 +1719,14 @@ class TestEmbedSurvivorsDualWrite:
     async def test_success_upserts_entity_vectors_with_labels(self) -> None:
         """A successful embed upserts one record per survivor, label included."""
         ent = self._entity()
-        store = _GuardedNodeStore({})
+        store = _GuardedNodeStore(
+            {
+                str(ent.id): {
+                    "name": ent.name,
+                    "description": str(ent.properties.get("description", "")),
+                }
+            }
+        )
         vector_store = RecordingVectorStore()
 
         failures = await _embed_and_upsert_survivors(
@@ -1753,7 +1759,14 @@ class TestEmbedSurvivorsDualWrite:
             name="Alice",
             properties={"description": "A person", "tenant": "a"},
         )
-        store = _GuardedNodeStore({})
+        store = _GuardedNodeStore(
+            {
+                str(ent.id): {
+                    "name": ent.name,
+                    "description": str(ent.properties.get("description", "")),
+                }
+            }
+        )
         vector_store = RecordingVectorStore()
 
         await _embed_and_upsert_survivors(
@@ -1774,7 +1787,14 @@ class TestEmbedSurvivorsDualWrite:
     async def test_vector_store_failure_returns_stage_failure(self) -> None:
         """A VectorStore failure is reported as a StageFailure with SKIP."""
         ent = self._entity()
-        store = _GuardedNodeStore({})
+        store = _GuardedNodeStore(
+            {
+                str(ent.id): {
+                    "name": ent.name,
+                    "description": str(ent.properties.get("description", "")),
+                }
+            }
+        )
         vector_store = RecordingVectorStore()
         vector_store.fail = RuntimeError("vector store down")
 
@@ -1799,7 +1819,14 @@ class TestEmbedSurvivorsDualWrite:
                 raise RuntimeError("embed backend down")
 
         ent = self._entity()
-        store = _GuardedNodeStore({})
+        store = _GuardedNodeStore(
+            {
+                str(ent.id): {
+                    "name": ent.name,
+                    "description": str(ent.properties.get("description", "")),
+                }
+            }
+        )
         vector_store = RecordingVectorStore()
 
         with pytest.raises(RuntimeError, match="embed backend down"):
@@ -1823,7 +1850,14 @@ class TestEmbedSurvivorsDualWrite:
         record, and would remove that newer vector.
         """
         ent = self._entity()
-        store = _GuardedNodeStore({})
+        store = _GuardedNodeStore(
+            {
+                str(ent.id): {
+                    "name": ent.name,
+                    "description": str(ent.properties.get("description", "")),
+                }
+            }
+        )
         vector_store = _FailingUpsertVectorStore()
 
         failures = await _embed_and_upsert_survivors(

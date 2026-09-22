@@ -163,8 +163,8 @@ class TestUpsertSurvivorQuery:
             "SET n += CASE WHEN can_update THEN record.properties"
         )
 
-    def test_pending_write_does_not_mutate_committed_survivor(self) -> None:
-        """A pending merge updates only a node created by that same job."""
+    def test_pending_merge_is_fenced_from_another_inflight_job(self) -> None:
+        """A pending merge cannot overwrite a node pinned by another job."""
         q = upsert_survivor_query("Person")
         assert "record.pending_job_id IS NULL" in q
         assert "OR n._pending_job_id = record.pending_job_id" in q

@@ -67,6 +67,7 @@ class TestClaimJobQuery:
         """Only the observed lease holder can claim and renew a job."""
         query = claim_job_query()
         assert "job.lease_token = $expected_lease_token" in query
+        assert "job.status IN ['committed', 'cleaning']" in query
         assert "job.lease_expires_at = datetime($lease_expires_at)" in query
 
 

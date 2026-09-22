@@ -24,16 +24,12 @@ _DIRECTION_ARROW: dict[TraversalDirection, tuple[str, str]] = {
 def close_part_of_query() -> str:
     """Build Cypher that closes currently valid document-to-chunk edges.
 
-    Pending visibility matters here: the superseding version's edges are
-    already written when this runs, so a null ``$job_id`` would close the
-    new version along with the old one and leave the document with no
-    current chunks. The job-scoped guard closes the superseded version
-    and leaves the writing job's own edges open.
+    Only committed edges are closed. Pending edges belong to an in-flight
+    cutover and remain open until that job commits.
 
     Returns:
-        Parameterized Cypher expecting $document_node_id and $job_id
-        (the in-flight Cutover Job's id, or null outside a job). Returns
-        the number of edges closed.
+        Parameterized Cypher expecting $document_node_id. Returns the
+        number of committed edges closed.
     """
     return (
         "MATCH (d:_AgragNode:Document {id: $document_node_id})"

@@ -28,6 +28,7 @@ from agrag.vectordb.settings import WeaviateSettings
 
 
 _VECTOR_NAME = "vector"
+_PENDING_PROPERTY = "pending"
 
 # The page size _existing_dimension pages through while looking for a
 # vector-bearing object. Not a correctness knob: a smaller value means more
@@ -175,7 +176,7 @@ class WeaviateVectorStore(VectorStore):
                 conditions.append(prop.contains_any(value))
             else:
                 conditions.append(prop.equal(value))
-        pending = WeaviateFilter.by_property(PENDING_VECTOR_FLAG)
+        pending = WeaviateFilter.by_property(_PENDING_PROPERTY)
         if (filters or {}).get(PENDING_VECTOR_FLAG) is True:
             conditions.append(pending.equal(True))
         else:
@@ -208,7 +209,10 @@ class WeaviateVectorStore(VectorStore):
         return VectorHit(
             id=UUID(str(obj.uuid)),
             score=score,
-            payload=dict(obj.properties or {}),
+            payload={
+                (PENDING_VECTOR_FLAG if key == _PENDING_PROPERTY else key): value
+                for key, value in (obj.properties or {}).items()
+            },
         )
 
     @staticmethod
@@ -225,7 +229,10 @@ class WeaviateVectorStore(VectorStore):
         return VectorRecord(
             id=UUID(str(obj.uuid)),
             vector=vector,
-            payload=dict(obj.properties or {}),
+            payload={
+                (PENDING_VECTOR_FLAG if key == _PENDING_PROPERTY else key): value
+                for key, value in (obj.properties or {}).items()
+            },
         )
 
     async def initialize(self) -> None:
@@ -278,7 +285,7 @@ class WeaviateVectorStore(VectorStore):
             name=name,
             vector_config=vector_config,
             properties=[
-                Property(name=PENDING_VECTOR_FLAG, data_type=DataType.BOOL),
+                Property(name=_PENDING_PROPERTY, data_type=DataType.BOOL),
             ],
         )
 
@@ -376,7 +383,12 @@ class WeaviateVectorStore(VectorStore):
             batch = records[start : start + batch_size]
             objects = [
                 DataObject(
-                    properties=record.payload,
+                    properties={
+                        (
+                            _PENDING_PROPERTY if key == PENDING_VECTOR_FLAG else key
+                        ): value
+                        for key, value in record.payload.items()
+                    },
                     vector={_VECTOR_NAME: record.vector},
                     uuid=str(record.id),
                 )

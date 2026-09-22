@@ -331,9 +331,19 @@ class MilvusVectorStore(VectorStore):
                     expected=existing, actual=dimensions
                 )
             existing_fields = await self._existing_field_names(client, name)
-            missing_fields = _REQUIRED_FIELDS - existing_fields
+            missing_fields = set(_REQUIRED_FIELDS - existing_fields)
             has_sparse_index = await self._has_index(client, name, _SPARSE_FIELD)
             has_pending_index = await self._has_index(client, name, _PENDING_FIELD)
+            pending_field_ready = _PENDING_FIELD not in missing_fields
+            if _PENDING_FIELD in missing_fields and not (
+                missing_fields - {_PENDING_FIELD}
+            ):
+                await self._add_pending_field(client, name)
+                missing_fields.remove(_PENDING_FIELD)
+                pending_field_ready = True
+            if not has_pending_index and pending_field_ready:
+                await self._create_pending_index(client, name)
+                has_pending_index = True
             if missing_fields or not has_sparse_index or not has_pending_index:
                 raise VectorStoreError(
                     f"collection {name!r} already exists without the fields "
@@ -403,6 +413,26 @@ class MilvusVectorStore(VectorStore):
             collection_name=name, schema=schema, index_params=index_params
         )
         await client.load_collection(name)
+
+    @staticmethod
+    async def _add_pending_field(client: Any, name: str) -> None:
+        """Add the nullable pending marker to a pre-cutover collection."""
+        from pymilvus import DataType  # noqa: PLC0415
+
+        await client.add_collection_field(
+            collection_name=name,
+            field_name=_PENDING_FIELD,
+            data_type=DataType.BOOL,
+            nullable=True,
+            default_value=False,
+        )
+
+    @staticmethod
+    async def _create_pending_index(client: Any, name: str) -> None:
+        """Add the pending index when an existing collection lacks it."""
+        index_params = client.prepare_index_params()
+        index_params.add_index(field_name=_PENDING_FIELD, index_type="AUTOINDEX")
+        await client.create_index(collection_name=name, index_params=index_params)
 
     @staticmethod
     async def _existing_dimension(client: Any, name: str) -> int | None:

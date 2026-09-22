@@ -85,6 +85,8 @@ async def resume_incomplete_jobs(
             continue
         if row.get("lease_token") is None:
             continue
+        if not row.get("lease_expired"):
+            continue
         if await _roll_forward(
             graph_store,
             job_id=job_id,

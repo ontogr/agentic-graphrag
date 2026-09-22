@@ -26,7 +26,8 @@ class _FakeResumeStore:
 
         Args:
             jobs: Each row as find_incomplete_jobs_query would shape it:
-                id, status, affected_entity_ids, lease_expired.
+                id, status, affected_entity_ids, lease_expired, and an
+                optional lease_token (generated when omitted).
         """
         self.jobs = {
             job["id"]: {**job, "lease_token": job.get("lease_token", str(uuid4()))}
@@ -118,7 +119,7 @@ class TestResumeIncompleteJobs:
                     "id": job_id,
                     "status": "committed",
                     "affected_entity_ids": [],
-                    "lease_expired": False,
+                    "lease_expired": True,
                 }
             ]
         )
@@ -141,7 +142,7 @@ class TestResumeIncompleteJobs:
                     "id": job_id,
                     "status": "committed",
                     "affected_entity_ids": [str(uuid4())],
-                    "lease_expired": False,
+                    "lease_expired": True,
                 }
             ]
         )

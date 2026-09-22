@@ -16,7 +16,6 @@ def acquire_lease_query() -> str:
 
     Returns:
         Parameterized Cypher expecting $job_id, $document_key, $verb,
-        $expected_lease_token,
         $lease_token, $lease_expires_at (ISO-8601 string, stored as a
         native datetime for expiry comparison), $affected_entity_ids
         (list of string ids, snapshotted before any pending write), and
@@ -50,8 +49,9 @@ def steal_expired_lease_query() -> str:
 
     Returns:
         Parameterized Cypher expecting $job_id, $document_key, $verb,
-        $lease_token, $affected_entity_ids (the new run's snapshot, empty
-        until the caller needs it), $created_at, and $lease_expires_at
+        $expected_lease_token, $lease_token, $affected_entity_ids (the new
+        run's snapshot, empty until the caller needs it), $created_at, and
+        $lease_expires_at
         (ISO-8601 string). Returns the node's lease_token when the steal
         succeeded, no row otherwise.
     """
@@ -94,6 +94,7 @@ def claim_job_query() -> str:
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         "WHERE job.status IN ['committed', 'cleaning'] "
         "AND job.lease_token = $expected_lease_token "
+        "AND job.lease_expires_at < datetime() "
         "SET job.status = 'cleaning', job.lease_token = $lease_token, "
         "job.lease_expires_at = datetime($lease_expires_at) "
         "RETURN job.status AS status"
@@ -139,7 +140,8 @@ def clear_pending_tag_query() -> str:
         "REMOVE n._pending_job_id "
         "WITH count(n) AS cleared_nodes "
         "OPTIONAL MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
-        "REMOVE r._pending_job_id "
+        "REMOVE r._pending_job_id, r._pending_created, "
+        "r._pending_previous_active "
         "RETURN cleared_nodes, count(r) AS cleared_relationships"
     )
 
@@ -197,12 +199,17 @@ def rollback_job_query() -> str:
         deleted nodes and relationships.
     """
     return (
+        "MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
+        "AND r._pending_created = true "
+        "DELETE r "
+        "WITH count(r) AS deleted_relationships "
+        "MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
+        "SET r.active = coalesce(r._pending_previous_active, r.active) "
+        "REMOVE r._pending_job_id, r._pending_created, r._pending_previous_active "
+        "WITH deleted_relationships "
         "MATCH (n) WHERE n._pending_job_id = $job_id "
         "DETACH DELETE n "
-        "WITH count(n) AS deleted_nodes "
-        "OPTIONAL MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
-        "DELETE r "
-        "WITH deleted_nodes, count(r) AS deleted_relationships "
+        "WITH count(n) AS deleted_nodes, deleted_relationships "
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         "DETACH DELETE job "
         "RETURN deleted_nodes, deleted_relationships"

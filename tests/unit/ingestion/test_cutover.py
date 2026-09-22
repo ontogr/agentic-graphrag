@@ -100,6 +100,7 @@ class _FakeCutoverStore:
             return []
         expired = job["lease_expires_at"] < datetime.now(UTC)
         if job["status"] == "done" or (job["status"] == "pending" and expired):
+            job["id"] = str(params["job_id"])
             job["status"] = "pending"
             job["verb"] = params["verb"]
             job["lease_token"] = str(params["lease_token"])
@@ -344,6 +345,7 @@ class TestRunCutoverJobLeaseFailure:
         """Losing the lease between pending-write and commit rolls the job back."""
         store = _FakeCutoverStore()
         holder = str(uuid4())
+        stolen_job_id = str(uuid4())
 
         async def pending(job_id: UUID) -> None:
             # Between the runner's acquire and its commit, another worker
@@ -351,6 +353,7 @@ class TestRunCutoverJobLeaseFailure:
             store.jobs["doc-1"]["lease_expires_at"] = datetime.now(UTC) - timedelta(
                 seconds=1
             )
+            store.jobs["doc-1"]["id"] = stolen_job_id
             store.jobs["doc-1"]["lease_token"] = holder
             store.nodes.append(_tag_node(job_id))
 
@@ -359,7 +362,8 @@ class TestRunCutoverJobLeaseFailure:
 
         # Rollback removes tagged nodes and the job record.
         assert store.nodes == []
-        assert "doc-1" not in store.jobs
+        assert store.jobs["doc-1"]["id"] == stolen_job_id
+        assert store.jobs["doc-1"]["lease_token"] == holder
 
 
 class TestRunCutoverJobRollback:

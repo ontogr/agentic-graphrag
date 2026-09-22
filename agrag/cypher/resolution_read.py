@@ -112,13 +112,6 @@ def fetch_entities_with_open_evidence_query() -> str:
         f"(entity:{NODE_IDENTITY_LABEL} {{id: entity_id}}) "
         f"MATCH (document:{NODE_IDENTITY_LABEL}:Document)-[part:PART_OF]->(chunk) "
         "WHERE part.invalid_at IS NULL "
-        "AND (chunk._pending_job_id IS NULL OR chunk._pending_job_id = $job_id) "
-        "AND (mention._pending_job_id IS NULL "
-        "OR mention._pending_job_id = $job_id) "
-        "AND (entity._pending_job_id IS NULL OR entity._pending_job_id = $job_id) "
-        "AND (document._pending_job_id IS NULL "
-        "OR document._pending_job_id = $job_id) "
-        "AND (part._pending_job_id IS NULL OR part._pending_job_id = $job_id) "
         "RETURN DISTINCT entity.id AS id"
     )
 
