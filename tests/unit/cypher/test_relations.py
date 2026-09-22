@@ -64,6 +64,16 @@ class TestUpsertRelationQuery:
         with pytest.raises(ValueError):
             upsert_relation_query("Bad Type")
 
+    def test_tags_the_pending_job_only_when_the_merge_creates_the_edge(self) -> None:
+        """An edge a job only writes over must stay untagged.
+
+        Tagging it on every write, not just creation, would hide a
+        committed edge from retrieval and put it in reach of that job's
+        rollback.
+        """
+        q = upsert_relation_query("MENTIONS")
+        assert "ON CREATE SET r._pending_job_id = record.pending_job_id" in q
+
     def test_unions_source_chunk_ids_instead_of_overwriting(self) -> None:
         """source_chunk_ids is read and unioned inside the query, not overwritten.
 

@@ -75,6 +75,16 @@ class TestUpsertNodeQuery:
         assert "SET n += record.properties" in q
         assert "SET n.id = record.id" in q
 
+    def test_tags_the_pending_job_only_when_the_merge_creates_the_node(self) -> None:
+        """The Cutover Job tag applies with ON CREATE SET, not a plain SET.
+
+        A node a job merely writes over must stay untagged: tagging it
+        would hide committed data from retrieval and put it in reach of
+        that job's rollback.
+        """
+        q = upsert_node_query(["Chunk"])
+        assert "ON CREATE SET n._pending_job_id = record.pending_job_id" in q
+
     def test_merge_identity_is_independent_of_content_labels(self) -> None:
         """MERGE always anchors on NODE_IDENTITY_LABEL, never the content labels.
 
@@ -131,6 +141,13 @@ class TestUpsertSurvivorQuery:
         assert "SET n.merged_from =" in q
         assert "record.new_merged_from" in q
         assert "existing_merge_count + record.merge_count_delta" in q
+
+    def test_tags_the_pending_job_only_when_the_merge_creates_the_survivor(
+        self,
+    ) -> None:
+        """A survivor a job only accumulates into must stay untagged."""
+        q = upsert_survivor_query("Person")
+        assert "ON CREATE SET n._pending_job_id = record.pending_job_id" in q
 
     def test_reads_accumulators_before_the_blind_property_set(self) -> None:
         """The accumulator read happens before SET n += record.properties.

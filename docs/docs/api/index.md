@@ -2581,12 +2581,18 @@ These are a temporary, minimal stopgap, not the canonical Entity/Relation
 domain model resolution will eventually produce. See the future
 storage/merge-mechanics work this decouples from.
 
-Pending-visibility convention: a node or edge written by an in-flight
+Pending-visibility convention: a node or edge *created* by an in-flight
 Cutover Job carries `_pending_job_id` (the job's id) in its properties;
 committed data never carries this key. Retrieval query builders exclude
 such rows with `pending_filter_clause`. Vector-store payloads mirror the
 tag as an explicit boolean `_pending` field, cleared at commit, because
 payload filters match on present values rather than key absence.
+
+The tag is written with `ON CREATE SET`, so a job that writes over a
+row that already exists leaves it untagged. Such a row was already
+visible before the job started and stays visible; the job's rollback,
+which deletes tagged rows, therefore cannot delete data a caller
+committed earlier.
 
 **Classes:**
 
@@ -2597,11 +2603,11 @@ payload filters match on present values rather than key absence.
 
 **Functions:**
 
-- [**tag_pending**](#agrag.common.data_models.graph_record.tag_pending) – Stamp a write record with the Cutover Job that wrote it.
+- [**tag_pending**](#agrag.common.data_models.graph_record.tag_pending) – Stamp a write record with the Cutover Job that is writing it.
 
 **Attributes:**
 
-- [**PENDING_JOB_ID_PROPERTY**](#agrag.common.data_models.graph_record.PENDING_JOB_ID_PROPERTY) – Graph property marking a node or edge as written by an in-flight job.
+- [**PENDING_JOB_ID_PROPERTY**](#agrag.common.data_models.graph_record.PENDING_JOB_ID_PROPERTY) – Graph property marking a node or edge as created by an in-flight job.
 
 ###### `agrag.common.data_models.graph_record.NodeRecord`
 
@@ -2644,13 +2650,13 @@ properties: dict[str, Any]
 PENDING_JOB_ID_PROPERTY = '_pending_job_id'
 ```
 
-Graph property marking a node or edge as written by an in-flight job.
+Graph property marking a node or edge as created by an in-flight job.
 
-Carried on every node or edge a Cutover Job writes; committed data never
-carries it. Retrieval query builders exclude rows carrying it, the commit
-step removes it atomically, and rollback deletes every row carrying it.
-Vector-store payloads mirror it under the same key for commit-time
-clearing.
+Carried on every node or edge a Cutover Job creates; committed data and
+rows a job only writes over never carry it. Retrieval query builders
+exclude rows carrying it, the commit step removes it atomically, and
+rollback deletes every row carrying it. Vector-store payloads mirror it
+under the same key for commit-time clearing.
 
 ###### `agrag.common.data_models.graph_record.RelationRecord`
 
@@ -2758,7 +2764,10 @@ written: int = 0
 tag_pending(record:_RecordT, job_id:UUID | str | None) -> _RecordT
 ```
 
-Stamp a write record with the Cutover Job that wrote it.
+Stamp a write record with the Cutover Job that is writing it.
+
+The tag reaches the graph only when the write creates its row; the
+upsert queries apply it with `ON CREATE SET`.
 
 No-op outside a job, so pipeline stages thread their optional job id
 through this unconditionally instead of branching at every write.
@@ -3809,10 +3818,10 @@ Cypher writes for the Cutover Job crash-recovery machine.
 
 - [**acquire_lease_query**](#agrag.cypher.cutover_job_write.acquire_lease_query) – Build Cypher tentatively creating a job node and returning its lease.
 - [**claim_job_query**](#agrag.cypher.cutover_job_write.claim_job_query) – Build Cypher taking over an interrupted job for resume-on-open.
-- [**clear_pending_tag_query**](#agrag.cypher.cutover_job_write.clear_pending_tag_query) – Build Cypher clearing the pending tag off everything a job wrote.
+- [**clear_pending_tag_query**](#agrag.cypher.cutover_job_write.clear_pending_tag_query) – Build Cypher clearing the pending tag off everything a job created.
 - [**commit_job_query**](#agrag.cypher.cutover_job_write.commit_job_query) – Build Cypher flipping a job from pending to committed, fenced by lease.
 - [**finish_cleaning_query**](#agrag.cypher.cutover_job_write.finish_cleaning_query) – Build Cypher marking a job done after its cleanup phase completes.
-- [**rollback_job_query**](#agrag.cypher.cutover_job_write.rollback_job_query) – Build Cypher deleting everything a job wrote, then the job itself.
+- [**rollback_job_query**](#agrag.cypher.cutover_job_write.rollback_job_query) – Build Cypher deleting everything a job created, then the job itself.
 - [**start_cleaning_query**](#agrag.cypher.cutover_job_write.start_cleaning_query) – Build Cypher moving a committed job into cleaning, fenced by lease.
 - [**steal_expired_lease_query**](#agrag.cypher.cutover_job_write.steal_expired_lease_query) – Build Cypher taking over a job whose lease lapsed or went terminal.
 
@@ -3872,7 +3881,7 @@ skips the job as claimed.
 clear_pending_tag_query() -> str
 ```
 
-Build Cypher clearing the pending tag off everything a job wrote.
+Build Cypher clearing the pending tag off everything a job created.
 
 Runs inside the same transaction as `commit_job_query`: the commit
 flip and the tag removal land atomically, so a crash between them is
@@ -3926,14 +3935,16 @@ holder that started cleaning may finish it.
 rollback_job_query() -> str
 ```
 
-Build Cypher deleting everything a job wrote, then the job itself.
+Build Cypher deleting everything a job created, then the job itself.
 
-The live graph was never touched — nothing pending was ever visible —
-so rollback is pure deletion: every tagged node (detaching its edges)
-and every tagged edge between committed endpoints goes first, then the
-job node. Reaching this terminal state is observed as the job node's
-absence, which also frees `document_key` for the next job without a
-reuse path.
+Only rows this job created carry its tag, so rollback is pure
+deletion of the job's own additions: every tagged node (detaching its
+edges) and every tagged edge between committed endpoints goes first,
+then the job node. Nothing a caller committed earlier is reachable
+from here, because a row that already existed when the job wrote over
+it was never tagged. Reaching this terminal state is observed as the
+job node's absence, which also frees `document_key` for the next job
+without a reuse path.
 
 **Returns:**
 
@@ -4400,6 +4411,12 @@ Identity is reasserted after applying properties, so a caller-supplied
 `properties["id"]` cannot overwrite the `id` used to `MERGE` and
 orphan the node from later upserts of the same record.
 
+The Cutover Job tag is applied only when the `MERGE` creates the
+node, so the tag means "this job created this node". A job that only
+writes over an existing node leaves it untagged: it stays visible to
+retrieval, and the job's rollback — which deletes tagged rows —
+cannot reach it.
+
 **Parameters:**
 
 - **labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The node's labels to add, in addition to the identity anchor.
@@ -4434,6 +4451,10 @@ as-is (last write wins); resolving a conflict there needs the candidate
 values, which only a Python-side read can gather, so making that
 atomic too is out of scope here.
 
+Like `upsert_node_query`, the Cutover Job tag is applied only when
+the `MERGE` creates the node, so a survivor a job merely accumulates
+into stays visible and out of reach of that job's rollback.
+
 **Parameters:**
 
 - **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
@@ -4443,7 +4464,8 @@ atomic too is out of scope here.
 - <code>[str](#str)</code> – A parameterized Cypher query expecting a `$records` list
 - <code>[str](#str)</code> – parameter whose items carry `id`, `properties` (every survivor
 - <code>[str](#str)</code> – field except `source_chunk_ids`, `merged_from`, and
-- <code>[str](#str)</code> – `merge_count`), `new_source_chunk_ids`, `new_merged_from`, and
+- <code>[str](#str)</code> – `merge_count`), `pending_job_id` (the Cutover Job tag, or
+- <code>[str](#str)</code> – None), `new_source_chunk_ids`, `new_merged_from`, and
 - <code>[str](#str)</code> – `merge_count_delta`.
 
 ##### `agrag.cypher.entities.validate_identifier`
@@ -4771,6 +4793,12 @@ discard the chunk ids the other one contributed. Reading the current
 value here, inside the same MERGE, keeps the union correct regardless of
 which caller's read was stale.
 
+The Cutover Job tag is applied only when the `MERGE` creates the
+relationship, so the tag means "this job created this edge". A job
+that only writes over an existing edge leaves it untagged: it stays
+visible to retrieval, and the job's rollback — which deletes tagged
+rows — cannot reach it.
+
 **Parameters:**
 
 - **rel_type** (<code>[str](#str)</code>) – The relationship type. Must already be validated.
@@ -4778,10 +4806,11 @@ which caller's read was stale.
 **Returns:**
 
 - <code>[str](#str)</code> – A parameterized Cypher query expecting a `$records` list parameter whose
-- <code>[str](#str)</code> – items carry `id`, `start_id`, `end_id`, and `properties` keys.
-- <code>[str](#str)</code> – `properties` may include `source_chunk_ids`; other keys are
-- <code>[str](#str)</code> – applied as-is. The query returns one row with `id` for every record
-- <code>[str](#str)</code> – whose endpoints matched and was processed.
+- <code>[str](#str)</code> – items carry `id`, `start_id`, `end_id`, `properties`, and
+- <code>[str](#str)</code> – `pending_job_id` keys. `properties` may include
+- <code>[str](#str)</code> – `source_chunk_ids`; other keys are applied as-is. The query returns
+- <code>[str](#str)</code> – one row with `id` for every record whose endpoints matched and was
+- <code>[str](#str)</code> – processed.
 
 #### `agrag.cypher.resolution_read`
 
@@ -7706,13 +7735,22 @@ node_params(record:NodeRecord) -> dict[str, Any]
 
 Build the `$records` entry for a node upsert.
 
+The Cutover Job tag is split out of `properties` into its own key
+because the upsert queries apply it with `ON CREATE SET`: a job tags
+the nodes it creates, never a node it writes over. Left inside the
+applied property map it would be set on existing nodes too, which
+would hide a committed node from retrieval for the job's duration and
+put it in reach of the job's rollback — and rollback deletes tagged
+rows.
+
 **Parameters:**
 
 - **record** (<code>[NodeRecord](#agrag.common.data_models.graph_record.NodeRecord)</code>) – The node record to serialize.
 
 **Returns:**
 
-- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict with `id` (string) and `properties` (converted).
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict with `id` (string), `properties` (converted, without
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – the pending tag), and `pending_job_id` (the tag, or None).
 
 ##### `agrag.graphdb.serialize.relation_params`
 
@@ -7722,13 +7760,18 @@ relation_params(record:RelationRecord) -> dict[str, Any]
 
 Build the `$records` entry for a relationship upsert.
 
+The Cutover Job tag is split out of `properties` for the same reason
+as in :func:`node_params`: only an edge the job creates carries it.
+
 **Parameters:**
 
 - **record** (<code>[RelationRecord](#agrag.common.data_models.graph_record.RelationRecord)</code>) – The relation record to serialize.
 
 **Returns:**
 
-- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict with `id`, `start_id`, `end_id`, and `properties`.
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict with `id`, `start_id`, `end_id`, `properties`
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – (converted, without the pending tag), and `pending_job_id` (the
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – tag, or None).
 
 #### `agrag.graphdb.settings`
 

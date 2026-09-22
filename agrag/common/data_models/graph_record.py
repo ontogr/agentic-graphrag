@@ -4,12 +4,18 @@ These are a temporary, minimal stopgap, not the canonical Entity/Relation
 domain model resolution will eventually produce. See the future
 storage/merge-mechanics work this decouples from.
 
-Pending-visibility convention: a node or edge written by an in-flight
+Pending-visibility convention: a node or edge *created* by an in-flight
 Cutover Job carries ``_pending_job_id`` (the job's id) in its properties;
 committed data never carries this key. Retrieval query builders exclude
 such rows with ``pending_filter_clause``. Vector-store payloads mirror the
 tag as an explicit boolean ``_pending`` field, cleared at commit, because
 payload filters match on present values rather than key absence.
+
+The tag is written with ``ON CREATE SET``, so a job that writes over a
+row that already exists leaves it untagged. Such a row was already
+visible before the job started and stays visible; the job's rollback,
+which deletes tagged rows, therefore cannot delete data a caller
+committed earlier.
 """
 
 from typing import Any, TypeVar
@@ -19,13 +25,13 @@ from pydantic import BaseModel, Field
 
 
 PENDING_JOB_ID_PROPERTY = "_pending_job_id"
-"""Graph property marking a node or edge as written by an in-flight job.
+"""Graph property marking a node or edge as created by an in-flight job.
 
-Carried on every node or edge a Cutover Job writes; committed data never
-carries it. Retrieval query builders exclude rows carrying it, the commit
-step removes it atomically, and rollback deletes every row carrying it.
-Vector-store payloads mirror it under the same key for commit-time
-clearing.
+Carried on every node or edge a Cutover Job creates; committed data and
+rows a job only writes over never carry it. Retrieval query builders
+exclude rows carrying it, the commit step removes it atomically, and
+rollback deletes every row carrying it. Vector-store payloads mirror it
+under the same key for commit-time clearing.
 """
 
 
@@ -99,7 +105,10 @@ _RecordT = TypeVar("_RecordT", NodeRecord, RelationRecord)
 
 
 def tag_pending(record: _RecordT, job_id: UUID | str | None) -> _RecordT:
-    """Stamp a write record with the Cutover Job that wrote it.
+    """Stamp a write record with the Cutover Job that is writing it.
+
+    The tag reaches the graph only when the write creates its row; the
+    upsert queries apply it with ``ON CREATE SET``.
 
     No-op outside a job, so pipeline stages thread their optional job id
     through this unconditionally instead of branching at every write.

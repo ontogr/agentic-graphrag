@@ -166,7 +166,13 @@ class TestUpsertNodes:
         assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in query
         assert "SET n:Chunk" in query
         assert params == {
-            "records": [{"id": str(node.id), "properties": {"text": "a"}}]
+            "records": [
+                {
+                    "id": str(node.id),
+                    "properties": {"text": "a"},
+                    "pending_job_id": None,
+                }
+            ]
         }
 
     async def test_isolates_record_specific_batch_failures(self) -> None:
@@ -260,7 +266,7 @@ class TestUpsertNodes:
             if "SET n:Chunk " in c.args[1] and "SET n:Chunk:" not in c.args[1]
         )
         assert single_call.args[2]["records"] == [
-            {"id": str(single.id), "properties": {"n": 1}}
+            {"id": str(single.id), "properties": {"n": 1}, "pending_job_id": None}
         ]
 
     async def test_rejects_non_positive_batch_size(self) -> None:
@@ -873,7 +879,13 @@ class TestTransaction:
         query, params = tx.run.call_args.args
         assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in query
         assert params == {
-            "records": [{"id": str(node.id), "properties": {"name": "Ada"}}]
+            "records": [
+                {
+                    "id": str(node.id),
+                    "properties": {"name": "Ada"},
+                    "pending_job_id": None,
+                }
+            ]
         }
 
     async def test_ensures_identity_constraint_before_opening(self) -> None:

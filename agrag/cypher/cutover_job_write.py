@@ -116,7 +116,7 @@ def commit_job_query() -> str:
 
 
 def clear_pending_tag_query() -> str:
-    """Build Cypher clearing the pending tag off everything a job wrote.
+    """Build Cypher clearing the pending tag off everything a job created.
 
     Runs inside the same transaction as ``commit_job_query``: the commit
     flip and the tag removal land atomically, so a crash between them is
@@ -133,7 +133,7 @@ def clear_pending_tag_query() -> str:
         "MATCH (n) WHERE n._pending_job_id = $job_id "
         "REMOVE n._pending_job_id "
         "WITH count(n) AS cleared_nodes "
-        "MATCH ()-[r]() WHERE r._pending_job_id = $job_id "
+        "OPTIONAL MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
         "REMOVE r._pending_job_id "
         "RETURN cleared_nodes, count(r) AS cleared_relationships"
     )
@@ -176,14 +176,16 @@ def finish_cleaning_query() -> str:
 
 
 def rollback_job_query() -> str:
-    """Build Cypher deleting everything a job wrote, then the job itself.
+    """Build Cypher deleting everything a job created, then the job itself.
 
-    The live graph was never touched — nothing pending was ever visible —
-    so rollback is pure deletion: every tagged node (detaching its edges)
-    and every tagged edge between committed endpoints goes first, then the
-    job node. Reaching this terminal state is observed as the job node's
-    absence, which also frees ``document_key`` for the next job without a
-    reuse path.
+    Only rows this job created carry its tag, so rollback is pure
+    deletion of the job's own additions: every tagged node (detaching its
+    edges) and every tagged edge between committed endpoints goes first,
+    then the job node. Nothing a caller committed earlier is reachable
+    from here, because a row that already existed when the job wrote over
+    it was never tagged. Reaching this terminal state is observed as the
+    job node's absence, which also frees ``document_key`` for the next job
+    without a reuse path.
 
     Returns:
         Parameterized Cypher expecting $job_id. Returns the count of
@@ -193,7 +195,7 @@ def rollback_job_query() -> str:
         "MATCH (n) WHERE n._pending_job_id = $job_id "
         "DETACH DELETE n "
         "WITH count(n) AS deleted_nodes "
-        "MATCH ()-[r]() WHERE r._pending_job_id = $job_id "
+        "OPTIONAL MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
         "DELETE r "
         "WITH deleted_nodes, count(r) AS deleted_relationships "
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "

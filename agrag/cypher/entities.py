@@ -82,6 +82,12 @@ def upsert_node_query(labels: Sequence[str]) -> str:
     ``properties["id"]`` cannot overwrite the ``id`` used to ``MERGE`` and
     orphan the node from later upserts of the same record.
 
+    The Cutover Job tag is applied only when the ``MERGE`` creates the
+    node, so the tag means "this job created this node". A job that only
+    writes over an existing node leaves it untagged: it stays visible to
+    retrieval, and the job's rollback — which deletes tagged rows —
+    cannot reach it.
+
     Args:
         labels: The node's labels to add, in addition to the identity anchor.
             Must already be validated, and non-empty.
@@ -99,6 +105,7 @@ def upsert_node_query(labels: Sequence[str]) -> str:
     return (
         f"UNWIND $records AS record "
         f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"ON CREATE SET n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id "
         f"SET n:{label_expr} "
         f"SET n += record.properties "
         f"SET n.id = record.id"
@@ -223,6 +230,10 @@ def upsert_survivor_query(label: str) -> str:
     values, which only a Python-side read can gather, so making that
     atomic too is out of scope here.
 
+    Like ``upsert_node_query``, the Cutover Job tag is applied only when
+    the ``MERGE`` creates the node, so a survivor a job merely accumulates
+    into stays visible and out of reach of that job's rollback.
+
     Args:
         label: The node label. Must already be validated.
 
@@ -230,13 +241,15 @@ def upsert_survivor_query(label: str) -> str:
         A parameterized Cypher query expecting a ``$records`` list
         parameter whose items carry ``id``, ``properties`` (every survivor
         field except ``source_chunk_ids``, ``merged_from``, and
-        ``merge_count``), ``new_source_chunk_ids``, ``new_merged_from``, and
+        ``merge_count``), ``pending_job_id`` (the Cutover Job tag, or
+        None), ``new_source_chunk_ids``, ``new_merged_from``, and
         ``merge_count_delta``.
     """
     safe_label = validate_identifier(label)
     return (
         f"UNWIND $records AS record "
         f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"ON CREATE SET n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id "
         f"SET n:{safe_label} "
         f"WITH n, record, "
         f"coalesce(n.source_chunk_ids, []) AS existing_source_chunk_ids, "

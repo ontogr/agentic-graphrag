@@ -389,15 +389,22 @@ def upsert_relation_query(rel_type: str) -> str:
     value here, inside the same MERGE, keeps the union correct regardless of
     which caller's read was stale.
 
+    The Cutover Job tag is applied only when the ``MERGE`` creates the
+    relationship, so the tag means "this job created this edge". A job
+    that only writes over an existing edge leaves it untagged: it stays
+    visible to retrieval, and the job's rollback — which deletes tagged
+    rows — cannot reach it.
+
     Args:
         rel_type: The relationship type. Must already be validated.
 
     Returns:
         A parameterized Cypher query expecting a ``$records`` list parameter whose
-        items carry ``id``, ``start_id``, ``end_id``, and ``properties`` keys.
-        ``properties`` may include ``source_chunk_ids``; other keys are
-        applied as-is. The query returns one row with ``id`` for every record
-        whose endpoints matched and was processed.
+        items carry ``id``, ``start_id``, ``end_id``, ``properties``, and
+        ``pending_job_id`` keys. ``properties`` may include
+        ``source_chunk_ids``; other keys are applied as-is. The query returns
+        one row with ``id`` for every record whose endpoints matched and was
+        processed.
     """
     safe_type = validate_identifier(rel_type)
     return (
@@ -408,6 +415,7 @@ def upsert_relation_query(rel_type: str) -> str:
         f"WHERE x.id <> record.start_id OR y.id <> record.end_id "
         f"FOREACH (_ IN CASE WHEN stale IS NULL THEN [] ELSE [1] END | DELETE stale) "
         f"MERGE (a)-[r:{safe_type} {{id: record.id}}]->(b) "
+        f"ON CREATE SET r._pending_job_id = record.pending_job_id "
         f"WITH r, record, "
         f"coalesce(r.source_chunk_ids, []) AS existing_source_chunk_ids "
         f"SET r += record.properties "
