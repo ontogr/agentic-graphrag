@@ -23,7 +23,7 @@ from agrag.vectordb.milvus import (
 from agrag.vectordb.settings import MilvusSettings
 
 
-_ALL_ADAPTER_FIELDS = ["id", "vector", "text", "sparse", "payload"]
+_ALL_ADAPTER_FIELDS = ["id", "vector", "text", "sparse", "payload", "pending"]
 
 
 def _describe_collection(dim: int = 4, *, fields: list[str] | None = None) -> dict:
@@ -32,7 +32,7 @@ def _describe_collection(dim: int = 4, *, fields: list[str] | None = None) -> di
     Args:
         dim: The dense vector field's dimension.
         fields: The field names the collection carries. Defaults to this
-            adapter's full required set (id, vector, text, sparse, payload),
+        adapter's full required set, including the pending marker,
             representing a collection this adapter can actually serve.
     """
     field_names = _ALL_ADAPTER_FIELDS if fields is None else fields
@@ -496,11 +496,9 @@ class TestFilterEscaping:
         """No pending flag requested still excludes an in-flight job's vectors."""
         store = MilvusVectorStore(settings=MilvusSettings())
 
-        assert store._compile_filter(None) == 'not (payload["_pending"] == true)'
-        assert store._compile_filter({}) == 'not (payload["_pending"] == true)'
-        assert store._compile_filter({"_pending": False}) == (
-            'not (payload["_pending"] == true)'
-        )
+        assert store._compile_filter(None) == "not (pending == true)"
+        assert store._compile_filter({}) == "not (pending == true)"
+        assert store._compile_filter({"_pending": False}) == "not (pending == true)"
 
     def test_compile_selects_only_pending_when_asked(self) -> None:
         """An explicit pending request spends the filter on in-flight records."""
@@ -508,7 +506,7 @@ class TestFilterEscaping:
 
         expr = store._compile_filter({"_pending": True, "_pending_job_id": "j"})
 
-        assert 'payload["_pending"] == true' in expr
+        assert "pending == true" in expr
         assert 'payload["_pending_job_id"] == "j"' in expr
         assert "not (" not in expr
 

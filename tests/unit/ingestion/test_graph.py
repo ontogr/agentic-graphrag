@@ -908,6 +908,10 @@ class TestGraphVectorStore:
         chunk = MagicMock(id=chunk_id, text="Chunk", embedding=None)
         entity = Entity(id=uuid4(), label="Person", name="Ada", properties={})
         graph_store = AsyncMock()
+        graph_store.execute_write.side_effect = [
+            [{"id": str(chunk_id)}],
+            [{"id": str(entity.id)}],
+        ]
         chunk_store = AsyncMock()
         entity_store = AsyncMock()
         chunk_store.upsert.side_effect = RuntimeError("chunk upsert failed")

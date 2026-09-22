@@ -588,10 +588,11 @@ class TestSetupIdempotent:
         assert any("merge_key_unique" in c.args[1] for c in constraint_calls)
         assert any("agragmergealias" in c.args[1].lower() for c in constraint_calls)
         assert any("cutoverjob_document_key" in c.args[1] for c in constraint_calls)
-        # Two range indexes per label: plain id index + merge_key index.
-        assert len(index_calls) == 4
+        # Two range indexes per label plus the CutoverJob status index.
+        assert len(index_calls) == 5
         assert any("_id_index" in c.args[1] for c in index_calls)
         assert any("_merge_key_index" in c.args[1] for c in index_calls)
+        assert any("cutover_job_status_index" in c.args[1] for c in index_calls)
 
     async def test_constraints_run_per_relation_type(self) -> None:
         """setup_constraints also emits one DDL per tracked relation type."""
@@ -704,8 +705,10 @@ class TestVectorSearch:
         assert hits[0].score == pytest.approx(0.91)
         assert hits[0].payload == {"text": "sepsis"}
 
-    async def test_unfiltered_search_issues_one_call(self) -> None:
-        """Without filters, a single call is made even if results are sparse."""
+    async def test_unfiltered_search_overfetches_to_exclude_pending_records(
+        self,
+    ) -> None:
+        """The pending-record filter overfetches until it can return visible hits."""
         store = _store()
         store._driver.last_session.execute_read.return_value = []
         await store.vector_search(
@@ -714,7 +717,7 @@ class TestVectorSearch:
             query_vector=[0.1, 0.2, 0.3, 0.4],
             limit=5,
         )
-        assert store._driver.last_session.execute_read.await_count == 1
+        assert store._driver.last_session.execute_read.await_count == 5
 
     @pytest.mark.parametrize("limit", [0, -1])
     async def test_rejects_non_positive_limit(self, limit: int) -> None:
