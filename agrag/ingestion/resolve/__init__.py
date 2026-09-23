@@ -2,7 +2,6 @@
 
 from agrag.ingestion.resolve.candidate_source import (
     GraphCandidateSource,
-    InBatchCandidateSource,
     PersistedCandidateSource,
     build_relation_neighbors,
     exact_match_lookup,
@@ -34,7 +33,6 @@ __all__ = [
     "ExactMatch",
     "FuzzyMatch",
     "GraphCandidateSource",
-    "InBatchCandidateSource",
     "PersistedCandidateSource",
     "build_relation_neighbors",
     "fetch_persisted_neighbors",

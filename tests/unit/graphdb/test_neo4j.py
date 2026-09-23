@@ -166,7 +166,13 @@ class TestUpsertNodes:
         assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in query
         assert "SET n:Chunk" in query
         assert params == {
-            "records": [{"id": str(node.id), "properties": {"text": "a"}}]
+            "records": [
+                {
+                    "id": str(node.id),
+                    "properties": {"text": "a"},
+                    "pending_job_id": None,
+                }
+            ]
         }
 
     async def test_isolates_record_specific_batch_failures(self) -> None:
@@ -260,7 +266,7 @@ class TestUpsertNodes:
             if "SET n:Chunk " in c.args[1] and "SET n:Chunk:" not in c.args[1]
         )
         assert single_call.args[2]["records"] == [
-            {"id": str(single.id), "properties": {"n": 1}}
+            {"id": str(single.id), "properties": {"n": 1}, "pending_job_id": None}
         ]
 
     async def test_rejects_non_positive_batch_size(self) -> None:
@@ -575,16 +581,17 @@ class TestSetupIdempotent:
             c for c in writes if "INDEX" in c.args[1] and "VECTOR" not in c.args[1]
         ]
         # Chunk + Doc, each with an id and a merge_key uniqueness constraint,
-        # plus the identity-anchor and merge-key-alias constraints every
-        # store sets up once.
-        assert len(constraint_calls) == 6
+        # plus the identity-anchor, merge-key-alias, and CutoverJob
+        # document_key constraints every store sets up once.
+        assert len(constraint_calls) == 7
         assert any(NODE_IDENTITY_LABEL in c.args[1] for c in constraint_calls)
         assert any("merge_key_unique" in c.args[1] for c in constraint_calls)
         assert any("agragmergealias" in c.args[1].lower() for c in constraint_calls)
-        # Two range indexes per label: plain id index + merge_key index.
-        assert len(index_calls) == 4
-        assert any("_id_index" in c.args[1] for c in index_calls)
-        assert any("_merge_key_index" in c.args[1] for c in index_calls)
+        assert any("cutoverjob_document_key" in c.args[1] for c in constraint_calls)
+        # Only the CutoverJob status index remains: uniqueness constraints
+        # create the backing indexes for each label's id and merge_key.
+        assert len(index_calls) == 1
+        assert any("cutover_job_status_index" in c.args[1] for c in index_calls)
 
     async def test_constraints_run_per_relation_type(self) -> None:
         """setup_constraints also emits one DDL per tracked relation type."""
@@ -697,8 +704,10 @@ class TestVectorSearch:
         assert hits[0].score == pytest.approx(0.91)
         assert hits[0].payload == {"text": "sepsis"}
 
-    async def test_unfiltered_search_issues_one_call(self) -> None:
-        """Without filters, a single call is made even if results are sparse."""
+    async def test_unfiltered_search_overfetches_to_exclude_pending_records(
+        self,
+    ) -> None:
+        """The pending-record filter overfetches until it can return visible hits."""
         store = _store()
         store._driver.last_session.execute_read.return_value = []
         await store.vector_search(
@@ -707,7 +716,7 @@ class TestVectorSearch:
             query_vector=[0.1, 0.2, 0.3, 0.4],
             limit=5,
         )
-        assert store._driver.last_session.execute_read.await_count == 1
+        assert store._driver.last_session.execute_read.await_count == 5
 
     @pytest.mark.parametrize("limit", [0, -1])
     async def test_rejects_non_positive_limit(self, limit: int) -> None:
@@ -872,7 +881,13 @@ class TestTransaction:
         query, params = tx.run.call_args.args
         assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in query
         assert params == {
-            "records": [{"id": str(node.id), "properties": {"name": "Ada"}}]
+            "records": [
+                {
+                    "id": str(node.id),
+                    "properties": {"name": "Ada"},
+                    "pending_job_id": None,
+                }
+            ]
         }
 
     async def test_ensures_identity_constraint_before_opening(self) -> None:

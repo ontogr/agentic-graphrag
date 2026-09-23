@@ -249,7 +249,11 @@ async def list_relationship_types(
         direction=direction,
     )
     rows = await graph_store.execute_read(
-        query, {"seed_ids": [str(seed_id) for seed_id in seed_ids]}
+        query,
+        {
+            "seed_ids": [str(seed_id) for seed_id in seed_ids],
+            "job_id": None,
+        },
     )
     types: list[str] = []
     for row in rows:

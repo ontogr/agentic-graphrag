@@ -93,7 +93,7 @@ class TestResolutionSupport:
         """Resolution query builders produce the required relationship operations."""
         queries = [upsert_matches_query(), deactivate_match_query()]
         assert all("MATCH" in query for query in queries)
-        assert "OPTIONAL MATCH" in upsert_matches_query()
+        assert "ON CREATE SET" in upsert_matches_query()
 
     def test_serializes_resolved_entity(self) -> None:
         """Resolved entities retain member ids in graph records."""

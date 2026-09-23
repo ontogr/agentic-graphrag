@@ -3,12 +3,36 @@
 These are a temporary, minimal stopgap, not the canonical Entity/Relation
 domain model resolution will eventually produce. See the future
 storage/merge-mechanics work this decouples from.
+
+Pending-visibility convention: a node or edge *created* by an in-flight
+Cutover Job carries ``_pending_job_id`` (the job's id) in its properties;
+committed data never carries this key. Retrieval query builders exclude
+such rows with ``pending_filter_clause``. Vector-store payloads mirror the
+tag as an explicit boolean ``_pending`` field, cleared at commit, because
+payload filters match on present values rather than key absence.
+
+The tag is written with ``ON CREATE SET``, so a job that writes over a
+row that already exists leaves it untagged. Such a row was already
+visible before the job started and stays visible; the job's rollback,
+which deletes tagged rows, therefore cannot delete data a caller
+committed earlier.
 """
 
-from typing import Any
+from typing import Any, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+PENDING_JOB_ID_PROPERTY = "_pending_job_id"
+"""Graph property marking a node or edge as created by an in-flight job.
+
+Carried on every node or edge a Cutover Job creates; committed data and
+rows a job only writes over never carry it. Retrieval query builders
+exclude rows carrying it, the commit step removes it atomically, and
+rollback deletes every row carrying it. Vector-store payloads mirror it
+under the same key for commit-time clearing.
+"""
 
 
 class NodeRecord(BaseModel):
@@ -29,6 +53,14 @@ class NodeRecord(BaseModel):
     labels: list[str] = Field(min_length=1)
     properties: dict[str, Any]
 
+    @field_validator("properties")
+    @classmethod
+    def reject_pending_tag(cls, properties: dict[str, Any]) -> dict[str, Any]:
+        """Reject the job-owned tag in external graph records."""
+        if PENDING_JOB_ID_PROPERTY in properties:
+            raise ValueError(f"{PENDING_JOB_ID_PROPERTY} is reserved")
+        return properties
+
 
 class RelationRecord(BaseModel):
     """One graph relationship, ready to write.
@@ -46,6 +78,14 @@ class RelationRecord(BaseModel):
     start_id: UUID
     end_id: UUID
     properties: dict[str, Any]
+
+    @field_validator("properties")
+    @classmethod
+    def reject_pending_tag(cls, properties: dict[str, Any]) -> dict[str, Any]:
+        """Reject the job-owned tag in external graph records."""
+        if PENDING_JOB_ID_PROPERTY in properties:
+            raise ValueError(f"{PENDING_JOB_ID_PROPERTY} is reserved")
+        return properties
 
 
 class UpsertFailure(BaseModel):
@@ -75,3 +115,34 @@ class UpsertResult(BaseModel):
 
     written: int = 0
     failures: list[UpsertFailure] = Field(default_factory=list)
+
+
+_RecordT = TypeVar("_RecordT", NodeRecord, RelationRecord)
+
+
+def tag_pending(record: _RecordT, job_id: UUID | str | None) -> _RecordT:
+    """Stamp a write record with the Cutover Job that is writing it.
+
+    The tag reaches the graph only when the write creates its row; the
+    upsert queries apply it with ``ON CREATE SET``.
+
+    No-op outside a job, so pipeline stages thread their optional job id
+    through this unconditionally instead of branching at every write.
+
+    Args:
+        record: The node or relationship record about to be written.
+        job_id: The in-flight job's id, or None outside a job.
+
+    Returns:
+        A tagged copy when a job id was given; otherwise the original record.
+    """
+    if job_id is not None:
+        return record.model_copy(
+            update={
+                "properties": {
+                    **record.properties,
+                    PENDING_JOB_ID_PROPERTY: str(job_id),
+                }
+            }
+        )
+    return record

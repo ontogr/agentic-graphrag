@@ -24,10 +24,11 @@ from agrag.cypher.entities import (
 )
 from agrag.cypher.relations import upsert_relation_query
 from agrag.cypher.schema import (
+    cutover_job_document_key_constraint_query,
+    cutover_job_status_index_query,
     merge_alias_constraint_query,
     merge_key_constraint_query,
     node_id_constraint_query,
-    plain_index_query,
     relation_id_constraint_query,
     vector_index_name,
     vector_index_query,
@@ -179,6 +180,10 @@ class Neo4jGraphStore(GraphStore):
         self._identity_constraint_lock = asyncio.Lock()
         self._merge_alias_constraint_ready = False
         self._merge_alias_constraint_lock = asyncio.Lock()
+        self._cutover_job_constraint_ready = False
+        self._cutover_job_constraint_lock = asyncio.Lock()
+        self._cutover_job_status_index_ready = False
+        self._cutover_job_status_index_lock = asyncio.Lock()
         self._relation_type_constraints_ready: set[str] = set()
         self._relation_constraint_lock = asyncio.Lock()
 
@@ -310,6 +315,8 @@ class Neo4jGraphStore(GraphStore):
 
         await self._ensure_identity_constraint()
         await self._ensure_merge_alias_constraint()
+        await self._ensure_cutover_job_constraint()
+        await self._ensure_cutover_job_status_index()
         async with self.session() as session:
             tx = await session.begin_transaction()
             try:
@@ -324,12 +331,14 @@ class Neo4jGraphStore(GraphStore):
                 raise
 
     async def setup_constraints(self) -> None:
-        """Create a uniqueness constraint on ``id`` for every known label.
+        """Create ``id`` and ``merge_key`` uniqueness constraints per label.
 
         "Known" means written by this instance or already present in the
         database, so a fresh store can set up constraints for an existing
-        database without first rewriting every record. Also creates the
-        global uniqueness constraint on ``NODE_IDENTITY_LABEL`` that
+        database without first rewriting every record. The ``id`` constraint
+        backs node identity; ``merge_key`` prevents concurrent ingestion from
+        creating duplicate canonical entities. Also creates the global
+        uniqueness constraint on ``NODE_IDENTITY_LABEL`` that
         ``upsert_node_query``'s ``MERGE`` relies on to resolve a node by id
         regardless of its other, mutable labels, and a per-type uniqueness
         constraint on ``id`` for every known relationship type, which backs
@@ -338,6 +347,8 @@ class Neo4jGraphStore(GraphStore):
         """
         await self._ensure_identity_constraint()
         await self._ensure_merge_alias_constraint()
+        await self._ensure_cutover_job_constraint()
+        await self._ensure_cutover_job_status_index()
         for label in await self._all_labels():
             await self.execute_write(node_id_constraint_query(label))
             # Merge-key uniqueness backs concurrent add() safety: two writers for
@@ -380,6 +391,32 @@ class Neo4jGraphStore(GraphStore):
                 return
             await self.execute_write(merge_alias_constraint_query())
             self._merge_alias_constraint_ready = True
+
+    async def _ensure_cutover_job_constraint(self) -> None:
+        """Create the CutoverJob document_key uniqueness constraint once.
+
+        Backs ``acquire_lease_query``'s ``MERGE`` the same way
+        ``_ensure_identity_constraint`` backs node upserts: without it, two
+        concurrent first-time acquirers for the same document_key could each
+        find no match and create separate job nodes.
+        """
+        if self._cutover_job_constraint_ready:
+            return
+        async with self._cutover_job_constraint_lock:
+            if self._cutover_job_constraint_ready:
+                return
+            await self.execute_write(cutover_job_document_key_constraint_query())
+            self._cutover_job_constraint_ready = True
+
+    async def _ensure_cutover_job_status_index(self) -> None:
+        """Create the CutoverJob status index once for recovery scans."""
+        if self._cutover_job_status_index_ready:
+            return
+        async with self._cutover_job_status_index_lock:
+            if self._cutover_job_status_index_ready:
+                return
+            await self.execute_write(cutover_job_status_index_query())
+            self._cutover_job_status_index_ready = True
 
     async def _ensure_relation_constraint(self, rel_type: str) -> None:
         """Create a relationship type's ``id`` uniqueness constraint once.
@@ -449,22 +486,13 @@ class Neo4jGraphStore(GraphStore):
         self._known_relation_types.update(types)
 
     async def setup_indexes(self) -> None:
-        """Create a range index on ``id`` for every known label.
+        """Set up indexes now provided by the store's uniqueness constraints.
 
-        "Known" means written by this instance or already present in the
-        database, so a fresh store can set up indexes for an existing
-        database without first rewriting every record.
+        Kept as a no-op for callers that provision constraints and indexes in
+        separate steps. Neo4j creates backing indexes for the ``id`` and
+        ``merge_key`` uniqueness constraints, so creating range indexes for
+        the same properties would conflict with those constraints.
         """
-        for label in await self._all_labels():
-            await self.execute_write(plain_index_query(label))
-            try:
-                from agrag.cypher import entities as _cypher_entities  # noqa: PLC0415
-
-                merge_key_fn = getattr(_cypher_entities, "merge_key_index_query", None)
-                if merge_key_fn is not None:
-                    await self.execute_write(merge_key_fn(label))
-            except ImportError:
-                pass
 
     async def _all_labels(self) -> set[str]:
         """Return every node label this instance knows about.
@@ -635,11 +663,11 @@ class Neo4jGraphStore(GraphStore):
         so an absent index returns an empty result list rather than a
         driver error.
 
-        When ``filters`` is set, Neo4j's vector procedure applies the filter
-        only after selecting its top ``k`` candidates, so a plain ``k=limit``
-        call can return fewer matches than actually exist. This escalates
-        ``k`` and retries until ``limit`` filtered hits come back or the
-        escalation reaches ``_VECTOR_SEARCH_MAX_K``.
+        Neo4j's vector procedure applies pending and caller filters only after
+        selecting its top ``k`` candidates, so a plain ``k=limit`` call can
+        return fewer matches than actually exist. This escalates ``k`` and
+        retries until ``limit`` visible hits come back or the escalation
+        reaches ``_VECTOR_SEARCH_MAX_K``.
 
         Raises:
             ValueError: ``limit`` is not positive. A non-positive value is
@@ -672,7 +700,7 @@ class Neo4jGraphStore(GraphStore):
                 if "no such vector schema index" not in str(exc):
                     raise
                 return []
-            if not filters or len(rows) >= limit or k >= _VECTOR_SEARCH_MAX_K:
+            if len(rows) >= limit or k >= _VECTOR_SEARCH_MAX_K:
                 break
             k = min(k * _VECTOR_SEARCH_OVERFETCH_MULTIPLIER, _VECTOR_SEARCH_MAX_K)
         hits: list[VectorHit] = []

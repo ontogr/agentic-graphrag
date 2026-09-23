@@ -67,7 +67,7 @@ async def hydrate_resolved_entities(
         return {}
     rows = await graph_store.execute_read(
         hydrate_resolved_entities_by_id_query(),
-        {"ids": [str(item_id) for item_id in ids]},
+        {"ids": [str(item_id) for item_id in ids], "job_id": None},
     )
     entities: dict[UUID, ResolvedEntity] = {}
     for row in rows:

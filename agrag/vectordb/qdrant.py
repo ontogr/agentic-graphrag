@@ -5,7 +5,12 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
-from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
+from agrag.common.data_models.vector_record import (
+    PENDING_VECTOR_FLAG,
+    Distance,
+    VectorHit,
+    VectorRecord,
+)
 from agrag.common.validation import (
     require_positive_batch_size,
     require_valid_alpha,
@@ -162,28 +167,45 @@ class QdrantVectorStore(VectorStore):
     def _compile_filter(self, filters: dict[str, Any] | None) -> Any:
         """Build a Qdrant filter from a flat-dict payload filter.
 
+        A pending record (one whose ``_pending`` payload boolean is true)
+        is excluded unless the filter asks for pending records only. The
+        exclusion is a ``must_not`` on the flag, so records written before
+        the flag existed still match.
+
         Args:
             filters: A flat-dict filter: a scalar value means exact match, a
                 list value means any of, and all keys are AND-ed together.
-                ``None`` means no filter.
+                ``None`` means no filter. ``_pending=True`` selects only
+                in-flight records; leaving the key out, or setting it
+                ``False``, excludes them.
 
         Returns:
-            A Qdrant ``Filter``, or ``None`` when ``filters`` is empty.
+            A Qdrant ``Filter``, or ``None`` when nothing would be filtered.
         """
-        if not filters:
-            return None
-        conditions = []
-        for key, value in filters.items():
+        pending_condition = self._models.FieldCondition(
+            key=PENDING_VECTOR_FLAG, match=self._models.MatchValue(value=True)
+        )
+        pending_only = bool((filters or {}).get(PENDING_VECTOR_FLAG) is True)
+        must = [] if not pending_only else [pending_condition]
+        must_not = [] if pending_only else [pending_condition]
+        for key, value in (filters or {}).items():
+            if key == PENDING_VECTOR_FLAG:
+                continue
             if isinstance(value, list):
-                condition = self._models.FieldCondition(
-                    key=key, match=self._models.MatchAny(any=value)
+                must.append(
+                    self._models.FieldCondition(
+                        key=key, match=self._models.MatchAny(any=value)
+                    )
                 )
             else:
-                condition = self._models.FieldCondition(
-                    key=key, match=self._models.MatchValue(value=value)
+                must.append(
+                    self._models.FieldCondition(
+                        key=key, match=self._models.MatchValue(value=value)
+                    )
                 )
-            conditions.append(condition)
-        return self._models.Filter(must=conditions)
+        if not must and not must_not:
+            return None
+        return self._models.Filter(must=must or None, must_not=must_not or None)
 
     @staticmethod
     def _dimension_of(vectors: Any) -> int | None:

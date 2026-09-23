@@ -20,8 +20,10 @@ class Chunk(DataPoint):
     """One retrieval-sized piece of a Document.
 
     Attributes:
-        document_id: The id of the parent Document. Use this id to look up fields
-            such as ``record_index`` on the parent Document.
+        document_id: The id of the persisted Document graph node this chunk
+            belongs to (see ``Document.node_id_for``). Stable across content
+            versions of the same logical document; per-version identity lives
+            in ``Chunk.id`` instead.
         index: The position of the chunk within its document, from 0.
         text: The chunk text.
         provenance: The location of this chunk in its source. The shape of this

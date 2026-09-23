@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Sequence
 
-from agrag.common.data_models.vector_record import VectorHit
+from agrag.common.data_models.vector_record import PENDING_VECTOR_FLAG, VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.retrieval.filters import SearchFilters
@@ -32,6 +32,11 @@ async def vector_search(
     since that path is dense-only. One native vector index exists per
     label, so a search over several labels is several searches.
 
+    Both paths exclude records an in-flight Cutover Job wrote: the
+    VectorStore path with a committed-only payload filter, the native
+    path inside the vector query itself. A caller can therefore never
+    receive an uncommitted job's node or vector.
+
     Args:
         query: The natural-language query text to embed.
         embedder: Produces the query's dense vector.
@@ -58,13 +63,14 @@ async def vector_search(
     query_vector = await embedder.embed_one(query)
 
     if vector_store is not None:
-        payload_filters = filters.to_payload_filter() if filters else None
+        payload_filters = dict(filters.to_payload_filter()) if filters else {}
+        payload_filters[PENDING_VECTOR_FLAG] = False
         return await vector_store.hybrid_search(
             collection,
             query_vector,
             query,
             limit=limit,
-            filters=payload_filters or None,
+            filters=payload_filters,
             alpha=settings.hybrid_alpha,
         )
 

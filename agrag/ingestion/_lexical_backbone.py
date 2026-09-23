@@ -6,7 +6,7 @@ functions to turn already-built ``Document``/``Chunk`` objects into
 """
 
 from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
@@ -40,14 +40,21 @@ def build_document_record(document: Document) -> NodeRecord:
 
 
 def build_part_of_records(
-    document_node_id: UUID, chunks: list[Chunk]
+    document_node_id: UUID, chunks: list[Chunk], *, version_id: str
 ) -> list[RelationRecord]:
     """Return one open Document -[:PART_OF]-> Chunk record per chunk.
+
+    Edge identity is keyed on the document version: rebuilding the same
+    version returns the same records, so repeat ingestion converges
+    instead of writing parallel edges, while a new version gets new
+    edges and preserves the closed interval's history.
 
     Args:
         document_node_id: The id of the persisted Document node these chunks
             belong to.
         chunks: The chunks to link. Every chunk must have a resolved id.
+        version_id: The identifier for this document version. Callers pass
+            the content-derived version so identical re-ingests converge.
 
     Returns:
         One RelationRecord per chunk, with ``valid_at`` set and
@@ -57,7 +64,6 @@ def build_part_of_records(
         ValueError: A chunk's id is None.
     """
     now = datetime.now(UTC).isoformat()
-    version_id = str(uuid4())
     records: list[RelationRecord] = []
     for chunk in chunks:
         if chunk.id is None:
@@ -79,7 +85,11 @@ def build_part_of_records(
 
 
 def build_next_chunk_records(chunks: list[Chunk]) -> list[RelationRecord]:
-    """Return untemporal edges joining adjacent chunks within each document."""
+    """Return edges joining adjacent chunks within each document.
+
+    Records carry no temporal fields: sequencing is version-independent,
+    unlike ``PART_OF`` currency.
+    """
     by_document: dict[UUID, list[Chunk]] = {}
     for chunk in chunks:
         by_document.setdefault(chunk.document_id, []).append(chunk)

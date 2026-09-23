@@ -179,7 +179,10 @@ class TestCommunityContext:
         )
 
         query, _params = mock_store.execute_read.call_args.args
-        assert "WHERE" not in query
+        assert "Person" not in query
+        # The only WHERE is the pending-visibility guard the builder adds.
+        assert query.count("WHERE") == 1
+        assert "r._pending_job_id IS NULL" in query
 
 
 class TestExpandWithCommunities:
