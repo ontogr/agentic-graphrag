@@ -82,6 +82,40 @@ def _chunk(text: str = "context") -> Chunk:
     )
 
 
+@pytest.fixture
+def _mock_match_client_cls() -> type:
+    """Fixture providing a BAML client that always returns a match verdict."""
+
+    class MockClient:
+        async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+            return [
+                {
+                    "pair_id": pairs[0]["pair_id"],
+                    "verdict": "match",
+                    "reasoning": "fallback",
+                }
+            ]
+
+    return MockClient
+
+
+@pytest.fixture
+def _fake_settings_no_config_cls() -> type:
+    """Fixture providing an ExtractionLLMSettings that always fails to construct."""
+    return type(
+        "FakeSettings",
+        (),
+        {
+            "__init__": lambda self, **_: (_ for _ in ()).throw(
+                ValueError("no config")
+            ),
+            "from_openai_compatible_env": classmethod(
+                lambda cls: (_ for _ in ()).throw(RuntimeError("no global"))
+            ),
+        },
+    )
+
+
 # ── ExactMatch ─────────────────────────────────────────────────────────
 
 
@@ -328,6 +362,58 @@ class TestLLMVerify:
         verdict = await verifier.compare(a, b)
 
         assert verdict is ComparisonVerdict.MATCH
+
+    async def test_falls_back_to_global_llm_when_extraction_config_missing(
+        self, monkeypatch, _mock_match_client_cls
+    ) -> None:
+        """No EXTRACTION_LLM_* falls back to LLM_* via from_openai_compatible_env."""
+        monkeypatch.delenv("EXTRACTION_LLM_CLIENTS", raising=False)
+        monkeypatch.delenv("EXTRACTION_LLM_BASE_URL", raising=False)
+        monkeypatch.setenv("LLM_BASE_URL", "https://example.com/v1")
+        monkeypatch.setenv("LLM_API_KEY", "test-key")
+        monkeypatch.setenv("LLM_MODEL_ID", "test-model")
+        # Ensure the fallback reads the monkeypatched env, not a stale .env
+        monkeypatch.setattr(
+            "agrag.llm.client_registry.build_client_registry",
+            lambda clients, *, strategy: object(),
+        )
+
+        chunk = _chunk("context text")
+        chunk_id = uuid4()
+        verifier = LLMVerify(chunks_by_id={chunk_id: chunk}, settings=None)
+        monkeypatch.setattr(verifier, "_default_client", _mock_match_client_cls)
+        a = _entity("Ada", chunk_id=chunk_id)
+        b = _entity("Charles", chunk_id=chunk_id)
+
+        verdict = await verifier.compare(a, b)
+
+        assert verdict is ComparisonVerdict.MATCH
+
+    async def test_returns_no_match_when_no_llm_config(
+        self, monkeypatch, _fake_settings_no_config_cls
+    ) -> None:
+        """No EXTRACTION_LLM_* and no LLM_* returns NO_MATCH without calling LLM."""
+        monkeypatch.delenv("EXTRACTION_LLM_CLIENTS", raising=False)
+        monkeypatch.delenv("LLM_BASE_URL", raising=False)
+        monkeypatch.delenv("LLM_MODEL_ID", raising=False)
+        monkeypatch.setenv("LLM_BASE_URL", "")
+        monkeypatch.setenv("LLM_MODEL_ID", "")
+
+        # Force both settings constructors to fail even if .env exists
+        monkeypatch.setattr(
+            "agrag.ingestion.resolve.resolver.ExtractionLLMSettings",
+            _fake_settings_no_config_cls,
+        )
+
+        chunk = _chunk("context text")
+        chunk_id = uuid4()
+        verifier = LLMVerify(chunks_by_id={chunk_id: chunk}, settings=None)
+        a = _entity("Ada", chunk_id=chunk_id)
+        b = _entity("Charles", chunk_id=chunk_id)
+
+        verdict = await verifier.compare(a, b)
+
+        assert verdict is ComparisonVerdict.NO_MATCH
 
 
 # ── GraphCandidateSource in-batch blocking ─────────────────────────────

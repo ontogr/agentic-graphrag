@@ -280,21 +280,37 @@ class LLMVerify(Comparator):
         neighbors_by_index: dict[int, list[str]] | None = None,
     ) -> tuple[dict[tuple[int, int], ComparisonResult], int]:
         """Verify one bounded chunk of ambiguous candidate pairs in one LLM request."""
-        if self._client is not None:
-            client = self._client
-            baml_options: dict = {}
-            retry = NO_RETRY
-        else:
-            from agrag.llm import client_registry  # noqa: PLC0415
-
-            client = self._default_client()
-            settings = self.settings or ExtractionLLMSettings()
-            registry = client_registry.build_client_registry(
-                settings.clients, strategy=settings.strategy
-            )
-            baml_options = {"client_registry": registry}
-            retry = settings.retry
         try:
+            if self._client is not None:
+                client = self._client
+                baml_options: dict = {}
+                retry = NO_RETRY
+            else:
+                from agrag.llm import client_registry  # noqa: PLC0415
+
+                client = self._default_client()
+                if self.settings is not None:
+                    settings = self.settings
+                else:
+                    try:
+                        settings = ExtractionLLMSettings()
+                    except Exception:
+                        try:
+                            settings = (
+                                ExtractionLLMSettings.from_openai_compatible_env()
+                            )
+                        except Exception:
+                            return {
+                                (left, right): ComparisonResult(
+                                    verdict=ComparisonVerdict.NO_MATCH
+                                )
+                                for left, right, _, _ in pairs
+                            }, 0
+                registry = client_registry.build_client_registry(
+                    settings.clients, strategy=settings.strategy
+                )
+                baml_options = {"client_registry": registry}
+                retry = settings.retry
             pair_ids = [f"{left}:{right}" for left, right, _, _ in pairs]
             known = similarities or {}
             inputs = [
@@ -318,6 +334,8 @@ class LLMVerify(Comparator):
                 ),
                 retry,
             )
+        except ExtractorMissingExtraError:
+            raise
         except Exception:  # noqa: BLE001
             return {
                 (left, right): ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)
