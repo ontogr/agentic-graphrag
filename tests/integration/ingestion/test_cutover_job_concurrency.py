@@ -172,3 +172,29 @@ class TestClearPendingTagAndRollbackAgainstRealNeo4j:
                 {"job_id": job_id},
             )
             await store.close()
+
+    async def test_rollback_with_no_pending_data_still_deletes_the_job_node(
+        self,
+    ) -> None:
+        """Rollback releases a lease when a write fails before tagging data."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        job_id = str(uuid4())
+        try:
+            await store.execute_write(
+                f"CREATE (job:{CUTOVER_JOB_LABEL} {{id: $job_id, document_key: $key}})",
+                {"job_id": job_id, "key": f"rollback-empty-test-{job_id}"},
+            )
+            rows = await store.execute_write(rollback_job_query(), {"job_id": job_id})
+            assert rows == [{"deleted_nodes": 0, "deleted_relationships": 0}]
+            job_left = await store.execute_read(
+                f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) RETURN job",
+                {"job_id": job_id},
+            )
+            assert job_left == []
+        finally:
+            await store.execute_write(
+                f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) DETACH DELETE job",
+                {"job_id": job_id},
+            )
+            await store.close()

@@ -127,6 +127,7 @@ class TestRollbackJobQuery:
         """Rollback removes tagged nodes and edges before the job node."""
         query = rollback_job_query()
         assert "n._pending_job_id = $job_id" in query
+        assert "OPTIONAL MATCH (n) WHERE n._pending_job_id = $job_id" in query
         assert "DETACH DELETE n" in query
         assert "r._pending_job_id = $job_id" in query
         assert query.count("OPTIONAL MATCH ()-[r]->()") == 2

@@ -207,7 +207,7 @@ def rollback_job_query() -> str:
         "SET r.active = coalesce(r._pending_previous_active, r.active) "
         "REMOVE r._pending_job_id, r._pending_created, r._pending_previous_active "
         "WITH deleted_relationships "
-        "MATCH (n) WHERE n._pending_job_id = $job_id "
+        "OPTIONAL MATCH (n) WHERE n._pending_job_id = $job_id "
         "DETACH DELETE n "
         "WITH count(n) AS deleted_nodes, deleted_relationships "
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
