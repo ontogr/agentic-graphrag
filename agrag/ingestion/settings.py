@@ -1,5 +1,6 @@
 """Configuration for the Cutover Job crash-recovery machine."""
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,4 +18,4 @@ class CutoverJobSettings(BaseSettings):
         env_prefix="CUTOVER_JOB_", env_file=".env", extra="ignore"
     )
 
-    lease_ttl_seconds: int = 60
+    lease_ttl_seconds: int = Field(default=60, gt=0)

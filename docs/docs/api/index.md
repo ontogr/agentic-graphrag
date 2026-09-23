@@ -12547,7 +12547,7 @@ Env prefix: `CUTOVER_JOB_`.
 ###### `agrag.ingestion.settings.CutoverJobSettings.lease_ttl_seconds`
 
 ```python
-lease_ttl_seconds: int = 60
+lease_ttl_seconds: int = Field(default=60, gt=0)
 ```
 
 ###### `agrag.ingestion.settings.CutoverJobSettings.model_config`
