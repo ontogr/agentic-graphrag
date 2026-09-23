@@ -106,6 +106,58 @@ class TestEnsureCollection:
         client.create_collection.assert_not_called()
         client.load_collection.assert_not_called()
 
+    async def test_concurrent_stores_create_collection_once(self, client) -> None:
+        """Store instances share provisioning state for the same collection."""
+        first_create_started = asyncio.Event()
+        allow_first_create = asyncio.Event()
+        collection_exists = False
+
+        async def has_collection(name: str) -> bool:
+            return collection_exists
+
+        async def create_collection(**kwargs) -> None:
+            nonlocal collection_exists
+            first_create_started.set()
+            await allow_first_create.wait()
+            if collection_exists:
+                raise MilvusException(message="collection already exists")
+            collection_exists = True
+
+        client.has_collection.side_effect = has_collection
+        client.create_collection.side_effect = create_collection
+        first_store = MilvusVectorStore(settings=MilvusSettings(), client=client)
+        second_store = MilvusVectorStore(settings=MilvusSettings(), client=client)
+
+        first_task = asyncio.create_task(
+            first_store.ensure_collection(
+                "concurrent", dimensions=4, distance=Distance.COSINE
+            )
+        )
+        await first_create_started.wait()
+        second_task = asyncio.create_task(
+            second_store.ensure_collection(
+                "concurrent", dimensions=4, distance=Distance.COSINE
+            )
+        )
+        allow_first_create.set()
+        await asyncio.gather(first_task, second_task)
+
+        client.create_collection.assert_called_once()
+        client.load_collection.assert_called_once_with("concurrent")
+
+    async def test_accepts_collection_created_by_another_process(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """A duplicate-create response is valid when the resulting schema is valid."""
+        client.has_collection.side_effect = [False, True]
+        client.create_collection.side_effect = MilvusException(
+            message="collection already exists"
+        )
+
+        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+
+        client.load_collection.assert_not_called()
+
     async def test_dimension_mismatch_raises(
         self, store: MilvusVectorStore, client
     ) -> None:

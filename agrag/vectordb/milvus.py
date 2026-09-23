@@ -3,8 +3,9 @@
 import asyncio
 import json
 import re
+import threading
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID
 
 from agrag.common.data_models.vector_record import (
@@ -155,6 +156,9 @@ class MilvusVectorStore(VectorStore):
     by a Milvus ``Function`` from the ``text`` field on write and at query time.
     """
 
+    _collection_locks: ClassVar[dict[tuple[str, str], asyncio.Lock]] = {}
+    _collection_locks_guard: ClassVar[threading.Lock] = threading.Lock()
+
     def __init__(
         self,
         *,
@@ -173,8 +177,13 @@ class MilvusVectorStore(VectorStore):
         self._settings = settings or MilvusSettings()
         self._client: Any = client
         self._client_lock = asyncio.Lock()
-        self._schema_migration_lock = asyncio.Lock()
         self._collection_metrics: dict[str, str] = {}
+
+    @classmethod
+    def _collection_lock(cls, uri: str, name: str) -> asyncio.Lock:
+        """Get the process-wide provisioning lock for a collection."""
+        with cls._collection_locks_guard:
+            return cls._collection_locks.setdefault((uri, name), asyncio.Lock())
 
     async def _ensure_client(self) -> Any:
         """Build the Milvus client once and cache it.
@@ -325,39 +334,15 @@ class MilvusVectorStore(VectorStore):
                 index this adapter requires.
         """
         client = await self._ensure_client()
+        async with self._collection_lock(self._settings.uri, name):
+            await self._ensure_collection_locked(client, name, dimensions, distance)
+
+    async def _ensure_collection_locked(
+        self, client: Any, name: str, dimensions: int, distance: Distance
+    ) -> None:
+        """Provision a collection while holding its process-wide lock."""
         if await client.has_collection(name):
-            existing = await self._existing_dimension(client, name)
-            if existing is not None and existing != dimensions:
-                raise CollectionDimensionMismatchError(
-                    expected=existing, actual=dimensions
-                )
-            async with self._schema_migration_lock:
-                existing_fields = await self._existing_field_names(client, name)
-                missing_fields = set(_REQUIRED_FIELDS - existing_fields)
-                has_sparse_index = await self._has_index(client, name, _SPARSE_FIELD)
-                has_pending_index = await self._has_index(client, name, _PENDING_FIELD)
-                pending_field_ready = _PENDING_FIELD not in missing_fields
-                if _PENDING_FIELD in missing_fields and not (
-                    missing_fields - {_PENDING_FIELD}
-                ):
-                    await self._add_pending_field(client, name)
-                    missing_fields.remove(_PENDING_FIELD)
-                    pending_field_ready = True
-                if not has_pending_index and pending_field_ready:
-                    await self._create_pending_index(client, name)
-                    has_pending_index = True
-            if missing_fields or not has_sparse_index or not has_pending_index:
-                raise VectorStoreError(
-                    f"collection {name!r} already exists without the fields "
-                    "and sparse index this adapter requires "
-                    f"(missing fields: {sorted(missing_fields) or 'none'}, "
-                    f"sparse index present: {has_sparse_index}, "
-                    f"pending index present: {has_pending_index}); create a new "
-                    "collection instead of reusing this one"
-                )
-            existing_metric = await self._existing_metric(client, name)
-            if existing_metric is not None:
-                self._collection_metrics[name] = existing_metric
+            await self._validate_existing_collection(client, name, dimensions)
             return
 
         # Deferred until after _ensure_client so a missing extra surfaces as
@@ -368,6 +353,7 @@ class MilvusVectorStore(VectorStore):
             FieldSchema,
             Function,
             FunctionType,
+            MilvusException,
         )
 
         metric = self._milvus_metric(distance)
@@ -411,10 +397,48 @@ class MilvusVectorStore(VectorStore):
             metric_type="BM25",
         )
         index_params.add_index(field_name=_PENDING_FIELD, index_type="AUTOINDEX")
-        await client.create_collection(
-            collection_name=name, schema=schema, index_params=index_params
-        )
+        try:
+            await client.create_collection(
+                collection_name=name, schema=schema, index_params=index_params
+            )
+        except MilvusException:
+            if not await client.has_collection(name):
+                raise
+            await self._validate_existing_collection(client, name, dimensions)
+            return
         await client.load_collection(name)
+
+    async def _validate_existing_collection(
+        self, client: Any, name: str, dimensions: int
+    ) -> None:
+        """Validate and complete the schema for an existing collection."""
+        existing = await self._existing_dimension(client, name)
+        if existing is not None and existing != dimensions:
+            raise CollectionDimensionMismatchError(expected=existing, actual=dimensions)
+        existing_fields = await self._existing_field_names(client, name)
+        missing_fields = set(_REQUIRED_FIELDS - existing_fields)
+        has_sparse_index = await self._has_index(client, name, _SPARSE_FIELD)
+        has_pending_index = await self._has_index(client, name, _PENDING_FIELD)
+        pending_field_ready = _PENDING_FIELD not in missing_fields
+        if _PENDING_FIELD in missing_fields and not (missing_fields - {_PENDING_FIELD}):
+            await self._add_pending_field(client, name)
+            missing_fields.remove(_PENDING_FIELD)
+            pending_field_ready = True
+        if not has_pending_index and pending_field_ready:
+            await self._create_pending_index(client, name)
+            has_pending_index = True
+        if missing_fields or not has_sparse_index or not has_pending_index:
+            raise VectorStoreError(
+                f"collection {name!r} already exists without the fields "
+                "and sparse index this adapter requires "
+                f"(missing fields: {sorted(missing_fields) or 'none'}, "
+                f"sparse index present: {has_sparse_index}, "
+                f"pending index present: {has_pending_index}); create a new "
+                "collection instead of reusing this one"
+            )
+        existing_metric = await self._existing_metric(client, name)
+        if existing_metric is not None:
+            self._collection_metrics[name] = existing_metric
 
     @staticmethod
     async def _add_pending_field(client: Any, name: str) -> None:
