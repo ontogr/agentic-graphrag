@@ -113,24 +113,6 @@ def upsert_node_query(labels: Sequence[str]) -> str:
     )
 
 
-def merge_key_index_query(label: str) -> str:
-    """Build a CREATE INDEX query on the node merge_key property.
-
-    Backs the global exact-match lookup.
-
-    Args:
-        label: The node label. Must already be validated.
-
-    Returns:
-        A Cypher query creating the range index if absent.
-    """
-    safe_label = validate_identifier(label)
-    return (
-        f"CREATE INDEX {safe_label}_merge_key_index IF NOT EXISTS "
-        f"FOR (n:{safe_label}) ON (n.merge_key)"
-    )
-
-
 def fetch_by_merge_keys_query() -> str:
     """Build Cypher for a batched exact-match lookup by merge key.
 

@@ -331,12 +331,14 @@ class Neo4jGraphStore(GraphStore):
                 raise
 
     async def setup_constraints(self) -> None:
-        """Create a uniqueness constraint on ``id`` for every known label.
+        """Create ``id`` and ``merge_key`` uniqueness constraints per label.
 
         "Known" means written by this instance or already present in the
         database, so a fresh store can set up constraints for an existing
-        database without first rewriting every record. Also creates the
-        global uniqueness constraint on ``NODE_IDENTITY_LABEL`` that
+        database without first rewriting every record. The ``id`` constraint
+        backs node identity; ``merge_key`` prevents concurrent ingestion from
+        creating duplicate canonical entities. Also creates the global
+        uniqueness constraint on ``NODE_IDENTITY_LABEL`` that
         ``upsert_node_query``'s ``MERGE`` relies on to resolve a node by id
         regardless of its other, mutable labels, and a per-type uniqueness
         constraint on ``id`` for every known relationship type, which backs

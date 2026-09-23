@@ -4055,7 +4055,6 @@ the dependency points one way (store -> cypher).
 - [**hydrate_chunks_by_id_query**](#agrag.cypher.entities.hydrate_chunks_by_id_query) – Build Cypher fetching chunks by id.
 - [**hydrate_entities_by_id_query**](#agrag.cypher.entities.hydrate_entities_by_id_query) – Build Cypher fetching entities by id, excluding tombstones.
 - [**is_safe_identifier**](#agrag.cypher.entities.is_safe_identifier) – Report whether a label or relationship type is a safe Cypher identifier.
-- [**merge_key_index_query**](#agrag.cypher.entities.merge_key_index_query) – Build a CREATE INDEX query on the node merge_key property.
 - [**resolve_merged_into_query**](#agrag.cypher.entities.resolve_merged_into_query) – Return a node and the id of the node it was merged into.
 - [**set_chunk_embedding_query**](#agrag.cypher.entities.set_chunk_embedding_query) – Build Cypher setting a vector property on Chunk nodes.
 - [**set_embedding_query**](#agrag.cypher.entities.set_embedding_query) – Build Cypher setting one vector property per node, guarded by its text.
@@ -4301,24 +4300,6 @@ than validating one name a caller must supply correctly.
 **Returns:**
 
 - <code>[bool](#bool)</code> – `True` if `value` is a safe identifier.
-
-##### `agrag.cypher.entities.merge_key_index_query`
-
-```python
-merge_key_index_query(label:str) -> str
-```
-
-Build a CREATE INDEX query on the node merge_key property.
-
-Backs the global exact-match lookup.
-
-**Parameters:**
-
-- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
-
-**Returns:**
-
-- <code>[str](#str)</code> – A Cypher query creating the range index if absent.
 
 ##### `agrag.cypher.entities.resolve_merged_into_query`
 
@@ -6755,7 +6736,7 @@ driver's managed transactions with no added retry loop.
 - [**register_labels**](#agrag.graphdb.Neo4jGraphStore.register_labels) – Add labels to this instance's known-label set.
 - [**register_relation_types**](#agrag.graphdb.Neo4jGraphStore.register_relation_types) – Add types to this instance's known-relation-type set.
 - [**session**](#agrag.graphdb.Neo4jGraphStore.session) – Open a session to the configured database.
-- [**setup_constraints**](#agrag.graphdb.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every known label.
+- [**setup_constraints**](#agrag.graphdb.Neo4jGraphStore.setup_constraints) – Create `id` and `merge_key` uniqueness constraints per label.
 - [**setup_indexes**](#agrag.graphdb.Neo4jGraphStore.setup_indexes) – Set up indexes now provided by the store's uniqueness constraints.
 - [**transaction**](#agrag.graphdb.Neo4jGraphStore.transaction) – Open one Neo4j explicit transaction spanning multiple writes.
 - [**upsert_nodes**](#agrag.graphdb.Neo4jGraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
@@ -6894,12 +6875,14 @@ Open a session to the configured database.
 setup_constraints() -> None
 ```
 
-Create a uniqueness constraint on `id` for every known label.
+Create `id` and `merge_key` uniqueness constraints per label.
 
 "Known" means written by this instance or already present in the
 database, so a fresh store can set up constraints for an existing
-database without first rewriting every record. Also creates the
-global uniqueness constraint on `NODE_IDENTITY_LABEL` that
+database without first rewriting every record. The `id` constraint
+backs node identity; `merge_key` prevents concurrent ingestion from
+creating duplicate canonical entities. Also creates the global
+uniqueness constraint on `NODE_IDENTITY_LABEL` that
 `upsert_node_query`'s `MERGE` relies on to resolve a node by id
 regardless of its other, mutable labels, and a per-type uniqueness
 constraint on `id` for every known relationship type, which backs
@@ -7536,7 +7519,7 @@ driver's managed transactions with no added retry loop.
 - [**register_labels**](#agrag.graphdb.neo4j.Neo4jGraphStore.register_labels) – Add labels to this instance's known-label set.
 - [**register_relation_types**](#agrag.graphdb.neo4j.Neo4jGraphStore.register_relation_types) – Add types to this instance's known-relation-type set.
 - [**session**](#agrag.graphdb.neo4j.Neo4jGraphStore.session) – Open a session to the configured database.
-- [**setup_constraints**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every known label.
+- [**setup_constraints**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_constraints) – Create `id` and `merge_key` uniqueness constraints per label.
 - [**setup_indexes**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_indexes) – Set up indexes now provided by the store's uniqueness constraints.
 - [**transaction**](#agrag.graphdb.neo4j.Neo4jGraphStore.transaction) – Open one Neo4j explicit transaction spanning multiple writes.
 - [**upsert_nodes**](#agrag.graphdb.neo4j.Neo4jGraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
@@ -7675,12 +7658,14 @@ Open a session to the configured database.
 setup_constraints() -> None
 ```
 
-Create a uniqueness constraint on `id` for every known label.
+Create `id` and `merge_key` uniqueness constraints per label.
 
 "Known" means written by this instance or already present in the
 database, so a fresh store can set up constraints for an existing
-database without first rewriting every record. Also creates the
-global uniqueness constraint on `NODE_IDENTITY_LABEL` that
+database without first rewriting every record. The `id` constraint
+backs node identity; `merge_key` prevents concurrent ingestion from
+creating duplicate canonical entities. Also creates the global
+uniqueness constraint on `NODE_IDENTITY_LABEL` that
 `upsert_node_query`'s `MERGE` relies on to resolve a node by id
 regardless of its other, mutable labels, and a per-type uniqueness
 constraint on `id` for every known relationship type, which backs
@@ -8156,11 +8141,11 @@ this graph will ever write (schema's own labels/types plus the fixed
 system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
 setup_constraints(), then setup_indexes(), then vector indexes for
 every schema entity label — so a brand-new database is fully ready,
-including the merge_key index the global exact-match tier needs and
-the embedding vector indexes native search needs, before this call
-returns. When vector_store is set, the entity, chunk, and community
-collections are provisioned there too (created when missing) so the
-dual writes never hit an absent collection.
+including the merge_key uniqueness constraints the global exact-match
+tier relies on and the embedding vector indexes native search needs,
+before this call returns. When vector_store is set, the entity, chunk,
+and community collections are provisioned there too (created when
+missing) so the dual writes never hit an absent collection.
 
 **Parameters:**
 
@@ -9071,11 +9056,11 @@ this graph will ever write (schema's own labels/types plus the fixed
 system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
 setup_constraints(), then setup_indexes(), then vector indexes for
 every schema entity label — so a brand-new database is fully ready,
-including the merge_key index the global exact-match tier needs and
-the embedding vector indexes native search needs, before this call
-returns. When vector_store is set, the entity, chunk, and community
-collections are provisioned there too (created when missing) so the
-dual writes never hit an absent collection.
+including the merge_key uniqueness constraints the global exact-match
+tier relies on and the embedding vector indexes native search needs,
+before this call returns. When vector_store is set, the entity, chunk,
+and community collections are provisioned there too (created when
+missing) so the dual writes never hit an absent collection.
 
 **Parameters:**
 

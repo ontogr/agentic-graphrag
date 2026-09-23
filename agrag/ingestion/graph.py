@@ -461,11 +461,11 @@ class Graph:
         system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
         setup_constraints(), then setup_indexes(), then vector indexes for
         every schema entity label — so a brand-new database is fully ready,
-        including the merge_key index the global exact-match tier needs and
-        the embedding vector indexes native search needs, before this call
-        returns. When vector_store is set, the entity, chunk, and community
-        collections are provisioned there too (created when missing) so the
-        dual writes never hit an absent collection.
+        including the merge_key uniqueness constraints the global exact-match
+        tier relies on and the embedding vector indexes native search needs,
+        before this call returns. When vector_store is set, the entity, chunk,
+        and community collections are provisioned there too (created when
+        missing) so the dual writes never hit an absent collection.
 
         Args:
             schema: The entity/relation types this graph validates every
