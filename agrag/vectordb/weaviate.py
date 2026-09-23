@@ -7,7 +7,12 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
-from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
+from agrag.common.data_models.vector_record import (
+    PENDING_VECTOR_FLAG,
+    Distance,
+    VectorHit,
+    VectorRecord,
+)
 from agrag.common.validation import (
     require_positive_batch_size,
     require_valid_alpha,
@@ -23,6 +28,7 @@ from agrag.vectordb.settings import WeaviateSettings
 
 
 _VECTOR_NAME = "vector"
+_PENDING_PROPERTY = "agrag_pending"
 
 # The page size _existing_dimension pages through while looking for a
 # vector-bearing object. Not a correctness knob: a smaller value means more
@@ -144,26 +150,44 @@ class WeaviateVectorStore(VectorStore):
     def _compile_filter(self, filters: dict[str, Any] | None) -> Any:
         """Build a Weaviate filter from a flat-dict payload filter.
 
+        A pending record (one whose ``_pending`` payload boolean is true)
+        is excluded unless the filter asks for pending records only.
+
         Args:
             filters: A flat-dict filter: a scalar value means exact match, a
                 list value means any of, and all keys are AND-ed together.
-                ``None`` means no filter.
+                ``None`` means no filter. ``_pending=True`` selects only
+                in-flight records; leaving the key out, or setting it
+                ``False``, excludes them.
 
         Returns:
-            A Weaviate ``Filter``, or ``None`` when ``filters`` is empty.
+            A Weaviate ``Filter`` matching the requested records.
         """
-        if not filters:
-            return None
         from weaviate.classes.query import Filter as WeaviateFilter  # noqa: PLC0415
 
         conditions = []
-        for key, value in filters.items():
+        for key, value in (filters or {}).items():
+            if key == PENDING_VECTOR_FLAG:
+                continue
+            if key == _PENDING_PROPERTY:
+                raise ValueError(f"{_PENDING_PROPERTY!r} is reserved for internal use")
             prop = WeaviateFilter.by_property(key)
             if isinstance(value, list):
                 conditions.append(prop.contains_any(value))
             else:
                 conditions.append(prop.equal(value))
+        pending = WeaviateFilter.by_property(_PENDING_PROPERTY)
+        if (filters or {}).get(PENDING_VECTOR_FLAG) is True:
+            conditions.append(pending.equal(True))
+        else:
+            conditions.append(pending.equal(False))
         return WeaviateFilter.all_of(conditions)
+
+    @staticmethod
+    def _validate_payload(payload: dict[str, Any]) -> None:
+        """Reject payload keys reserved for Weaviate internal metadata."""
+        if _PENDING_PROPERTY in payload:
+            raise ValueError(f"{_PENDING_PROPERTY!r} is reserved for internal use")
 
     @staticmethod
     def _to_hit(obj: Any) -> VectorHit:
@@ -191,7 +215,10 @@ class WeaviateVectorStore(VectorStore):
         return VectorHit(
             id=UUID(str(obj.uuid)),
             score=score,
-            payload=dict(obj.properties or {}),
+            payload={
+                (PENDING_VECTOR_FLAG if key == _PENDING_PROPERTY else key): value
+                for key, value in (obj.properties or {}).items()
+            },
         )
 
     @staticmethod
@@ -208,7 +235,10 @@ class WeaviateVectorStore(VectorStore):
         return VectorRecord(
             id=UUID(str(obj.uuid)),
             vector=vector,
-            payload=dict(obj.properties or {}),
+            payload={
+                (PENDING_VECTOR_FLAG if key == _PENDING_PROPERTY else key): value
+                for key, value in (obj.properties or {}).items()
+            },
         )
 
     async def initialize(self) -> None:
@@ -244,7 +274,11 @@ class WeaviateVectorStore(VectorStore):
 
         # Deferred until after _ensure_client so a missing extra surfaces as
         # VectorStoreMissingExtraError, not a raw ImportError.
-        from weaviate.classes.config import Configure  # noqa: PLC0415
+        from weaviate.classes.config import (  # noqa: PLC0415
+            Configure,
+            DataType,
+            Property,
+        )
 
         distance_value = self._weaviate_distance(distance)
         vector_config = Configure.Vectors.self_provided(
@@ -256,6 +290,9 @@ class WeaviateVectorStore(VectorStore):
         await client.collections.create(
             name=name,
             vector_config=vector_config,
+            properties=[
+                Property(name=_PENDING_PROPERTY, data_type=DataType.BOOL),
+            ],
         )
 
     async def _existing_dimension(self, client: Any, name: str) -> int | None:
@@ -341,6 +378,8 @@ class WeaviateVectorStore(VectorStore):
             VectorStoreError: At least one record in a batch failed to write.
         """
         require_positive_batch_size(batch_size)
+        for record in records:
+            self._validate_payload(record.payload)
         client = await self._ensure_client()
 
         # Deferred until after _ensure_client so a missing extra surfaces as
@@ -352,7 +391,17 @@ class WeaviateVectorStore(VectorStore):
             batch = records[start : start + batch_size]
             objects = [
                 DataObject(
-                    properties=record.payload,
+                    properties={
+                        (
+                            _PENDING_PROPERTY if key == PENDING_VECTOR_FLAG else key
+                        ): value
+                        for key, value in record.payload.items()
+                    }
+                    | {
+                        _PENDING_PROPERTY: record.payload.get(
+                            PENDING_VECTOR_FLAG, False
+                        )
+                    },
                     vector={_VECTOR_NAME: record.vector},
                     uuid=str(record.id),
                 )

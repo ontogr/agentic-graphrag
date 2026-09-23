@@ -23,7 +23,7 @@ from agrag.vectordb.milvus import (
 from agrag.vectordb.settings import MilvusSettings
 
 
-_ALL_ADAPTER_FIELDS = ["id", "vector", "text", "sparse", "payload"]
+_ALL_ADAPTER_FIELDS = ["id", "vector", "text", "sparse", "payload", "pending"]
 
 
 def _describe_collection(dim: int = 4, *, fields: list[str] | None = None) -> dict:
@@ -32,7 +32,7 @@ def _describe_collection(dim: int = 4, *, fields: list[str] | None = None) -> di
     Args:
         dim: The dense vector field's dimension.
         fields: The field names the collection carries. Defaults to this
-            adapter's full required set (id, vector, text, sparse, payload),
+        adapter's full required set, including the pending marker,
             representing a collection this adapter can actually serve.
     """
     field_names = _ALL_ADAPTER_FIELDS if fields is None else fields
@@ -58,6 +58,7 @@ class MockMilvusClient:
             return_value=SimpleNamespace(add_index=mock.MagicMock())
         )
         self.create_collection = mock.AsyncMock()
+        self.add_collection_field = mock.AsyncMock()
         self.load_collection = mock.AsyncMock()
         self.upsert = mock.AsyncMock()
         self.search = mock.AsyncMock(return_value=[[{"id": "x", "distance": 0.9}]])
@@ -105,6 +106,58 @@ class TestEnsureCollection:
         client.create_collection.assert_not_called()
         client.load_collection.assert_not_called()
 
+    async def test_concurrent_stores_create_collection_once(self, client) -> None:
+        """Store instances share provisioning state for the same collection."""
+        first_create_started = asyncio.Event()
+        allow_first_create = asyncio.Event()
+        collection_exists = False
+
+        async def has_collection(name: str) -> bool:
+            return collection_exists
+
+        async def create_collection(**kwargs) -> None:
+            nonlocal collection_exists
+            first_create_started.set()
+            await allow_first_create.wait()
+            if collection_exists:
+                raise MilvusException(message="collection already exists")
+            collection_exists = True
+
+        client.has_collection.side_effect = has_collection
+        client.create_collection.side_effect = create_collection
+        first_store = MilvusVectorStore(settings=MilvusSettings(), client=client)
+        second_store = MilvusVectorStore(settings=MilvusSettings(), client=client)
+
+        first_task = asyncio.create_task(
+            first_store.ensure_collection(
+                "concurrent", dimensions=4, distance=Distance.COSINE
+            )
+        )
+        await first_create_started.wait()
+        second_task = asyncio.create_task(
+            second_store.ensure_collection(
+                "concurrent", dimensions=4, distance=Distance.COSINE
+            )
+        )
+        allow_first_create.set()
+        await asyncio.gather(first_task, second_task)
+
+        client.create_collection.assert_called_once()
+        client.load_collection.assert_called_once_with("concurrent")
+
+    async def test_accepts_collection_created_by_another_process(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """A duplicate-create response is valid when the resulting schema is valid."""
+        client.has_collection.side_effect = [False, True]
+        client.create_collection.side_effect = MilvusException(
+            message="collection already exists"
+        )
+
+        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+
+        client.load_collection.assert_not_called()
+
     async def test_dimension_mismatch_raises(
         self, store: MilvusVectorStore, client
     ) -> None:
@@ -141,6 +194,36 @@ class TestEnsureCollection:
         )
         with pytest.raises(VectorStoreError, match="missing fields"):
             await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+
+    async def test_existing_collection_migrates_pending_schema(
+        self, store: MilvusVectorStore, client
+    ) -> None:
+        """An older collection gains the pending field and index in place."""
+        client.has_collection.return_value = True
+        client.describe_collection.return_value = _describe_collection(
+            dim=4, fields=[field for field in _ALL_ADAPTER_FIELDS if field != "pending"]
+        )
+
+        async def fake_describe_index(*, collection_name: str, index_name: str):
+            if index_name == "pending":
+                raise MilvusException("index not found")
+            return {"metric_type": "BM25"}
+
+        client.describe_index = mock.AsyncMock(side_effect=fake_describe_index)
+        client.add_collection_field = mock.AsyncMock()
+        client.create_index = mock.AsyncMock()
+
+        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
+
+        client.add_collection_field.assert_awaited_once_with(
+            collection_name="c",
+            field_name="pending",
+            data_type=mock.ANY,
+            nullable=True,
+            default_value=False,
+        )
+        client.create_index.assert_awaited_once()
+        assert client.create_index.call_args.kwargs["collection_name"] == "c"
 
     async def test_existing_collection_missing_sparse_index_raises(
         self, store: MilvusVectorStore, client
@@ -478,25 +561,37 @@ class TestFilterEscaping:
         """An operator-looking value stays inside an escaped literal."""
         store = MilvusVectorStore(settings=MilvusSettings())
         expr = store._compile_filter({"kind": 'x" or 1==1'})
-        assert expr == 'payload["kind"] == "x\\" or 1==1"'
+        assert 'payload["kind"] == "x\\" or 1==1"' in expr
 
     def test_compile_list_value(self) -> None:
         """A list value renders as an ``in`` clause."""
         store = MilvusVectorStore(settings=MilvusSettings())
         expr = store._compile_filter({"cat": ["a", "b"]})
-        assert expr == 'payload["cat"] in ["a", "b"]'
+        assert 'payload["cat"] in ["a", "b"]' in expr
 
     def test_compile_references_payload_json_field(self) -> None:
         """A scalar filter compiles against the payload JSON field, not a bare field."""
         store = MilvusVectorStore(settings=MilvusSettings())
         expr = store._compile_filter({"kind": "doc"})
-        assert expr == 'payload["kind"] == "doc"'
+        assert 'payload["kind"] == "doc"' in expr
 
-    def test_compile_empty_is_blank(self) -> None:
-        """An empty filter compiles to an empty expression."""
+    def test_compile_excludes_pending_records_by_default(self) -> None:
+        """No pending flag requested still excludes an in-flight job's vectors."""
         store = MilvusVectorStore(settings=MilvusSettings())
-        assert store._compile_filter(None) == ""
-        assert store._compile_filter({}) == ""
+
+        assert store._compile_filter(None) == "not (pending == true)"
+        assert store._compile_filter({}) == "not (pending == true)"
+        assert store._compile_filter({"_pending": False}) == "not (pending == true)"
+
+    def test_compile_selects_only_pending_when_asked(self) -> None:
+        """An explicit pending request spends the filter on in-flight records."""
+        store = MilvusVectorStore(settings=MilvusSettings())
+
+        expr = store._compile_filter({"_pending": True, "_pending_job_id": "j"})
+
+        assert "pending == true" in expr
+        assert 'payload["_pending_job_id"] == "j"' in expr
+        assert "not (" not in expr
 
 
 class TestMissingExtra:

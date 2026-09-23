@@ -7,8 +7,77 @@ leaving other scalar property values unchanged.
 
 from uuid import uuid4
 
-from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
+from agrag.common.data_models.graph_record import (
+    NodeRecord,
+    RelationRecord,
+    tag_pending,
+)
 from agrag.graphdb.serialize import node_params, relation_params
+
+
+def test_node_params_splits_out_the_pending_tag() -> None:
+    """The Cutover Job tag rides its own key, out of the applied properties.
+
+    It reaches the graph only through the upsert's ``ON CREATE SET``, so a
+    job cannot tag a node it merely writes over.
+    """
+    rec = tag_pending(
+        NodeRecord(
+            id=uuid4(),
+            labels=["Chunk"],
+            properties={"text": "a"},
+        ),
+        "job-1",
+    )
+
+    params = node_params(rec)
+
+    assert params["properties"] == {"text": "a"}
+    assert params["pending_job_id"] == "job-1"
+
+
+def test_node_params_converts_a_uuid_pending_tag() -> None:
+    """The separate Cutover Job tag is converted for the Neo4j driver."""
+    job_id = uuid4()
+    rec = tag_pending(
+        NodeRecord(
+            id=uuid4(),
+            labels=["Chunk"],
+            properties={},
+        ),
+        job_id,
+    )
+
+    assert node_params(rec)["pending_job_id"] == str(job_id)
+
+
+def test_tag_pending_does_not_mutate_source_record() -> None:
+    """Tagging a write must not leak job metadata into a caller's record."""
+    record = NodeRecord(id=uuid4(), labels=["Chunk"], properties={"text": "a"})
+
+    tagged = tag_pending(record, "job-1")
+
+    assert record.properties == {"text": "a"}
+    assert tagged is not record
+
+
+def test_relation_params_splits_out_the_pending_tag() -> None:
+    """An edge carries its tag on the same separate key."""
+    rec = tag_pending(
+        RelationRecord(
+            id=uuid4(),
+            type="MENTIONS",
+            start_id=uuid4(),
+            end_id=uuid4(),
+            properties={"w": 0.5},
+        ),
+        "job-1",
+    )
+
+    params = relation_params(rec)
+
+    assert params["properties"] == {"w": 0.5}
+    assert params["pending_job_id"] == "job-1"
 
 
 def test_node_params_converts_uuid_and_nested() -> None:
@@ -45,4 +114,5 @@ def test_relation_params_converts_ids() -> None:
         "start_id": str(start),
         "end_id": str(end),
         "properties": {"w": 0.5},
+        "pending_job_id": None,
     }

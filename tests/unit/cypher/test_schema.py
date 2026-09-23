@@ -151,14 +151,16 @@ class TestVectorSearchQuery:
     """vector_search_query builds the native vector procedure call."""
 
     def test_no_filter(self) -> None:
-        """Without a filter the query calls the vector procedure and returns."""
+        """Without a filter the query still excludes pending-tagged nodes."""
         q, params = vector_search_query("Chunk_embedding_vector")
         assert "CALL db.index.vector.queryNodes($index, $k, $vector)" in q
+        assert "node._pending_job_id IS NULL" in q
         assert "RETURN node, score" in q
         assert params == {}
 
     def test_with_filter(self) -> None:
-        """A filter is appended as a WHERE clause with its own parameters."""
+        """A filter is appended after the pending guard with its parameters."""
         q, params = vector_search_query("Chunk_embedding_vector", {"kind": "doc"})
-        assert "WHERE node.kind = $filter_kind" in q
+        assert "WHERE node._pending_job_id IS NULL" in q
+        assert "AND node.kind = $filter_kind" in q
         assert params == {"filter_kind": "doc"}

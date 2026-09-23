@@ -8,6 +8,9 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
+from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
+from agrag.cypher._pending_filter import pending_filter_clause
+
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -80,6 +83,12 @@ def upsert_node_query(labels: Sequence[str]) -> str:
     ``properties["id"]`` cannot overwrite the ``id`` used to ``MERGE`` and
     orphan the node from later upserts of the same record.
 
+    The Cutover Job tag is applied only when the ``MERGE`` creates the
+    node, so the tag means "this job created this node". A job that only
+    writes over an existing node leaves it untagged: it stays visible to
+    retrieval, and the job's rollback — which deletes tagged rows —
+    cannot reach it.
+
     Args:
         labels: The node's labels to add, in addition to the identity anchor.
             Must already be validated, and non-empty.
@@ -97,27 +106,10 @@ def upsert_node_query(labels: Sequence[str]) -> str:
     return (
         f"UNWIND $records AS record "
         f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"ON CREATE SET n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id "
         f"SET n:{label_expr} "
         f"SET n += record.properties "
         f"SET n.id = record.id"
-    )
-
-
-def merge_key_index_query(label: str) -> str:
-    """Build a CREATE INDEX query on the node merge_key property.
-
-    Backs the global exact-match lookup.
-
-    Args:
-        label: The node label. Must already be validated.
-
-    Returns:
-        A Cypher query creating the range index if absent.
-    """
-    safe_label = validate_identifier(label)
-    return (
-        f"CREATE INDEX {safe_label}_merge_key_index IF NOT EXISTS "
-        f"FOR (n:{safe_label}) ON (n.merge_key)"
     )
 
 
@@ -140,12 +132,19 @@ def fetch_by_merge_keys_query() -> str:
     map those mentions back.
 
     Returns:
-        Parameterized Cypher expecting $merge_keys (list of strings).
+        Parameterized Cypher expecting $merge_keys (list of strings) and
+        $job_id (the in-flight Cutover Job's id, or null outside a job).
+        An alias written by this same job resolves through the guard, so
+        in-job exact-match lookups see the job's own writes; every other
+        job's alias is excluded, and outside a job the guard reduces to
+        committed-only.
     """
     return (
         f"UNWIND $merge_keys AS merge_key "
         f"MATCH (a:{MERGE_ALIAS_LABEL} {{merge_key: merge_key}}) "
+        f"WHERE a._pending_job_id IS NULL OR a._pending_job_id = $job_id "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: a.entity_id}}) "
+        f"WHERE n._pending_job_id IS NULL OR n._pending_job_id = $job_id "
         f"RETURN merge_key, n"
     )
 
@@ -168,6 +167,13 @@ def upsert_merge_alias_query() -> str:
     caller follows that entity's ``merged_into`` chain from here instead of
     this table being kept in sync with every later merge.
 
+    An alias written by an in-flight Cutover Job carries that job's id, so
+    the exact-match lookup (which filters pending nodes) never resolves a
+    mention into uncommitted data, and a rollback deletes the alias with
+    the entity it names instead of leaving a dangling owner. A null
+    ``pending_job_id`` sets no property, preserving today's behavior for
+    callers outside a job.
+
     The returned rows are what let a caller detect the case ``ON CREATE
     SET`` alone cannot: an accepted merge_key already owned by some other
     live entity, not one this same merge is writing or absorbing. Neither
@@ -176,15 +182,18 @@ def upsert_merge_alias_query() -> str:
     entity_id against its own survivor and tombstone ids itself.
 
     Returns:
-        Parameterized Cypher expecting $merge_keys (list of strings) and
-        $entity_id. Returns each merge_key alongside the entity_id that now
-        owns it -- $entity_id when this call claimed or already owned it,
-        another entity's id when a different one claimed it first.
+        Parameterized Cypher expecting $merge_keys (list of strings),
+        $entity_id, and $pending_job_id (the in-flight job's id, or null
+        outside a job — null sets no property). Returns each merge_key
+        alongside the entity_id that now owns it -- $entity_id when this
+        call claimed or already owned it, another entity's id when a
+        different one claimed it first.
     """
     return (
         f"UNWIND $merge_keys AS merge_key "
         f"MERGE (a:{MERGE_ALIAS_LABEL} {{merge_key: merge_key}}) "
-        f"ON CREATE SET a.entity_id = $entity_id "
+        f"ON CREATE SET a.entity_id = $entity_id, "
+        f"a.{PENDING_JOB_ID_PROPERTY} = $pending_job_id "
         f"RETURN merge_key, a.entity_id AS entity_id"
     )
 
@@ -204,6 +213,10 @@ def upsert_survivor_query(label: str) -> str:
     values, which only a Python-side read can gather, so making that
     atomic too is out of scope here.
 
+    Like ``upsert_node_query``, the Cutover Job tag is applied only when
+    the ``MERGE`` creates the node, so a survivor a job merely accumulates
+    into stays visible and out of reach of that job's rollback.
+
     Args:
         label: The node label. Must already be validated.
 
@@ -211,26 +224,31 @@ def upsert_survivor_query(label: str) -> str:
         A parameterized Cypher query expecting a ``$records`` list
         parameter whose items carry ``id``, ``properties`` (every survivor
         field except ``source_chunk_ids``, ``merged_from``, and
-        ``merge_count``), ``new_source_chunk_ids``, ``new_merged_from``, and
+        ``merge_count``), ``pending_job_id`` (the Cutover Job tag, or
+        None), ``new_source_chunk_ids``, ``new_merged_from``, and
         ``merge_count_delta``.
     """
     safe_label = validate_identifier(label)
     return (
         f"UNWIND $records AS record "
         f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
+        f"ON CREATE SET n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id "
         f"SET n:{safe_label} "
         f"WITH n, record, "
+        f"(record.pending_job_id IS NULL OR n.{PENDING_JOB_ID_PROPERTY} IS NULL "
+        f"OR n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id) AS can_update, "
         f"coalesce(n.source_chunk_ids, []) AS existing_source_chunk_ids, "
         f"coalesce(n.merged_from, []) AS existing_merged_from, "
         f"coalesce(n.merge_count, 0) AS existing_merge_count "
-        f"SET n += record.properties "
-        f"SET n.source_chunk_ids = "
-        f"[x IN existing_source_chunk_ids "
-        f"WHERE NOT x IN record.new_source_chunk_ids] + record.new_source_chunk_ids "
-        f"SET n.merged_from = "
-        f"[x IN existing_merged_from "
-        f"WHERE NOT x IN record.new_merged_from] + record.new_merged_from "
-        f"SET n.merge_count = existing_merge_count + record.merge_count_delta "
+        f"SET n += CASE WHEN can_update THEN record.properties ELSE {{}} END "
+        f"SET n.source_chunk_ids = CASE WHEN can_update THEN "
+        f"[x IN existing_source_chunk_ids WHERE NOT x IN record.new_source_chunk_ids] "
+        f"+ record.new_source_chunk_ids ELSE n.source_chunk_ids END "
+        f"SET n.merged_from = CASE WHEN can_update THEN "
+        f"[x IN existing_merged_from WHERE NOT x IN record.new_merged_from] "
+        f"+ record.new_merged_from ELSE n.merged_from END "
+        f"SET n.merge_count = CASE WHEN can_update THEN "
+        f"existing_merge_count + record.merge_count_delta ELSE n.merge_count END "
         f"SET n.id = record.id"
     )
 
@@ -325,11 +343,12 @@ def fetch_all_by_label_query(label: str) -> str:
     )
 
 
-def fetch_relations_between_query(rel_type: str) -> str:
+def fetch_relations_between_query(rel_type: str, *, job_id: str | None = None) -> str:
     """Build Cypher for batched lookup of existing relations by endpoints.
 
     Args:
         rel_type: The relationship type. Must already be validated.
+        job_id: Optional parameter name for same-job pending visibility.
 
     Returns:
         Parameterized Cypher expecting $pairs (list of
@@ -337,9 +356,11 @@ def fetch_relations_between_query(rel_type: str) -> str:
         source_chunk_ids alongside the pair it matched.
     """
     safe_type = validate_identifier(rel_type)
+    pending = pending_filter_clause("r", job_id)
     return (
         f"UNWIND $pairs AS pair "
         f"MATCH (a {{id: pair.source_id}})-[r:{safe_type}]->(b {{id: pair.target_id}}) "
+        f"WHERE {pending} "
         f"RETURN pair.source_id AS source_id, pair.target_id AS target_id, "
         f"r.id AS id, r.source_chunk_ids AS source_chunk_ids"
     )
@@ -389,7 +410,8 @@ def set_chunk_embedding_query(vector_property: str) -> str:
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
         f"WHERE n.text = record.expected_text "
         f"AND n.merged_into IS NULL "
-        f"SET n.{safe_property} = record.vector"
+        f"SET n.{safe_property} = record.vector "
+        f"RETURN n.id AS id"
     )
 
 
@@ -426,6 +448,10 @@ def resolve_merged_into_query() -> str:
     relationship, so a chain is followed one hop per call: ``merged_into``
     is null on a live node and holds the next id on a tombstone.
 
+    A pending node resolves to itself: the identity path must see its own
+    job's in-flight writes, and an uncommitted job's node is only ever
+    reached through that same job's own reads.
+
     Returns:
         A parameterized query expecting an $id parameter, returning the
         node as ``node`` and its survivor id as ``merged_into``.
@@ -443,13 +469,21 @@ def hydrate_entities_by_id_query() -> str:
     ``MATCH (n) WHERE n.id IN $ids`` would surface one. This query
     filters on ``merged_into IS NULL`` to return only live nodes.
 
+    Pending visibility is job-scoped: the merge-apply and pruning paths
+    run inside their own job's pending phase and must see the entities
+    that same job just wrote, while still excluding every other
+    in-flight job's. A null ``$job_id`` reduces the guard to
+    committed-only, which is what every caller outside a job passes.
+
     Returns:
-        Parameterized Cypher expecting $ids (list of string ids).
+        Parameterized Cypher expecting $ids (list of string ids) and
+        $job_id (the in-flight job's id, or null outside a job).
     """
     return (
         f"UNWIND $ids AS id "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: id}}) "
         f"WHERE n.merged_into IS NULL "
+        f"AND (n._pending_job_id IS NULL OR n._pending_job_id = $job_id) "
         f"RETURN n"
     )
 
@@ -461,17 +495,28 @@ def hydrate_chunks_by_id_query() -> str:
     document versions cannot surface in retrieval. Chunks without any
     PART_OF edge are also returned for direct or legacy chunk fixtures.
 
+    Pending visibility is job-scoped: the storage stage runs inside its
+    own job's pending phase and must see the chunks that same job just
+    wrote (the partial-write fallback checks exactly those), while still
+    excluding every other in-flight job's. A null ``$job_id`` reduces the
+    guard to committed-only, which is what every caller outside a job
+    passes.
+
     Returns:
-        Parameterized Cypher expecting $ids (list of string ids).
+        Parameterized Cypher expecting $ids (list of string ids) and
+        $job_id (the in-flight job's id, or null outside a job).
     """
     return (
         f"UNWIND $ids AS id "
         f"MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) "
-        f"WHERE NOT EXISTS {{ "
-        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[:PART_OF]->(n) "
+        f"WHERE (NOT EXISTS {{ "
+        f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
+        f"WHERE (p._pending_job_id IS NULL OR p._pending_job_id = $job_id) "
         f"}} OR EXISTS {{ "
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
-        f"WHERE p.invalid_at IS NULL }} "
+        f"WHERE p.invalid_at IS NULL "
+        f"AND (p._pending_job_id IS NULL OR p._pending_job_id = $job_id) }}) "
+        f"AND (n._pending_job_id IS NULL OR n._pending_job_id = $job_id) "
         f"RETURN n"
     )
 

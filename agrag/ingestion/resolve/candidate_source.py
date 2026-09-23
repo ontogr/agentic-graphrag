@@ -227,12 +227,12 @@ class GraphCandidateSource(CandidateSource):
         any name containing ":" (e.g. "Star Trek: Voyager"), so this fetches
         the actual nodes instead.
         """
-        from agrag.ingestion.graph import _parse_entity_node  # noqa: PLC0415
+        from agrag.ingestion._ingest_pipeline import _parse_entity_node  # noqa: PLC0415
 
         ids = [str(hit.id) for hit in hits]
         try:
             rows = await self.graph_store.execute_read(
-                hydrate_entities_by_id_query(), {"ids": ids}
+                hydrate_entities_by_id_query(), {"ids": ids, "job_id": None}
             )
         except Exception:
             return []
@@ -248,21 +248,6 @@ class GraphCandidateSource(CandidateSource):
             except Exception:
                 continue
         return entities
-
-
-class InBatchCandidateSource(CandidateSource):
-    """Compatibility candidate source for the existing Resolver callers."""
-
-    async def candidates_for(
-        self, index: int, entities: list[ExtractedEntity]
-    ) -> list[int]:
-        """Return every other mention sharing the indexed mention's label."""
-        label = entities[index].label
-        return [
-            other_index
-            for other_index, entity in enumerate(entities)
-            if other_index != index and entity.label == label
-        ]
 
 
 class PersistedCandidateSource(CandidateSource):
@@ -340,8 +325,6 @@ async def exact_match_lookup(
     mentions: list[ExtractedEntity], *, graph_store: GraphStore
 ) -> dict[int, Entity]:
     """Return persisted exact matches, including resolved tombstone aliases."""
-    # Keep the established lookup behavior byte-for-byte until Phase 4 moves
-    # the ingestion pipeline. That phase removes the legacy graph helper.
-    from agrag.ingestion.graph import _global_exact_match  # noqa: PLC0415
+    from agrag.ingestion._ingest_pipeline import _global_exact_match  # noqa: PLC0415
 
     return await _global_exact_match(mentions, graph_store=graph_store)

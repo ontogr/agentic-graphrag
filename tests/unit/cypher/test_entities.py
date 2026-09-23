@@ -20,6 +20,7 @@ from agrag.cypher.entities import (
     clear_property_query,
     fetch_entity_neighbors_query,
     filter_clause,
+    hydrate_chunks_by_id_query,
     is_safe_identifier,
     set_embedding_query,
     upsert_merge_alias_query,
@@ -74,6 +75,18 @@ class TestUpsertNodeQuery:
         assert "SET n:Chunk" in q
         assert "SET n += record.properties" in q
         assert "SET n.id = record.id" in q
+
+    def test_tags_the_pending_job_only_when_the_merge_creates_the_node(self) -> None:
+        """The Cutover Job tag applies with ON CREATE SET, not a plain SET.
+
+        A node a job merely writes over must stay untagged: tagging it
+        would hide committed data from retrieval and put it in reach of
+        that job's rollback.
+        """
+        q = upsert_node_query(["Chunk"])
+        assert "ON CREATE SET n._pending_job_id = record.pending_job_id" in q
+        assert "ON MATCH SET n._pending_job_id" not in q
+        assert q.count("_pending_job_id = record.pending_job_id") == 1
 
     def test_merge_identity_is_independent_of_content_labels(self) -> None:
         """MERGE always anchors on NODE_IDENTITY_LABEL, never the content labels.
@@ -132,16 +145,30 @@ class TestUpsertSurvivorQuery:
         assert "record.new_merged_from" in q
         assert "existing_merge_count + record.merge_count_delta" in q
 
+    def test_tags_the_pending_job_only_when_the_merge_creates_the_survivor(
+        self,
+    ) -> None:
+        """A survivor a job only accumulates into must stay untagged."""
+        q = upsert_survivor_query("Person")
+        assert "ON CREATE SET n._pending_job_id = record.pending_job_id" in q
+
     def test_reads_accumulators_before_the_blind_property_set(self) -> None:
-        """The accumulator read happens before SET n += record.properties.
+        """The accumulator read happens before the guarded property set.
 
         Otherwise it would read back the value this same write just
         overwrote instead of whatever another writer already committed.
         """
         q = upsert_survivor_query("Person")
         assert q.index("existing_source_chunk_ids") < q.index(
-            "SET n += record.properties"
+            "SET n += CASE WHEN can_update THEN record.properties"
         )
+
+    def test_pending_merge_is_fenced_from_another_inflight_job(self) -> None:
+        """A pending merge cannot overwrite a node pinned by another job."""
+        q = upsert_survivor_query("Person")
+        assert "record.pending_job_id IS NULL" in q
+        assert "OR n._pending_job_id = record.pending_job_id" in q
+        assert "ELSE n.merge_count END" in q
 
     def test_merge_identity_is_independent_of_content_label(self) -> None:
         """MERGE anchors on NODE_IDENTITY_LABEL, matching upsert_node_query."""
@@ -254,3 +281,18 @@ class TestGuardedPropertyWrites:
         query = clear_property_query("embedding")
         assert "RETURN n.id AS id" in query
         assert "REMOVE n.embedding" in query
+
+
+class TestHydrateChunksByIdQuery:
+    """hydrate_chunks_by_id_query hides superseded chunks at read time."""
+
+    def test_filters_to_open_part_of_edges(self) -> None:
+        """A chunk behind only closed PART_OF edges is never returned."""
+        query = hydrate_chunks_by_id_query()
+        assert "p.invalid_at IS NULL" in query
+
+    def test_returns_chunks_without_any_part_of_edge(self) -> None:
+        """Direct or legacy chunks with no PART_OF edge still hydrate."""
+        query = hydrate_chunks_by_id_query()
+        assert "NOT EXISTS" in query
+        assert "-[p:PART_OF]->(n)" in query

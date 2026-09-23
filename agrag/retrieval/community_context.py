@@ -153,6 +153,7 @@ async def community_context(
         communities_for_entities_query(where_clause),
         {
             "entity_ids": [str(e) for e in entity_ids],
+            "job_id": None,
             "top_k": top_k,
             **where_params,
         },

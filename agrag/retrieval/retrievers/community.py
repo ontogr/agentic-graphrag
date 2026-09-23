@@ -67,7 +67,8 @@ class CommunityRetriever(Retriever):
         try:
             rows = await self._graph_store.execute_read(
                 f"UNWIND $ids AS id MATCH (n:{NODE_IDENTITY_LABEL}:"
-                f"{COMMUNITY_LABEL} {{id: id}}) RETURN n",
+                f"{COMMUNITY_LABEL} {{id: id}}) "
+                "WHERE n._pending_job_id IS NULL RETURN n",
                 {"ids": ids},
             )
         except Exception:

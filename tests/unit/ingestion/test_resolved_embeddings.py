@@ -98,7 +98,8 @@ class TestEmbedResolvedEntities:
         """A failed mirror write cannot leave a retrievable stale resolved vector."""
         entity = _entity()
         graph_store = SimpleNamespace(
-            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}]),
+            execute_read=AsyncMock(return_value=[]),
         )
         vector_store = SimpleNamespace(
             upsert=AsyncMock(side_effect=RuntimeError("vector store down")),
@@ -162,7 +163,8 @@ class TestEmbedResolvedEntities:
         """A later pass can make a previously failed derived vector searchable."""
         entity = _entity()
         graph_store = SimpleNamespace(
-            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}]),
+            execute_read=AsyncMock(return_value=[]),
         )
         vector_store = SimpleNamespace(
             upsert=AsyncMock(side_effect=[RuntimeError("vector store down"), None]),
@@ -391,6 +393,28 @@ class TestSynchronizeResolvedEntityVectors:
         assert failures == []
         vector_store.delete.assert_not_awaited()
         vector_store.upsert.assert_awaited_once()
+
+    async def test_pending_job_does_not_overwrite_external_vector(self) -> None:
+        """A pending graph write cannot replace a committed vector by id."""
+        entity = _entity()
+        graph_store = SimpleNamespace(
+            execute_write=AsyncMock(return_value=[{"id": str(entity.id)}])
+        )
+        vector_store = SimpleNamespace(delete=AsyncMock(), upsert=AsyncMock())
+
+        failures = await _synchronize_resolved_entity_vectors(
+            [entity],
+            [],
+            embedder=_Embedder(),
+            graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collection="resolved",
+            error_policy=ErrorPolicy.RAISE,
+            pending_job_id=uuid4(),
+        )
+
+        assert failures == []
+        vector_store.upsert.assert_not_awaited()
 
     async def test_holds_back_republished_entity_when_stale_clear_fails(self) -> None:
         """A live vector is never republished while its queue entry survives.

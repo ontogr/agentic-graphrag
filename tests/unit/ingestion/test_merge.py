@@ -2,8 +2,8 @@
 
 Covers canonical-name selection, per-property resolution strategies and
 rules, LLM-assisted description resolution (mocked with ``AsyncMock``),
-property merging, full merge-plan computation, relationship-dedup planning
-with alias transfer, and applying a merge plan against a mocked graph store
+property merging, full merge-plan computation, relationship-dedup planning,
+and applying a merge plan against a mocked graph store
 transaction. ``apply_merge`` tests build an ``AsyncMock`` store whose
 ``transaction()`` context manager yields a fake handle wrapping
 ``execute_write``/``execute_read`` mocks, so no real Neo4j session is used.
@@ -26,16 +26,18 @@ from agrag.ingestion.merge import (
     MergePlan,
     PropertyRules,
     PropertyStrategy,
-    _merge_properties,
     _plan_relationship_dedup,
-    _resolve_description,
     _resolve_property,
-    _select_canonical,
     _TransferredRelationship,
     apply_merge,
     compute_merge,
     mentioned_in_id,
+    merge_properties,
+    next_chunk_id,
+    part_of_id,
     relation_id,
+    resolve_description,
+    select_canonical,
 )
 from agrag.ingestion.stats import StageFailure
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
@@ -130,7 +132,7 @@ class TestPropertyStrategyAndRules:
 
 
 class TestSelectCanonical:
-    """_select_canonical tiebreaks."""
+    """select_canonical tiebreaks."""
 
     def test_picks_fewest_missing_fields(self) -> None:
         """Most schema-complete entity wins."""
@@ -143,7 +145,7 @@ class TestSelectCanonical:
         e1 = _entity(name="e1", properties={"a": "1"})
         e2 = _entity(name="e2", properties={"a": "1", "b": "2"})
         e3 = _entity(name="e3", properties={"a": "1", "b": "2", "c": "3"})
-        survivor, rest = _select_canonical([e1, e2, e3], schema_type)
+        survivor, rest = select_canonical([e1, e2, e3], schema_type)
         assert survivor.id == e3.id
         assert {r.id for r in rest} == {e1.id, e2.id}
 
@@ -153,7 +155,7 @@ class TestSelectCanonical:
         t2 = datetime(2020, 1, 2, tzinfo=UTC)
         e1 = _entity(name="later", created_at=t2, properties={})
         e2 = _entity(name="earlier", created_at=t1, properties={})
-        survivor, rest = _select_canonical([e1, e2], None)
+        survivor, rest = select_canonical([e1, e2], None)
         assert survivor.id == e2.id
         assert rest[0].id == e1.id
 
@@ -164,7 +166,7 @@ class TestSelectCanonical:
         id_b = UUID("00000000-0000-0000-0000-000000000002")
         e_a = _entity(entity_id=id_a, created_at=now, name="a")
         e_b = _entity(entity_id=id_b, created_at=now, name="b")
-        survivor, rest = _select_canonical([e_b, e_a], None)
+        survivor, rest = select_canonical([e_b, e_a], None)
         assert survivor.id == id_a
         assert rest[0].id == id_b
 
@@ -173,7 +175,7 @@ class TestSelectCanonical:
         now = datetime(2020, 1, 1, tzinfo=UTC)
         e1 = _entity(created_at=now, name="x")
         e2 = _entity(created_at=now + timedelta(seconds=1), name="y")
-        survivor, _ = _select_canonical([e2, e1], None)
+        survivor, _ = select_canonical([e2, e1], None)
         assert survivor.id == e1.id
 
 
@@ -291,7 +293,7 @@ class TestResolveProperty:
 
 
 class TestResolveDescription:
-    """_resolve_description LLM and fallback paths."""
+    """resolve_description LLM and fallback paths."""
 
     async def test_single_distinct_no_llm(self) -> None:
         """Single distinct candidate returns without LLM call."""
@@ -300,7 +302,7 @@ class TestResolveDescription:
             async def SummarizeDescriptions(self, *args, **kwargs):  # noqa: N802
                 raise AssertionError("should not be called")
 
-        value, conflicted, failure = await _resolve_description(
+        value, conflicted, failure = await resolve_description(
             ["only one"], client=_FailClient()
         )
         assert value == "only one"
@@ -309,7 +311,7 @@ class TestResolveDescription:
 
     async def test_single_distinct_empty_no_conflict(self) -> None:
         """Empty candidates returns None without conflict."""
-        value, conflicted, failure = await _resolve_description([], client=AsyncMock())
+        value, conflicted, failure = await resolve_description([], client=AsyncMock())
         assert value is None
         assert conflicted is False
         assert failure is None
@@ -325,7 +327,7 @@ class TestResolveDescription:
                 assert baml_options == {}
                 return "summarized"
 
-        value, conflicted, failure = await _resolve_description(
+        value, conflicted, failure = await resolve_description(
             ["d1", "d2"], client=MockClient()
         )
         assert value == "summarized"
@@ -344,7 +346,7 @@ class TestResolveDescription:
                 assert baml_options == {}
                 return "summarized"
 
-        value, conflicted, failure = await _resolve_description(
+        value, conflicted, failure = await resolve_description(
             [42, {"source": "import"}], client=MockClient()
         )
         assert value == "summarized"
@@ -358,7 +360,7 @@ class TestResolveDescription:
             async def SummarizeDescriptions(self, *args, **kwargs):  # noqa: N802
                 raise RuntimeError("boom")
 
-        value, conflicted, failure = await _resolve_description(
+        value, conflicted, failure = await resolve_description(
             ["d1", "d2"], client=FailingClient()
         )
         assert value == "d1 | d2"
@@ -374,7 +376,7 @@ class TestResolveDescription:
         class EmptyClient:
             pass
 
-        value, conflicted, failure = await _resolve_description(
+        value, conflicted, failure = await resolve_description(
             ["a", "b"], client=EmptyClient()
         )
         assert value == "a | b"
@@ -390,7 +392,7 @@ class TestResolveDescription:
                 "ExtractionLLMSettings", []
             ),
         ):
-            value, conflicted, failure = await _resolve_description(
+            value, conflicted, failure = await resolve_description(
                 ["x", "y"], client=None, settings=None
             )
         assert value == "x | y"
@@ -424,7 +426,7 @@ class TestResolveDescription:
             ),
             patch("agrag.llm.baml_client.b", MockDefaultClient()),
         ):
-            value, conflicted, failure = await _resolve_description(
+            value, conflicted, failure = await resolve_description(
                 ["a", "b"], client=None, settings=None
             )
         assert value == "default:a|b"
@@ -442,7 +444,7 @@ class TestResolveDescription:
                 seen.append(list(descriptions))
                 return "ok"
 
-        value, _, _ = await _resolve_description(
+        value, _, _ = await resolve_description(
             ["a", "b", "a", "b"], client=MockClient()
         )
         assert seen == [["a", "b"]]
@@ -471,7 +473,7 @@ class TestResolveDescription:
             ),
             patch("agrag.llm.baml_client.b", MockDefaultClient()),
         ):
-            value, conflicted, failure = await _resolve_description(
+            value, conflicted, failure = await resolve_description(
                 ["a", "b"], client=None, settings=settings
             )
         assert value == "via settings:a|b"
@@ -493,7 +495,7 @@ class TestResolveDescription:
             ),
             patch.dict("sys.modules", {"agrag.llm.baml_client": None}),
         ):
-            value, conflicted, failure = await _resolve_description(
+            value, conflicted, failure = await resolve_description(
                 ["x", "y"], client=None, settings=settings
             )
         assert value == "x | y"
@@ -503,10 +505,10 @@ class TestResolveDescription:
 
 
 class TestMergeProperties:
-    """_merge_properties with description and non-description fields."""
+    """merge_properties with description and non-description fields."""
 
     async def test_description_field_uses_llm(self) -> None:
-        """Description field is resolved via _resolve_description."""
+        """Description field is resolved via resolve_description."""
 
         class MockClient:
             async def SummarizeDescriptions(  # noqa: N802
@@ -514,7 +516,7 @@ class TestMergeProperties:
             ):
                 return "merged desc"
 
-        props, conflicts, failures = await _merge_properties(
+        props, conflicts, failures = await merge_properties(
             [{"description": "d1"}, {"description": "d2"}],
             PropertyRules(),
             description_client=MockClient(),
@@ -526,7 +528,7 @@ class TestMergeProperties:
 
     async def test_non_description_conflict_recorded(self) -> None:
         """Non-description conflicts are recorded."""
-        props, conflicts, failures = await _merge_properties(
+        props, conflicts, failures = await merge_properties(
             [{"role": "a"}, {"role": "b"}],
             PropertyRules(default=PropertyStrategy.KEEP_LAST),
         )
@@ -539,7 +541,7 @@ class TestMergeProperties:
 
     async def test_no_conflict_no_record(self) -> None:
         """Same value across sources is not a conflict."""
-        props, conflicts, failures = await _merge_properties(
+        props, conflicts, failures = await merge_properties(
             [{"role": "a"}, {"role": "a"}],
             PropertyRules(),
         )
@@ -554,7 +556,7 @@ class TestMergeProperties:
             async def SummarizeDescriptions(self, *args, **kwargs):  # noqa: N802
                 raise RuntimeError("fail")
 
-        props, conflicts, failures = await _merge_properties(
+        props, conflicts, failures = await merge_properties(
             [{"description": "d1"}, {"description": "d2"}],
             PropertyRules(),
             description_client=FailingClient(),
@@ -566,7 +568,7 @@ class TestMergeProperties:
 
     async def test_multiple_fields_mixed(self) -> None:
         """Multiple fields with mixed conflict and non-conflict."""
-        props, conflicts, _ = await _merge_properties(
+        props, conflicts, _ = await merge_properties(
             [
                 {"name": "Ada", "role": "eng", "description": "d1"},
                 {"name": "Ada", "role": "eng", "description": "d1"},
@@ -594,6 +596,53 @@ class TestComputeMerge:
         assert plan.survivor.name == "Ada"
         assert mention.chunk_id in plan.survivor.source_chunk_ids
         assert failures == []
+
+    async def test_job_id_replays_same_survivor_id(self) -> None:
+        """Same job id replays the same new-entity id."""
+        job_id = uuid4()
+        plan_a, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[_mention(text="Ada")],
+            schema=_schema(),
+            job_id=job_id,
+        )
+        plan_b, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[_mention(text="Ada")],
+            schema=_schema(),
+            job_id=job_id,
+        )
+        expected = uuid5(
+            NAMESPACE_OID, f"CutoverJob:{job_id}:{plan_a.survivor.merge_key}"
+        )
+        assert plan_a.survivor.id == plan_b.survivor.id == expected
+
+    async def test_different_job_ids_mint_different_ids(self) -> None:
+        """Different job ids mint different new-entity ids."""
+        plan_a, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[_mention(text="Ada")],
+            schema=_schema(),
+            job_id=uuid4(),
+        )
+        plan_b, _ = await compute_merge(
+            existing_entities=[],
+            mentions=[_mention(text="Ada")],
+            schema=_schema(),
+            job_id=uuid4(),
+        )
+        assert plan_a.survivor.id != plan_b.survivor.id
+
+    async def test_job_id_keeps_existing_id(self) -> None:
+        """A job id never overrides an existing entity's id."""
+        existing = _entity(name="Ada")
+        plan, _ = await compute_merge(
+            existing_entities=[existing],
+            mentions=[_mention(text="Ada")],
+            schema=_schema(),
+            job_id=uuid4(),
+        )
+        assert plan.survivor.id == existing.id
 
     async def test_keeps_id_when_one_existing(self) -> None:
         """One existing keeps its id."""
@@ -980,10 +1029,10 @@ class TestPlanRelationshipDedup:
     def test_merges_non_provenance_properties_from_duplicates(self) -> None:
         """A duplicate's distinct property is not lost when its edge is deleted.
 
-        Regression test: fetch_node_relationships_query now returns each
-        edge's full property map, and the dedup update carries the merged
-        result, so a field only the deleted duplicate had survives onto the
-        kept edge instead of disappearing.
+        Regression test: each edge's full property map reaches the dedup
+        pass, and the dedup update carries the merged result, so a field
+        only the deleted duplicate had survives onto the kept edge instead
+        of disappearing.
         """
         other = uuid4()
         keeper = _transferred(other_id=other, properties={"confidence": "high"})
@@ -1061,199 +1110,28 @@ class TestApplyMerge:
         assert "merged_from" not in record["properties"]
         assert "merge_count" not in record["properties"]
         alias_calls = [
-            c for c in calls if set(c.args[1]) == {"merge_keys", "entity_id"}
+            c
+            for c in calls
+            if set(c.args[1]) == {"merge_keys", "entity_id", "pending_job_id"}
         ]
         assert len(alias_calls) == 1
         assert alias_calls[0].args[1] == {
             "merge_keys": [survivor.merge_key],
             "entity_id": str(survivor.id),
+            "pending_job_id": None,
         }
 
-    async def test_two_plus_runs_in_one_transaction(self) -> None:
-        """Two-plus tombstones, deletes internal edges, transfers, and re-fetches.
-
-        Every write for the multi-entity path goes through the yielded
-        transaction handle, never the store's own execute_write/upsert_nodes,
-        since apply_merge must be able to roll the whole thing back as one
-        unit.
-        """
+    async def test_nonempty_tombstones_raise_before_any_write(self) -> None:
+        """A plan naming absorbed entities is rejected, never half-written."""
         survivor = _entity(name="Ada")
-        tombstone = uuid4()
-        plan = MergePlan(survivor=survivor, tombstone_ids=[tombstone], conflicts=[])
+        plan = MergePlan(survivor=survivor, tombstone_ids=[uuid4()], conflicts=[])
         execute_write = AsyncMock(return_value=[])
         store = _store_with_transaction(execute_write)
 
-        await apply_merge(plan, graph_store=store, schema=_schema())
+        with pytest.raises(ValueError, match="Destructive merge is retired"):
+            await apply_merge(plan, graph_store=store, schema=_schema())
 
-        store.upsert_nodes.assert_not_awaited()
-        store.execute_write.assert_not_awaited()
-        store.txn_upsert_nodes.assert_not_awaited()
-
-        calls = execute_write.call_args_list
-        # merge_key is cleared from every tombstone before the survivor is
-        # written, so a survivor whose resolved name matches a tombstone's
-        # own name cannot collide with the per-label merge_key constraint.
-        clear_calls = [
-            c
-            for c in calls
-            if set(c.args[1]) == {"tombstone_ids"} and "REMOVE n.merge_key" in c.args[0]
-        ]
-        assert len(clear_calls) == 1
-        assert clear_calls[0].args[1]["tombstone_ids"] == [str(tombstone)]
-        # Survivor write, via upsert_survivor_query's atomic accumulation.
-        survivor_calls = [c for c in calls if set(c.args[1]) == {"records"}]
-        assert len(survivor_calls) == 1
-        assert survivor_calls[0].args[1]["records"][0]["id"] == str(survivor.id)
-        assert calls.index(clear_calls[0]) < calls.index(survivor_calls[0])
-        # Merge-key alias for the survivor's own current name.
-        alias_calls = [
-            c for c in calls if set(c.args[1]) == {"merge_keys", "entity_id"}
-        ]
-        assert len(alias_calls) == 1
-        assert alias_calls[0].args[1]["entity_id"] == str(survivor.id)
-        # Tombstone: marks the absorbed id merged, distinguished from the
-        # internal-edge delete below by query text since both take the same
-        # {tombstone_ids, survivor_id} parameters.
-        tombstone_calls = [
-            c
-            for c in calls
-            if set(c.args[1]) == {"tombstone_ids", "survivor_id"}
-            and "SET n.merged_into" in c.args[0]
-        ]
-        assert len(tombstone_calls) == 1
-        assert tombstone_calls[0].args[1]["tombstone_ids"] == [str(tombstone)]
-        # A tombstone's embedding is dropped in the same write: a native
-        # vector index only covers nodes carrying the indexed property, so
-        # this is what keeps an absorbed entity out of vector search.
-        assert "REMOVE n.embedding" in tombstone_calls[0].args[0]
-        # Internal/self-link edge cleanup, once, before any transfer.
-        internal_delete_calls = [
-            c
-            for c in calls
-            if set(c.args[1]) == {"tombstone_ids", "survivor_id"}
-            and "DELETE r" in c.args[0]
-        ]
-        assert len(internal_delete_calls) == 1
-        # Both transfer directions, once per tombstone.
-        transfer_calls = [
-            c for c in calls if set(c.args[1]) == {"tombstone_id", "survivor_id"}
-        ]
-        assert len(transfer_calls) == 2
-        # Both post-transfer neighbourhood fetches.
-        fetch_calls = [c for c in calls if set(c.args[1]) == {"node_id"}]
-        assert len(fetch_calls) == 2
-
-    async def test_handles_row_parsing_errors(self) -> None:
-        """Malformed neighbourhood rows are skipped, and no dedup call follows."""
-        survivor = _entity(name="Ada")
-        tombstone = uuid4()
-        plan = MergePlan(survivor=survivor, tombstone_ids=[tombstone], conflicts=[])
-
-        async def _exec_write(query, params=None):
-            if params and "node_id" in params:
-                return [
-                    {"bad": "row"},
-                    {
-                        "other_id": "not-a-uuid",
-                        "rel_type": "X",
-                        "new_relationship_id": "also-bad",
-                    },
-                    {
-                        "other_id": str(uuid4()),
-                        "rel_type": "KNOWS",
-                        "new_relationship_id": str(uuid4()),
-                        "properties": {"source_chunk_ids": ["not-a-uuid"]},
-                    },
-                ]
-            return []
-
-        execute_write = AsyncMock(side_effect=_exec_write)
-        store = _store_with_transaction(execute_write)
-        await apply_merge(plan, graph_store=store, schema=_schema())
-        dedup_calls = [
-            c
-            for c in execute_write.call_args_list
-            if "updates" in c.args[1] or "delete_ids" in c.args[1]
-        ]
-        assert dedup_calls == []
-
-    async def test_transfer_handles_partial_bad_rows(self) -> None:
-        """One good row and one bad row leave a single-row group: no dedup."""
-        survivor = _entity(name="Ada")
-        tombstone = uuid4()
-        plan = MergePlan(survivor=survivor, tombstone_ids=[tombstone], conflicts=[])
-        other = uuid4()
-        good_id = uuid4()
-        c1 = uuid4()
-
-        async def _exec_write(query, params=None):
-            if params and "node_id" in params:
-                return [
-                    {
-                        "other_id": str(other),
-                        "rel_type": "KNOWS",
-                        "new_relationship_id": str(good_id),
-                        "properties": {"source_chunk_ids": [str(c1)]},
-                    },
-                    {
-                        "other_id": "bad",
-                        "rel_type": "KNOWS",
-                        "new_relationship_id": str(uuid4()),
-                        "properties": {"source_chunk_ids": []},
-                    },
-                ]
-            return []
-
-        execute_write = AsyncMock(side_effect=_exec_write)
-        store = _store_with_transaction(execute_write)
-        await apply_merge(plan, graph_store=store, schema=_schema())
-        dedup_calls = [
-            c
-            for c in execute_write.call_args_list
-            if "updates" in c.args[1] or "delete_ids" in c.args[1]
-        ]
-        assert dedup_calls == []
-
-    async def test_dedup_update_and_delete_called(self) -> None:
-        """Two duplicate neighbours trigger a type-scoped dedup update and delete."""
-        survivor = _entity(name="Ada")
-        tombstone = uuid4()
-        other = uuid4()
-        c1, c2 = uuid4(), uuid4()
-        r1, r2 = uuid4(), uuid4()
-        plan = MergePlan(survivor=survivor, tombstone_ids=[tombstone], conflicts=[])
-
-        async def _exec_write(query, params=None):
-            if params and "node_id" in params:
-                return [
-                    {
-                        "other_id": str(other),
-                        "rel_type": "KNOWS",
-                        "new_relationship_id": str(r1),
-                        "properties": {"source_chunk_ids": [str(c1)]},
-                    },
-                    {
-                        "other_id": str(other),
-                        "rel_type": "KNOWS",
-                        "new_relationship_id": str(r2),
-                        "properties": {"source_chunk_ids": [str(c2)]},
-                    },
-                ]
-            if params and "updates" in params:
-                assert params["updates"][0]["id"] == str(r1)
-                assert params["updates"][0]["rel_type"] == "KNOWS"
-            if params and "delete_ids" in params:
-                assert params["delete_ids"] == [{"id": str(r2), "rel_type": "KNOWS"}]
-            return []
-
-        execute_write = AsyncMock(side_effect=_exec_write)
-        store = _store_with_transaction(execute_write)
-        await apply_merge(plan, graph_store=store, schema=_schema())
-        calls = execute_write.call_args_list
-        update_calls = [c for c in calls if "updates" in c.args[1]]
-        delete_calls = [c for c in calls if "delete_ids" in c.args[1]]
-        assert update_calls
-        assert delete_calls
+        execute_write.assert_not_awaited()
 
     async def test_foreign_alias_owner_raises_conflict(self) -> None:
         """An accepted merge_key already owned elsewhere raises, not silently drops.
@@ -1274,7 +1152,7 @@ class TestApplyMerge:
         )
 
         async def _exec_write(query, params=None):
-            if params and set(params) == {"merge_keys", "entity_id"}:
+            if params and "pending_job_id" in params:
                 return [
                     {"merge_key": "Person:robert", "entity_id": str(survivor.id)},
                     {"merge_key": "Person:bob", "entity_id": str(foreign_owner_id)},
@@ -1311,7 +1189,7 @@ class TestApplyMerge:
         )
 
         async def _exec_write(query, params=None):
-            if params and set(params) == {"merge_keys", "entity_id"}:
+            if params and "pending_job_id" in params:
                 return [
                     {"merge_key": "Person:robert", "entity_id": str(survivor.id)},
                     {
@@ -1333,35 +1211,6 @@ class TestApplyMerge:
         await apply_merge(plan, graph_store=store, schema=_schema())
 
         assert execute_read.await_count == 2
-
-    async def test_tombstones_own_alias_is_not_a_conflict(self) -> None:
-        """A tombstone's own pre-existing alias does not trigger a conflict.
-
-        An absorbed entity's original merge_key alias legitimately still
-        points at its own (now-tombstoned) id; callers follow merged_into
-        from there. That must not be mistaken for a foreign conflict.
-        """
-        survivor = _entity(name="Ada")
-        tombstone_id = uuid4()
-        plan = MergePlan(
-            survivor=survivor,
-            tombstone_ids=[tombstone_id],
-            conflicts=[],
-            accepted_merge_keys=["Person:ada", "Person:old-name"],
-        )
-
-        async def _exec_write(query, params=None):
-            if params and set(params) == {"merge_keys", "entity_id"}:
-                return [
-                    {"merge_key": "Person:ada", "entity_id": str(survivor.id)},
-                    {"merge_key": "Person:old-name", "entity_id": str(tombstone_id)},
-                ]
-            return []
-
-        execute_write = AsyncMock(side_effect=_exec_write)
-        store = _store_with_transaction(execute_write)
-
-        await apply_merge(plan, graph_store=store, schema=_schema())
 
 
 class TestRelationId:
@@ -1424,3 +1273,40 @@ class TestMentionedInId:
         """Swapped order yields different id."""
         c, e = uuid4(), uuid4()
         assert mentioned_in_id(c, e) != mentioned_in_id(e, c)
+
+
+class TestNextChunkId:
+    """next_chunk_id deterministic ids."""
+
+    def test_deterministic(self) -> None:
+        """Same ordered pair always returns the same id."""
+        a, b = uuid4(), uuid4()
+        assert next_chunk_id(a, b) == next_chunk_id(a, b)
+
+    def test_known_value(self) -> None:
+        """Known pair matches uuid5 with OID namespace."""
+        a = UUID("11111111-1111-1111-1111-111111111111")
+        b = UUID("22222222-2222-2222-2222-222222222222")
+        expected = uuid5(NAMESPACE_OID, f"NEXT_CHUNK:{a}:{b}")
+        assert next_chunk_id(a, b) == expected
+
+
+class TestPartOfId:
+    """part_of_id versioned deterministic ids."""
+
+    def test_deterministic_for_same_version(self) -> None:
+        """Same triple always returns the same id."""
+        d, c = uuid4(), uuid4()
+        assert part_of_id(d, c, "v1") == part_of_id(d, c, "v1")
+
+    def test_distinct_versions_differ(self) -> None:
+        """Each document version gets a separate relationship id."""
+        d, c = uuid4(), uuid4()
+        assert part_of_id(d, c, "v1") != part_of_id(d, c, "v2")
+
+    def test_known_value(self) -> None:
+        """Known triple matches uuid5 with OID namespace."""
+        d = UUID("11111111-1111-1111-1111-111111111111")
+        c = UUID("22222222-2222-2222-2222-222222222222")
+        expected = uuid5(NAMESPACE_OID, f"PART_OF:{d}:{c}:v1")
+        assert part_of_id(d, c, "v1") == expected

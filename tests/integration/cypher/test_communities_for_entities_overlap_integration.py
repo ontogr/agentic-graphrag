@@ -172,7 +172,7 @@ class TestCommunitiesForEntitiesOverlapIntegration:
 
             rows = await self.store.execute_read(
                 communities_for_entities_query(),
-                {"entity_ids": [str(e2), str(e3)], "top_k": 10},
+                {"entity_ids": [str(e2), str(e3)], "job_id": None, "top_k": 10},
             )
 
             assert len(rows) == 3

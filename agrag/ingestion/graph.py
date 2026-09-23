@@ -5,9 +5,7 @@ import contextlib
 import glob
 import hashlib
 import unicodedata
-from collections import defaultdict
 from collections.abc import Callable, Sequence
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Union
 from uuid import UUID, uuid4
@@ -27,80 +25,61 @@ from agrag.common.data_models.document import (
 )
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
-from agrag.common.data_models.graph_record import RelationRecord, UpsertResult
 from agrag.common.data_models.graph_schema import GraphSchema
-from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
     ResolvedEntity,
 )
-from agrag.common.data_models.vector_record import VectorRecord
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
-    NODE_IDENTITY_LABEL,
-    clear_chunk_embedding_query,
-    clear_property_query,
     fetch_all_by_label_query,
-    fetch_by_merge_keys_query,
-    fetch_relations_between_query,
-    hydrate_chunks_by_id_query,
-    set_chunk_embedding_query,
-    set_embedding_query,
+    hydrate_entities_by_id_query,
 )
+from agrag.cypher.relations import entities_in_documents_query
+from agrag.cypher.resolution_read import fetch_active_matches_among_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.errors import (
-    GraphStoreAliasConflictError,
-    GraphStoreConstraintViolationError,
-    GraphStoreDataIntegrityError,
+from agrag.ingestion._cutover import run_cutover_job
+from agrag.ingestion._document_lifecycle import find_document
+from agrag.ingestion._ingest_pipeline import (
+    _delete_vectors,
+    _parse_entity_node,
+    _synthetic_entity_mention,
+    _upsert_vectors,
+    _vector_record,
+    extract_chunks,
+    ingest_chunks,
 )
-from agrag.ingestion._document_lifecycle import (
-    close_open_part_of_edges,
-    find_document,
-)
-from agrag.ingestion._lexical_backbone import (
-    build_document_record,
-    build_next_chunk_records,
-    build_part_of_records,
-    distinct_documents,
-)
+from agrag.ingestion._resume import resume_incomplete_jobs
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.materialize import (
     MatchDecision,
     deactivate_match_and_rematerialize,
-    decisions_by_component,
     match_decision_components,
+    matches_id,
+    prune_orphaned_entities,
     write_matches_and_materialize,
-)
-from agrag.ingestion.merge import (
-    MergePlan,
-    apply_merge,
-    compute_merge,
-    mentioned_in_id,
-    relation_id,
 )
 from agrag.ingestion.reports import (
     AddResult,
     CommunityDetectionReport,
     ConsolidationReport,
+    ReevaluationReport,
     UpdateResult,
 )
 from agrag.ingestion.resolve import (
     ExactMatch,
     FuzzyMatch,
     GraphCandidateSource,
-    InBatchCandidateSource,
     LLMVerify,
     PersistedCandidateSource,
-    ResolutionGroup,
     Resolver,
-    build_relation_neighbors,
-    exact_resolution_groups,
     fetch_persisted_neighbors,
     persisted_candidate_indices,
 )
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
+from agrag.ingestion.settings import CutoverJobSettings
 from agrag.ingestion.stats import (
     ExtractionStats,
     IngestStats,
@@ -120,18 +99,6 @@ from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 
 
-def _upsert_stage_failures(result: UpsertResult) -> list[StageFailure]:
-    """Convert isolated graph-store failures into ingestion stage failures."""
-    return [
-        StageFailure(
-            item_id=failure.id,
-            error_type=failure.error_type,
-            error_message=failure.error_message,
-        )
-        for failure in result.failures
-    ]
-
-
 SourceType = Union[str, Path]
 SourcesType = Union[SourceType, Sequence[SourceType]]
 
@@ -144,133 +111,6 @@ SYSTEM_RELATION_TYPES = [
     "MATCHES",
     "RESOLVED_AS",
 ]
-
-
-def _vector_record(
-    record_id: UUID,
-    vector: list[float],
-    *,
-    label: str,
-    text: str,
-    properties: dict[str, object] | None = None,
-) -> VectorRecord:
-    """Build a VectorRecord whose payload matches the retrievers' reads.
-
-    ``label`` lets SearchFilters.to_payload_filter scope a search;
-    ``text`` is the field the VectorStore backends sparse-embed for
-    hybrid_search's keyword arm.
-
-    Args:
-        record_id: The domain object's id.
-        vector: The dense embedding.
-        label: The graph label the domain object carries.
-        text: The embedding_text the vector was computed from.
-        properties: Additional payload fields for metadata filtering.
-
-    Returns:
-        The record ready for VectorStore.upsert.
-    """
-    payload = {"label": label, "text": text}
-    if properties:
-        payload.update(properties)
-    return VectorRecord(id=record_id, vector=vector, payload=payload)
-
-
-async def _upsert_vectors(
-    vector_store: VectorStore | None,
-    collection: str,
-    records: list[VectorRecord],
-) -> None:
-    """Upsert records to the VectorStore when one is configured.
-
-    Records whose vector is empty are skipped: an embed failure leaves
-    None on the domain object, and an empty vector cannot be searched, so
-    writing it would only corrupt the collection.
-
-    Args:
-        vector_store: The store to write to, or None to do nothing.
-        collection: The collection name to write into.
-        records: The records to upsert.
-    """
-    if vector_store is None:
-        return
-    writable = [record for record in records if record.vector]
-    if not writable:
-        return
-    await vector_store.upsert(collection, writable)
-
-
-async def _delete_vectors(
-    vector_store: VectorStore | None, collection: str, ids: Sequence[UUID]
-) -> None:
-    """Delete records from the VectorStore when one is configured.
-
-    Args:
-        vector_store: The store to delete from, or None to do nothing.
-        collection: The collection name to delete from.
-        ids: The record ids to delete.
-    """
-    if vector_store is None or not ids:
-        return
-    await vector_store.delete(collection, list(ids))
-
-
-def _node_properties(node: object) -> dict[str, Any]:
-    """Return a node's properties from a GraphStore read row.
-
-    The driver's ``Result.data()`` returns a node as a dict of its
-    properties, which is also the shape the unit-test fakes use. A mapping
-    that wraps them under ``properties`` is unwrapped.
-
-    Args:
-        node: The ``n`` value of a read row, or the row itself.
-
-    Returns:
-        The node's properties, or an empty mapping when none can be read.
-    """
-    if isinstance(node, dict):
-        properties = node.get("properties")
-        return dict(properties) if isinstance(properties, dict) else dict(node)
-    with contextlib.suppress(Exception):
-        return dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
-    return {}
-
-
-async def _persisted_chunk_ids(
-    graph_store: GraphStore, chunk_ids: set[UUID]
-) -> set[UUID]:
-    """Return the subset of chunk_ids that exist as Chunk nodes.
-
-    ``upsert_nodes`` writes its batches in sequence, so a failure partway
-    through leaves the earlier batches committed. Embedding only the ids the
-    graph really holds keeps those chunks searchable and keeps a chunk that
-    never landed out of the VectorStore.
-
-    Args:
-        graph_store: Where the chunk nodes are read.
-        chunk_ids: The ids this call tried to write.
-
-    Returns:
-        The ids found, or an empty set when the graph cannot be read. The
-        caller then skips the embedding stage, which is what it did for every
-        chunk before the partial write was accounted for.
-    """
-    if not chunk_ids:
-        return set()
-    try:
-        rows = await graph_store.execute_read(
-            hydrate_chunks_by_id_query(), {"ids": [str(cid) for cid in chunk_ids]}
-        )
-    except Exception:  # noqa: BLE001
-        return set()
-    found: set[UUID] = set()
-    for row in rows:
-        node = row.get("n", row) if isinstance(row, dict) else row
-        node_id = _node_properties(node).get("id")
-        if node_id is not None:
-            with contextlib.suppress(ValueError):
-                found.add(UUID(str(node_id)))
-    return found
 
 
 def _resolve_paths(source: SourcesType) -> tuple[list[Path], bool]:
@@ -306,416 +146,6 @@ def _resolve_paths(source: SourcesType) -> tuple[list[Path], bool]:
     return paths, single_file
 
 
-def _parse_entity_node(node: object) -> Entity | None:  # noqa: PLR0912,PLR0915
-    """Parse a GraphStore node row into an Entity.
-
-    Handles both neo4j Node objects and plain dict mocks used in unit tests.
-    """
-    try:
-        props: dict = {}
-        labels: list[str] = []
-        node_id: object = None
-
-        if isinstance(node, dict) and "labels" in node and "properties" in node:
-            # Mock form: {"id": "...", "labels": [...], "properties": {...}}
-            labels = list(node.get("labels") or [])
-            props = dict(node.get("properties") or {})
-            node_id = node.get("id") or props.get("id")
-        elif isinstance(node, dict) and "id" in node:
-            # Flat mock where properties are top-level alongside id/labels
-            # e.g. {"n": {"id": "...", "name": "...", "merge_key": "..."}}
-            # But here node is that inner dict.
-            props = dict(node)
-            # id may be in props
-            node_id = props.get("id")
-            # labels might be in props or separate
-            maybe_labels = props.pop("labels", None)
-            if isinstance(maybe_labels, list):
-                labels = maybe_labels
-            # Try to get labels from node dict if present alongside
-            if not labels and "labels" in props:
-                labels = props.pop("labels")  # type: ignore[assignment]
-        else:
-            # Attempt neo4j Node: dict(node) gives properties, node.labels gives labels
-            try:
-                props = dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
-            except Exception:
-                props = {}
-            try:
-                maybe_labels = getattr(node, "labels", None)
-                if maybe_labels is not None:
-                    labels = list(maybe_labels)  # type: ignore[arg-type]
-            except Exception:
-                labels = []
-            # Try id from props or node["id"]
-            try:
-                node_id = props.get("id")  # type: ignore[union-attr]
-            except Exception:
-                node_id = None
-            if node_id is None:
-                with contextlib.suppress(Exception):
-                    node_id = node["id"]  # type: ignore[index]  # ty: ignore[not-subscriptable]
-            # Node may also be wrapped as {"n": Node}
-            if isinstance(node, dict) and "n" in node:
-                return _parse_entity_node(node["n"])
-
-        if node_id is None:
-            # Fallback: id inside props
-            node_id = props.get("id")
-
-        # Determine label
-        label: str | None = None
-        if labels:
-            for lbl in labels:
-                if lbl not in (NODE_IDENTITY_LABEL, CHUNK_LABEL):
-                    label = str(lbl)
-                    break
-            if label is None:
-                # All labels were system labels, take first
-                label = str(labels[0]) if labels else None
-        if label is None:
-            # Fallback from merge_key
-            mk = props.get("merge_key") or ""
-            if isinstance(mk, str) and ":" in mk:
-                label = mk.split(":", 1)[0]
-
-        if label is None or node_id is None:
-            return None
-
-        # System keys not part of domain properties
-        system_keys = {
-            "name",
-            "merge_key",
-            "merged_from",
-            "merge_count",
-            "source_chunk_ids",
-            "created_at",
-            "embedding",
-            "id",
-        }
-        entity_props = {k: v for k, v in props.items() if k not in system_keys}
-
-        merged_from_raw = props.get("merged_from") or []
-        merged_from = [UUID(str(x)) for x in merged_from_raw if x]
-
-        try:
-            merge_count = int(props.get("merge_count", 1))
-        except Exception:
-            merge_count = 1
-
-        scids_raw = props.get("source_chunk_ids") or []
-        scids = [UUID(str(x)) for x in scids_raw if x]
-
-        embedding = props.get("embedding")
-
-        created_at_raw = props.get("created_at")
-        created_at = None
-        if isinstance(created_at_raw, str):
-            try:
-                created_at = datetime.fromisoformat(created_at_raw)
-            except Exception:
-                created_at = None
-
-        name_val = props.get("name")
-        if name_val is None:
-            mk = props.get("merge_key", "")
-            if isinstance(mk, str) and ":" in mk:
-                name_val = mk.split(":", 1)[1]
-            else:
-                name_val = mk or ""
-
-        kwargs: dict = {
-            "id": UUID(str(node_id)),
-            "label": label,
-            "name": str(name_val),
-            "properties": entity_props,
-            "merged_from": merged_from,
-            "merge_count": merge_count,
-            "source_chunk_ids": scids,
-        }
-        if embedding is not None:
-            kwargs["embedding"] = list(embedding)  # type: ignore[arg-type]
-        if created_at is not None:
-            kwargs["created_at"] = created_at
-        return Entity(**kwargs)
-    except Exception:
-        return None
-
-
-def _extract_merged_into(node: object, row: object) -> str | None:
-    """Return a tombstone's ``merged_into`` id if present, else ``None``.
-
-    Callers read ``None`` as "this node is live" -- so, unlike the two
-    inner probes below, nothing here is allowed to turn a genuine failure
-    into ``None``. Each probe tries one node representation (plain dict
-    properties, a dict-convertible driver object, an attribute-bearing
-    driver object) and is individually suppressed only because failing to
-    apply does not mean the node lacks ``merged_into``, just that this
-    particular representation does not match; there is always another probe
-    or the final "no candidates found" fallthrough to answer that. Nothing
-    past those probes suppresses errors, so a genuine bug -- for example an
-    id that cannot be stringified -- propagates instead of being silently
-    read as "live".
-    """
-    candidates: list[object] = []
-    if isinstance(node, dict):
-        props = node.get("properties") if "properties" in node else None
-        if isinstance(props, dict) and props.get("merged_into"):
-            candidates.append(props["merged_into"])
-        if node.get("merged_into"):
-            candidates.append(node["merged_into"])
-    else:
-        with contextlib.suppress(Exception):
-            props = dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
-            if isinstance(props, dict) and props.get("merged_into"):
-                candidates.append(props["merged_into"])
-        with contextlib.suppress(Exception):
-            val = getattr(node, "merged_into", None)
-            if val:
-                candidates.append(val)
-    if isinstance(row, dict) and row.get("merged_into"):
-        candidates.append(row["merged_into"])
-    if candidates:
-        return str(candidates[0])
-    return None
-
-
-_MAX_TOMBSTONE_CHAIN_HOPS = 32
-
-
-async def _resolve_tombstone_chain(
-    *,
-    start_merged_into: str,
-    graph_store: GraphStore,
-) -> Entity:
-    """Follow ``merged_into`` pointers until the live survivor is reached.
-
-    Args:
-        start_merged_into: The id the first tombstone points at.
-        graph_store: Where the chain is read from.
-
-    Returns:
-        The live entity at the end of the chain -- never a tombstone.
-
-    Raises:
-        GraphStoreDataIntegrityError: The chain cycles, points at a missing
-            node, the live node at its end cannot be parsed as an Entity, or
-            the chain exceeds ``_MAX_TOMBSTONE_CHAIN_HOPS`` hops without
-            reaching a live node. A store read failure propagates as-is,
-            unwrapped.
-    """
-    visited: set[str] = set()
-    current_id = start_merged_into
-    for _ in range(_MAX_TOMBSTONE_CHAIN_HOPS):
-        if current_id in visited:
-            raise GraphStoreDataIntegrityError(
-                f"merged_into cycle detected resolving tombstone chain from "
-                f"{start_merged_into!r} (revisited {current_id!r})"
-            )
-        visited.add(current_id)
-        rows = await graph_store.execute_read(
-            f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) RETURN n",
-            {"id": current_id},
-        )
-        if not rows:
-            raise GraphStoreDataIntegrityError(
-                f"tombstone chain from {start_merged_into!r} points at "
-                f"missing node {current_id!r}"
-            )
-        row = rows[0]
-        node = (
-            row.get("n") if isinstance(row, dict) and "n" in row else row  # type: ignore[union-attr]
-        )
-        # An intermediate tombstone's own node is never parsed: a real
-        # driver row carries no "labels" key for a plain RETURN n, and
-        # clear_tombstone_merge_keys_query already stripped merge_key --
-        # _parse_entity_node's label fallbacks both come up empty, even
-        # though this hop is not what the caller ultimately needs.
-        next_id = _extract_merged_into(node, row)
-        if next_id is not None:
-            current_id = next_id
-            continue
-        entity = _parse_entity_node(node) or _parse_entity_node(row)  # type: ignore[arg-type]
-        if entity is None:
-            raise GraphStoreDataIntegrityError(
-                f"tombstone chain from {start_merged_into!r} reached "
-                f"unparsable node {current_id!r}"
-            )
-        return entity
-    raise GraphStoreDataIntegrityError(
-        f"tombstone chain from {start_merged_into!r} exceeded "
-        f"{_MAX_TOMBSTONE_CHAIN_HOPS} hops without reaching a live node"
-    )
-
-
-async def _global_exact_match(
-    mentions: list[ExtractedEntity], *, graph_store: GraphStore
-) -> dict[int, Entity]:
-    """Return each mention index's matching persisted Entity, if it has one.
-
-    One batched read per distinct label present in mentions. A row is
-    mapped back to its mention(s) by the merge_key the row's alias was
-    matched on -- returned alongside the node by fetch_by_merge_keys_query
-    -- rather than by re-deriving a key from the resolved entity's current
-    name: an accepted alias can name an entity by something other than its
-    current canonical name (see upsert_merge_alias_query), so re-deriving
-    would silently fail to map those mentions back. A row that turns out to
-    be a tombstone has its merged_into chain followed to the live survivor
-    first; older rows without a returned merge_key (plain mocks) fall back
-    to the resolved entity's own merge_key.
-
-    Args:
-        mentions: The entity mentions to look up.
-        graph_store: Where the lookup runs.
-
-    Returns:
-        A map from mention index to its matching Entity.
-
-    Raises:
-        GraphStoreDataIntegrityError: A matched row's merged_into chain
-            could not be resolved to a live entity.
-    """
-    if not mentions:
-        return {}
-    grouped: dict[str, list[str]] = defaultdict(list)
-    mk_to_indices: dict[str, list[int]] = defaultdict(list)
-    for idx, mention in enumerate(mentions):
-        mk = f"{mention.label}:{normalize_text(mention.text)}"
-        grouped[mention.label].append(mk)
-        mk_to_indices[mk].append(idx)
-
-    result: dict[int, Entity] = {}
-    for _label, mks in grouped.items():
-        unique_mks = list(dict.fromkeys(mks))
-        if not unique_mks:
-            continue
-        rows = await graph_store.execute_read(
-            fetch_by_merge_keys_query(), {"merge_keys": unique_mks}
-        )
-        for row in rows:
-            node = row.get("n") if isinstance(row, dict) and "n" in row else row
-            # A tombstone's own node is never parsed: a real driver row
-            # carries no "labels" key for a plain RETURN n, and
-            # clear_tombstone_merge_keys_query already stripped merge_key --
-            # _parse_entity_node's label fallbacks both come up empty, even
-            # though the alias lookup only needs the live entity at the end
-            # of merged_into, not this row's own node.
-            merged_into = _extract_merged_into(node, row)
-            if merged_into is not None:
-                entity = await _resolve_tombstone_chain(
-                    start_merged_into=merged_into, graph_store=graph_store
-                )
-            else:
-                entity = _parse_entity_node(node) or _parse_entity_node(row)
-                if entity is None:
-                    continue
-            queried_mk = row.get("merge_key") if isinstance(row, dict) else None
-            mk = queried_mk if isinstance(queried_mk, str) else entity.merge_key
-            for idx in mk_to_indices.get(mk, []):
-                if mentions[idx].label == entity.label:
-                    result[idx] = entity
-    return result
-
-
-async def _global_relation_lookup(
-    triples: list[tuple[UUID, UUID, str]], *, graph_store: GraphStore
-) -> dict[tuple[UUID, UUID, str], tuple[UUID, list[UUID]]]:
-    """Return each triple's already-persisted relation id and source_chunk_ids.
-
-    One batched read per distinct relation type present in triples.
-
-    Args:
-        triples: The (source_id, target_id, type) triples to look up.
-        graph_store: Where the lookup runs.
-
-    Returns:
-        A map from triple to its existing relation's (id, source_chunk_ids).
-    """
-    if not triples:
-        return {}
-    by_type: dict[str, list[tuple[UUID, UUID]]] = defaultdict(list)
-    for src, tgt, typ in triples:
-        by_type[typ].append((src, tgt))
-
-    result: dict[tuple[UUID, UUID, str], tuple[UUID, list[UUID]]] = {}
-    for rel_type, pairs in by_type.items():
-        unique_pairs = list(dict.fromkeys(pairs))
-        # Build params as list of {source_id, target_id}
-        params = [{"source_id": str(s), "target_id": str(t)} for s, t in unique_pairs]
-        query = fetch_relations_between_query(rel_type)
-        rows = await graph_store.execute_read(query, {"pairs": params})
-        for row in rows:
-            try:
-                src = UUID(str(row["source_id"]))
-                tgt = UUID(str(row["target_id"]))
-                rel_id = UUID(str(row["id"]))
-                raw_scids = row.get("source_chunk_ids") or []
-                scids = [UUID(str(x)) for x in raw_scids]
-                key = (src, tgt, rel_type)
-                # Also handle reverse? Not needed, query is directed.
-                result[key] = (rel_id, scids)
-            except Exception:
-                continue
-    return result
-
-
-def _union_groups_by_existing_entity(
-    groups: list[ResolutionGroup], exact_matches: dict[int, Entity]
-) -> list[ResolutionGroup]:
-    """Union resolver groups that exact-match the same persisted entity.
-
-    Two mentions can land in separate resolver groups -- in-batch fuzzy/LLM
-    resolution never compared them directly -- while each independently
-    exact-matches the same persisted entity through a different accepted
-    alias (see upsert_merge_alias_query). Computing and applying one merge
-    plan per resolver group in that case would have the second group's
-    apply_merge overwrite the first's contribution: each computes against
-    the same snapshot with no knowledge of the other's changes. Unioning
-    first means one plan is computed per canonical persisted entity,
-    folding in every mention that resolves to it.
-
-    Args:
-        groups: The resolver's own groups.
-        exact_matches: Mention index to persisted Entity, from
-            _global_exact_match.
-
-    Returns:
-        Groups covering the same entity_indices, but any two resolver
-        groups that shared an exact-matched entity id merged into one.
-    """
-    parent = list(range(len(groups)))
-
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    def union(a: int, b: int) -> None:
-        root_a, root_b = find(a), find(b)
-        if root_a != root_b:
-            parent[root_a] = root_b
-
-    entity_to_group: dict[UUID, int] = {}
-    for group_index, group in enumerate(groups):
-        for idx in group.entity_indices:
-            entity = exact_matches.get(idx)
-            if entity is None:
-                continue
-            if entity.id in entity_to_group:
-                union(group_index, entity_to_group[entity.id])
-            else:
-                entity_to_group[entity.id] = group_index
-
-    merged: dict[int, list[int]] = defaultdict(list)
-    for group_index, group in enumerate(groups):
-        merged[find(group_index)].extend(group.entity_indices)
-
-    return [
-        ResolutionGroup(entity_indices=sorted(indices)) for indices in merged.values()
-    ]
-
-
 def _synthesize_consolidation_mentions(
     entities: list[Entity],
 ) -> tuple[list[ExtractedEntity], dict[UUID, Chunk]]:
@@ -745,398 +175,213 @@ def _synthesize_consolidation_mentions(
     return synthetic_mentions, dummy_chunks_by_id
 
 
-def _synthetic_entity_mention(entity: Entity) -> tuple[ExtractedEntity, Chunk]:
-    """Build a mention and distinct name context for a persisted raw entity."""
-    chunk_id = uuid4()
-    chunk = Chunk(
-        id=chunk_id,
-        document_id=chunk_id,
-        index=0,
-        text=entity.name,
-        provenance=TextProvenance(char_start=0, char_end=len(entity.name)),
-    )
-    return (
-        ExtractedEntity(
-            chunk_id=chunk_id,
-            label=entity.label,
-            text=entity.name,
-            char_start=0,
-            char_end=len(entity.name),
-        ),
-        chunk,
-    )
+async def _no_pending_write(job_id: UUID) -> None:
+    """Pending-write step for delete_document, which writes nothing new."""
 
 
-def _embedding_guard_fields(entity: Entity) -> dict[str, str]:
-    """Return the id/name/description fields the embedding writes guard on.
-
-    set_embedding_query and clear_property_query only apply a record when a
-    node's current name/description still match these values, so a slower
-    call cannot overwrite or clear a newer call's vector for different text.
-    Mirrors ``coalesce(n.description, '')`` on the Cypher side.
-    """
-    description = entity.properties.get("description")
-    return {
-        "id": str(entity.id),
-        "expected_name": entity.name,
-        "expected_description": str(description) if description else "",
-    }
+async def _no_cleanup() -> None:
+    """Cleanup step for add(), whose empty snapshot prunes nothing."""
 
 
-async def _embed_and_upsert_chunks(
+def _group_by_document(
     chunks: list[Chunk],
-    *,
-    embedder: Embedder,
-    graph_store: GraphStore,
-    error_policy: ErrorPolicy,
-    vector_store: VectorStore | None = None,
-    vector_collection: str = "",
-) -> list[StageFailure]:
-    """Embed every chunk's text and write the vectors back onto their nodes.
+    documents: list[Document],
+    entities: list[ExtractedEntity],
+    relations: list[ExtractedRelation],
+    extraction_failures: list[StageFailure],
+) -> list[
+    tuple[
+        str,
+        list[Chunk],
+        list[Document],
+        list[ExtractedEntity],
+        list[ExtractedRelation],
+        list[StageFailure],
+    ]
+]:
+    """Split one call's pipeline inputs into per-document slices.
 
-    On failure, clears any embedding already written to the chunk nodes
-    rather than leaving one computed for stale text in place: vector
-    search must not keep ranking a chunk by outdated content just because
-    this re-embed failed. The clear is guarded by ``expected_text`` the
-    same way the write is, so a concurrent update that changed a chunk's
-    text between this call's embed and its clear does not accidentally
-    wipe a newer vector.
-
-    When vector_store is set, every successfully written vector is also
-    upserted there so SearchEngine's VectorStore path matches the
-    GraphStore-native path. Each record carries its chunk's
-    ``document_id``, which is what a document-scoped SearchFilters
-    compiles to, so filtering by document works on both paths. A
-    VectorStore failure honors error_policy: RAISE propagates, otherwise
-    it is recorded as a StageFailure and the native search path keeps
-    working without it. The failure leaves the collection untouched: the
-    mirror has no conditional write, so deleting the records this call
-    failed to replace would race a concurrent re-ingest and could remove
-    the newer vector it just wrote. The stored record keeps its previous
-    text until the next successful ingest rewrites it, and retrieval
-    hydrates every hit from the graph, so only that record's score is
-    stale.
+    Each slice carries one document's chunks, mentions, relations, and
+    extraction failures, so it can ingest as its own Cutover Job. Order
+    follows the documents' first occurrence. A chunk, mention, or failure
+    that maps to no listed document joins the first slice rather than
+    being dropped; with no documents at all but stray chunks, the first
+    chunk's document linkage keys the single slice.
 
     Args:
-        chunks: The chunks this call wrote to graph_store already.
-        embedder: Produces one vector per chunk text.
-        graph_store: Where the embedding, and on failure the cleared
-            embedding property, are written.
-        error_policy: RAISE propagates the failure after clearing; any
-            other policy returns it instead.
-        vector_store: Optional second write target; None does nothing.
-        vector_collection: The VectorStore collection to write into.
-            Ignored when vector_store is None.
-        error_policy: RAISE propagates the failure after clearing; any
-            other policy returns it instead.
+        chunks: The call's chunks, in document then chunk order.
+        documents: The call's documents, possibly repeating.
+        entities: Mentions addressing chunks by id.
+        relations: Relations addressing chunks by id.
+        extraction_failures: Failures keyed by chunk id.
 
     Returns:
-        One StageFailure per chunk whose embed or write step raised.
-
-    Raises:
-        Exception: Whatever embed() or the write raised, when
-            error_policy is RAISE.
+        One (document_key, chunks, documents, entities, relations,
+        failures) tuple per document.
     """
-    try:
-        texts = [ch.text for ch in chunks]
-        vectors = await embedder.embed(texts)
-        records = []
-        for ch, vec in zip(chunks, vectors, strict=True):
-            ch.embedding = vec
-            records.append(
-                {
-                    "id": str(ch.id),
-                    "vector": vec,
-                    "expected_text": ch.text,
-                }
-            )
-        await graph_store.execute_write(
-            set_chunk_embedding_query("embedding"), {"records": records}
-        )
-    except Exception as exc:  # noqa: BLE001
-        with contextlib.suppress(Exception):
-            await graph_store.execute_write(
-                clear_chunk_embedding_query("embedding"),
-                {
-                    "records": [
-                        {"id": str(ch.id), "expected_text": ch.text} for ch in chunks
-                    ]
-                },
-            )
-        if error_policy is ErrorPolicy.RAISE:
-            raise
-        return [
-            StageFailure(
-                item_id="chunk_embeddings",
-                error_type=type(exc).__name__,
-                error_message=str(exc),
-            )
-        ]
-    if vector_store is not None:
-        vector_records = []
-        for ch in chunks:
-            if ch.id is None or not ch.embedding:
-                continue
-            vector_records.append(
-                _vector_record(
-                    ch.id,
-                    ch.embedding,
-                    label=CHUNK_LABEL,
-                    text=ch.text,
-                    properties={"document_id": str(ch.document_id)},
-                )
-            )
+    ordered_keys: list[str] = []
+    for document in documents:
+        key = document.resolved_document_key
+        if key not in ordered_keys:
+            ordered_keys.append(key)
+    if not ordered_keys and chunks:
+        first_link = chunks[0].document_id
+        ordered_keys = [str(first_link)]
+    key_by_node_id = {
+        Document.node_id_for(document_key=key): key for key in ordered_keys
+    }
+    chunks_by_key: dict[str, list[Chunk]] = {key: [] for key in ordered_keys}
+    for chunk in chunks:
+        chunks_by_key.setdefault(
+            key_by_node_id.get(chunk.document_id, ordered_keys[0]), []
+        ).append(chunk)
+    chunk_ids_by_key = {
+        key: {chunk.id for chunk in group if chunk.id is not None}
+        for key, group in chunks_by_key.items()
+    }
+    key_by_chunk_id: dict[UUID, str] = {}
+    for key, chunk_ids in chunk_ids_by_key.items():
+        for chunk_id in chunk_ids:
+            key_by_chunk_id[chunk_id] = key
+    entities_by_key: dict[str, list[ExtractedEntity]] = {
+        key: [] for key in ordered_keys
+    }
+    for entity in entities:
+        entities_by_key.setdefault(
+            key_by_chunk_id.get(entity.chunk_id, ordered_keys[0]), []
+        ).append(entity)
+    relations_by_key: dict[str, list[ExtractedRelation]] = {
+        key: [] for key in ordered_keys
+    }
+    for relation in relations:
+        relations_by_key.setdefault(
+            key_by_chunk_id.get(relation.chunk_id, ordered_keys[0]), []
+        ).append(relation)
+    failures_by_key: dict[str, list[StageFailure]] = {key: [] for key in ordered_keys}
+    for failure in extraction_failures:
         try:
-            await _upsert_vectors(vector_store, vector_collection, vector_records)
-        except Exception as exc:  # noqa: BLE001
-            if error_policy is ErrorPolicy.RAISE:
-                raise
-            return [
-                StageFailure(
-                    item_id="chunk_vector_store",
-                    error_type=type(exc).__name__,
-                    error_message=str(exc),
-                )
-            ]
-    return []
+            failure_key = key_by_chunk_id.get(UUID(str(failure.item_id)))
+        except ValueError:
+            failure_key = None
+        failures_by_key.setdefault(failure_key or ordered_keys[0], []).append(failure)
+    documents_by_key: dict[str, list[Document]] = {key: [] for key in ordered_keys}
+    for document in documents:
+        documents_by_key[document.resolved_document_key].append(document)
+    return [
+        (
+            key,
+            chunks_by_key[key],
+            documents_by_key[key],
+            entities_by_key[key],
+            relations_by_key[key],
+            failures_by_key[key],
+        )
+        for key in ordered_keys
+    ]
 
 
-async def _embed_and_upsert_survivors(
-    survivors: dict[UUID, Entity],
-    *,
-    embedder: Embedder,
-    graph_store: GraphStore,
-    error_policy: ErrorPolicy,
-    vector_store: VectorStore | None = None,
-    vector_collection: str = "",
-    labels_by_id: dict[UUID, str] | None = None,
-) -> list[StageFailure]:
-    """Embed every survivor's current text and write only the vector.
+def _merge_add_results(
+    results: list[AddResult], *, ingestion: IngestStats
+) -> AddResult:
+    """Combine per-document job results into one call-level summary.
 
-    Shared by add() and consolidate(apply=True): both write a survivor's
-    node before this call, so its embedding must be refreshed for whatever
-    text that write left it with. Writing only the embedding property
-    (set_embedding_query), rather than a full node upsert from the in-memory
-    Entity, matters here specifically: a concurrent writer could update this
-    same entity's provenance or properties while this call's embed() is in
-    flight, and a full overwrite from a snapshot taken before that update
-    would discard it, not just deliver the new vector.
-
-    Both the write and the failure-path clear below are guarded by
-    _embedding_guard_fields: a record only applies when the node's current
-    name/description still match what this call started with. add() and
-    consolidate(apply=True) can run concurrently against the same entity
-    (see _apply_merge_with_conflict_retry), so without this guard an older,
-    slower call's write or clear can land after a newer call's and leave a
-    vector computed for stale text, or wipe a vector the newer call just
-    wrote.
-
-    On failure, clears any embedding already on the survivor nodes rather
-    than leaving one computed for their prior text in place: vector search
-    must not keep ranking an entity by outdated content just because this
-    re-embed failed. ``zip(..., strict=True)`` turns an embedder returning
-    too few vectors into the same failure path, rather than silently
-    leaving the trailing entities' embeddings stale.
-
-    When vector_store is set, each mirrored record also carries the
-    survivor's own properties, since a SearchFilters property filter is
-    compiled into the payload there but into a node-property match on the
-    GraphStore-native path. A failed mirror upsert leaves the collection
-    untouched, for the reason _embed_and_upsert_chunks gives: removing the
-    records this call failed to replace would race a concurrent call that
-    owns them.
+    Each document in an add() call commits as its own Cutover Job; the
+    caller still gets a single AddResult shaped exactly like a one-job
+    call's. Counters sum, failure lists concatenate re-capped against the
+    per-stage cap with true totals preserved, and chunks concatenate in
+    job order. The call-level ingestion summary passed in replaces the
+    per-slice placeholders.
 
     Args:
-        survivors: The entities to embed, keyed by id.
-        embedder: Computes one vector per entity's embedding_text.
-        graph_store: Where the embedding, and on failure the cleared
-            embedding property, are written.
-        error_policy: RAISE propagates the failure after clearing; any
-            other policy returns it instead.
-        vector_store: Optional second write target; None does nothing.
-        vector_collection: The VectorStore collection to write into.
-            Ignored when vector_store is None.
-        labels_by_id: Maps each survivor id to its label for the
-            VectorStore payload. Survivors missing from the map are
-            written with an empty label. Ignored when vector_store is
-            None.
+        results: One AddResult per document job, in job order.
+        ingestion: The call-level ingestion summary from the walk.
 
     Returns:
-        A single-item list with the failure, or empty on success.
-
-    Raises:
-        Exception: Whatever embed() or the write raised, when error_policy
-            is RAISE.
+        The merged summary, or a zero-stage summary when no job ran.
     """
-    try:
-        texts = [ent.embedding_text for ent in survivors.values()]
-        vectors = await embedder.embed(texts)
-        records = []
-        for ent, vec in zip(survivors.values(), vectors, strict=True):
-            ent.embedding = vec
-            records.append({**_embedding_guard_fields(ent), "vector": vec})
-        await graph_store.execute_write(
-            set_embedding_query("embedding"), {"records": records}
+
+    def _combine(
+        item_lists: list[list[StageFailure]], totals: list[int], truncs: list[bool]
+    ) -> tuple[list[StageFailure], int, bool]:
+        combined = [failure for items in item_lists for failure in items]
+        capped = cap_failures(combined)
+        return capped.items, sum(totals), any(truncs) or capped.truncated
+
+    if not results:
+        return AddResult(
+            ingestion=ingestion,
+            extraction=ExtractionStats(),
+            resolution=ResolutionStats(),
+            merge=MergeStats(),
+            storage=StorageStats(),
+            chunks=[],
         )
-    except Exception as exc:  # noqa: BLE001
-        # Best-effort: a failure here must not mask error_policy.
-        with contextlib.suppress(Exception):
-            await graph_store.execute_write(
-                clear_property_query("embedding"),
-                {
-                    "records": [
-                        _embedding_guard_fields(ent) for ent in survivors.values()
-                    ]
-                },
-            )
-        if error_policy is ErrorPolicy.RAISE:
-            raise
-        return [
-            StageFailure(
-                item_id="embeddings",
-                error_type=type(exc).__name__,
-                error_message=str(exc),
-            )
-        ]
-    if vector_store is not None:
-        label_map = labels_by_id or {}
-        vector_records = [
-            _vector_record(
-                ent.id,
-                ent.embedding or [],
-                label=label_map.get(ent.id, ""),
-                text=ent.embedding_text,
-                properties=dict(ent.properties),
-            )
-            for ent in survivors.values()
-        ]
-        try:
-            await _upsert_vectors(vector_store, vector_collection, vector_records)
-        except Exception as exc:  # noqa: BLE001
-            if error_policy is ErrorPolicy.RAISE:
-                raise
-            return [
-                StageFailure(
-                    item_id="entity_vector_store",
-                    error_type=type(exc).__name__,
-                    error_message=str(exc),
-                )
-            ]
-    return []
-
-
-async def _apply_merge_with_conflict_retry(
-    plan: MergePlan,
-    *,
-    graph_store: GraphStore,
-    schema: GraphSchema,
-    existing_entities: list[Entity],
-    mentions: list[ExtractedEntity],
-    is_new_entity: bool,
-) -> tuple[MergePlan, list[Any]]:
-    """Apply a merge plan, recovering once from a concurrent race.
-
-    Two distinct races can surface here, both as a
-    GraphStoreConstraintViolationError:
-
-    - A brand-new entity's write can lose a create race: two concurrent
-      add() calls resolving the same normalized name each run their
-      exact-match lookup before either has written anything, so neither
-      sees the other, and both then try to create a live node for the same
-      merge_key. merge_key_constraint_query rejects whichever write lands
-      second; this recovers by re-resolving the name to whichever entity
-      won the race and merging into it instead, the way a normal update
-      would have if the exact-match lookup had seen it in time. Only
-      possible when is_new_entity, since updating an already-known
-      canonical entity writes that entity's own already-established
-      merge_key, which cannot newly collide.
-    - An accepted merge_key -- one of the group's mention- or
-      absorbed-entity-derived names, not necessarily the survivor's own --
-      can be claimed, mid-transaction, by a live entity outside this
-      merge's own survivor/tombstone set: for example, one writer creates a
-      canonical entity named "Bob" while this call separately resolves
-      "Bob" as an accepted alias of a different canonical entity named
-      "Robert". Neither writer's own node merge_key collides in that case,
-      so apply_merge raises GraphStoreAliasConflictError itself instead of
-      relying on the backend's constraint. This recovers by re-resolving
-      every conflicting merge_key to its real owner and recomputing the
-      merge with those owners folded into existing_entities. Possible
-      whether or not is_new_entity, since it is unrelated to whether the
-      survivor's own node is new.
-
-    Args:
-        plan: The merge to apply.
-        graph_store: Where the merge is written.
-        schema: The schema the survivor's label belongs to.
-        existing_entities: The persisted entities plan was originally
-            computed from, needed to recompute the merge with a
-            newly-discovered conflicting entity folded in.
-        mentions: The mentions compute_merge originally folded into plan,
-            needed to recompute the merge against the real canonical entity.
-        is_new_entity: Whether plan was building a brand-new entity (no
-            existing_entities) -- gates recovery from a bare create-race
-            constraint violation, the only case that can mean.
-
-    Returns:
-        The plan that was actually applied (plan itself, or the recomputed
-        one after recovering from a conflict) and any description-LLM
-        failures the recovery's own compute_merge call raised.
-
-    Raises:
-        GraphStoreConstraintViolationError: The violation was not a race
-            this can recover from (a create-race violation on a non-new
-            entity, or an owner that still cannot be found after retry).
-    """
-    try:
-        await apply_merge(plan, graph_store=graph_store, schema=schema)
-        return plan, []
-    except GraphStoreAliasConflictError as exc:
-        label = plan.survivor.label
-        synthetics = []
-        for merge_key in exc.conflicts:
-            name = merge_key.removeprefix(f"{label}:")
-            synthetics.append(
-                ExtractedEntity(
-                    chunk_id=uuid4(),
-                    label=label,
-                    text=name,
-                    char_start=0,
-                    char_end=len(name),
-                )
-            )
-        resolved = await _global_exact_match(synthetics, graph_store=graph_store)
-        if len(resolved) != len(synthetics):
-            raise
-        owners = {entity.id: entity for entity in resolved.values()}
-        merged_existing = list(
-            {
-                entity.id: entity for entity in [*existing_entities, *owners.values()]
-            }.values()
-        )
-        retried_plan, desc_failures = await compute_merge(
-            existing_entities=merged_existing, mentions=mentions, schema=schema
-        )
-        await apply_merge(retried_plan, graph_store=graph_store, schema=schema)
-        return retried_plan, desc_failures
-    except GraphStoreConstraintViolationError:
-        if not is_new_entity:
-            raise
-        synthetic = ExtractedEntity(
-            chunk_id=uuid4(),
-            label=plan.survivor.label,
-            text=plan.survivor.name,
-            char_start=0,
-            char_end=len(plan.survivor.name),
-        )
-        resolved = await _global_exact_match([synthetic], graph_store=graph_store)
-        canonical = resolved.get(0)
-        if canonical is None:
-            raise
-        retried_plan, desc_failures = await compute_merge(
-            existing_entities=[canonical], mentions=mentions, schema=schema
-        )
-        await apply_merge(retried_plan, graph_store=graph_store, schema=schema)
-        return retried_plan, desc_failures
+    if len(results) == 1:
+        return results[0].model_copy(update={"ingestion": ingestion})
+    extraction_items, extraction_total, extraction_truncated = _combine(
+        [result.extraction.failures for result in results],
+        [result.extraction.failures_total for result in results],
+        [result.extraction.failures_truncated for result in results],
+    )
+    merge_items, merge_total, merge_truncated = _combine(
+        [result.merge.failures for result in results],
+        [result.merge.failures_total for result in results],
+        [result.merge.failures_truncated for result in results],
+    )
+    storage_items, storage_total, storage_truncated = _combine(
+        [result.storage.failures for result in results],
+        [result.storage.failures_total for result in results],
+        [result.storage.failures_truncated for result in results],
+    )
+    return AddResult(
+        ingestion=ingestion,
+        extraction=ExtractionStats(
+            chunks_processed=sum(
+                result.extraction.chunks_processed for result in results
+            ),
+            entities_extracted=sum(
+                result.extraction.entities_extracted for result in results
+            ),
+            relations_extracted=sum(
+                result.extraction.relations_extracted for result in results
+            ),
+            failures=extraction_items,
+            failures_total=extraction_total,
+            failures_truncated=extraction_truncated,
+        ),
+        resolution=ResolutionStats(
+            exact_match_hits=sum(
+                result.resolution.exact_match_hits for result in results
+            ),
+            in_batch_groups=sum(
+                result.resolution.in_batch_groups for result in results
+            ),
+            ambiguous_count=sum(
+                result.resolution.ambiguous_count for result in results
+            ),
+        ),
+        merge=MergeStats(
+            nodes_created=sum(result.merge.nodes_created for result in results),
+            nodes_updated=sum(result.merge.nodes_updated for result in results),
+            nodes_merged=sum(result.merge.nodes_merged for result in results),
+            conflicts_resolved=sum(
+                result.merge.conflicts_resolved for result in results
+            ),
+            failures=merge_items,
+            failures_total=merge_total,
+            failures_truncated=merge_truncated,
+        ),
+        storage=StorageStats(
+            nodes_written=sum(result.storage.nodes_written for result in results),
+            relationships_written=sum(
+                result.storage.relationships_written for result in results
+            ),
+            failures=storage_items,
+            failures_total=storage_total,
+            failures_truncated=storage_truncated,
+        ),
+        chunks=[chunk for result in results for chunk in result.chunks],
+    )
 
 
 class Graph:
@@ -1159,6 +404,7 @@ class Graph:
         tracer: Tracer | None = None,
         vector_store: VectorStore | None = None,
         retrieval_settings: RetrievalSettings | None = None,
+        cutover_settings: CutoverJobSettings | None = None,
     ) -> None:
         """Create a graph bound to a schema, store, embedder, and extractor.
 
@@ -1180,6 +426,9 @@ class Graph:
             retrieval_settings: Collection names for the VectorStore writes.
                 None uses RetrievalSettings defaults. Ignored when
                 vector_store is None.
+            cutover_settings: Lease configuration for the Cutover Jobs
+                add/update/delete_document run through. None uses
+                CutoverJobSettings defaults.
         """
         self._schema = schema
         self._graph_store = graph_store
@@ -1190,6 +439,7 @@ class Graph:
         self._chunker = default_chunker()
         self._vector_store = vector_store
         self._retrieval_settings = retrieval_settings or RetrievalSettings()
+        self._cutover_settings = cutover_settings or CutoverJobSettings()
 
     @classmethod
     async def open(
@@ -1202,6 +452,7 @@ class Graph:
         tracer: Tracer | None = None,
         vector_store: VectorStore | None = None,
         retrieval_settings: RetrievalSettings | None = None,
+        cutover_settings: CutoverJobSettings | None = None,
     ) -> "Graph":
         """Open a graph, connecting and fully provisioning graph_store.
 
@@ -1210,11 +461,11 @@ class Graph:
         system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
         setup_constraints(), then setup_indexes(), then vector indexes for
         every schema entity label — so a brand-new database is fully ready,
-        including the merge_key index the global exact-match tier needs and
-        the embedding vector indexes native search needs, before this call
-        returns. When vector_store is set, the entity, chunk, and community
-        collections are provisioned there too (created when missing) so the
-        dual writes never hit an absent collection.
+        including the merge_key uniqueness constraints the global exact-match
+        tier relies on and the embedding vector indexes native search needs,
+        before this call returns. When vector_store is set, the entity, chunk,
+        and community collections are provisioned there too (created when
+        missing) so the dual writes never hit an absent collection.
 
         Args:
             schema: The entity/relation types this graph validates every
@@ -1228,6 +479,9 @@ class Graph:
                 __init__.
             retrieval_settings: Collection names for the VectorStore writes.
                 None uses RetrievalSettings defaults.
+            cutover_settings: Lease configuration for the Cutover Jobs
+                add/update/delete_document run through. None uses
+                CutoverJobSettings defaults.
 
         Returns:
             A graph connected to graph_store and ready to accept add() calls.
@@ -1282,8 +536,14 @@ class Graph:
                 dimensions=dimensions,
                 distance=distance,
             )
+            recovery_collections: tuple[str, ...] = ()
             if vector_store is not None:
                 settings = retrieval_settings or RetrievalSettings()
+                recovery_collections = (
+                    settings.entity_collection,
+                    settings.chunk_collection,
+                    settings.resolved_entity_collection,
+                )
                 await vector_store.initialize()
                 for collection in (
                     settings.entity_collection,
@@ -1297,21 +557,39 @@ class Graph:
                         distance=distance,
                         hybrid=True,
                     )
+            graph = cls(
+                schema=schema,
+                graph_store=graph_store,
+                embedder=embedder,
+                extractor=extractor,
+                tracer=tracer,
+                vector_store=vector_store,
+                retrieval_settings=retrieval_settings,
+                cutover_settings=cutover_settings,
+            )
+            # Crash recovery, last: every index and collection the
+            # recovery paths rely on now exists. A pending job (its worker
+            # died pre-commit) rolls back; a committed or cleaning job
+            # rolls forward, rerunning the cleanup phase this graph's own
+            # pruning implements. A recovery failure is swallowed: opening
+            # the graph must not break because a leftover job could not be
+            # finished, and the pending filters keep any tagged writes
+            # invisible to retrieval until a later open succeeds.
+            with contextlib.suppress(Exception):
+                await resume_incomplete_jobs(
+                    graph_store,
+                    vector_store=vector_store,
+                    vector_collections=recovery_collections,
+                    roll_forward=graph._prune_document_entities,
+                    lease_ttl_seconds=graph._cutover_settings.lease_ttl_seconds,
+                )
         except Exception:
             await graph_store.close()
             if vector_store is not None:
                 with contextlib.suppress(Exception):
                     await vector_store.close()
             raise
-        return cls(
-            schema=schema,
-            graph_store=graph_store,
-            embedder=embedder,
-            extractor=extractor,
-            tracer=tracer,
-            vector_store=vector_store,
-            retrieval_settings=retrieval_settings,
-        )
+        return graph
 
     async def add(  # noqa: PLR0912,PLR0915,PLR0913
         self,
@@ -1343,7 +621,14 @@ class Graph:
                 for a large corpus when not needed.
 
         Returns:
-            A summary of what was added per pipeline stage.
+            A summary of what was added per pipeline stage. Resolution runs
+            automatically: exact identity plus fuzzy, embedding, and
+            capped LLM zones over one combined mention list, with
+            confirmed matches persisted as MATCHES edges and derived
+            ResolvedEntity nodes. LLM verification calls stay bounded
+            at ceil(L * MAX_LLM_PAIRS / 10) requests for L labels;
+            inspect result.resolution.ambiguous_count for the pairs no
+            tier could decide.
 
         Raises:
             ValueError: The call got zero, or more than one, of ``source``, ``text``,
@@ -1421,51 +706,6 @@ class Graph:
                 chunks=list(chunks) if return_chunks else [],
             )
 
-        # Helper to extract one chunk with error_policy
-        async def _extract_chunk(chunk: Chunk) -> None:
-            # Use global entities/relations with index remapping
-            offset = len(entities)
-            try:
-                result = await self._extractor.extract(chunk, self._schema)
-            except Exception as exc:  # noqa: BLE001
-                if error_policy is ErrorPolicy.RAISE:
-                    raise
-                extraction_failures.append(
-                    StageFailure(
-                        item_id=str(chunk.id),
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
-                    )
-                )
-                return
-            # Append entities
-            entities.extend(result.entities)
-            # Remap relations indices to global offsets
-            for rel in result.relations:
-                # Validate local indices are within this chunk's result
-                # They should be, but guard
-                try:
-                    # Need to ensure we use global indices
-                    new_rel = ExtractedRelation(
-                        chunk_id=rel.chunk_id,
-                        label=rel.label,
-                        source_index=rel.source_index + offset,
-                        target_index=rel.target_index + offset,
-                        confidence=rel.confidence,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    if error_policy is ErrorPolicy.RAISE:
-                        raise
-                    extraction_failures.append(
-                        StageFailure(
-                            item_id=str(chunk.id),
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
-                        )
-                    )
-                    continue
-                relations.append(new_rel)
-
         # Stream ingestion + extraction per walk-batch, collecting all mentions
         if documents is not None:
             # Single synthetic batch from provided documents
@@ -1477,8 +717,16 @@ class Graph:
             chunk_batch = await asyncio.to_thread(self._chunk_documents, docs_list)
             chunks.extend(chunk_batch)
             documents_seen.extend(docs_list)
-            for chunk in chunk_batch:
-                await _extract_chunk(chunk)
+            batch_entities, batch_relations, batch_failures = await extract_chunks(
+                chunk_batch,
+                start_index=len(entities),
+                extractor=self._extractor,
+                schema=self._schema,
+                error_policy=error_policy,
+            )
+            entities.extend(batch_entities)
+            relations.extend(batch_relations)
+            extraction_failures.extend(batch_failures)
             # Fire on_progress once for the synthetic batch (partial)
             if on_progress is not None:
                 with contextlib.suppress(Exception):
@@ -1498,8 +746,16 @@ class Graph:
                 chunk_batch = await asyncio.to_thread(self._chunk_documents, batch)
                 chunks.extend(chunk_batch)
                 documents_seen.extend(batch)
-                for chunk in chunk_batch:
-                    await _extract_chunk(chunk)
+                batch_entities, batch_relations, batch_failures = await extract_chunks(
+                    chunk_batch,
+                    start_index=len(entities),
+                    extractor=self._extractor,
+                    schema=self._schema,
+                    error_policy=error_policy,
+                )
+                entities.extend(batch_entities)
+                relations.extend(batch_relations)
+                extraction_failures.extend(batch_failures)
                 if on_progress is not None:
                     with contextlib.suppress(Exception):
                         on_progress(_build_partial_add_result())
@@ -1530,621 +786,26 @@ class Graph:
                 chunk_batch = await asyncio.to_thread(self._chunk_documents, batch)
                 chunks.extend(chunk_batch)
                 documents_seen.extend(batch)
-                for chunk in chunk_batch:
-                    await _extract_chunk(chunk)
+                batch_entities, batch_relations, batch_failures = await extract_chunks(
+                    chunk_batch,
+                    start_index=len(entities),
+                    extractor=self._extractor,
+                    schema=self._schema,
+                    error_policy=error_policy,
+                )
+                entities.extend(batch_entities)
+                relations.extend(batch_relations)
+                extraction_failures.extend(batch_failures)
                 if on_progress is not None:
                     with contextlib.suppress(Exception):
                         on_progress(_build_partial_add_result())
 
-        # If no chunks/entities, we can early return with empty stages
-        if not chunks:
-            if documents_seen:
-                await self._graph_store.upsert_nodes(
-                    DOCUMENT_LABEL,
-                    [
-                        build_document_record(document)
-                        for document in distinct_documents(documents_seen)
-                    ],
-                )
-            # Build final result with zero stages
-            ingestion = IngestStats(
-                documents=final_stats.documents,
-                sources=final_stats.sources,
-                skipped=final_stats.skipped,
-                quarantined=final_stats.quarantined,
-                quarantined_items=[
-                    StageFailure(
-                        item_id=str(uri),
-                        error_type="Quarantined",
-                        error_message=reason,
-                    )
-                    for uri, reason in final_stats.quarantined_items
-                ],
-            )
-            extraction_failures_capped = cap_failures(list(extraction_failures))
-            extraction = ExtractionStats(
-                chunks_processed=0,
-                entities_extracted=0,
-                relations_extracted=0,
-                failures=extraction_failures_capped.items,
-                failures_total=extraction_failures_capped.total,
-                failures_truncated=extraction_failures_capped.truncated,
-            )
-            result = AddResult(
-                ingestion=ingestion,
-                extraction=extraction,
-                resolution=ResolutionStats(),
-                merge=MergeStats(),
-                storage=StorageStats(),
-                chunks=list(chunks) if return_chunks else [],
-            )
-            if on_progress is not None:
-                with contextlib.suppress(Exception):
-                    on_progress(result)
-            return result
-
-        # Global exact-match + in-batch resolution (buffered over whole call)
-        exact_matches = await _global_exact_match(
-            entities, graph_store=self._graph_store
-        )
-
-        # Build chunks_by_id for LLMVerify
-        chunks_by_id: dict[UUID, Chunk] = {}
-        for ch in chunks:
-            if ch.id is not None:
-                chunks_by_id[ch.id] = ch
-
-        # Resolver: ExactMatch, FuzzyMatch, LLMVerify
-        # Neighbor context from this batch's own extracted relations. Similarity
-        # for these pairs comes from FuzzyMatch inside Resolver._resolve_pairs;
-        # in-batch mentions have no embeddings today.
-        neighbors_by_index = build_relation_neighbors(entities, relations)
-        resolver = Resolver(
-            comparators=[
-                ExactMatch(),
-                FuzzyMatch(),
-                LLMVerify(chunks_by_id=chunks_by_id),
-            ],
-            candidate_source=InBatchCandidateSource(),
-        )
-        resolution_result = (
-            await resolver.resolve(entities, neighbors_by_index=neighbors_by_index)
-            if entities
-            else None
-        )
-        semantic_groups = (
-            resolution_result.groups if resolution_result is not None else []
-        )
-        groups = exact_resolution_groups(entities, exact_matches)
-
-        # Compute resolution stats
-        exact_match_hits = len(exact_matches)
-        # Groups include singletons; in_batch_groups is resolver group count.
-        # ambiguous_count: no direct metric yet, use 0.
-        resolution = ResolutionStats(
-            exact_match_hits=exact_match_hits,
-            in_batch_groups=len(semantic_groups),
-            ambiguous_count=0,
-        )
-
-        # Merge and write
-        merge_stats = MergeStats()
-        storage_stats = StorageStats()
-        merge_failures: list[StageFailure] = []
-
-        # Track survivors and mention->entity map
-        mention_to_entity: dict[int, UUID] = {}
-        survivors: dict[UUID, Entity] = {}
-        resolved_vector_failures: list[StageFailure] = []
-        # For storage stats counting
-        nodes_created = 0
-        nodes_updated = 0
-        nodes_merged = 0
-        conflicts_resolved = 0
-
-        for group in groups:
-            group_indices = list(group.entity_indices)
-            group_mentions = [entities[i] for i in group_indices]
-
-            # Collect distinct existing entities for this group
-            existing_for_group: list[Entity] = []
-            seen_ids: set[UUID] = set()
-            for idx in group_indices:
-                ent = exact_matches.get(idx)
-                if ent is not None and ent.id not in seen_ids:
-                    seen_ids.add(ent.id)
-                    existing_for_group.append(ent)
-
-            # Compute merge
-            try:
-                plan, desc_failures = await compute_merge(
-                    existing_entities=existing_for_group,
-                    mentions=group_mentions,
-                    schema=self._schema,
-                )
-            except Exception as exc:  # noqa: BLE001
-                if error_policy is ErrorPolicy.RAISE:
-                    raise
-                merge_failures.append(
-                    StageFailure(
-                        item_id=",".join(str(entities[i].text) for i in group_indices),
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
-                    )
-                )
-                continue
-
-            if desc_failures:
-                merge_failures.extend(desc_failures)  # type: ignore[arg-type]
-
-            conflicts_resolved += len(plan.conflicts)
-
-            # Track merge stats
-            if not existing_for_group:
-                nodes_created += 1
-            elif len(existing_for_group) == 1:
-                nodes_updated += 1
-            else:
-                # Tombstone case: survivor + absorbed
-                nodes_merged += len(plan.tombstone_ids)
-                # nodes_merged counts tombstoned; survivor is already existing
-                # so no nodes_created/updated increment for multi-merge.
-                pass
-
-            # Apply merge (writes survivor and handles tombstone)
-            try:
-                plan, retry_desc_failures = await _apply_merge_with_conflict_retry(
-                    plan,
-                    graph_store=self._graph_store,
-                    schema=self._schema,
-                    existing_entities=existing_for_group,
-                    mentions=group_mentions,
-                    is_new_entity=not existing_for_group,
-                )
-                if retry_desc_failures:
-                    merge_failures.extend(retry_desc_failures)
-                if plan.tombstone_ids:
-                    try:
-                        await _delete_vectors(
-                            self._vector_store,
-                            self._retrieval_settings.entity_collection,
-                            list(plan.tombstone_ids),
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        if error_policy is ErrorPolicy.RAISE:
-                            raise
-                        merge_failures.append(
-                            StageFailure(
-                                item_id="tombstone_vector_store",
-                                error_type=type(exc).__name__,
-                                error_message=str(exc),
-                            )
-                        )
-            except Exception as exc:  # noqa: BLE001
-                if error_policy is ErrorPolicy.RAISE:
-                    raise
-                merge_failures.append(
-                    StageFailure(
-                        item_id=str(plan.survivor.id),
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
-                    )
-                )
-                continue
-
-            survivors[plan.survivor.id] = plan.survivor
-            for idx in group_indices:
-                mention_to_entity[idx] = plan.survivor.id
-
-        if resolution_result is not None:
-            persisted_mentions: list[ExtractedEntity] = list(entities)
-            persisted_candidates: dict[int, list[int]] = {}
-            persisted_ids: dict[int, UUID] = {}
-            candidate_entities: dict[UUID, Entity] = {}
-            candidate_source = GraphCandidateSource(
-                graph_store=self._graph_store,
-                embedder=self._embedder,
-                vector_store=self._vector_store,
-                vector_collection=self._retrieval_settings.entity_collection,
-                entity_labels=[entity.label for entity in self._schema.entities],
-            )
-            similarity_by_pair: dict[tuple[int, int], float] = {}
-            for mention_index, mention in enumerate(entities):
-                try:
-                    candidates = await candidate_source.global_candidates_for(mention)
-                except Exception:  # noqa: BLE001
-                    candidates = []
-                for candidate, candidate_similarity in candidates:
-                    if candidate.id == mention_to_entity.get(mention_index):
-                        continue
-                    candidate_index = len(persisted_mentions)
-                    candidate_mention, candidate_chunk = _synthetic_entity_mention(
-                        candidate
-                    )
-                    persisted_mentions.append(candidate_mention)
-                    chunks_by_id[candidate_mention.chunk_id] = candidate_chunk
-                    persisted_candidates.setdefault(mention_index, []).append(
-                        candidate_index
-                    )
-                    persisted_ids[candidate_index] = candidate.id
-                    candidate_entities[candidate.id] = candidate
-                    pair = (
-                        min(mention_index, candidate_index),
-                        max(mention_index, candidate_index),
-                    )
-                    similarity_by_pair[pair] = candidate_similarity
-            # Real graph relationships for both sides of every persisted pair:
-            # the batch's own mentions from their extracted relations, each
-            # persisted candidate from its stored edges.
-            neighbors_by_index = build_relation_neighbors(entities, relations)
-            if persisted_ids:
-                persisted_neighbors = await fetch_persisted_neighbors(
-                    list(persisted_ids.values()),
-                    graph_store=self._graph_store,
-                    exclude_relation_types=SYSTEM_RELATION_TYPES,
-                )
-                for candidate_index, entity_id in persisted_ids.items():
-                    neighbors_by_index[candidate_index] = persisted_neighbors.get(
-                        entity_id, []
-                    )
-            if persisted_candidates:
-                persisted_result = await Resolver(
-                    comparators=[
-                        ExactMatch(),
-                        FuzzyMatch(),
-                        LLMVerify(chunks_by_id=chunks_by_id),
-                    ],
-                    candidate_source=PersistedCandidateSource(persisted_candidates),
-                ).resolve(
-                    persisted_mentions,
-                    neighbors_by_index=neighbors_by_index,
-                    similarity_by_pair=similarity_by_pair,
-                )
-                resolution_result.matches.extend(persisted_result.matches)
-                mention_to_entity.update(persisted_ids)
-            for decisions in decisions_by_component(
-                resolution_result.matches, mention_to_entity
-            ):
-                member_ids = {decision.entity_a_id for decision in decisions} | {
-                    decision.entity_b_id for decision in decisions
-                }
-                members = [
-                    survivors.get(member_id) or candidate_entities[member_id]
-                    for member_id in member_ids
-                ]
-                try:
-                    materialization = await write_matches_and_materialize(
-                        decisions,
-                        graph_store=self._graph_store,
-                        schema=self._schema,
-                        members=members,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    if error_policy is ErrorPolicy.RAISE:
-                        raise
-                    merge_failures.append(
-                        StageFailure(
-                            item_id=",".join(
-                                str(member_id) for member_id in member_ids
-                            ),
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
-                        )
-                    )
-                    continue
-                # Synchronized per component, not batched after the loop: a
-                # later component's failure under ErrorPolicy.RAISE must not
-                # skip vector cleanup for components already committed above.
-                resolved_vector_failures.extend(
-                    await _synchronize_resolved_entity_vectors(
-                        [materialization.resolved_entity],
-                        materialization.removed_entity_ids,
-                        embedder=self._embedder,
-                        graph_store=self._graph_store,
-                        vector_store=self._vector_store,
-                        vector_collection=self._retrieval_settings.resolved_entity_collection,
-                        error_policy=error_policy,
-                    )
-                )
-
-        # If there were no entities (empty corpus) we have no survivors
-        # but we still need to write chunks
-
-        merge_failures_capped = cap_failures(merge_failures)
-        merge_stats = MergeStats(
-            nodes_created=nodes_created,
-            nodes_updated=nodes_updated,
-            nodes_merged=nodes_merged,
-            conflicts_resolved=conflicts_resolved,
-            failures=merge_failures_capped.items,
-            failures_total=merge_failures_capped.total,
-            failures_truncated=merge_failures_capped.truncated,
-        )
-
-        # Domain relation dedup + MENTIONED_IN
-        # Build domain relation triples after mention->entity mapping
-        # triples: list of (src_id, tgt_id, label)
-        triple_to_chunk_ids: dict[tuple[UUID, UUID, str], list[UUID]] = {}
-        # Keep track of which relations contributed which chunk ids
-        for rel in relations:
-            src_id = mention_to_entity.get(rel.source_index)
-            tgt_id = mention_to_entity.get(rel.target_index)
-            if src_id is None or tgt_id is None or src_id == tgt_id:
-                continue
-            key = (src_id, tgt_id, rel.label)
-            # Collect chunk ids for this triple (within-call dedup union)
-            lst = triple_to_chunk_ids.setdefault(key, [])
-            # Avoid duplicates preserving order
-            if rel.chunk_id not in lst:
-                lst.append(rel.chunk_id)
-
-        # Global relation lookup
-        triples_list = list(triple_to_chunk_ids.keys())
-        existing_rel_map = await _global_relation_lookup(
-            triples_list, graph_store=self._graph_store
-        )
-
-        # Materialize Relation objects
-        relation_records: list[RelationRecord] = []
-        relation_storage_failures: list[StageFailure] = []
-
-        for (src_id, tgt_id, rel_type), chunk_ids in triple_to_chunk_ids.items():
-            key = (src_id, tgt_id, rel_type)
-            existing = existing_rel_map.get(key)
-            if existing is not None:
-                existing_id, existing_scids = existing
-                # Union source_chunk_ids
-                union_ids = list(dict.fromkeys([*existing_scids, *chunk_ids]))
-                rel_id = existing_id
-            else:
-                # Deterministic, not uuid4(): two concurrent add() calls that
-                # both miss the existing-relation lookup for this triple must
-                # compute the same id, so their upserts converge onto one
-                # edge instead of creating parallel ones.
-                rel_id = relation_id(src_id, tgt_id, rel_type)
-                union_ids = list(dict.fromkeys(chunk_ids))
-
-            # Build Relation domain object then to record
-            # Use created_at default
-            relation_obj = Relation(
-                id=rel_id,
-                type=rel_type,
-                source_id=src_id,
-                target_id=tgt_id,
-                source_chunk_ids=union_ids,
-            )
-            relation_records.append(relation_obj.to_relation_record())
-
-        # MENTIONED_IN edges: one per (chunk, entity) pair
-        mentioned_pairs: set[tuple[UUID, UUID]] = set()
-        for idx, entity_id in mention_to_entity.items():
-            # Indexed by mention position, but mention_to_entity also carries
-            # the persisted-candidate pass's synthetic indices (see
-            # persisted_ids above), which have no newly extracted mention and
-            # no index in entities. A persisted node already has its own
-            # MENTIONED_IN edges, so only real mentions link here.
-            if idx >= len(entities):
-                continue
-            # mention's chunk_id
-            chunk_id = entities[idx].chunk_id
-            mentioned_pairs.add((chunk_id, entity_id))
-
-        # Look up by endpoint rather than trusting mentioned_in_id() alone:
-        # an entity merge transfers a MENTIONED_IN edge onto a new endpoint
-        # but keeps its old, tombstone-derived id (transfer_relationships_
-        # query copies the edge's existing properties, including id, as-is).
-        # Recomputing the id from the current (chunk, entity) pair would
-        # then miss that edge and create a parallel one on re-ingest.
-        existing_mentioned_map = await _global_relation_lookup(
-            [
-                (chunk_id, entity_id, "MENTIONED_IN")
-                for chunk_id, entity_id in mentioned_pairs
-            ],
-            graph_store=self._graph_store,
-        )
-
-        mentioned_in_records: list[RelationRecord] = []
-        for chunk_id, entity_id in mentioned_pairs:
-            existing = existing_mentioned_map.get((chunk_id, entity_id, "MENTIONED_IN"))
-            edge_id = (
-                existing[0]
-                if existing is not None
-                else mentioned_in_id(chunk_id, entity_id)
-            )
-            # Build record directly
-            rec = RelationRecord(
-                id=edge_id,
-                type="MENTIONED_IN",
-                start_id=chunk_id,
-                end_id=entity_id,
-                properties={"created_at": datetime.now().isoformat()},
-            )
-            mentioned_in_records.append(rec)
-
-        # Final storage writes: Chunks, Relations (domain + mentioned)
-        # Chunks
-        chunk_records = []
-        chunk_ids: set[UUID] = set()
-        for ch in chunks:
-            try:
-                chunk_records.append(ch.to_node_record())
-                if ch.id is not None:
-                    chunk_ids.add(ch.id)
-            except Exception as exc:  # noqa: BLE001
-                if error_policy is ErrorPolicy.RAISE:
-                    raise
-                relation_storage_failures.append(
-                    StageFailure(
-                        item_id=str(ch.id),
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
-                    )
-                )
-                continue
-
-        # Document nodes and PART_OF edges: one Document per distinct document
-        # in this call, PART_OF linking it to the chunks written above.
-        distinct = distinct_documents(documents_seen)
-        documents_by_key = {doc.resolved_document_key: doc for doc in distinct}
-        selected_document_ids = {
-            Document.node_id_for(document_key=document_key)
-            for document_key in documents_by_key
-        }
-        chunks_by_document_id: dict[UUID, list[Chunk]] = defaultdict(list)
-        for ch in chunks:
-            if ch.document_id in selected_document_ids:
-                chunks_by_document_id[ch.document_id].append(ch)
-        documents_by_id = {
-            Document.node_id_for(document_key=document_key): document
-            for document_key, document in documents_by_key.items()
-        }
-        document_records = [
-            build_document_record(doc) for doc in documents_by_id.values()
-        ]
-        for document_id, document in documents_by_id.items():
-            document_node_id = Document.node_id_for(
-                document_key=document.resolved_document_key
-            )
-            relation_records.extend(
-                build_part_of_records(
-                    document_node_id, chunks_by_document_id.get(document_id, [])
-                )
-            )
-        relation_records.extend(build_next_chunk_records(chunks))
-
-        # Write chunk nodes
-        storage_failures: list[StageFailure] = [
-            *relation_storage_failures,
-            *resolved_vector_failures,
-        ]
-        nodes_written = 0
-        relationships_written_count = 0
-        chunk_failure_ids: set[UUID] = set()
-        chunks_written = False
-        try:
-            if chunk_records:
-                # Grouping handled inside upsert_nodes
-                write_result = await self._graph_store.upsert_nodes(
-                    CHUNK_LABEL, chunk_records
-                )
-                nodes_written += write_result.written
-                storage_failures.extend(_upsert_stage_failures(write_result))
-                chunk_failure_ids = set()
-                for failure in write_result.failures:
-                    try:
-                        chunk_failure_ids.add(UUID(failure.id))
-                    except ValueError:
-                        continue
-                chunks_written = True
-        except Exception as exc:  # noqa: BLE001
-            if error_policy is ErrorPolicy.RAISE:
-                raise
-            storage_failures.append(
-                StageFailure(
-                    item_id="chunks",
-                    error_type=type(exc).__name__,
-                    error_message=str(exc),
-                )
-            )
-
-        # Write Document nodes
-        try:
-            if document_records:
-                await self._graph_store.upsert_nodes(DOCUMENT_LABEL, document_records)
-                nodes_written += len(document_records)
-        except Exception as exc:  # noqa: BLE001
-            if error_policy is ErrorPolicy.RAISE:
-                raise
-            storage_failures.append(
-                StageFailure(
-                    item_id="documents",
-                    error_type=type(exc).__name__,
-                    error_message=str(exc),
-                )
-            )
-
-        # Chunk embedding stage: embed chunks and write vectors. When the node
-        # write failed, upsert_nodes may still have committed its earlier
-        # batches, so embed whichever of this call's chunks the graph holds
-        # instead of leaving them unsearchable until the source is re-ingested.
-        embeddable_ids = chunk_ids - chunk_failure_ids
-        if not chunks_written:
-            embeddable_ids = await _persisted_chunk_ids(self._graph_store, chunk_ids)
-        if embeddable_ids:
-            storage_failures.extend(
-                await _embed_and_upsert_chunks(
-                    [chunk for chunk in chunks if chunk.id in embeddable_ids],
-                    embedder=self._embedder,
-                    graph_store=self._graph_store,
-                    error_policy=error_policy,
-                    vector_store=self._vector_store,
-                    vector_collection=self._retrieval_settings.chunk_collection,
-                )
-            )
-
-        # Survivors already written via apply_merge; count them.
-        nodes_written += len(survivors)
-
-        # Write domain relations
-        try:
-            if relation_records:
-                write_result = await self._graph_store.upsert_relations(
-                    relation_records
-                )
-                relationships_written_count += write_result.written
-                storage_failures.extend(_upsert_stage_failures(write_result))
-        except Exception as exc:  # noqa: BLE001
-            if error_policy is ErrorPolicy.RAISE:
-                raise
-            storage_failures.append(
-                StageFailure(
-                    item_id="relations",
-                    error_type=type(exc).__name__,
-                    error_message=str(exc),
-                )
-            )
-
-        try:
-            if mentioned_in_records:
-                write_result = await self._graph_store.upsert_relations(
-                    mentioned_in_records
-                )
-                relationships_written_count += write_result.written
-                storage_failures.extend(_upsert_stage_failures(write_result))
-        except Exception as exc:  # noqa: BLE001
-            if error_policy is ErrorPolicy.RAISE:
-                raise
-            storage_failures.append(
-                StageFailure(
-                    item_id="MENTIONED_IN",
-                    error_type=type(exc).__name__,
-                    error_message=str(exc),
-                )
-            )
-
-        # Embedding stage: embed survivors and update them.
-        if survivors:
-            storage_failures.extend(
-                await _embed_and_upsert_survivors(
-                    survivors,
-                    embedder=self._embedder,
-                    graph_store=self._graph_store,
-                    error_policy=error_policy,
-                    vector_store=self._vector_store,
-                    vector_collection=self._retrieval_settings.entity_collection,
-                    labels_by_id={ent.id: ent.label for ent in survivors.values()},
-                )
-            )
-        storage_failures_capped = cap_failures(storage_failures)
-        storage_stats = StorageStats(
-            nodes_written=nodes_written,
-            relationships_written=relationships_written_count,
-            failures=storage_failures_capped.items,
-            failures_total=storage_failures_capped.total,
-            failures_truncated=storage_failures_capped.truncated,
-        )
-
-        # Assemble final AddResult
+        # Assemble the ingestion summary from this call's own walk, then run
+        # each document's slice as its own Cutover Job through the shared
+        # pipeline core. A job holds only its own document's lease and
+        # commits only its own slice; a lease failure aborts the documents
+        # still queued while documents that already committed stay
+        # committed.
         ingestion = IngestStats(
             documents=final_stats.documents,
             sources=final_stats.sources,
@@ -2159,24 +820,76 @@ class Graph:
                 for uri, reason in final_stats.quarantined_items
             ],
         )
-        extraction_failures_capped = cap_failures(list(extraction_failures))
-        extraction = ExtractionStats(
-            chunks_processed=len(chunks),
-            entities_extracted=len(entities),
-            relations_extracted=len(relations),
-            failures=extraction_failures_capped.items,
-            failures_total=extraction_failures_capped.total,
-            failures_truncated=extraction_failures_capped.truncated,
+        vector_collections = (
+            self._retrieval_settings.entity_collection,
+            self._retrieval_settings.chunk_collection,
+            self._retrieval_settings.resolved_entity_collection,
         )
+        partials: list[AddResult] = []
+        for (
+            document_key,
+            doc_chunks,
+            doc_documents,
+            doc_entities,
+            doc_relations,
+            doc_failures,
+        ) in _group_by_document(
+            chunks, documents_seen, entities, relations, extraction_failures
+        ):
 
-        result = AddResult(
-            ingestion=ingestion,
-            extraction=extraction,
-            resolution=resolution,
-            merge=merge_stats,
-            storage=storage_stats,
-            chunks=list(chunks) if return_chunks else [],
-        )
+            async def _pending(
+                job_id: UUID,
+                _slice: tuple[
+                    list[Chunk],
+                    list[Document],
+                    list[ExtractedEntity],
+                    list[ExtractedRelation],
+                    list[StageFailure],
+                ] = (
+                    doc_chunks,
+                    doc_documents,
+                    doc_entities,
+                    doc_relations,
+                    doc_failures,
+                ),
+            ) -> AddResult:
+                (
+                    slice_chunks,
+                    slice_documents,
+                    slice_entities,
+                    slice_relations,
+                    slice_failures,
+                ) = _slice
+                return await ingest_chunks(
+                    slice_chunks,
+                    slice_documents,
+                    slice_entities,
+                    slice_relations,
+                    slice_failures,
+                    graph_store=self._graph_store,
+                    embedder=self._embedder,
+                    vector_store=self._vector_store,
+                    graph_schema=self._schema,
+                    retrieval_settings=self._retrieval_settings,
+                    error_policy=error_policy,
+                    ingestion=IngestStats(documents=1),
+                    return_chunks=return_chunks,
+                    job_id=job_id,
+                )
+
+            partial, _, _ = await run_cutover_job(
+                verb="add",
+                document_key=document_key,
+                affected_entity_ids=[],
+                graph_store=self._graph_store,
+                vector_store=self._vector_store,
+                vector_collections=vector_collections,
+                settings=self._cutover_settings,
+                pending_write=_pending,
+                cleanup=_no_cleanup,
+            )
+            partials.append(partial)
+        result = _merge_add_results(partials, ingestion=ingestion)
 
         if on_progress is not None:
             with contextlib.suppress(Exception):
@@ -2195,14 +908,42 @@ class Graph:
     ) -> UpdateResult:
         """Replace one document version, closing its former PART_OF edges.
 
-        An unchanged content hash is a no-op. The update path uses the same
-        ``add`` pipeline as fresh ingestion after it closes the old edges. A
-        source must resolve to exactly one document.
+        Looks up the persisted ``Document`` node by ``document_key``. An
+        unchanged content hash is a no-op returning before any chunking,
+        extraction, or writes. Otherwise the fresh content ingests under a
+        Cutover Job holding this document's lease, and the commit flips
+        the job, closes the document's open ``PART_OF`` edges, and clears
+        every pending tag in one transaction — so a crash either leaves
+        the old version untouched or completes the replacement including
+        cleanup. Entities that lose their last evidence are pruned after
+        the commit, so replacement mentions count as evidence. A source
+        must resolve to exactly one document.
+
+        Args:
+            document_key: The stable key of the document to replace.
+            text: Replacement text, exactly one of ``text``/``source``.
+            source: A single-file source, glob, or path list resolving to
+                exactly one document.
+            loader: A loader override for a single-file ``source``.
+            error_policy: RAISE propagates a stage failure; any other
+                policy records it and continues.
+
+        Returns:
+            The update summary. A no-op reports ``no_op=True`` with no
+            ``add_result``; a change reports ``chunks_closed`` plus the
+            fresh ingestion's ``add_result``; an unknown ``document_key``
+            ingests fresh with ``previous_content_hash=None`` and
+            ``chunks_closed=0``.
 
         Raises:
             ValueError: Both or neither of ``text`` and ``source`` are given, a loader
                 override targets multiple sources, or a source resolves to any number
                 of documents other than one.
+
+        Note:
+            The fresh-content path shares ``ingest_chunks()`` with
+            ``Graph.add()``; both callers observe the same pipeline behavior
+            for the same input.
         """
         if (text is None) == (source is None):
             raise ValueError("Provide exactly one of 'text' or 'source'.")
@@ -2257,13 +998,56 @@ class Graph:
                 new_content_hash=document.content_hash,
             )
 
-        chunks_closed = 0
+        candidates: list[UUID] = []
         if found is not None:
-            chunks_closed = await close_open_part_of_edges(
-                self._graph_store, document_node_id=found.document_node_id
+            candidates = await self._document_entity_candidates(found.document_node_id)
+        chunks = await asyncio.to_thread(self._chunk_documents, [document])
+        entities, relations, extraction_failures = await extract_chunks(
+            chunks,
+            start_index=0,
+            extractor=self._extractor,
+            schema=self._schema,
+            error_policy=error_policy,
+        )
+
+        async def _pending(job_id: UUID) -> AddResult:
+            return await ingest_chunks(
+                chunks,
+                [document],
+                entities,
+                relations,
+                extraction_failures,
+                graph_store=self._graph_store,
+                embedder=self._embedder,
+                vector_store=self._vector_store,
+                graph_schema=self._schema,
+                retrieval_settings=self._retrieval_settings,
+                error_policy=error_policy,
+                ingestion=IngestStats(documents=1),
+                return_chunks=False,
+                job_id=job_id,
             )
-        add_result = await self.add(
-            documents=[document], error_policy=error_policy, return_chunks=False
+
+        async def _cleanup() -> None:
+            await self._prune_document_entities(candidates)
+
+        add_result, _, chunks_closed = await run_cutover_job(
+            verb="update",
+            document_key=document_key,
+            affected_entity_ids=candidates,
+            graph_store=self._graph_store,
+            vector_store=self._vector_store,
+            vector_collections=(
+                self._retrieval_settings.entity_collection,
+                self._retrieval_settings.chunk_collection,
+                self._retrieval_settings.resolved_entity_collection,
+            ),
+            settings=self._cutover_settings,
+            pending_write=_pending,
+            cleanup=_cleanup,
+            close_document_node_id=(
+                found.document_node_id if found is not None else None
+            ),
         )
         return UpdateResult(
             document_key=document_key,
@@ -2275,12 +1059,53 @@ class Graph:
         )
 
     async def delete_document(self, document_key: str) -> UpdateResult:
-        """Soft-delete a document by closing its current PART_OF edges."""
+        """Soft-delete a document by closing its current PART_OF edges.
+
+        Currency is read transitively through ``PART_OF``: closing the
+        open edges removes the document from retrieval while its chunks,
+        the ``Document`` node, and contributed entities stay in the graph
+        for provenance. An unknown ``document_key`` is a no-op. Entities
+        mentioned only by this document's chunks lose their last evidence
+        and are pruned with their shrunken clusters. The close and the
+        prune run as one job's commit and cleanup, so a crash either
+        leaves the document untouched or completes the deletion.
+
+        Args:
+            document_key: The stable key of the document to delete.
+
+        Returns:
+            The deletion summary: ``no_op=True`` when nothing was stored
+            under the key, otherwise ``chunks_closed`` with
+            ``new_content_hash=None`` and no ``add_result``.
+
+        Note:
+            The close-only degenerate case of ``Graph.update()``; both
+            call into the same shared document-lifecycle helpers. See
+            ``Graph.add()`` for the shared ingestion behavior.
+        """
         found = await find_document(self._graph_store, document_key=document_key)
         if found is None:
             return UpdateResult(document_key=document_key, no_op=True)
-        chunks_closed = await close_open_part_of_edges(
-            self._graph_store, document_node_id=found.document_node_id
+        candidates = await self._document_entity_candidates(found.document_node_id)
+
+        async def _cleanup() -> None:
+            await self._prune_document_entities(candidates)
+
+        _, _, chunks_closed = await run_cutover_job(
+            verb="delete_document",
+            document_key=document_key,
+            affected_entity_ids=candidates,
+            graph_store=self._graph_store,
+            vector_store=self._vector_store,
+            vector_collections=(
+                self._retrieval_settings.entity_collection,
+                self._retrieval_settings.chunk_collection,
+                self._retrieval_settings.resolved_entity_collection,
+            ),
+            settings=self._cutover_settings,
+            pending_write=_no_pending_write,
+            cleanup=_cleanup,
+            close_document_node_id=found.document_node_id,
         )
         return UpdateResult(
             document_key=document_key,
@@ -2288,6 +1113,62 @@ class Graph:
             previous_content_hash=found.current_content_hash,
             chunks_closed=chunks_closed,
         )
+
+    async def _document_entity_candidates(self, document_node_id: UUID) -> list[UUID]:
+        """Return live entity ids mentioned by a document's open chunks.
+
+        Args:
+            document_node_id: The persisted Document node's id.
+
+        Returns:
+            The mentioned entity ids in first-seen order.
+        """
+        rows = await self._graph_store.execute_read(
+            entities_in_documents_query(),
+            {
+                "document_ids": [str(document_node_id)],
+                "job_id": None,
+            },
+        )
+        candidates: list[UUID] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                candidate = UUID(str(row["id"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if candidate not in candidates:
+                candidates.append(candidate)
+        return candidates
+
+    async def _prune_document_entities(self, candidates: list[UUID]) -> None:
+        """Prune orphaned candidates and drop their stale vectors.
+
+        Best effort: a vector-store failure never fails the document
+        operation that already committed its graph writes.
+
+        Args:
+            candidates: Entity ids that may have lost their last evidence.
+                Empty skips the pruning pass entirely.
+        """
+        if not candidates:
+            return
+        pruning = await prune_orphaned_entities(
+            candidates, graph_store=self._graph_store, schema=self._schema
+        )
+        with contextlib.suppress(Exception):
+            await _delete_vectors(
+                self._vector_store,
+                self._retrieval_settings.entity_collection,
+                pruning.removed_entity_ids,
+            )
+        with contextlib.suppress(Exception):
+            await _delete_vectors(
+                self._vector_store,
+                self._retrieval_settings.resolved_entity_collection,
+                pruning.removed_resolved_entity_ids,
+            )
 
     def _chunk_documents(self, documents: list[Document]) -> list[Chunk]:
         """Chunk a batch of documents with the right chunker each.
@@ -2372,6 +1253,35 @@ class Graph:
             skip += limit
         return entities
 
+    async def _hydrate_input_entities(self, unique_ids: list[UUID]) -> list[Entity]:
+        """Fetch live entities for the given ids, preserving input order.
+
+        Args:
+            unique_ids: Deduped entity ids to fetch.
+
+        Returns:
+            The live entities in input order.
+
+        Raises:
+            ValueError: An id has no live persisted entity.
+        """
+        rows = await self._graph_store.execute_read(
+            hydrate_entities_by_id_query(),
+            {"ids": [str(e) for e in unique_ids], "job_id": None},
+        )
+        entities_by_id: dict[UUID, Entity] = {}
+        for row in rows:
+            node = row.get("n", row) if isinstance(row, dict) else row
+            entity = _parse_entity_node(node)
+            if entity is not None:
+                entities_by_id[entity.id] = entity
+        missing = [e for e in unique_ids if e not in entities_by_id]
+        if missing:
+            raise ValueError(
+                "Unknown entity ids: " + ", ".join(str(m) for m in missing)
+            )
+        return [entities_by_id[e] for e in unique_ids]
+
     async def deactivate_match(self, match_id: UUID) -> list[ResolvedEntity]:
         """Deactivate a semantic match and synchronize replacement retrieval vectors."""
         result = await deactivate_match_and_rematerialize(
@@ -2397,17 +1307,23 @@ class Graph:
         For each EntityType label in self._schema, fetches every persisted
         entity with that label, bounds the pairs actually compared with
         GraphCandidateSource's ANN-backed persisted_candidate_indices, and
-        runs the same comparator sequence add() uses in-batch (ExactMatch,
-        FuzzyMatch, LLMVerify) over those candidate pairs. Confirmed non-exact
-        matches preserve both raw Entity nodes and their relationships.
+        runs the same zone-routed resolution add() uses (exact, fuzzy
+        fast-path, embedding similarity, capped LLM review) over those
+        candidate pairs. Confirmed non-exact matches preserve both raw
+        Entity nodes and their relationships.
+
+        LLM verification calls stay bounded: at most
+        ceil(L * MAX_LLM_PAIRS / 10) requests for L labels. See Graph.add.
 
         Args:
             apply: Materialize the confirmed matches. False produces a report only.
 
         Returns:
-            A report of every confirmed non-exact match, applied or not.
+            A report of every confirmed non-exact match, applied or not,
+            plus the count of uncertain LLM verdicts.
         """
         would_match: list[MatchDecision] = []
+        ambiguous_count = 0
         entities_by_id: dict[UUID, Entity] = {}
         # For each label, fetch all entities, then pairwise compare via Resolver
         for entity_type in self._schema.entities:
@@ -2447,12 +1363,14 @@ class Graph:
                     LLMVerify(chunks_by_id=dummy_chunks_by_id),
                 ],
                 candidate_source=PersistedCandidateSource(candidate_indices),
+                embedder=self._embedder,
             )
             resolution_result = await resolver.resolve(
                 synthetic_mentions,
                 neighbors_by_index=neighbors_by_index,
                 similarity_by_pair=similarity_by_pair,
             )
+            ambiguous_count += resolution_result.ambiguous_count
             entities_by_id.update({entity.id: entity for entity in all_entities})
             for match in resolution_result.matches:
                 would_match.append(
@@ -2512,6 +1430,149 @@ class Graph:
             would_match=would_match,
             applied=apply and bool(materialized_entities),
             failures=consolidation_failures,
+            ambiguous_count=ambiguous_count,
+        )
+
+    async def reevaluate(self, entity_ids: list[UUID]) -> ReevaluationReport:
+        """Reevaluate matches among the given entities, adding and removing edges.
+
+        Fetches exactly the supplied entities, compares same-label pairs
+        only among this set through one zone-routed Resolver pass, writes
+        confirmed matches that lack an active edge, and deactivates active
+        edges among the set the resolver did not confirm. Exact-text pairs
+        never gain or lose edges. Nothing outside the input set is compared
+        or touched, and nothing calls this automatically.
+
+        LLM verification calls stay bounded at ceil(L * MAX_LLM_PAIRS / 10)
+        requests for L labels, as in Graph.add.
+
+        Args:
+            entity_ids: The persisted entities to reevaluate, deduped with
+                input order preserved.
+
+        Returns:
+            Which entities were reevaluated, which matches were added,
+            which match edges were deactivated, and how many inputs had no
+            incident added or removed edge.
+
+        Raises:
+            ValueError: An id has no live persisted entity.
+        """
+        unique_ids = list(dict.fromkeys(entity_ids))
+        if not unique_ids:
+            return ReevaluationReport()
+        entities_by_id = {
+            entity.id: entity
+            for entity in await self._hydrate_input_entities(unique_ids)
+        }
+        entities = [entities_by_id[e] for e in unique_ids]
+        mentions, dummy_chunks = _synthesize_consolidation_mentions(entities)
+        candidates_by_index = {
+            index: [
+                other
+                for other, peer in enumerate(mentions)
+                if other != index and peer.label == mention.label
+            ]
+            for index, mention in enumerate(mentions)
+        }
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(),
+                LLMVerify(chunks_by_id=dummy_chunks),
+            ],
+            candidate_source=PersistedCandidateSource(
+                {index: peers for index, peers in candidates_by_index.items() if peers}
+            ),
+            embedder=self._embedder,
+        )
+        resolution = await resolver.resolve(mentions)
+        confirmed = {
+            frozenset((unique_ids[m.left_index], unique_ids[m.right_index])): m
+            for m in resolution.matches
+        }
+        exact_pairs = {
+            frozenset((unique_ids[left], unique_ids[right]))
+            for left in range(len(mentions))
+            for right in range(left + 1, len(mentions))
+            if normalize_text(mentions[left].text)
+            == normalize_text(mentions[right].text)
+        }
+        edge_rows = await self._graph_store.execute_read(
+            fetch_active_matches_among_ids_query(),
+            {"ids": [str(e) for e in unique_ids], "job_id": None},
+        )
+        active: dict[frozenset[UUID], UUID] = {}
+        for row in edge_rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                pair = frozenset((UUID(str(row["a_id"])), UUID(str(row["b_id"]))))
+                match_id = UUID(str(row["match_id"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if len(pair) == 2:
+                active.setdefault(pair, match_id)
+        decisions = sorted(
+            (
+                MatchDecision(
+                    entity_a_id=first,
+                    entity_b_id=second,
+                    comparator=match.comparator,
+                    score=match.score,
+                    reasoning=match.reasoning,
+                    decided_at=match.decided_at,
+                )
+                for pair, match in confirmed.items()
+                if pair not in active
+                for first, second in (sorted(pair, key=str),)
+            ),
+            key=lambda d: str(matches_id(d.entity_a_id, d.entity_b_id)),
+        )
+        materialized: list[ResolvedEntity] = []
+        replaced: list[UUID] = []
+        matches_added: list[MatchDecision] = []
+        for component in match_decision_components(decisions):
+            member_ids = {d.entity_a_id for d in component} | {
+                d.entity_b_id for d in component
+            }
+            materialization = await write_matches_and_materialize(
+                component,
+                graph_store=self._graph_store,
+                schema=self._schema,
+                members=[entities_by_id[m] for m in member_ids],
+            )
+            materialized.append(materialization.resolved_entity)
+            replaced.extend(materialization.removed_entity_ids)
+            matches_added.extend(component)
+        matches_removed: list[UUID] = []
+        removed_pairs: set[frozenset[UUID]] = set()
+        for pair, match_id in sorted(active.items(), key=lambda item: str(item[1])):
+            if pair in confirmed or pair in exact_pairs:
+                continue
+            deactivation = await deactivate_match_and_rematerialize(
+                match_id, graph_store=self._graph_store, schema=self._schema
+            )
+            materialized.extend(deactivation.resolved_entities)
+            replaced.extend(deactivation.removed_entity_ids)
+            matches_removed.append(match_id)
+            removed_pairs.add(pair)
+        await _synchronize_resolved_entity_vectors(
+            materialized,
+            list(dict.fromkeys(replaced)),
+            embedder=self._embedder,
+            graph_store=self._graph_store,
+            vector_store=self._vector_store,
+            vector_collection=self._retrieval_settings.resolved_entity_collection,
+            error_policy=ErrorPolicy.SKIP,
+        )
+        touched = {e for d in matches_added for e in (d.entity_a_id, d.entity_b_id)}
+        touched |= {e for pair in removed_pairs for e in pair}
+        return ReevaluationReport(
+            entities_reevaluated=unique_ids,
+            matches_added=matches_added,
+            matches_removed=matches_removed,
+            unchanged_count=sum(1 for e in unique_ids if e not in touched),
         )
 
     async def _delete_stale_community_vectors(self) -> None:
@@ -2588,7 +1649,6 @@ class Graph:
             COMMUNITY_LABEL,
             MEMBER_OF_RELATION,
         )
-        from agrag.common.data_models.relation import Relation  # noqa: PLC0415
         from agrag.cypher.entities import hydrate_entities_by_id_query  # noqa: PLC0415
         from agrag.ingestion.community import (  # noqa: PLC0415
             compute_communities,
@@ -2659,7 +1719,7 @@ class Graph:
                 chunk_ids = ids[i : i + HYDRATE_BATCH]
                 rows = await self._graph_store.execute_read(
                     hydrate_entities_by_id_query(),
-                    {"ids": [str(x) for x in chunk_ids]},
+                    {"ids": [str(x) for x in chunk_ids], "job_id": None},
                 )
                 entities_by_id.update(
                     {

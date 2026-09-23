@@ -234,7 +234,7 @@ class TestWritesAndReads:
         insert_many = client._collection.data.insert_many
         insert_many.assert_called_once()
         [obj] = insert_many.call_args.args[0]
-        assert obj.properties == {"text": "a"}
+        assert obj.properties == {"text": "a", "agrag_pending": False}
         assert obj.vector == {"vector": [0.1, 0.2]}
         assert obj.uuid == str(record.id)
 
@@ -245,6 +245,19 @@ class TestWritesAndReads:
         record = VectorRecord(id=uuid4(), vector=[0.1], payload={})
         with pytest.raises(ValueError):
             await store.upsert("c", [record], batch_size=-1)
+        client._collection.data.insert_many.assert_not_called()
+
+    async def test_upsert_rejects_payload_reserved_for_pending_metadata(
+        self, store: WeaviateVectorStore, client
+    ) -> None:
+        """Payload cannot overwrite the metadata field that controls visibility."""
+        record = VectorRecord(
+            id=uuid4(), vector=[0.1], payload={"agrag_pending": "user value"}
+        )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await store.upsert("c", [record])
+
         client._collection.data.insert_many.assert_not_called()
 
     async def test_upsert_batches_large_writes(

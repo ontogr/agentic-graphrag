@@ -1338,9 +1338,10 @@ Shared data models used by agrag components.
 
 - [**chunk**](#agrag.common.data_models.chunk) – The Chunk model: one retrieval-sized piece of a Document.
 - [**community**](#agrag.common.data_models.community) – The Community model: a Leiden-detected entity cluster with an LLM report.
+- [**cutover_job**](#agrag.common.data_models.cutover_job) – Crash-recoverable state for one add/update/delete_document call.
 - [**data_point**](#agrag.common.data_models.data_point) – The base class for a graph node.
 - [**document**](#agrag.common.data_models.document) – The Document model: one unit of source text, before chunking.
-- [**entity**](#agrag.common.data_models.entity) – A graph entity assembled from mentions resolution confirmed as the same thing.
+- [**entity**](#agrag.common.data_models.entity) – A permanent mention-level graph node, accumulated by exact-name matching.
 - [**extraction**](#agrag.common.data_models.extraction) – Pre-resolution entity and relation mentions produced by an Extractor.
 - [**graph_record**](#agrag.common.data_models.graph_record) – Graph storage record shapes for GraphStore.
 - [**graph_schema**](#agrag.common.data_models.graph_schema) – The GraphSchema contract: entity and relation types extraction validates against.
@@ -1377,8 +1378,10 @@ One retrieval-sized piece of a Document.
 
 **Attributes:**
 
-- [**document_id**](#agrag.common.data_models.chunk.Chunk.document_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the parent Document. Use this id to look up fields
-  such as `record_index` on the parent Document.
+- [**document_id**](#agrag.common.data_models.chunk.Chunk.document_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the persisted Document graph node this chunk
+  belongs to (see `Document.node_id_for`). Stable across content
+  versions of the same logical document; per-version identity lives
+  in `Chunk.id` instead.
 - [**index**](#agrag.common.data_models.chunk.Chunk.index) (<code>[int](#int)</code>) – The position of the chunk within its document, from 0.
 - [**text**](#agrag.common.data_models.chunk.Chunk.text) (<code>[str](#str)</code>) – The chunk text.
 - [**provenance**](#agrag.common.data_models.chunk.Chunk.provenance) (<code>[TextProvenance](#agrag.common.data_models.provenance.TextProvenance) | [PageProvenance](#agrag.common.data_models.provenance.PageProvenance)</code>) – The location of this chunk in its source. The shape of this
@@ -1631,6 +1634,160 @@ Return this community as a GraphStore write record.
 
 ```python
 MEMBER_OF_RELATION = 'MEMBER_OF'
+```
+
+##### `agrag.common.data_models.cutover_job`
+
+Crash-recoverable state for one add/update/delete_document call.
+
+**Classes:**
+
+- [**CutoverJob**](#agrag.common.data_models.cutover_job.CutoverJob) – Crash-recoverable state for one add/update/delete_document call.
+- [**CutoverJobStatus**](#agrag.common.data_models.cutover_job.CutoverJobStatus) – Lifecycle phase of a Cutover Job.
+
+**Attributes:**
+
+- [**CUTOVER_JOB_LABEL**](#agrag.common.data_models.cutover_job.CUTOVER_JOB_LABEL) –
+- [**CUTOVER_JOB_STATUS_INDEX**](#agrag.common.data_models.cutover_job.CUTOVER_JOB_STATUS_INDEX) –
+
+###### `agrag.common.data_models.cutover_job.CUTOVER_JOB_LABEL`
+
+```python
+CUTOVER_JOB_LABEL = 'CutoverJob'
+```
+
+###### `agrag.common.data_models.cutover_job.CUTOVER_JOB_STATUS_INDEX`
+
+```python
+CUTOVER_JOB_STATUS_INDEX = 'cutover_job_status_index'
+```
+
+###### `agrag.common.data_models.cutover_job.CutoverJob`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+Crash-recoverable state for one add/update/delete_document call.
+
+**Attributes:**
+
+- [**document_key**](#agrag.common.data_models.cutover_job.CutoverJob.document_key) (<code>[str](#str)</code>) – The document this job mutates. Unique among
+  non-terminal jobs (enforced by a graph constraint plus lease
+  fencing, not the constraint alone).
+- [**verb**](#agrag.common.data_models.cutover_job.CutoverJob.verb) (<code>[Literal](#typing.Literal)['add', 'update', 'delete_document']</code>) – Which public method created this job.
+- [**status**](#agrag.common.data_models.cutover_job.CutoverJob.status) (<code>[CutoverJobStatus](#agrag.common.data_models.cutover_job.CutoverJobStatus)</code>) – Current phase, see CutoverJobStatus.
+- [**affected_entity_ids**](#agrag.common.data_models.cutover_job.CutoverJob.affected_entity_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – The snapshot taken before any pending write
+  began — the only entities the cleanup phase may touch.
+- [**lease_token**](#agrag.common.data_models.cutover_job.CutoverJob.lease_token) (<code>[UUID](#uuid.UUID)</code>) – Current lease holder's fencing token.
+- [**lease_expires_at**](#agrag.common.data_models.cutover_job.CutoverJob.lease_expires_at) (<code>[datetime](#datetime.datetime)</code>) – When the current lease expires.
+
+**Functions:**
+
+- [**to_node_record**](#agrag.common.data_models.cutover_job.CutoverJob.to_node_record) – Return this job as a graph write record.
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.affected_entity_ids`
+
+```python
+affected_entity_ids: list[UUID] = Field(default_factory=list)
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.document_key`
+
+```python
+document_key: str
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.id`
+
+```python
+id: UUID
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.lease_expires_at`
+
+```python
+lease_expires_at: datetime
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.lease_token`
+
+```python
+lease_token: UUID
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.status`
+
+```python
+status: CutoverJobStatus
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.to_node_record`
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this job as a graph write record.
+
+####### `agrag.common.data_models.cutover_job.CutoverJob.verb`
+
+```python
+verb: Literal['add', 'update', 'delete_document']
+```
+
+###### `agrag.common.data_models.cutover_job.CutoverJobStatus`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+Lifecycle phase of a Cutover Job.
+
+**Attributes:**
+
+- [**CLEANING**](#agrag.common.data_models.cutover_job.CutoverJobStatus.CLEANING) –
+- [**COMMITTED**](#agrag.common.data_models.cutover_job.CutoverJobStatus.COMMITTED) –
+- [**DONE**](#agrag.common.data_models.cutover_job.CutoverJobStatus.DONE) –
+- [**PENDING**](#agrag.common.data_models.cutover_job.CutoverJobStatus.PENDING) –
+- [**ROLLED_BACK**](#agrag.common.data_models.cutover_job.CutoverJobStatus.ROLLED_BACK) –
+
+####### `agrag.common.data_models.cutover_job.CutoverJobStatus.CLEANING`
+
+```python
+CLEANING = 'cleaning'
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJobStatus.COMMITTED`
+
+```python
+COMMITTED = 'committed'
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJobStatus.DONE`
+
+```python
+DONE = 'done'
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJobStatus.PENDING`
+
+```python
+PENDING = 'pending'
+```
+
+####### `agrag.common.data_models.cutover_job.CutoverJobStatus.ROLLED_BACK`
+
+```python
+ROLLED_BACK = 'rolled_back'
 ```
 
 ##### `agrag.common.data_models.data_point`
@@ -2140,17 +2297,23 @@ XML = 'xml'
 
 ##### `agrag.common.data_models.entity`
 
-A graph entity assembled from mentions resolution confirmed as the same thing.
+A permanent mention-level graph node, accumulated by exact-name matching.
 
 **Classes:**
 
-- [**Entity**](#agrag.common.data_models.entity.Entity) – A resolved entity, assembled from one or more ExtractedEntity mentions.
+- [**Entity**](#agrag.common.data_models.entity.Entity) – A permanent mention-level node, never destroyed once written.
 
 ###### `agrag.common.data_models.entity.Entity`
 
 Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
 
-A resolved entity, assembled from one or more ExtractedEntity mentions.
+A permanent mention-level node, never destroyed once written.
+
+Each Entity is one raw record: exact-match accumulation only folds a
+new mention into the existing node for its normalized name. Fuzzy,
+embedding, and LLM matches never absorb a node; they persist as
+MATCHES edges with a derived ResolvedEntity instead, so both raw
+records and their relationships survive resolution.
 
 **Attributes:**
 
@@ -2432,12 +2595,33 @@ These are a temporary, minimal stopgap, not the canonical Entity/Relation
 domain model resolution will eventually produce. See the future
 storage/merge-mechanics work this decouples from.
 
+Pending-visibility convention: a node or edge *created* by an in-flight
+Cutover Job carries `_pending_job_id` (the job's id) in its properties;
+committed data never carries this key. Retrieval query builders exclude
+such rows with `pending_filter_clause`. Vector-store payloads mirror the
+tag as an explicit boolean `_pending` field, cleared at commit, because
+payload filters match on present values rather than key absence.
+
+The tag is written with `ON CREATE SET`, so a job that writes over a
+row that already exists leaves it untagged. Such a row was already
+visible before the job started and stays visible; the job's rollback,
+which deletes tagged rows, therefore cannot delete data a caller
+committed earlier.
+
 **Classes:**
 
 - [**NodeRecord**](#agrag.common.data_models.graph_record.NodeRecord) – One graph node, ready to write.
 - [**RelationRecord**](#agrag.common.data_models.graph_record.RelationRecord) – One graph relationship, ready to write.
 - [**UpsertFailure**](#agrag.common.data_models.graph_record.UpsertFailure) – One record that failed to write within a bulk upsert call.
 - [**UpsertResult**](#agrag.common.data_models.graph_record.UpsertResult) – Outcome of a bulk `upsert_nodes`/`upsert_relations` call.
+
+**Functions:**
+
+- [**tag_pending**](#agrag.common.data_models.graph_record.tag_pending) – Stamp a write record with the Cutover Job that is writing it.
+
+**Attributes:**
+
+- [**PENDING_JOB_ID_PROPERTY**](#agrag.common.data_models.graph_record.PENDING_JOB_ID_PROPERTY) – Graph property marking a node or edge as created by an in-flight job.
 
 ###### `agrag.common.data_models.graph_record.NodeRecord`
 
@@ -2455,6 +2639,10 @@ One graph node, ready to write.
 - [**properties**](#agrag.common.data_models.graph_record.NodeRecord.properties) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – The node's properties, including an embedding vector under
   whatever key `GraphStore.ensure_vector_index` was configured
   with, if native vector search is in use.
+
+**Functions:**
+
+- [**reject_pending_tag**](#agrag.common.data_models.graph_record.NodeRecord.reject_pending_tag) – Reject the job-owned tag in external graph records.
 
 ####### `agrag.common.data_models.graph_record.NodeRecord.id`
 
@@ -2474,6 +2662,28 @@ labels: list[str] = Field(min_length=1)
 properties: dict[str, Any]
 ```
 
+####### `agrag.common.data_models.graph_record.NodeRecord.reject_pending_tag`
+
+```python
+reject_pending_tag(properties:dict[str, Any]) -> dict[str, Any]
+```
+
+Reject the job-owned tag in external graph records.
+
+###### `agrag.common.data_models.graph_record.PENDING_JOB_ID_PROPERTY`
+
+```python
+PENDING_JOB_ID_PROPERTY = '_pending_job_id'
+```
+
+Graph property marking a node or edge as created by an in-flight job.
+
+Carried on every node or edge a Cutover Job creates; committed data and
+rows a job only writes over never carry it. Retrieval query builders
+exclude rows carrying it, the commit step removes it atomically, and
+rollback deletes every row carrying it. Vector-store payloads mirror it
+under the same key for commit-time clearing.
+
 ###### `agrag.common.data_models.graph_record.RelationRecord`
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
@@ -2487,6 +2697,10 @@ One graph relationship, ready to write.
 - [**start_id**](#agrag.common.data_models.graph_record.RelationRecord.start_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the start node.
 - [**end_id**](#agrag.common.data_models.graph_record.RelationRecord.end_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the end node.
 - [**properties**](#agrag.common.data_models.graph_record.RelationRecord.properties) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – The relationship's properties.
+
+**Functions:**
+
+- [**reject_pending_tag**](#agrag.common.data_models.graph_record.RelationRecord.reject_pending_tag) – Reject the job-owned tag in external graph records.
 
 ####### `agrag.common.data_models.graph_record.RelationRecord.end_id`
 
@@ -2505,6 +2719,14 @@ id: UUID
 ```python
 properties: dict[str, Any]
 ```
+
+####### `agrag.common.data_models.graph_record.RelationRecord.reject_pending_tag`
+
+```python
+reject_pending_tag(properties:dict[str, Any]) -> dict[str, Any]
+```
+
+Reject the job-owned tag in external graph records.
 
 ####### `agrag.common.data_models.graph_record.RelationRecord.start_id`
 
@@ -2573,6 +2795,29 @@ failures: list[UpsertFailure] = Field(default_factory=list)
 ```python
 written: int = 0
 ```
+
+###### `agrag.common.data_models.graph_record.tag_pending`
+
+```python
+tag_pending(record:_RecordT, job_id:UUID | str | None) -> _RecordT
+```
+
+Stamp a write record with the Cutover Job that is writing it.
+
+The tag reaches the graph only when the write creates its row; the
+upsert queries apply it with `ON CREATE SET`.
+
+No-op outside a job, so pipeline stages thread their optional job id
+through this unconditionally instead of branching at every write.
+
+**Parameters:**
+
+- **record** (<code>[\_RecordT](#agrag.common.data_models.graph_record._RecordT)</code>) – The node or relationship record about to be written.
+- **job_id** (<code>[UUID](#uuid.UUID) | [str](#str) | None</code>) – The in-flight job's id, or None outside a job.
+
+**Returns:**
+
+- <code>[\_RecordT](#agrag.common.data_models.graph_record._RecordT)</code> – A tagged copy when a job id was given; otherwise the original record.
 
 ##### `agrag.common.data_models.graph_schema`
 
@@ -3205,6 +3450,10 @@ Vector storage record shapes shared by VectorStore and GraphStore.
 - [**VectorHit**](#agrag.common.data_models.vector_record.VectorHit) – One search result: a matched id, its score, and its stored payload.
 - [**VectorRecord**](#agrag.common.data_models.vector_record.VectorRecord) – One vector and its payload, ready to write to a collection or index.
 
+**Attributes:**
+
+- [**PENDING_VECTOR_FLAG**](#agrag.common.data_models.vector_record.PENDING_VECTOR_FLAG) – Payload flag marking a vector as written by an in-flight Cutover Job.
+
 ###### `agrag.common.data_models.vector_record.Distance`
 
 Bases: <code>[StrEnum](#enum.StrEnum)</code>
@@ -3234,6 +3483,24 @@ DOT = 'Dot'
 ```python
 EUCLID = 'Euclid'
 ```
+
+###### `agrag.common.data_models.vector_record.PENDING_VECTOR_FLAG`
+
+```python
+PENDING_VECTOR_FLAG = '_pending'
+```
+
+Payload flag marking a vector as written by an in-flight Cutover Job.
+
+Mirrored at write time and cleared at commit. Payload filters only match
+on present values, so pending-exclusion needs this explicit boolean
+rather than relying on the job-id key's absence.
+
+Every backend's filter compiler reads the flag two ways: a filter that
+omits it, or sets it `False`, excludes records flagged true while
+still returning records written before the flag existed, and a filter
+that sets it `True` returns only the flagged records, which is the
+maintenance path that has to see a job's own in-flight vectors.
 
 ###### `agrag.common.data_models.vector_record.VectorHit`
 
@@ -3477,8 +3744,9 @@ points one way (store -> cypher).
 
 - [**community_read**](#agrag.cypher.community_read) – Cypher for community retrieval reads.
 - [**community_write**](#agrag.cypher.community_write) – Cypher for the community-detection full-replace write path.
+- [**cutover_job_read**](#agrag.cypher.cutover_job_read) – Cypher reads for the Cutover Job crash-recovery machine.
+- [**cutover_job_write**](#agrag.cypher.cutover_job_write) – Cypher writes for the Cutover Job crash-recovery machine.
 - [**entities**](#agrag.cypher.entities) – Cypher builders for node writes and filters.
-- [**merge**](#agrag.cypher.merge) – Cypher for the tombstone/transfer/dedup merge path.
 - [**relations**](#agrag.cypher.relations) – Cypher builders for relationship writes and graph traversal.
 - [**resolution_read**](#agrag.cypher.resolution_read) – Cypher reads for local entity-resolution materialization.
 - [**resolution_write**](#agrag.cypher.resolution_write) – Cypher writes for non-destructive entity resolution.
@@ -3515,10 +3783,14 @@ Build Cypher finding communities overlapping given entity ids.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids)
+- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids),
+- <code>[str](#str)</code> – $job_id (the in-flight Cutover Job's id, or null outside a job),
 - <code>[str](#str)</code> – and $top_k (max rows to return; must be non-negative, since
 - <code>[str](#str)</code> – Neo4j rejects a negative LIMIT). Returns each overlapping
 - <code>[str](#str)</code> – community node and its overlap count, highest overlap first.
+- <code>[str](#str)</code> – Community nodes are never written by a Cutover Job, but the
+- <code>[str](#str)</code> – member entity anchor is: the `$job_id` guard keeps a
+- <code>[str](#str)</code> – community from being found through a pending member edge.
 
 #### `agrag.cypher.community_write`
 
@@ -3544,6 +3816,226 @@ deleted, rather than a single unbatched DETACH DELETE.
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $limit. Returns the count deleted.
 
+#### `agrag.cypher.cutover_job_read`
+
+Cypher reads for the Cutover Job crash-recovery machine.
+
+**Functions:**
+
+- [**find_incomplete_jobs_query**](#agrag.cypher.cutover_job_read.find_incomplete_jobs_query) – Build Cypher returning every job that still needs crash recovery.
+
+##### `agrag.cypher.cutover_job_read.find_incomplete_jobs_query`
+
+```python
+find_incomplete_jobs_query() -> str
+```
+
+Build Cypher returning every job that still needs crash recovery.
+
+The `Graph.open()` resume hook runs this first: a pending job whose
+lease has lapsed rolls back, a committed or cleaning job rolls
+forward, and a pending job whose lease is still live is left alone
+because its worker may be running normally. Done and rolled-back jobs
+never match, so graphs that predate this feature — or finished jobs
+whose nodes were deleted by rollback — simply return nothing.
+
+`lease_expired` is decided in the query rather than by the caller so
+the read needs no datetime parsing at the boundary.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting no parameters. Returns each
+- <code>[str](#str)</code> – incomplete job's id, status, lease token, affected-entity snapshot,
+- <code>[str](#str)</code> – and whether its lease has lapsed. The lease token is required to
+- <code>[str](#str)</code> – fence the subsequent recovery claim.
+
+#### `agrag.cypher.cutover_job_write`
+
+Cypher writes for the Cutover Job crash-recovery machine.
+
+**Functions:**
+
+- [**acquire_lease_query**](#agrag.cypher.cutover_job_write.acquire_lease_query) – Build Cypher tentatively creating a job node and returning its lease.
+- [**claim_job_query**](#agrag.cypher.cutover_job_write.claim_job_query) – Build Cypher taking over an interrupted job for resume-on-open.
+- [**clear_pending_tag_query**](#agrag.cypher.cutover_job_write.clear_pending_tag_query) – Build Cypher clearing the pending tag off everything a job created.
+- [**commit_job_query**](#agrag.cypher.cutover_job_write.commit_job_query) – Build Cypher flipping a job from pending to committed, fenced by lease.
+- [**finish_cleaning_query**](#agrag.cypher.cutover_job_write.finish_cleaning_query) – Build Cypher marking a job done after its cleanup phase completes.
+- [**rollback_job_query**](#agrag.cypher.cutover_job_write.rollback_job_query) – Build Cypher deleting everything a job created, then the job itself.
+- [**start_cleaning_query**](#agrag.cypher.cutover_job_write.start_cleaning_query) – Build Cypher moving a committed job into cleaning, fenced by lease.
+- [**steal_expired_lease_query**](#agrag.cypher.cutover_job_write.steal_expired_lease_query) – Build Cypher taking over a job whose lease lapsed or went terminal.
+
+##### `agrag.cypher.cutover_job_write.acquire_lease_query`
+
+```python
+acquire_lease_query() -> str
+```
+
+Build Cypher tentatively creating a job node and returning its lease.
+
+Follows `upsert_merge_alias_query`'s tentative-create shape: `MERGE`
+on `document_key` (backed by the `CutoverJob.document_key`
+uniqueness constraint) creates the node for the first claimant and
+matches it for everyone else, so concurrent acquirers converge instead
+of duplicating. The caller compares the returned `lease_token`
+against its own: equality means it won the lease (created the node),
+anything else means a live job already holds it.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $document_key, $verb,
+- <code>[str](#str)</code> – $lease_token, $lease_expires_at (ISO-8601 string, stored as a
+- <code>[str](#str)</code> – native datetime for expiry comparison), $affected_entity_ids
+- <code>[str](#str)</code> – (list of string ids, snapshotted before any pending write), and
+- <code>[str](#str)</code> – $created_at. Returns the node's lease_token and status.
+
+##### `agrag.cypher.cutover_job_write.claim_job_query`
+
+```python
+claim_job_query() -> str
+```
+
+Build Cypher taking over an interrupted job for resume-on-open.
+
+The `Graph.open()` resume hook runs this after
+`find_incomplete_jobs_query`: it flips one incomplete job to
+`cleaning` under a fresh fencing token if the job is committed
+(roll forward) or cleaning (a previous resume died mid-cleanup), and
+is refused for a pending job, which the caller rolls back instead —
+a pending job's worker may still be alive, so taking over its writes
+would fork the pipeline. The flip is fenced against the token read
+in the same query, so two simultaneous opens converge: exactly one
+claimant gets back its own token, and the loser sees no row and
+skips the job as claimed.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $expected_lease_token,
+- <code>[str](#str)</code> – $lease_token (the claimant's fresh token), and $lease_expires_at.
+- <code>[str](#str)</code> – Returns the job's new status when the
+- <code>[str](#str)</code> – claim applied, no row when the job is pending or was claimed by
+- <code>[str](#str)</code> – another open first.
+
+##### `agrag.cypher.cutover_job_write.clear_pending_tag_query`
+
+```python
+clear_pending_tag_query() -> str
+```
+
+Build Cypher clearing the pending tag off everything a job created.
+
+Runs inside the same transaction as `commit_job_query`: the commit
+flip and the tag removal land atomically, so a crash between them is
+impossible. External vector-store payloads carry the mirrored
+`_pending` boolean and are cleared through the VectorStore API by
+the caller, not here; the native vector-index path reads node
+properties, so it sees this same removal.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id. Returns the count of
+- <code>[str](#str)</code> – nodes and relationships cleared.
+
+##### `agrag.cypher.cutover_job_write.commit_job_query`
+
+```python
+commit_job_query() -> str
+```
+
+Build Cypher flipping a job from pending to committed, fenced by lease.
+
+Follows `set_embedding_query`'s compare-and-swap shape: the write
+applies only while the `WHERE` guard (caller's fencing token still
+current, job still pending) holds, so a worker that lost its lease
+cannot complete a stale commit even if it is still alive and slow.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id and $lease_token. Returns
+- <code>[str](#str)</code> – the job id when the flip applied, no row on fencing failure.
+
+##### `agrag.cypher.cutover_job_write.finish_cleaning_query`
+
+```python
+finish_cleaning_query() -> str
+```
+
+Build Cypher marking a job done after its cleanup phase completes.
+
+Same compare-and-swap shape as `commit_job_query`: only the lease
+holder that started cleaning may finish it.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id and $lease_token. Returns
+- <code>[str](#str)</code> – the job id when the transition applied, no row otherwise.
+
+##### `agrag.cypher.cutover_job_write.rollback_job_query`
+
+```python
+rollback_job_query() -> str
+```
+
+Build Cypher deleting everything a job created, then the job itself.
+
+Only rows this job created carry its tag, so rollback is pure
+deletion of the job's own additions: every tagged node (detaching its
+edges) and every tagged edge between committed endpoints goes first,
+then the job node. Nothing a caller committed earlier is reachable
+from here, because a row that already existed when the job wrote over
+it was never tagged. Reaching this terminal state is observed as the
+job node's absence, which also frees `document_key` for the next job
+without a reuse path.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id. Returns the count of
+- <code>[str](#str)</code> – deleted nodes and relationships.
+
+##### `agrag.cypher.cutover_job_write.start_cleaning_query`
+
+```python
+start_cleaning_query() -> str
+```
+
+Build Cypher moving a committed job into cleaning, fenced by lease.
+
+Same compare-and-swap shape as `commit_job_query`: only the lease
+holder that committed the job may start its cleanup.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id and $lease_token. Returns
+- <code>[str](#str)</code> – the job id when the transition applied, no row otherwise.
+
+##### `agrag.cypher.cutover_job_write.steal_expired_lease_query`
+
+```python
+steal_expired_lease_query() -> str
+```
+
+Build Cypher taking over a job whose lease lapsed or went terminal.
+
+Matches a job for `$document_key` that is either still pending with
+an expired lease (its worker died without committing) or already in a
+terminal state (a previous run finished and left the node behind), and
+resets it to pending under the caller's identity and token. Committed
+and cleaning jobs never match: they are mid-roll-forward under the
+resume hook, and stealing one would fork the cleanup phase.
+
+The steal adopts `$job_id` as well as `$lease_token`: every later
+step of this job's run — commit, clean, done — fences on the new
+job's id, so a node still carrying the previous run's id would fence
+the whole run out at its first transition.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $document_key, $verb,
+- <code>[str](#str)</code> – $expected_lease_token, $lease_token, $affected_entity_ids (the new
+- <code>[str](#str)</code> – run's snapshot, empty until the caller needs it), $created_at, and
+- <code>[str](#str)</code> – $lease_expires_at
+- <code>[str](#str)</code> – (ISO-8601 string). Returns the node's lease_token when the steal
+- <code>[str](#str)</code> – succeeded, no row otherwise.
+
 #### `agrag.cypher.entities`
 
 Cypher builders for node writes and filters.
@@ -3563,7 +4055,6 @@ the dependency points one way (store -> cypher).
 - [**hydrate_chunks_by_id_query**](#agrag.cypher.entities.hydrate_chunks_by_id_query) – Build Cypher fetching chunks by id.
 - [**hydrate_entities_by_id_query**](#agrag.cypher.entities.hydrate_entities_by_id_query) – Build Cypher fetching entities by id, excluding tombstones.
 - [**is_safe_identifier**](#agrag.cypher.entities.is_safe_identifier) – Report whether a label or relationship type is a safe Cypher identifier.
-- [**merge_key_index_query**](#agrag.cypher.entities.merge_key_index_query) – Build a CREATE INDEX query on the node merge_key property.
 - [**resolve_merged_into_query**](#agrag.cypher.entities.resolve_merged_into_query) – Return a node and the id of the node it was merged into.
 - [**set_chunk_embedding_query**](#agrag.cypher.entities.set_chunk_embedding_query) – Build Cypher setting a vector property on Chunk nodes.
 - [**set_embedding_query**](#agrag.cypher.entities.set_embedding_query) – Build Cypher setting one vector property per node, guarded by its text.
@@ -3681,7 +4172,12 @@ map those mentions back.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $merge_keys (list of strings).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $merge_keys (list of strings) and
+- <code>[str](#str)</code> – $job_id (the in-flight Cutover Job's id, or null outside a job).
+- <code>[str](#str)</code> – An alias written by this same job resolves through the guard, so
+- <code>[str](#str)</code> – in-job exact-match lookups see the job's own writes; every other
+- <code>[str](#str)</code> – job's alias is excluded, and outside a job the guard reduces to
+- <code>[str](#str)</code> – committed-only.
 
 ##### `agrag.cypher.entities.fetch_entity_neighbors_query`
 
@@ -3702,7 +4198,7 @@ Build Cypher for a bounded, per-entity sample of neighboring relations.
 ##### `agrag.cypher.entities.fetch_relations_between_query`
 
 ```python
-fetch_relations_between_query(rel_type:str) -> str
+fetch_relations_between_query(rel_type:str, *, job_id:str | None = None) -> str
 ```
 
 Build Cypher for batched lookup of existing relations by endpoints.
@@ -3710,6 +4206,7 @@ Build Cypher for batched lookup of existing relations by endpoints.
 **Parameters:**
 
 - **rel_type** (<code>[str](#str)</code>) – The relationship type. Must already be validated.
+- **job_id** (<code>[str](#str) | None</code>) – Optional parameter name for same-job pending visibility.
 
 **Returns:**
 
@@ -3749,9 +4246,17 @@ The query follows only currently valid PART_OF edges, so superseded
 document versions cannot surface in retrieval. Chunks without any
 PART_OF edge are also returned for direct or legacy chunk fixtures.
 
+Pending visibility is job-scoped: the storage stage runs inside its
+own job's pending phase and must see the chunks that same job just
+wrote (the partial-write fallback checks exactly those), while still
+excluding every other in-flight job's. A null `$job_id` reduces the
+guard to committed-only, which is what every caller outside a job
+passes.
+
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids) and
+- <code>[str](#str)</code> – $job_id (the in-flight job's id, or null outside a job).
 
 ##### `agrag.cypher.entities.hydrate_entities_by_id_query`
 
@@ -3765,9 +4270,16 @@ A tombstoned node is never deleted, so a naive
 `MATCH (n) WHERE n.id IN $ids` would surface one. This query
 filters on `merged_into IS NULL` to return only live nodes.
 
+Pending visibility is job-scoped: the merge-apply and pruning paths
+run inside their own job's pending phase and must see the entities
+that same job just wrote, while still excluding every other
+in-flight job's. A null `$job_id` reduces the guard to
+committed-only, which is what every caller outside a job passes.
+
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids) and
+- <code>[str](#str)</code> – $job_id (the in-flight job's id, or null outside a job).
 
 ##### `agrag.cypher.entities.is_safe_identifier`
 
@@ -3789,24 +4301,6 @@ than validating one name a caller must supply correctly.
 
 - <code>[bool](#bool)</code> – `True` if `value` is a safe identifier.
 
-##### `agrag.cypher.entities.merge_key_index_query`
-
-```python
-merge_key_index_query(label:str) -> str
-```
-
-Build a CREATE INDEX query on the node merge_key property.
-
-Backs the global exact-match lookup.
-
-**Parameters:**
-
-- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
-
-**Returns:**
-
-- <code>[str](#str)</code> – A Cypher query creating the range index if absent.
-
 ##### `agrag.cypher.entities.resolve_merged_into_query`
 
 ```python
@@ -3819,6 +4313,10 @@ A tombstoned node is never deleted; it only gains a `merged_into`
 property pointing at its survivor. The pointer is a property, not a
 relationship, so a chain is followed one hop per call: `merged_into`
 is null on a live node and holds the next id on a tombstone.
+
+A pending node resolves to itself: the identity path must see its own
+job's in-flight writes, and an uncommitted job's node is only ever
+reached through that same job's own reads.
 
 **Returns:**
 
@@ -3907,6 +4405,13 @@ entity it names is later itself absorbed, `fetch_by_merge_keys_query`'s
 caller follows that entity's `merged_into` chain from here instead of
 this table being kept in sync with every later merge.
 
+An alias written by an in-flight Cutover Job carries that job's id, so
+the exact-match lookup (which filters pending nodes) never resolves a
+mention into uncommitted data, and a rollback deletes the alias with
+the entity it names instead of leaving a dangling owner. A null
+`pending_job_id` sets no property, preserving today's behavior for
+callers outside a job.
+
 The returned rows are what let a caller detect the case `ON CREATE SET` alone cannot: an accepted merge_key already owned by some other
 live entity, not one this same merge is writing or absorbing. Neither
 entity's own node merge_key collides in that case, so nothing at the
@@ -3915,10 +4420,12 @@ entity_id against its own survivor and tombstone ids itself.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $merge_keys (list of strings) and
-- <code>[str](#str)</code> – $entity_id. Returns each merge_key alongside the entity_id that now
-- <code>[str](#str)</code> – owns it -- $entity_id when this call claimed or already owned it,
-- <code>[str](#str)</code> – another entity's id when a different one claimed it first.
+- <code>[str](#str)</code> – Parameterized Cypher expecting $merge_keys (list of strings),
+- <code>[str](#str)</code> – $entity_id, and $pending_job_id (the in-flight job's id, or null
+- <code>[str](#str)</code> – outside a job — null sets no property). Returns each merge_key
+- <code>[str](#str)</code> – alongside the entity_id that now owns it -- $entity_id when this
+- <code>[str](#str)</code> – call claimed or already owned it, another entity's id when a
+- <code>[str](#str)</code> – different one claimed it first.
 
 ##### `agrag.cypher.entities.upsert_node_query`
 
@@ -3943,6 +4450,12 @@ grouped and split before reaching this builder).
 Identity is reasserted after applying properties, so a caller-supplied
 `properties["id"]` cannot overwrite the `id` used to `MERGE` and
 orphan the node from later upserts of the same record.
+
+The Cutover Job tag is applied only when the `MERGE` creates the
+node, so the tag means "this job created this node". A job that only
+writes over an existing node leaves it untagged: it stays visible to
+retrieval, and the job's rollback — which deletes tagged rows —
+cannot reach it.
 
 **Parameters:**
 
@@ -3978,6 +4491,10 @@ as-is (last write wins); resolving a conflict there needs the candidate
 values, which only a Python-side read can gather, so making that
 atomic too is out of scope here.
 
+Like `upsert_node_query`, the Cutover Job tag is applied only when
+the `MERGE` creates the node, so a survivor a job merely accumulates
+into stays visible and out of reach of that job's rollback.
+
 **Parameters:**
 
 - **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
@@ -3987,7 +4504,8 @@ atomic too is out of scope here.
 - <code>[str](#str)</code> – A parameterized Cypher query expecting a `$records` list
 - <code>[str](#str)</code> – parameter whose items carry `id`, `properties` (every survivor
 - <code>[str](#str)</code> – field except `source_chunk_ids`, `merged_from`, and
-- <code>[str](#str)</code> – `merge_count`), `new_source_chunk_ids`, `new_merged_from`, and
+- <code>[str](#str)</code> – `merge_count`), `pending_job_id` (the Cutover Job tag, or
+- <code>[str](#str)</code> – None), `new_source_chunk_ids`, `new_merged_from`, and
 - <code>[str](#str)</code> – `merge_count_delta`.
 
 ##### `agrag.cypher.entities.validate_identifier`
@@ -4009,158 +4527,6 @@ Check that a label or relationship type is a safe Cypher identifier.
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – `value` is not a safe identifier.
-
-#### `agrag.cypher.merge`
-
-Cypher for the tombstone/transfer/dedup merge path.
-
-**Functions:**
-
-- [**apply_relationship_dedup_delete_query**](#agrag.cypher.merge.apply_relationship_dedup_delete_query) – Build Cypher deleting relationships a dedup pass superseded.
-- [**apply_relationship_dedup_update_query**](#agrag.cypher.merge.apply_relationship_dedup_update_query) – Build Cypher applying a kept relationship's merged properties.
-- [**clear_tombstone_merge_keys_query**](#agrag.cypher.merge.clear_tombstone_merge_keys_query) – Build Cypher removing merge_key from nodes about to be absorbed.
-- [**delete_internal_relationships_query**](#agrag.cypher.merge.delete_internal_relationships_query) – Build Cypher deleting edges that would become meaningless self-links.
-- [**fetch_node_relationships_query**](#agrag.cypher.merge.fetch_node_relationships_query) – Build Cypher fetching one direction of a node's own relationships.
-- [**tombstone_query**](#agrag.cypher.merge.tombstone_query) – Build Cypher marking one or more nodes as merged, never deleting them.
-- [**transfer_relationships_query**](#agrag.cypher.merge.transfer_relationships_query) – Build Cypher moving one direction of a tombstoned node's relationships.
-
-##### `agrag.cypher.merge.apply_relationship_dedup_delete_query`
-
-```python
-apply_relationship_dedup_delete_query() -> str
-```
-
-Build Cypher deleting relationships a dedup pass superseded.
-
-**Returns:**
-
-- <code>[str](#str)</code> – Parameterized Cypher expecting $delete_ids (list of
-- <code>[str](#str)</code> – `{id, rel_type}`).
-
-##### `agrag.cypher.merge.apply_relationship_dedup_update_query`
-
-```python
-apply_relationship_dedup_update_query() -> str
-```
-
-Build Cypher applying a kept relationship's merged properties.
-
-**Returns:**
-
-- <code>[str](#str)</code> – Parameterized Cypher expecting $updates (list of
-- <code>[str](#str)</code> – `{id, rel_type, properties}`), where properties is the full merged
-- <code>[str](#str)</code> – property map -- not just source_chunk_ids -- so a duplicate's other
-- <code>[str](#str)</code> – fields are not silently dropped when its edge is deleted.
-
-##### `agrag.cypher.merge.clear_tombstone_merge_keys_query`
-
-```python
-clear_tombstone_merge_keys_query(label:str) -> str
-```
-
-Build Cypher removing merge_key from nodes about to be absorbed.
-
-Must run before `upsert_survivor_query` writes the survivor, not after
-`tombstone_query`: canonical selection can choose a different node as
-survivor than the one a property rule (e.g. KEEP_FIRST) resolves the
-name from, so the survivor's resolved merge_key can equal a still-live
-tombstone's own merge_key. Writing the survivor first would then collide
-with the per-label `merge_key` uniqueness constraint, since both nodes
-would briefly hold the same value.
-
-**Parameters:**
-
-- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
-
-**Returns:**
-
-- <code>[str](#str)</code> – Parameterized Cypher expecting $tombstone_ids.
-
-##### `agrag.cypher.merge.delete_internal_relationships_query`
-
-```python
-delete_internal_relationships_query() -> str
-```
-
-Build Cypher deleting edges that would become meaningless self-links.
-
-Covers two cases, both before any transfer runs, inside the same
-transaction as the merge:
-
-- An edge between two absorbed nodes: left untransferred, it would
-  become a stale `survivor->tombstone` edge after the first transfer.
-- An edge directly between an absorbed node and its own survivor:
-  `transfer_relationships_query` excludes these (`other.id <> $survivor_id`), since transferring one would create a
-  `survivor->survivor` self-loop that no relation type's semantics
-  call for. Deleting them here, in both directions, is what keeps them
-  from being silently orphaned on the tombstone instead.
-
-**Returns:**
-
-- <code>[str](#str)</code> – Parameterized Cypher expecting $tombstone_ids (list of strings) and
-- <code>[str](#str)</code> – $survivor_id.
-
-##### `agrag.cypher.merge.fetch_node_relationships_query`
-
-```python
-fetch_node_relationships_query(*, outgoing:bool) -> str
-```
-
-Build Cypher fetching one direction of a node's own relationships.
-
-Run against the survivor after every transfer completes, so the dedup
-pass that follows sees the survivor's whole neighbourhood in that
-direction -- both freshly transferred edges and ones it already had --
-rather than only what one transfer call happened to move.
-
-**Parameters:**
-
-- **outgoing** (<code>[bool](#bool)</code>) – True fetches (node)-[r]->(other) edges. False fetches
-  (other)-[r]->(node) edges.
-
-**Returns:**
-
-- <code>[str](#str)</code> – Parameterized Cypher expecting $node_id.
-
-##### `agrag.cypher.merge.tombstone_query`
-
-```python
-tombstone_query(label:str, *, vector_property:str) -> str
-```
-
-Build Cypher marking one or more nodes as merged, never deleting them.
-
-Also removes `vector_property`: a native Neo4j vector index only covers
-nodes that currently carry the indexed property, so dropping it takes the
-tombstone out of vector search immediately, with no query-time filter and
-no dependency on a later re-embed ever running against it.
-
-**Parameters:**
-
-- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
-- **vector_property** (<code>[str](#str)</code>) – The embedding property to remove. Must already be
-  validated.
-
-**Returns:**
-
-- <code>[str](#str)</code> – Parameterized Cypher expecting $tombstone_ids and $survivor_id.
-
-##### `agrag.cypher.merge.transfer_relationships_query`
-
-```python
-transfer_relationships_query(*, outgoing:bool) -> str
-```
-
-Build Cypher moving one direction of a tombstoned node's relationships.
-
-**Parameters:**
-
-- **outgoing** (<code>[bool](#bool)</code>) – True moves (tombstone)-[r]->(other) edges. False moves
-  (other)-[r]->(tombstone) edges.
-
-**Returns:**
-
-- <code>[str](#str)</code> – Parameterized Cypher expecting $tombstone_id and $survivor_id.
 
 #### `agrag.cypher.relations`
 
@@ -4195,7 +4561,7 @@ TraversalDirection = Literal['outgoing', 'incoming', 'both']
 ##### `agrag.cypher.relations.bfs_expand_query`
 
 ```python
-bfs_expand_query(*, depth:int = 2, limit:int = 50, filters:dict[str, Any] | None = None, relation_types:Sequence[str] | None = None, direction:TraversalDirection = 'both', document_ids:Sequence[str] | None = None, labels:Sequence[str] | None = None) -> tuple[str, dict[str, Any]]
+bfs_expand_query(*, depth:int = 2, limit:int = 50, filters:dict[str, Any] | None = None, relation_types:Sequence[str] | None = None, direction:TraversalDirection = 'both', document_ids:Sequence[str] | None = None, labels:Sequence[str] | None = None, job_id:str | None = None) -> tuple[str, dict[str, Any]]
 ```
 
 Build Cypher for BFS expansion from seed entity ids.
@@ -4240,11 +4606,15 @@ never returned as BFS results.
   entity through a `MENTIONED_IN` edge.
 - **labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – Optional labels that returned neighbors must have at
   least one of.
+- **job_id** (<code>[str](#str) | None</code>) – The in-flight Cutover Job's id, or null outside a job.
+  A null `$job_id` reduces the pending guards to
+  committed-only, so no retrieval path ever returns a node or
+  crosses an edge written by an uncommitted job.
 
 **Returns:**
 
 - <code>[str](#str)</code> – A `(query, params)` tuple. The query expects `$seed_ids`
-- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – (list of string ids) plus any filter parameters.
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – (list of string ids), `$job_id`, plus any filter parameters.
 
 **Raises:**
 
@@ -4260,11 +4630,13 @@ chunks_mentioning_entities_query() -> str
 Build Cypher finding chunks that mention given entities.
 
 Walks the MENTIONED_IN edge from Chunk to Entity. Returns chunks
-that reference any of the given entity ids.
+that reference any of the given entity ids. Pending visibility is
+job-scoped: a null `$job_id` reduces the guard to committed-only.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_ids (list of string ids)
+- <code>[str](#str)</code> – and $job_id (the in-flight job's id, or null outside a job).
 
 ##### `agrag.cypher.relations.close_part_of_query`
 
@@ -4274,6 +4646,14 @@ close_part_of_query() -> str
 
 Build Cypher that closes currently valid document-to-chunk edges.
 
+Only committed edges are closed. Pending edges belong to an in-flight
+cutover and remain open until that job commits.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $document_node_id. Returns the
+- <code>[str](#str)</code> – number of committed edges closed.
+
 ##### `agrag.cypher.relations.entities_in_documents_query`
 
 ```python
@@ -4281,6 +4661,16 @@ entities_in_documents_query() -> str
 ```
 
 Build a query for live entities mentioned in selected documents.
+
+Pending visibility is job-scoped: a null `$job_id` reduces the
+guard to committed-only, so document scoping never surfaces an
+entity an uncommitted job wrote.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $document_ids (list of string
+- <code>[str](#str)</code> – ids) and $job_id (the in-flight job's id, or null outside a
+- <code>[str](#str)</code> – job).
 
 ##### `agrag.cypher.relations.entities_mentioned_in_chunks_query`
 
@@ -4291,11 +4681,14 @@ entities_mentioned_in_chunks_query() -> str
 Build Cypher finding entities mentioned by given chunks.
 
 Walks the MENTIONED_IN edge from Chunk to Entity in reverse. Returns
-entities referenced by any of the given chunk ids.
+entities referenced by any of the given chunk ids. Pending
+visibility is job-scoped: a null `$job_id` reduces the guard to
+committed-only.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $chunk_ids (list of string ids).
+- <code>[str](#str)</code> – Parameterized Cypher expecting $chunk_ids (list of string ids)
+- <code>[str](#str)</code> – and $job_id (the in-flight job's id, or null outside a job).
 
 ##### `agrag.cypher.relations.fetch_all_relations_query`
 
@@ -4333,6 +4726,8 @@ Build Cypher paginating every live domain relationship via keyset.
 Keyset variant of :func:`fetch_all_relations_query` for large graphs
 where `SKIP` becomes expensive. Orders by `(a.id, b.id, type(r), r.id)` and pages by the last seen tuple; the first page uses
 `last_a=""`, `last_b=""`, `last_type=""` and `last_rel_id=""`.
+Like the offset variant, it excludes every edge an in-flight Cutover
+Job wrote.
 
 The relationship type and id break ties on `(a.id, b.id)`: two
 distinct relationships (different types, or the same type with
@@ -4371,7 +4766,7 @@ Return the validated Cypher type pattern for a set of types.
 ##### `agrag.cypher.relations.relationship_types_from_query`
 
 ```python
-relationship_types_from_query(*, relation_types:Sequence[str] | None = None, direction:TraversalDirection = 'both') -> str
+relationship_types_from_query(*, relation_types:Sequence[str] | None = None, direction:TraversalDirection = 'both', job_id:str | None = None) -> str
 ```
 
 Build Cypher listing the relationship types touching seed entities.
@@ -4390,12 +4785,15 @@ narrowing a real traversal, not as a substitute for one.
 - **direction** (<code>[TraversalDirection](#agrag.cypher.relations.TraversalDirection)</code>) – Which relationships to consider, read relative to
   the seed entity: those leaving it (`"outgoing"`), those
   entering it (`"incoming"`), or both.
+- **job_id** (<code>[str](#str) | None</code>) – The in-flight Cutover Job's id, or null outside a job.
+  A null `$job_id` reduces the pending guard to
+  committed-only, so no in-flight job's edges add types.
 
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting `$seed_ids` (list of string
-- <code>[str](#str)</code> – ids), returning one row per distinct attached type under
-- <code>[str](#str)</code> – `rel_type`.
+- <code>[str](#str)</code> – ids) and `$job_id`, returning one row per distinct attached
+- <code>[str](#str)</code> – type under `rel_type`.
 
 **Raises:**
 
@@ -4431,6 +4829,12 @@ discard the chunk ids the other one contributed. Reading the current
 value here, inside the same MERGE, keeps the union correct regardless of
 which caller's read was stale.
 
+The Cutover Job tag is applied only when the `MERGE` creates the
+relationship, so the tag means "this job created this edge". A job
+that only writes over an existing edge leaves it untagged: it stays
+visible to retrieval, and the job's rollback — which deletes tagged
+rows — cannot reach it.
+
 **Parameters:**
 
 - **rel_type** (<code>[str](#str)</code>) – The relationship type. Must already be validated.
@@ -4438,10 +4842,11 @@ which caller's read was stale.
 **Returns:**
 
 - <code>[str](#str)</code> – A parameterized Cypher query expecting a `$records` list parameter whose
-- <code>[str](#str)</code> – items carry `id`, `start_id`, `end_id`, and `properties` keys.
-- <code>[str](#str)</code> – `properties` may include `source_chunk_ids`; other keys are
-- <code>[str](#str)</code> – applied as-is. The query returns one row with `id` for every record
-- <code>[str](#str)</code> – whose endpoints matched and was processed.
+- <code>[str](#str)</code> – items carry `id`, `start_id`, `end_id`, `properties`, and
+- <code>[str](#str)</code> – `pending_job_id` keys. `properties` may include
+- <code>[str](#str)</code> – `source_chunk_ids`; other keys are applied as-is. The query returns
+- <code>[str](#str)</code> – one row with `id` for every record whose endpoints matched and was
+- <code>[str](#str)</code> – processed.
 
 #### `agrag.cypher.resolution_read`
 
@@ -4450,7 +4855,10 @@ Cypher reads for local entity-resolution materialization.
 **Functions:**
 
 - [**fetch_active_component_members_query**](#agrag.cypher.resolution_read.fetch_active_component_members_query) – Build Cypher returning active match components from seed ids.
+- [**fetch_active_matches_among_ids_query**](#agrag.cypher.resolution_read.fetch_active_matches_among_ids_query) – Build Cypher returning visible active match edges inside an id set.
 - [**fetch_active_resolved_member_ids_query**](#agrag.cypher.resolution_read.fetch_active_resolved_member_ids_query) – Build Cypher finding raw hits hidden by an active materialization.
+- [**fetch_entities_with_open_evidence_query**](#agrag.cypher.resolution_read.fetch_entities_with_open_evidence_query) – Build Cypher returning candidate ids with visible open evidence.
+- [**fetch_entity_cluster_memberships_query**](#agrag.cypher.resolution_read.fetch_entity_cluster_memberships_query) – Build Cypher returning visible cluster memberships for candidates.
 - [**fetch_match_endpoints_query**](#agrag.cypher.resolution_read.fetch_match_endpoints_query) – Build Cypher returning both endpoints of one match edge.
 - [**hydrate_resolved_entities_by_id_query**](#agrag.cypher.resolution_read.hydrate_resolved_entities_by_id_query) – Build Cypher hydrating materializations returned by vector search.
 
@@ -4462,6 +4870,27 @@ fetch_active_component_members_query() -> str
 
 Build Cypher returning active match components from seed ids.
 
+Pending visibility is job-scoped, not a plain exclusion: the
+materialization pass runs inside its own job's pending phase and must
+see the entities and matches that same job just wrote, while still
+excluding every other in-flight job's. A null `$job_id` reduces both
+guards to committed-only, which is what every caller outside a job
+passes.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $seed_ids (list of string ids) and
+- <code>[str](#str)</code> – $job_id (the in-flight job's id, or null outside a job). Returns
+- <code>[str](#str)</code> – each seed id with its distinct active component members.
+
+##### `agrag.cypher.resolution_read.fetch_active_matches_among_ids_query`
+
+```python
+fetch_active_matches_among_ids_query() -> str
+```
+
+Build Cypher returning visible active match edges inside an id set.
+
 ##### `agrag.cypher.resolution_read.fetch_active_resolved_member_ids_query`
 
 ```python
@@ -4469,6 +4898,34 @@ fetch_active_resolved_member_ids_query() -> str
 ```
 
 Build Cypher finding raw hits hidden by an active materialization.
+
+Pending visibility is job-scoped on both the edge and the resolved
+node: a null `$job_id` reduces both guards to committed-only, so
+an uncommitted job's materialization never hides a raw hit.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids) and
+- <code>[str](#str)</code> – $job_id (the in-flight job's id, or null outside a job).
+
+##### `agrag.cypher.resolution_read.fetch_entities_with_open_evidence_query`
+
+```python
+fetch_entities_with_open_evidence_query() -> str
+```
+
+Build Cypher returning candidate ids with visible open evidence.
+
+A null `$job_id` only counts committed evidence. A materialization
+pass can instead supply its own pending job id to see its new writes.
+
+##### `agrag.cypher.resolution_read.fetch_entity_cluster_memberships_query`
+
+```python
+fetch_entity_cluster_memberships_query() -> str
+```
+
+Build Cypher returning visible cluster memberships for candidates.
 
 ##### `agrag.cypher.resolution_read.fetch_match_endpoints_query`
 
@@ -4486,6 +4943,15 @@ hydrate_resolved_entities_by_id_query() -> str
 
 Build Cypher hydrating materializations returned by vector search.
 
+Pending visibility is job-scoped: a null `$job_id` reduces the
+guard to committed-only, so retrieval never hydrates a
+ResolvedEntity an uncommitted job materialized.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $ids (list of string ids) and
+- <code>[str](#str)</code> – $job_id (the in-flight job's id, or null outside a job).
+
 #### `agrag.cypher.resolution_write`
 
 Cypher writes for non-destructive entity resolution.
@@ -4494,9 +4960,12 @@ Cypher writes for non-destructive entity resolution.
 
 - [**clear_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.clear_resolved_entity_vector_deletions_query) – Build Cypher removing successfully retried vector deletions.
 - [**deactivate_match_query**](#agrag.cypher.resolution_write.deactivate_match_query) – Build Cypher that retains but deactivates a match edge.
+- [**delete_entities_query**](#agrag.cypher.resolution_write.delete_entities_query) – Build Cypher deleting orphaned entities with a final evidence check.
+- [**delete_merge_aliases_for_entities_query**](#agrag.cypher.resolution_write.delete_merge_aliases_for_entities_query) – Build Cypher deleting merge aliases owned by removed entities.
+- [**delete_resolved_entities_query**](#agrag.cypher.resolution_write.delete_resolved_entities_query) – Build Cypher deleting resolved nodes left with no members.
 - [**enqueue_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.enqueue_resolved_entity_vector_deletions_query) – Build Cypher persisting vector ids whose deletion needs a retry.
 - [**fetch_resolved_entity_vector_deletions_query**](#agrag.cypher.resolution_write.fetch_resolved_entity_vector_deletions_query) – Build Cypher reading vector deletions that still need a retry.
-- [**replace_component_materializations_query**](#agrag.cypher.resolution_write.replace_component_materializations_query) – Build Cypher deleting prior materializations for supplied raw members.
+- [**replace_component_materializations_query**](#agrag.cypher.resolution_write.replace_component_materializations_query) – Build Cypher replacing memberships outside a pending cutover.
 - [**set_resolved_entity_sync_status_query**](#agrag.cypher.resolution_write.set_resolved_entity_sync_status_query) – Build Cypher setting the vector synchronization state of derived nodes.
 - [**upsert_matches_query**](#agrag.cypher.resolution_write.upsert_matches_query) – Build Cypher that idempotently records a confirmed entity match.
 
@@ -4515,6 +4984,30 @@ deactivate_match_query() -> str
 ```
 
 Build Cypher that retains but deactivates a match edge.
+
+##### `agrag.cypher.resolution_write.delete_entities_query`
+
+```python
+delete_entities_query() -> str
+```
+
+Build Cypher deleting orphaned entities with a final evidence check.
+
+##### `agrag.cypher.resolution_write.delete_merge_aliases_for_entities_query`
+
+```python
+delete_merge_aliases_for_entities_query() -> str
+```
+
+Build Cypher deleting merge aliases owned by removed entities.
+
+##### `agrag.cypher.resolution_write.delete_resolved_entities_query`
+
+```python
+delete_resolved_entities_query() -> str
+```
+
+Build Cypher deleting resolved nodes left with no members.
 
 ##### `agrag.cypher.resolution_write.enqueue_resolved_entity_vector_deletions_query`
 
@@ -4538,7 +5031,12 @@ Build Cypher reading vector deletions that still need a retry.
 replace_component_materializations_query() -> str
 ```
 
-Build Cypher deleting prior materializations for supplied raw members.
+Build Cypher replacing memberships outside a pending cutover.
+
+A pending cutover must not delete the previously committed
+materialization: rollback can remove only rows created by that cutover.
+The pending node remains alongside the old one until a later
+consolidation pass replaces it after commit.
 
 ##### `agrag.cypher.resolution_write.set_resolved_entity_sync_status_query`
 
@@ -4555,6 +5053,19 @@ upsert_matches_query() -> str
 ```
 
 Build Cypher that idempotently records a confirmed entity match.
+
+A match written by an in-flight Cutover Job carries that job's id, so
+component reads (which filter pending matches) never traverse
+uncommitted edges. A null `$pending_job_id` sets no property,
+preserving today's behavior for callers outside a job. Re-confirming
+an already-committed edge under a job re-tags it until that job
+commits, which is correct: the edge is under active revision.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $entity_a_id, $entity_b_id,
+- <code>[str](#str)</code> – $match_id, $comparator, $score, $reasoning, $decided_at, and
+- <code>[str](#str)</code> – $pending_job_id (the in-flight job's id, or null outside a job).
 
 #### `agrag.cypher.safety`
 
@@ -4638,6 +5149,8 @@ identifier-validation contract shared by every Cypher builder.
 
 **Functions:**
 
+- [**cutover_job_document_key_constraint_query**](#agrag.cypher.schema.cutover_job_document_key_constraint_query) – Build a CREATE CONSTRAINT query making the job table's key unique.
+- [**cutover_job_status_index_query**](#agrag.cypher.schema.cutover_job_status_index_query) – Build an index for the incomplete CutoverJob recovery scan.
 - [**merge_alias_constraint_query**](#agrag.cypher.schema.merge_alias_constraint_query) – Build a CREATE CONSTRAINT query making the merge-key alias table unique.
 - [**merge_key_constraint_query**](#agrag.cypher.schema.merge_key_constraint_query) – Build a CREATE CONSTRAINT query making `merge_key` unique per label.
 - [**node_id_constraint_query**](#agrag.cypher.schema.node_id_constraint_query) – Build a CREATE CONSTRAINT query making `id` unique per node.
@@ -4646,6 +5159,33 @@ identifier-validation contract shared by every Cypher builder.
 - [**vector_index_name**](#agrag.cypher.schema.vector_index_name) – Derive the deterministic name a vector index is created under.
 - [**vector_index_query**](#agrag.cypher.schema.vector_index_query) – Build a CREATE VECTOR INDEX query for native vector search.
 - [**vector_search_query**](#agrag.cypher.schema.vector_search_query) – Build a native vector search query and its filter parameters.
+
+##### `agrag.cypher.schema.cutover_job_document_key_constraint_query`
+
+```python
+cutover_job_document_key_constraint_query() -> str
+```
+
+Build a CREATE CONSTRAINT query making the job table's key unique.
+
+One global constraint, not per label: `CUTOVER_JOB_LABEL` is a fixed
+label, and `document_key` names the document a job mutates, so a
+single uniqueness constraint on it is sufficient. This alone prevents
+two job nodes for the same key; exclusivity among non-terminal jobs is
+enforced by the lease queries, not the constraint alone, since the
+constraint permits a new job node once rollback deletes the old one.
+
+**Returns:**
+
+- <code>[str](#str)</code> – A Cypher query creating the uniqueness constraint if absent.
+
+##### `agrag.cypher.schema.cutover_job_status_index_query`
+
+```python
+cutover_job_status_index_query() -> str
+```
+
+Build an index for the incomplete CutoverJob recovery scan.
 
 ##### `agrag.cypher.schema.merge_alias_constraint_query`
 
@@ -4803,6 +5343,10 @@ vector_search_query(index_name:str, filters:dict[str, Any] | None = None) -> tup
 ```
 
 Build a native vector search query and its filter parameters.
+
+A node written by an in-flight Cutover Job (one carrying a non-null
+`_pending_job_id`) is always excluded: the native vector index
+would otherwise surface an uncommitted job's nodes to retrieval.
 
 **Parameters:**
 
@@ -6192,8 +6736,8 @@ driver's managed transactions with no added retry loop.
 - [**register_labels**](#agrag.graphdb.Neo4jGraphStore.register_labels) – Add labels to this instance's known-label set.
 - [**register_relation_types**](#agrag.graphdb.Neo4jGraphStore.register_relation_types) – Add types to this instance's known-relation-type set.
 - [**session**](#agrag.graphdb.Neo4jGraphStore.session) – Open a session to the configured database.
-- [**setup_constraints**](#agrag.graphdb.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every known label.
-- [**setup_indexes**](#agrag.graphdb.Neo4jGraphStore.setup_indexes) – Create a range index on `id` for every known label.
+- [**setup_constraints**](#agrag.graphdb.Neo4jGraphStore.setup_constraints) – Create `id` and `merge_key` uniqueness constraints per label.
+- [**setup_indexes**](#agrag.graphdb.Neo4jGraphStore.setup_indexes) – Set up indexes now provided by the store's uniqueness constraints.
 - [**transaction**](#agrag.graphdb.Neo4jGraphStore.transaction) – Open one Neo4j explicit transaction spanning multiple writes.
 - [**upsert_nodes**](#agrag.graphdb.Neo4jGraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag.graphdb.Neo4jGraphStore.upsert_relations) – Write or merge relationships between existing nodes.
@@ -6331,12 +6875,14 @@ Open a session to the configured database.
 setup_constraints() -> None
 ```
 
-Create a uniqueness constraint on `id` for every known label.
+Create `id` and `merge_key` uniqueness constraints per label.
 
 "Known" means written by this instance or already present in the
 database, so a fresh store can set up constraints for an existing
-database without first rewriting every record. Also creates the
-global uniqueness constraint on `NODE_IDENTITY_LABEL` that
+database without first rewriting every record. The `id` constraint
+backs node identity; `merge_key` prevents concurrent ingestion from
+creating duplicate canonical entities. Also creates the global
+uniqueness constraint on `NODE_IDENTITY_LABEL` that
 `upsert_node_query`'s `MERGE` relies on to resolve a node by id
 regardless of its other, mutable labels, and a per-type uniqueness
 constraint on `id` for every known relationship type, which backs
@@ -6349,11 +6895,12 @@ endpoint changes.
 setup_indexes() -> None
 ```
 
-Create a range index on `id` for every known label.
+Set up indexes now provided by the store's uniqueness constraints.
 
-"Known" means written by this instance or already present in the
-database, so a fresh store can set up indexes for an existing
-database without first rewriting every record.
+Kept as a no-op for callers that provision constraints and indexes in
+separate steps. Neo4j creates backing indexes for the `id` and
+`merge_key` uniqueness constraints, so creating range indexes for
+the same properties would conflict with those constraints.
 
 ##### `agrag.graphdb.Neo4jGraphStore.transaction`
 
@@ -6434,11 +6981,11 @@ A label with no provisioned vector index has nothing to search,
 so an absent index returns an empty result list rather than a
 driver error.
 
-When `filters` is set, Neo4j's vector procedure applies the filter
-only after selecting its top `k` candidates, so a plain `k=limit`
-call can return fewer matches than actually exist. This escalates
-`k` and retries until `limit` filtered hits come back or the
-escalation reaches `_VECTOR_SEARCH_MAX_K`.
+Neo4j's vector procedure applies pending and caller filters only after
+selecting its top `k` candidates, so a plain `k=limit` call can
+return fewer matches than actually exist. This escalates `k` and
+retries until `limit` visible hits come back or the escalation
+reaches `_VECTOR_SEARCH_MAX_K`.
 
 **Raises:**
 
@@ -6972,8 +7519,8 @@ driver's managed transactions with no added retry loop.
 - [**register_labels**](#agrag.graphdb.neo4j.Neo4jGraphStore.register_labels) – Add labels to this instance's known-label set.
 - [**register_relation_types**](#agrag.graphdb.neo4j.Neo4jGraphStore.register_relation_types) – Add types to this instance's known-relation-type set.
 - [**session**](#agrag.graphdb.neo4j.Neo4jGraphStore.session) – Open a session to the configured database.
-- [**setup_constraints**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_constraints) – Create a uniqueness constraint on `id` for every known label.
-- [**setup_indexes**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_indexes) – Create a range index on `id` for every known label.
+- [**setup_constraints**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_constraints) – Create `id` and `merge_key` uniqueness constraints per label.
+- [**setup_indexes**](#agrag.graphdb.neo4j.Neo4jGraphStore.setup_indexes) – Set up indexes now provided by the store's uniqueness constraints.
 - [**transaction**](#agrag.graphdb.neo4j.Neo4jGraphStore.transaction) – Open one Neo4j explicit transaction spanning multiple writes.
 - [**upsert_nodes**](#agrag.graphdb.neo4j.Neo4jGraphStore.upsert_nodes) – Write or merge nodes, honoring each record's full label set.
 - [**upsert_relations**](#agrag.graphdb.neo4j.Neo4jGraphStore.upsert_relations) – Write or merge relationships between existing nodes.
@@ -7111,12 +7658,14 @@ Open a session to the configured database.
 setup_constraints() -> None
 ```
 
-Create a uniqueness constraint on `id` for every known label.
+Create `id` and `merge_key` uniqueness constraints per label.
 
 "Known" means written by this instance or already present in the
 database, so a fresh store can set up constraints for an existing
-database without first rewriting every record. Also creates the
-global uniqueness constraint on `NODE_IDENTITY_LABEL` that
+database without first rewriting every record. The `id` constraint
+backs node identity; `merge_key` prevents concurrent ingestion from
+creating duplicate canonical entities. Also creates the global
+uniqueness constraint on `NODE_IDENTITY_LABEL` that
 `upsert_node_query`'s `MERGE` relies on to resolve a node by id
 regardless of its other, mutable labels, and a per-type uniqueness
 constraint on `id` for every known relationship type, which backs
@@ -7129,11 +7678,12 @@ endpoint changes.
 setup_indexes() -> None
 ```
 
-Create a range index on `id` for every known label.
+Set up indexes now provided by the store's uniqueness constraints.
 
-"Known" means written by this instance or already present in the
-database, so a fresh store can set up indexes for an existing
-database without first rewriting every record.
+Kept as a no-op for callers that provision constraints and indexes in
+separate steps. Neo4j creates backing indexes for the `id` and
+`merge_key` uniqueness constraints, so creating range indexes for
+the same properties would conflict with those constraints.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.transaction`
 
@@ -7214,11 +7764,11 @@ A label with no provisioned vector index has nothing to search,
 so an absent index returns an empty result list rather than a
 driver error.
 
-When `filters` is set, Neo4j's vector procedure applies the filter
-only after selecting its top `k` candidates, so a plain `k=limit`
-call can return fewer matches than actually exist. This escalates
-`k` and retries until `limit` filtered hits come back or the
-escalation reaches `_VECTOR_SEARCH_MAX_K`.
+Neo4j's vector procedure applies pending and caller filters only after
+selecting its top `k` candidates, so a plain `k=limit` call can
+return fewer matches than actually exist. This escalates `k` and
+retries until `limit` visible hits come back or the escalation
+reaches `_VECTOR_SEARCH_MAX_K`.
 
 **Raises:**
 
@@ -7244,13 +7794,22 @@ node_params(record:NodeRecord) -> dict[str, Any]
 
 Build the `$records` entry for a node upsert.
 
+The Cutover Job tag is split out of `properties` into its own key
+because the upsert queries apply it with `ON CREATE SET`: a job tags
+the nodes it creates, never a node it writes over. Left inside the
+applied property map it would be set on existing nodes too, which
+would hide a committed node from retrieval for the job's duration and
+put it in reach of the job's rollback — and rollback deletes tagged
+rows.
+
 **Parameters:**
 
 - **record** (<code>[NodeRecord](#agrag.common.data_models.graph_record.NodeRecord)</code>) – The node record to serialize.
 
 **Returns:**
 
-- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict with `id` (string) and `properties` (converted).
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict with `id` (string), `properties` (converted, without
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – the pending tag), and `pending_job_id` (the tag, or None).
 
 ##### `agrag.graphdb.serialize.relation_params`
 
@@ -7260,13 +7819,18 @@ relation_params(record:RelationRecord) -> dict[str, Any]
 
 Build the `$records` entry for a relationship upsert.
 
+The Cutover Job tag is split out of `properties` for the same reason
+as in :func:`node_params`: only an edge the job creates carries it.
+
 **Parameters:**
 
 - **record** (<code>[RelationRecord](#agrag.common.data_models.graph_record.RelationRecord)</code>) – The relation record to serialize.
 
 **Returns:**
 
-- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict with `id`, `start_id`, `end_id`, and `properties`.
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict with `id`, `start_id`, `end_id`, `properties`
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – (converted, without the pending tag), and `pending_job_id` (the
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – tag, or None).
 
 #### `agrag.graphdb.settings`
 
@@ -7350,6 +7914,7 @@ The ingestion package.
 - [**reports**](#agrag.ingestion.reports) – Reports returned by Graph pipeline operations.
 - [**resolve**](#agrag.ingestion.resolve) – Entity resolution public API.
 - [**resolved_embeddings**](#agrag.ingestion.resolved_embeddings) – Embedding and vector synchronization for materialized resolved entities.
+- [**settings**](#agrag.ingestion.settings) – Configuration for the Cutover Job crash-recovery machine.
 - [**stats**](#agrag.ingestion.stats) – Per-stage observability types for the ingestion pipeline.
 
 **Classes:**
@@ -7359,7 +7924,7 @@ The ingestion package.
 #### `agrag.ingestion.Graph`
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -7378,6 +7943,7 @@ by `open()` when missing.
 - [**delete_document**](#agrag.ingestion.Graph.delete_document) – Soft-delete a document by closing its current PART_OF edges.
 - [**detect_communities**](#agrag.ingestion.Graph.detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag.ingestion.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
+- [**reevaluate**](#agrag.ingestion.Graph.reevaluate) – Reevaluate matches among the given entities, adding and removing edges.
 - [**update**](#agrag.ingestion.Graph.update) – Replace one document version, closing its former PART_OF edges.
 
 **Parameters:**
@@ -7399,6 +7965,9 @@ by `open()` when missing.
 - **retrieval_settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
   None uses RetrievalSettings defaults. Ignored when
   vector_store is None.
+- **cutover_settings** (<code>[CutoverJobSettings](#agrag.ingestion.settings.CutoverJobSettings) | None</code>) – Lease configuration for the Cutover Jobs
+  add/update/delete_document run through. None uses
+  CutoverJobSettings defaults.
 
 ##### `agrag.ingestion.Graph.add`
 
@@ -7427,7 +7996,14 @@ Give exactly one of `source`, `text`, and `documents`.
 
 **Returns:**
 
-- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – A summary of what was added per pipeline stage.
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – A summary of what was added per pipeline stage. Resolution runs
+- **automatically** (<code>[AddResult](#agrag.ingestion.reports.AddResult)</code>) – exact identity plus fuzzy, embedding, and
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – capped LLM zones over one combined mention list, with
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – confirmed matches persisted as MATCHES edges and derived
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – ResolvedEntity nodes. LLM verification calls stay bounded
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – at ceil(L * MAX_LLM_PAIRS / 10) requests for L labels;
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – inspect result.resolution.ambiguous_count for the pairs no
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – tier could decide.
 
 **Raises:**
 
@@ -7455,9 +8031,13 @@ apply=True to write MATCHES edges and derived ResolvedEntity nodes.
 For each EntityType label in self.\_schema, fetches every persisted
 entity with that label, bounds the pairs actually compared with
 GraphCandidateSource's ANN-backed persisted_candidate_indices, and
-runs the same comparator sequence add() uses in-batch (ExactMatch,
-FuzzyMatch, LLMVerify) over those candidate pairs. Confirmed non-exact
-matches preserve both raw Entity nodes and their relationships.
+runs the same zone-routed resolution add() uses (exact, fuzzy
+fast-path, embedding similarity, capped LLM review) over those
+candidate pairs. Confirmed non-exact matches preserve both raw
+Entity nodes and their relationships.
+
+LLM verification calls stay bounded: at most
+ceil(L * MAX_LLM_PAIRS / 10) requests for L labels. See Graph.add.
 
 **Parameters:**
 
@@ -7465,7 +8045,8 @@ matches preserve both raw Entity nodes and their relationships.
 
 **Returns:**
 
-- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every confirmed non-exact match, applied or not.
+- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every confirmed non-exact match, applied or not,
+- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – plus the count of uncertain LLM verdicts.
 
 ##### `agrag.ingestion.Graph.deactivate_match`
 
@@ -7482,6 +8063,34 @@ delete_document(document_key:str) -> UpdateResult
 ```
 
 Soft-delete a document by closing its current PART_OF edges.
+
+Currency is read transitively through `PART_OF`: closing the
+open edges removes the document from retrieval while its chunks,
+the `Document` node, and contributed entities stay in the graph
+for provenance. An unknown `document_key` is a no-op. Entities
+mentioned only by this document's chunks lose their last evidence
+and are pruned with their shrunken clusters. The close and the
+prune run as one job's commit and cleanup, so a crash either
+leaves the document untouched or completes the deletion.
+
+**Parameters:**
+
+- **document_key** (<code>[str](#str)</code>) – The stable key of the document to delete.
+
+**Returns:**
+
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – The deletion summary: `no_op=True` when nothing was stored
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – under the key, otherwise `chunks_closed` with
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – `new_content_hash=None` and no `add_result`.
+
+<details class="note" open markdown="1">
+<summary>Note</summary>
+
+The close-only degenerate case of `Graph.update()`; both
+call into the same shared document-lifecycle helpers. See
+`Graph.add()` for the shared ingestion behavior.
+
+</details>
 
 ##### `agrag.ingestion.Graph.detect_communities`
 
@@ -7522,7 +8131,7 @@ previous one's.
 ##### `agrag.ingestion.Graph.open`
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -7532,11 +8141,11 @@ this graph will ever write (schema's own labels/types plus the fixed
 system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
 setup_constraints(), then setup_indexes(), then vector indexes for
 every schema entity label — so a brand-new database is fully ready,
-including the merge_key index the global exact-match tier needs and
-the embedding vector indexes native search needs, before this call
-returns. When vector_store is set, the entity, chunk, and community
-collections are provisioned there too (created when missing) so the
-dual writes never hit an absent collection.
+including the merge_key uniqueness constraints the global exact-match
+tier relies on and the embedding vector indexes native search needs,
+before this call returns. When vector_store is set, the entity, chunk,
+and community collections are provisioned there too (created when
+missing) so the dual writes never hit an absent collection.
 
 **Parameters:**
 
@@ -7551,6 +8160,9 @@ dual writes never hit an absent collection.
   __init__.
 - **retrieval_settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
   None uses RetrievalSettings defaults.
+- **cutover_settings** (<code>[CutoverJobSettings](#agrag.ingestion.settings.CutoverJobSettings) | None</code>) – Lease configuration for the Cutover Jobs
+  add/update/delete_document run through. None uses
+  CutoverJobSettings defaults.
 
 **Returns:**
 
@@ -7562,6 +8174,39 @@ dual writes never hit an absent collection.
   setup, or vector-index provisioning raises. graph_store is
   closed first, so a failed open() never leaks a connection.
 
+##### `agrag.ingestion.Graph.reevaluate`
+
+```python
+reevaluate(entity_ids:list[UUID]) -> ReevaluationReport
+```
+
+Reevaluate matches among the given entities, adding and removing edges.
+
+Fetches exactly the supplied entities, compares same-label pairs
+only among this set through one zone-routed Resolver pass, writes
+confirmed matches that lack an active edge, and deactivates active
+edges among the set the resolver did not confirm. Exact-text pairs
+never gain or lose edges. Nothing outside the input set is compared
+or touched, and nothing calls this automatically.
+
+LLM verification calls stay bounded at ceil(L * MAX_LLM_PAIRS / 10)
+requests for L labels, as in Graph.add.
+
+**Parameters:**
+
+- **entity_ids** (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – The persisted entities to reevaluate, deduped with
+  input order preserved.
+
+**Returns:**
+
+- <code>[ReevaluationReport](#agrag.ingestion.reports.ReevaluationReport)</code> – Which entities were reevaluated, which matches were added,
+- <code>[ReevaluationReport](#agrag.ingestion.reports.ReevaluationReport)</code> – which match edges were deactivated, and how many inputs had no
+- <code>[ReevaluationReport](#agrag.ingestion.reports.ReevaluationReport)</code> – incident added or removed edge.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – An id has no live persisted entity.
+
 ##### `agrag.ingestion.Graph.update`
 
 ```python
@@ -7570,15 +8215,49 @@ update(document_key:str, *, text:str | None = None, source:SourcesType | None = 
 
 Replace one document version, closing its former PART_OF edges.
 
-An unchanged content hash is a no-op. The update path uses the same
-`add` pipeline as fresh ingestion after it closes the old edges. A
-source must resolve to exactly one document.
+Looks up the persisted `Document` node by `document_key`. An
+unchanged content hash is a no-op returning before any chunking,
+extraction, or writes. Otherwise the fresh content ingests under a
+Cutover Job holding this document's lease, and the commit flips
+the job, closes the document's open `PART_OF` edges, and clears
+every pending tag in one transaction — so a crash either leaves
+the old version untouched or completes the replacement including
+cleanup. Entities that lose their last evidence are pruned after
+the commit, so replacement mentions count as evidence. A source
+must resolve to exactly one document.
+
+**Parameters:**
+
+- **document_key** (<code>[str](#str)</code>) – The stable key of the document to replace.
+- **text** (<code>[str](#str) | None</code>) – Replacement text, exactly one of `text`/`source`.
+- **source** (<code>[SourcesType](#agrag.ingestion.graph.SourcesType) | None</code>) – A single-file source, glob, or path list resolving to
+  exactly one document.
+- **loader** (<code>[Loader](#agrag.loaders.corpus.base.Loader) | None</code>) – A loader override for a single-file `source`.
+- **error_policy** (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – RAISE propagates a stage failure; any other
+  policy records it and continues.
+
+**Returns:**
+
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – The update summary. A no-op reports `no_op=True` with no
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – `add_result`; a change reports `chunks_closed` plus the
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – fresh ingestion's `add_result`; an unknown `document_key`
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – ingests fresh with `previous_content_hash=None` and
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – `chunks_closed=0`.
 
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – Both or neither of `text` and `source` are given, a loader
   override targets multiple sources, or a source resolves to any number
   of documents other than one.
+
+<details class="note" open markdown="1">
+<summary>Note</summary>
+
+The fresh-content path shares `ingest_chunks()` with
+`Graph.add()`; both callers observe the same pipeline behavior
+for the same input.
+
+</details>
 
 #### `agrag.ingestion.community`
 
@@ -8160,7 +8839,7 @@ The public Graph API for ingestion.
 ##### `agrag.ingestion.graph.Graph`
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -8179,6 +8858,7 @@ by `open()` when missing.
 - [**delete_document**](#agrag.ingestion.graph.Graph.delete_document) – Soft-delete a document by closing its current PART_OF edges.
 - [**detect_communities**](#agrag.ingestion.graph.Graph.detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**open**](#agrag.ingestion.graph.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
+- [**reevaluate**](#agrag.ingestion.graph.Graph.reevaluate) – Reevaluate matches among the given entities, adding and removing edges.
 - [**update**](#agrag.ingestion.graph.Graph.update) – Replace one document version, closing its former PART_OF edges.
 
 **Parameters:**
@@ -8200,6 +8880,9 @@ by `open()` when missing.
 - **retrieval_settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
   None uses RetrievalSettings defaults. Ignored when
   vector_store is None.
+- **cutover_settings** (<code>[CutoverJobSettings](#agrag.ingestion.settings.CutoverJobSettings) | None</code>) – Lease configuration for the Cutover Jobs
+  add/update/delete_document run through. None uses
+  CutoverJobSettings defaults.
 
 ###### `agrag.ingestion.graph.Graph.add`
 
@@ -8228,7 +8911,14 @@ Give exactly one of `source`, `text`, and `documents`.
 
 **Returns:**
 
-- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – A summary of what was added per pipeline stage.
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – A summary of what was added per pipeline stage. Resolution runs
+- **automatically** (<code>[AddResult](#agrag.ingestion.reports.AddResult)</code>) – exact identity plus fuzzy, embedding, and
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – capped LLM zones over one combined mention list, with
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – confirmed matches persisted as MATCHES edges and derived
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – ResolvedEntity nodes. LLM verification calls stay bounded
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – at ceil(L * MAX_LLM_PAIRS / 10) requests for L labels;
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – inspect result.resolution.ambiguous_count for the pairs no
+- <code>[AddResult](#agrag.ingestion.reports.AddResult)</code> – tier could decide.
 
 **Raises:**
 
@@ -8256,9 +8946,13 @@ apply=True to write MATCHES edges and derived ResolvedEntity nodes.
 For each EntityType label in self.\_schema, fetches every persisted
 entity with that label, bounds the pairs actually compared with
 GraphCandidateSource's ANN-backed persisted_candidate_indices, and
-runs the same comparator sequence add() uses in-batch (ExactMatch,
-FuzzyMatch, LLMVerify) over those candidate pairs. Confirmed non-exact
-matches preserve both raw Entity nodes and their relationships.
+runs the same zone-routed resolution add() uses (exact, fuzzy
+fast-path, embedding similarity, capped LLM review) over those
+candidate pairs. Confirmed non-exact matches preserve both raw
+Entity nodes and their relationships.
+
+LLM verification calls stay bounded: at most
+ceil(L * MAX_LLM_PAIRS / 10) requests for L labels. See Graph.add.
 
 **Parameters:**
 
@@ -8266,7 +8960,8 @@ matches preserve both raw Entity nodes and their relationships.
 
 **Returns:**
 
-- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every confirmed non-exact match, applied or not.
+- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – A report of every confirmed non-exact match, applied or not,
+- <code>[ConsolidationReport](#agrag.ingestion.reports.ConsolidationReport)</code> – plus the count of uncertain LLM verdicts.
 
 ###### `agrag.ingestion.graph.Graph.deactivate_match`
 
@@ -8283,6 +8978,34 @@ delete_document(document_key:str) -> UpdateResult
 ```
 
 Soft-delete a document by closing its current PART_OF edges.
+
+Currency is read transitively through `PART_OF`: closing the
+open edges removes the document from retrieval while its chunks,
+the `Document` node, and contributed entities stay in the graph
+for provenance. An unknown `document_key` is a no-op. Entities
+mentioned only by this document's chunks lose their last evidence
+and are pruned with their shrunken clusters. The close and the
+prune run as one job's commit and cleanup, so a crash either
+leaves the document untouched or completes the deletion.
+
+**Parameters:**
+
+- **document_key** (<code>[str](#str)</code>) – The stable key of the document to delete.
+
+**Returns:**
+
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – The deletion summary: `no_op=True` when nothing was stored
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – under the key, otherwise `chunks_closed` with
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – `new_content_hash=None` and no `add_result`.
+
+<details class="note" open markdown="1">
+<summary>Note</summary>
+
+The close-only degenerate case of `Graph.update()`; both
+call into the same shared document-lifecycle helpers. See
+`Graph.add()` for the shared ingestion behavior.
+
+</details>
 
 ###### `agrag.ingestion.graph.Graph.detect_communities`
 
@@ -8323,7 +9046,7 @@ previous one's.
 ###### `agrag.ingestion.graph.Graph.open`
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -8333,11 +9056,11 @@ this graph will ever write (schema's own labels/types plus the fixed
 system names CHUNK_LABEL/SYSTEM_RELATION_TYPES), then
 setup_constraints(), then setup_indexes(), then vector indexes for
 every schema entity label — so a brand-new database is fully ready,
-including the merge_key index the global exact-match tier needs and
-the embedding vector indexes native search needs, before this call
-returns. When vector_store is set, the entity, chunk, and community
-collections are provisioned there too (created when missing) so the
-dual writes never hit an absent collection.
+including the merge_key uniqueness constraints the global exact-match
+tier relies on and the embedding vector indexes native search needs,
+before this call returns. When vector_store is set, the entity, chunk,
+and community collections are provisioned there too (created when
+missing) so the dual writes never hit an absent collection.
 
 **Parameters:**
 
@@ -8352,6 +9075,9 @@ dual writes never hit an absent collection.
   __init__.
 - **retrieval_settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
   None uses RetrievalSettings defaults.
+- **cutover_settings** (<code>[CutoverJobSettings](#agrag.ingestion.settings.CutoverJobSettings) | None</code>) – Lease configuration for the Cutover Jobs
+  add/update/delete_document run through. None uses
+  CutoverJobSettings defaults.
 
 **Returns:**
 
@@ -8363,6 +9089,39 @@ dual writes never hit an absent collection.
   setup, or vector-index provisioning raises. graph_store is
   closed first, so a failed open() never leaks a connection.
 
+###### `agrag.ingestion.graph.Graph.reevaluate`
+
+```python
+reevaluate(entity_ids:list[UUID]) -> ReevaluationReport
+```
+
+Reevaluate matches among the given entities, adding and removing edges.
+
+Fetches exactly the supplied entities, compares same-label pairs
+only among this set through one zone-routed Resolver pass, writes
+confirmed matches that lack an active edge, and deactivates active
+edges among the set the resolver did not confirm. Exact-text pairs
+never gain or lose edges. Nothing outside the input set is compared
+or touched, and nothing calls this automatically.
+
+LLM verification calls stay bounded at ceil(L * MAX_LLM_PAIRS / 10)
+requests for L labels, as in Graph.add.
+
+**Parameters:**
+
+- **entity_ids** (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – The persisted entities to reevaluate, deduped with
+  input order preserved.
+
+**Returns:**
+
+- <code>[ReevaluationReport](#agrag.ingestion.reports.ReevaluationReport)</code> – Which entities were reevaluated, which matches were added,
+- <code>[ReevaluationReport](#agrag.ingestion.reports.ReevaluationReport)</code> – which match edges were deactivated, and how many inputs had no
+- <code>[ReevaluationReport](#agrag.ingestion.reports.ReevaluationReport)</code> – incident added or removed edge.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – An id has no live persisted entity.
+
 ###### `agrag.ingestion.graph.Graph.update`
 
 ```python
@@ -8371,15 +9130,49 @@ update(document_key:str, *, text:str | None = None, source:SourcesType | None = 
 
 Replace one document version, closing its former PART_OF edges.
 
-An unchanged content hash is a no-op. The update path uses the same
-`add` pipeline as fresh ingestion after it closes the old edges. A
-source must resolve to exactly one document.
+Looks up the persisted `Document` node by `document_key`. An
+unchanged content hash is a no-op returning before any chunking,
+extraction, or writes. Otherwise the fresh content ingests under a
+Cutover Job holding this document's lease, and the commit flips
+the job, closes the document's open `PART_OF` edges, and clears
+every pending tag in one transaction — so a crash either leaves
+the old version untouched or completes the replacement including
+cleanup. Entities that lose their last evidence are pruned after
+the commit, so replacement mentions count as evidence. A source
+must resolve to exactly one document.
+
+**Parameters:**
+
+- **document_key** (<code>[str](#str)</code>) – The stable key of the document to replace.
+- **text** (<code>[str](#str) | None</code>) – Replacement text, exactly one of `text`/`source`.
+- **source** (<code>[SourcesType](#agrag.ingestion.graph.SourcesType) | None</code>) – A single-file source, glob, or path list resolving to
+  exactly one document.
+- **loader** (<code>[Loader](#agrag.loaders.corpus.base.Loader) | None</code>) – A loader override for a single-file `source`.
+- **error_policy** (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – RAISE propagates a stage failure; any other
+  policy records it and continues.
+
+**Returns:**
+
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – The update summary. A no-op reports `no_op=True` with no
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – `add_result`; a change reports `chunks_closed` plus the
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – fresh ingestion's `add_result`; an unknown `document_key`
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – ingests fresh with `previous_content_hash=None` and
+- <code>[UpdateResult](#agrag.ingestion.reports.UpdateResult)</code> – `chunks_closed=0`.
 
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – Both or neither of `text` and `source` are given, a loader
   override targets multiple sources, or a source resolves to any number
   of documents other than one.
+
+<details class="note" open markdown="1">
+<summary>Note</summary>
+
+The fresh-content path shares `ingest_chunks()` with
+`Graph.add()`; both callers observe the same pipeline behavior
+for the same input.
+
+</details>
 
 ##### `agrag.ingestion.graph.SYSTEM_RELATION_TYPES`
 
@@ -8408,6 +9201,7 @@ Non-destructive match persistence and resolved-entity computation.
 - [**DeactivationResult**](#agrag.ingestion.materialize.DeactivationResult) – Materializations created after a match correction and stale ids removed.
 - [**MatchDecision**](#agrag.ingestion.materialize.MatchDecision) – A confirmed non-exact entity match ready to persist.
 - [**MaterializationResult**](#agrag.ingestion.materialize.MaterializationResult) – The derived entity created and prior derived ids it replaced.
+- [**PruningResult**](#agrag.ingestion.materialize.PruningResult) – Ids removed and clusters rebuilt by deletion-triggered pruning.
 
 **Functions:**
 
@@ -8416,6 +9210,7 @@ Non-destructive match persistence and resolved-entity computation.
 - [**decisions_by_component**](#agrag.ingestion.materialize.decisions_by_component) – Map resolution evidence to raw ids and group it by connected component.
 - [**match_decision_components**](#agrag.ingestion.materialize.match_decision_components) – Group persisted match decisions by their connected raw component.
 - [**matches_id**](#agrag.ingestion.materialize.matches_id) – Return the order-independent deterministic id for an entity match.
+- [**prune_orphaned_entities**](#agrag.ingestion.materialize.prune_orphaned_entities) – Delete candidates with no open-chunk evidence and rebuild clusters.
 - [**write_matches_and_materialize**](#agrag.ingestion.materialize.write_matches_and_materialize) – Persist matches and materialize their supplied connected component.
 
 ##### `agrag.ingestion.materialize.DeactivationResult`
@@ -8515,6 +9310,36 @@ removed_entity_ids: list[UUID]
 resolved_entity: ResolvedEntity
 ```
 
+##### `agrag.ingestion.materialize.PruningResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Ids removed and clusters rebuilt by deletion-triggered pruning.
+
+**Attributes:**
+
+- [**rematerialized_entities**](#agrag.ingestion.materialize.PruningResult.rematerialized_entities) (<code>[list](#list)\[[ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity)\]</code>) –
+- [**removed_entity_ids**](#agrag.ingestion.materialize.PruningResult.removed_entity_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) –
+- [**removed_resolved_entity_ids**](#agrag.ingestion.materialize.PruningResult.removed_resolved_entity_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) –
+
+###### `agrag.ingestion.materialize.PruningResult.rematerialized_entities`
+
+```python
+rematerialized_entities: list[ResolvedEntity]
+```
+
+###### `agrag.ingestion.materialize.PruningResult.removed_entity_ids`
+
+```python
+removed_entity_ids: list[UUID]
+```
+
+###### `agrag.ingestion.materialize.PruningResult.removed_resolved_entity_ids`
+
+```python
+removed_resolved_entity_ids: list[UUID]
+```
+
 ##### `agrag.ingestion.materialize.compute_resolved_entity`
 
 ```python
@@ -8555,16 +9380,45 @@ matches_id(entity_a_id:UUID, entity_b_id:UUID) -> UUID
 
 Return the order-independent deterministic id for an entity match.
 
+##### `agrag.ingestion.materialize.prune_orphaned_entities`
+
+```python
+prune_orphaned_entities(candidate_entity_ids:list[UUID], *, graph_store:GraphStore, schema:GraphSchema) -> PruningResult
+```
+
+Delete candidates with no open-chunk evidence and rebuild clusters.
+
+A candidate mentioned by any chunk with an open PART_OF edge keeps its
+node. Any other candidate loses its node with its incident MENTIONED_IN
+and RESOLVED_AS edges; each affected cluster is then recomputed over
+its remaining members, or deleted when fewer than two remain and the
+survivor returns to plain status. Merge aliases owned by removed
+entities are deleted too, so re-ingesting a pruned name starts clean
+instead of colliding with an alias pointing at a missing node.
+
+Only the supplied candidates are ever deleted. Evidence is checked per
+candidate id, never with a graph-wide scan.
+
 ##### `agrag.ingestion.materialize.write_matches_and_materialize`
 
 ```python
-write_matches_and_materialize(decisions:list[MatchDecision], *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity]) -> MaterializationResult
+write_matches_and_materialize(decisions:list[MatchDecision], *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity], pending_job_id:str | None = None) -> MaterializationResult
 ```
 
 Persist matches and materialize their supplied connected component.
 
 Callers fetch the bounded affected component before invoking this function.
 The resolved node is always recomputed from that current membership.
+
+**Parameters:**
+
+- **decisions** (<code>[list](#list)\[[MatchDecision](#agrag.ingestion.materialize.MatchDecision)\]</code>) – The confirmed matches to persist.
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where matches and materializations are written.
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The schema the members belong to.
+- **members** (<code>[list](#list)\[[Entity](#agrag.common.data_models.entity.Entity)\]</code>) – The component members the resolved node is computed from.
+- **pending_job_id** (<code>[str](#str) | None</code>) – The in-flight Cutover Job's id, tagging the match
+  edges and materialized nodes until that job commits. None
+  writes untagged, for callers outside a job.
 
 **Raises:**
 
@@ -8591,9 +9445,12 @@ separate step.
 - [**apply_merge**](#agrag.ingestion.merge.apply_merge) – Write a computed MergePlan to storage.
 - [**compute_merge**](#agrag.ingestion.merge.compute_merge) – Compute how existing_entities and mentions combine into one Entity.
 - [**mentioned_in_id**](#agrag.ingestion.merge.mentioned_in_id) – Return the deterministic id for a new Chunk -[:MENTIONED_IN]-> Entity edge.
+- [**merge_properties**](#agrag.ingestion.merge.merge_properties) – Return field-resolved properties and records of every real conflict.
 - [**next_chunk_id**](#agrag.ingestion.merge.next_chunk_id) – Return the deterministic id for a Chunk -[:NEXT_CHUNK]-> Chunk edge.
 - [**part_of_id**](#agrag.ingestion.merge.part_of_id) – Return the id for one versioned Document -[:PART_OF]-> Chunk edge.
 - [**relation_id**](#agrag.ingestion.merge.relation_id) – Return the deterministic id for a domain relationship triple.
+- [**resolve_description**](#agrag.ingestion.merge.resolve_description) – Resolve a description field, trying LLM summarization.
+- [**select_canonical**](#agrag.ingestion.merge.select_canonical) – Return the canonical survivor and the rest, from two or more entities.
 
 **Attributes:**
 
@@ -8762,37 +9619,36 @@ MERGE_ALL = 'merge_all'
 ##### `agrag.ingestion.merge.apply_merge`
 
 ```python
-apply_merge(plan:MergePlan, *, graph_store:GraphStore, schema:GraphSchema) -> None
+apply_merge(plan:MergePlan, *, graph_store:GraphStore, schema:GraphSchema, pending_job_id:str | None = None) -> None
 ```
 
 Write a computed MergePlan to storage.
 
-Every call runs inside one GraphStore transaction: when tombstone_ids is
-non-empty, it first clears merge_key from every entity about to be
-absorbed, since canonical selection can pick a different node as
-survivor than the one a property rule (e.g. KEEP_FIRST) resolves the
-name from, so the survivor's resolved merge_key can equal a still-live
-tombstone's own merge_key -- writing the survivor before clearing that
-would collide with the per-label merge_key uniqueness constraint. It
-then always upserts the survivor and records a merge-key alias for its
-current name, and, when tombstone_ids is non-empty, also tombstones,
-deletes edges that would become meaningless self-links, transfers what
-remains, and dedupes the survivor's resulting neighbourhood. A failure
-partway through leaves no half-written state: no survivor without its
-alias, no tombstone without its edges transferred, no transferred edge
-without its duplicate cleaned up.
+Every call runs inside one GraphStore transaction: it upserts the
+survivor and records a merge-key alias for its current name. A
+failure partway through leaves no half-written state: no survivor
+without its alias.
+
+Destructive merging is retired: a plan with non-empty tombstone_ids
+is rejected before any write runs, and callers must persist the
+match through MATCHES edges and materialize a ResolvedEntity
+instead.
 
 **Parameters:**
 
 - **plan** (<code>[MergePlan](#agrag.ingestion.merge.MergePlan)</code>) – The merge to write.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where the merge is written.
 - **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The schema the survivor's label belongs to.
+- **pending_job_id** (<code>[str](#str) | None</code>) – The in-flight Cutover Job's id, tagging the
+  survivor node and its aliases until that job commits. None
+  writes untagged, for callers outside a job.
 
 **Raises:**
 
+- <code>[ValueError](#ValueError)</code> – plan.tombstone_ids is non-empty.
 - <code>[GraphStoreAliasConflictError](#GraphStoreAliasConflictError)</code> – An accepted merge_key is already owned
-  by a live entity outside this merge's own survivor and tombstone
-  ids -- a concurrent writer accepted that name as an alias of, or
+  by a live entity outside this merge's own survivor id -- a
+  concurrent writer accepted that name as an alias of, or
   created it as the canonical name of, a different entity.
 - <code>[GraphStoreDataIntegrityError](#GraphStoreDataIntegrityError)</code> – A candidate conflicting alias owner's
   merged_into chain cycles, points at a missing node, or does not
@@ -8801,7 +9657,7 @@ without its duplicate cleaned up.
 ##### `agrag.ingestion.merge.compute_merge`
 
 ```python
-compute_merge(*, existing_entities:list[Entity], mentions:list[ExtractedEntity], schema:GraphSchema, rules:PropertyRules | None = None, description_settings:Any | None = None, description_client:Any | None = None) -> tuple[MergePlan, list[Any]]
+compute_merge(*, existing_entities:list[Entity], mentions:list[ExtractedEntity], schema:GraphSchema, rules:PropertyRules | None = None, description_settings:Any | None = None, description_client:Any | None = None, job_id:UUID | str | None = None) -> tuple[MergePlan, list[Any]]
 ```
 
 Compute how existing_entities and mentions combine into one Entity.
@@ -8819,6 +9675,10 @@ canonical survivor and marks the rest for tombstoning.
 - **rules** (<code>[PropertyRules](#agrag.ingestion.merge.PropertyRules) | None</code>) – Per-property conflict resolution. Defaults to keep_first.
 - **description_settings** (<code>[Any](#typing.Any) | None</code>) – LLM settings for description summarization.
 - **description_client** (<code>[Any](#typing.Any) | None</code>) – Injected LLM client for tests.
+- **job_id** (<code>[UUID](#uuid.UUID) | [str](#str) | None</code>) – The Cutover Job this merge runs under. A brand-new entity
+  derives its id from (job_id, merge_key) instead of uuid4, so
+  replaying the job after a crash reproduces the same id. None
+  keeps today's random-id behavior for callers outside a job.
 
 **Returns:**
 
@@ -8838,10 +9698,9 @@ mentioned_in_id(chunk_id:UUID, entity_id:UUID) -> UUID
 Return the deterministic id for a new Chunk -[:MENTIONED_IN]-> Entity edge.
 
 Only a fresh id for a pair with no persisted edge yet is guaranteed to equal
-this. An entity merge can transfer an existing edge onto a new entity id
-while keeping its old id (see `transfer_relationships_query`), so a
-caller writing to an already-persisted pair should look up the edge by
-its endpoints first and fall back to this id only when none is found.
+this. A caller writing to an already-persisted pair should look up the
+edge by its endpoints first and fall back to this id only when none is
+found.
 
 **Parameters:**
 
@@ -8851,6 +9710,25 @@ its endpoints first and fall back to this id only when none is found.
 **Returns:**
 
 - <code>[UUID](#uuid.UUID)</code> – The edge id. Deterministic: same pair always returns same id.
+
+##### `agrag.ingestion.merge.merge_properties`
+
+```python
+merge_properties(property_sources:list[dict[str, object]], rules:PropertyRules, *, description_settings:Any | None = None, description_client:Any | None = None) -> tuple[dict[str, object], list[ConflictRecord], list[Any]]
+```
+
+Return field-resolved properties and records of every real conflict.
+
+**Parameters:**
+
+- **property_sources** (<code>[list](#list)\[[dict](#dict)\[[str](#str), [object](#object)\]\]</code>) – One dict per source entity/mention, keyed by field.
+- **rules** (<code>[PropertyRules](#agrag.ingestion.merge.PropertyRules)</code>) – The per-property rule table.
+- **description_settings** (<code>[Any](#typing.Any) | None</code>) – LLM settings for description summarization.
+- **description_client** (<code>[Any](#typing.Any) | None</code>) – Injected LLM client for tests.
+
+**Returns:**
+
+- <code>[tuple](#tuple)\[[dict](#dict)\[[str](#str), [object](#object)\], [list](#list)\[[ConflictRecord](#agrag.ingestion.merge.ConflictRecord)\], [list](#list)\[[Any](#typing.Any)\]\]</code> – The resolved properties, conflict records, and optional stage failures.
 
 ##### `agrag.ingestion.merge.next_chunk_id`
 
@@ -8911,6 +9789,47 @@ random ids. Mirrors `mentioned_in_id`.
 
 - <code>[UUID](#uuid.UUID)</code> – The relationship id. Same triple always returns the same id.
 
+##### `agrag.ingestion.merge.resolve_description`
+
+```python
+resolve_description(candidates:list[object], *, settings:Any | None = None, client:Any | None = None) -> tuple[object, bool, Any | None]
+```
+
+Resolve a description field, trying LLM summarization.
+
+A single distinct candidate needs no LLM call. Multiple candidates try
+LLM summarization; on failure, fall back to concatenation.
+
+**Parameters:**
+
+- **candidates** (<code>[list](#list)\[[object](#object)\]</code>) – Candidate values in encounter order.
+- **settings** (<code>[Any](#typing.Any) | None</code>) – LLM settings for summarization. None uses defaults.
+- **client** (<code>[Any](#typing.Any) | None</code>) – An already-built BAML client for tests.
+
+**Returns:**
+
+- <code>[tuple](#tuple)\[[object](#object), [bool](#bool), [Any](#typing.Any) | None\]</code> – The resolved value, whether it conflicted, and an optional failure.
+
+##### `agrag.ingestion.merge.select_canonical`
+
+```python
+select_canonical(entities:list[Entity], entity_type:EntityType | None) -> tuple[Entity, list[Entity]]
+```
+
+Return the canonical survivor and the rest, from two or more entities.
+
+Schema-completeness (fewest missing declared fields) first, then earliest
+created_at, then lexicographically smallest id.
+
+**Parameters:**
+
+- **entities** (<code>[list](#list)\[[Entity](#agrag.common.data_models.entity.Entity)\]</code>) – The entities to choose from.
+- **entity_type** (<code>[EntityType](#agrag.common.data_models.graph_schema.EntityType) | None</code>) – The schema type for this label, if declared.
+
+**Returns:**
+
+- <code>[tuple](#tuple)\[[Entity](#agrag.common.data_models.entity.Entity), [list](#list)\[[Entity](#agrag.common.data_models.entity.Entity)\]\]</code> – The survivor and the absorbed entities.
+
 #### `agrag.ingestion.reports`
 
 Reports returned by Graph pipeline operations.
@@ -8923,6 +9842,7 @@ One class per module under this package; this init re-exports them so
 - [**add_result**](#agrag.ingestion.reports.add_result) – Graph.add()'s result type.
 - [**community_detection_report**](#agrag.ingestion.reports.community_detection_report) – Graph.detect_communities()'s result type.
 - [**consolidation_report**](#agrag.ingestion.reports.consolidation_report) – Graph.consolidate()'s result type.
+- [**reevaluation_report**](#agrag.ingestion.reports.reevaluation_report) – Graph.reevaluate()'s result type.
 - [**update_result**](#agrag.ingestion.reports.update_result) – Result returned by document lifecycle operations.
 
 **Classes:**
@@ -8930,6 +9850,7 @@ One class per module under this package; this init re-exports them so
 - [**AddResult**](#agrag.ingestion.reports.AddResult) – Graph.add()'s return type — one summary per pipeline stage.
 - [**CommunityDetectionReport**](#agrag.ingestion.reports.CommunityDetectionReport) – Report from Graph.detect_communities().
 - [**ConsolidationReport**](#agrag.ingestion.reports.ConsolidationReport) – Report from Graph.consolidate().
+- [**ReevaluationReport**](#agrag.ingestion.reports.ReevaluationReport) – Report from Graph.reevaluate().
 - [**UpdateResult**](#agrag.ingestion.reports.UpdateResult) – Summary of an update or soft deletion.
 
 ##### `agrag.ingestion.reports.AddResult`
@@ -9072,6 +9993,14 @@ Report from Graph.consolidate().
 - [**applied**](#agrag.ingestion.reports.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the matches were materialized.
 - [**failures**](#agrag.ingestion.reports.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
   Always empty when apply is False.
+- [**ambiguous_count**](#agrag.ingestion.reports.ConsolidationReport.ambiguous_count) (<code>[int](#int)</code>) – LLM verdicts that came back uncertain. These
+  pairs never merge.
+
+###### `agrag.ingestion.reports.ConsolidationReport.ambiguous_count`
+
+```python
+ambiguous_count: int = 0
+```
 
 ###### `agrag.ingestion.reports.ConsolidationReport.applied`
 
@@ -9089,6 +10018,46 @@ failures: list[StageFailure] = Field(default_factory=list)
 
 ```python
 would_match: list[MatchDecision] = Field(default_factory=list)
+```
+
+##### `agrag.ingestion.reports.ReevaluationReport`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Report from Graph.reevaluate().
+
+**Attributes:**
+
+- [**entities_reevaluated**](#agrag.ingestion.reports.ReevaluationReport.entities_reevaluated) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Input entity ids reevaluated, deduped with
+  input order preserved.
+- [**matches_added**](#agrag.ingestion.reports.ReevaluationReport.matches_added) (<code>[list](#list)\[[MatchDecision](#agrag.ingestion.materialize.MatchDecision)\]</code>) – Confirmed matches with no active edge, now written.
+- [**matches_removed**](#agrag.ingestion.reports.ReevaluationReport.matches_removed) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of active match edges the resolver did not
+  confirm, now deactivated.
+- [**unchanged_count**](#agrag.ingestion.reports.ReevaluationReport.unchanged_count) (<code>[int](#int)</code>) – Input entities with no incident added or removed
+  edge.
+
+###### `agrag.ingestion.reports.ReevaluationReport.entities_reevaluated`
+
+```python
+entities_reevaluated: list[UUID] = Field(default_factory=list)
+```
+
+###### `agrag.ingestion.reports.ReevaluationReport.matches_added`
+
+```python
+matches_added: list[MatchDecision] = Field(default_factory=list)
+```
+
+###### `agrag.ingestion.reports.ReevaluationReport.matches_removed`
+
+```python
+matches_removed: list[UUID] = Field(default_factory=list)
+```
+
+###### `agrag.ingestion.reports.ReevaluationReport.unchanged_count`
+
+```python
+unchanged_count: int = 0
 ```
 
 ##### `agrag.ingestion.reports.UpdateResult`
@@ -9306,6 +10275,14 @@ Report from Graph.consolidate().
 - [**applied**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the matches were materialized.
 - [**failures**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
   Always empty when apply is False.
+- [**ambiguous_count**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.ambiguous_count) (<code>[int](#int)</code>) – LLM verdicts that came back uncertain. These
+  pairs never merge.
+
+####### `agrag.ingestion.reports.consolidation_report.ConsolidationReport.ambiguous_count`
+
+```python
+ambiguous_count: int = 0
+```
 
 ####### `agrag.ingestion.reports.consolidation_report.ConsolidationReport.applied`
 
@@ -9323,6 +10300,54 @@ failures: list[StageFailure] = Field(default_factory=list)
 
 ```python
 would_match: list[MatchDecision] = Field(default_factory=list)
+```
+
+##### `agrag.ingestion.reports.reevaluation_report`
+
+Graph.reevaluate()'s result type.
+
+**Classes:**
+
+- [**ReevaluationReport**](#agrag.ingestion.reports.reevaluation_report.ReevaluationReport) – Report from Graph.reevaluate().
+
+###### `agrag.ingestion.reports.reevaluation_report.ReevaluationReport`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Report from Graph.reevaluate().
+
+**Attributes:**
+
+- [**entities_reevaluated**](#agrag.ingestion.reports.reevaluation_report.ReevaluationReport.entities_reevaluated) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Input entity ids reevaluated, deduped with
+  input order preserved.
+- [**matches_added**](#agrag.ingestion.reports.reevaluation_report.ReevaluationReport.matches_added) (<code>[list](#list)\[[MatchDecision](#agrag.ingestion.materialize.MatchDecision)\]</code>) – Confirmed matches with no active edge, now written.
+- [**matches_removed**](#agrag.ingestion.reports.reevaluation_report.ReevaluationReport.matches_removed) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of active match edges the resolver did not
+  confirm, now deactivated.
+- [**unchanged_count**](#agrag.ingestion.reports.reevaluation_report.ReevaluationReport.unchanged_count) (<code>[int](#int)</code>) – Input entities with no incident added or removed
+  edge.
+
+####### `agrag.ingestion.reports.reevaluation_report.ReevaluationReport.entities_reevaluated`
+
+```python
+entities_reevaluated: list[UUID] = Field(default_factory=list)
+```
+
+####### `agrag.ingestion.reports.reevaluation_report.ReevaluationReport.matches_added`
+
+```python
+matches_added: list[MatchDecision] = Field(default_factory=list)
+```
+
+####### `agrag.ingestion.reports.reevaluation_report.ReevaluationReport.matches_removed`
+
+```python
+matches_removed: list[UUID] = Field(default_factory=list)
+```
+
+####### `agrag.ingestion.reports.reevaluation_report.ReevaluationReport.unchanged_count`
+
+```python
+unchanged_count: int = 0
 ```
 
 ##### `agrag.ingestion.reports.update_result`
@@ -9395,6 +10420,7 @@ Entity resolution public API.
 - [**comparators**](#agrag.ingestion.resolve.comparators) – Comparison strategies used by entity resolution.
 - [**exact_groups**](#agrag.ingestion.resolve.exact_groups) – Exact-name grouping for permanent raw entity records.
 - [**resolver**](#agrag.ingestion.resolve.resolver) – Entity resolution: deciding which ExtractedEntity mentions are the same thing.
+- [**zone_classifier**](#agrag.ingestion.resolve.zone_classifier) – Zone classification for entity-resolution candidate pairs.
 
 **Classes:**
 
@@ -9403,15 +10429,14 @@ Entity resolution public API.
 - [**ComparisonResult**](#agrag.ingestion.resolve.ComparisonResult) – The verdict and evidence produced by one comparator.
 - [**ComparisonVerdict**](#agrag.ingestion.resolve.ComparisonVerdict) – A Comparator's verdict on one entity pair.
 - [**ExactMatch**](#agrag.ingestion.resolve.ExactMatch) – Matches when normalized text is identical. Never returns NO_MATCH.
-- [**FuzzyMatch**](#agrag.ingestion.resolve.FuzzyMatch) – Classifies string similarity before the LLM verification tier.
+- [**FuzzyMatch**](#agrag.ingestion.resolve.FuzzyMatch) – Fast-path accepter for near-identical names. Never returns NO_MATCH.
 - [**GraphCandidateSource**](#agrag.ingestion.resolve.GraphCandidateSource) – Blocks by label in-batch; ANN-searches persisted entities globally.
-- [**InBatchCandidateSource**](#agrag.ingestion.resolve.InBatchCandidateSource) – Compatibility candidate source for the existing Resolver callers.
 - [**LLMVerify**](#agrag.ingestion.resolve.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
 - [**PersistedCandidateSource**](#agrag.ingestion.resolve.PersistedCandidateSource) – Supplies only candidate pairs between new mentions and raw graph entities.
 - [**ResolutionGroup**](#agrag.ingestion.resolve.ResolutionGroup) – One set of ExtractedEntity indices resolution decided are the same entity.
-- [**ResolutionResult**](#agrag.ingestion.resolve.ResolutionResult) – The groups and non-exact evidence produced by one resolution pass.
+- [**ResolutionResult**](#agrag.ingestion.resolve.ResolutionResult) – The groups, non-exact evidence, and ambiguity count of one pass.
 - [**ResolvedMatch**](#agrag.ingestion.resolve.ResolvedMatch) – One confirmed non-exact match between two input entity indices.
-- [**Resolver**](#agrag.ingestion.resolve.Resolver) – Runs an ordered comparator sequence over blocked candidate pairs.
+- [**Resolver**](#agrag.ingestion.resolve.Resolver) – Routes blocked candidate pairs through exact, fuzzy, embedding, and LLM zones.
 
 **Functions:**
 
@@ -9565,17 +10590,19 @@ Compare two entities and retain any available decision evidence.
 ##### `agrag.ingestion.resolve.FuzzyMatch`
 
 ```python
-FuzzyMatch(*, match_above:float = 0.92, no_match_below:float = 0.7) -> None
+FuzzyMatch(*, match_above:float = 0.97) -> None
 ```
 
 Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
 
-Classifies string similarity before the LLM verification tier.
+Fast-path accepter for near-identical names. Never returns NO_MATCH.
+
+Rejection belongs to later tiers, which see embedding and LLM evidence
+this comparator lacks.
 
 **Attributes:**
 
 - [**match_above**](#agrag.ingestion.resolve.FuzzyMatch.match_above) – A similarity score at or above this is a match.
-- [**no_match_below**](#agrag.ingestion.resolve.FuzzyMatch.no_match_below) – A similarity score below this is not a match.
 
 **Functions:**
 
@@ -9602,12 +10629,6 @@ Compare two entities and include their token-sort similarity.
 
 ```python
 match_above = match_above
-```
-
-###### `agrag.ingestion.resolve.FuzzyMatch.no_match_below`
-
-```python
-no_match_below = no_match_below
 ```
 
 ##### `agrag.ingestion.resolve.GraphCandidateSource`
@@ -9706,24 +10727,6 @@ vector_collection = vector_collection
 vector_store = vector_store
 ```
 
-##### `agrag.ingestion.resolve.InBatchCandidateSource`
-
-Bases: <code>[CandidateSource](#agrag.ingestion.resolve.candidate_source.CandidateSource)</code>
-
-Compatibility candidate source for the existing Resolver callers.
-
-**Functions:**
-
-- [**candidates_for**](#agrag.ingestion.resolve.InBatchCandidateSource.candidates_for) – Return every other mention sharing the indexed mention's label.
-
-###### `agrag.ingestion.resolve.InBatchCandidateSource.candidates_for`
-
-```python
-candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
-```
-
-Return every other mention sharing the indexed mention's label.
-
 ##### `agrag.ingestion.resolve.LLMVerify`
 
 ```python
@@ -9742,8 +10745,9 @@ raised outright instead (see compare's Raises section).
 
 **Functions:**
 
-- [**compare**](#agrag.ingestion.resolve.LLMVerify.compare) – Return the LLM's verdict, or NO_MATCH if the call itself fails.
+- [**compare**](#agrag.ingestion.resolve.LLMVerify.compare) – Return the LLM's verdict for one pair, or NO_MATCH on failure.
 - [**compare_batch**](#agrag.ingestion.resolve.LLMVerify.compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
+- [**compare_batch_detailed**](#agrag.ingestion.resolve.LLMVerify.compare_batch_detailed) – Verify pairs and count how many verdicts came back uncertain.
 - [**compare_with_evidence**](#agrag.ingestion.resolve.LLMVerify.compare_with_evidence) – Compare two entities and retain any available decision evidence.
 
 **Attributes:**
@@ -9777,7 +10781,10 @@ chunks_by_id = chunks_by_id
 compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
 ```
 
-Return the LLM's verdict, or NO_MATCH if the call itself fails.
+Return the LLM's verdict for one pair, or NO_MATCH on failure.
+
+Runs through compare_batch so the single-pair path shares the
+batch validation and fail-safe behavior.
 
 **Raises:**
 
@@ -9787,7 +10794,7 @@ Return the LLM's verdict, or NO_MATCH if the call itself fails.
 ###### `agrag.ingestion.resolve.LLMVerify.compare_batch`
 
 ```python
-compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, neighbors_by_index:dict[int, list[str]] | None = None, similarity_by_pair:dict[tuple[int, int], float] | None = None) -> dict[tuple[int, int], ComparisonResult]
+compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, similarities:dict[tuple[int, int], float] | None = None, neighbors_by_index:dict[int, list[str]] | None = None) -> dict[tuple[int, int], ComparisonResult]
 ```
 
 Verify ambiguous candidate pairs across bounded LLM requests.
@@ -9799,11 +10806,33 @@ Invalid, missing, and uncertain model responses do not merge entities.
 **Parameters:**
 
 - **pairs** (<code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]\]</code>) – `(left_index, right_index, left, right)` tuples to verify.
+- **similarities** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – Embedding similarity per pair, sent to the model
+  as decision context. Defaults to 0.0 when unknown.
 - **neighbors_by_index** (<code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\] | None</code>) – Entity index to its neighboring-relationship
   context strings. Looked up globally, so every chunk sees the
   same map.
-- **similarity_by_pair** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – `(left, right)`-keyed similarity score to
-  send alongside each pair, defaulting to `0.0`.
+
+###### `agrag.ingestion.resolve.LLMVerify.compare_batch_detailed`
+
+```python
+compare_batch_detailed(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, similarities:dict[tuple[int, int], float] | None = None, neighbors_by_index:dict[int, list[str]] | None = None) -> tuple[dict[tuple[int, int], ComparisonResult], int]
+```
+
+Verify pairs and count how many verdicts came back uncertain.
+
+**Parameters:**
+
+- **pairs** (<code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]\]</code>) – The candidate pairs to verify.
+- **similarities** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – Embedding similarity per pair, sent to the model
+  as decision context. Defaults to 0.0 when unknown.
+- **neighbors_by_index** (<code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\] | None</code>) – Entity index to its neighboring-relationship
+  context strings. Looked up globally, so every chunk sees the
+  same map.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\]</code> – The per-pair results and the count of raw uncertain verdicts,
+- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH.
 
 ###### `agrag.ingestion.resolve.LLMVerify.compare_with_evidence`
 
@@ -9878,12 +10907,20 @@ entity_indices: list[int]
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
 
-The groups and non-exact evidence produced by one resolution pass.
+The groups, non-exact evidence, and ambiguity count of one pass.
 
 **Attributes:**
 
-- [**groups**](#agrag.ingestion.resolve.ResolutionResult.groups) (<code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.resolver.ResolutionGroup)\]</code>) –
-- [**matches**](#agrag.ingestion.resolve.ResolutionResult.matches) (<code>[list](#list)\[[ResolvedMatch](#agrag.ingestion.resolve.resolver.ResolvedMatch)\]</code>) –
+- [**groups**](#agrag.ingestion.resolve.ResolutionResult.groups) (<code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.resolver.ResolutionGroup)\]</code>) – One group per transitively connected mention set.
+- [**matches**](#agrag.ingestion.resolve.ResolutionResult.matches) (<code>[list](#list)\[[ResolvedMatch](#agrag.ingestion.resolve.resolver.ResolvedMatch)\]</code>) – Evidence for every confirmed non-exact pair.
+- [**ambiguous_count**](#agrag.ingestion.resolve.ResolutionResult.ambiguous_count) (<code>[int](#int)</code>) – LLM verdicts that came back uncertain. These
+  pairs never merge.
+
+###### `agrag.ingestion.resolve.ResolutionResult.ambiguous_count`
+
+```python
+ambiguous_count: int = 0
+```
 
 ###### `agrag.ingestion.resolve.ResolutionResult.groups`
 
@@ -9954,12 +10991,17 @@ score: float | None = None
 ##### `agrag.ingestion.resolve.Resolver`
 
 ```python
-Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource) -> None
+Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource, embedder:Embedder | None = None, hard_merge_threshold:float = HARD_MERGE_THRESHOLD, discard_threshold:float = DISCARD_THRESHOLD, max_llm_pairs:int = MAX_LLM_PAIRS, llm_batch_size:int = 10) -> None
 ```
 
-Runs an ordered comparator sequence over blocked candidate pairs.
+Routes blocked candidate pairs through exact, fuzzy, embedding, and LLM zones.
 
-Groups every pair a comparator confirms as a match into a ResolutionGroup.
+Exact identity groups mentions without evidence. A near-identical
+fuzzy score merges on the fast path. Every other pair consults its
+embedding cosine similarity: at or above the hard-merge threshold it
+merges, below the discard threshold it drops, and inside the band it
+needs LLM review, capped per label. Tight ambiguous sub-clusters
+merge without spending LLM calls.
 
 **Functions:**
 
@@ -9969,13 +11011,35 @@ Groups every pair a comparator confirms as a match into a ResolutionGroup.
 
 - [**candidate_source**](#agrag.ingestion.resolve.Resolver.candidate_source) –
 - [**comparators**](#agrag.ingestion.resolve.Resolver.comparators) –
+- [**discard_threshold**](#agrag.ingestion.resolve.Resolver.discard_threshold) –
+- [**embedder**](#agrag.ingestion.resolve.Resolver.embedder) –
+- [**hard_merge_threshold**](#agrag.ingestion.resolve.Resolver.hard_merge_threshold) –
+- [**llm_batch_size**](#agrag.ingestion.resolve.Resolver.llm_batch_size) –
+- [**max_llm_pairs**](#agrag.ingestion.resolve.Resolver.max_llm_pairs) –
 
 **Parameters:**
 
-- **comparators** (<code>[list](#list)\[[Comparator](#agrag.ingestion.resolve.resolver.Comparator)\]</code>) – Tried in order per candidate pair. The first
-  non-UNCERTAIN verdict wins; if every comparator is UNCERTAIN,
-  the pair does not merge.
+- **comparators** (<code>[list](#list)\[[Comparator](#agrag.ingestion.resolve.resolver.Comparator)\]</code>) – The ExactMatch, FuzzyMatch, and LLMVerify tiers,
+  each picked out by type. A missing ExactMatch or FuzzyMatch
+  falls back to its defaults; without an LLMVerify the LLM
+  tier is skipped and boundary pairs never merge.
 - **candidate_source** (<code>[CandidateSource](#agrag.ingestion.resolve.candidate_source.CandidateSource)</code>) – Narrows which pairs get compared at all.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder) | None</code>) – Embeds mention texts for the similarity tier. None
+  skips that tier: every fuzzy-uncertain pair counts as
+  ambiguous, ranked by its fuzzy score.
+- **hard_merge_threshold** (<code>[float](#float)</code>) – Embedding similarity at or above which
+  a pair merges without LLM review.
+- **discard_threshold** (<code>[float](#float)</code>) – Embedding similarity below which a pair
+  drops without LLM review.
+- **max_llm_pairs** (<code>[int](#int)</code>) – Maximum ambiguous pairs sent to the LLM per
+  label.
+- **llm_batch_size** (<code>[int](#int)</code>) – Pairs per LLM request. Must fit the
+  LLMVerify comparator's max_pairs_per_batch.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – llm_batch_size is not positive, or exceeds the
+  LLMVerify comparator's max_pairs_per_batch.
 
 ###### `agrag.ingestion.resolve.Resolver.candidate_source`
 
@@ -9987,6 +11051,36 @@ candidate_source = candidate_source
 
 ```python
 comparators = comparators
+```
+
+###### `agrag.ingestion.resolve.Resolver.discard_threshold`
+
+```python
+discard_threshold = discard_threshold
+```
+
+###### `agrag.ingestion.resolve.Resolver.embedder`
+
+```python
+embedder = embedder
+```
+
+###### `agrag.ingestion.resolve.Resolver.hard_merge_threshold`
+
+```python
+hard_merge_threshold = hard_merge_threshold
+```
+
+###### `agrag.ingestion.resolve.Resolver.llm_batch_size`
+
+```python
+llm_batch_size = llm_batch_size
+```
+
+###### `agrag.ingestion.resolve.Resolver.max_llm_pairs`
+
+```python
+max_llm_pairs = max_llm_pairs
 ```
 
 ###### `agrag.ingestion.resolve.Resolver.resolve`
@@ -10007,14 +11101,17 @@ Resolve entity groups and retain each confirmed non-exact match.
   relationship context for LLM verification, when the caller has
   such a source. Omitted by callers that do not.
 - **similarity_by_pair** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – Already-known real similarity scores keyed by
-  `(min(left, right), max(left, right))`. Seeded into the
-  comparison tiers; a caller-seeded score always wins over one a
-  later comparator computes for the same pair. Not mutated.
+  `(min(left, right), max(left, right))`, such as an ANN
+  backend's hit score. Never drives zone routing -- that scale
+  is not comparable to this Resolver's own cosine similarity --
+  but reaches the LLM as decision context, preferred over a
+  freshly embedded score, for a pair that lands on the boundary
+  anyway. Not mutated.
 
 **Returns:**
 
-- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index and evidence for every confirmed
-- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair.
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index, evidence for every confirmed
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair, and the count of uncertain LLM verdicts.
 
 ##### `agrag.ingestion.resolve.batch_validation`
 
@@ -10099,7 +11196,6 @@ Candidate generation for in-batch and persisted graph entities.
 
 - [**CandidateSource**](#agrag.ingestion.resolve.candidate_source.CandidateSource) – Narrows which in-batch entity pairs resolution compares.
 - [**GraphCandidateSource**](#agrag.ingestion.resolve.candidate_source.GraphCandidateSource) – Blocks by label in-batch; ANN-searches persisted entities globally.
-- [**InBatchCandidateSource**](#agrag.ingestion.resolve.candidate_source.InBatchCandidateSource) – Compatibility candidate source for the existing Resolver callers.
 - [**PersistedCandidateSource**](#agrag.ingestion.resolve.candidate_source.PersistedCandidateSource) – Supplies only candidate pairs between new mentions and raw graph entities.
 
 **Functions:**
@@ -10227,24 +11323,6 @@ vector_collection = vector_collection
 vector_store = vector_store
 ```
 
-###### `agrag.ingestion.resolve.candidate_source.InBatchCandidateSource`
-
-Bases: <code>[CandidateSource](#agrag.ingestion.resolve.candidate_source.CandidateSource)</code>
-
-Compatibility candidate source for the existing Resolver callers.
-
-**Functions:**
-
-- [**candidates_for**](#agrag.ingestion.resolve.candidate_source.InBatchCandidateSource.candidates_for) – Return every other mention sharing the indexed mention's label.
-
-####### `agrag.ingestion.resolve.candidate_source.InBatchCandidateSource.candidates_for`
-
-```python
-candidates_for(index:int, entities:list[ExtractedEntity]) -> list[int]
-```
-
-Return every other mention sharing the indexed mention's label.
-
 ###### `agrag.ingestion.resolve.candidate_source.MAX_NEIGHBORS_PER_ENTITY`
 
 ```python
@@ -10370,7 +11448,7 @@ Comparison strategies used by entity resolution.
 - [**ComparisonResult**](#agrag.ingestion.resolve.comparators.ComparisonResult) – The verdict and evidence produced by one comparator.
 - [**ComparisonVerdict**](#agrag.ingestion.resolve.comparators.ComparisonVerdict) – A Comparator's verdict on one entity pair.
 - [**ExactMatch**](#agrag.ingestion.resolve.comparators.ExactMatch) – Matches when normalized text is identical. Never returns NO_MATCH.
-- [**FuzzyMatch**](#agrag.ingestion.resolve.comparators.FuzzyMatch) – Classifies string similarity before the LLM verification tier.
+- [**FuzzyMatch**](#agrag.ingestion.resolve.comparators.FuzzyMatch) – Fast-path accepter for near-identical names. Never returns NO_MATCH.
 - [**LLMVerify**](#agrag.ingestion.resolve.comparators.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
 
 ###### `agrag.ingestion.resolve.comparators.Comparator`
@@ -10499,17 +11577,19 @@ Compare two entities and retain any available decision evidence.
 ###### `agrag.ingestion.resolve.comparators.FuzzyMatch`
 
 ```python
-FuzzyMatch(*, match_above:float = 0.92, no_match_below:float = 0.7) -> None
+FuzzyMatch(*, match_above:float = 0.97) -> None
 ```
 
 Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
 
-Classifies string similarity before the LLM verification tier.
+Fast-path accepter for near-identical names. Never returns NO_MATCH.
+
+Rejection belongs to later tiers, which see embedding and LLM evidence
+this comparator lacks.
 
 **Attributes:**
 
 - [**match_above**](#agrag.ingestion.resolve.comparators.FuzzyMatch.match_above) – A similarity score at or above this is a match.
-- [**no_match_below**](#agrag.ingestion.resolve.comparators.FuzzyMatch.no_match_below) – A similarity score below this is not a match.
 
 **Functions:**
 
@@ -10538,12 +11618,6 @@ Compare two entities and include their token-sort similarity.
 match_above = match_above
 ```
 
-####### `agrag.ingestion.resolve.comparators.FuzzyMatch.no_match_below`
-
-```python
-no_match_below = no_match_below
-```
-
 ###### `agrag.ingestion.resolve.comparators.LLMVerify`
 
 ```python
@@ -10562,8 +11636,9 @@ raised outright instead (see compare's Raises section).
 
 **Functions:**
 
-- [**compare**](#agrag.ingestion.resolve.comparators.LLMVerify.compare) – Return the LLM's verdict, or NO_MATCH if the call itself fails.
+- [**compare**](#agrag.ingestion.resolve.comparators.LLMVerify.compare) – Return the LLM's verdict for one pair, or NO_MATCH on failure.
 - [**compare_batch**](#agrag.ingestion.resolve.comparators.LLMVerify.compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
+- [**compare_batch_detailed**](#agrag.ingestion.resolve.comparators.LLMVerify.compare_batch_detailed) – Verify pairs and count how many verdicts came back uncertain.
 - [**compare_with_evidence**](#agrag.ingestion.resolve.comparators.LLMVerify.compare_with_evidence) – Compare two entities and retain any available decision evidence.
 
 **Attributes:**
@@ -10597,7 +11672,10 @@ chunks_by_id = chunks_by_id
 compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
 ```
 
-Return the LLM's verdict, or NO_MATCH if the call itself fails.
+Return the LLM's verdict for one pair, or NO_MATCH on failure.
+
+Runs through compare_batch so the single-pair path shares the
+batch validation and fail-safe behavior.
 
 **Raises:**
 
@@ -10607,7 +11685,7 @@ Return the LLM's verdict, or NO_MATCH if the call itself fails.
 ####### `agrag.ingestion.resolve.comparators.LLMVerify.compare_batch`
 
 ```python
-compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, neighbors_by_index:dict[int, list[str]] | None = None, similarity_by_pair:dict[tuple[int, int], float] | None = None) -> dict[tuple[int, int], ComparisonResult]
+compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, similarities:dict[tuple[int, int], float] | None = None, neighbors_by_index:dict[int, list[str]] | None = None) -> dict[tuple[int, int], ComparisonResult]
 ```
 
 Verify ambiguous candidate pairs across bounded LLM requests.
@@ -10619,11 +11697,33 @@ Invalid, missing, and uncertain model responses do not merge entities.
 **Parameters:**
 
 - **pairs** (<code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]\]</code>) – `(left_index, right_index, left, right)` tuples to verify.
+- **similarities** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – Embedding similarity per pair, sent to the model
+  as decision context. Defaults to 0.0 when unknown.
 - **neighbors_by_index** (<code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\] | None</code>) – Entity index to its neighboring-relationship
   context strings. Looked up globally, so every chunk sees the
   same map.
-- **similarity_by_pair** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – `(left, right)`-keyed similarity score to
-  send alongside each pair, defaulting to `0.0`.
+
+####### `agrag.ingestion.resolve.comparators.LLMVerify.compare_batch_detailed`
+
+```python
+compare_batch_detailed(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, similarities:dict[tuple[int, int], float] | None = None, neighbors_by_index:dict[int, list[str]] | None = None) -> tuple[dict[tuple[int, int], ComparisonResult], int]
+```
+
+Verify pairs and count how many verdicts came back uncertain.
+
+**Parameters:**
+
+- **pairs** (<code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]\]</code>) – The candidate pairs to verify.
+- **similarities** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – Embedding similarity per pair, sent to the model
+  as decision context. Defaults to 0.0 when unknown.
+- **neighbors_by_index** (<code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\] | None</code>) – Entity index to its neighboring-relationship
+  context strings. Looked up globally, so every chunk sees the
+  same map.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\]</code> – The per-pair results and the count of raw uncertain verdicts,
+- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH.
 
 ####### `agrag.ingestion.resolve.comparators.LLMVerify.compare_with_evidence`
 
@@ -10744,12 +11844,12 @@ Entity resolution: deciding which ExtractedEntity mentions are the same thing.
 - [**ComparisonResult**](#agrag.ingestion.resolve.resolver.ComparisonResult) – The verdict and evidence produced by one comparator.
 - [**ComparisonVerdict**](#agrag.ingestion.resolve.resolver.ComparisonVerdict) – A Comparator's verdict on one entity pair.
 - [**ExactMatch**](#agrag.ingestion.resolve.resolver.ExactMatch) – Matches when normalized text is identical. Never returns NO_MATCH.
-- [**FuzzyMatch**](#agrag.ingestion.resolve.resolver.FuzzyMatch) – Classifies string similarity before the LLM verification tier.
+- [**FuzzyMatch**](#agrag.ingestion.resolve.resolver.FuzzyMatch) – Fast-path accepter for near-identical names. Never returns NO_MATCH.
 - [**LLMVerify**](#agrag.ingestion.resolve.resolver.LLMVerify) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
 - [**ResolutionGroup**](#agrag.ingestion.resolve.resolver.ResolutionGroup) – One set of ExtractedEntity indices resolution decided are the same entity.
-- [**ResolutionResult**](#agrag.ingestion.resolve.resolver.ResolutionResult) – The groups and non-exact evidence produced by one resolution pass.
+- [**ResolutionResult**](#agrag.ingestion.resolve.resolver.ResolutionResult) – The groups, non-exact evidence, and ambiguity count of one pass.
 - [**ResolvedMatch**](#agrag.ingestion.resolve.resolver.ResolvedMatch) – One confirmed non-exact match between two input entity indices.
-- [**Resolver**](#agrag.ingestion.resolve.resolver.Resolver) – Runs an ordered comparator sequence over blocked candidate pairs.
+- [**Resolver**](#agrag.ingestion.resolve.resolver.Resolver) – Routes blocked candidate pairs through exact, fuzzy, embedding, and LLM zones.
 
 ###### `agrag.ingestion.resolve.resolver.Comparator`
 
@@ -10877,17 +11977,19 @@ Compare two entities and retain any available decision evidence.
 ###### `agrag.ingestion.resolve.resolver.FuzzyMatch`
 
 ```python
-FuzzyMatch(*, match_above:float = 0.92, no_match_below:float = 0.7) -> None
+FuzzyMatch(*, match_above:float = 0.97) -> None
 ```
 
 Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
 
-Classifies string similarity before the LLM verification tier.
+Fast-path accepter for near-identical names. Never returns NO_MATCH.
+
+Rejection belongs to later tiers, which see embedding and LLM evidence
+this comparator lacks.
 
 **Attributes:**
 
 - [**match_above**](#agrag.ingestion.resolve.resolver.FuzzyMatch.match_above) – A similarity score at or above this is a match.
-- [**no_match_below**](#agrag.ingestion.resolve.resolver.FuzzyMatch.no_match_below) – A similarity score below this is not a match.
 
 **Functions:**
 
@@ -10916,12 +12018,6 @@ Compare two entities and include their token-sort similarity.
 match_above = match_above
 ```
 
-####### `agrag.ingestion.resolve.resolver.FuzzyMatch.no_match_below`
-
-```python
-no_match_below = no_match_below
-```
-
 ###### `agrag.ingestion.resolve.resolver.LLMVerify`
 
 ```python
@@ -10940,8 +12036,9 @@ raised outright instead (see compare's Raises section).
 
 **Functions:**
 
-- [**compare**](#agrag.ingestion.resolve.resolver.LLMVerify.compare) – Return the LLM's verdict, or NO_MATCH if the call itself fails.
+- [**compare**](#agrag.ingestion.resolve.resolver.LLMVerify.compare) – Return the LLM's verdict for one pair, or NO_MATCH on failure.
 - [**compare_batch**](#agrag.ingestion.resolve.resolver.LLMVerify.compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
+- [**compare_batch_detailed**](#agrag.ingestion.resolve.resolver.LLMVerify.compare_batch_detailed) – Verify pairs and count how many verdicts came back uncertain.
 - [**compare_with_evidence**](#agrag.ingestion.resolve.resolver.LLMVerify.compare_with_evidence) – Compare two entities and retain any available decision evidence.
 
 **Attributes:**
@@ -10975,7 +12072,10 @@ chunks_by_id = chunks_by_id
 compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
 ```
 
-Return the LLM's verdict, or NO_MATCH if the call itself fails.
+Return the LLM's verdict for one pair, or NO_MATCH on failure.
+
+Runs through compare_batch so the single-pair path shares the
+batch validation and fail-safe behavior.
 
 **Raises:**
 
@@ -10985,7 +12085,7 @@ Return the LLM's verdict, or NO_MATCH if the call itself fails.
 ####### `agrag.ingestion.resolve.resolver.LLMVerify.compare_batch`
 
 ```python
-compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, neighbors_by_index:dict[int, list[str]] | None = None, similarity_by_pair:dict[tuple[int, int], float] | None = None) -> dict[tuple[int, int], ComparisonResult]
+compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, similarities:dict[tuple[int, int], float] | None = None, neighbors_by_index:dict[int, list[str]] | None = None) -> dict[tuple[int, int], ComparisonResult]
 ```
 
 Verify ambiguous candidate pairs across bounded LLM requests.
@@ -10997,11 +12097,33 @@ Invalid, missing, and uncertain model responses do not merge entities.
 **Parameters:**
 
 - **pairs** (<code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]\]</code>) – `(left_index, right_index, left, right)` tuples to verify.
+- **similarities** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – Embedding similarity per pair, sent to the model
+  as decision context. Defaults to 0.0 when unknown.
 - **neighbors_by_index** (<code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\] | None</code>) – Entity index to its neighboring-relationship
   context strings. Looked up globally, so every chunk sees the
   same map.
-- **similarity_by_pair** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – `(left, right)`-keyed similarity score to
-  send alongside each pair, defaulting to `0.0`.
+
+####### `agrag.ingestion.resolve.resolver.LLMVerify.compare_batch_detailed`
+
+```python
+compare_batch_detailed(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, similarities:dict[tuple[int, int], float] | None = None, neighbors_by_index:dict[int, list[str]] | None = None) -> tuple[dict[tuple[int, int], ComparisonResult], int]
+```
+
+Verify pairs and count how many verdicts came back uncertain.
+
+**Parameters:**
+
+- **pairs** (<code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity), [ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]\]</code>) – The candidate pairs to verify.
+- **similarities** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – Embedding similarity per pair, sent to the model
+  as decision context. Defaults to 0.0 when unknown.
+- **neighbors_by_index** (<code>[dict](#dict)\[[int](#int), [list](#list)\[[str](#str)\]\] | None</code>) – Entity index to its neighboring-relationship
+  context strings. Looked up globally, so every chunk sees the
+  same map.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\]</code> – The per-pair results and the count of raw uncertain verdicts,
+- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH.
 
 ####### `agrag.ingestion.resolve.resolver.LLMVerify.compare_with_evidence`
 
@@ -11044,12 +12166,20 @@ entity_indices: list[int]
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
 
-The groups and non-exact evidence produced by one resolution pass.
+The groups, non-exact evidence, and ambiguity count of one pass.
 
 **Attributes:**
 
-- [**groups**](#agrag.ingestion.resolve.resolver.ResolutionResult.groups) (<code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.resolver.ResolutionGroup)\]</code>) –
-- [**matches**](#agrag.ingestion.resolve.resolver.ResolutionResult.matches) (<code>[list](#list)\[[ResolvedMatch](#agrag.ingestion.resolve.resolver.ResolvedMatch)\]</code>) –
+- [**groups**](#agrag.ingestion.resolve.resolver.ResolutionResult.groups) (<code>[list](#list)\[[ResolutionGroup](#agrag.ingestion.resolve.resolver.ResolutionGroup)\]</code>) – One group per transitively connected mention set.
+- [**matches**](#agrag.ingestion.resolve.resolver.ResolutionResult.matches) (<code>[list](#list)\[[ResolvedMatch](#agrag.ingestion.resolve.resolver.ResolvedMatch)\]</code>) – Evidence for every confirmed non-exact pair.
+- [**ambiguous_count**](#agrag.ingestion.resolve.resolver.ResolutionResult.ambiguous_count) (<code>[int](#int)</code>) – LLM verdicts that came back uncertain. These
+  pairs never merge.
+
+####### `agrag.ingestion.resolve.resolver.ResolutionResult.ambiguous_count`
+
+```python
+ambiguous_count: int = 0
+```
 
 ####### `agrag.ingestion.resolve.resolver.ResolutionResult.groups`
 
@@ -11120,12 +12250,17 @@ score: float | None = None
 ###### `agrag.ingestion.resolve.resolver.Resolver`
 
 ```python
-Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource) -> None
+Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource, embedder:Embedder | None = None, hard_merge_threshold:float = HARD_MERGE_THRESHOLD, discard_threshold:float = DISCARD_THRESHOLD, max_llm_pairs:int = MAX_LLM_PAIRS, llm_batch_size:int = 10) -> None
 ```
 
-Runs an ordered comparator sequence over blocked candidate pairs.
+Routes blocked candidate pairs through exact, fuzzy, embedding, and LLM zones.
 
-Groups every pair a comparator confirms as a match into a ResolutionGroup.
+Exact identity groups mentions without evidence. A near-identical
+fuzzy score merges on the fast path. Every other pair consults its
+embedding cosine similarity: at or above the hard-merge threshold it
+merges, below the discard threshold it drops, and inside the band it
+needs LLM review, capped per label. Tight ambiguous sub-clusters
+merge without spending LLM calls.
 
 **Functions:**
 
@@ -11135,13 +12270,35 @@ Groups every pair a comparator confirms as a match into a ResolutionGroup.
 
 - [**candidate_source**](#agrag.ingestion.resolve.resolver.Resolver.candidate_source) –
 - [**comparators**](#agrag.ingestion.resolve.resolver.Resolver.comparators) –
+- [**discard_threshold**](#agrag.ingestion.resolve.resolver.Resolver.discard_threshold) –
+- [**embedder**](#agrag.ingestion.resolve.resolver.Resolver.embedder) –
+- [**hard_merge_threshold**](#agrag.ingestion.resolve.resolver.Resolver.hard_merge_threshold) –
+- [**llm_batch_size**](#agrag.ingestion.resolve.resolver.Resolver.llm_batch_size) –
+- [**max_llm_pairs**](#agrag.ingestion.resolve.resolver.Resolver.max_llm_pairs) –
 
 **Parameters:**
 
-- **comparators** (<code>[list](#list)\[[Comparator](#agrag.ingestion.resolve.resolver.Comparator)\]</code>) – Tried in order per candidate pair. The first
-  non-UNCERTAIN verdict wins; if every comparator is UNCERTAIN,
-  the pair does not merge.
+- **comparators** (<code>[list](#list)\[[Comparator](#agrag.ingestion.resolve.resolver.Comparator)\]</code>) – The ExactMatch, FuzzyMatch, and LLMVerify tiers,
+  each picked out by type. A missing ExactMatch or FuzzyMatch
+  falls back to its defaults; without an LLMVerify the LLM
+  tier is skipped and boundary pairs never merge.
 - **candidate_source** (<code>[CandidateSource](#agrag.ingestion.resolve.candidate_source.CandidateSource)</code>) – Narrows which pairs get compared at all.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder) | None</code>) – Embeds mention texts for the similarity tier. None
+  skips that tier: every fuzzy-uncertain pair counts as
+  ambiguous, ranked by its fuzzy score.
+- **hard_merge_threshold** (<code>[float](#float)</code>) – Embedding similarity at or above which
+  a pair merges without LLM review.
+- **discard_threshold** (<code>[float](#float)</code>) – Embedding similarity below which a pair
+  drops without LLM review.
+- **max_llm_pairs** (<code>[int](#int)</code>) – Maximum ambiguous pairs sent to the LLM per
+  label.
+- **llm_batch_size** (<code>[int](#int)</code>) – Pairs per LLM request. Must fit the
+  LLMVerify comparator's max_pairs_per_batch.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – llm_batch_size is not positive, or exceeds the
+  LLMVerify comparator's max_pairs_per_batch.
 
 ####### `agrag.ingestion.resolve.resolver.Resolver.candidate_source`
 
@@ -11153,6 +12310,36 @@ candidate_source = candidate_source
 
 ```python
 comparators = comparators
+```
+
+####### `agrag.ingestion.resolve.resolver.Resolver.discard_threshold`
+
+```python
+discard_threshold = discard_threshold
+```
+
+####### `agrag.ingestion.resolve.resolver.Resolver.embedder`
+
+```python
+embedder = embedder
+```
+
+####### `agrag.ingestion.resolve.resolver.Resolver.hard_merge_threshold`
+
+```python
+hard_merge_threshold = hard_merge_threshold
+```
+
+####### `agrag.ingestion.resolve.resolver.Resolver.llm_batch_size`
+
+```python
+llm_batch_size = llm_batch_size
+```
+
+####### `agrag.ingestion.resolve.resolver.Resolver.max_llm_pairs`
+
+```python
+max_llm_pairs = max_llm_pairs
 ```
 
 ####### `agrag.ingestion.resolve.resolver.Resolver.resolve`
@@ -11173,14 +12360,125 @@ Resolve entity groups and retain each confirmed non-exact match.
   relationship context for LLM verification, when the caller has
   such a source. Omitted by callers that do not.
 - **similarity_by_pair** (<code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\] | None</code>) – Already-known real similarity scores keyed by
-  `(min(left, right), max(left, right))`. Seeded into the
-  comparison tiers; a caller-seeded score always wins over one a
-  later comparator computes for the same pair. Not mutated.
+  `(min(left, right), max(left, right))`, such as an ANN
+  backend's hit score. Never drives zone routing -- that scale
+  is not comparable to this Resolver's own cosine similarity --
+  but reaches the LLM as decision context, preferred over a
+  freshly embedded score, for a pair that lands on the boundary
+  anyway. Not mutated.
 
 **Returns:**
 
-- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index and evidence for every confirmed
-- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair.
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index, evidence for every confirmed
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair, and the count of uncertain LLM verdicts.
+
+##### `agrag.ingestion.resolve.zone_classifier`
+
+Zone classification for entity-resolution candidate pairs.
+
+**Functions:**
+
+- [**classify_zone**](#agrag.ingestion.resolve.zone_classifier.classify_zone) – Assign a candidate pair to a resolution zone.
+- [**precluster_ambiguous**](#agrag.ingestion.resolve.zone_classifier.precluster_ambiguous) – Find tight ambiguous sub-clusters that can merge without LLM review.
+- [**select_llm_pairs**](#agrag.ingestion.resolve.zone_classifier.select_llm_pairs) – Rank ambiguous candidates for LLM review, most similar first.
+
+**Attributes:**
+
+- [**DISCARD_THRESHOLD**](#agrag.ingestion.resolve.zone_classifier.DISCARD_THRESHOLD) –
+- [**FUZZY_FAST_PATH_THRESHOLD**](#agrag.ingestion.resolve.zone_classifier.FUZZY_FAST_PATH_THRESHOLD) –
+- [**HARD_MERGE_THRESHOLD**](#agrag.ingestion.resolve.zone_classifier.HARD_MERGE_THRESHOLD) –
+- [**MAX_LLM_PAIRS**](#agrag.ingestion.resolve.zone_classifier.MAX_LLM_PAIRS) –
+
+###### `agrag.ingestion.resolve.zone_classifier.DISCARD_THRESHOLD`
+
+```python
+DISCARD_THRESHOLD = 0.8
+```
+
+###### `agrag.ingestion.resolve.zone_classifier.FUZZY_FAST_PATH_THRESHOLD`
+
+```python
+FUZZY_FAST_PATH_THRESHOLD = 0.97
+```
+
+###### `agrag.ingestion.resolve.zone_classifier.HARD_MERGE_THRESHOLD`
+
+```python
+HARD_MERGE_THRESHOLD = 0.95
+```
+
+###### `agrag.ingestion.resolve.zone_classifier.MAX_LLM_PAIRS`
+
+```python
+MAX_LLM_PAIRS = 500
+```
+
+###### `agrag.ingestion.resolve.zone_classifier.classify_zone`
+
+```python
+classify_zone(fuzzy_score:float, embedding_similarity:float | None) -> str
+```
+
+Assign a candidate pair to a resolution zone.
+
+A near-identical fuzzy score merges without consulting the embedding.
+Otherwise the embedding similarity decides: at or above the hard-merge
+threshold the pair merges, inside the discard-to-hard-merge band it
+needs LLM review, and below the discard threshold it is dropped. A
+missing embedding with a below-fast-path fuzzy score also discards,
+since no signal supports a merge.
+
+**Parameters:**
+
+- **fuzzy_score** (<code>[float](#float)</code>) – Token-sort-ratio similarity in `[0, 1]`.
+- **embedding_similarity** (<code>[float](#float) | None</code>) – Cosine similarity in `[-1, 1]`, or `None`
+  when no embedding is available.
+
+**Returns:**
+
+- <code>[str](#str)</code> – `"hard_merge"`, `"ambiguous"`, or `"discard"`.
+
+###### `agrag.ingestion.resolve.zone_classifier.precluster_ambiguous`
+
+```python
+precluster_ambiguous(ids:list[UUID], similarities:Mapping[tuple[int, int], float], *, hard_merge_threshold:float = HARD_MERGE_THRESHOLD) -> list[list[UUID]]
+```
+
+Find tight ambiguous sub-clusters that can merge without LLM review.
+
+Runs average-linkage clustering cut at `1 - HARD_MERGE_THRESHOLD` so
+only groups whose mean pairwise distance sits inside the hard-merge
+zone come back. Pairs absent from `similarities` count as maximally
+distant and never join a group.
+
+**Parameters:**
+
+- **ids** (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Candidate entity identifiers.
+- **similarities** (<code>[Mapping](#collections.abc.Mapping)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [float](#float)\]</code>) – Cosine similarity keyed by `(left, right)` index
+  into `ids`, symmetric entries optional.
+- **hard_merge_threshold** (<code>[float](#float)</code>) – Similarity required for an automatic merge.
+
+**Returns:**
+
+- <code>[list](#list)\[[list](#list)\[[UUID](#uuid.UUID)\]\]</code> – Only multi-member groups; singletons need LLM review or discard.
+
+###### `agrag.ingestion.resolve.zone_classifier.select_llm_pairs`
+
+```python
+select_llm_pairs(candidates:list[tuple[int, int, float]], *, max_pairs:int = MAX_LLM_PAIRS) -> list[tuple[int, int]]
+```
+
+Rank ambiguous candidates for LLM review, most similar first.
+
+**Parameters:**
+
+- **candidates** (<code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int), [float](#float)\]\]</code>) – `(left_index, right_index, similarity)` triples.
+- **max_pairs** (<code>[int](#int)</code>) – Maximum pairs to return.
+
+**Returns:**
+
+- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – Index pairs ordered by similarity descending, capped at
+- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – `max_pairs`.
 
 #### `agrag.ingestion.resolved_embeddings`
 
@@ -11193,7 +12491,7 @@ Embedding and vector synchronization for materialized resolved entities.
 ##### `agrag.ingestion.resolved_embeddings.embed_resolved_entities`
 
 ```python
-embed_resolved_entities(entities:list[ResolvedEntity], *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, vector_collection:str, error_policy:ErrorPolicy) -> list[StageFailure]
+embed_resolved_entities(entities:list[ResolvedEntity], *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, vector_collection:str, error_policy:ErrorPolicy, pending_job_id:UUID | str | None = None) -> list[StageFailure]
 ```
 
 Write resolved-entity embeddings to the graph and optional vector store.
@@ -11209,6 +12507,39 @@ concurrent materialization can replace or delete a ResolvedEntity between
 this call reading it and writing its embedding; skipping the unmatched
 ones keeps this call from resurrecting a vector, or overwriting a status,
 that the concurrent call already owns.
+
+#### `agrag.ingestion.settings`
+
+Configuration for the Cutover Job crash-recovery machine.
+
+**Classes:**
+
+- [**CutoverJobSettings**](#agrag.ingestion.settings.CutoverJobSettings) – Configuration for the Cutover Job crash-recovery machine.
+
+##### `agrag.ingestion.settings.CutoverJobSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+Configuration for the Cutover Job crash-recovery machine.
+
+**Attributes:**
+
+- [**lease_ttl_seconds**](#agrag.ingestion.settings.CutoverJobSettings.lease_ttl_seconds) (<code>[int](#int)</code>) – How long a worker's lease is valid before another
+  worker may steal it. Env: CUTOVER_JOB_LEASE_TTL_SECONDS.
+
+Env prefix: `CUTOVER_JOB_`.
+
+###### `agrag.ingestion.settings.CutoverJobSettings.lease_ttl_seconds`
+
+```python
+lease_ttl_seconds: int = Field(default=60, gt=0)
+```
+
+###### `agrag.ingestion.settings.CutoverJobSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='CUTOVER_JOB_', env_file='.env', extra='ignore')
+```
 
 #### `agrag.ingestion.stats`
 
@@ -12633,6 +13964,11 @@ When it is None, runs GraphStore's native vector_search once per
 label in `labels` and merges the hits, ignoring hybrid_alpha
 since that path is dense-only. One native vector index exists per
 label, so a search over several labels is several searches.
+
+Both paths exclude records an in-flight Cutover Job wrote: the
+VectorStore path with a committed-only payload filter, the native
+path inside the vector query itself. A caller can therefore never
+receive an uncommitted job's node or vector.
 
 **Parameters:**
 

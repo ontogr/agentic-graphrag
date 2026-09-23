@@ -6,7 +6,7 @@ from uuid import UUID
 from agrag.common.data_models.entity import Entity
 from agrag.cypher.entities import resolve_merged_into_query
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion.graph import _parse_entity_node
+from agrag.ingestion._ingest_pipeline import _parse_entity_node
 
 
 MAX_MERGE_HOPS = 32

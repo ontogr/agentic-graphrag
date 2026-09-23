@@ -4,8 +4,9 @@ import contextlib
 from typing import Literal
 from uuid import UUID
 
+from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.resolved_entity import ResolvedEntity
-from agrag.common.data_models.vector_record import VectorRecord
+from agrag.common.data_models.vector_record import PENDING_VECTOR_FLAG, VectorRecord
 from agrag.cypher.entities import clear_property_query, set_embedding_query
 from agrag.cypher.resolution_write import (
     clear_resolved_entity_vector_deletions_query,
@@ -72,6 +73,7 @@ async def embed_resolved_entities(
     vector_store: VectorStore | None,
     vector_collection: str,
     error_policy: ErrorPolicy,
+    pending_job_id: UUID | str | None = None,
 ) -> list[StageFailure]:
     """Write resolved-entity embeddings to the graph and optional vector store.
 
@@ -96,17 +98,27 @@ async def embed_resolved_entities(
         for entity, vector in zip(entities, vectors, strict=True):
             entity.embedding = vector
             records.append(_embedding_record(entity, vector))
+            payload: dict[str, object] = {
+                "label": entity.label,
+                "name": entity.name,
+                "text": entity.embedding_text,
+                "member_ids": [str(member_id) for member_id in entity.member_ids],
+                "resolved": True,
+                **entity.properties,
+            }
+            # The pending flag is always written explicitly: committed
+            # records carry False, so a search's committed-only default
+            # filter (an equality on this key) never excludes a
+            # pre-existing record.
+            if pending_job_id is not None:
+                payload[PENDING_VECTOR_FLAG] = True
+                payload[PENDING_JOB_ID_PROPERTY] = str(pending_job_id)
+            else:
+                payload[PENDING_VECTOR_FLAG] = False
             vector_records_by_id[entity.id] = VectorRecord(
                 id=entity.id,
                 vector=vector,
-                payload={
-                    "label": entity.label,
-                    "name": entity.name,
-                    "text": entity.embedding_text,
-                    "member_ids": [str(member_id) for member_id in entity.member_ids],
-                    "resolved": True,
-                    **entity.properties,
-                },
+                payload=payload,
             )
         rows = await graph_store.execute_write(
             set_embedding_query("embedding"), {"records": records}
@@ -167,6 +179,7 @@ async def _synchronize_resolved_entity_vectors(
     vector_store: VectorStore | None,
     vector_collection: str,
     error_policy: ErrorPolicy,
+    pending_job_id: UUID | str | None = None,
 ) -> list[StageFailure]:
     """Replace stale resolved vectors and synchronize current materializations.
 
@@ -196,6 +209,12 @@ async def _synchronize_resolved_entity_vectors(
     being left orphaned with no cleanup record.
     """
     failures: list[StageFailure] = []
+    # A vector store has no transaction with the graph. Reusing the stable
+    # resolved id here would overwrite a committed vector, and rollback
+    # could then delete that committed value. Native graph vectors remain
+    # pending and are visible after the cutover commits; the external copy
+    # is refreshed by the next non-pending synchronization pass.
+    pending_vector_store = None if pending_job_id is not None else vector_store
     republished_ids = {str(entity.id) for entity in entities}
     pending = await _pending_vector_deletions(graph_store)
     pending.update(
@@ -228,12 +247,12 @@ async def _synchronize_resolved_entity_vectors(
             )
             if error_policy is ErrorPolicy.RAISE:
                 raise
-    if vector_store is not None and pending:
+    if pending_vector_store is not None and pending:
         failures.extend(
             await _delete_pending_vectors(
                 pending,
                 graph_store=graph_store,
-                vector_store=vector_store,
+                vector_store=pending_vector_store,
                 error_policy=error_policy,
             )
         )
@@ -247,9 +266,10 @@ async def _synchronize_resolved_entity_vectors(
             entities_to_sync,
             embedder=embedder,
             graph_store=graph_store,
-            vector_store=vector_store,
+            vector_store=pending_vector_store,
             vector_collection=vector_collection,
             error_policy=error_policy,
+            pending_job_id=pending_job_id,
         )
     )
     synced_ids = {
@@ -262,12 +282,12 @@ async def _synchronize_resolved_entity_vectors(
         for item_id, collection in assumed_current.items()
         if item_id not in uncleared_stale_ids and item_id not in synced_ids
     }
-    if superseded and vector_store is not None:
+    if superseded and pending_vector_store is not None:
         failures.extend(
             await _delete_pending_vectors(
                 superseded,
                 graph_store=graph_store,
-                vector_store=vector_store,
+                vector_store=pending_vector_store,
                 error_policy=error_policy,
             )
         )

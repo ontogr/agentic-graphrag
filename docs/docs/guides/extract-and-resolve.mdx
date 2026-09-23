@@ -75,43 +75,57 @@ Alternatively, use `ExtractionLLMSettings.from_openai_compatible_env()` to
 read from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` environment
 variables.
 
-## Resolve duplicate mentions
+## Resolution runs inside every write
+
+You never call resolution directly. `graph.add()` resolves every batch
+automatically: exact-name identity groups mentions without evidence, a
+fuzzy fast path merges near-identical names, embedding similarity decides
+the rest, and a capped LLM tier reviews only the ambiguous band. Raw
+entity nodes are permanent. Confirmed non-exact matches persist as
+`MATCHES` edges with a derived resolved node, never by deleting a node.
 
 ```python
-import asyncio
-from agrag.ingestion.resolve import (
-    ExactMatch,
-    FuzzyMatch,
-    InBatchCandidateSource,
-    LLMVerify,
-    Resolver,
-)
-
-
-async def main():
-    # entities come from an extraction call, e.g. result.entities
-    # chunks_by_id maps each chunk ID to its Chunk for LLM context
-    resolver = Resolver(
-        comparators=[
-            ExactMatch(),
-            FuzzyMatch(),
-            LLMVerify(
-                chunks_by_id=chunks_by_id,
-                settings=ExtractionLLMSettings.from_openai_compatible_env(),
-            ),
-        ],
-        candidate_source=InBatchCandidateSource(),
-    )
-    groups = await resolver.resolve(entities)
-    for group in groups:
-        print(group.entity_indices)
-
-
-asyncio.run(main())
+result = await graph.add(text="Ada Lovelace wrote the first algorithm.")
+print(result.resolution.exact_match_hits)
+print(result.resolution.ambiguous_count)
 ```
 
-Each group lists the indices of entities that resolution decided are the
-same entity. A group of one means resolution found no match for that entity.
+Configure resolution through the settings you pass when you open the
+graph: the schema, the embedder, and the extractor. Inspect every run
+through the resolution stats on the returned `AddResult`.
+
+## Consolidate the whole graph
+
+`consolidate()` runs the same resolution as a full pass over every
+persisted entity of each type. Dry-run first, then apply:
+
+```python
+report = await graph.consolidate()
+print([(m.entity_a_id, m.entity_b_id) for m in report.would_match])
+print(report.ambiguous_count)
+
+applied = await graph.consolidate(apply=True)
+```
+
+A dry run writes nothing. Applying writes `MATCHES` edges and derived
+resolved nodes, and reports exactly the matches it wrote. LLM review
+calls stay bounded no matter how large the graph grows.
+
+## Re-evaluate specific entities
+
+`reevaluate()` re-runs the same resolution for entities you name, when
+new evidence lands or a past decision looks wrong. It adds newly
+confirmed matches, deactivates edges the current evidence no longer
+supports, and leaves every entity outside the list untouched:
+
+```python
+report = await graph.reevaluate([entity_id_a, entity_id_b])
+print(report.matches_added)
+print(report.matches_removed)
+```
+
+There is no automatic trigger: a caller that learns something new calls
+`reevaluate()` explicitly.
 
 `Resolver.resolve()` also takes an optional `neighbors_by_index` map of
 per-entity neighboring-relationship strings, which batched `LLMVerify`

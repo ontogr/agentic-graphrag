@@ -47,12 +47,6 @@ class LlmResponseParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeDescriptions", llm_response=llm_response, mode="request")
         return typing.cast(str, __result__)
 
-    def VerifyEntityMatch(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> bool:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="VerifyEntityMatch", llm_response=llm_response, mode="request")
-        return typing.cast(bool, __result__)
-
     def VerifyEntityMatches(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> typing.List["types.MatchVerdict"]:
@@ -90,12 +84,6 @@ class LlmStreamParser:
     ) -> str:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="SummarizeDescriptions", llm_response=llm_response, mode="stream")
         return typing.cast(str, __result__)
-
-    def VerifyEntityMatch(
-        self, llm_response: str, baml_options: BamlCallOptions = {},
-    ) -> bool:
-        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="VerifyEntityMatch", llm_response=llm_response, mode="stream")
-        return typing.cast(bool, __result__)
 
     def VerifyEntityMatches(
         self, llm_response: str, baml_options: BamlCallOptions = {},

@@ -23,6 +23,7 @@ from agrag.common.data_models.relation import Relation
 from agrag.cypher.entities import hydrate_entities_by_id_query, validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
+from agrag.ingestion._ingest_pipeline import _parse_entity_node
 from agrag.ingestion.community import (
     CommunityDetectionMissingExtraError,
     compute_communities,
@@ -32,7 +33,7 @@ from agrag.ingestion.community import (
     required_member_ids,
 )
 from agrag.ingestion.extract import ExtractionResult, Extractor
-from agrag.ingestion.graph import Graph, _parse_entity_node
+from agrag.ingestion.graph import Graph
 from agrag.ingestion.reports import CommunityDetectionReport
 from agrag.ingestion.stats import StageFailure  # noqa: F401
 
@@ -446,7 +447,8 @@ class TestCommunityDetectionIntegration:
 
         needed = required_member_ids(comms)
         rows = await self.store.execute_read(
-            hydrate_entities_by_id_query(), {"ids": [str(i) for i in needed]}
+            hydrate_entities_by_id_query(),
+            {"ids": [str(i) for i in needed], "job_id": None},
         )
 
         entities_by_id = {

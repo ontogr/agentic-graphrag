@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -136,7 +137,7 @@ class TestWriteMatchesAndMaterialize:
             {"member": existing},
         ]
         monkeypatch.setattr(
-            "agrag.ingestion.graph._parse_entity_node", lambda node: node
+            "agrag.ingestion._ingest_pipeline._parse_entity_node", lambda node: node
         )
         decision = MatchDecision(
             entity_a_id=first.id,
@@ -179,6 +180,40 @@ class TestWriteMatchesAndMaterialize:
                 [decision], graph_store=store, schema=_schema(), members=[first, second]
             )
 
+    async def test_pending_job_does_not_delete_committed_materialization(self) -> None:
+        """A pending materialization leaves rollback-owned old rows intact."""
+        first, second = _entity("Ada"), _entity("Ada Lovelace")
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
+        )
+
+        async def replace_materializations(
+            _query: str, parameters: dict[str, Any]
+        ) -> list[dict[str, Any]]:
+            if "pending_job_id" in parameters:
+                return [{"removed_resolved_entity_ids": []}]
+            return [{"removed_resolved_entity_ids": [str(uuid4())]}]
+
+        store.current_transaction.execute_write.side_effect = replace_materializations
+        decision = MatchDecision(
+            entity_a_id=first.id,
+            entity_b_id=second.id,
+            comparator="FuzzyMatch",
+            decided_at=datetime.now(UTC),
+        )
+
+        result = await write_matches_and_materialize(
+            [decision],
+            graph_store=store,
+            schema=_schema(),
+            members=[first, second],
+            pending_job_id=str(uuid4()),
+        )
+
+        assert result.removed_entity_ids == []
+        replacement_call = store.current_transaction.execute_write.await_args_list[1]
+        assert replacement_call.args[1]["pending_job_id"] is not None
+
 
 class TestDeactivateMatch:
     """Match corrections report stale materializations for vector cleanup."""
@@ -201,7 +236,7 @@ class TestDeactivateMatch:
             [{"removed_resolved_entity_ids": [str(stale_id)]}],
         ]
         monkeypatch.setattr(
-            "agrag.ingestion.graph._parse_entity_node", lambda node: node
+            "agrag.ingestion._ingest_pipeline._parse_entity_node", lambda node: node
         )
 
         result = await deactivate_match_and_rematerialize(
@@ -210,6 +245,8 @@ class TestDeactivateMatch:
 
         assert result.removed_entity_ids == [stale_id]
         assert len(result.resolved_entities) == 1
+        replacement_call = store.current_transaction.execute_write.await_args_list[1]
+        assert replacement_call.args[1]["pending_job_id"] is None
 
     async def test_excludes_and_dedupes_ids_the_split_already_recreated(
         self, monkeypatch
@@ -227,7 +264,7 @@ class TestDeactivateMatch:
             ],
         ]
         monkeypatch.setattr(
-            "agrag.ingestion.graph._parse_entity_node", lambda node: node
+            "agrag.ingestion._ingest_pipeline._parse_entity_node", lambda node: node
         )
         recreated = ResolvedEntity(
             id=uuid4(), label="Person", name="Ada", member_ids=[first.id, second.id]
@@ -271,7 +308,7 @@ class TestDeactivateMatch:
         store = _store()
         store.current_transaction.execute_read.return_value = [{"a": first, "b": first}]
         monkeypatch.setattr(
-            "agrag.ingestion.graph._parse_entity_node", lambda node: node
+            "agrag.ingestion._ingest_pipeline._parse_entity_node", lambda node: node
         )
 
         with pytest.raises(ValueError, match="invalid endpoints"):
@@ -290,7 +327,7 @@ class TestDeactivateMatch:
         ]
         store.current_transaction.execute_write.return_value = []
         monkeypatch.setattr(
-            "agrag.ingestion.graph._parse_entity_node", lambda node: node
+            "agrag.ingestion._ingest_pipeline._parse_entity_node", lambda node: node
         )
 
         with pytest.raises(ValueError, match="does not exist"):
