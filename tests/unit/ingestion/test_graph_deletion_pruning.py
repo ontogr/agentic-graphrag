@@ -252,6 +252,14 @@ class TestPruneOrphanedEntities:
         assert result.removed_entity_ids == [first, third]
         assert result.removed_resolved_entity_ids == [cluster]
         assert result.rematerialized_entities == []
+        materialization_calls = [
+            parameters
+            for query, parameters in store.write_calls
+            if "$pending_job_id" in query and isinstance(parameters, dict)
+        ]
+        assert materialization_calls == [
+            {"member_ids": [str(second)], "pending_job_id": None}
+        ]
         for deleted_ids in _delete_params(store):
             assert str(second) not in deleted_ids
 
@@ -286,6 +294,17 @@ class TestPruneOrphanedEntities:
         assert result.rematerialized_entities[0].member_ids == sorted(
             [second, third], key=str
         )
+        materialization_calls = [
+            parameters
+            for query, parameters in store.write_calls
+            if "$pending_job_id" in query and isinstance(parameters, dict)
+        ]
+        assert materialization_calls == [
+            {
+                "member_ids": [str(second), str(third)],
+                "pending_job_id": None,
+            }
+        ]
 
     async def test_evidenced_candidate_is_a_no_op(self) -> None:
         """A candidate with open evidence triggers no writes at all."""

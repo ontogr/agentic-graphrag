@@ -518,7 +518,10 @@ async def prune_orphaned_entities(
             async with graph_store.transaction() as transaction:
                 replacement_rows = await transaction.execute_write(
                     replace_component_materializations_query(),
-                    {"member_ids": [str(member.id) for member in members]},
+                    {
+                        "member_ids": [str(member.id) for member in members],
+                        "pending_job_id": None,
+                    },
                 )
                 removed_resolved_entity_ids.extend(
                     _uuid_list(replacement_rows, "removed_resolved_entity_ids")
@@ -551,7 +554,10 @@ async def prune_orphaned_entities(
             async with graph_store.transaction() as transaction:
                 replacement_rows = await transaction.execute_write(
                     replace_component_materializations_query(),
-                    {"member_ids": [str(members[0].id)]},
+                    {
+                        "member_ids": [str(members[0].id)],
+                        "pending_job_id": None,
+                    },
                 )
                 removed_resolved_entity_ids.extend(
                     _uuid_list(replacement_rows, "removed_resolved_entity_ids")
