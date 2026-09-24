@@ -1,22 +1,14 @@
-"""Tests for ExtractionLLMSettings env loading and the OpenAI env bridge.
+"""Tests for ``ExtractionLLMSettings.from_openai_compatible_env``.
 
-Covers reading ``EXTRACTION_LLM_CLIENTS``/``_STRATEGY``/``_RETRY`` and their
-defaults, and ``from_openai_compatible_env`` building a single
-openai-generic client from ``LLM_BASE_URL``, ``LLM_API_KEY``, and
-``LLM_MODEL_ID``. Uses ``monkeypatch.setenv``/``delenv`` for environment
-variables. The ``from_openai_compatible_env`` tests patch its explicit
-``load_dotenv()`` call to a no-op; the ``ExtractionLLMSettings()`` tests
-rely on pydantic-settings' own ``env_file`` loading and are not protected
-by that patch.
+Covers building a single openai-generic client from ``LLM_BASE_URL``,
+``LLM_API_KEY``, and ``LLM_MODEL_ID``, and raising when they are absent.
+Uses ``monkeypatch.setenv``/``delenv`` for environment variables, and
+patches the explicit ``load_dotenv()`` call to a no-op.
 """
 
 import pytest
 
 from agrag.ingestion.extract import ExtractionLLMSettings
-
-
-class TestExtractionLLMSettingsEnv:
-    """Settings load clients, strategy, and retry from EXTRACTION_LLM_* vars."""
 
 
 class TestFromOpenAICompatibleEnv:
