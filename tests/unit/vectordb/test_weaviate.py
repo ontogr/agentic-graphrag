@@ -24,7 +24,7 @@ def make_batch_result(*, has_errors: bool = False, errors: dict | None = None):
     return SimpleNamespace(has_errors=has_errors, errors=errors or {})
 
 
-def make_config(metric):
+def _make_config(metric):
     """Build a fake collection config with the given distance metric."""
     index = SimpleNamespace(distance_metric=metric)
     return SimpleNamespace(
@@ -49,7 +49,7 @@ class MockCollection:
         )
         self.aggregate = SimpleNamespace(over_all=mock.AsyncMock())
         self.config = SimpleNamespace(
-            get=mock.AsyncMock(return_value=make_config(VectorDistances.COSINE))
+            get=mock.AsyncMock(return_value=_make_config(VectorDistances.COSINE))
         )
 
 
@@ -258,7 +258,7 @@ class TestWritesAndReads:
         """Search maps a near_vector distance to a higher-is-closer score."""
         obj_id = str(uuid4())
         obj = make_object(obj_id, {"text": "a"}, distance=distance)
-        client._collection.config.get.return_value = make_config(metric)
+        client._collection.config.get.return_value = _make_config(metric)
         client._collection.query.near_vector.return_value = make_response([obj])
         hits = await store.search("c", [0.1, 0.2], limit=5)
         assert len(hits) == 1
