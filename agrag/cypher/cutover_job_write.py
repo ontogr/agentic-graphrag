@@ -3,6 +3,11 @@
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
 
 
+def _job_lock_clause() -> str:
+    """Build Cypher that locks a job before its fencing guard runs."""
+    return "SET job.lease_token = job.lease_token + '' WITH job "
+
+
 def acquire_lease_query() -> str:
     """Build Cypher tentatively creating a job node and returning its lease.
 
@@ -57,6 +62,7 @@ def steal_expired_lease_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{document_key: $document_key}}) "
+        f"{_job_lock_clause()}"
         "WHERE job.lease_token = $expected_lease_token AND ("
         "job.status IN ['done', 'rolled_back'] "
         "OR (job.status = 'pending' AND job.lease_expires_at < datetime())) "
@@ -92,6 +98,7 @@ def claim_job_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        f"{_job_lock_clause()}"
         "WHERE job.status IN ['committed', 'cleaning'] "
         "AND job.lease_token = $expected_lease_token "
         "AND job.lease_expires_at < datetime() "
@@ -101,13 +108,39 @@ def claim_job_query() -> str:
     )
 
 
+def claim_pending_job_query() -> str:
+    """Build Cypher claiming an expired pending job before rollback.
+
+    The recovery scan can become stale before it starts deleting pending
+    graph or vector writes. This compare-and-swap claim rechecks the
+    pending status, original token, and expiry while holding the job lock,
+    then gives recovery a fresh lease for the destructive phase.
+
+    Returns:
+        Parameterized Cypher expecting $job_id, $expected_lease_token,
+        $lease_token, and $lease_expires_at. Returns the job id when the
+        claim applied, no row when another worker renewed or changed it.
+    """
+    return (
+        f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        f"{_job_lock_clause()}"
+        "WHERE job.status = 'pending' "
+        "AND job.lease_token = $expected_lease_token "
+        "AND job.lease_expires_at < datetime() "
+        "SET job.lease_token = $lease_token, "
+        "job.lease_expires_at = datetime($lease_expires_at) "
+        "RETURN job.id AS id"
+    )
+
+
 def commit_job_query() -> str:
     """Build Cypher flipping a job from pending to committed, fenced by lease.
 
     Follows ``set_embedding_query``'s compare-and-swap shape: the write
     applies only while the ``WHERE`` guard (caller's fencing token still
-    current, job still pending) holds, so a worker that lost its lease
-    cannot complete a stale commit even if it is still alive and slow.
+    current, job still pending, and lease still live) holds, so a worker
+    that lost its lease cannot complete a stale commit even if it is still
+    alive and slow.
 
     Returns:
         Parameterized Cypher expecting $job_id and $lease_token. Returns
@@ -115,7 +148,10 @@ def commit_job_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        "WHERE job.lease_token = $lease_token AND job.status = 'pending' "
+        f"{_job_lock_clause()}"
+        "WHERE job.lease_token = $lease_token "
+        "AND job.lease_expires_at >= datetime() "
+        "AND job.status = 'pending' "
         "SET job.status = 'committed' "
         "RETURN job.id AS id"
     )
@@ -149,9 +185,9 @@ def clear_pending_tag_query() -> str:
 def start_cleaning_query() -> str:
     """Build Cypher moving a committed job into cleaning, fenced by lease.
 
-    Same compare-and-swap shape as ``commit_job_query``: only the lease
-    holder that committed the job may start its cleanup. The lease expiry
-    is left as the holder last renewed it: cleanup is live work, so
+    Same compare-and-swap shape as ``commit_job_query``: only the current
+    lease holder that committed the job may start its cleanup. The lease
+    expiry is left as the holder last renewed it: cleanup is live work, so
     resetting it to now would make a running job look abandoned and let a
     concurrent resume take it over.
 
@@ -161,7 +197,10 @@ def start_cleaning_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        "WHERE job.lease_token = $lease_token AND job.status = 'committed' "
+        f"{_job_lock_clause()}"
+        "WHERE job.lease_token = $lease_token "
+        "AND job.lease_expires_at >= datetime() "
+        "AND job.status = 'committed' "
         "SET job.status = 'cleaning' "
         "RETURN job.id AS id"
     )
@@ -170,9 +209,9 @@ def start_cleaning_query() -> str:
 def renew_lease_query() -> str:
     """Build Cypher extending a live job's lease, fenced by its token.
 
-    Applies in every non-terminal phase (pending, committed, cleaning) and
-    only while the caller's fencing token is still current, so a worker
-    that lost its lease cannot revive it.
+    Applies in every non-terminal phase (pending, committed, cleaning) only
+    while the lease remains live and the caller's fencing token is still
+    current, so a worker that lost its lease cannot revive it.
 
     Returns:
         Parameterized Cypher expecting $job_id, $lease_token, and
@@ -181,7 +220,9 @@ def renew_lease_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        f"{_job_lock_clause()}"
         "WHERE job.lease_token = $lease_token "
+        "AND job.lease_expires_at >= datetime() "
         "AND job.status IN ['pending', 'committed', 'cleaning'] "
         "SET job.lease_expires_at = datetime($lease_expires_at) "
         "RETURN job.id AS id"
@@ -191,8 +232,8 @@ def renew_lease_query() -> str:
 def finish_cleaning_query() -> str:
     """Build Cypher marking a job done after its cleanup phase completes.
 
-    Same compare-and-swap shape as ``commit_job_query``: only the lease
-    holder that started cleaning may finish it.
+    Same compare-and-swap shape as ``commit_job_query``: only the current
+    lease holder that started cleaning may finish it.
 
     Returns:
         Parameterized Cypher expecting $job_id and $lease_token. Returns
@@ -200,7 +241,10 @@ def finish_cleaning_query() -> str:
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
-        "WHERE job.lease_token = $lease_token AND job.status = 'cleaning' "
+        f"{_job_lock_clause()}"
+        "WHERE job.lease_token = $lease_token "
+        "AND job.lease_expires_at >= datetime() "
+        "AND job.status = 'cleaning' "
         "SET job.status = 'done' "
         "RETURN job.id AS id"
     )
@@ -235,6 +279,41 @@ def rollback_job_query() -> str:
         "DETACH DELETE n "
         "WITH count(n) AS deleted_nodes, deleted_relationships "
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        "DETACH DELETE job "
+        "RETURN deleted_nodes, deleted_relationships"
+    )
+
+
+def rollback_claimed_job_query() -> str:
+    """Build Cypher deleting a pending job that recovery still holds.
+
+    Recovery claims a job before deleting its pending vector payloads. This
+    query repeats the lease fence before deleting graph writes, so a claim
+    that expired during external vector cleanup cannot remove a newer
+    worker's graph state.
+
+    Returns:
+        Parameterized Cypher expecting $job_id and $lease_token. Returns
+        deleted node and relationship counts when recovery still owns a live
+        pending job, no row otherwise.
+    """
+    return (
+        f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        f"{_job_lock_clause()}"
+        "WHERE job.lease_token = $lease_token "
+        "AND job.status = 'pending' "
+        "AND job.lease_expires_at >= datetime() "
+        "OPTIONAL MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
+        "AND r._pending_created = true "
+        "DELETE r "
+        "WITH job, count(r) AS deleted_relationships "
+        "OPTIONAL MATCH ()-[r]->() WHERE r._pending_job_id = $job_id "
+        "SET r.active = coalesce(r._pending_previous_active, r.active) "
+        "REMOVE r._pending_job_id, r._pending_created, r._pending_previous_active "
+        "WITH job, deleted_relationships "
+        "OPTIONAL MATCH (n) WHERE n._pending_job_id = $job_id "
+        "DETACH DELETE n "
+        "WITH job, count(n) AS deleted_nodes, deleted_relationships "
         "DETACH DELETE job "
         "RETURN deleted_nodes, deleted_relationships"
     )
