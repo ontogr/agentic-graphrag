@@ -695,6 +695,22 @@ class TestComputeMerge:
         )
         assert plan.survivor.name == "Ada"
 
+    async def test_merge_all_default_keeps_empty_canonical_name(self) -> None:
+        """MERGE_ALL preserves an explicitly empty canonical name."""
+        canonical = _entity(name="")
+        absorbed = _entity(name="Ada")
+        canonical.created_at = datetime(2020, 1, 1, tzinfo=UTC)
+        absorbed.created_at = datetime(2020, 1, 2, tzinfo=UTC)
+
+        plan, _ = await compute_merge(
+            existing_entities=[absorbed, canonical],
+            mentions=[],
+            schema=_schema(),
+            rules=PropertyRules(default=PropertyStrategy.MERGE_ALL),
+        )
+
+        assert plan.survivor.name == ""
+
     async def test_merge_count_accumulation(self) -> None:
         """merge_count accumulates from survivor, absorbed, and mentions."""
         e1 = _entity(name="Ada", merge_count=2)

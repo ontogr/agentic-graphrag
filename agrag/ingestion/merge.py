@@ -384,7 +384,9 @@ async def compute_merge(  # noqa: PLR0912
         rules = PropertyRules(
             rules={
                 **rules.rules,
-                "name": lambda names: canonical_name or names[0],
+                "name": lambda names: (
+                    canonical_name if canonical_name is not None else names[0]
+                ),
             },
             default=rules.default,
         )
