@@ -10,13 +10,11 @@ patching ``agrag.llm.baml_client`` out of ``sys.modules``), and
 retry-with-backoff behavior driven by ExtractionLLMSettings.retry (sleep is
 patched to record delays instead of actually sleeping).
 
-Also covers GraphCandidateSource restricting in-batch candidates to
-same-label, non-self entities; the union-find _group_matches helper
-clustering transitively connected indices; and the zone-routed Resolver:
-exact identity groups without evidence, fuzzy fast-path records
-``fuzzy_fast_path`` evidence, embedding similarity hard-merges, discards,
-or defers to a capped LLM tier, and uncertain LLM verdicts count as
-ambiguous without merging.
+Also covers the union-find _group_matches helper clustering transitively
+connected indices and the zone-routed Resolver: exact identity groups without
+evidence, fuzzy fast-path records ``fuzzy_fast_path`` evidence, embedding
+similarity hard-merges, discards, or defers to a capped LLM tier, and uncertain
+LLM verdicts count as ambiguous without merging.
 """
 
 from unittest.mock import AsyncMock, MagicMock
