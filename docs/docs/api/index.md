@@ -6865,6 +6865,10 @@ ensure_vector_index(*, label:str, vector_property:str, dimensions:int, distance:
 
 Create a native vector index if it does not exist.
 
+A concurrent creator can commit the same index after this operation
+starts. Neo4j reports that race as an equivalent-schema error, which
+means the requested index already exists.
+
 ##### `agrag.graphdb.Neo4jGraphStore.execute_read`
 
 ```python
@@ -7647,6 +7651,10 @@ ensure_vector_index(*, label:str, vector_property:str, dimensions:int, distance:
 ```
 
 Create a native vector index if it does not exist.
+
+A concurrent creator can commit the same index after this operation
+starts. Neo4j reports that race as an equivalent-schema error, which
+means the requested index already exists.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.execute_read`
 
