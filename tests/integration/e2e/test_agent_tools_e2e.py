@@ -58,6 +58,7 @@ from agrag.retrieval.recipes import Recipe
 from agrag.retrieval.rerank.node_distance import node_distance_rerank
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -332,6 +333,7 @@ async def _seed_graph(*, one_add_call: bool) -> AsyncGenerator[dict, None]:
         }
     finally:
         await _cleanup(store, all_labels, document_ids)
+        await drop_schema_for(store, *all_labels)
         await store.close()
 
 

@@ -67,7 +67,6 @@ class MockMilvusClient:
         self.query = mock.AsyncMock(return_value=[])
         self.get = mock.AsyncMock(return_value=[])
         self.delete = mock.AsyncMock()
-        self.flush = mock.AsyncMock()
         self.close = mock.AsyncMock()
 
 

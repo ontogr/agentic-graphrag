@@ -27,8 +27,11 @@ from agrag.cypher.schema import (
     cutover_job_document_key_constraint_query,
     cutover_job_status_index_query,
     merge_alias_constraint_query,
+    merge_key_constraint_name,
     merge_key_constraint_query,
+    node_id_constraint_name,
     node_id_constraint_query,
+    relation_id_constraint_name,
     relation_id_constraint_query,
     vector_index_name,
     vector_index_query,
@@ -349,12 +352,22 @@ class Neo4jGraphStore(GraphStore):
         await self._ensure_merge_alias_constraint()
         await self._ensure_cutover_job_constraint()
         await self._ensure_cutover_job_status_index()
+        # Read the existing names once so the cost does not grow with the
+        # number of constraints already in the database. Creates keep
+        # IF NOT EXISTS because another writer can create one in between.
+        rows = await self.execute_read("SHOW CONSTRAINTS YIELD name RETURN name")
+        existing = {row["name"] for row in rows}
         for label in await self._all_labels():
-            await self.execute_write(node_id_constraint_query(label))
+            if node_id_constraint_name(label) not in existing:
+                await self.execute_write(node_id_constraint_query(label))
             # Merge-key uniqueness backs concurrent add() safety: two writers for
             # the same (label, normalized name) cannot both create a canonical.
-            await self.execute_write(merge_key_constraint_query(label))
+            if merge_key_constraint_name(label) not in existing:
+                await self.execute_write(merge_key_constraint_query(label))
         for rel_type in await self._all_relation_types():
+            if relation_id_constraint_name(rel_type) in existing:
+                self._relation_type_constraints_ready.add(rel_type)
+                continue
             await self._ensure_relation_constraint(rel_type)
 
     async def _ensure_identity_constraint(self) -> None:

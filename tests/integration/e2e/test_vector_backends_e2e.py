@@ -4,10 +4,13 @@ The scenario ingests three short documents through ``Graph.add`` with a real
 Neo4j graph store and one vector store backend (Qdrant, Weaviate, or Milvus).
 It then searches with the ENTITY, CHUNK, and HYBRID recipes and checks the
 ranked names, the result limit, fusion deduplication, and that deleting a
-document removes its vectors from search and from the collections. A second
-test runs the same corpus on every reachable backend and asserts that the
-ordered top results are identical. It writes the per-backend rankings to the
-``vector_backends`` artifact.
+document removes its vectors from search and from the collections.
+
+Each backend ingests the corpus once for the whole module. The read-only tests
+share that run, and the one test that deletes data ingests its own. When a
+backend finishes, it writes its ordered top results to the
+``vector_backends_<backend>`` artifact. ``test_vector_backends_parity.py``
+compares those artifacts across backends.
 
 A backend is skipped when its service is not reachable. Set ``QDRANT_URL``,
 ``WEAVIATE_URL``, ``MILVUS_URI``, and the matching keys as for the vector store
@@ -24,6 +27,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 import pytest
+import pytest_asyncio
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import (
@@ -46,6 +50,7 @@ from agrag.retrieval.recipes import CHUNK, ENTITY, HYBRID, Recipe
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb import VectorStore, build_vector_store
+from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -56,7 +61,9 @@ BACKENDS = (
     "weaviate",
     "milvus",
 )
-AGREEING_BACKENDS = ("qdrant", "milvus")
+
+# Module-scoped fixtures and the tests that use them must share one event loop.
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 # Text of each document, keyed by title. One chunk each, so a chunk result
 # maps back to its document by title.
@@ -81,17 +88,27 @@ _TOPICS = (
     {"metformin", "insulin", "diabetes", "sugar", "glucose"},
     {"salbutamol", "asthma", "airways", "breathing"},
 )
-_DRUG_AXES = {name.lower(): 3 + i for i, name in enumerate(DRUGS)}
-_DIMENSIONS = 8
+_DRUG_SIGNS = {
+    "warfarin": 0.5,
+    "heparin": -0.5,
+    "metformin": 0.5,
+    "insulin": -0.5,
+    "salbutamol": 0.5,
+}
+_DRUG_AXIS = 3
+# The Neo4j vector index on the shared Chunk label keeps the size of the first
+# suite that creates it, and every other suite embeds with four dimensions.
+_DIMENSIONS = 4
 
 
 class _TopicEmbedder(Embedder):
-    """Deterministic embedder that places words on topic and drug axes.
+    """Deterministic four-dimensional embedder for topic words and drug names.
 
-    Drug names weigh more than topic words, so two drugs of one topic stay far
-    apart and entity resolution never sends them to an LLM. A small hash-based
-    jitter separates texts that share words, so dense scores never tie and
-    rankings do not depend on backend tie breaking.
+    Each topic word adds to one topic axis. A drug name also moves the last axis
+    up or down, so two drugs of one topic differ enough that entity resolution
+    never sends them to an LLM, yet stay closer to each other than to drugs of
+    another topic. A small hash-based jitter separates texts that share words,
+    so dense scores never tie and rankings do not depend on backend tie breaking.
     """
 
     model = "topic"
@@ -111,9 +128,9 @@ class _TopicEmbedder(Embedder):
         for word in re.findall(r"\w+", text.lower()):
             for axis, topic in enumerate(_TOPICS):
                 if word in topic:
-                    vector[axis] += 0.3
-            if word in _DRUG_AXES:
-                vector[_DRUG_AXES[word]] += 1.0
+                    vector[axis] += 1.0
+            if word in _DRUG_SIGNS:
+                vector[_DRUG_AXIS] += _DRUG_SIGNS[word]
         # crc32 is stable across processes, unlike hash().
         crc = zlib.crc32(text.encode())
         return [
@@ -156,6 +173,9 @@ class _Run:
     vector_store: VectorStore
     settings: RetrievalSettings
     keys: dict[str, str]
+    graph_store: GraphStore
+    label: str
+    collections: list[str]
 
 
 def _title_of_chunk(text: str) -> str:
@@ -191,12 +211,13 @@ async def _drop_created(
             {"key": key},
         )
     await graph_store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+    await drop_schema_for(graph_store, label)
     for name in collections:
         with contextlib.suppress(Exception):
             await vector_store.delete_collection(name)
 
 
-async def _open_run(backend: str) -> tuple[_Run, GraphStore, str, list[str]]:
+async def _open_run(backend: str) -> _Run:
     """Connect a backend, open a graph on it, and ingest the corpus."""
     suffix = uuid4().hex[:8]
     label = validate_identifier(f"Drug_{suffix}")
@@ -264,35 +285,65 @@ async def _open_run(backend: str) -> tuple[_Run, GraphStore, str, list[str]]:
         settings=settings,
         graph_schema=schema,
     )
-    run = _Run(backend, graph, engine, vector_store, settings, keys)
+    run = _Run(
+        backend,
+        graph,
+        engine,
+        vector_store,
+        settings,
+        keys,
+        graph_store,
+        label,
+        collections,
+    )
     try:
         await graph.add(documents=documents, error_policy="raise")
     except Exception:
-        await _drop_created(
-            graph_store, vector_store, collections, label, list(keys.values())
-        )
-        await graph_store.close()
-        await vector_store.close()
+        await _close_run(run)
         raise
-    return run, graph_store, label, collections
+    return run
 
 
-@pytest.fixture(params=BACKENDS)
+async def _close_run(run: _Run) -> None:
+    """Remove what a run created and close its connections."""
+    await _drop_created(
+        run.graph_store,
+        run.vector_store,
+        run.collections,
+        run.label,
+        list(run.keys.values()),
+    )
+    await run.graph_store.close()
+    await run.vector_store.close()
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module", params=BACKENDS)
 async def run(request: pytest.FixtureRequest) -> AsyncGenerator[_Run, None]:
-    """Yield a loaded run for one backend and clean up what it created."""
-    loaded, graph_store, label, collections = await _open_run(request.param)
+    """Yield one loaded run per backend, shared by the read-only tests.
+
+    Teardown writes the backend's rankings to its artifact, then cleans up.
+    """
+    loaded = await _open_run(request.param)
+    try:
+        yield loaded
+        rankings = await _rankings(loaded.engine)
+        recorded = write_artifact(
+            f"vector_backends_{loaded.backend}",
+            {"backend": loaded.backend, "corpus": sorted(CORPUS), "rankings": rankings},
+        )
+        assert recorded["rankings"] == rankings
+    finally:
+        await _close_run(loaded)
+
+
+@pytest_asyncio.fixture(loop_scope="module", params=BACKENDS)
+async def own_run(request: pytest.FixtureRequest) -> AsyncGenerator[_Run, None]:
+    """Yield a private run for a test that changes data."""
+    loaded = await _open_run(request.param)
     try:
         yield loaded
     finally:
-        await _drop_created(
-            graph_store,
-            loaded.vector_store,
-            collections,
-            label,
-            list(loaded.keys.values()),
-        )
-        await graph_store.close()
-        await loaded.vector_store.close()
+        await _close_run(loaded)
 
 
 async def _rankings(engine: SearchEngine) -> dict[str, list[str]]:
@@ -392,8 +443,9 @@ class TestVectorBackendsE2E:
         assert top["warfarin"] > 0.9
         assert top["quantum chromodynamics"] < top["warfarin"] - 0.2
 
-    async def test_delete_document_removes_its_vectors(self, run: _Run) -> None:
+    async def test_delete_document_removes_its_vectors(self, own_run: _Run) -> None:
         """Deleting a document drops its chunk and its drugs from search."""
+        run = own_run
         entity_before = await run.vector_store.count(run.settings.entity_collection)
         chunk_before = await run.vector_store.count(run.settings.chunk_collection)
         assert entity_before == len(DRUGS)
@@ -418,41 +470,3 @@ class TestVectorBackendsE2E:
 
         assert outcome.no_op is True
         assert await run.vector_store.count(run.settings.chunk_collection) == 3
-
-
-async def test_backends_return_identical_rankings() -> None:
-    """The ordered top results match across every reachable backend."""
-    per_backend: dict[str, dict[str, list[str]]] = {}
-    for backend in AGREEING_BACKENDS:
-        try:
-            loaded, graph_store, label, collections = await _open_run(backend)
-        except pytest.skip.Exception:
-            continue
-        try:
-            per_backend[backend] = await _rankings(loaded.engine)
-        finally:
-            await _drop_created(
-                graph_store,
-                loaded.vector_store,
-                collections,
-                label,
-                list(loaded.keys.values()),
-            )
-            await graph_store.close()
-            await loaded.vector_store.close()
-    if len(per_backend) < 2:
-        pytest.skip(f"fewer than two backends reachable: {sorted(per_backend)}")
-
-    artifact = write_artifact(
-        "vector_backends",
-        {"corpus": sorted(CORPUS), "rankings": per_backend},
-    )
-
-    recorded = artifact["rankings"]
-    assert isinstance(recorded, dict)
-    reference_name, *others = sorted(recorded)
-    for other in others:
-        for query, ranking in recorded[reference_name].items():
-            assert recorded[other][query] == ranking, (
-                f"{other} differs from {reference_name} on {query}"
-            )

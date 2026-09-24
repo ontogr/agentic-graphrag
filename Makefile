@@ -68,9 +68,10 @@ test-integration:
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
 		$(COV_ARGS) --junitxml=pytest-integration-results-graph.xml
 
-# E2E tests run serially and after the integration groups. Their teardown is not
-# safe next to other tests: xdist workers would share one Neo4j database. The
-# collection hook in tests/conftest.py skips them under xdist for the same reason.
+# E2E tests run serially, and never against a database that another suite uses:
+# xdist workers would share one Neo4j database. The collection hook in
+# tests/conftest.py skips them under xdist for the same reason. CI runs the same
+# tests as parallel shards, each on its own runner (.github/workflows/integration.yml).
 test-e2e:
 	uv run pytest tests/integration/e2e -v \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \

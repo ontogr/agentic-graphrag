@@ -552,18 +552,28 @@ class Graph:
                     settings.resolved_entity_collection,
                 )
                 await vector_store.initialize()
-                for collection in (
-                    settings.entity_collection,
-                    settings.resolved_entity_collection,
-                    settings.chunk_collection,
-                    settings.community_collection,
-                ):
-                    await vector_store.ensure_collection(
-                        collection,
-                        dimensions=dimensions,
-                        distance=distance,
-                        hybrid=True,
-                    )
+                # Wait for every task even after a failure so none still uses
+                # the store when the except block below closes it.
+                outcomes = await asyncio.gather(
+                    *(
+                        vector_store.ensure_collection(
+                            collection,
+                            dimensions=dimensions,
+                            distance=distance,
+                            hybrid=True,
+                        )
+                        for collection in (
+                            settings.entity_collection,
+                            settings.resolved_entity_collection,
+                            settings.chunk_collection,
+                            settings.community_collection,
+                        )
+                    ),
+                    return_exceptions=True,
+                )
+                for outcome in outcomes:
+                    if isinstance(outcome, BaseException):
+                        raise outcome
             graph = cls(
                 schema=schema,
                 graph_store=graph_store,

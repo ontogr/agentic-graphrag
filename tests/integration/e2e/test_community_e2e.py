@@ -33,6 +33,7 @@ from agrag.ingestion.graph import Graph
 from agrag.retrieval.recipes import HYBRID_RERANKED, THEMATIC
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -401,6 +402,7 @@ async def test_community_via_store_e2e() -> None:  # noqa: PLR0915
         assert artifact["thematic_finds_own_community"] is True
     finally:
         await _cleanup_community_test_data(store, person_label, org_label)
+        await drop_schema_for(store, person_label, org_label)
         await store.close()
 
 
@@ -570,6 +572,7 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
     finally:
         await _cleanup_community_test_data(store, person_label, org_label)
         await _cleanup_community_test_data(store, other_person, other_org)
+        await drop_schema_for(store, person_label, org_label, other_person, other_org)
         await store.close()
 
 
@@ -665,4 +668,5 @@ async def test_community_real_baml() -> None:
             assert len(comm.embedding) == dim
     finally:
         await _cleanup_community_test_data(store, person_label, org_label)
+        await drop_schema_for(store, person_label, org_label)
         await store.close()

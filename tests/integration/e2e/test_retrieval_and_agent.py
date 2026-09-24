@@ -34,6 +34,7 @@ from agrag.ingestion.merge import mentioned_in_id
 from agrag.retrieval.recipes import CHUNK, ENTITY, HYBRID
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -173,6 +174,7 @@ class TestRetrievalE2E:
             await self.store.execute_write(
                 f"MATCH (n:{self.condition_label}) DETACH DELETE n"
             )
+            await drop_schema_for(self.store, self.drug_label, self.condition_label)
             await self.store.close()
 
     def _engine(self) -> SearchEngine:

@@ -58,6 +58,7 @@ from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.qdrant import QdrantVectorStore
 from agrag.vectordb.settings import QdrantSettings
+from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -340,14 +341,7 @@ async def _cleanup(
         with contextlib.suppress(Exception):
             await store.execute_write(query, params)
     with contextlib.suppress(Exception):
-        for kind, drop in (("INDEXES", "INDEX"), ("CONSTRAINTS", "CONSTRAINT")):
-            names = await store.execute_read(
-                f"SHOW {kind} YIELD name, labelsOrTypes "
-                "WHERE any(l IN labelsOrTypes WHERE l IN $labels) RETURN name",
-                {"labels": labels},
-            )
-            for row in names:
-                await store.execute_write(f"DROP {drop} `{row['name']}` IF EXISTS")
+        await drop_schema_for(store, *labels)
     for collection in collections:
         with contextlib.suppress(Exception):
             await vector_store.delete_collection(collection)

@@ -29,44 +29,49 @@ env:
 
 jobs:
   integration:
-    name: Integration Tests (${{ matrix.suite.name }})
+    name: Integration (${{ matrix.suite.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: ${{ matrix.suite.timeout }}
     strategy:
       fail-fast: false
       matrix:
-        # Module groups run as separate jobs, each on its own runner and own
-        # ephemeral backend stack, so the integration suite's wall time is the
-        # slowest group instead of the whole suite. Grouped by test count to
-        # balance load; every group still starts the full Compose stack because
-        # the Loaders/Embedding tests can talk to any of the backends and the
-        # cost of an idle container is lower than a per-group Compose split.
-        # The agents-ingestion-embedding group also runs the LLM-backed agent
-        # and ingestion tests, fed by the workflow-level LLM_* secrets.
+        # Each suite runs as its own job on its own runner with its own
+        # ephemeral backend stack, and starts only the services its tests use.
+        # Only tests/integration/vectordb talks to Qdrant, Weaviate, and Milvus.
+        # Every other suite needs Neo4j alone, so those jobs skip the slow
+        # Milvus stack.
         # dist picks the xdist scheduler per suite. loadgroup is only needed by
-        # retrieval-graphdb: its cypher and retrieval community tests write and
-        # delete Community nodes against the same shared label and are tagged
+        # graph: its cypher and retrieval community tests write and delete
+        # Community nodes against the same shared label and are tagged
         # xdist_group(name="community_label") to force them onto one worker.
         # Every other suite keeps the default loadscope, which groups a test
-        # class's own methods onto one worker -- ingestion's community
-        # detection tests rely on that (detect_communities scans the whole
-        # entity graph, so its own test methods cannot run concurrently with
-        # each other either), and loadgroup would ungroup them since they
-        # carry no xdist_group marker.
+        # class's own methods onto one worker. Ingestion's community detection
+        # tests rely on that, because detect_communities scans the whole entity
+        # graph, so its own test methods cannot run concurrently with each
+        # other, and loadgroup would ungroup them since they carry no
+        # xdist_group marker.
+        # The pipeline suite also runs the LLM-backed agent and ingestion
+        # tests, fed by the workflow-level LLM_* secrets.
         suite:
-          - name: retrieval-graphdb
+          - name: graph
             paths: "tests/integration/retrieval tests/integration/graphdb tests/integration/cypher"
             dist: loadgroup
-          - name: agents-ingestion-embedding
-            paths: "tests/integration/agents tests/integration/ingestion tests/integration/embedding"
+            services: neo4j
+            timeout: 15
+          - name: pipeline
+            paths: "tests/integration/agents tests/integration/ingestion tests/integration/embedding tests/integration/loaders"
             dist: loadscope
-          - name: vectordb-loaders
-            paths: "tests/integration/vectordb tests/integration/loaders"
+            services: neo4j
+            timeout: 20
+          - name: vectordb
+            paths: "tests/integration/vectordb"
             dist: loadscope
+            services: qdrant weaviate milvus
+            timeout: 15
     env:
       UV_PYTHON: "3.12"
       # Backend credentials below are fixed, throwaway values scoped to this ephemeral job's
-      # own Docker network — not secrets, and not reused anywhere outside this workflow run.
+      # own Docker network, not secrets, and not reused anywhere outside this workflow run.
       NEO4J_URI: bolt://localhost:7687
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: ci-test-password
@@ -86,10 +91,11 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      # Started without --wait so image pulls/service boot overlap with the uv/Python setup and
-      # `make sync` steps below, instead of serializing after them.
-      - name: Start backend services (Neo4j, Qdrant, Weaviate, Milvus)
-        run: docker compose -f docker/docker-compose.ci.yml up -d
+      # Started without --wait so image pulls and service boot overlap with the
+      # uv and Python setup and `make sync` steps below, instead of running
+      # after them.
+      - name: Start backend services
+        run: docker compose -f docker/docker-compose.ci.yml up -d ${{ matrix.suite.services }}
 
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
@@ -103,7 +109,7 @@ jobs:
       - run: make sync
 
       - name: Wait for backend services to be healthy
-        run: make dev-services-up
+        run: docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420 ${{ matrix.suite.services }}
 
       - name: Run integration tests (${{ matrix.suite.name }})
         run: >-
@@ -111,6 +117,7 @@ jobs:
           -v
           -n auto --dist ${{ matrix.suite.dist }}
           -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+          --durations=15
           --cov=agrag --cov-context=test
           --junitxml=pytest-integration-results.xml
 
@@ -130,28 +137,90 @@ jobs:
 
       - name: Stop backend services
         if: always()
-        run: make dev-services-down
+        run: docker compose -f docker/docker-compose.ci.yml down -v
 
   e2e:
-    name: End-to-End Pipeline Test
-    needs: integration
+    name: E2E (${{ matrix.shard.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: ${{ matrix.shard.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each shard runs on its own runner with its own database stack, so E2E
+        # tests never share a database with the integration suites or with each
+        # other. Tests inside a shard run serially: the tests/conftest.py hook
+        # skips E2E tests on xdist workers, so do not pass -n here. The shards
+        # cover every test in tests/integration/e2e exactly once, except the
+        # parity test, which the e2e-parity job runs after all shards finish.
+        # Test time is now a few minutes at most, so runner start-up and service
+        # boot dominate. The shards group tests by the services they need: Milvus
+        # has its own shard because its stack is the slowest to start.
+        # The llm shard holds the tests that call a real LLM endpoint. They are
+        # slow and can fail on a network error, so they run apart from the rest.
+        # allow_skips is false where a skip means the shard lost a backend. The
+        # llm shard keeps it true because its tests skip on fork pull requests,
+        # which cannot read the LLM secrets.
+        shard:
+          - name: core
+            args: >-
+              tests/integration/e2e/test_agent_tools_e2e.py
+              tests/integration/e2e/test_community_e2e.py
+              tests/integration/e2e/test_retrieval_and_agent.py
+              -k "not (agent_build_and_invoke or agent_answer_contains_evidence or real_baml)"
+            services: neo4j
+            timeout: 20
+            allow_skips: false
+          - name: llm
+            args: >-
+              tests/integration/e2e/test_community_e2e.py
+              tests/integration/e2e/test_retrieval_and_agent.py
+              -k "agent_build_and_invoke or agent_answer_contains_evidence or real_baml"
+            services: neo4j
+            timeout: 20
+            allow_skips: true
+          - name: ingest-vector
+            args: >-
+              tests/integration/e2e/test_corpus_ingestion_e2e.py
+              tests/integration/e2e/test_document_lifecycle_e2e.py
+              tests/integration/e2e/test_resolution_merge_e2e.py
+              tests/integration/e2e/test_vector_backends_e2e.py
+              -k "not milvus"
+            services: neo4j qdrant weaviate
+            timeout: 20
+            allow_skips: false
+          - name: vector-milvus
+            args: tests/integration/e2e/test_vector_backends_e2e.py -k milvus
+            services: neo4j milvus
+            timeout: 20
+            allow_skips: false
     env:
       UV_PYTHON: "3.12"
+      # Backend credentials below are fixed, throwaway values scoped to this
+      # ephemeral job's own Docker network, not secrets.
       NEO4J_URI: bolt://localhost:7687
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: ci-test-password
       NEO4J_DATABASE: neo4j
-      COVERAGE_FILE: coverage-data-e2e
+      QDRANT_URL: http://localhost:6333
+      QDRANT_API_KEY: ci-test-qdrant-key
+      WEAVIATE_URL: http://localhost:8080
+      WEAVIATE_API_KEY: ci-test-weaviate-key
+      WEAVIATE_GRPC_PORT: "50051"
+      WEAVIATE_MODE: custom
+      MILVUS_URI: http://localhost:19530
+      MILVUS_TOKEN: ""
+      COVERAGE_FILE: coverage-data-e2e-${{ matrix.shard.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Start Neo4j
-        run: docker compose -f docker/docker-compose.ci.yml up -d neo4j --wait --wait-timeout 420
+      # Started without --wait so image pulls overlap with the uv and Python
+      # setup below. Only this shard's services start; Compose starts the etcd
+      # and minio containers Milvus depends on.
+      - name: Start backend services
+        run: docker compose -f docker/docker-compose.ci.yml up -d ${{ matrix.shard.services }}
 
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
@@ -164,20 +233,114 @@ jobs:
 
       - run: make sync
 
-      - name: Run end-to-end pipeline test
-        run: make test-e2e COV_ARGS="--cov=agrag --cov-context=test"
+      - name: Wait for backend services to be healthy
+        run: docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420 ${{ matrix.shard.services }}
+
+      - name: Run end-to-end tests (${{ matrix.shard.name }})
+        run: >-
+          uv run pytest ${{ matrix.shard.args }}
+          -v
+          -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+          --durations=15
+          --cov=agrag --cov-context=test
+          --junitxml=pytest-e2e-results.xml
+
+      - name: Fail when this shard skipped tests
+        if: ${{ matrix.shard.allow_skips == false }}
+        run: |
+          python3 - <<'EOF'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("pytest-e2e-results.xml").getroot()
+          skipped = sum(int(s.get("skipped", 0)) for s in root.iter("testsuite"))
+          if skipped:
+              sys.exit(f"{skipped} tests skipped; a backend for this shard was not reachable")
+          EOF
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: e2e-test-results
+          name: e2e-test-results-${{ matrix.shard.name }}
           path: |
             pytest-e2e-results.xml
-            coverage-data-e2e
-            reports/e2e
+            coverage-data-e2e-${{ matrix.shard.name }}
           retention-days: 30
 
-      - name: Stop Neo4j
+      # The parity job reads these per-test artifacts, so they get their own
+      # upload, which the parity job downloads by name pattern.
+      - name: Upload e2e artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-artifacts-${{ matrix.shard.name }}
+          path: reports/e2e
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Collect backend service logs
+        if: failure()
+        run: docker compose -f docker/docker-compose.ci.yml logs
+
+      - name: Stop backend services
         if: always()
         run: docker compose -f docker/docker-compose.ci.yml down -v
+
+  # Compares the search rankings each vector store backend produced. The
+  # backends run in different shards, so their artifacts meet here.
+  e2e-parity:
+    name: E2E vector backend parity
+    needs: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - run: make sync
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: e2e-artifacts-*
+          merge-multiple: true
+          path: reports/e2e
+
+      - name: Compare backend rankings
+        run: >-
+          uv run pytest tests/integration/e2e/test_vector_backends_parity.py
+          -v
+          -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+
+  # One required check for branch protection: it fails when any integration or
+  # E2E job failed, was cancelled, or was skipped.
+  integration-gate:
+    name: Integration gate
+    if: always()
+    needs: [integration, e2e, e2e-parity]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [ "$result" != "success" ]; then
+              echo "::error::A required job finished with result: $result"
+              exit 1
+            fi
+          done

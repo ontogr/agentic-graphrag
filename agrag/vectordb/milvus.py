@@ -35,6 +35,11 @@ _SPARSE_FIELD = "sparse"
 _PAYLOAD_FIELD = "payload"
 _PENDING_FIELD = "pending"
 
+# Sent on every read so it sees writes acknowledged before it. A per-call level
+# also covers collections created earlier with a weaker default, which cannot
+# be changed after creation.
+_READ_CONSISTENCY = "Strong"
+
 # Every field ensure_collection provisions on a new collection. upsert and
 # hybrid_search always read and write all of them (Milvus has no per-call
 # hybrid toggle), so an existing collection missing any of these, or its
@@ -619,7 +624,6 @@ class MilvusVectorStore(VectorStore):
                 for record in batch
             ]
             await client.upsert(collection_name=collection, data=data)
-            await client.flush(collection_name=collection)
 
     async def search(
         self,
@@ -653,6 +657,7 @@ class MilvusVectorStore(VectorStore):
             limit=limit,
             filter=self._compile_filter(filters),
             output_fields=["id", _PAYLOAD_FIELD],
+            consistency_level=_READ_CONSISTENCY,
         )
         invert = await self._metric_for(client, collection) == "L2"
         return [self._to_hit(row, invert_score=invert) for row in response[0]]
@@ -717,6 +722,7 @@ class MilvusVectorStore(VectorStore):
             ranker=WeightedRanker(alpha, 1 - alpha),
             limit=limit,
             output_fields=["id", _PAYLOAD_FIELD],
+            consistency_level=_READ_CONSISTENCY,
         )
         return [self._to_hit(row) for row in response[0]]
 
@@ -766,6 +772,7 @@ class MilvusVectorStore(VectorStore):
             output_fields=output_fields,
             limit=safe_limit,
             order_by="id:asc",
+            consistency_level=_READ_CONSISTENCY,
         )
         records = [self._to_record(row) for row in rows]
         next_offset = rows[-1]["id"] if rows and len(rows) == safe_limit else None
@@ -798,6 +805,7 @@ class MilvusVectorStore(VectorStore):
                 collection_name=collection,
                 ids=[str(i) for i in batch],
                 output_fields=["id", _VECTOR_FIELD, _PAYLOAD_FIELD],
+                consistency_level=_READ_CONSISTENCY,
             )
             by_id.update({row["id"]: row for row in rows})
         records = []
@@ -824,6 +832,7 @@ class MilvusVectorStore(VectorStore):
             collection_name=collection,
             filter=self._compile_filter(filters),
             output_fields=["count(*)"],
+            consistency_level=_READ_CONSISTENCY,
         )
         if not rows:
             return 0

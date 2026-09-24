@@ -5174,9 +5174,12 @@ identifier-validation contract shared by every Cypher builder.
 - [**cutover_job_document_key_constraint_query**](#agrag.cypher.schema.cutover_job_document_key_constraint_query) – Build a CREATE CONSTRAINT query making the job table's key unique.
 - [**cutover_job_status_index_query**](#agrag.cypher.schema.cutover_job_status_index_query) – Build an index for the incomplete CutoverJob recovery scan.
 - [**merge_alias_constraint_query**](#agrag.cypher.schema.merge_alias_constraint_query) – Build a CREATE CONSTRAINT query making the merge-key alias table unique.
+- [**merge_key_constraint_name**](#agrag.cypher.schema.merge_key_constraint_name) – Return the name of the `merge_key` uniqueness constraint for `label`.
 - [**merge_key_constraint_query**](#agrag.cypher.schema.merge_key_constraint_query) – Build a CREATE CONSTRAINT query making `merge_key` unique per label.
+- [**node_id_constraint_name**](#agrag.cypher.schema.node_id_constraint_name) – Return the name of the node `id` uniqueness constraint for `label`.
 - [**node_id_constraint_query**](#agrag.cypher.schema.node_id_constraint_query) – Build a CREATE CONSTRAINT query making `id` unique per node.
 - [**plain_index_query**](#agrag.cypher.schema.plain_index_query) – Build a CREATE INDEX query on the node `id` property.
+- [**relation_id_constraint_name**](#agrag.cypher.schema.relation_id_constraint_name) – Return the name of the `id` uniqueness constraint for `rel_type`.
 - [**relation_id_constraint_query**](#agrag.cypher.schema.relation_id_constraint_query) – Build a CREATE CONSTRAINT query making `id` unique per relationship type.
 - [**vector_index_name**](#agrag.cypher.schema.vector_index_name) – Derive the deterministic name a vector index is created under.
 - [**vector_index_query**](#agrag.cypher.schema.vector_index_query) – Build a CREATE VECTOR INDEX query for native vector search.
@@ -5226,6 +5229,22 @@ sufficient.
 
 - <code>[str](#str)</code> – A Cypher query creating the uniqueness constraint if absent.
 
+##### `agrag.cypher.schema.merge_key_constraint_name`
+
+```python
+merge_key_constraint_name(label:str) -> str
+```
+
+Return the name of the `merge_key` uniqueness constraint for `label`.
+
+**Parameters:**
+
+- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The constraint name `merge_key_constraint_query` creates.
+
 ##### `agrag.cypher.schema.merge_key_constraint_query`
 
 ```python
@@ -5248,6 +5267,22 @@ survivor per key plus any number of tombstones.
 **Returns:**
 
 - <code>[str](#str)</code> – A Cypher query creating the uniqueness constraint if absent.
+
+##### `agrag.cypher.schema.node_id_constraint_name`
+
+```python
+node_id_constraint_name(label:str) -> str
+```
+
+Return the name of the node `id` uniqueness constraint for `label`.
+
+**Parameters:**
+
+- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The constraint name `node_id_constraint_query` creates.
 
 ##### `agrag.cypher.schema.node_id_constraint_query`
 
@@ -5287,6 +5322,22 @@ Build a CREATE INDEX query on the node `id` property.
 **Returns:**
 
 - <code>[str](#str)</code> – A Cypher query creating the range index if absent.
+
+##### `agrag.cypher.schema.relation_id_constraint_name`
+
+```python
+relation_id_constraint_name(rel_type:str) -> str
+```
+
+Return the name of the `id` uniqueness constraint for `rel_type`.
+
+**Parameters:**
+
+- **rel_type** (<code>[str](#str)</code>) – The relationship type. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The constraint name `relation_id_constraint_query` creates.
 
 ##### `agrag.cypher.schema.relation_id_constraint_query`
 

@@ -42,6 +42,7 @@ from agrag.loaders.corpus.errors import IngestionError, UnsupportedFormatError
 from agrag.retrieval.recipes import CHUNK
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -253,6 +254,7 @@ async def env(tmp_path: Path) -> AsyncGenerator[_Env, None]:
         yield current
     finally:
         await _remove_created(store, current)
+        await drop_schema_for(store, person_label, org_label)
         await store.close()
 
 

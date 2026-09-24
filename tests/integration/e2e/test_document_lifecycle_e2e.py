@@ -37,6 +37,7 @@ from agrag.loaders.corpus.types import ErrorPolicy
 from agrag.retrieval.recipes import ENTITY, Recipe
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration.e2e._artifact import write_artifact
 
 
@@ -333,6 +334,7 @@ class TestDocumentLifecycleE2E:
         finally:
             try:
                 await _cleanup(env)
+                await drop_schema_for(store, drug_label, condition_label)
             finally:
                 await store.close()
 
