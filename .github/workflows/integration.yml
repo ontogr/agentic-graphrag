@@ -121,6 +121,23 @@ jobs:
           --cov=agrag --cov-context=test
           --junitxml=pytest-integration-results.xml
 
+      - name: Export coverage report
+        if: ${{ !cancelled() }}
+        run: uv run coverage xml -o coverage-integration.xml
+
+      # Codecov merges the uploads for one commit, so the unit, integration,
+      # and E2E coverage of the changed lines add up in the patch status.
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-integration.xml
+          flags: integration
+          name: codecov-agrag-integration-${{ matrix.suite.name }}
+          fail_ci_if_error: false
+          slug: ontogr/agentic-graphrag
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -257,6 +274,23 @@ jobs:
           if skipped:
               sys.exit(f"{skipped} tests skipped; a backend for this shard was not reachable")
           EOF
+
+      - name: Export coverage report
+        if: ${{ !cancelled() }}
+        run: uv run coverage xml -o coverage-e2e.xml
+
+      # Codecov merges the uploads for one commit, so the unit, integration,
+      # and E2E coverage of the changed lines add up in the patch status.
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-e2e.xml
+          flags: e2e
+          name: codecov-agrag-e2e-${{ matrix.shard.name }}
+          fail_ci_if_error: false
+          slug: ontogr/agentic-graphrag
 
       - name: Upload test results
         if: always()
