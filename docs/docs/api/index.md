@@ -3857,10 +3857,12 @@ Cypher writes for the Cutover Job crash-recovery machine.
 
 - [**acquire_lease_query**](#agrag.cypher.cutover_job_write.acquire_lease_query) – Build Cypher tentatively creating a job node and returning its lease.
 - [**claim_job_query**](#agrag.cypher.cutover_job_write.claim_job_query) – Build Cypher taking over an interrupted job for resume-on-open.
+- [**claim_pending_job_query**](#agrag.cypher.cutover_job_write.claim_pending_job_query) – Build Cypher claiming an expired pending job before rollback.
 - [**clear_pending_tag_query**](#agrag.cypher.cutover_job_write.clear_pending_tag_query) – Build Cypher clearing the pending tag off everything a job created.
 - [**commit_job_query**](#agrag.cypher.cutover_job_write.commit_job_query) – Build Cypher flipping a job from pending to committed, fenced by lease.
 - [**finish_cleaning_query**](#agrag.cypher.cutover_job_write.finish_cleaning_query) – Build Cypher marking a job done after its cleanup phase completes.
 - [**renew_lease_query**](#agrag.cypher.cutover_job_write.renew_lease_query) – Build Cypher extending a live job's lease, fenced by its token.
+- [**rollback_claimed_job_query**](#agrag.cypher.cutover_job_write.rollback_claimed_job_query) – Build Cypher deleting a pending job that recovery still holds.
 - [**rollback_job_query**](#agrag.cypher.cutover_job_write.rollback_job_query) – Build Cypher deleting everything a job created, then the job itself.
 - [**start_cleaning_query**](#agrag.cypher.cutover_job_write.start_cleaning_query) – Build Cypher moving a committed job into cleaning, fenced by lease.
 - [**steal_expired_lease_query**](#agrag.cypher.cutover_job_write.steal_expired_lease_query) – Build Cypher taking over a job whose lease lapsed or went terminal.
@@ -3916,6 +3918,25 @@ skips the job as claimed.
 - <code>[str](#str)</code> – claim applied, no row when the job is pending or was claimed by
 - <code>[str](#str)</code> – another open first.
 
+##### `agrag.cypher.cutover_job_write.claim_pending_job_query`
+
+```python
+claim_pending_job_query() -> str
+```
+
+Build Cypher claiming an expired pending job before rollback.
+
+The recovery scan can become stale before it starts deleting pending
+graph or vector writes. This compare-and-swap claim rechecks the
+pending status, original token, and expiry while holding the job lock,
+then gives recovery a fresh lease for the destructive phase.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $expected_lease_token,
+- <code>[str](#str)</code> – $lease_token, and $lease_expires_at. Returns the job id when the
+- <code>[str](#str)</code> – claim applied, no row when another worker renewed or changed it.
+
 ##### `agrag.cypher.cutover_job_write.clear_pending_tag_query`
 
 ```python
@@ -3946,8 +3967,9 @@ Build Cypher flipping a job from pending to committed, fenced by lease.
 
 Follows `set_embedding_query`'s compare-and-swap shape: the write
 applies only while the `WHERE` guard (caller's fencing token still
-current, job still pending) holds, so a worker that lost its lease
-cannot complete a stale commit even if it is still alive and slow.
+current, job still pending, and lease still live) holds, so a worker
+that lost its lease cannot complete a stale commit even if it is still
+alive and slow.
 
 **Returns:**
 
@@ -3962,8 +3984,8 @@ finish_cleaning_query() -> str
 
 Build Cypher marking a job done after its cleanup phase completes.
 
-Same compare-and-swap shape as `commit_job_query`: only the lease
-holder that started cleaning may finish it.
+Same compare-and-swap shape as `commit_job_query`: only the current
+lease holder that started cleaning may finish it.
 
 **Returns:**
 
@@ -3978,15 +4000,34 @@ renew_lease_query() -> str
 
 Build Cypher extending a live job's lease, fenced by its token.
 
-Applies in every non-terminal phase (pending, committed, cleaning) and
-only while the caller's fencing token is still current, so a worker
-that lost its lease cannot revive it.
+Applies in every non-terminal phase (pending, committed, cleaning) only
+while the lease remains live and the caller's fencing token is still
+current, so a worker that lost its lease cannot revive it.
 
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $lease_token, and
 - <code>[str](#str)</code> – $lease_expires_at (ISO-8601 string). Returns the job id when the
 - <code>[str](#str)</code> – lease was extended, no row on fencing failure.
+
+##### `agrag.cypher.cutover_job_write.rollback_claimed_job_query`
+
+```python
+rollback_claimed_job_query() -> str
+```
+
+Build Cypher deleting a pending job that recovery still holds.
+
+Recovery claims a job before deleting its pending vector payloads. This
+query repeats the lease fence before deleting graph writes, so a claim
+that expired during external vector cleanup cannot remove a newer
+worker's graph state.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id and $lease_token. Returns
+- <code>[str](#str)</code> – deleted node and relationship counts when recovery still owns a live
+- <code>[str](#str)</code> – pending job, no row otherwise.
 
 ##### `agrag.cypher.cutover_job_write.rollback_job_query`
 
@@ -4018,9 +4059,9 @@ start_cleaning_query() -> str
 
 Build Cypher moving a committed job into cleaning, fenced by lease.
 
-Same compare-and-swap shape as `commit_job_query`: only the lease
-holder that committed the job may start its cleanup. The lease expiry
-is left as the holder last renewed it: cleanup is live work, so
+Same compare-and-swap shape as `commit_job_query`: only the current
+lease holder that committed the job may start its cleanup. The lease
+expiry is left as the holder last renewed it: cleanup is live work, so
 resetting it to now would make a running job look abandoned and let a
 concurrent resume take it over.
 
@@ -14048,7 +14089,7 @@ Shared vector search helper for GraphStore and VectorStore.
 ###### `agrag.retrieval.methods.vector.vector_search`
 
 ```python
-vector_search(query:str, *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, collection:str, labels:Sequence[str], limit:int, filters:SearchFilters | None, settings:RetrievalSettings) -> list[VectorHit]
+vector_search(query:str, *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, collection:str, labels:Sequence[str], limit:int, filters:SearchFilters | None, settings:RetrievalSettings, query_vector:Sequence[float] | None = None) -> list[VectorHit]
 ```
 
 Embed query and search on whichever store is configured.
@@ -14081,6 +14122,7 @@ receive an uncommitted job's node or vector.
   path and choose the searched indexes on the native path,
   so they are not sent as node property filters.
 - **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings)</code>) – Supplies hybrid_alpha for the VectorStore path.
+- **query_vector** (<code>[Sequence](#collections.abc.Sequence)\[[float](#float)\] | None</code>) – Precomputed query embedding. None embeds `query`.
 
 **Returns:**
 
