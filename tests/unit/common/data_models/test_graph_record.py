@@ -1,8 +1,7 @@
 """Tests for graph storage record data models.
 
-Covers UpsertResult's empty default and its round trip through
-model_dump/model_validate, since this shape crosses the GraphStore ABC
-boundary and later feeds Graph.add()'s own result assembly.
+Covers NodeRecord and RelationRecord rejecting the internal pending job-id
+tag, which only the Cutover Job machinery can write.
 """
 
 from uuid import uuid4

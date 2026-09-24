@@ -1,12 +1,10 @@
 """Tests for the GraphSchema, EntityType, RelationType models and GENERIC.
 
 Verifies the shipped GENERIC schema is internally consistent (every relation
-pattern references a declared entity label) and has its expected five entity
-types and one relation, that a GraphSchema survives a JSON dump/validate
-round trip unchanged, that EntityType defaults to empty properties and
-subtypes, that it rejects property names reserved by the vector payload, and
-that the full prompt serialization carries the schema's labels, descriptions,
-properties, and patterns, including explicit empty markers.
+pattern references a declared entity label), that EntityType rejects property
+names reserved by the vector payload, and that the full prompt serialization
+carries the schema's labels, descriptions, properties, and patterns, including
+explicit empty markers.
 """
 
 import pytest

@@ -1,4 +1,4 @@
-"""Tests for get_tracer and the traced decorator in agrag.observability.
+"""Tests for the traced decorator in agrag.observability.
 
 Uses a minimal real ``trace.Span`` subclass and a recording tracer stand-in
 instead of the OpenTelemetry SDK, so no exporter or SDK setup is needed.

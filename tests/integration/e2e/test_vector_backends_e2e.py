@@ -262,6 +262,7 @@ async def _open_run(backend: str) -> _Run:
         )
     except Exception:
         await vector_store.close()
+        await graph_store.close()
         raise
     documents = [
         Document(

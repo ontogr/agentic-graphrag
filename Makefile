@@ -81,7 +81,7 @@ test-e2e:
 
 # Runs every suite in the safe order with one coverage data file, a JUnit file per
 # suite, and per-test coverage contexts. The JSON report maps each line to the
-# tests that ran it. Only tests listed as passed in the JUnit files count.
+# tests that ran it. The JUnit files record the outcome of each test.
 test-cov-map:
 	mkdir -p $(COV_MAP_DIR)
 	rm -f $(COV_MAP_DIR)/.coverage
@@ -90,7 +90,8 @@ test-cov-map:
 
 test-cov-map-suites:
 	uv run pytest tests/unit -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra -n auto --dist loadscope" $(COV_ARGS) --junitxml=$(COV_MAP_DIR)/junit-unit.xml
-	$(MAKE) test-integration test-e2e COV_ARGS="$(COV_ARGS)"
+	$(MAKE) test-integration COV_ARGS="$(COV_ARGS)"
+	$(MAKE) test-e2e COV_ARGS="$(COV_ARGS)"
 	mv -f pytest-integration-results-ingestion.xml pytest-integration-results-graph.xml pytest-e2e-results.xml $(COV_MAP_DIR)/
 
 test-all: test test-integration test-e2e

@@ -154,28 +154,30 @@ class TestRetrievalE2E:
         try:
             yield
         finally:
-            # Chunks are shared across suites, so delete only the ones this
-            # test seeded, ones that mention its entities, and ones carrying
-            # its unique text token.
-            await self.store.execute_write(
-                f"MATCH (c:{CHUNK_LABEL})--(e) "
-                "WHERE $drug IN labels(e) OR $condition IN labels(e) "
-                "DETACH DELETE c",
-                {"drug": self.drug_label, "condition": self.condition_label},
-            )
-            await self.store.execute_write(
-                f"MATCH (c:{CHUNK_LABEL}) "
-                "WHERE c.id IN $ids OR c.text CONTAINS $token DETACH DELETE c",
-                {"ids": self.chunk_ids, "token": self.token},
-            )
-            await self.store.execute_write(
-                f"MATCH (n:{self.drug_label}) DETACH DELETE n"
-            )
-            await self.store.execute_write(
-                f"MATCH (n:{self.condition_label}) DETACH DELETE n"
-            )
-            await drop_schema_for(self.store, self.drug_label, self.condition_label)
-            await self.store.close()
+            try:
+                # Chunks are shared across suites, so delete only the ones this
+                # test seeded, ones that mention its entities, and ones carrying
+                # its unique text token.
+                await self.store.execute_write(
+                    f"MATCH (c:{CHUNK_LABEL})--(e) "
+                    "WHERE $drug IN labels(e) OR $condition IN labels(e) "
+                    "DETACH DELETE c",
+                    {"drug": self.drug_label, "condition": self.condition_label},
+                )
+                await self.store.execute_write(
+                    f"MATCH (c:{CHUNK_LABEL}) "
+                    "WHERE c.id IN $ids OR c.text CONTAINS $token DETACH DELETE c",
+                    {"ids": self.chunk_ids, "token": self.token},
+                )
+                await self.store.execute_write(
+                    f"MATCH (n:{self.drug_label}) DETACH DELETE n"
+                )
+                await self.store.execute_write(
+                    f"MATCH (n:{self.condition_label}) DETACH DELETE n"
+                )
+                await drop_schema_for(self.store, self.drug_label, self.condition_label)
+            finally:
+                await self.store.close()
 
     def _engine(self) -> SearchEngine:
         """Build a search engine over the test store."""

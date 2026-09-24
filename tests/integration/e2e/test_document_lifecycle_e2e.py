@@ -25,8 +25,10 @@ import pytest
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
@@ -246,8 +248,8 @@ class _Env:
         return [
             str(result.item.name)
             for result in results
-            if getattr(result.item, "label", None)
-            in (self.drug_label, self.condition_label)
+            if isinstance(result.item, (Entity, ResolvedEntity))
+            and result.item.label in (self.drug_label, self.condition_label)
         ]
 
     async def snapshot(self) -> dict[str, Any]:

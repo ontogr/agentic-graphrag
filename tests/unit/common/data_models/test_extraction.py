@@ -1,11 +1,10 @@
 """Tests for ExtractedEntity, ExtractedRelation, and ExtractionResult.
 
-Covers ExtractedEntity's optional confidence and plain-string text/label
-fields, and its rejection of negative, reversed, or zero-length character
-spans; ExtractedRelation's plain-int source/target indices and rejection of
-negative or self-referential indices; and ExtractionResult rejecting a
-relation whose source_index or target_index falls outside its own entities
-list. Span and index validation cases are parametrized.
+Covers ExtractedEntity rejecting negative, reversed, or zero-length character
+spans; ExtractedRelation rejecting negative or self-referential indices; and
+ExtractionResult rejecting a relation whose source_index or target_index falls
+outside its own entities list. Span and index validation cases are
+parametrized.
 """
 
 from uuid import uuid4
@@ -21,7 +20,7 @@ from agrag.common.data_models.extraction import (
 
 
 class TestExtractedEntity:
-    """ExtractedEntity defaults and field types."""
+    """ExtractedEntity validates its character span."""
 
     @pytest.mark.parametrize(
         ("char_start", "char_end", "message"),

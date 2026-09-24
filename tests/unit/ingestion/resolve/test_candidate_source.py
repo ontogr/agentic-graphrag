@@ -67,7 +67,6 @@ def _relation(
 def _source(
     *,
     vector_store: AsyncMock | None = None,
-    top_k: int = 50,
 ) -> tuple[GraphCandidateSource, AsyncMock]:
     """Build a source with mocked stores for in-batch tests."""
     graph_store = AsyncMock()
@@ -76,7 +75,6 @@ def _source(
         graph_store=graph_store,
         embedder=MagicMock(),
         vector_store=vector_store,
-        top_k=top_k,
     )
     return source, graph_store
 
