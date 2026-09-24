@@ -356,6 +356,30 @@ class TestEnsureClientMode:
         build.assert_called_once()
         assert client is mock_client
 
+    async def test_custom_mode_maps_secure_nondefault_endpoint(self) -> None:
+        """Custom mode maps a secure, non-default endpoint to client settings."""
+        mock_client = mock.AsyncMock()
+        with mock.patch.object(
+            weaviate, "use_async_with_custom", return_value=mock_client
+        ) as build:
+            store = WeaviateVectorStore(
+                settings=WeaviateSettings(
+                    mode="custom",
+                    url="https://weaviate.example.test:8443",
+                    grpc_port=50052,
+                )
+            )
+            await store._ensure_client()
+        build.assert_called_once_with(
+            http_host="weaviate.example.test",
+            http_port=8443,
+            http_secure=True,
+            grpc_host="weaviate.example.test",
+            grpc_port=50052,
+            grpc_secure=True,
+            auth_credentials=None,
+        )
+
     async def test_concurrent_first_calls_connect_once(self) -> None:
         """Concurrent first calls share one connect, not a disconnected client.
 
