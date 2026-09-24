@@ -1,5 +1,7 @@
 .PHONY: test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
+export UV_LOCKED = 1
+
 help:
 	@echo "Available make targets:"
 	@echo "  make sync             - Sync project and install dependencies"
@@ -35,7 +37,7 @@ baml-gen:
 	uv run baml-cli generate --from agrag/llm/baml_src
 
 sync:
-	uv sync --all-groups --all-extras
+	uv sync --locked --all-groups --all-extras
 
 sync-docs-pins:
 	uv run python .github/scripts/update_precommit_docs_pins.py

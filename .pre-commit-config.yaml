@@ -41,6 +41,11 @@ repos:
         types_or: [python, jupyter]
         exclude: agrag/llm/baml_client/
 
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.12.18
+    hooks:
+      - id: uv-lock
+
   - repo: https://github.com/PyCQA/bandit
     rev: "1.9.4"
     hooks:
@@ -69,14 +74,14 @@ repos:
     hooks:
       - id: ty
         name: ty
-        entry: uv run ty check agrag/ tests
+        entry: uv run --locked ty check agrag/ tests
         language: system
         types: [python]
         pass_filenames: false
         exclude: agrag/llm/baml_client/
       - id: pytest
         name: pytest
-        entry: uv run pytest tests -m "not integration"
+        entry: uv run --locked pytest tests -m "not integration"
         language: system
         types: [python]
         pass_filenames: false
