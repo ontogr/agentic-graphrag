@@ -227,7 +227,7 @@ pytest-results.xml
 pytest-integration-results.xml
 
 # Per-test coverage map output and CI coverage data files
-reports/
+/reports/
 coverage-data-*
 pytest-e2e-results.xml
 pytest-integration-results-*.xml
