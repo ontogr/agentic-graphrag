@@ -4,7 +4,10 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
+from agrag.common.data_models.vector_record import VectorHit
+from agrag.common.validation import MAX_SEARCH_LIMIT
 from agrag.cypher.entities import hydrate_entities_by_id_query
 from agrag.cypher.relations import entities_in_documents_query
 from agrag.cypher.resolution_read import fetch_active_resolved_member_ids_query
@@ -91,22 +94,62 @@ class EntityRetriever(Retriever):
             return []
         labels = filters.labels if filters and filters.labels else self._entity_labels
         allowed_ids = await self._allowed_entity_ids(filters)
+        query_vector = (
+            await self._embedder.embed_one(query) if allowed_ids is not None else None
+        )
         search_filters = (
             filters.model_copy(update={"document_ids": []})
             if filters and filters.document_ids
             else filters
         )
-        hits = await vector_search(
-            query,
-            embedder=self._embedder,
-            graph_store=self._graph_store,
-            vector_store=self._vector_store,
-            collection=self._settings.entity_collection,
-            labels=labels,
-            limit=effective_limit,
-            filters=search_filters,
-            settings=self._settings,
-        )
+        raw_candidate_limit = effective_limit
+        hits: list[VectorHit] | None = None
+        active_member_ids: set[UUID] | None = None
+        while True:
+            try:
+                candidate_hits = await vector_search(
+                    query,
+                    embedder=self._embedder,
+                    graph_store=self._graph_store,
+                    vector_store=self._vector_store,
+                    collection=self._settings.entity_collection,
+                    labels=labels,
+                    limit=raw_candidate_limit,
+                    filters=search_filters,
+                    settings=self._settings,
+                    query_vector=query_vector,
+                )
+            except Exception:
+                if hits is None:
+                    raise
+                break
+            candidate_active_member_ids = (
+                await self._active_resolved_member_ids(
+                    [hit.id for hit in candidate_hits]
+                )
+                if allowed_ids
+                else set()
+            )
+            hits = candidate_hits
+            if allowed_ids:
+                active_member_ids = candidate_active_member_ids
+            in_scope_count = (
+                sum(
+                    str(hit.id) in allowed_ids
+                    and hit.id not in candidate_active_member_ids
+                    for hit in hits
+                )
+                if allowed_ids
+                else 0
+            )
+            if (
+                not allowed_ids
+                or len(hits) < raw_candidate_limit
+                or in_scope_count >= effective_limit
+                or raw_candidate_limit >= MAX_SEARCH_LIMIT
+            ):
+                break
+            raw_candidate_limit = min(raw_candidate_limit * 2, MAX_SEARCH_LIMIT)
         results: list[SearchResult] = []
         if hits:
             if allowed_ids is not None:
@@ -137,9 +180,10 @@ class EntityRetriever(Retriever):
                         continue
             except Exception:
                 entities_by_id = {}
-            active_member_ids = await self._active_resolved_member_ids(
-                [hit.id for hit in hits]
-            )
+            if active_member_ids is None:
+                active_member_ids = await self._active_resolved_member_ids(
+                    [hit.id for hit in hits]
+                )
             for hit in hits:
                 if hit.id in active_member_ids:
                     continue
@@ -170,24 +214,59 @@ class EntityRetriever(Retriever):
                 document_ids=[],
                 properties={**filters.properties, "label": filters.labels},
             )
+        resolved_candidate_limit = resolved_limit
+        resolved_hits: list[VectorHit] = []
+        resolved_by_id: dict[UUID, ResolvedEntity] = {}
         try:
-            resolved_hits = await vector_search(
-                query,
-                embedder=self._embedder,
-                graph_store=self._graph_store,
-                vector_store=self._vector_store,
-                collection=self._settings.resolved_entity_collection,
-                labels=("ResolvedEntity",),
-                limit=resolved_limit,
-                filters=resolved_filters,
-                settings=self._settings,
-            )
-            resolved_by_id = await hydrate_resolved_entities(
-                self._graph_store, [hit.id for hit in resolved_hits]
-            )
+            while True:
+                candidate_hits = await vector_search(
+                    query,
+                    embedder=self._embedder,
+                    graph_store=self._graph_store,
+                    vector_store=self._vector_store,
+                    collection=self._settings.resolved_entity_collection,
+                    labels=("ResolvedEntity",),
+                    limit=resolved_candidate_limit,
+                    filters=resolved_filters,
+                    settings=self._settings,
+                    query_vector=query_vector,
+                )
+                candidate_by_id = await hydrate_resolved_entities(
+                    self._graph_store, [hit.id for hit in candidate_hits]
+                )
+                in_scope_count = (
+                    sum(
+                        entity is not None
+                        and (
+                            not filters
+                            or not filters.labels
+                            or entity.label in filters.labels
+                        )
+                        and any(
+                            str(member_id) in allowed_ids
+                            for member_id in entity.member_ids
+                        )
+                        for hit in candidate_hits
+                        if (entity := candidate_by_id.get(hit.id)) is not None
+                    )
+                    if allowed_ids
+                    else 0
+                )
+                resolved_hits = candidate_hits
+                resolved_by_id = candidate_by_id
+                if (
+                    not allowed_ids
+                    or len(resolved_hits) < resolved_candidate_limit
+                    or in_scope_count >= resolved_limit
+                    or resolved_candidate_limit >= MAX_SEARCH_LIMIT
+                ):
+                    break
+                resolved_candidate_limit = min(
+                    resolved_candidate_limit * 2, MAX_SEARCH_LIMIT
+                )
         except Exception:
-            resolved_hits = []
-            resolved_by_id = {}
+            # Keep candidates from the last successful search.
+            pass
         results.extend(
             SearchResult(item=entity, score=hit.score, method=self.name)
             for hit in resolved_hits

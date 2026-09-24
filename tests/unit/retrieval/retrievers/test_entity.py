@@ -148,6 +148,277 @@ class TestEntityRetriever:
         resolved_filters = vector_search_mock.await_args_list[1].kwargs["filters"]
         assert resolved_filters.document_ids == []
 
+    async def test_document_scope_expands_raw_search_for_in_scope_entity(
+        self,
+    ) -> None:
+        """Document scope expands past higher-ranked entities from other documents."""
+        scoped_id = uuid4()
+        scoped = Entity(id=scoped_id, label="Person", name="Ada")
+        graph_store = AsyncMock()
+        graph_store.execute_read.side_effect = [
+            [{"id": str(scoped_id)}],
+            [],
+            [],
+        ]
+        outside_first = VectorHit(id=uuid4(), score=0.99, payload={})
+        outside_second = VectorHit(id=uuid4(), score=0.98, payload={})
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                side_effect=[
+                    [outside_first, outside_second],
+                    [
+                        outside_first,
+                        outside_second,
+                        VectorHit(id=scoped_id, score=0.8, payload={}),
+                    ],
+                    [],
+                ],
+            ) as vector_search_mock,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+                return_value=scoped,
+            ),
+        ):
+            retriever = EntityRetriever(
+                graph_store=graph_store, embedder=MockEmbedder()
+            )
+            results = await retriever.retrieve(
+                "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
+            )
+
+        assert [result.item for result in results] == [scoped]
+        limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
+        assert limits == [2, 4, 2]
+        assert all(
+            call.kwargs["filters"].document_ids == []
+            for call in vector_search_mock.await_args_list
+        )
+
+    async def test_document_scope_backfills_past_resolved_raw_members(self) -> None:
+        """Document scope does not count raw members an active result replaces."""
+        first_member_id = uuid4()
+        second_member_id = uuid4()
+        regular_id = uuid4()
+        regular = Entity(id=regular_id, label="Person", name="Katherine")
+        graph_store = AsyncMock()
+        graph_store.execute_read.side_effect = [
+            [
+                {"id": str(first_member_id)},
+                {"id": str(second_member_id)},
+                {"id": str(regular_id)},
+            ],
+            [{"entity_id": str(first_member_id)}],
+            [
+                {"entity_id": str(first_member_id)},
+                {"entity_id": str(second_member_id)},
+            ],
+            [],
+        ]
+        first_member = VectorHit(id=first_member_id, score=0.99, payload={})
+        second_member = VectorHit(id=second_member_id, score=0.98, payload={})
+        regular_hit = VectorHit(id=regular_id, score=0.8, payload={})
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                side_effect=[
+                    [first_member, second_member],
+                    [first_member, second_member, regular_hit],
+                    [],
+                ],
+            ) as vector_search_mock,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+                return_value=regular,
+            ),
+            patch(
+                "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+        ):
+            retriever = EntityRetriever(
+                graph_store=graph_store, embedder=MockEmbedder()
+            )
+            results = await retriever.retrieve(
+                "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
+            )
+
+        assert [result.item for result in results] == [regular]
+        limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
+        assert limits == [2, 4, 2]
+
+    async def test_document_scope_keeps_raw_results_when_backfill_fails(
+        self,
+    ) -> None:
+        """A failed raw backfill keeps the scoped result from the first search."""
+        scoped_id = uuid4()
+        scoped = Entity(id=scoped_id, label="Person", name="Ada")
+        graph_store = AsyncMock()
+        graph_store.execute_read.side_effect = [
+            [{"id": str(scoped_id)}],
+            [],
+            [],
+        ]
+        outside = VectorHit(id=uuid4(), score=0.99, payload={})
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                side_effect=[
+                    [outside, VectorHit(id=scoped_id, score=0.8, payload={})],
+                    RuntimeError("temporary vector failure"),
+                    [],
+                ],
+            ) as vector_search_mock,
+            patch(
+                "agrag.retrieval.retrievers.entity.resolve_entity",
+                new_callable=AsyncMock,
+                return_value=scoped,
+            ),
+        ):
+            retriever = EntityRetriever(
+                graph_store=graph_store, embedder=MockEmbedder()
+            )
+            results = await retriever.retrieve(
+                "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
+            )
+
+        assert [result.item for result in results] == [scoped]
+        limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
+        assert limits == [2, 4, 2]
+
+    async def test_document_scope_expands_resolved_search_for_in_scope_member(
+        self,
+    ) -> None:
+        """Resolved search expands past higher-ranked entities outside the scope."""
+        scoped_member_id = uuid4()
+        scoped = ResolvedEntity(
+            id=uuid4(),
+            label="Person",
+            name="Ada Lovelace",
+            member_ids=[scoped_member_id],
+        )
+        outside_first = ResolvedEntity(
+            id=uuid4(),
+            label="Person",
+            name="Grace Hopper",
+            member_ids=[uuid4()],
+        )
+        outside_second = ResolvedEntity(
+            id=uuid4(),
+            label="Person",
+            name="Katherine Johnson",
+            member_ids=[uuid4()],
+        )
+        graph_store = AsyncMock()
+        graph_store.execute_read.return_value = [{"id": str(scoped_member_id)}]
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                side_effect=[
+                    [],
+                    [
+                        VectorHit(id=outside_first.id, score=0.99, payload={}),
+                        VectorHit(id=outside_second.id, score=0.98, payload={}),
+                    ],
+                    [
+                        VectorHit(id=outside_first.id, score=0.99, payload={}),
+                        VectorHit(id=outside_second.id, score=0.98, payload={}),
+                        VectorHit(id=scoped.id, score=0.8, payload={}),
+                    ],
+                ],
+            ) as vector_search_mock,
+            patch(
+                "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
+                new_callable=AsyncMock,
+                side_effect=[
+                    {
+                        outside_first.id: outside_first,
+                        outside_second.id: outside_second,
+                    },
+                    {
+                        outside_first.id: outside_first,
+                        outside_second.id: outside_second,
+                        scoped.id: scoped,
+                    },
+                ],
+            ),
+        ):
+            retriever = EntityRetriever(
+                graph_store=graph_store, embedder=MockEmbedder()
+            )
+            results = await retriever.retrieve(
+                "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
+            )
+
+        assert [result.item for result in results] == [scoped]
+        limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
+        assert limits == [2, 2, 4]
+        assert all(
+            call.kwargs["filters"].document_ids == []
+            for call in vector_search_mock.await_args_list
+        )
+
+    async def test_document_scope_keeps_resolved_results_when_backfill_fails(
+        self,
+    ) -> None:
+        """A failed resolved backfill keeps the scoped result from the first search."""
+        scoped_member_id = uuid4()
+        scoped = ResolvedEntity(
+            id=uuid4(),
+            label="Person",
+            name="Ada Lovelace",
+            member_ids=[scoped_member_id],
+        )
+        outside = ResolvedEntity(
+            id=uuid4(),
+            label="Person",
+            name="Grace Hopper",
+            member_ids=[uuid4()],
+        )
+        graph_store = AsyncMock()
+        graph_store.execute_read.return_value = [{"id": str(scoped_member_id)}]
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                side_effect=[
+                    [],
+                    [
+                        VectorHit(id=outside.id, score=0.99, payload={}),
+                        VectorHit(id=scoped.id, score=0.8, payload={}),
+                    ],
+                    RuntimeError("temporary vector failure"),
+                ],
+            ) as vector_search_mock,
+            patch(
+                "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
+                new_callable=AsyncMock,
+                return_value={outside.id: outside, scoped.id: scoped},
+            ),
+        ):
+            retriever = EntityRetriever(
+                graph_store=graph_store, embedder=MockEmbedder()
+            )
+            results = await retriever.retrieve(
+                "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
+            )
+
+        assert [result.item for result in results] == [scoped]
+        limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
+        assert limits == [2, 2, 4]
+
     async def test_skips_unresolvable_entities(self) -> None:
         """Entities that fail to resolve are skipped."""
         gs = AsyncMock()
