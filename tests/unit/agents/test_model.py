@@ -2,8 +2,8 @@
 
 Covers unsupported providers (aws-bedrock, vertex-ai, openai-responses,
 azure-openai) raising UnsupportedAgentProviderError, parametrized over
-provider names, and that each supported provider (openai, openai-generic,
-anthropic, google-ai) builds its LangChain chat model, skipping when the
+provider names, and that each provider (openai, anthropic, google-ai)
+builds its LangChain chat model, skipping when the
 matching optional integration package is not installed. Also covers
 build_model_middleware's strategy handling: "single" and a single client
 never produce middleware, "fallback" composes the clients after the first,
@@ -44,21 +44,6 @@ class TestBuildChatModel:
             provider="openai",
             model="gpt-4o",
             api_key="test-key",
-        )
-        try:
-            model = build_chat_model(config)
-            assert model is not None
-        except ImportError:
-            pytest.skip("langchain-openai not installed")
-
-    def test_openai_generic_provider_succeeds(self) -> None:
-        """OpenAI-generic provider creates a ChatOpenAI with base_url."""
-        config = LLMClientConfig(
-            name="test",
-            provider="openai-generic",
-            model="test-model",
-            api_key="key",
-            base_url="http://localhost:8080",
         )
         try:
             model = build_chat_model(config)

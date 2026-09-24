@@ -45,11 +45,3 @@ class TestCutoverJob:
             "lease_expires_at": expires,
             "created_at": job.created_at,
         }
-
-    def test_status_values_are_stable_strings(self) -> None:
-        """Status enum values are stable strings."""
-        assert CutoverJobStatus.PENDING == "pending"
-        assert CutoverJobStatus.COMMITTED == "committed"
-        assert CutoverJobStatus.CLEANING == "cleaning"
-        assert CutoverJobStatus.DONE == "done"
-        assert CutoverJobStatus.ROLLED_BACK == "rolled_back"

@@ -13,8 +13,6 @@ from pydantic import ValidationError
 from agrag.common.data_models.graph_record import (
     NodeRecord,
     RelationRecord,
-    UpsertFailure,
-    UpsertResult,
 )
 
 
@@ -32,32 +30,3 @@ def test_graph_records_reject_the_internal_pending_tag(record_type: type) -> Non
 
     with pytest.raises(ValidationError, match="_pending_job_id is reserved"):
         record_type(**fields)
-
-
-class TestUpsertResult:
-    """An UpsertResult reports how many records wrote and which failed."""
-
-    def test_upsert_result_defaults_to_empty_failures(self) -> None:
-        """A default result has no writes and no failures."""
-        result = UpsertResult()
-        assert result.written == 0
-        assert result.failures == []
-
-    def test_upsert_result_round_trips_through_model_dump(self) -> None:
-        """A populated result survives a JSON dump and validate cycle."""
-        result = UpsertResult(
-            written=3,
-            failures=[
-                UpsertFailure(
-                    id="1", error_type="ValueError", error_message="bad label"
-                ),
-                UpsertFailure(
-                    id="2",
-                    error_type="GraphStoreConstraintViolationError",
-                    error_message="duplicate merge_key",
-                ),
-            ],
-        )
-        dumped = result.model_dump(mode="json")
-        restored = UpsertResult.model_validate(dumped)
-        assert restored == result

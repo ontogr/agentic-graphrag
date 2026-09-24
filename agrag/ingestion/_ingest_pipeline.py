@@ -52,6 +52,7 @@ from agrag.ingestion._lexical_backbone import (
 )
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.materialize import (
+    MatchComponent,
     decisions_by_component,
     write_matches_and_materialize,
 )
@@ -183,6 +184,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     ingestion: IngestStats,
     return_chunks: bool = False,
     job_id: UUID | str | None = None,
+    materialized_components: list[MatchComponent] | None = None,
 ) -> AddResult:
     """Run resolution, merge, and storage for already-chunked input.
 
@@ -219,6 +221,10 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             commits; brand-new entities derive deterministic ids from it.
             None writes untagged with random new-entity ids, for callers
             outside a job.
+        materialized_components: Receives each component this call
+            materialized. A pending job never deletes the materialization
+            it supersedes, so the caller materializes these again after
+            the job commits to replace it.
 
     Returns:
         The per-stage summary for this ingestion.
@@ -487,6 +493,8 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                     )
                 )
                 continue
+            if materialized_components is not None:
+                materialized_components.append((decisions, members))
             # Synchronized per component, not batched after the loop: a
             # later component's failure under ErrorPolicy.RAISE must not
             # skip vector cleanup for components already committed above.

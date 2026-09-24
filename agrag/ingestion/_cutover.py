@@ -4,6 +4,7 @@
 every dependency explicitly rather than reaching into ``Graph``.
 """
 
+import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
@@ -20,6 +21,7 @@ from agrag.cypher.cutover_job_write import (
     clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
+    renew_lease_query,
     rollback_job_query,
     start_cleaning_query,
     steal_expired_lease_query,
@@ -97,6 +99,33 @@ async def _acquire_lease(
     raise CutoverJobLeaseError(
         f"Another live job holds the lease for document {document_key!r}."
     )
+
+
+async def _renew_periodically(
+    *,
+    graph_store: GraphStore,
+    job_id: UUID,
+    token: UUID,
+    ttl_seconds: int,
+) -> None:
+    """Extend the job's lease every third of the TTL until cancelled.
+
+    A failed renewal is retried on the next tick; the lease fence on the
+    job's transitions reports a lease that was lost for good.
+    """
+    while True:
+        await asyncio.sleep(ttl_seconds / 3)
+        with contextlib.suppress(Exception):
+            await graph_store.execute_write(
+                renew_lease_query(),
+                {
+                    "job_id": str(job_id),
+                    "lease_token": str(token),
+                    "lease_expires_at": (
+                        datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+                    ).isoformat(),
+                },
+            )
 
 
 async def clear_pending_vectors(
@@ -239,7 +268,8 @@ async def run_cutover_job(
         vector_store: Second write target for embeddings, if configured.
         vector_collections: Collections the pending phase may have
             written pending-tagged vectors to.
-        settings: Lease TTL configuration.
+        settings: Lease TTL configuration. The lease is renewed every third
+            of the TTL while the job runs, so a phase can outlast the TTL.
         pending_write: The caller's pipeline stages, tagging every write
             with the passed job id.
         cleanup: Post-commit work over the snapshot (closing is already
@@ -266,6 +296,43 @@ async def run_cutover_job(
         graph_store=graph_store,
         settings=settings,
     )
+    renewal = asyncio.create_task(
+        _renew_periodically(
+            graph_store=graph_store,
+            job_id=job_id,
+            token=token,
+            ttl_seconds=settings.lease_ttl_seconds,
+        )
+    )
+    try:
+        return await _run_leased(
+            job_id=job_id,
+            token=token,
+            graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collections=vector_collections,
+            pending_write=pending_write,
+            cleanup=cleanup,
+            close_document_node_id=close_document_node_id,
+        )
+    finally:
+        renewal.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await renewal
+
+
+async def _run_leased(
+    *,
+    job_id: UUID,
+    token: UUID,
+    graph_store: GraphStore,
+    vector_store: VectorStore | None,
+    vector_collections: Sequence[str],
+    pending_write: Callable[[UUID], Awaitable[T]],
+    cleanup: Callable[[], Awaitable[S]],
+    close_document_node_id: UUID | None,
+) -> tuple[T, S, int]:
+    """Run the pending, commit, and cleanup phases under a held lease."""
     job_arg = str(job_id)
     token_arg = str(token)
     try:

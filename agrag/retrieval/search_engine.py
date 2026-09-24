@@ -278,14 +278,16 @@ class SearchEngine:
         self._validate_recipe_methods(recipe, retrievers)
 
         # Project SearchFilters per retriever: labels only go to entity
-        # search, document_ids only to chunk search, while property
-        # filters apply to both.
+        # search, while document_ids and property filters apply to entity,
+        # chunk, and community search.
         entity_filters = (
             SearchFilters(
                 labels=filters.labels if filters else [],
+                document_ids=filters.document_ids if filters else [],
                 properties=filters.properties if filters else {},
             )
-            if filters and (filters.labels or filters.properties)
+            if filters
+            and (filters.labels or filters.document_ids or filters.properties)
             else None
         )
         chunk_filters = (

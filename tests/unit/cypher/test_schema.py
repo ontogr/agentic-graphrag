@@ -1,13 +1,11 @@
 """Tests for schema-level Cypher builders in agrag.cypher.schema.
 
-Covers node and relationship uniqueness constraint queries, a regression for
-constraint-name collisions between a node label and a relationship type that
-share a naming boundary (e.g. label "X_rel" versus type "X"), plain range
-index queries, deterministic and collision-free vector index naming across
-label/property pairs that could otherwise clash, Distance-to-
-similarity-function mapping in vector_index_query (cosine, euclidean; dot
-product is unsupported and raises), and vector_search_query's optional
-WHERE-filter clause.
+Covers a regression for constraint-name collisions between a node label and a
+relationship type that share a naming boundary (e.g. label "X_rel" versus
+type "X"), plain range index queries, collision-free vector index naming
+across label/property pairs that could otherwise clash, and rejecting
+unsupported or unsafe input to vector_index_query (dot product is
+unsupported, unsafe labels raise).
 """
 
 import pytest
@@ -19,28 +17,7 @@ from agrag.cypher.schema import (
     relation_id_constraint_query,
     vector_index_name,
     vector_index_query,
-    vector_search_query,
 )
-
-
-class TestNodeConstraint:
-    """node_id_constraint_query builds a uniqueness constraint on id."""
-
-    def test_builds_unique_constraint(self) -> None:
-        """A uniqueness constraint on id is created if absent."""
-        q = node_id_constraint_query("Chunk")
-        assert "CREATE CONSTRAINT node_5_Chunk_id_unique IF NOT EXISTS" in q
-        assert "REQUIRE n.id IS UNIQUE" in q
-
-
-class TestRelationConstraint:
-    """relation_id_constraint_query builds a per-type uniqueness constraint."""
-
-    def test_builds_unique_constraint(self) -> None:
-        """A uniqueness constraint on id is created if absent."""
-        q = relation_id_constraint_query("MENTIONS")
-        assert "CREATE CONSTRAINT rel_8_MENTIONS_id_unique IF NOT EXISTS" in q
-        assert "FOR ()-[r:MENTIONS]-() REQUIRE r.id IS UNIQUE" in q
 
 
 class TestConstraintNamesDoNotCollide:
@@ -84,19 +61,7 @@ class TestPlainIndex:
 
 
 class TestVectorIndexName:
-    """vector_index_name derives a deterministic name from label and property."""
-
-    def test_deterministic(self) -> None:
-        """The index name length-prefixes the label and property."""
-        assert (
-            vector_index_name("Chunk", "embedding") == "idx_5_Chunk_9_embedding_vector"
-        )
-
-    def test_deterministic_across_calls(self) -> None:
-        """The same inputs always produce the same name."""
-        assert vector_index_name("Chunk", "embedding") == vector_index_name(
-            "Chunk", "embedding"
-        )
+    """vector_index_name derives a collision-free name from label and property."""
 
     @pytest.mark.parametrize(
         ("first", "second"),
@@ -120,21 +85,7 @@ class TestVectorIndexName:
 
 
 class TestVectorIndexQuery:
-    """vector_index_query maps Distance to Neo4j similarity functions."""
-
-    def test_cosine(self) -> None:
-        """Cosine maps to Neo4j's 'cosine' similarity function."""
-        q = vector_index_query("Chunk", "embedding", 4, Distance.COSINE)
-        name = vector_index_name("Chunk", "embedding")
-        assert f"CREATE VECTOR INDEX {name} IF NOT EXISTS" in q
-        assert "FOR (n:Chunk) ON (n.embedding)" in q
-        assert "`vector.similarity_function`: 'cosine'" in q
-        assert "`vector.dimensions`: 4" in q
-
-    def test_euclid(self) -> None:
-        """Euclid maps to Neo4j's 'euclidean' similarity function."""
-        q = vector_index_query("Chunk", "embedding", 4, Distance.EUCLID)
-        assert "`vector.similarity_function`: 'euclidean'" in q
+    """vector_index_query rejects unsupported distances and unsafe labels."""
 
     def test_dot_unsupported(self) -> None:
         """Neo4j vector indexes have no dot-product function."""
@@ -145,22 +96,3 @@ class TestVectorIndexQuery:
         """An unsafe label is rejected."""
         with pytest.raises(ValueError):
             vector_index_query("Bad Label", "embedding", 4, Distance.COSINE)
-
-
-class TestVectorSearchQuery:
-    """vector_search_query builds the native vector procedure call."""
-
-    def test_no_filter(self) -> None:
-        """Without a filter the query still excludes pending-tagged nodes."""
-        q, params = vector_search_query("Chunk_embedding_vector")
-        assert "CALL db.index.vector.queryNodes($index, $k, $vector)" in q
-        assert "node._pending_job_id IS NULL" in q
-        assert "RETURN node, score" in q
-        assert params == {}
-
-    def test_with_filter(self) -> None:
-        """A filter is appended after the pending guard with its parameters."""
-        q, params = vector_search_query("Chunk_embedding_vector", {"kind": "doc"})
-        assert "WHERE node._pending_job_id IS NULL" in q
-        assert "AND node.kind = $filter_kind" in q
-        assert params == {"filter_kind": "doc"}

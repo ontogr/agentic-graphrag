@@ -79,6 +79,7 @@ jobs:
       WEAVIATE_MODE: custom
       MILVUS_URI: http://localhost:19530
       MILVUS_TOKEN: ""
+      COVERAGE_FILE: coverage-data-${{ matrix.suite.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -110,6 +111,7 @@ jobs:
           -v
           -n auto --dist ${{ matrix.suite.dist }}
           -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra"
+          --cov=agrag --cov-context=test
           --junitxml=pytest-integration-results.xml
 
       - name: Upload test results
@@ -117,7 +119,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: integration-test-results-${{ matrix.suite.name }}
-          path: pytest-integration-results.xml
+          path: |
+            pytest-integration-results.xml
+            coverage-data-${{ matrix.suite.name }}
           retention-days: 30
 
       - name: Collect backend service logs
@@ -139,6 +143,7 @@ jobs:
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: ci-test-password
       NEO4J_DATABASE: neo4j
+      COVERAGE_FILE: coverage-data-e2e
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -160,14 +165,17 @@ jobs:
       - run: make sync
 
       - name: Run end-to-end pipeline test
-        run: make test-e2e
+        run: make test-e2e COV_ARGS="--cov=agrag --cov-context=test"
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-test-results
-          path: pytest-e2e-results.xml
+          path: |
+            pytest-e2e-results.xml
+            coverage-data-e2e
+            reports/e2e
           retention-days: 30
 
       - name: Stop Neo4j

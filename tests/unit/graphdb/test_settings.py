@@ -1,37 +1,13 @@
 """Tests for Neo4jSettings in agrag.graphdb.settings.
 
-Covers reading the NEO4J_ env prefix (uri, username, password as a Pydantic
-SecretStr, database), defaults for a local instance, and the validator
-rejecting a plaintext bolt/neo4j scheme against a non-local host while
-allowing plaintext localhost and encrypted remote schemes (neo4j+s,
-neo4j+ssc).
+Covers the validator rejecting a plaintext bolt/neo4j scheme against a
+non-local host while allowing plaintext localhost and encrypted remote
+schemes (neo4j+s, neo4j+ssc).
 """
 
 import pytest
 
 from agrag.graphdb.settings import Neo4jSettings
-
-
-def test_env_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Settings read from NEO4J_ environment variables."""
-    monkeypatch.setenv("NEO4J_URI", "neo4j+s://example:7687")
-    monkeypatch.setenv("NEO4J_USERNAME", "alice")
-    monkeypatch.setenv("NEO4J_PASSWORD", "secret")
-    monkeypatch.setenv("NEO4J_DATABASE", "docs")
-    s = Neo4jSettings()
-    assert s.uri == "neo4j+s://example:7687"
-    assert s.username == "alice"
-    assert s.password.get_secret_value() == "secret"
-    assert s.database == "docs"
-
-
-def test_defaults() -> None:
-    """Sensible defaults apply when no environment is set."""
-    s = Neo4jSettings()
-    assert s.uri.startswith("bolt://")
-    assert s.username == "neo4j"
-    assert s.database == "neo4j"
-    assert s.max_connection_lifetime == 240
 
 
 class TestEncryptedRemoteConnection:

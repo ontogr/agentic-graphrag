@@ -54,6 +54,7 @@ from agrag.ingestion._ingest_pipeline import (
 from agrag.ingestion._resume import resume_incomplete_jobs
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.materialize import (
+    MatchComponent,
     MatchDecision,
     deactivate_match_and_rematerialize,
     match_decision_components,
@@ -179,10 +180,6 @@ async def _no_pending_write(job_id: UUID) -> None:
     """Pending-write step for delete_document, which writes nothing new."""
 
 
-async def _no_cleanup() -> None:
-    """Cleanup step for add(), whose empty snapshot prunes nothing."""
-
-
 def _group_by_document(
     chunks: list[Chunk],
     documents: list[Document],
@@ -212,7 +209,9 @@ def _group_by_document(
         chunks: The call's chunks, in document then chunk order.
         documents: The call's documents, possibly repeating.
         entities: Mentions addressing chunks by id.
-        relations: Relations addressing chunks by id.
+        relations: Relations whose indices address ``entities``. Each slice
+            rebases them to its own entity list; a relation whose endpoints
+            fall in different slices is dropped.
         extraction_failures: Failures keyed by chunk id.
 
     Returns:
@@ -246,17 +245,25 @@ def _group_by_document(
     entities_by_key: dict[str, list[ExtractedEntity]] = {
         key: [] for key in ordered_keys
     }
+    slice_position: list[tuple[str, int]] = []
     for entity in entities:
-        entities_by_key.setdefault(
-            key_by_chunk_id.get(entity.chunk_id, ordered_keys[0]), []
-        ).append(entity)
+        entity_key = key_by_chunk_id.get(entity.chunk_id, ordered_keys[0])
+        group = entities_by_key.setdefault(entity_key, [])
+        slice_position.append((entity_key, len(group)))
+        group.append(entity)
     relations_by_key: dict[str, list[ExtractedRelation]] = {
         key: [] for key in ordered_keys
     }
     for relation in relations:
-        relations_by_key.setdefault(
-            key_by_chunk_id.get(relation.chunk_id, ordered_keys[0]), []
-        ).append(relation)
+        source_key, source_index = slice_position[relation.source_index]
+        target_key, target_index = slice_position[relation.target_index]
+        if source_key != target_key:
+            continue
+        relations_by_key[source_key].append(
+            relation.model_copy(
+                update={"source_index": source_index, "target_index": target_index}
+            )
+        )
     failures_by_key: dict[str, list[StageFailure]] = {key: [] for key in ordered_keys}
     for failure in extraction_failures:
         try:
@@ -836,9 +843,11 @@ class Graph:
         ) in _group_by_document(
             chunks, documents_seen, entities, relations, extraction_failures
         ):
+            components: list[MatchComponent] = []
 
             async def _pending(
                 job_id: UUID,
+                _components: list[MatchComponent] = components,
                 _slice: tuple[
                     list[Chunk],
                     list[Document],
@@ -875,6 +884,14 @@ class Graph:
                     ingestion=IngestStats(documents=1),
                     return_chunks=return_chunks,
                     job_id=job_id,
+                    materialized_components=_components,
+                )
+
+            async def _cleanup(
+                _components: list[MatchComponent] = components,
+            ) -> None:
+                await self._materialize_components(
+                    _components, error_policy=error_policy
                 )
 
             partial, _, _ = await run_cutover_job(
@@ -886,7 +903,7 @@ class Graph:
                 vector_collections=vector_collections,
                 settings=self._cutover_settings,
                 pending_write=_pending,
-                cleanup=_no_cleanup,
+                cleanup=_cleanup,
             )
             partials.append(partial)
         result = _merge_add_results(partials, ingestion=ingestion)
@@ -1010,6 +1027,8 @@ class Graph:
             error_policy=error_policy,
         )
 
+        components: list[MatchComponent] = []
+
         async def _pending(job_id: UUID) -> AddResult:
             return await ingest_chunks(
                 chunks,
@@ -1026,9 +1045,11 @@ class Graph:
                 ingestion=IngestStats(documents=1),
                 return_chunks=False,
                 job_id=job_id,
+                materialized_components=components,
             )
 
         async def _cleanup() -> None:
+            await self._materialize_components(components, error_policy=error_policy)
             await self._prune_document_entities(candidates)
 
         add_result, _, chunks_closed = await run_cutover_job(
@@ -1141,6 +1162,62 @@ class Graph:
             if candidate not in candidates:
                 candidates.append(candidate)
         return candidates
+
+    async def _materialize_components(
+        self, components: list[MatchComponent], *, error_policy: ErrorPolicy
+    ) -> tuple[list[ResolvedEntity], list[StageFailure]]:
+        """Materialize committed match components and sync their vectors.
+
+        Runs outside any Cutover Job, so each write replaces the previous
+        materialization of the components it grows or merges, including its
+        ``RESOLVED_AS`` edges. The replaced vectors are then deleted and the
+        new ones written to the graph and the external vector store.
+
+        Args:
+            components: The match decisions and raw members of each
+                component to materialize.
+            error_policy: RAISE propagates the first failure; any other
+                policy records it and continues.
+
+        Returns:
+            The materialized resolved entities and the recorded failures.
+        """
+        failures: list[StageFailure] = []
+        materialized: list[ResolvedEntity] = []
+        replaced_ids: list[UUID] = []
+        for decisions, members in components:
+            try:
+                materialization = await write_matches_and_materialize(
+                    decisions,
+                    graph_store=self._graph_store,
+                    schema=self._schema,
+                    members=members,
+                )
+            except Exception as exc:  # noqa: BLE001
+                if error_policy is ErrorPolicy.RAISE:
+                    raise
+                failures.append(
+                    StageFailure(
+                        item_id=",".join(str(member.id) for member in members),
+                        error_type=type(exc).__name__,
+                        error_message=str(exc),
+                    )
+                )
+                continue
+            materialized.append(materialization.resolved_entity)
+            replaced_ids.extend(materialization.removed_entity_ids)
+        failures.extend(
+            await _synchronize_resolved_entity_vectors(
+                materialized,
+                replaced_ids,
+                embedder=self._embedder,
+                graph_store=self._graph_store,
+                vector_store=self._vector_store,
+                vector_collection=self._retrieval_settings.resolved_entity_collection,
+                error_policy=error_policy,
+            )
+        )
+        return materialized, failures
 
     async def _prune_document_entities(self, candidates: list[UUID]) -> None:
         """Prune orphaned candidates and drop their stale vectors.
@@ -1386,44 +1463,20 @@ class Graph:
 
         consolidation_failures: list[StageFailure] = []
         materialized_entities: list[ResolvedEntity] = []
-        replaced_resolved_entity_ids: list[UUID] = []
         if apply:
+            components: list[MatchComponent] = []
             for decisions in match_decision_components(would_match):
                 member_ids = {decision.entity_a_id for decision in decisions} | {
                     decision.entity_b_id for decision in decisions
                 }
-                try:
-                    materialization = await write_matches_and_materialize(
-                        decisions,
-                        graph_store=self._graph_store,
-                        schema=self._schema,
-                        members=[entities_by_id[member_id] for member_id in member_ids],
-                    )
-                    materialized_entities.append(materialization.resolved_entity)
-                    replaced_resolved_entity_ids.extend(
-                        materialization.removed_entity_ids
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    consolidation_failures.append(
-                        StageFailure(
-                            item_id=",".join(
-                                str(member_id) for member_id in member_ids
-                            ),
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
-                        )
-                    )
-
-            consolidation_failures.extend(
-                await _synchronize_resolved_entity_vectors(
-                    materialized_entities,
-                    replaced_resolved_entity_ids,
-                    embedder=self._embedder,
-                    graph_store=self._graph_store,
-                    vector_store=self._vector_store,
-                    vector_collection=self._retrieval_settings.resolved_entity_collection,
-                    error_policy=ErrorPolicy.SKIP,
+                components.append(
+                    (decisions, [entities_by_id[member_id] for member_id in member_ids])
                 )
+            (
+                materialized_entities,
+                consolidation_failures,
+            ) = await self._materialize_components(
+                components, error_policy=ErrorPolicy.SKIP
             )
 
         return ConsolidationReport(

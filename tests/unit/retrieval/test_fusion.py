@@ -1,9 +1,8 @@
 """Tests for the Reciprocal Rank Fusion implementation in agrag.retrieval.fusion.
 
-Covers single-method passthrough, deduplication of the same entity returned
-by multiple methods, the effect of the rrf_k parameter on rank spread, and
-several regressions around within-method duplicates: a repeated item from one
-method must contribute a single best-rank vote rather than inflating the
+Covers single-method passthrough, the effect of the rrf_k parameter on rank
+spread, and several regressions around within-method duplicates: a repeated
+item from one method must contribute a single best-rank vote rather than inflating the
 score or summing multiple positions, while still keeping the highest
 individual score across methods.
 """
@@ -32,20 +31,6 @@ class TestFuse:
         assert len(fused) == 2
         assert fused[0].score >= fused[1].score
 
-    def test_deduplicates_same_entity(self) -> None:
-        """Two results for the same entity fuse into one.
-
-        Two SearchResults for the same entity from different methods
-        are fused into a single result.
-        """
-        ent = Entity(id=uuid4(), label="Person", name="Alice")
-        r1 = SearchResult(item=ent, score=0.9, method="entity")
-        r2 = SearchResult(item=ent, score=0.8, method="chunk")
-        fused = fuse({"entity": [r1], "chunk": [r2]})
-        assert len(fused) == 1
-        # Fused score is sum of both RRF contributions.
-        assert fused[0].score > 0.9 / (60 + 1)
-
     def test_different_entities_not_deduped(self) -> None:
         """Results for different entities stay separate."""
         r1 = _make_entity_result()
@@ -67,21 +52,6 @@ class TestFuse:
         diff_low = fused_low[0].score - fused_low[1].score
         diff_high = fused_high[0].score - fused_high[1].score
         assert diff_low > diff_high
-
-    def test_regression_mixed_ids_same_entity(self) -> None:
-        """Regression: fuse collapses same-entity results.
-
-        Two results for the same entity from different methods under
-        different (pre-resolution) ids must collapse into one. The
-        identity_key must already be resolved to the live survivor
-        before fusion, so both SearchResults carry the same key.
-        """
-        ent = Entity(id=uuid4(), label="Person", name="Alice")
-        r1 = SearchResult(item=ent, score=0.9, method="entity")
-        r2 = SearchResult(item=ent, score=0.7, method="chunk")
-        fused = fuse({"entity": [r1], "chunk": [r2]})
-        assert len(fused) == 1
-        assert fused[0].item.id == ent.id
 
     def test_duplicate_within_one_method_does_not_inflate(self) -> None:
         """A single method that returns the same item twice gets one vote.

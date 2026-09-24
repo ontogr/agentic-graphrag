@@ -44,6 +44,10 @@ class MatchDecision(BaseModel):
     decided_at: datetime
 
 
+MatchComponent = tuple[list[MatchDecision], list[Entity]]
+"""One connected component: its match decisions and its raw member entities."""
+
+
 class MaterializationResult(BaseModel):
     """The derived entity created and prior derived ids it replaced."""
 

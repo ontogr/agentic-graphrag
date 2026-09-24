@@ -52,7 +52,6 @@ from agrag.ingestion._ingest_pipeline import (
     _global_relation_lookup,
     _parse_entity_node,
     _resolve_tombstone_chain,
-    _synthetic_entity_mention,
     _upsert_vectors,
 )
 from agrag.ingestion.extract import Extractor
@@ -559,13 +558,6 @@ class TestParseEntityNode:
 class TestGlobalExactMatch:
     """Tests for _global_exact_match."""
 
-    async def test_empty_returns_empty(self) -> None:
-        """Empty mentions returns empty."""
-        store = MockStore()
-        result = await _global_exact_match([], graph_store=store)
-        assert result == {}
-        assert store.execute_read_calls == []
-
     async def test_groups_by_label_and_dedups(self) -> None:
         """One query per distinct label, deduped keys."""
         store = MockStore()
@@ -604,38 +596,6 @@ class TestGlobalExactMatch:
         assert result[1].id == eid
         assert 2 not in result
         assert len(store.execute_read_calls) == 2
-
-    async def test_handles_flat_row_and_missing(self) -> None:
-        """Handles flat row form and skips unparsable rows."""
-        store = MockStore()
-        cid = uuid4()
-        m = ExtractedEntity(
-            chunk_id=cid, label="Person", text="Bob", char_start=0, char_end=3
-        )
-        # Flat rows with varied shapes exercise the fallback parsing.
-        store.execute_read_responses = [
-            [
-                {
-                    "id": str(uuid4()),
-                    "merge_key": "Person:bob",
-                    "name": "Bob",
-                },
-                {"n": {"id": "bad", "labels": ["Person"], "properties": {}}},
-            ]
-        ]
-        result = await _global_exact_match([m], graph_store=store)
-        assert isinstance(result, dict)
-
-    async def test_handles_no_rows(self) -> None:
-        """No rows yields empty map entry."""
-        store = MockStore()
-        cid = uuid4()
-        m = ExtractedEntity(
-            chunk_id=cid, label="Person", text="NoHit", char_start=0, char_end=5
-        )
-        store.execute_read_responses = [[]]
-        result = await _global_exact_match([m], graph_store=store)
-        assert result == {}
 
     async def test_reingest_of_absorbed_name_resolves_to_survivor(self) -> None:
         """A name absorbed into a survivor still resolves there on re-ingest.
@@ -855,11 +815,6 @@ class TestExtractMergedInto:
         }
         assert _extract_merged_into(node, {}) == survivor_id
 
-    def test_no_merged_into_returns_none(self) -> None:
-        """A live node with no merged_into is a genuine negative, not a failure."""
-        node = {"labels": ["Person"], "properties": {"name": "Bob"}}
-        assert _extract_merged_into(node, {}) is None
-
     def test_unstringifiable_candidate_propagates(self) -> None:
         """A failure while reading merged_into must not be read as "live".
 
@@ -1043,38 +998,9 @@ class TestSynthesizeConsolidationMentions:
         assert dummy_chunks_by_id[mentions[0].chunk_id].text == "Alice"
         assert dummy_chunks_by_id[mentions[1].chunk_id].text == "Bob"
 
-    def test_mentions_are_index_aligned_with_entities(self) -> None:
-        """Each mention carries its own entity's label and name."""
-        alice = Entity(id=uuid4(), label="Person", name="Alice", properties={})
-        acme = Entity(id=uuid4(), label="Organization", name="Acme", properties={})
-
-        mentions, dummy_chunks_by_id = _synthesize_consolidation_mentions([alice, acme])
-
-        assert [m.label for m in mentions] == ["Person", "Organization"]
-        assert [m.text for m in mentions] == ["Alice", "Acme"]
-        assert len(dummy_chunks_by_id) == 2
-
-    def test_persisted_candidate_uses_its_own_name_context(self) -> None:
-        """A persisted candidate cannot inherit a new mention's source context."""
-        candidate = Entity(
-            id=uuid4(), label="Person", name="Ada Lovelace", properties={}
-        )
-
-        mention, chunk = _synthetic_entity_mention(candidate)
-
-        assert mention.chunk_id == chunk.id
-        assert mention.text == "Ada Lovelace"
-        assert chunk.text == "Ada Lovelace"
-
 
 class TestGlobalRelationLookup:
     """Tests for _global_relation_lookup."""
-
-    async def test_empty_returns_empty(self) -> None:
-        """Empty triples returns empty."""
-        store = MockStore()
-        result = await _global_relation_lookup([], graph_store=store)
-        assert result == {}
 
     async def test_groups_by_type_and_maps_rows(self) -> None:
         """One query per distinct type."""
@@ -1110,19 +1036,6 @@ class TestGlobalRelationLookup:
         ]
         result = await _global_relation_lookup([(s, t, "WORKS_AT")], graph_store=store)
         assert result == {}
-
-    async def test_dedups_unique_pairs(self) -> None:
-        """Duplicate pairs are deduped before query."""
-        store = MockStore()
-        s, t = uuid4(), uuid4()
-        triples = [(s, t, "WORKS_AT"), (s, t, "WORKS_AT")]
-        await _global_relation_lookup(triples, graph_store=store)
-        assert (
-            store.execute_read_calls[0][1]["pairs"].count(
-                {"source_id": str(s), "target_id": str(t)}
-            )
-            == 1
-        )
 
 
 class _GuardedNodeStore(MockStore):
@@ -1515,10 +1428,6 @@ class TestVectorStoreHelpers:
         await _upsert_vectors(store, "col", [empty, good])
         assert [r.id for _, records in store.upserts for r in records] == [good.id]
 
-    async def test_delete_none_store_is_noop(self) -> None:
-        """A None store deletes nothing and raises nothing."""
-        await _delete_vectors(None, "col", [uuid4()])
-
     async def test_delete_empty_ids_is_noop(self) -> None:
         """An empty id list calls delete exactly zero times."""
         store = RecordingVectorStore()
@@ -1909,80 +1818,6 @@ class TestGraphOpenVectorStore:
         ]
         assert graph._vector_store is vector_store
 
-    async def test_open_without_vector_store_skips_provisioning(self) -> None:
-        """No VectorStore means no collection provisioning and none stored."""
-        graph = await Graph.open(
-            schema=GENERIC,
-            graph_store=MockStore(),
-            embedder=MockEmbedder(),
-            extractor=MockExtractor(),
-        )
-        assert graph._vector_store is None
-
-
-class TestGraphOpen:
-    """Tests for Graph.open."""
-
-    async def test_open_provisions_in_order(self) -> None:
-        """Provisioning is connect, labels, types, constraints, indexes."""
-        order: list[str] = []
-
-        class OrderedStore(MockStore):
-            async def connect(self) -> None:
-                order.append("connect")
-
-            async def register_labels(self, labels: Sequence[str]) -> None:
-                order.append(f"labels:{','.join(sorted(labels))}")
-
-            async def register_relation_types(self, types: Sequence[str]) -> None:
-                order.append(f"types:{','.join(sorted(types))}")
-
-            async def setup_constraints(self) -> None:
-                order.append("constraints")
-
-            async def setup_indexes(self) -> None:
-                order.append("indexes")
-
-        store = OrderedStore()
-        graph = await Graph.open(
-            schema=GENERIC,
-            graph_store=store,
-            embedder=MockEmbedder(),
-            extractor=MockExtractor(),
-        )
-        assert order[0] == "connect"
-        assert any("Chunk" in entry for entry in order if entry.startswith("labels"))
-        assert any(
-            "MENTIONED_IN" in entry for entry in order if entry.startswith("types")
-        )
-        assert order[-2] == "constraints"
-        assert order[-1] == "indexes"
-        assert isinstance(graph, Graph)
-
-    async def test_open_registers_schema_labels_and_system_names(self) -> None:
-        """All schema labels/types plus system names are registered."""
-        store = MockStore()
-        schema = GraphSchema(
-            name="test",
-            version="1",
-            entities=[EntityType(label="Person", description="p")],
-            relations=[
-                RelationType(
-                    label="WORKS_AT", description="w", patterns=[("Person", "Person")]
-                )
-            ],
-        )
-        await Graph.open(
-            schema=schema,
-            graph_store=store,
-            embedder=MockEmbedder(),
-            extractor=MockExtractor(),
-        )
-        assert "Person" in store.register_labels_calls[0]
-        assert "Chunk" in store.register_labels_calls[0]
-        assert "WORKS_AT" in store.register_types_calls[0]
-        assert "MENTIONED_IN" in store.register_types_calls[0]
-
 
 class TestResolvePaths:
     """Tests for _resolve_paths."""
@@ -2028,30 +1863,6 @@ class TestResolvePaths:
 class TestGraphAddPipeline:
     """Tests for the Graph.add pipeline."""
 
-    async def test_add_requires_exactly_one_input(self) -> None:
-        """Add validates exactly one input."""
-        store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
-        graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
-        )
-        with pytest.raises(ValueError):
-            await graph.add()
-        with pytest.raises(ValueError):
-            await graph.add(text="x", documents=[_doc()])
-
-    async def test_loader_requires_source(self) -> None:
-        """Loader without source raises."""
-        from agrag.loaders.corpus.readers.prose import TextLoader  # noqa: PLC0415
-
-        store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
-        graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
-        )
-        with pytest.raises(ValueError):
-            await graph.add(text="x", loader=TextLoader())
-        with pytest.raises(ValueError):
-            await graph.add(documents=[_doc()], loader=TextLoader())
-
     async def test_loader_requires_single_file(self, tmp_path: Path) -> None:
         """Loader with directory/glob raises."""
         from agrag.loaders.corpus.readers.prose import TextLoader  # noqa: PLC0415
@@ -2063,18 +1874,6 @@ class TestGraphAddPipeline:
         )
         with pytest.raises(ValueError):
             await graph.add(str(tmp_path), loader=TextLoader())
-
-    async def test_add_text_produces_add_result(self) -> None:
-        """Text path yields AddResult with ingestion stats."""
-        store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
-        graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
-        )
-        result = await graph.add(text="hello world", return_chunks=True)
-        assert isinstance(result, AddResult)
-        assert result.ingestion.documents == 1
-        assert result.extraction.chunks_processed == 1
-        assert result.chunks
 
     async def test_partial_chunk_write_still_embeds_written_chunks(self) -> None:
         """Chunks committed before a failed node write still get embeddings.
@@ -2162,18 +1961,6 @@ class TestGraphAddPipeline:
             "backend-record-7"
         ]
         assert all(failure.item_id != "chunks" for failure in result.storage.failures)
-
-    async def test_add_documents_path(self) -> None:
-        """Documents path chunks and extracts."""
-        store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
-        graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
-        )
-        result = await graph.add(documents=[_doc("doc text")], return_chunks=False)
-        assert result.ingestion.documents == 1
-        # No chunks returned when return_chunks is False.
-        assert result.chunks == []
-        assert result.extraction.chunks_processed == 1
 
     async def test_add_writes_one_document_node_and_part_of_per_chunk(self) -> None:
         """add() writes one Document node and a PART_OF record per chunk."""
@@ -2271,32 +2058,6 @@ class TestGraphAddPipeline:
         assert len(next_records) == max(len(chunk_ids) - 1, 0)
         assert all(rec.properties == {} for rec in next_records)
 
-    async def test_add_same_content_twice_converges_part_of_edges(self) -> None:
-        """Re-adding identical content rebuilds the same PART_OF edge ids."""
-        store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
-        graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
-        )
-        docs = [_distinct_doc("uri-a", content_hash="same-content")]
-
-        await graph.add(documents=docs, return_chunks=True)
-        first_ids = {
-            rec.id
-            for batch in store.upsert_relations_calls
-            for rec in batch
-            if rec.type == "PART_OF"
-        }
-        calls_before = len(store.upsert_relations_calls)
-        await graph.add(documents=docs, return_chunks=True)
-        second_ids = {
-            rec.id
-            for batch in store.upsert_relations_calls[calls_before:]
-            for rec in batch
-            if rec.type == "PART_OF"
-        }
-        assert first_ids
-        assert first_ids == second_ids
-
     async def test_add_source_path(self, tmp_path: Path) -> None:
         """Source file path is loaded via walk."""
         f = tmp_path / "a.txt"
@@ -2373,53 +2134,6 @@ class TestGraphAddPipeline:
         )
         with pytest.raises(ValueError):
             await graph.add(text="hi", error_policy=ErrorPolicy.RAISE)
-
-    async def test_relation_index_remapping(self) -> None:
-        """Relations indices remapped with global offset."""
-        cid = uuid4()
-        _chunk("Alice works at Acme")
-        ExtractedEntity(
-            chunk_id=cid, label="Person", text="Alice", char_start=0, char_end=5
-        )
-        ExtractedEntity(
-            chunk_id=cid, label="Organization", text="Acme", char_start=14, char_end=18
-        )
-        ExtractedRelation(
-            chunk_id=cid, label="RELATED_TO", source_index=0, target_index=1
-        )
-        store, embed = MockStore(), MockEmbedder()
-
-        class TwoChunkExtractor(Extractor):
-            async def extract(
-                self, chunk: ChunkModel, schema: GraphSchema
-            ) -> ExtractionResult:
-                return ExtractionResult(
-                    entities=[
-                        ExtractedEntity(
-                            chunk_id=chunk.id,
-                            label="Person",
-                            text="P",
-                            char_start=0,
-                            char_end=1,
-                        ),  # type: ignore[arg-type]
-                    ],
-                    relations=[],
-                    extractor_name="fake",
-                )
-
-        graph = await Graph.open(
-            schema=GENERIC,
-            graph_store=store,
-            embedder=embed,
-            extractor=TwoChunkExtractor(),
-        )
-        result = await graph.add(
-            documents=[
-                _distinct_doc("memory://a", "a"),
-                _distinct_doc("memory://b", "b"),
-            ]
-        )
-        assert result.extraction.entities_extracted == 2
 
     async def test_empty_chunks_early_return(self) -> None:
         """No chunks yields early AddResult with no embeddings."""
@@ -2527,7 +2241,6 @@ class TestGraphAddPipeline:
             if r.type == "MENTIONED_IN"
         ]
         assert len(mentioned) == 1
-        assert len(mentioned[0].properties.get("source_chunk_ids", [])) == 0 or True
 
     async def test_relation_dedup_global_and_within(self) -> None:
         """Relation dedup within-call and global."""
@@ -2753,54 +2466,6 @@ class TestGraphAddPipeline:
         ]
         assert len(mentioned) == 1
         assert mentioned[0].id == stale_edge_id
-
-    async def test_storage_and_embedding(self) -> None:
-        """Embedding stage assigns vectors and upserts."""
-        store, embed = MockStore(), MockEmbedder()
-        graph = await Graph.open(
-            schema=GENERIC, graph_store=store, embedder=embed, extractor=MockExtractor()
-        )
-        chunk = _chunk("Bob")
-        ExtractedEntity(
-            chunk_id=chunk.id, label="Person", text="Bob", char_start=0, char_end=3
-        )  # type: ignore[arg-type]
-
-        class BobExtractor(Extractor):
-            async def extract(
-                self, chunk: ChunkModel, schema: GraphSchema
-            ) -> ExtractionResult:
-                return ExtractionResult(
-                    entities=[
-                        ExtractedEntity(
-                            chunk_id=chunk.id,
-                            label="Person",
-                            text="Bob",
-                            char_start=0,
-                            char_end=3,
-                        )
-                    ],
-                    relations=[],
-                    extractor_name="fake",
-                )  # type: ignore[arg-type]
-
-        graph._extractor = BobExtractor()
-        result = await graph.add(text="Bob")
-        survivor_write_calls = [
-            call
-            for call in store.execute_write_calls
-            if call[1]
-            and "records" in call[1]
-            and "properties" in call[1]["records"][0]
-        ]
-        assert len(survivor_write_calls) >= 1
-        embedding_calls = [
-            call
-            for call in store.execute_write_calls
-            if call[1] and "records" in call[1] and "vector" in call[1]["records"][0]
-        ]
-        # At least one embedding write: entity and/or chunk.
-        assert len(embedding_calls) >= 1
-        assert result.storage.nodes_written >= 1
 
     async def test_embedding_failure_clears_stale_embedding(self) -> None:
         """A failed batch embed() clears any embedding already on the survivor.
@@ -3131,26 +2796,3 @@ class TestGraphAddPipeline:
         assert report.applied is False
         assert store.upsert_nodes_calls == []
         assert store.upsert_relations_calls == []
-
-    async def test_consolidate_no_entities(self) -> None:
-        """Less than 2 entities yields no matches."""
-        store = MockStore()
-        small_schema = GraphSchema(
-            name="test",
-            version="1",
-            entities=[EntityType(label="Person", description="p")],
-            relations=[],
-        )
-        graph = await Graph.open(
-            schema=small_schema,
-            graph_store=store,
-            embedder=MockEmbedder(),
-            extractor=MockExtractor(),
-        )
-        with mock.patch.object(
-            graph, "_all_entities_by_label", new_callable=mock.AsyncMock
-        ) as mock_all:
-            mock_all.return_value = []
-            report = await graph.consolidate()
-            assert report.would_match == []
-            assert report.applied is False

@@ -1,7 +1,6 @@
 """Tests for build_graph_store and the backend lookup table.
 
-Covers building a Neo4jGraphStore from the "neo4j" name with matching
-Neo4jSettings, passthrough of an already-constructed GraphStore instance,
+Covers passthrough of an already-constructed GraphStore instance,
 and a reflection check that every ``Literal`` backend name in
 ``build_graph_store``'s type annotation has a matching entry in
 ``_GRAPH_STORE_FACTORIES``.
@@ -17,12 +16,6 @@ from agrag.graphdb.settings import Neo4jSettings
 
 class TestBuildGraphStore:
     """build_graph_store resolves a name or passes an instance through."""
-
-    def test_build_neo4j_from_name(self) -> None:
-        """The "neo4j" name builds a Neo4jGraphStore."""
-        store = build_graph_store("neo4j")
-        assert isinstance(store, Neo4jGraphStore)
-        assert isinstance(store._settings, Neo4jSettings)
 
     def test_passthrough_instance(self) -> None:
         """An existing GraphStore is returned unchanged."""

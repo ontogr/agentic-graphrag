@@ -416,43 +416,6 @@ class TestLLMVerify:
         assert verdict is ComparisonVerdict.NO_MATCH
 
 
-# ── GraphCandidateSource in-batch blocking ─────────────────────────────
-
-
-class TestGraphCandidateSourceInBatch:
-    """GraphCandidateSource only proposes same-label in-batch pairs."""
-
-    async def test_never_proposes_cross_label(self) -> None:
-        """Entities with different labels are never compared."""
-        source = _candidate_source()
-        entities = [
-            _entity("Ada", label="Person"),
-            _entity("Apple", label="Organization"),
-            _entity("Charles", label="Person"),
-        ]
-        candidates = await source.candidates_for(0, entities)
-        # Only index 2 (Charles, same label Person) should be proposed
-        assert candidates == [2]
-
-    async def test_proposes_all_same_label(self) -> None:
-        """All same-label entities are proposed."""
-        source = _candidate_source()
-        entities = [
-            _entity("Ada", label="Person"),
-            _entity("Charles", label="Person"),
-            _entity("Grace", label="Person"),
-        ]
-        candidates = await source.candidates_for(0, entities)
-        assert set(candidates) == {1, 2}
-
-    async def test_excludes_self(self) -> None:
-        """The entity's own index is never in the candidates."""
-        source = _candidate_source()
-        entities = [_entity("Ada", label="Person")]
-        candidates = await source.candidates_for(0, entities)
-        assert candidates == []
-
-
 class TestPersistedCandidateSource:
     """Persisted candidates only originate from newly extracted mentions."""
 

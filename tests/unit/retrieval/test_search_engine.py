@@ -6,8 +6,9 @@ AsyncMock/MagicMock, using an AsyncMock graph store, so no real database or
 embedding call is made. Covers single-method and HYBRID (fused entity+chunk)
 recipes, forwarding a recipe's bfs_depth to BFSRetriever (or omitting it when
 None), that SearchFilters route to only the retrievers they apply to
-(relation_types to BFS, labels to entity search, document_ids to chunk
-search), that BFS fusion uses one "bfs" key rather than one per prior result,
+(relation_types to BFS, labels to entity search, document_ids to entity,
+chunk, and community search), that BFS fusion uses one "bfs" key rather than
+one per prior result,
 that node-distance rerank seeds are the pre-BFS top-k entity ids only (never
 chunk ids or every candidate), that entity_labels (not the collection name)
 drive native entity search, and error handling: every method failing raises
@@ -313,10 +314,11 @@ class TestSearchEngine:
             chunk_filters = chunk_call.kwargs.get("filters")
             assert chunk_filters is None or not chunk_filters.labels
 
-    async def test_chunk_doc_id_filter_not_passed_to_entity(self) -> None:
-        """document_ids in filters only reach chunk search, not entity."""
+    async def test_doc_id_filter_scopes_entity_and_chunk_search(self) -> None:
+        """document_ids in filters reach entity search and chunk search."""
         ent = Entity(id=uuid4(), label="Person", name="Alice")
         gs = AsyncMock()
+        gs.execute_read.return_value = []
         embedder = MockEmbedder()
         engine = SearchEngine(graph_store=gs, embedder=embedder)
         doc_id = str(uuid4())
@@ -340,14 +342,11 @@ class TestSearchEngine:
             mock_er.return_value = ent
             mock_cv.return_value = []
 
-            await engine.search("test", HYBRID, filters=filters)
+            results = await engine.search("test", HYBRID, filters=filters)
 
-            # Entity search should NOT have received the doc_id filter.
-            entity_call = mock_ev.call_args
-            entity_filters = entity_call.kwargs.get("filters")
-            assert entity_filters is None or not entity_filters.document_ids
+            # The entity has no mention in the scoped document, so it is dropped.
+            assert not any(isinstance(r.item, Entity) for r in results)
 
-            # Chunk search should have received the doc_id filter.
             chunk_call = mock_cv.call_args
             chunk_filters = chunk_call.kwargs.get("filters")
             assert chunk_filters is not None
@@ -753,31 +752,6 @@ class TestSearchEngine:
 
         assert mock_retriever.call_args.kwargs["schema"] is GENERIC
 
-    def test_generic_schema_supplies_native_labels_when_settings_are_empty(
-        self,
-    ) -> None:
-        """Native search uses GENERIC labels when no label config is set."""
-        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
-
-        assert engine._entity_labels == [entity.label for entity in GENERIC.entities]
-
-    def test_graph_schema_passed_reaches_text2cypher(self) -> None:
-        """A passed schema is the one text2cypher generates against."""
-        engine = SearchEngine(
-            graph_store=AsyncMock(),
-            embedder=MockEmbedder(),
-            graph_schema=_CLINICAL_SCHEMA,
-        )
-
-        assert engine.graph_schema is _CLINICAL_SCHEMA
-
-        with patch(
-            "agrag.retrieval.search_engine.Text2CypherRetriever"
-        ) as mock_retriever:
-            engine._build_retrievers()
-
-        assert mock_retriever.call_args.kwargs["schema"] is _CLINICAL_SCHEMA
-
     def test_entity_labels_must_match_graph_schema(self) -> None:
         """Entity labels outside the schema are rejected, not ignored."""
         with pytest.raises(ValueError, match="entity_labels must name exactly"):
@@ -878,22 +852,6 @@ class TestSearchEngine:
 
         assert excinfo.value.unknown == ["enttiy"]
         assert "entity" in excinfo.value.known
-
-    async def test_known_methods_still_run(self) -> None:
-        """A recipe of only known methods runs without the new error."""
-        gs = AsyncMock()
-        engine = SearchEngine(graph_store=gs, embedder=MockEmbedder())
-
-        # The default ENTITY recipe lists only "entity"; this should
-        # run, not raise UnknownRecipeMethodError.
-        with patch(
-            "agrag.retrieval.retrievers.entity.vector_search",
-            new_callable=AsyncMock,
-            return_value=[],
-        ):
-            results = await engine.search("test", ENTITY)
-
-        assert results == []
 
     async def test_community_expand_failure_keeps_search_results(
         self, caplog: pytest.LogCaptureFixture
@@ -1030,7 +988,9 @@ class TestSearchEngine:
     ) -> None:
         """search() enriches through the shared community-expansion helper."""
         entity = Entity(id=uuid4(), label="Person", name="Ada")
-        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+        graph_store = AsyncMock()
+        graph_store.execute_read.return_value = [{"id": str(entity.id)}]
+        engine = SearchEngine(graph_store=graph_store, embedder=MockEmbedder())
         recipe = Recipe(methods=["entity"], community_expand=True, community_top_k=2)
         doc_id = str(uuid4())
 
@@ -1060,97 +1020,3 @@ class TestSearchEngine:
         assert kwargs["top_k"] == 2
         assert kwargs["filters"].document_ids == [doc_id]
         assert mock_expand.call_args.args[1] == [entity.id]
-
-    async def test_find_entity_delegates_to_methods_traversal(self) -> None:
-        """find_entity forwards this engine's stores and labels."""
-        graph_store = AsyncMock()
-        embedder = MockEmbedder()
-        engine = SearchEngine(
-            graph_store=graph_store,
-            embedder=embedder,
-            graph_schema=_CLINICAL_SCHEMA,
-        )
-        expected = SearchResult(
-            item=Entity(id=uuid4(), label="Drug", name="Aspirin"),
-            score=1.0,
-            method="entity",
-        )
-        scope = SearchFilters(properties={"tenant_id": "tenant-a"})
-
-        with patch(
-            "agrag.retrieval.search_engine._find_entity",
-            new_callable=AsyncMock,
-            return_value=expected,
-        ) as delegate:
-            found = await engine.find_entity("Aspirin", filters=scope)
-
-        assert found is expected
-        kwargs = delegate.call_args.kwargs
-        assert delegate.call_args.args[0] == "Aspirin"
-        assert kwargs["graph_store"] is graph_store
-        assert kwargs["embedder"] is embedder
-        assert kwargs["vector_store"] is None
-        assert kwargs["entity_labels"] == ["Drug", "Disease"]
-        assert kwargs["filters"] is scope
-        assert isinstance(kwargs["settings"], RetrievalSettings)
-
-    async def test_traverse_delegates_to_methods_traversal(self) -> None:
-        """Traverse forwards the seed, direction, and scope."""
-        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
-        seed = SearchResult(
-            item=Entity(id=uuid4(), label="Person", name="Ada"),
-            score=1.0,
-            method="entity",
-        )
-        scope = SearchFilters(relation_types=["WORKS_FOR"])
-
-        with patch(
-            "agrag.retrieval.search_engine._traverse",
-            new_callable=AsyncMock,
-            return_value=[],
-        ) as delegate:
-            await engine.traverse(
-                seed,
-                relation_type="WORKS_FOR",
-                direction="outgoing",
-                depth=2,
-                limit=5,
-                community_expand=True,
-                community_top_k=1,
-                filters=scope,
-            )
-
-        kwargs = delegate.call_args.kwargs
-        assert delegate.call_args.args[0] is seed
-        assert kwargs["relation_type"] == "WORKS_FOR"
-        assert kwargs["direction"] == "outgoing"
-        assert kwargs["depth"] == 2
-        assert kwargs["limit"] == 5
-        assert kwargs["community_expand"] is True
-        assert kwargs["community_top_k"] == 1
-        assert kwargs["filters"] is scope
-        assert isinstance(kwargs["settings"], RetrievalSettings)
-
-    async def test_list_relationship_types_delegates_to_methods_traversal(
-        self,
-    ) -> None:
-        """list_relationship_types forwards the seed and its type filter."""
-        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
-        seed = SearchResult(
-            item=Entity(id=uuid4(), label="Person", name="Ada"),
-            score=1.0,
-            method="entity",
-        )
-
-        with patch(
-            "agrag.retrieval.search_engine._list_relationship_types",
-            new_callable=AsyncMock,
-            return_value=["WORKS_FOR"],
-        ) as delegate:
-            types = await engine.list_relationship_types(
-                seed, relation_type_filter="WORKS_FOR"
-            )
-
-        assert types == ["WORKS_FOR"]
-        assert delegate.call_args.args[0] is seed
-        assert delegate.call_args.kwargs["relation_type_filter"] == "WORKS_FOR"

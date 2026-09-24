@@ -150,7 +150,10 @@ def start_cleaning_query() -> str:
     """Build Cypher moving a committed job into cleaning, fenced by lease.
 
     Same compare-and-swap shape as ``commit_job_query``: only the lease
-    holder that committed the job may start its cleanup.
+    holder that committed the job may start its cleanup. The lease expiry
+    is left as the holder last renewed it: cleanup is live work, so
+    resetting it to now would make a running job look abandoned and let a
+    concurrent resume take it over.
 
     Returns:
         Parameterized Cypher expecting $job_id and $lease_token. Returns
@@ -159,7 +162,28 @@ def start_cleaning_query() -> str:
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
         "WHERE job.lease_token = $lease_token AND job.status = 'committed' "
-        "SET job.status = 'cleaning', job.lease_expires_at = datetime() "
+        "SET job.status = 'cleaning' "
+        "RETURN job.id AS id"
+    )
+
+
+def renew_lease_query() -> str:
+    """Build Cypher extending a live job's lease, fenced by its token.
+
+    Applies in every non-terminal phase (pending, committed, cleaning) and
+    only while the caller's fencing token is still current, so a worker
+    that lost its lease cannot revive it.
+
+    Returns:
+        Parameterized Cypher expecting $job_id, $lease_token, and
+        $lease_expires_at (ISO-8601 string). Returns the job id when the
+        lease was extended, no row on fencing failure.
+    """
+    return (
+        f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
+        "WHERE job.lease_token = $lease_token "
+        "AND job.status IN ['pending', 'committed', 'cleaning'] "
+        "SET job.lease_expires_at = datetime($lease_expires_at) "
         "RETURN job.id AS id"
     )
 

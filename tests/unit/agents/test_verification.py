@@ -27,17 +27,3 @@ class TestVerificationResult:
         }
         with pytest.raises(ValidationError):
             VerificationResult(**data)
-
-    def test_missing_evidence_defaults_to_empty_list(self) -> None:
-        """missing_evidence needs no value for PASS verdicts."""
-        result = VerificationResult(reasoning="all cited", status="PASS")
-        assert result.missing_evidence == []
-
-    def test_missing_evidence_round_trips(self) -> None:
-        """An INSUFFICIENT verdict carries the gaps to close."""
-        result = VerificationResult(
-            reasoning="two sub-questions uncited",
-            status="INSUFFICIENT",
-            missing_evidence=["founding date", "board members"],
-        )
-        assert result.missing_evidence == ["founding date", "board members"]

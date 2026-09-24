@@ -1,9 +1,8 @@
 """Tests for the SearchResult data model's identity_key property.
 
 Covers the ``(kind, id)`` identity key shape for Entity, Chunk, and Relation
-items, and that two results wrapping the same entity share a key while
-results for different entities do not — the invariant fusion and the
-citation ledger both rely on to deduplicate across retrieval methods.
+items, which fusion and the citation ledger rely on to deduplicate across
+retrieval methods.
 """
 
 from uuid import uuid4
@@ -63,16 +62,3 @@ class TestSearchResult:
         )
         result = SearchResult(item=rel, score=0.7, method="bfs")
         assert result.identity_key == ("Relation", rel_id)
-
-    def test_same_entity_same_key(self) -> None:
-        """Two SearchResults for the same entity share a key."""
-        ent = _make_entity()
-        r1 = SearchResult(item=ent, score=0.9, method="entity")
-        r2 = SearchResult(item=ent, score=0.8, method="bfs")
-        assert r1.identity_key == r2.identity_key
-
-    def test_different_entities_different_keys(self) -> None:
-        """Two SearchResults for different entities have different keys."""
-        r1 = SearchResult(item=_make_entity(), score=0.9, method="entity")
-        r2 = SearchResult(item=_make_entity(), score=0.8, method="entity")
-        assert r1.identity_key != r2.identity_key

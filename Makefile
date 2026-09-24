@@ -1,4 +1,4 @@
-.PHONY: sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
+.PHONY: test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
 help:
 	@echo "Available make targets:"
@@ -7,6 +7,7 @@ help:
 	@echo "  make test-integration - Run integration tests (requires network)"
 	@echo "  make test-e2e         - Run end-to-end pipeline tests (requires Neo4j)"
 	@echo "  make test-all         - Run unit, integration, and e2e tests in order"
+	@echo "  make test-cov-map     - Run all suites with JUnit files and per-test coverage contexts"
 	@echo "  make dev-services-up  - Start local Neo4j/Qdrant/Weaviate/Milvus for integration tests"
 	@echo "  make dev-services-down - Stop and remove local backend services and their data"
 	@echo "  make cov-report       - Generate coverage reports (xml, html)"
@@ -39,6 +40,9 @@ sync:
 sync-docs-pins:
 	uv run python .github/scripts/update_precommit_docs_pins.py
 
+COV_ARGS ?=
+COV_MAP_DIR ?= reports
+
 test:
 	uv run pytest tests/unit \
 		--cov=agrag \
@@ -59,15 +63,32 @@ test:
 test-integration:
 	uv run pytest tests/integration/agents tests/integration/ingestion tests/integration/embedding tests/integration/vectordb tests/integration/loaders -v -n auto --dist loadscope \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
-		--junitxml=pytest-integration-results-ingestion.xml
+		$(COV_ARGS) --junitxml=pytest-integration-results-ingestion.xml
 	uv run pytest tests/integration/retrieval tests/integration/graphdb tests/integration/cypher -v -n auto --dist loadgroup \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
-		--junitxml=pytest-integration-results-graph.xml
+		$(COV_ARGS) --junitxml=pytest-integration-results-graph.xml
 
+# E2E tests run serially and after the integration groups. Their teardown is not
+# safe next to other tests: xdist workers would share one Neo4j database. The
+# collection hook in tests/conftest.py skips them under xdist for the same reason.
 test-e2e:
 	uv run pytest tests/integration/e2e -v \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
-		--junitxml=pytest-e2e-results.xml
+		$(COV_ARGS) --junitxml=pytest-e2e-results.xml
+
+# Runs every suite in the safe order with one coverage data file, a JUnit file per
+# suite, and per-test coverage contexts. The JSON report maps each line to the
+# tests that ran it. Only tests listed as passed in the JUnit files count.
+test-cov-map:
+	mkdir -p $(COV_MAP_DIR)
+	rm -f $(COV_MAP_DIR)/.coverage
+	COVERAGE_FILE=$(COV_MAP_DIR)/.coverage $(MAKE) test-cov-map-suites COV_ARGS="--cov=agrag --cov-append --cov-context=test"
+	COVERAGE_FILE=$(COV_MAP_DIR)/.coverage uv run coverage json --show-contexts -o $(COV_MAP_DIR)/coverage-contexts.json
+
+test-cov-map-suites:
+	uv run pytest tests/unit -o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra -n auto --dist loadscope" $(COV_ARGS) --junitxml=$(COV_MAP_DIR)/junit-unit.xml
+	$(MAKE) test-integration test-e2e COV_ARGS="$(COV_ARGS)"
+	mv -f pytest-integration-results-ingestion.xml pytest-integration-results-graph.xml pytest-e2e-results.xml $(COV_MAP_DIR)/
 
 test-all: test test-integration test-e2e
 

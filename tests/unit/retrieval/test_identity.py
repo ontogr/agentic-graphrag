@@ -1,11 +1,11 @@
 """Tests for resolve_entity in agrag.retrieval.identity.
 
 Uses an AsyncMock graph store returning rows shaped like
-resolve_merged_into_query's output. Covers a missing entity raising
-ValueError, a live (non-tombstoned) entity resolving in one query, following
-a multi-hop merged_into chain to its survivor, a chain pointing at a missing
-node raising, a merged_into cycle raising instead of looping forever, and a
-chain longer than MAX_MERGE_HOPS raising.
+resolve_merged_into_query's output. Covers the failure modes a healthy graph
+never produces: a chain pointing at a missing node raising, a merged_into
+cycle raising instead of looping forever, and a chain longer than
+MAX_MERGE_HOPS raising. Successful resolution runs against Neo4j in the
+integration suite.
 """
 
 from unittest.mock import AsyncMock
@@ -36,42 +36,6 @@ def _row(entity_id: UUID, *, merged_into: UUID | None = None) -> dict:
 
 class TestResolveEntity:
     """resolve_entity follows merged_into chains."""
-
-    async def test_raises_for_missing_entity(self) -> None:
-        """Missing entity raises ValueError."""
-        gs = AsyncMock()
-        gs.execute_read.return_value = []
-
-        with pytest.raises(ValueError, match="not found"):
-            await resolve_entity(gs, uuid4())
-
-    async def test_returns_live_entity_directly(self) -> None:
-        """Live entity (no tombstone) is returned in one query."""
-        ent_id = uuid4()
-        gs = AsyncMock()
-        gs.execute_read.return_value = [_row(ent_id)]
-
-        entity = await resolve_entity(gs, ent_id)
-
-        assert entity.id == ent_id
-        assert entity.name == "Alice"
-        assert gs.execute_read.await_count == 1
-
-    async def test_follows_merged_into_property_chain(self) -> None:
-        """A multi-hop tombstone chain resolves to the survivor."""
-        survivor_id = uuid4()
-        middle_id = uuid4()
-        tombstone_id = uuid4()
-        gs = AsyncMock()
-        gs.execute_read.side_effect = [
-            [_row(tombstone_id, merged_into=middle_id)],
-            [_row(middle_id, merged_into=survivor_id)],
-            [_row(survivor_id)],
-        ]
-
-        entity = await resolve_entity(gs, tombstone_id)
-
-        assert entity.id == survivor_id
 
     async def test_raises_when_chain_target_is_missing(self) -> None:
         """A merged_into pointer to a missing node raises."""

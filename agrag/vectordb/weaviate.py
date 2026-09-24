@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
+from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.vector_record import (
     PENDING_VECTOR_FLAG,
     Distance,
@@ -190,17 +191,21 @@ class WeaviateVectorStore(VectorStore):
             raise ValueError(f"{_PENDING_PROPERTY!r} is reserved for internal use")
 
     @staticmethod
-    def _to_hit(obj: Any) -> VectorHit:
+    def _to_hit(obj: Any, *, cosine: bool = False) -> VectorHit:
         """Convert a Weaviate object to a ``VectorHit``.
 
         ``hybrid_search`` populates ``score`` metadata directly, but
         ``near_vector`` (dense-only search) has no such field and instead
         reports ``distance``, which is smaller-is-closer for every configured
-        metric; that gets negated so it matches ``VectorHit.score``'s
-        higher-is-closer convention.
+        metric. Cosine distance becomes ``1 - distance``, the cosine similarity
+        Qdrant and Milvus report. Weaviate's dot distance is the negated dot
+        product and its L2 distance is the squared Euclidean distance, so
+        negating either matches ``VectorHit.score``'s higher-is-closer
+        convention.
 
         Args:
             obj: A Weaviate query result object.
+            cosine: Whether the collection uses the cosine metric.
 
         Returns:
             The equivalent hit.
@@ -211,7 +216,8 @@ class WeaviateVectorStore(VectorStore):
             if getattr(metadata, "score", None) is not None:
                 score = float(metadata.score)
             elif getattr(metadata, "distance", None) is not None:
-                score = -float(metadata.distance)
+                distance = float(metadata.distance)
+                score = 1.0 - distance if cosine else -distance
         return VectorHit(
             id=UUID(str(obj.uuid)),
             score=score,
@@ -292,6 +298,7 @@ class WeaviateVectorStore(VectorStore):
             vector_config=vector_config,
             properties=[
                 Property(name=_PENDING_PROPERTY, data_type=DataType.BOOL),
+                Property(name=PENDING_JOB_ID_PROPERTY, data_type=DataType.TEXT),
             ],
         )
 
@@ -441,6 +448,7 @@ class WeaviateVectorStore(VectorStore):
 
         # Deferred until after _ensure_client so a missing extra surfaces as
         # VectorStoreMissingExtraError, not a raw ImportError.
+        from weaviate.classes.config import VectorDistances  # noqa: PLC0415
         from weaviate.classes.query import MetadataQuery  # noqa: PLC0415
 
         target = client.collections.get(collection)
@@ -451,7 +459,10 @@ class WeaviateVectorStore(VectorStore):
             return_metadata=MetadataQuery(distance=True),
         )
         objects = response.objects if hasattr(response, "objects") else response
-        return [self._to_hit(obj) for obj in objects]
+        config = await target.config.get()
+        metric = config.vector_config[_VECTOR_NAME].vector_index_config.distance_metric
+        cosine = metric == VectorDistances.COSINE
+        return [self._to_hit(obj, cosine=cosine) for obj in objects]
 
     async def hybrid_search(
         self,

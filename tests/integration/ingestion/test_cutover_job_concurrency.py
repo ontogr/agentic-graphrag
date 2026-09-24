@@ -15,13 +15,19 @@ from uuid import uuid4
 import pytest
 
 from agrag.common.data_models.cutover_job import CUTOVER_JOB_LABEL
+from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     clear_pending_tag_query,
+    commit_job_query,
     rollback_job_query,
+    start_cleaning_query,
 )
 from agrag.cypher.schema import cutover_job_document_key_constraint_query
 from agrag.graphdb import build_graph_store
+from agrag.ingestion._cutover import run_cutover_job
+from agrag.ingestion._resume import resume_incomplete_jobs
+from agrag.ingestion.settings import CutoverJobSettings
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -69,6 +75,96 @@ class TestCutoverJobConcurrency:
                 if rows and rows[0]["lease_token"] == token
             ]
             assert len(winners) == 1
+        finally:
+            await store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",
+                {"key": key},
+            )
+            await store.close()
+
+
+@pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
+class TestCutoverJobLeaseLifetime:
+    """A live job keeps an unexpired lease through every phase."""
+
+    async def test_cleaning_job_is_not_resumable_while_its_lease_is_live(
+        self,
+    ) -> None:
+        """Entering cleaning must not make the job look abandoned.
+
+        A concurrent ``Graph.open`` resume decides from ``lease_expired``;
+        it must read ``False`` for a job that just started cleaning.
+        """
+        store = build_graph_store("neo4j")
+        await store.connect()
+        key = f"cutover-cleaning-lease-{uuid4().hex}"
+        job_id = str(uuid4())
+        token = str(uuid4())
+        try:
+            await store.execute_write(cutover_job_document_key_constraint_query())
+            expires = datetime.now(UTC) + timedelta(seconds=300)
+            await store.execute_write(
+                acquire_lease_query(),
+                {
+                    "job_id": job_id,
+                    "document_key": key,
+                    "verb": "add",
+                    "lease_token": token,
+                    "lease_expires_at": expires.isoformat(),
+                    "affected_entity_ids": [],
+                    "created_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            params = {"job_id": job_id, "lease_token": token}
+            assert await store.execute_write(commit_job_query(), params)
+            assert await store.execute_write(start_cleaning_query(), params)
+
+            rows = await store.execute_read(find_incomplete_jobs_query())
+            [row] = [r for r in rows if r["id"] == job_id]
+            assert row["status"] == "cleaning"
+            assert row["lease_expired"] is False
+        finally:
+            await store.execute_write(
+                "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",
+                {"key": key},
+            )
+            await store.close()
+
+    async def test_slow_job_keeps_its_lease_past_the_ttl(self) -> None:
+        """A phase longer than the TTL is not stolen by a concurrent resume."""
+        store = build_graph_store("neo4j")
+        await store.connect()
+        key = f"cutover-slow-{uuid4().hex}"
+        seen: dict[str, str] = {}
+        resumed: list[str] = []
+
+        async def slow_write(job_id: Any) -> None:
+            seen["job_id"] = str(job_id)
+            await asyncio.sleep(2.5)
+            resumed.extend(await resume_incomplete_jobs(store))
+
+        async def cleanup() -> None:
+            return None
+
+        try:
+            await store.execute_write(cutover_job_document_key_constraint_query())
+            await run_cutover_job(
+                verb="add",
+                document_key=key,
+                affected_entity_ids=[],
+                graph_store=store,
+                vector_store=None,
+                vector_collections=[],
+                settings=CutoverJobSettings(lease_ttl_seconds=1),
+                pending_write=slow_write,
+                cleanup=cleanup,
+            )
+            assert seen["job_id"] not in resumed
+            rows = await store.execute_read(
+                "MATCH (job:CutoverJob {document_key: $key}) RETURN job.status AS s",
+                {"key": key},
+            )
+            assert rows == [{"s": "done"}]
         finally:
             await store.execute_write(
                 "MATCH (job:CutoverJob {document_key: $key}) DETACH DELETE job",

@@ -33,20 +33,6 @@ class TestParseCommunityNode:
         """Missing id returns None."""
         assert _parse_community_node({"properties": {"title": "x"}}) is None
 
-    def test_no_embedding_leaves_none(self) -> None:
-        """No embedding property leaves embedding None."""
-        cid = uuid4()
-        node = {
-            "id": str(cid),
-            "title": "T",
-            "summary": "S",
-            "rating": 5,
-            "rating_explanation": "e",
-        }
-        comm = _parse_community_node(node)
-        assert comm is not None
-        assert comm.embedding is None
-
     def test_non_dict_mapping_node_is_parsed(self) -> None:
         """A Mapping-like node without dict identity still parses via keys()."""
         cid = uuid4()

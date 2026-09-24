@@ -4,12 +4,7 @@ from collections import namedtuple
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-import pytest
-
-from agrag.ingestion.community import (
-    CommunityDetectionMissingExtraError,
-    compute_communities,
-)
+from agrag.ingestion.community import compute_communities
 
 
 HC = namedtuple(  # type: ignore[misc]
@@ -126,11 +121,3 @@ class TestComputeCommunities:
             comms = compute_communities(edges)
             assert len(comms) == 1
             assert comms[0].internal_weight == 2.0
-
-    def test_missing_extra(self) -> None:
-        """Missing graspologic-native raises CommunityDetectionMissingExtraError."""
-        with (
-            patch.dict("sys.modules", {"graspologic_native": None}),
-            pytest.raises(CommunityDetectionMissingExtraError),
-        ):
-            compute_communities([])

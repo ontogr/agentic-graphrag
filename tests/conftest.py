@@ -1,5 +1,7 @@
 """Adds test markers by directory."""
 
+import os
+
 import pytest
 
 
@@ -10,7 +12,8 @@ def pytest_collection_modifyitems(
 
     Each collected test under tests/integration/ gets the integration,
     enable_socket, and flaky markers. Test files must not add these markers
-    directly.
+    directly. Tests under tests/integration/e2e are skipped on xdist workers
+    because they share one database with the rest of the suite.
 
     Args:
         config: The pytest run configuration.
@@ -28,3 +31,9 @@ def pytest_collection_modifyitems(
             )
         if "tests/integration/e2e" in path:
             item.add_marker(pytest.mark.slow)
+            if os.environ.get("PYTEST_XDIST_WORKER"):
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason="e2e tests share one database; run `make test-e2e`"
+                    )
+                )

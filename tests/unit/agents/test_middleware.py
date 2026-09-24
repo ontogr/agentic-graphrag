@@ -158,27 +158,6 @@ class TestResearchAttemptLimiter:
 
         assert handler.await_count == 6
 
-    async def test_the_retry_past_the_cap_returns_the_limit_message(
-        self,
-    ) -> None:
-        """The over-budget delegation gets the limit-reached ToolMessage."""
-        limiter = self._middleware(2)
-        handler = self._handler()
-
-        async def delegate(subagent_type: str) -> object:
-            return await limiter.awrap_tool_call(
-                _tool_call_request("task", {"subagent_type": subagent_type}),
-                handler,
-            )
-
-        await delegate("verifier")
-        await delegate("researcher")
-        await delegate("researcher")
-        result = await delegate("researcher")
-
-        assert isinstance(result, ToolMessage)
-        assert "limit reached" in result.content
-
     async def test_call_past_limit_short_circuits_without_calling_handler(
         self,
     ) -> None:

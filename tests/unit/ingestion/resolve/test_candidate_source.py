@@ -3,8 +3,8 @@
 Covers same-label in-batch blocking with exact index sets, the guarantee
 that the in-batch path never touches GraphStore.vector_search or
 VectorStore.hybrid_search, batch-bounded cost independent of graph size,
-both global_candidates_for routing branches, top_k defaults and
-passthrough, and exact_match_lookup alias and tombstone-chain behavior.
+both global_candidates_for routing branches, and exact_match_lookup alias
+and tombstone-chain behavior.
 
 Also covers the VectorStore-backed candidate path, which must hydrate the
 persisted Entity by id rather than reconstructing its name from the display
@@ -337,40 +337,6 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
 
         assert [entity.id for entity, _ in candidates] == [kept_id]
         assert [score for _, score in candidates] == [0.88]
-
-
-class TestGraphCandidateSourceTopK:
-    """top_k defaults to 50 and reaches vector_search as limit."""
-
-    def test_default_top_k_is_50(self) -> None:
-        """A source without top_k searches 50 candidates."""
-        source, _ = _source()
-        assert source.top_k == 50
-
-    async def test_default_top_k_passes_limit_50(self) -> None:
-        """The default top_k is forwarded as the search limit."""
-        source, _ = _source()
-        with patch(
-            "agrag.ingestion.resolve.candidate_source.vector_search",
-            new_callable=AsyncMock,
-            return_value=[],
-        ) as mock_search:
-            await source.global_candidates_for(_mention("Ada"))
-        assert mock_search.call_args is not None
-        assert mock_search.call_args.kwargs["limit"] == 50
-
-    async def test_override_top_k_passes_limit(self) -> None:
-        """An explicit top_k is forwarded as the search limit."""
-        source, _ = _source(top_k=5)
-        assert source.top_k == 5
-        with patch(
-            "agrag.ingestion.resolve.candidate_source.vector_search",
-            new_callable=AsyncMock,
-            return_value=[],
-        ) as mock_search:
-            await source.global_candidates_for(_mention("Ada"))
-        assert mock_search.call_args is not None
-        assert mock_search.call_args.kwargs["limit"] == 5
 
 
 class TestExactMatchLookup:

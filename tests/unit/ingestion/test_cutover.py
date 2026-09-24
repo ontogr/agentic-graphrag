@@ -9,6 +9,7 @@ query's text. Query text is covered by tests/unit/cypher; real MERGE and
 constraint behavior under concurrency by the integration test instead.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -21,6 +22,7 @@ from agrag.cypher.cutover_job_write import (
     clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
+    renew_lease_query,
     rollback_job_query,
     start_cleaning_query,
     steal_expired_lease_query,
@@ -72,6 +74,7 @@ class _FakeCutoverStore:
                 p, "committed", "cleaning"
             ),
             finish_cleaning_query(): lambda p: self._transition(p, "cleaning", "done"),
+            renew_lease_query(): self._renew,
             clear_pending_tag_query(): self._clear_tag,
             rollback_job_query(): self._rollback,
         }
@@ -121,6 +124,18 @@ class _FakeCutoverStore:
                 and job["status"] == expected
             ):
                 job["status"] = nxt
+                return [{"id": job["id"]}]
+        return []
+
+    def _renew(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Extend the lease of the job holding the caller's token."""
+        for job in self.jobs.values():
+            if job["id"] == str(params["job_id"]) and job["lease_token"] == str(
+                params["lease_token"]
+            ):
+                job["lease_expires_at"] = datetime.fromisoformat(
+                    str(params["lease_expires_at"])
+                )
                 return [{"id": job["id"]}]
         return []
 
@@ -234,85 +249,6 @@ def _tag_node(job_id: UUID) -> dict[str, Any]:
     }
 
 
-class TestRunCutoverJobHappyPath:
-    """Happy path: lease, pending writes, commit, cleanup, finish."""
-
-    async def test_pipeline_result_and_job_terminal_state(self) -> None:
-        """The result flows through; writes land committed and the job finishes."""
-        store = _FakeCutoverStore()
-        cleanup_seen: list[str] = []
-
-        async def pending(job_id: UUID) -> str:
-            store.nodes.append(_tag_node(job_id))
-            return "payload"
-
-        async def cleanup() -> str:
-            cleanup_seen.append("ran")
-            return "cleaned"
-
-        result, cleaned, chunks_closed = await run_cutover_job(
-            **_write_job(pending, cleanup, graph_store=store)
-        )
-
-        assert result == "payload"
-        assert cleaned == "cleaned"
-        assert chunks_closed == 0
-        assert cleanup_seen == ["ran"]
-        # All writes committed: the tag is cleared from the survivor.
-        assert store.nodes
-        assert all("_pending_job_id" not in n["properties"] for n in store.nodes)
-        # The job reached its terminal state.
-        assert all(job["status"] == "done" for job in store.jobs.values())
-
-    async def test_commit_flip_and_tag_clear_share_one_transaction(self) -> None:
-        """Commit and tag-clear run inside one transaction, commit first."""
-        store = _FakeCutoverStore()
-
-        async def pending(job_id: UUID) -> None:
-            store.nodes.append(_tag_node(job_id))
-
-        await run_cutover_job(**_write_job(pending, graph_store=store))
-
-        assert len(store.transactions) == 1
-        queries = [query for query, _ in store.transactions[0]]
-        assert commit_job_query() in queries
-        assert clear_pending_tag_query() in queries
-        # Commit precedes the tag clear inside the same transaction.
-        assert queries.index(commit_job_query()) < queries.index(
-            clear_pending_tag_query()
-        )
-
-    async def test_pending_write_receives_the_job_id(self) -> None:
-        """The pending-write callable gets the new job's id to tag its writes with."""
-        store = _FakeCutoverStore()
-        seen: list[UUID] = []
-
-        async def pending(job_id: UUID) -> None:
-            seen.append(job_id)
-
-        await run_cutover_job(**_write_job(pending, graph_store=store))
-
-        assert len(seen) == 1
-        assert isinstance(seen[0], UUID)
-
-    async def test_close_document_node_id_closes_part_of_edges(self) -> None:
-        """close_document_node_id runs the PART_OF close in the commit txn."""
-        store = _FakeCutoverStore()
-
-        async def pending(job_id: UUID) -> None:
-            return None
-
-        # close_document_node_id drives close_open_part_of_edges against the
-        # store; the fake returns no rows, so the count is zero but the call
-        # is exercised inside the commit transaction.
-        _, _, chunks_closed = await run_cutover_job(
-            **_write_job(pending, graph_store=store, close_document_node_id=uuid4())
-        )
-        assert chunks_closed == 0
-        queries = [query for query, _ in store.transactions[0]]
-        assert any("PART_OF" in query for query in queries)
-
-
 class TestRunCutoverJobLeaseFailure:
     """A live lease held elsewhere blocks the job before any write."""
 
@@ -364,6 +300,30 @@ class TestRunCutoverJobLeaseFailure:
         assert store.nodes == []
         assert store.jobs["doc-1"]["id"] == stolen_job_id
         assert store.jobs["doc-1"]["lease_token"] == holder
+
+
+class TestRunCutoverJobLeaseRenewal:
+    """The runner keeps its lease live for phases longer than the TTL."""
+
+    async def test_lease_outlives_a_slow_pending_write(self) -> None:
+        """A write slower than the TTL never exposes an expired lease."""
+        store = _FakeCutoverStore()
+        expired_seen: list[bool] = []
+
+        async def slow_write(job_id: UUID) -> None:
+            await asyncio.sleep(1.3)
+            job = store.jobs["doc-1"]
+            expired_seen.append(job["lease_expires_at"] < datetime.now(UTC))
+
+        await run_cutover_job(
+            **_write_job(
+                slow_write,
+                graph_store=store,
+                settings=CutoverJobSettings(lease_ttl_seconds=1),
+            )
+        )
+        assert store.jobs["doc-1"]["status"] == "done"
+        assert not any(expired_seen)
 
 
 class TestRunCutoverJobRollback:

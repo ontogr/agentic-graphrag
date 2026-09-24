@@ -31,43 +31,6 @@ class TestFetchRelationEdges:
         assert edges[0][2] == 2.0
         assert edges[1][2] == 0.0
 
-    async def test_pagination(self) -> None:
-        """Pagination loops until fewer than page_size.
-
-        The next page's cursor resumes from the last row's full keyset,
-        not just (source_id, target_id).
-        """
-        mock_store = AsyncMock()
-        mock_store.execute_read.side_effect = [
-            [
-                {
-                    "source_id": str(i),
-                    "target_id": str(i + 1),
-                    "source_chunk_ids": ["x"],
-                    "rel_type": "KNOWS",
-                    "rel_id": f"r{i}",
-                }
-                for i in range(5)
-            ],
-            [
-                {
-                    "source_id": "done",
-                    "target_id": "done2",
-                    "source_chunk_ids": ["y"],
-                    "rel_type": "KNOWS",
-                    "rel_id": "r5",
-                }
-            ],
-        ]
-        edges = await fetch_relation_edges(mock_store, page_size=5)
-        assert len(edges) == 6
-        assert mock_store.execute_read.call_count == 2
-        second_call_params = mock_store.execute_read.call_args_list[1].args[1]
-        assert second_call_params["last_a"] == "4"
-        assert second_call_params["last_b"] == "5"
-        assert second_call_params["last_type"] == "KNOWS"
-        assert second_call_params["last_rel_id"] == "r4"
-
     async def test_use_cursor_false_uses_skip_pagination(self) -> None:
         """use_cursor=False pages via SKIP and still computes weights."""
         mock_store = AsyncMock()

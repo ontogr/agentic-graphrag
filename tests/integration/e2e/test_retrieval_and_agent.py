@@ -34,6 +34,7 @@ from agrag.ingestion.merge import mentioned_in_id
 from agrag.retrieval.recipes import CHUNK, ENTITY, HYBRID
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.integration.e2e._artifact import write_artifact
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -52,28 +53,26 @@ def _agent_llm_configured() -> bool:
 
 
 class _FixedEmbedder(Embedder):
-    """Embedder returning deterministic vectors for e2e tests."""
+    """Embedder returning one vector unique to the run for every text.
+
+    The vector indexes are shared with other suites. A run-unique vector gives
+    the run's own nodes cosine score 1 against every query, so they rank above
+    nodes other suites left in the database.
+    """
 
     model = "fixed"
+
+    def __init__(self, token: str) -> None:
+        """Derive the vector from the run token."""
+        self._vector = [(int(char, 16) + 1) / 16 for char in token[:4]]
 
     async def dimensions(self) -> int:
         """Return 4 dimensions."""
         return 4
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """Return deterministic vectors based on text content."""
-        vectors: list[list[float]] = []
-        for text in texts:
-            h = hash(text) % 1000
-            vectors.append(
-                [
-                    float(h % 10) / 10.0,
-                    float((h // 10) % 10) / 10.0,
-                    float((h // 100) % 10) / 10.0,
-                    0.5,
-                ]
-            )
-        return vectors
+        """Return the run vector for every text."""
+        return [list(self._vector) for _ in texts]
 
 
 class _DrugExtractor(Extractor):
@@ -118,8 +117,6 @@ class _DrugExtractor(Extractor):
         return ExtractionResult(entities=entities, relations=[], extractor_name="e2e")
 
 
-@pytest.mark.integration
-@pytest.mark.enable_socket
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestRetrievalE2E:
     """Full end-to-end test: ingest, merge, retrieve, verify."""
@@ -129,12 +126,14 @@ class TestRetrievalE2E:
         """Set up a fresh store for each test."""
         self.store = build_graph_store("neo4j")
         await self.store.connect()
+        self.token = uuid4().hex[:8]
+        self.chunk_ids: list[str] = []
         self.drug_label = validate_identifier(f"Drug_{uuid4().hex[:8]}")
         self.condition_label = validate_identifier(f"Condition_{uuid4().hex[:8]}")
-        self.embedder = _FixedEmbedder()
+        self.embedder = _FixedEmbedder(self.token)
         self.settings = RetrievalSettings(
-            entity_top_k=10,
-            chunk_top_k=10,
+            entity_top_k=100,
+            chunk_top_k=100,
         )
         self.schema = GraphSchema(
             name="e2e",
@@ -151,13 +150,72 @@ class TestRetrievalE2E:
             ],
             relations=[],
         )
-        yield
-        await self.store.execute_write(f"MATCH (n:{self.drug_label}) DETACH DELETE n")
-        await self.store.execute_write(
-            f"MATCH (n:{self.condition_label}) DETACH DELETE n"
+        try:
+            yield
+        finally:
+            # Chunks are shared across suites, so delete only the ones this
+            # test seeded, ones that mention its entities, and ones carrying
+            # its unique text token.
+            await self.store.execute_write(
+                f"MATCH (c:{CHUNK_LABEL})--(e) "
+                "WHERE $drug IN labels(e) OR $condition IN labels(e) "
+                "DETACH DELETE c",
+                {"drug": self.drug_label, "condition": self.condition_label},
+            )
+            await self.store.execute_write(
+                f"MATCH (c:{CHUNK_LABEL}) "
+                "WHERE c.id IN $ids OR c.text CONTAINS $token DETACH DELETE c",
+                {"ids": self.chunk_ids, "token": self.token},
+            )
+            await self.store.execute_write(
+                f"MATCH (n:{self.drug_label}) DETACH DELETE n"
+            )
+            await self.store.execute_write(
+                f"MATCH (n:{self.condition_label}) DETACH DELETE n"
+            )
+            await self.store.close()
+
+    def _engine(self) -> SearchEngine:
+        """Build a search engine over the test store."""
+        return SearchEngine(
+            graph_store=self.store,
+            embedder=self.embedder,
+            settings=self.settings,
+            graph_schema=self.schema,
         )
-        await self.store.execute_write(f"MATCH (n:{CHUNK_LABEL}) DETACH DELETE n")
-        await self.store.close()
+
+    def _graph(self) -> Graph:
+        """Build a graph that ingests through the fake extractor."""
+        return Graph(
+            schema=self.schema,
+            graph_store=self.store,
+            embedder=self.embedder,
+            extractor=_DrugExtractor(
+                drug_label=self.drug_label,
+                condition_label=self.condition_label,
+            ),
+        )
+
+    async def _own_entities(self) -> dict[str, str]:
+        """Return ``{id: name}`` of entities under this test's labels.
+
+        Entity search spans every label in the shared database, so tests
+        filter hits down to these ids before asserting.
+        """
+        rows = await self.store.execute_read(
+            "MATCH (n) WHERE $drug IN labels(n) OR $condition IN labels(n) "
+            "RETURN n.id AS id, n.name AS name",
+            {"drug": self.drug_label, "condition": self.condition_label},
+        )
+        return {str(r["id"]): r["name"] for r in rows}
+
+    async def _token_chunks(self) -> list[dict[str, object]]:
+        """Return id and text of chunks whose text carries this test's token."""
+        return await self.store.execute_read(
+            f"MATCH (c:{CHUNK_LABEL}) WHERE c.text CONTAINS $token "
+            "RETURN c.id AS id, c.text AS text",
+            {"token": self.token},
+        )
 
     async def _ensure_retrieval_indexes(self) -> None:
         """Provision the vector indexes retrieval searches.
@@ -226,6 +284,7 @@ class TestRetrievalE2E:
             provenance=TextProvenance(char_start=0, char_end=44),
         )
         chunk.embedding = await self.embedder.embed_one(chunk.text)
+        self.chunk_ids.append(str(chunk.id))
         await self.store.upsert_nodes(
             CHUNK_LABEL,
             [
@@ -285,35 +344,19 @@ class TestRetrievalE2E:
         """Entity search returns the survivor, not the tombstone."""
         survivor, tombstone, _ = await self._seed_graph_with_merge()
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-        results = await engine.search("Aspirin", ENTITY)
+        results = await self._engine().search("Aspirin", ENTITY)
 
-        assert len(results) >= 1
         result_ids = {r.item.id for r in results}
         assert survivor.id in result_ids
         assert tombstone.id not in result_ids
-
-    async def test_entity_search_survivor_has_correct_name(
-        self,
-    ) -> None:
-        """The survivor entity has the correct canonical name."""
-        survivor, _, _ = await self._seed_graph_with_merge()
-
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
+        own = await self._own_entities()
+        names = sorted(own[str(r.item.id)] for r in results if str(r.item.id) in own)
+        assert names == ["Aspirin"]
+        artifact = write_artifact(
+            "retrieval_and_agent_merge_entity_search",
+            {"entity_names": names, "tombstone_returned": False},
         )
-        results = await engine.search("Aspirin", ENTITY)
-
-        names = {r.item.name for r in results if hasattr(r.item, "name")}
-        assert "Aspirin" in names
+        assert artifact["entity_names"] == ["Aspirin"]
 
     # ---- Chunk search tests ----
 
@@ -321,70 +364,44 @@ class TestRetrievalE2E:
         """Chunk search finds the seeded chunk."""
         _, _, chunk = await self._seed_graph_with_merge()
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-        results = await engine.search("headache treatment", CHUNK)
+        results = await self._engine().search(chunk.text, CHUNK)
 
-        assert len(results) >= 1
-        result_texts = {r.item.text for r in results if hasattr(r.item, "text")}
-        assert any("aspirin" in t.lower() for t in result_texts)
+        matching = [r for r in results if r.item.id == chunk.id]
+        assert len(matching) == 1
+        assert "aspirin" in matching[0].item.text.lower()
 
     async def test_chunk_result_has_embedding(self) -> None:
         """The chunk result carries its embedding."""
         _, _, chunk = await self._seed_graph_with_merge()
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-        results = await engine.search("headache", CHUNK)
+        results = await self._engine().search(chunk.text, CHUNK)
 
-        assert len(results) >= 1
-        chunk_result = next((r for r in results if hasattr(r.item, "text")), None)
-        assert chunk_result is not None
-        # The chunk should have been hydrated with its embedding.
-        if chunk_result.item.embedding is not None:
-            assert len(chunk_result.item.embedding) == 4
+        matching = [r for r in results if r.item.id == chunk.id]
+        assert len(matching) == 1
+        assert matching[0].item.embedding is not None
+        assert len(matching[0].item.embedding) == 4
 
     # ---- Hybrid search tests ----
 
     async def test_hybrid_returns_both_types(self) -> None:
-        """HYBRID returns both entity and chunk results."""
-        await self._seed_graph_with_merge()
+        """HYBRID returns the survivor entity and the seeded chunk."""
+        survivor, _, chunk = await self._seed_graph_with_merge()
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-        results = await engine.search("Aspirin headache", HYBRID)
+        results = await self._engine().search(chunk.text, HYBRID)
 
-        assert len(results) >= 1
-        types = {type(r.item).__name__ for r in results}
-        assert "Entity" in types or "Chunk" in types
+        ids = {r.item.id for r in results}
+        assert survivor.id in ids
+        assert chunk.id in ids
 
     async def test_hybrid_fusion_deduplicates(self) -> None:
         """HYBRID fusion deduplicates results by identity_key."""
-        await self._seed_graph_with_merge()
+        survivor, _, chunk = await self._seed_graph_with_merge()
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-        results = await engine.search("Aspirin", HYBRID)
+        results = await self._engine().search(chunk.text, HYBRID)
 
-        # Check no duplicate identity_keys.
         keys = [r.identity_key for r in results]
         assert len(keys) == len(set(keys))
+        assert {survivor.id, chunk.id} <= {r.item.id for r in results}
 
     # ---- Citation key tests ----
 
@@ -394,223 +411,175 @@ class TestRetrievalE2E:
         """Every citation key resolves to a live, non-tombstoned entity."""
         from agrag.agents.ledger import Ledger  # noqa: PLC0415
 
-        survivor, tombstone, _ = await self._seed_graph_with_merge()
+        survivor, tombstone, chunk = await self._seed_graph_with_merge()
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-        results = await engine.search("Aspirin", HYBRID)
+        results = await self._engine().search(chunk.text, HYBRID)
 
         ledger = Ledger()
-        for result in results:
-            key = ledger.cite(result)
+        keys = [ledger.cite(result) for result in results]
+        for key in keys:
             resolved = ledger.resolve(key)
             assert resolved is not None
-            if hasattr(resolved.item, "id"):
-                assert resolved.item.id != tombstone.id
+            assert resolved.item.id != tombstone.id
+        resolved_ids = {ledger.resolve(k).item.id for k in keys}  # type: ignore[union-attr]
+        assert {survivor.id, chunk.id} <= resolved_ids
+        assert len(set(keys)) == len(keys)
+        artifact = write_artifact(
+            "retrieval_and_agent_hybrid_citations",
+            {
+                "survivor_cited": True,
+                "chunk_cited": True,
+                "tombstone_cited": False,
+                "unique_keys": len(set(keys)) == len(keys),
+                "own_entities_cited": len(resolved_ids & {survivor.id, tombstone.id}),
+            },
+        )
+        assert artifact["own_entities_cited"] == 1
 
     async def test_citation_keys_are_stable(self) -> None:
         """Citation keys are stable across multiple cite() calls."""
         from agrag.agents.ledger import Ledger  # noqa: PLC0415
 
-        await self._seed_graph_with_merge()
+        survivor, _, _ = await self._seed_graph_with_merge()
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-        results = await engine.search("Aspirin", ENTITY)
+        results = await self._engine().search("Aspirin", ENTITY)
+        assert results
 
         ledger = Ledger()
-        if results:
-            key1 = ledger.cite(results[0])
-            key2 = ledger.cite(results[0])
-            assert key1 == key2
+        key1 = ledger.cite(results[0])
+        key2 = ledger.cite(results[0])
+        assert key1 == key2
+        resolved = ledger.resolve(key1)
+        assert resolved is not None
+        assert resolved.item.id == survivor.id
 
     # ---- SearchEngine direct usage tests ----
 
     async def test_search_engine_entity_direct(self) -> None:
-        """SearchEngine entity search works directly."""
-        await self._seed_graph_with_merge()
+        """SearchEngine entity search returns the survivor entity."""
+        survivor, _, _ = await self._seed_graph_with_merge()
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-        results = await engine.search("Aspirin", ENTITY)
-        assert isinstance(results, list)
+        results = await self._engine().search("Aspirin", ENTITY)
+
+        own = await self._own_entities()
+        assert [r.item.id for r in results if str(r.item.id) in own] == [survivor.id]
 
     async def test_search_engine_chunk_direct(self) -> None:
-        """SearchEngine chunk search works directly."""
-        await self._seed_graph_with_merge()
+        """SearchEngine chunk search returns the seeded chunk."""
+        _, _, chunk = await self._seed_graph_with_merge()
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-        results = await engine.search("headache", CHUNK)
-        assert isinstance(results, list)
+        results = await self._engine().search(chunk.text, CHUNK)
+
+        assert chunk.id in {r.item.id for r in results}
 
     async def test_search_engine_empty_query(self) -> None:
-        """SearchEngine handles an empty query gracefully."""
-        await self._seed_graph_with_merge()
+        """An empty query never returns a tombstoned entity."""
+        _, tombstone, _ = await self._seed_graph_with_merge()
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-        results = await engine.search("", ENTITY)
-        assert isinstance(results, list)
+        results = await self._engine().search("", ENTITY)
+
+        assert tombstone.id not in {r.item.id for r in results}
 
     async def test_search_respects_limit(self) -> None:
         """Search respects the recipe's limit."""
-        await self._seed_graph_with_merge()
+        survivor, _, _ = await self._seed_graph_with_merge()
 
         from agrag.retrieval.recipes import Recipe  # noqa: PLC0415
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
         recipe = Recipe(methods=["entity"], limit=1)
-        results = await engine.search("Aspirin", recipe)
-        assert len(results) <= 1
+        results = await self._engine().search("Aspirin", recipe)
+        assert len(results) == 1
 
     # ---- Graph.add() pipeline tests ----
 
     async def test_full_pipeline_with_graph_add(self) -> None:
         """Full pipeline: Graph.add() -> SearchEngine.search()."""
-        graph = Graph(
-            schema=self.schema,
-            graph_store=self.store,
-            embedder=self.embedder,
-            extractor=_DrugExtractor(
-                drug_label=self.drug_label,
-                condition_label=self.condition_label,
-            ),
-        )
+        text = f"Aspirin is commonly used to treat headaches. ref {self.token}"
 
-        result = await graph.add(
-            text="Aspirin is commonly used to treat headaches.",
-            error_policy="skip",
-        )
+        result = await self._graph().add(text=text, error_policy="skip")
 
-        assert result.extraction.entities_extracted >= 1
-
+        assert result.extraction.entities_extracted == 2
         await self._ensure_retrieval_indexes()
-
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
+        engine = self._engine()
+        chunks = await self._token_chunks()
+        assert len(chunks) == 1
+        chunk_text = str(chunks[0]["text"])
 
         entity_results = await engine.search("Aspirin", ENTITY)
-        assert len(entity_results) >= 1
+        own = await self._own_entities()
+        found = {own[str(r.item.id)] for r in entity_results if str(r.item.id) in own}
+        assert "Aspirin" in found
+        entity_names = sorted(own.values())
 
-        chunk_results = await engine.search("headache treatment", CHUNK)
-        assert len(chunk_results) >= 1
+        chunk_results = await engine.search(chunk_text, CHUNK)
+        assert str(chunks[0]["id"]) in {str(r.item.id) for r in chunk_results}
+        artifact = write_artifact(
+            "retrieval_and_agent_graph_add_pipeline",
+            {
+                "entities_extracted": result.extraction.entities_extracted,
+                "entity_names": entity_names,
+                "chunks_written": len(chunks),
+                "chunk_found_by_text": True,
+            },
+        )
+        assert artifact["entity_names"] == ["Aspirin", "Headache"]
 
     async def test_graph_add_chunk_embedding_roundtrip(self) -> None:
         """Graph.add() writes chunk embeddings that vector search finds."""
-        graph = Graph(
-            schema=self.schema,
-            graph_store=self.store,
-            embedder=self.embedder,
-            extractor=_DrugExtractor(
-                drug_label=self.drug_label,
-                condition_label=self.condition_label,
-            ),
-        )
-
-        await graph.add(
-            text="Ibuprofen reduces inflammation and fever.",
+        await self._graph().add(
+            text=f"Ibuprofen reduces inflammation and fever. ref {self.token}",
             error_policy="skip",
         )
 
-        # Verify chunk has embedding in the database.
         rows = await self.store.execute_read(
-            f"MATCH (c:{CHUNK_LABEL}) "
-            f"WHERE c.text CONTAINS 'Ibuprofen' "
-            f"RETURN c.embedding AS emb LIMIT 1"
+            f"MATCH (c:{CHUNK_LABEL}) WHERE c.text CONTAINS $token "
+            "RETURN c.embedding AS emb",
+            {"token": self.token},
         )
-        assert len(rows) >= 1
+        assert len(rows) == 1
         assert rows[0]["emb"] is not None
         assert len(rows[0]["emb"]) == 4
 
     async def test_graph_add_entity_embedding_roundtrip(self) -> None:
         """Graph.add() writes entity embeddings that vector search finds."""
-        graph = Graph(
-            schema=self.schema,
-            graph_store=self.store,
-            embedder=self.embedder,
-            extractor=_DrugExtractor(
-                drug_label=self.drug_label,
-                condition_label=self.condition_label,
-            ),
-        )
-
-        await graph.add(
-            text="Ibuprofen is a common anti-inflammatory drug.",
+        await self._graph().add(
+            text=f"Ibuprofen is a common anti-inflammatory drug. ref {self.token}",
             error_policy="skip",
         )
 
-        # Verify entity has embedding.
         rows = await self.store.execute_read(
             f"MATCH (n:{self.drug_label}) "
-            f"WHERE n.name = 'Ibuprofen' "
-            f"RETURN n.embedding AS emb LIMIT 1"
+            "WHERE n.name = 'Ibuprofen' "
+            "RETURN n.embedding AS emb"
         )
-        if rows:
-            assert rows[0]["emb"] is not None
+        assert len(rows) == 1
+        assert rows[0]["emb"] is not None
+        assert len(rows[0]["emb"]) == 4
 
     async def test_multi_document_ingestion(self) -> None:
-        """Multiple documents can be ingested and searched."""
-        graph = Graph(
-            schema=self.schema,
-            graph_store=self.store,
-            embedder=self.embedder,
-            extractor=_DrugExtractor(
-                drug_label=self.drug_label,
-                condition_label=self.condition_label,
-            ),
-        )
-
+        """Entities from several documents are all searchable."""
+        graph = self._graph()
         await graph.add(
-            text="Aspirin treats headaches.",
-            error_policy="skip",
+            text=f"Aspirin treats headaches. ref {self.token}", error_policy="skip"
         )
         await graph.add(
-            text="Ibuprofen reduces inflammation.",
+            text=f"Ibuprofen reduces inflammation. ref {self.token}",
             error_policy="skip",
         )
-
         await self._ensure_retrieval_indexes()
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
+        results = await self._engine().search("drug treatment", ENTITY)
+        own = await self._own_entities()
+        names = sorted(own[str(r.item.id)] for r in results if str(r.item.id) in own)
+        chunks = await self._token_chunks()
 
-        # Both entities should be findable.
-        results = await engine.search("drug treatment", HYBRID)
-        assert len(results) >= 1
+        assert {"Aspirin", "Ibuprofen"} <= set(names)
+        assert len(chunks) == 2
+        artifact = write_artifact(
+            "retrieval_and_agent_multi_document",
+            {"entity_names": names, "chunks_written": len(chunks)},
+        )
+        assert {"Aspirin", "Ibuprofen"} <= set(artifact["entity_names"])  # type: ignore[arg-type]
 
     # ---- Agent build tests ----
 
@@ -767,16 +736,18 @@ class TestRetrievalE2E:
             },
         )
 
-        engine = SearchEngine(
-            graph_store=self.store,
-            embedder=self.embedder,
-            settings=self.settings,
-            graph_schema=self.schema,
-        )
-        results = await engine.search("Aspirin", ENTITY)
+        results = await self._engine().search("Aspirin", ENTITY)
 
-        assert len(results) >= 1
-        result_ids = {r.item.id for r in results}
-        assert survivor.id in result_ids
+        own = await self._own_entities()
+        result_ids = {r.item.id for r in results if str(r.item.id) in own}
+        assert result_ids == {survivor.id}
         assert t1.id not in result_ids
         assert t0.id not in result_ids
+        artifact = write_artifact(
+            "retrieval_and_agent_multi_hop_merge",
+            {
+                "entity_names": sorted(own[str(i)] for i in result_ids),
+                "chain_length": 3,
+            },
+        )
+        assert artifact["entity_names"] == ["Aspirin"]

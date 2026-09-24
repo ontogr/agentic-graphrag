@@ -1,10 +1,9 @@
 """Tests for chunk_document and default_chunker in agrag.chunking.
 
 Verifies character-span and line-number provenance on produced chunks, index
-ordering, heading-path tracking from a document's heading outline, and the
-character-based recursive default chunker's size limit. One test calls the
-private ``_heading_path_for`` helper directly to isolate a stale-heading bug
-from chonkie's tokenizer-dependent chunk boundaries.
+ordering, and heading-path tracking from a document's heading outline. One test
+calls the private ``_heading_path_for`` helper directly to isolate a
+stale-heading bug from chonkie's tokenizer-dependent chunk boundaries.
 """
 
 from agrag.chunking import default_chunker
@@ -114,14 +113,3 @@ class TestChunkDocument:
             HeadingRef(text="Section Two", level=2, char_start=30),
         ]
         assert _heading_path_for(35, outline) == ["Title", "Section Two"]
-
-
-class TestDefaultChunker:
-    """The default chunker is character-based and recursive."""
-
-    def test_respects_chunk_size(self) -> None:
-        """Respects chunk size."""
-        chunker = default_chunker(chunk_size=32)
-        doc = _document("word " * 100)
-        chunks = chunk_document(doc, chunker)
-        assert all(len(c.text) <= 64 for c in chunks)

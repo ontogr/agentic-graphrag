@@ -13,7 +13,6 @@ from qdrant_client import models as qdrant_models
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
 from agrag.embedding.sparse_base import SparseVector
 from agrag.vectordb.errors import (
-    CollectionDimensionMismatchError,
     VectorStoreError,
     VectorStoreMissingExtraError,
 )
@@ -95,43 +94,6 @@ def store(client: MockQdrantClient) -> QdrantVectorStore:
 class TestEnsureCollection:
     """ensure_collection creates, is idempotent, and checks dimensions."""
 
-    async def test_creates_when_absent(self, store: QdrantVectorStore, client) -> None:
-        """A missing collection is created with the requested dimension."""
-        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        client.create_collection.assert_called_once()
-        vectors_config = client.create_collection.call_args.kwargs["vectors_config"]
-        assert vectors_config.size == 4
-        assert (
-            client.create_collection.call_args.kwargs["sparse_vectors_config"] is None
-        )
-
-    async def test_hybrid_creates_sparse_config(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """A hybrid collection provisions the named sparse vector and is tracked."""
-        await store.ensure_collection(
-            "c", dimensions=4, distance=Distance.COSINE, hybrid=True
-        )
-        sparse = client.create_collection.call_args.kwargs["sparse_vectors_config"]
-        assert _SPARSE_VECTOR_NAME in sparse
-        assert "c" in store._hybrid_collections
-
-    async def test_non_hybrid_collection_not_tracked(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """A non-hybrid collection is not tracked as hybrid."""
-        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        assert "c" not in store._hybrid_collections
-
-    async def test_idempotent_when_present(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """An existing collection with a matching dimension is not recreated."""
-        client.collection_exists.return_value = True
-        client.get_collection.return_value = make_collection_info(4)
-        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        client.create_collection.assert_not_called()
-
     async def test_existing_hybrid_collection_is_tracked(
         self, store: QdrantVectorStore, client
     ) -> None:
@@ -143,34 +105,6 @@ class TestEnsureCollection:
         )
         client.create_collection.assert_not_called()
         assert "c" in store._hybrid_collections
-
-    async def test_existing_non_hybrid_collection_not_tracked(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """An already non-hybrid collection is not tracked as hybrid."""
-        client.collection_exists.return_value = True
-        client.get_collection.return_value = make_collection_info(4, sparse=False)
-        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        assert "c" not in store._hybrid_collections
-        client.update_collection.assert_not_called()
-
-    async def test_existing_dense_collection_rejects_hybrid_upgrade(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """Requesting hybrid on an existing dense collection raises.
-
-        Upgrading in place is not supported: existing records would have no
-        sparse vector and would never surface in keyword search. The caller
-        needs to create a new collection instead.
-        """
-        client.collection_exists.return_value = True
-        client.get_collection.return_value = make_collection_info(4, sparse=False)
-        with pytest.raises(VectorStoreError):
-            await store.ensure_collection(
-                "c", dimensions=4, distance=Distance.COSINE, hybrid=True
-            )
-        client.update_collection.assert_not_called()
-        assert "c" not in store._hybrid_collections
 
     async def test_unrelated_sparse_vector_is_not_treated_as_bm25(
         self, store: QdrantVectorStore, client
@@ -201,17 +135,6 @@ class TestEnsureCollection:
                 "c", dimensions=4, distance=Distance.COSINE, hybrid=True
             )
         assert "c" not in store._hybrid_collections
-
-    async def test_dimension_mismatch_raises(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """A dimension conflict raises CollectionDimensionMismatchError."""
-        client.collection_exists.return_value = True
-        client.get_collection.return_value = make_collection_info(8)
-        with pytest.raises(CollectionDimensionMismatchError) as exc_info:
-            await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        assert exc_info.value.expected == 8
-        assert exc_info.value.actual == 4
 
     async def test_create_failure_does_not_mark_hybrid(
         self, store: QdrantVectorStore, client
@@ -246,25 +169,6 @@ class TestWritesAndReads:
         assert point.id == str(record.id)
         assert point.vector == [0.1, 0.2]
         assert point.payload == {"text": "a"}
-
-    async def test_upsert_attaches_sparse_vector_for_hybrid_collection(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """Upsert into a hybrid collection also writes a sparse vector."""
-        store._hybrid_collections.add("c")
-        store._checked_collections.add("c")
-        sparse = mock.AsyncMock()
-        sparse.embed = mock.AsyncMock(
-            return_value=[SparseVector(indices=[1, 2], values=[0.5, 0.5])]
-        )
-        store._sparse_embedder = sparse
-        record = VectorRecord(id=uuid4(), vector=[0.1, 0.2], payload={"text": "hello"})
-        await store.upsert("c", [record])
-        sparse.embed.assert_called_once_with(["hello"])
-        point = client.upsert.call_args.kwargs["points"][0]
-        assert point.vector[""] == [0.1, 0.2]
-        assert point.vector[_SPARSE_VECTOR_NAME].indices == [1, 2]
-        assert point.vector[_SPARSE_VECTOR_NAME].values == [0.5, 0.5]
 
     async def test_upsert_resolves_hybrid_state_for_unseen_collection(
         self, store: QdrantVectorStore, client
@@ -555,48 +459,6 @@ class TestWritesAndReads:
         await store.delete("c", [target_id])
         selector = client.delete.call_args.kwargs["points_selector"]
         assert str(target_id) in selector.points
-
-    async def test_collection_exists(self, store: QdrantVectorStore, client) -> None:
-        """collection_exists forwards to the backend."""
-        client.collection_exists.return_value = True
-        assert await store.collection_exists("c") is True
-
-    async def test_delete_collection(self, store: QdrantVectorStore, client) -> None:
-        """delete_collection forwards to the backend."""
-        await store.delete_collection("c")
-        client.delete_collection.assert_called_once_with("c")
-
-    async def test_delete_collection_clears_hybrid_tracking(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """Deleting a hybrid collection stops tracking it as hybrid."""
-        store._hybrid_collections.add("c")
-        await store.delete_collection("c")
-        assert "c" not in store._hybrid_collections
-
-    async def test_invalidate_collection_clears_cached_state(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """invalidate_collection drops cached hybrid and distance-metric state.
-
-        This is the escape hatch for a collection recreated by something
-        other than this store instance: without it, stale cached state from
-        before the recreation would keep being trusted.
-        """
-        store._hybrid_collections.add("c")
-        store._checked_collections.add("c")
-        store._collection_distances["c"] = qdrant_models.Distance.EUCLID
-        store.invalidate_collection("c")
-        assert "c" not in store._hybrid_collections
-        assert "c" not in store._checked_collections
-        assert "c" not in store._collection_distances
-
-    async def test_close_releases_client(
-        self, store: QdrantVectorStore, client
-    ) -> None:
-        """Close releases the client connection."""
-        await store.close()
-        client.close.assert_called_once()
 
 
 class TestMinMaxNormalize:

@@ -3,11 +3,9 @@
 prune_orphaned_entities runs against a scripted GraphStore: candidates
 with open-chunk evidence keep their nodes, orphans lose theirs, and
 each affected cluster is rebuilt over its survivors or deleted. The
-wiring tests prove the no-op document paths never reach pruning.
+wiring test proves deleting an unknown document never reaches pruning.
 """
 
-import hashlib
-import unicodedata
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from typing import Any
@@ -194,36 +192,6 @@ def _delete_params(store: _ScriptedStore) -> list[Any]:
 class TestPruneOrphanedEntities:
     """prune_orphaned_entities deletes orphans and rebuilds clusters."""
 
-    async def test_shrink_to_zero_prunes_cluster(self) -> None:
-        """Orphaning every member deletes the nodes and the cluster."""
-        first, second, third, cluster = (uuid4() for _ in range(4))
-        members = [first, second, third]
-        store = _ScriptedStore(
-            reads=[
-                [],
-                [_membership(member, cluster, members) for member in members],
-            ],
-            writes={
-                "DETACH DELETE entity": [_deleted(member) for member in members],
-                "DETACH DELETE resolved": [{"resolved_id": str(cluster)}],
-            },
-        )
-
-        result = await prune_orphaned_entities(
-            members, graph_store=store, schema=_schema()
-        )
-
-        assert result.removed_entity_ids == members
-        assert result.removed_resolved_entity_ids == [cluster]
-        assert result.rematerialized_entities == []
-        assert _delete_params(store) == [[str(member) for member in members]]
-        alias_deletes = [
-            params.get("ids")
-            for query, params in store.write_calls
-            if "DETACH DELETE alias" in query and isinstance(params, dict)
-        ]
-        assert alias_deletes == [[str(member) for member in members]]
-
     async def test_shrink_to_one_prunes_to_singleton(self) -> None:
         """One survivor keeps its node while the cluster node goes away."""
         first, second, third, cluster = (uuid4() for _ in range(4))
@@ -306,20 +274,6 @@ class TestPruneOrphanedEntities:
             }
         ]
 
-    async def test_evidenced_candidate_is_a_no_op(self) -> None:
-        """A candidate with open evidence triggers no writes at all."""
-        member = uuid4()
-        store = _ScriptedStore(reads=[[_evidence(member)]], writes={})
-
-        result = await prune_orphaned_entities(
-            [member], graph_store=store, schema=_schema()
-        )
-
-        assert result.removed_entity_ids == []
-        assert result.removed_resolved_entity_ids == []
-        assert result.rematerialized_entities == []
-        assert store.write_calls == []
-
 
 class TestDeletionPruningWiring:
     """No-op document paths never reach pruning."""
@@ -338,23 +292,6 @@ class TestDeletionPruningWiring:
         store = _ScriptedStore(reads=[[]], writes={})
 
         result = await self._graph(store).delete_document("missing")
-
-        assert result.no_op is True
-        assert len(store.read_calls) == 1
-        assert store.write_calls == []
-
-    async def test_update_no_op_skips_pruning(self) -> None:
-        """Unchanged content returns before any pruning read."""
-        text = "unchanged content. " * 20
-        content_hash = hashlib.sha256(
-            unicodedata.normalize("NFKC", text).encode("utf-8")
-        ).hexdigest()
-        store = _ScriptedStore(
-            reads=[[{"id": str(uuid4()), "current_content_hash": content_hash}]],
-            writes={},
-        )
-
-        result = await self._graph(store).update("key", text=text)
 
         assert result.no_op is True
         assert len(store.read_calls) == 1

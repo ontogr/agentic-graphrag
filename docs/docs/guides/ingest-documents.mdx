@@ -172,9 +172,11 @@ pruning runs after that, scoped to the entities the replaced version mentioned.
 If the process dies mid-call, the next `Graph.open()` recovers automatically:
 a job that died before its commit is rolled back, deleting its tagged writes,
 and a job that died after committing is rolled forward. Either way the graph
-converges to as-if-never-happened or as-if-completed. A document's job is
-guarded by a lease that expires after `CUTOVER_JOB_LEASE_TTL_SECONDS` seconds
-(60 by default), after which another worker may take the document over.
+converges to as-if-never-happened or as-if-completed. A document's job holds a
+lease that expires after `CUTOVER_JOB_LEASE_TTL_SECONDS` seconds (60 by
+default). A running worker renews its lease, so no other worker takes over a
+live job, however long it runs. If the worker stops, another worker takes the
+document over after the lease expires.
 
 ## Supported formats
 

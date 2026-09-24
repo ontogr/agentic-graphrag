@@ -470,6 +470,7 @@ class TestCrashAfterCommit:
 
             assert await _job_status(store, crashed_key) == "cleaning"
             assert await _probe_count(store, crashed_probe) == 1
+            await _age_lease(store, crashed_key)
 
             recovered_store = build_graph_store("neo4j")
             await recovered_store.connect()

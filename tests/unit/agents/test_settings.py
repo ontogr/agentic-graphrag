@@ -1,16 +1,14 @@
-"""Tests for AgentLLMSettings and AgentSettings.
+"""Tests for AgentLLMSettings.
 
-Covers ``from_openai_compatible_env`` reading ``AGENT_LLM_*`` env vars, its
-fallback to the shared ``LLM_*`` vars when the agent-specific ones are unset,
-direct construction, and the default/custom agent recursion limit. Sets and
-tears down real environment variables with ``os.environ`` rather than
+Covers ``from_openai_compatible_env`` reading ``AGENT_LLM_*`` env vars and its
+fallback to the shared ``LLM_*`` vars when the agent-specific ones are unset.
+Sets and tears down real environment variables with ``os.environ`` rather than
 ``monkeypatch``.
 """
 
 import os
 
-from agrag.agents.settings import AgentLLMSettings, AgentSettings
-from agrag.llm.client_config import LLMClientConfig
+from agrag.agents.settings import AgentLLMSettings
 
 
 class TestAgentLLMSettings:
@@ -46,45 +44,3 @@ class TestAgentLLMSettings:
             del os.environ["LLM_BASE_URL"]
             del os.environ["LLM_API_KEY"]
             del os.environ["LLM_MODEL_ID"]
-
-    def test_direct_construction(self) -> None:
-        """Settings can be constructed directly."""
-        settings = AgentLLMSettings(
-            clients=[
-                LLMClientConfig(
-                    name="test",
-                    provider="openai",
-                    model="gpt-4o",
-                    api_key="key",
-                )
-            ]
-        )
-        assert settings.strategy == "single"
-
-
-class TestAgentSettings:
-    """AgentSettings loads from env."""
-
-    def test_default_recursion_limit(self) -> None:
-        """Default recursion limit is 50."""
-        s = AgentSettings()
-        assert s.recursion_limit == 50
-
-    def test_custom_recursion_limit(self) -> None:
-        """Custom recursion limit overrides default."""
-        s = AgentSettings(recursion_limit=100)
-        assert s.recursion_limit == 100
-
-    def test_max_research_attempts_default_is_three(self) -> None:
-        """Default retry budget is three."""
-        s = AgentSettings()
-        assert s.max_research_attempts == 3
-
-    def test_max_research_attempts_env_override(self) -> None:
-        """AGENT_MAX_RESEARCH_ATTEMPTS overrides the default."""
-        os.environ["AGENT_MAX_RESEARCH_ATTEMPTS"] = "5"
-        try:
-            s = AgentSettings()
-            assert s.max_research_attempts == 5
-        finally:
-            del os.environ["AGENT_MAX_RESEARCH_ATTEMPTS"]

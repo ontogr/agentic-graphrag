@@ -3860,6 +3860,7 @@ Cypher writes for the Cutover Job crash-recovery machine.
 - [**clear_pending_tag_query**](#agrag.cypher.cutover_job_write.clear_pending_tag_query) – Build Cypher clearing the pending tag off everything a job created.
 - [**commit_job_query**](#agrag.cypher.cutover_job_write.commit_job_query) – Build Cypher flipping a job from pending to committed, fenced by lease.
 - [**finish_cleaning_query**](#agrag.cypher.cutover_job_write.finish_cleaning_query) – Build Cypher marking a job done after its cleanup phase completes.
+- [**renew_lease_query**](#agrag.cypher.cutover_job_write.renew_lease_query) – Build Cypher extending a live job's lease, fenced by its token.
 - [**rollback_job_query**](#agrag.cypher.cutover_job_write.rollback_job_query) – Build Cypher deleting everything a job created, then the job itself.
 - [**start_cleaning_query**](#agrag.cypher.cutover_job_write.start_cleaning_query) – Build Cypher moving a committed job into cleaning, fenced by lease.
 - [**steal_expired_lease_query**](#agrag.cypher.cutover_job_write.steal_expired_lease_query) – Build Cypher taking over a job whose lease lapsed or went terminal.
@@ -3969,6 +3970,24 @@ holder that started cleaning may finish it.
 - <code>[str](#str)</code> – Parameterized Cypher expecting $job_id and $lease_token. Returns
 - <code>[str](#str)</code> – the job id when the transition applied, no row otherwise.
 
+##### `agrag.cypher.cutover_job_write.renew_lease_query`
+
+```python
+renew_lease_query() -> str
+```
+
+Build Cypher extending a live job's lease, fenced by its token.
+
+Applies in every non-terminal phase (pending, committed, cleaning) and
+only while the caller's fencing token is still current, so a worker
+that lost its lease cannot revive it.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $lease_token, and
+- <code>[str](#str)</code> – $lease_expires_at (ISO-8601 string). Returns the job id when the
+- <code>[str](#str)</code> – lease was extended, no row on fencing failure.
+
 ##### `agrag.cypher.cutover_job_write.rollback_job_query`
 
 ```python
@@ -4000,7 +4019,10 @@ start_cleaning_query() -> str
 Build Cypher moving a committed job into cleaning, fenced by lease.
 
 Same compare-and-swap shape as `commit_job_query`: only the lease
-holder that committed the job may start its cleanup.
+holder that committed the job may start its cleanup. The lease expiry
+is left as the holder last renewed it: cleanup is live work, so
+resetting it to now would make a running job look abandoned and let a
+concurrent resume take it over.
 
 **Returns:**
 
@@ -9213,6 +9235,10 @@ Non-destructive match persistence and resolved-entity computation.
 - [**prune_orphaned_entities**](#agrag.ingestion.materialize.prune_orphaned_entities) – Delete candidates with no open-chunk evidence and rebuild clusters.
 - [**write_matches_and_materialize**](#agrag.ingestion.materialize.write_matches_and_materialize) – Persist matches and materialize their supplied connected component.
 
+**Attributes:**
+
+- [**MatchComponent**](#agrag.ingestion.materialize.MatchComponent) – One connected component: its match decisions and its raw member entities.
+
 ##### `agrag.ingestion.materialize.DeactivationResult`
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
@@ -9235,6 +9261,14 @@ removed_entity_ids: list[UUID]
 ```python
 resolved_entities: list[ResolvedEntity]
 ```
+
+##### `agrag.ingestion.materialize.MatchComponent`
+
+```python
+MatchComponent = tuple[list[MatchDecision], list[Entity]]
+```
+
+One connected component: its match decisions and its raw member entities.
 
 ##### `agrag.ingestion.materialize.MatchDecision`
 
@@ -9672,7 +9706,9 @@ canonical survivor and marks the rest for tombstoning.
 - **mentions** (<code>[list](#list)\[[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]</code>) – Fresh ExtractedEntity mentions to fold in.
 - **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – Used to look up the entity type's declared properties for the
   canonical-id schema-completeness check.
-- **rules** (<code>[PropertyRules](#agrag.ingestion.merge.PropertyRules) | None</code>) – Per-property conflict resolution. Defaults to keep_first.
+- **rules** (<code>[PropertyRules](#agrag.ingestion.merge.PropertyRules) | None</code>) – Per-property conflict resolution. Defaults to keep_first. The
+  name is always a single string: under merge_all it takes the
+  canonical entity's name, or the first mention's when none exists.
 - **description_settings** (<code>[Any](#typing.Any) | None</code>) – LLM settings for description summarization.
 - **description_client** (<code>[Any](#typing.Any) | None</code>) – Injected LLM client for tests.
 - **job_id** (<code>[UUID](#uuid.UUID) | [str](#str) | None</code>) – The Cutover Job this merge runs under. A brand-new entity
@@ -13593,8 +13629,8 @@ Constraints applied across every retrieval method in one call.
 - [**labels**](#agrag.retrieval.filters.SearchFilters.labels) (<code>[list](#list)\[[str](#str)\]</code>) – Entity labels a result must have, when searching
   entities.
 - [**relation_types**](#agrag.retrieval.filters.SearchFilters.relation_types) (<code>[list](#list)\[[str](#str)\]</code>) – Relation types a traversal may cross.
-- [**document_ids**](#agrag.retrieval.filters.SearchFilters.document_ids) (<code>[list](#list)\[[str](#str)\]</code>) – Restrict chunk results to these source
-  documents.
+- [**document_ids**](#agrag.retrieval.filters.SearchFilters.document_ids) (<code>[list](#list)\[[str](#str)\]</code>) – Restrict results to entities and chunks from these
+  source documents.
 - [**properties**](#agrag.retrieval.filters.SearchFilters.properties) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – Exact-match property filters, applied
   identically to vector-store payload filters and Cypher
   WHERE clauses.
@@ -14215,6 +14251,11 @@ at the end with a high distance penalty.
 **Returns:**
 
 - <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Results reranked by proximity, closest first.
+
+**Raises:**
+
+- <code>[Exception](#Exception)</code> – Any error the graph store raises. A candidate with no
+  path to a seed is not an error and ranks with the penalty.
 
 #### `agrag.retrieval.resolved_entities`
 

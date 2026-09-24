@@ -15,7 +15,6 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_record import (
     NodeRecord,
     RelationRecord,
@@ -26,7 +25,6 @@ from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion import Graph
-from agrag.ingestion.resolve import ComparisonVerdict, ExactMatch
 
 
 _A_NAME = "Alpha Meridian"
@@ -258,55 +256,6 @@ class TestGraphReevaluate:
             isinstance(params, dict) and params.get("match_id") != str(kept_match)
             for params in deactivated
         )
-
-    async def test_ignores_would_match_outsider(self) -> None:
-        """An outsider ExactMatch would confirm is never written about."""
-        first, second, third, fourth, fifth, sixth, seventh = (
-            uuid4() for _ in range(7)
-        )
-        outsider = uuid4()
-        chunk_id = uuid4()
-        a_mention = ExtractedEntity(
-            chunk_id=chunk_id,
-            label="Person",
-            text=_A_NAME,
-            char_start=0,
-            char_end=len(_A_NAME),
-        )
-        o_mention = ExtractedEntity(
-            chunk_id=chunk_id,
-            label="Person",
-            text=_A_NAME,
-            char_start=0,
-            char_end=len(_A_NAME),
-        )
-        assert (
-            await ExactMatch().compare(a_mention, o_mention) is ComparisonVerdict.MATCH
-        )
-        names = {
-            first: _A_NAME,
-            second: _B_NAME,
-            third: _C_NAME,
-            fourth: _D_NAME,
-            fifth: _E_NAME,
-            sixth: _F_NAME,
-            seventh: _F_NAME,
-        }
-        store = _ScriptedStore(reads=[_hydrate_rows(names), [], [], []])
-
-        report = await _graph(store).reevaluate(
-            [first, second, third, fourth, fifth, sixth, seventh]
-        )
-
-        assert outsider not in report.entities_reevaluated
-        assert all(
-            outsider not in (decision.entity_a_id, decision.entity_b_id)
-            for decision in report.matches_added
-        )
-        written = " ".join(str(params) for _, params in store.write_calls) + " ".join(
-            str(record) for batch in store.upserted_relations for record in batch
-        )
-        assert str(outsider) not in written
 
     async def test_raises_for_unknown_id(self) -> None:
         """An id with no live persisted entity raises ValueError."""

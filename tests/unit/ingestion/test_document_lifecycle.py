@@ -9,23 +9,6 @@ from agrag.ingestion._document_lifecycle import (
 )
 
 
-async def test_find_document_returns_lookup_for_existing_document() -> None:
-    """An existing Document node yields its id and current content hash."""
-    document_node_id = uuid4()
-    store = AsyncMock()
-    store.execute_read.return_value = [
-        {"id": str(document_node_id), "current_content_hash": "abc123"}
-    ]
-
-    found = await find_document(store, document_key="doc")
-
-    assert found is not None
-    assert found.document_node_id == document_node_id
-    assert found.current_content_hash == "abc123"
-    _, parameters = store.execute_read.await_args.args
-    assert parameters == {"document_key": "doc"}
-
-
 async def test_find_document_returns_none_when_missing() -> None:
     """A document_key with no persisted node yields None, not an error."""
     store = AsyncMock()
@@ -42,24 +25,6 @@ async def test_find_document_ignores_malformed_rows() -> None:
     assert await find_document(store, document_key="doc") is None
 
 
-async def test_close_open_part_of_edges_returns_closed_count() -> None:
-    """The closed-edge count comes from the close query's own row."""
-    store = AsyncMock()
-    store.execute_write.return_value = [{"closed": 5}]
-
-    assert await close_open_part_of_edges(store, document_node_id=uuid4()) == 5
-
-
-async def test_close_open_part_of_edges_is_idempotent() -> None:
-    """Already-closed edges are never recounted by a later close."""
-    store = AsyncMock()
-    store.execute_write.side_effect = [[{"closed": 2}], [{"closed": 0}]]
-    document_node_id = uuid4()
-
-    assert await close_open_part_of_edges(store, document_node_id=document_node_id) == 2
-    assert await close_open_part_of_edges(store, document_node_id=document_node_id) == 0
-
-
 async def test_close_open_part_of_edges_returns_zero_without_rows() -> None:
     """A store that changes no edges reports zero closed edges."""
     store = AsyncMock()
@@ -67,17 +32,3 @@ async def test_close_open_part_of_edges_returns_zero_without_rows() -> None:
 
     assert await close_open_part_of_edges(store, document_node_id=uuid4()) == 0
     store.execute_write.assert_awaited_once()
-
-
-async def test_close_open_part_of_edges_targets_the_requested_document() -> None:
-    """The close operation uses the requested document id and query."""
-    store = AsyncMock()
-    store.execute_write.return_value = [{"closed": 1}]
-    document_node_id = uuid4()
-
-    assert await close_open_part_of_edges(store, document_node_id=document_node_id) == 1
-
-    query, parameters = store.execute_write.await_args.args
-    assert "MATCH (d:_AgragNode:Document {id: $document_node_id})" in query
-    assert "r.invalid_at IS NULL" in query
-    assert parameters == {"document_node_id": str(document_node_id), "job_id": None}

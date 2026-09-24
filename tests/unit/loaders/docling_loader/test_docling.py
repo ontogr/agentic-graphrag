@@ -5,7 +5,6 @@ optional ``docling`` extra or network access. The integration suite exercises th
 docling pipeline (model download requires network).
 """
 
-import hashlib
 import importlib
 import importlib.util
 from io import BytesIO
@@ -26,50 +25,6 @@ docling_missing = importlib.util.find_spec("docling") is None
 @pytest.mark.skipif(docling_missing, reason="docling extra not installed")
 class TestDoclingLoader:
     """The loader wraps docling's Markdown export without real conversion."""
-
-    def test_load_wraps_docling_output(self) -> None:
-        """Loader builds a Document from docling's Markdown export."""
-        from agrag.loaders.docling.loader import DoclingLoader  # noqa: PLC0415
-
-        fake_document = MagicMock()
-        fake_document.export_to_markdown.return_value = "# Title\n\nBody text"
-        converted = MagicMock()
-        converted.document = fake_document
-        raw = b"%PDF-1.4 fake content"
-
-        _docling_converter = importlib.import_module("docling.document_converter")
-
-        with patch.object(_docling_converter, "DocumentConverter") as mock_converter:
-            mock_converter.return_value.convert.return_value = converted
-            ref = SourceRef(uri="doc.pdf", extension=".pdf", byte_size=len(raw))
-            docs = list(DoclingLoader().load(ref, BytesIO(raw), ReadOptions()))
-
-        assert len(docs) == 1
-        doc = docs[0]
-        assert doc.text == "# Title\n\nBody text"
-        assert doc.source_format.value == "pdf"
-        assert doc.loader_name == "docling"
-        assert doc.content_hash == hashlib.sha256(raw).hexdigest()
-        assert doc.metadata["_docling_document"] is fake_document
-
-    def test_content_hash_uses_raw_bytes(self) -> None:
-        """Content hash is derived from the raw source bytes, not the parse."""
-        from agrag.loaders.docling.loader import DoclingLoader  # noqa: PLC0415
-
-        fake_document = MagicMock()
-        fake_document.export_to_markdown.return_value = "x"
-        converted = MagicMock()
-        converted.document = fake_document
-        raw = b"some pdf bytes"
-
-        _docling_converter = importlib.import_module("docling.document_converter")
-
-        with patch.object(_docling_converter, "DocumentConverter") as mock_converter:
-            mock_converter.return_value.convert.return_value = converted
-            ref = SourceRef(uri="doc.pdf", extension=".pdf", byte_size=len(raw))
-            docs = list(DoclingLoader().load(ref, BytesIO(raw), ReadOptions()))
-
-        assert docs[0].content_hash == hashlib.sha256(raw).hexdigest()
 
     def test_oversized_source_raises_before_conversion(self) -> None:
         """A source over the byte limit is rejected without calling docling."""

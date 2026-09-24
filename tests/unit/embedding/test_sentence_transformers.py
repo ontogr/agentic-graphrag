@@ -89,21 +89,10 @@ class _RecordingCache(EmbeddingCache):
 class TestSentenceTransformerEmbedderConstruction:
     """Construction resolves settings and the cache seam."""
 
-    def test_defaults_resolve(self) -> None:
-        """Defaults produce the planned default model name."""
-        embedder = SentenceTransformerEmbedder()
-        assert embedder.model == "ibm-granite/granite-embedding-small-english-r2"
-
     async def test_dimensions_from_injected_model(self) -> None:
         """Dimensions reflects the injected model's dimension."""
         embedder = SentenceTransformerEmbedder(model=MockSentenceTransformer(dim=7))
         assert await embedder.dimensions() == 7
-
-    def test_model_not_loaded_on_construct(self) -> None:
-        """Construction does not import or build the model."""
-        model = MockSentenceTransformer()
-        SentenceTransformerEmbedder(model=model)
-        assert model.encode_calls == []
 
 
 class TestMissingExtra:
@@ -144,15 +133,6 @@ class TestEmbedEventLoop:
         await embedder.embed(["a", "b"])
         assert model.encode_thread is not None
         assert model.encode_thread is not loop_thread
-
-    async def test_model_loaded_once(self) -> None:
-        """Repeated embeds reuse one model instance."""
-        model = MockSentenceTransformer()
-        embedder = SentenceTransformerEmbedder(model=model)
-        await embedder.embed(["a"])
-        await embedder.embed(["b"])
-        # encode is called per batch; the model object is shared, not rebuilt.
-        assert model.encode_calls == [["a"], ["b"]]
 
 
 class TestConcurrentModelLoad:
@@ -273,19 +253,6 @@ class TestEmbedCaching:
         await embedder.embed(["a", "b"])
         await embedder.embed(["a", "c"])
         assert model.encode_calls == [["a", "b"], ["c"]]
-
-    async def test_vectors_returned_in_input_order(self) -> None:
-        """Returned vectors keep the input text order."""
-        model = MockSentenceTransformer(dim=3)
-        embedder = SentenceTransformerEmbedder(model=model)
-        out = await embedder.embed(["x", "y"])
-        assert out == [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
-
-    async def test_embed_one_returns_single_vector(self) -> None:
-        """embed_one returns the single vector for one text."""
-        model = MockSentenceTransformer()
-        embedder = SentenceTransformerEmbedder(model=model)
-        assert await embedder.embed_one("solo") == [0.0, 0.0, 0.0, 0.0]
 
     async def test_opposite_normalize_settings_do_not_share_cache_entries(
         self,

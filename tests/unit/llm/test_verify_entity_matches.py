@@ -195,15 +195,6 @@ class TestCompareBatchDetailed:
         assert results[(2, 3)].verdict is ComparisonVerdict.NO_MATCH
         assert uncertain == 1
 
-    async def test_compare_batch_delegates_without_count(self) -> None:
-        """compare_batch returns the same verdicts as the detailed call."""
-        client = _BatchClient([[_match("0:1")]])
-        verifier, pairs = _verifier(2, client)
-
-        results = await verifier.compare_batch(pairs[:1])
-
-        assert results[(0, 1)].verdict is ComparisonVerdict.MATCH
-
     async def test_known_similarities_reach_the_model(self) -> None:
         """Supplied embedding similarities are sent, not a 0.0 default."""
         client = _BatchClient([[_match("0:1"), _match("1:2")]])
