@@ -265,7 +265,7 @@ jobs:
       - name: Fail when this shard skipped tests
         if: ${{ matrix.shard.allow_skips == false }}
         run: |
-          python3 - <<'EOF'
+          uv run python - <<'EOF'
           import sys
           import xml.etree.ElementTree as ET
 
@@ -305,7 +305,7 @@ jobs:
       # The parity job reads these per-test artifacts, so they get their own
       # upload, which the parity job downloads by name pattern.
       - name: Upload e2e artifacts
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-artifacts-${{ matrix.shard.name }}
