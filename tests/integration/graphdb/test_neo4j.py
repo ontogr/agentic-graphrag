@@ -7,8 +7,11 @@ the extra installed the tests expect a reachable Neo4j at the default
 """
 
 import asyncio
+import contextlib
 import importlib.util
 import time
+from collections.abc import Mapping
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -16,10 +19,16 @@ import pytest
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
-from agrag.cypher.schema import node_id_constraint_query
+from agrag.cypher.schema import (
+    node_id_constraint_name,
+    node_id_constraint_query,
+    vector_index_name,
+    vector_index_query,
+)
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
+from tests.integration._schema_cleanup import drop_schema_for
 from tests.integration._vector_hit import assert_is_usable_vector_hit
 
 
@@ -74,6 +83,125 @@ class TestNeo4jGraphStoreIntegration:
             )
         finally:
             await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+            await store.close()
+
+    async def test_concurrent_vector_index_provisioning_is_idempotent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A provisioner succeeds when another transaction creates the same index."""
+        from neo4j.exceptions import ClientError  # noqa: PLC0415
+
+        label = validate_identifier(f"VectorRace_{uuid4().hex[:8]}")
+        index_name = vector_index_name(label, "embedding")
+        query = vector_index_query(label, "embedding", DIM, Distance.COSINE)
+        first = build_graph_store("neo4j")
+        second = build_graph_store("neo4j")
+        original_execute_write = second.execute_write
+        equivalent_errors: list[ClientError] = []
+        query_started = asyncio.Event()
+
+        async def execute_write(
+            query: str, parameters: Mapping[str, Any] | None = None
+        ) -> list[dict[str, Any]]:
+            query_started.set()
+            try:
+                return await original_execute_write(query, parameters)
+            except ClientError as exc:
+                equivalent_errors.append(exc)
+                raise
+
+        monkeypatch.setattr(second, "execute_write", execute_write)
+        committed = False
+        try:
+            await asyncio.gather(first.connect(), second.connect())
+            async with first.session() as session:
+                transaction = await session.begin_transaction()
+                try:
+                    result = await transaction.run(query)
+                    await result.consume()
+                    provision = asyncio.create_task(
+                        second.ensure_vector_index(
+                            label=label,
+                            vector_property="embedding",
+                            dimensions=DIM,
+                            distance=Distance.COSINE,
+                        )
+                    )
+                    await asyncio.wait_for(query_started.wait(), timeout=0.5)
+                    with pytest.raises(TimeoutError):
+                        await asyncio.wait_for(asyncio.shield(provision), timeout=0.5)
+                    await transaction.commit()
+                    committed = True
+                    await provision
+                    assert [exc.code for exc in equivalent_errors] == [
+                        "Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists"
+                    ]
+                except BaseException:
+                    if not committed:
+                        with contextlib.suppress(Exception):
+                            await transaction.rollback()
+                    raise
+            rows = await first.execute_read(
+                "SHOW INDEXES YIELD name WHERE name = $name RETURN name",
+                {"name": index_name},
+            )
+            assert rows == [{"name": index_name}]
+        finally:
+            try:
+                await first.execute_write(f"DROP INDEX {index_name} IF EXISTS")
+            finally:
+                await asyncio.gather(first.close(), second.close())
+
+    async def test_schema_cleanup_ignores_constraint_backing_indexes(self) -> None:
+        """Schema cleanup preserves the constraint-owned index drop path."""
+        label = validate_identifier(f"Cleanup_{uuid4().hex[:8]}")
+        constraint_name = node_id_constraint_name(label)
+        index_name = vector_index_name(label, "embedding")
+        store = build_graph_store("neo4j")
+        await store.connect()
+        try:
+            await store.execute_write(node_id_constraint_query(label))
+            await store.execute_write(
+                vector_index_query(label, "embedding", DIM, Distance.COSINE)
+            )
+
+            await drop_schema_for(store, label)
+
+            constraints = await store.execute_read(
+                "SHOW CONSTRAINTS YIELD name WHERE name = $name RETURN name",
+                {"name": constraint_name},
+            )
+            indexes = await store.execute_read(
+                "SHOW INDEXES YIELD name WHERE name = $name RETURN name",
+                {"name": index_name},
+            )
+            assert constraints == []
+            assert indexes == []
+        finally:
+            await store.execute_write(f"DROP CONSTRAINT {constraint_name} IF EXISTS")
+            await store.execute_write(f"DROP INDEX {index_name} IF EXISTS")
+            await store.close()
+
+    async def test_schema_cleanup_skips_unsafe_schema_object_names(self) -> None:
+        """Schema cleanup skips object names that cannot be interpolated safely."""
+        label = validate_identifier(f"Cleanup_{uuid4().hex[:8]}")
+        index_name = f"unsafe-index-{uuid4().hex[:8]}"
+        store = build_graph_store("neo4j")
+        await store.connect()
+        try:
+            await store.execute_write(
+                f"CREATE INDEX `{index_name}` IF NOT EXISTS FOR (n:{label}) ON (n.name)"
+            )
+
+            await drop_schema_for(store, label)
+
+            indexes = await store.execute_read(
+                "SHOW INDEXES YIELD name WHERE name = $name RETURN name",
+                {"name": index_name},
+            )
+            assert indexes == [{"name": index_name}]
+        finally:
+            await store.execute_write(f"DROP INDEX `{index_name}` IF EXISTS")
             await store.close()
 
     async def test_setup_constraints_is_idempotent(self) -> None:

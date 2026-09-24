@@ -7,15 +7,16 @@ the database each time a graph opens. Tests call ``drop_schema_for`` in their
 teardown so a long run does not slow down as it goes.
 """
 
-from agrag.cypher.entities import validate_identifier
+from agrag.cypher.entities import is_safe_identifier, validate_identifier
 from agrag.graphdb.base import GraphStore
 
 
 async def drop_schema_for(store: GraphStore, *names: str) -> None:
-    """Drop every constraint and index defined on the given labels or types.
+    """Drop safely named constraints and indexes for the given labels or types.
 
-    Only objects whose label or relationship type is in ``names`` are touched.
-    Missing objects are ignored, so the call is safe in a ``finally`` block.
+    Only safely named objects whose label or relationship type is in ``names``
+    are touched. Missing objects are ignored, so the call is safe in a
+    ``finally`` block.
 
     Args:
         store: A connected graph store.
@@ -23,13 +24,23 @@ async def drop_schema_for(store: GraphStore, *names: str) -> None:
     """
     for name in names:
         safe = validate_identifier(name)
-        for kind, listing in (
-            ("CONSTRAINT", "SHOW CONSTRAINTS YIELD name, labelsOrTypes"),
-            ("INDEX", "SHOW INDEXES YIELD name, labelsOrTypes"),
+        for kind, query in (
+            (
+                "CONSTRAINT",
+                "SHOW CONSTRAINTS YIELD name, labelsOrTypes "
+                "WHERE $name IN labelsOrTypes RETURN name",
+            ),
+            (
+                "INDEX",
+                "SHOW INDEXES YIELD name, labelsOrTypes, owningConstraint "
+                "WHERE $name IN labelsOrTypes AND owningConstraint IS NULL RETURN name",
+            ),
         ):
-            rows = await store.execute_read(
-                f"{listing} WHERE $name IN labelsOrTypes RETURN name", {"name": safe}
-            )
+            rows = await store.execute_read(query, {"name": safe})
             for row in rows:
-                object_name = validate_identifier(row["name"])
+                object_name = row["name"]
+                if not isinstance(object_name, str):
+                    continue
+                if not is_safe_identifier(object_name):
+                    continue
                 await store.execute_write(f"DROP {kind} {object_name} IF EXISTS")

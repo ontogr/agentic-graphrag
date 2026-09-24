@@ -57,6 +57,9 @@ if TYPE_CHECKING:
 # Neo4j's own practical limit on a single vector query's k.
 _VECTOR_SEARCH_OVERFETCH_MULTIPLIER = 4
 _VECTOR_SEARCH_MAX_K = 1000
+_EQUIVALENT_SCHEMA_RULE_ERROR = (
+    "Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists"
+)
 
 
 class _Neo4jTransaction(GraphStoreTransaction):
@@ -653,13 +656,24 @@ class Neo4jGraphStore(GraphStore):
     async def ensure_vector_index(
         self, *, label: str, vector_property: str, dimensions: int, distance: Distance
     ) -> None:
-        """Create a native vector index if it does not exist."""
+        """Create a native vector index if it does not exist.
+
+        A concurrent creator can commit the same index after this operation
+        starts. Neo4j reports that race as an equivalent-schema error, which
+        means the requested index already exists.
+        """
+        from neo4j.exceptions import ClientError  # noqa: PLC0415
+
         validate_identifier(label)
         validate_identifier(vector_property)
         self._known_labels.add(label)
-        await self.execute_write(
-            vector_index_query(label, vector_property, dimensions, distance)
-        )
+        try:
+            await self.execute_write(
+                vector_index_query(label, vector_property, dimensions, distance)
+            )
+        except ClientError as exc:
+            if exc.code != _EQUIVALENT_SCHEMA_RULE_ERROR:
+                raise
 
     async def vector_search(
         self,
