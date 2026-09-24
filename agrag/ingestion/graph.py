@@ -180,6 +180,32 @@ async def _no_pending_write(job_id: UUID) -> None:
     """Pending-write step for delete_document, which writes nothing new."""
 
 
+def _with_cleanup_failures(
+    result: AddResult, failures: list[StageFailure]
+) -> AddResult:
+    """Record post-commit materialization failures in the storage stats.
+
+    Args:
+        result: The pending-write result of one document job.
+        failures: Failures the cleanup phase recorded under a non-RAISE policy.
+
+    Returns:
+        The result with ``failures`` appended under the per-stage cap, or the
+        same result when there are none.
+    """
+    if not failures:
+        return result
+    capped = cap_failures([*result.storage.failures, *failures])
+    storage = result.storage.model_copy(
+        update={
+            "failures": capped.items,
+            "failures_total": result.storage.failures_total + len(failures),
+            "failures_truncated": result.storage.failures_truncated or capped.truncated,
+        }
+    )
+    return result.model_copy(update={"storage": storage})
+
+
 def _group_by_document(
     chunks: list[Chunk],
     documents: list[Document],
@@ -899,12 +925,13 @@ class Graph:
 
             async def _cleanup(
                 _components: list[MatchComponent] = components,
-            ) -> None:
-                await self._materialize_components(
+            ) -> list[StageFailure]:
+                _, cleanup_failures = await self._materialize_components(
                     _components, error_policy=error_policy
                 )
+                return cleanup_failures
 
-            partial, _, _ = await run_cutover_job(
+            partial, cleanup_failures, _ = await run_cutover_job(
                 verb="add",
                 document_key=document_key,
                 affected_entity_ids=[],
@@ -915,7 +942,7 @@ class Graph:
                 pending_write=_pending,
                 cleanup=_cleanup,
             )
-            partials.append(partial)
+            partials.append(_with_cleanup_failures(partial, cleanup_failures))
         result = _merge_add_results(partials, ingestion=ingestion)
 
         if on_progress is not None:
@@ -1058,11 +1085,14 @@ class Graph:
                 materialized_components=components,
             )
 
-        async def _cleanup() -> None:
-            await self._materialize_components(components, error_policy=error_policy)
+        async def _cleanup() -> list[StageFailure]:
+            _, cleanup_failures = await self._materialize_components(
+                components, error_policy=error_policy
+            )
             await self._prune_document_entities(candidates)
+            return cleanup_failures
 
-        add_result, _, chunks_closed = await run_cutover_job(
+        add_result, cleanup_failures, chunks_closed = await run_cutover_job(
             verb="update",
             document_key=document_key,
             affected_entity_ids=candidates,
@@ -1086,7 +1116,7 @@ class Graph:
             previous_content_hash=(found.current_content_hash if found else None),
             new_content_hash=document.content_hash,
             chunks_closed=chunks_closed,
-            add_result=add_result,
+            add_result=_with_cleanup_failures(add_result, cleanup_failures),
         )
 
     async def delete_document(self, document_key: str) -> UpdateResult:

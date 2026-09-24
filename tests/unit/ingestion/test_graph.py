@@ -253,6 +253,44 @@ class TestGraphAdd:
         assert result.ingestion.documents == 1
         assert result.ingestion.sources == 1
 
+    @pytest.mark.parametrize("verb", ["add", "update"])
+    async def test_reports_materialization_failures_in_storage_stats(
+        self, monkeypatch: pytest.MonkeyPatch, verb: str
+    ) -> None:
+        """A skipped materialization failure appears in the result storage stats."""
+        graph = await _open_graph()
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[]
+        )
+        member = Entity(
+            id=uuid4(), label="Person", name="Alice", properties={}, source_chunk_ids=[]
+        )
+        real_ingest = graph_module.ingest_chunks
+
+        async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
+            kwargs["materialized_components"].append(([], [member]))
+            return await real_ingest(*args, **kwargs)
+
+        monkeypatch.setattr(graph_module, "ingest_chunks", _ingest_with_component)
+        monkeypatch.setattr(
+            graph_module,
+            "write_matches_and_materialize",
+            AsyncMock(side_effect=RuntimeError("database unavailable")),
+        )
+
+        if verb == "add":
+            result = await graph.add(text="a short note", error_policy=ErrorPolicy.SKIP)
+        else:
+            update = await graph.update(
+                "memory://doc", text="brand new", error_policy=ErrorPolicy.SKIP
+            )
+            assert update.add_result is not None
+            result = update.add_result
+
+        assert result.storage.failures_total == 1
+        assert result.storage.failures[0].item_id == str(member.id)
+        assert result.storage.failures[0].error_message == "database unavailable"
+
     async def test_add_requires_exactly_one_input(self) -> None:
         """Add requires exactly one input."""
         graph = await _open_graph()
