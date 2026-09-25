@@ -1,0 +1,93 @@
+name: Eval extraction
+
+# The extraction quality gate makes one LLM call per gold sentence, so it does
+# not run on pull requests. It runs after a merge that changes extraction code
+# and once a week, and it posts to Discord when it fails.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agrag/ingestion/extract.py"
+      - "agrag/llm/**"
+      - "agrag/eval/extraction.py"
+      - "agrag/eval/adapter.py"
+      - "agrag/common/data_models/extraction.py"
+      - "agrag/common/data_models/graph_schema.py"
+      - "tests/fixtures/eval/extraction/**"
+      - "tests/integration/eval/test_extraction_quality_e2e.py"
+      - ".github/workflows/eval-extraction.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  FORCE_COLOR: "1"
+  DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
+  LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+  LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+  LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
+
+jobs:
+  eval-extraction:
+    name: Eval extraction
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - run: make sync
+
+      - name: Run extraction eval
+        run: make test-eval-extraction
+
+      - name: Upload scores
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eval-extraction-scores
+          path: |
+            reports/eval/extraction_quality.json
+            pytest-eval-extraction-results.xml
+          retention-days: 90
+
+      - name: Notify Discord
+        if: failure()
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MESSAGE: >-
+            Extraction eval failed on ${{ github.event_name }} for
+            ${{ github.repository }}@${{ github.sha }}.
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL is not set, skipping the alert."
+            exit 0
+          fi
+          curl --silent --show-error --fail \
+            --header "Content-Type: application/json" \
+            --data "$(jq --null-input --arg content "$MESSAGE" '{content: $content}')" \
+            "$WEBHOOK_URL"
