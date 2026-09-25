@@ -48,6 +48,7 @@ observability = [
   "opentelemetry-exporter-otlp>=1.20",
   "opentelemetry-instrumentation-asyncio",
   "openinference-semantic-conventions",
+  "openinference-instrumentation-langchain>=0.1.76,<0.2",
 ]
 llm = [
     "baml-py>=0.226.1,<0.227",

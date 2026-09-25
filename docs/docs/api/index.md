@@ -28,6 +28,7 @@ Agentic layer: planner/researcher/verifier over SearchEngine.
 **Modules:**
 
 - [**build**](#agrag.agents.build) – Build the planner/researcher/verifier agent graph.
+- [**errors**](#agrag.agents.errors) – Errors raised by the agent layer.
 - [**harness**](#agrag.agents.harness) – Process-global DeepAgents harness profile registration.
 - [**ledger**](#agrag.agents.ledger) – Citation ledger: assigns and tracks stable keys for one agent run.
 - [**middleware**](#agrag.agents.middleware) – Agent middleware for composing models and bounding the research loop.
@@ -37,7 +38,32 @@ Agentic layer: planner/researcher/verifier over SearchEngine.
 - [**settings**](#agrag.agents.settings) – Env-backed LLM and loop config for the agent layer.
 - [**subagents**](#agrag.agents.subagents) – Subagent specs for the researcher and verifier roles.
 - [**tools**](#agrag.agents.tools) – Agent tools: thin wrappers calling SearchEngine with fixed Recipes.
+- [**tracing**](#agrag.agents.tracing) – Per-run OpenInference tracing for agent runs.
 - [**verification**](#agrag.agents.verification) – The verifier subagent's structured verdict.
+
+**Classes:**
+
+- [**AgentMissingExtraError**](#agrag.agents.AgentMissingExtraError) – Agent tracing needs a package extra that is not installed.
+
+#### `agrag.agents.AgentMissingExtraError`
+
+```python
+AgentMissingExtraError(extra:str) -> None
+```
+
+Bases: <code>[Exception](#Exception)</code>
+
+Agent tracing needs a package extra that is not installed.
+
+**Attributes:**
+
+- [**extra**](#agrag.agents.AgentMissingExtraError.extra) – The name of the package extra to install.
+
+##### `agrag.agents.AgentMissingExtraError.extra`
+
+```python
+extra = extra
+```
 
 #### `agrag.agents.build`
 
@@ -50,7 +76,7 @@ Build the planner/researcher/verifier agent graph.
 ##### `agrag.agents.build.build_agent`
 
 ```python
-build_agent(*, engine:SearchEngine, llm_settings:AgentLLMSettings, agent_settings:AgentSettings | None = None, filters:SearchFilters | None = None, graph_schema:GraphSchema | None = None) -> Any
+build_agent(*, engine:SearchEngine, llm_settings:AgentLLMSettings, agent_settings:AgentSettings | None = None, filters:SearchFilters | None = None, graph_schema:GraphSchema | None = None, tracer:Tracer | None = None) -> Any
 ```
 
 Build the planner/researcher/verifier agent graph.
@@ -87,6 +113,11 @@ so one question's retry budget does not spend another's.
   engine's own resolved schema; a value that differs from
   the engine's raises, so the prompt cannot describe a
   graph the engine does not search.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Receives OpenInference spans for every `ainvoke`,
+  including the researcher and verifier subagents' tool and
+  model calls. None emits no spans. Spans carry the question
+  and the evidence text; set `OPENINFERENCE_HIDE_INPUTS` or
+  `OPENINFERENCE_HIDE_OUTPUTS` to hide them.
 
 **Returns:**
 
@@ -95,6 +126,40 @@ so one question's retry budget does not spend another's.
 - <code>[Any](#typing.Any)</code> – citation key in the answer back to its evidence. When
 - <code>[Any](#typing.Any)</code> – deepagents is not installed, a single-search-plus-synthesis
 - <code>[Any](#typing.Any)</code> – fallback with the same result shape.
+
+**Raises:**
+
+- <code>[AgentMissingExtraError](#agrag.agents.errors.AgentMissingExtraError)</code> – `tracer` is set but the `observability`
+  extra is not installed.
+- <code>[ValueError](#ValueError)</code> – `graph_schema` differs from the engine's schema.
+
+#### `agrag.agents.errors`
+
+Errors raised by the agent layer.
+
+**Classes:**
+
+- [**AgentMissingExtraError**](#agrag.agents.errors.AgentMissingExtraError) – Agent tracing needs a package extra that is not installed.
+
+##### `agrag.agents.errors.AgentMissingExtraError`
+
+```python
+AgentMissingExtraError(extra:str) -> None
+```
+
+Bases: <code>[Exception](#Exception)</code>
+
+Agent tracing needs a package extra that is not installed.
+
+**Attributes:**
+
+- [**extra**](#agrag.agents.errors.AgentMissingExtraError.extra) – The name of the package extra to install.
+
+###### `agrag.agents.errors.AgentMissingExtraError.extra`
+
+```python
+extra = extra
+```
 
 #### `agrag.agents.harness`
 
@@ -1020,6 +1085,56 @@ Build the traverse_from_entity tool.
 **Returns:**
 
 - <code>[Any](#typing.Any)</code> – A decorated tool function.
+
+#### `agrag.agents.tracing`
+
+Per-run OpenInference tracing for agent runs.
+
+`build_agent` takes an optional OpenTelemetry `Tracer`. Each `ainvoke`
+passes a fresh OpenInference callback built from it, so no global tracer
+provider or instrumentation is installed. deepagents forwards the parent's
+callbacks to the researcher and verifier subagents, so their tool and model
+calls appear in the same trace.
+
+**Functions:**
+
+- [**require_tracing**](#agrag.agents.tracing.require_tracing) – Raise a typed error when tracing dependencies are unavailable.
+- [**run_callbacks**](#agrag.agents.tracing.run_callbacks) – Return the callbacks for one agent run.
+
+##### `agrag.agents.tracing.require_tracing`
+
+```python
+require_tracing() -> None
+```
+
+Raise a typed error when tracing dependencies are unavailable.
+
+**Raises:**
+
+- <code>[AgentMissingExtraError](#agrag.agents.errors.AgentMissingExtraError)</code> – The `observability` extra is not installed.
+- <code>[ImportError](#ImportError)</code> – The installed OpenInference package has an incompatible
+  layout.
+
+##### `agrag.agents.tracing.run_callbacks`
+
+```python
+run_callbacks(tracer:Tracer | None) -> list[Any]
+```
+
+Return the callbacks for one agent run.
+
+The callback holds per-run state, so build a new one for every run.
+Spans carry the question and the evidence text by default. Set
+`OPENINFERENCE_HIDE_INPUTS` or `OPENINFERENCE_HIDE_OUTPUTS` to hide them.
+
+**Parameters:**
+
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – The tracer that receives the spans, or `None` to disable
+  tracing.
+
+**Returns:**
+
+- <code>[list](#list)\[[Any](#typing.Any)\]</code> – A one-item callback list, or an empty list when `tracer` is `None`.
 
 #### `agrag.agents.verification`
 

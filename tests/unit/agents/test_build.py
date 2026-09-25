@@ -20,7 +20,14 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
+from agrag.agents import AgentMissingExtraError
 from agrag.agents.build import _RunScopedAgent, _SimpleAgent, build_agent
 from agrag.agents.ledger import Ledger
 from agrag.agents.middleware import ResearchAttemptLimiter
@@ -75,6 +82,50 @@ def _engine() -> MagicMock:
 
 class TestBuildAgent:
     """Tests agent construction and per-invocation agent wrappers."""
+
+    async def test_simple_agent_wraps_search_and_model_in_run_span(self) -> None:
+        """The fallback run span is active for search and model work."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        span_ids: dict[str, list[int]] = {"search": [], "model": []}
+        result = SearchResult(
+            item=Entity(id=uuid4(), label="Person", name="Alice"),
+            score=0.9,
+            method="entity",
+        )
+
+        async def search(*args: Any, **kwargs: Any) -> list[SearchResult]:
+            span_ids["search"].append(
+                trace.get_current_span().get_span_context().span_id
+            )
+            return [result]
+
+        async def invoke_model(*args: Any, **kwargs: Any) -> MagicMock:
+            span_ids["model"].append(
+                trace.get_current_span().get_span_context().span_id
+            )
+            return MagicMock(text="answer")
+
+        engine = MagicMock()
+        engine.search = AsyncMock(side_effect=search)
+        model = MagicMock()
+        model.ainvoke = AsyncMock(side_effect=invoke_model)
+        agent = _SimpleAgent(
+            model=model,
+            engine=engine,
+            tracer=provider.get_tracer("agrag-test"),
+        )
+
+        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+
+        run_span = next(
+            span for span in exporter.get_finished_spans() if span.name == "agent.run"
+        )
+        assert span_ids == {
+            "search": [run_span.context.span_id],
+            "model": [run_span.context.span_id],
+        }
 
     def test_builds_simple_agent_without_deepagents(
         self, monkeypatch: pytest.MonkeyPatch
@@ -395,6 +446,67 @@ class TestBuildAgent:
         _, kwargs = call
         assert kwargs["filters"] == filters
         assert kwargs["filters"] is not filters
+
+    async def test_run_scoped_agent_passes_a_tracing_callback_per_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each run gets its own callback built from the tracer."""
+        captured: dict = {}
+        _capture_deepagents(monkeypatch, captured)
+        agent = _RunScopedAgent(
+            engine=_engine(),
+            model=MagicMock(),
+            settings=AgentSettings(),
+            tracer=TracerProvider().get_tracer("t"),
+        )
+
+        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+        first = captured["config"]["callbacks"]
+        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+        second = captured["config"]["callbacks"]
+
+        assert len(first) == len(second) == 1
+        assert first[0] is not second[0]
+
+    async def test_run_scoped_agent_has_no_callbacks_without_a_tracer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No tracer means no callbacks, so the run works without the extra."""
+        captured: dict = {}
+        _capture_deepagents(monkeypatch, captured)
+        agent = _RunScopedAgent(
+            engine=_engine(), model=MagicMock(), settings=AgentSettings()
+        )
+
+        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+
+        assert captured["config"]["callbacks"] == []
+
+    def test_build_agent_with_tracer_fails_when_the_extra_is_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A tracer without the observability extra fails at build time."""
+        monkeypatch.setitem(sys.modules, "openinference.instrumentation", None)
+        settings = AgentLLMSettings(
+            clients=[
+                LLMClientConfig(
+                    name="test",
+                    provider="openai",
+                    model="gpt-4o",
+                    api_key="test",
+                )
+            ]
+        )
+
+        with pytest.raises(
+            AgentMissingExtraError,
+            match=r"agentic-graphrag\[observability\]",
+        ):
+            build_agent(
+                engine=_engine(),
+                llm_settings=settings,
+                tracer=TracerProvider().get_tracer("t"),
+            )
 
     async def test_simple_agent_ledger_resolves_prompt_keys_to_evidence(self) -> None:
         """A key in the evidence sent to the model resolves to its result."""

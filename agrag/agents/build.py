@@ -1,7 +1,10 @@
 """Build the planner/researcher/verifier agent graph."""
 
 import importlib.util
+from contextlib import nullcontext
 from typing import Any
+
+from opentelemetry.trace import Tracer
 
 from agrag.agents.harness import ensure_harness_profile, model_provider_key
 from agrag.agents.ledger import Ledger
@@ -12,6 +15,7 @@ from agrag.agents.result import AgentRunResult
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
 from agrag.agents.subagents import make_researcher_spec, make_verifier_spec
 from agrag.agents.tools import make_tools
+from agrag.agents.tracing import require_tracing, run_callbacks
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.search_engine import SearchEngine
@@ -24,6 +28,7 @@ def build_agent(
     agent_settings: AgentSettings | None = None,
     filters: SearchFilters | None = None,
     graph_schema: GraphSchema | None = None,
+    tracer: Tracer | None = None,
 ) -> Any:
     """Build the planner/researcher/verifier agent graph.
 
@@ -58,6 +63,11 @@ def build_agent(
             engine's own resolved schema; a value that differs from
             the engine's raises, so the prompt cannot describe a
             graph the engine does not search.
+        tracer: Receives OpenInference spans for every ``ainvoke``,
+            including the researcher and verifier subagents' tool and
+            model calls. None emits no spans. Spans carry the question
+            and the evidence text; set ``OPENINFERENCE_HIDE_INPUTS`` or
+            ``OPENINFERENCE_HIDE_OUTPUTS`` to hide them.
 
     Returns:
         An agent whose ``ainvoke`` returns an ``AgentRunResult``: the
@@ -65,7 +75,14 @@ def build_agent(
         citation key in the answer back to its evidence. When
         deepagents is not installed, a single-search-plus-synthesis
         fallback with the same result shape.
+
+    Raises:
+        AgentMissingExtraError: ``tracer`` is set but the ``observability``
+            extra is not installed.
+        ValueError: ``graph_schema`` differs from the engine's schema.
     """
+    if tracer is not None:
+        require_tracing()
     settings = agent_settings or AgentSettings()
     model = build_chat_model(llm_settings.clients[0])
     middleware = build_model_middleware(
@@ -88,13 +105,14 @@ def build_agent(
             filters=filters,
             graph_schema=schema,
             model_provider=model_provider_key(llm_settings.clients[0].provider),
+            tracer=tracer,
         )
 
     # Fallback: a simple wrapper when deepagents is not installed,
     # useful for unit testing without the full extra. If deepagents
     # is present but broken, ainvoke raises its import error at call
     # time instead of silently degrading here.
-    return _SimpleAgent(model=model, engine=engine, filters=filters)
+    return _SimpleAgent(model=model, engine=engine, filters=filters, tracer=tracer)
 
 
 class _RunScopedAgent:
@@ -117,6 +135,7 @@ class _RunScopedAgent:
         filters: SearchFilters | None = None,
         graph_schema: GraphSchema | None = None,
         model_provider: str = "",
+        tracer: Tracer | None = None,
     ) -> None:
         """Construct the wrapper."""
         self._engine = engine
@@ -128,6 +147,7 @@ class _RunScopedAgent:
             graph_schema if graph_schema is not None else engine.graph_schema
         )
         self._model_provider = model_provider
+        self._tracer = tracer
 
     async def ainvoke(self, input_data: dict) -> AgentRunResult:
         """Delegate to inner agent with a fresh Ledger and limiter.
@@ -168,7 +188,10 @@ class _RunScopedAgent:
         )
         result = await agent.ainvoke(
             input_data,
-            config={"recursion_limit": self._settings.recursion_limit},
+            config={
+                "recursion_limit": self._settings.recursion_limit,
+                "callbacks": run_callbacks(self._tracer),
+            },
         )
         return {**result, "ledger": ledger}
 
@@ -191,11 +214,13 @@ class _SimpleAgent:
         model: Any,
         engine: SearchEngine,
         filters: SearchFilters | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Construct a simple agent wrapper."""
         self._model = model
         self._engine = engine
         self._filters = filters
+        self._tracer = tracer
 
     async def ainvoke(self, input_data: dict) -> AgentRunResult:
         """Run the agent with a fresh ledger (simplified path).
@@ -211,35 +236,42 @@ class _SimpleAgent:
             Dict with ``messages`` containing the answer and this run's
             ``ledger``.
         """
-        ledger = Ledger()
-        messages = input_data.get("messages", [])
-        if not messages:
-            return {"messages": [], "ledger": ledger}
+        span_context = (
+            self._tracer.start_as_current_span("agent.run")
+            if self._tracer is not None
+            else nullcontext()
+        )
+        with span_context:
+            ledger = Ledger()
+            messages = input_data.get("messages", [])
+            if not messages:
+                return {"messages": [], "ledger": ledger}
 
-        question = messages[-1].get("content", "")
-        from agrag.retrieval.recipes import HYBRID  # noqa: PLC0415
+            question = messages[-1].get("content", "")
+            from agrag.retrieval.recipes import HYBRID  # noqa: PLC0415
 
-        results = await self._engine.search(question, HYBRID, filters=self._filters)
-        evidence = [ledger.render(r) for r in results]
-        if not evidence:
-            return {
-                "messages": [
-                    {"role": "assistant", "content": "No relevant evidence found."}
+            results = await self._engine.search(question, HYBRID, filters=self._filters)
+            evidence = [ledger.render(r) for r in results]
+            if not evidence:
+                return {
+                    "messages": [
+                        {"role": "assistant", "content": "No relevant evidence found."}
+                    ],
+                    "ledger": ledger,
+                }
+
+            response = await self._model.ainvoke(
+                [
+                    {"role": "system", "content": SIMPLE_ANSWER_SYSTEM},
+                    {
+                        "role": "user",
+                        "content": f"Question: {question}\n\nEvidence:\n"
+                        + "\n".join(evidence),
+                    },
                 ],
+                config={"callbacks": run_callbacks(self._tracer)},
+            )
+            return {
+                "messages": [{"role": "assistant", "content": response.text}],
                 "ledger": ledger,
             }
-
-        response = await self._model.ainvoke(
-            [
-                {"role": "system", "content": SIMPLE_ANSWER_SYSTEM},
-                {
-                    "role": "user",
-                    "content": f"Question: {question}\n\nEvidence:\n"
-                    + "\n".join(evidence),
-                },
-            ]
-        )
-        return {
-            "messages": [{"role": "assistant", "content": response.text}],
-            "ledger": ledger,
-        }
