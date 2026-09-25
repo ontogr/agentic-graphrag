@@ -8,6 +8,7 @@ from agrag.agents.ledger import Ledger
 from agrag.agents.middleware import ResearchAttemptLimiter
 from agrag.agents.model import build_chat_model, build_model_middleware
 from agrag.agents.prompts import PLANNER_SYSTEM, SIMPLE_ANSWER_SYSTEM
+from agrag.agents.result import AgentRunResult
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
 from agrag.agents.subagents import make_researcher_spec, make_verifier_spec
 from agrag.agents.tools import make_tools
@@ -59,9 +60,11 @@ def build_agent(
             graph the engine does not search.
 
     Returns:
-        A compiled agent graph ready for invoke/ainvoke, or a
-        single-search-plus-synthesis fallback when deepagents is
-        not installed.
+        An agent whose ``ainvoke`` returns an ``AgentRunResult``: the
+        run's ``messages`` plus its ``ledger``, which maps each
+        citation key in the answer back to its evidence. When
+        deepagents is not installed, a single-search-plus-synthesis
+        fallback with the same result shape.
     """
     settings = agent_settings or AgentSettings()
     model = build_chat_model(llm_settings.clients[0])
@@ -126,7 +129,7 @@ class _RunScopedAgent:
         )
         self._model_provider = model_provider
 
-    async def ainvoke(self, input_data: dict) -> dict[str, Any]:
+    async def ainvoke(self, input_data: dict) -> AgentRunResult:
         """Delegate to inner agent with a fresh Ledger and limiter.
 
         Builds the planner with the researcher and verifier as
@@ -139,7 +142,7 @@ class _RunScopedAgent:
             input_data: Dict with ``messages`` key.
 
         Returns:
-            Dict with ``messages`` key containing the answer.
+            The graph's final state with this run's ``ledger`` added.
         """
         from deepagents import create_deep_agent  # noqa: PLC0415
 
@@ -163,10 +166,11 @@ class _RunScopedAgent:
             subagents=subagents,
             middleware=[*self._middleware, limiter],
         )
-        return await agent.ainvoke(
+        result = await agent.ainvoke(
             input_data,
             config={"recursion_limit": self._settings.recursion_limit},
         )
+        return {**result, "ledger": ledger}
 
 
 class _SimpleAgent:
@@ -193,7 +197,7 @@ class _SimpleAgent:
         self._engine = engine
         self._filters = filters
 
-    async def ainvoke(self, input_data: dict) -> dict[str, Any]:
+    async def ainvoke(self, input_data: dict) -> AgentRunResult:
         """Run the agent with a fresh ledger (simplified path).
 
         Creates a new ``Ledger`` and tool set per invocation so
@@ -204,13 +208,14 @@ class _SimpleAgent:
             input_data: Dict with ``messages`` key.
 
         Returns:
-            Dict with ``messages`` key containing the answer.
+            Dict with ``messages`` containing the answer and this run's
+            ``ledger``.
         """
+        ledger = Ledger()
         messages = input_data.get("messages", [])
         if not messages:
-            return {"messages": []}
+            return {"messages": [], "ledger": ledger}
 
-        ledger = Ledger()
         question = messages[-1].get("content", "")
         from agrag.retrieval.recipes import HYBRID  # noqa: PLC0415
 
@@ -220,7 +225,8 @@ class _SimpleAgent:
             return {
                 "messages": [
                     {"role": "assistant", "content": "No relevant evidence found."}
-                ]
+                ],
+                "ledger": ledger,
             }
 
         response = await self._model.ainvoke(
@@ -233,4 +239,7 @@ class _SimpleAgent:
                 },
             ]
         )
-        return {"messages": [{"role": "assistant", "content": response.text}]}
+        return {
+            "messages": [{"role": "assistant", "content": response.text}],
+            "ledger": ledger,
+        }

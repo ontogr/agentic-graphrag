@@ -85,6 +85,8 @@ async def main():
 asyncio.run(main())
 ```
 
+`result["ledger"]` holds the citation keys the agent assigned during the run. Call `result["ledger"].resolve("C1")` to get the `SearchResult` behind a key in the answer. It returns `None` for a key the run never assigned. Each call to `ainvoke` returns a new ledger.
+
 The deep-agent path returns LangChain message objects, so the last message's text is `.content`; the optional-dependency fallback returns dictionaries, as shown above. `graph_schema` tells the researcher's prompt and the generated-query tool which labels and relationship types the graph uses. Omit it to use the engine's own schema, which falls back to `GENERIC` when the engine was built without one. Pass a schema that differs from the engine's schema, and `build_agent` raises `ValueError`, so the prompt can never describe a graph the engine does not search.
 
 ### Scoping agent retrieval

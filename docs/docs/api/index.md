@@ -32,6 +32,7 @@ Agentic layer: planner/researcher/verifier over SearchEngine.
 - [**middleware**](#agrag.agents.middleware) – Agent middleware for composing models and bounding the research loop.
 - [**model**](#agrag.agents.model) – Translate LLMClientConfig into the matching LangChain chat model.
 - [**prompts**](#agrag.agents.prompts) – Agent prompt templates for planner, researcher, verifier, and fallback.
+- [**result**](#agrag.agents.result) – Result type returned by an agent run.
 - [**settings**](#agrag.agents.settings) – Env-backed LLM and loop config for the agent layer.
 - [**subagents**](#agrag.agents.subagents) – Subagent specs for the researcher and verifier roles.
 - [**tools**](#agrag.agents.tools) – Agent tools: thin wrappers calling SearchEngine with fixed Recipes.
@@ -88,9 +89,11 @@ so one question's retry budget does not spend another's.
 
 **Returns:**
 
-- <code>[Any](#typing.Any)</code> – A compiled agent graph ready for invoke/ainvoke, or a
-- <code>[Any](#typing.Any)</code> – single-search-plus-synthesis fallback when deepagents is
-- <code>[Any](#typing.Any)</code> – not installed.
+- <code>[Any](#typing.Any)</code> – An agent whose `ainvoke` returns an `AgentRunResult`: the
+- <code>[Any](#typing.Any)</code> – run's `messages` plus its `ledger`, which maps each
+- <code>[Any](#typing.Any)</code> – citation key in the answer back to its evidence. When
+- <code>[Any](#typing.Any)</code> – deepagents is not installed, a single-search-plus-synthesis
+- <code>[Any](#typing.Any)</code> – fallback with the same result shape.
 
 #### `agrag.agents.harness`
 
@@ -439,6 +442,41 @@ SIMPLE_ANSWER_SYSTEM = 'You are a knowledge-graph question-answering assistant. 
 
 ```python
 VERIFIER_SYSTEM = "You are an evidence verifier for a knowledge-graph question-answering system. You will be given the original question, the sub-questions it was decomposed into, and the researcher's findings with citation keys (e.g. E1, C3, R2).\n\nCheck each sub-question independently, in isolation from the others and from the researcher's overall narrative:\n1. Does this sub-question have at least one citation?\n2. Does each cited key correspond to evidence that actually supports the claim made for this sub-question -- not just present, but on point?\n3. Do any two cited pieces of evidence, across any sub-questions, contradict each other?\n\nOnly after checking every sub-question independently, decide the overall verdict:\n- PASS: every sub-question has supporting evidence and no contradictions were found.\n- INSUFFICIENT: one or more sub-questions lack supporting evidence. List exactly which sub-questions and what evidence is missing.\n- CONTRADICTORY: two or more cited pieces of evidence conflict. Name the citation keys and the conflict; this cannot be fixed by more research, only surfaced as a caveat.\n\nReturn your reasoning first, then the verdict -- decide by checking, not by restating a conclusion you have already formed."
+```
+
+#### `agrag.agents.result`
+
+Result type returned by an agent run.
+
+**Classes:**
+
+- [**AgentRunResult**](#agrag.agents.result.AgentRunResult) – Result of one agent run.
+
+##### `agrag.agents.result.AgentRunResult`
+
+Bases: <code>[TypedDict](#typing.TypedDict)</code>
+
+Result of one agent run.
+
+The deep-agent path also passes through the other keys of the LangGraph
+state at runtime; only the keys below are part of the contract.
+
+**Attributes:**
+
+- [**messages**](#agrag.agents.result.AgentRunResult.messages) (<code>[list](#list)\[[Any](#typing.Any)\]</code>) – The conversation, ending with the assistant's answer.
+- [**ledger**](#agrag.agents.result.AgentRunResult.ledger) (<code>[Ledger](#agrag.agents.ledger.Ledger)</code>) – Citation keys assigned during this run. Use
+  `ledger.resolve(key)` to get the evidence behind a key.
+
+###### `agrag.agents.result.AgentRunResult.ledger`
+
+```python
+ledger: Ledger
+```
+
+###### `agrag.agents.result.AgentRunResult.messages`
+
+```python
+messages: list[Any]
 ```
 
 #### `agrag.agents.settings`
