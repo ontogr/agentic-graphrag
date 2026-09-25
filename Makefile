@@ -1,4 +1,4 @@
-.PHONY: test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
+.PHONY: test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
 export UV_LOCKED = 1
 
@@ -8,6 +8,7 @@ help:
 	@echo "  make test             - Run unit tests with coverage"
 	@echo "  make test-integration - Run integration tests (requires network)"
 	@echo "  make test-e2e         - Run end-to-end pipeline tests (requires Neo4j)"
+	@echo "  make test-eval        - Run judged and real-agent evals (requires Neo4j and an LLM key)"
 	@echo "  make test-all         - Run unit, integration, and e2e tests in order"
 	@echo "  make test-cov-map     - Run all suites with JUnit files and per-test coverage contexts"
 	@echo "  make dev-services-up  - Start local Neo4j/Qdrant/Weaviate/Milvus for integration tests"
@@ -78,6 +79,14 @@ test-e2e:
 	uv run pytest tests/integration/e2e -v \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
 		$(COV_ARGS) --junitxml=pytest-e2e-results.xml
+
+# Judged evals call a real LLM, so they skip when no key is set. They run
+# serially against one database, like the E2E tests. Telemetry is opted out
+# because the DeepEval plugin would otherwise report each run.
+test-eval:
+	DEEPEVAL_TELEMETRY_OPT_OUT=YES uv run pytest tests/integration/eval -v \
+		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
+		--junitxml=pytest-eval-results.xml
 
 # Runs every suite in the safe order with one coverage data file, a JUnit file per
 # suite, and per-test coverage contexts. The JSON report maps each line to the

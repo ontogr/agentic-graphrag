@@ -14,6 +14,7 @@ Agentic GraphRAG: graph-based RAG with agentic reasoning.
 - [**common**](#agrag.common) – Common utilities and data models shared across agrag.
 - [**cypher**](#agrag.cypher) – Cypher query builders for graph stores.
 - [**embedding**](#agrag.embedding) – Text embedding: turn strings into dense vectors.
+- [**eval**](#agrag.eval) – Public evaluation metrics for agrag, built on DeepEval and AgentEvals.
 - [**graphdb**](#agrag.graphdb) – Graph storage backends and the build shortcut.
 - [**ingestion**](#agrag.ingestion) – The ingestion package.
 - [**observability**](#agrag.observability) – OpenTelemetry wiring for the ingestion layer.
@@ -6538,6 +6539,714 @@ indices: list[int]
 ```python
 values: list[float]
 ```
+
+### `agrag.eval`
+
+Public evaluation metrics for agrag, built on DeepEval and AgentEvals.
+
+Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
+
+**Modules:**
+
+- [**adapter**](#agrag.eval.adapter) – Adapters that let plain scoring functions report through DeepEval.
+- [**judge**](#agrag.eval.judge) – A DeepEval judge model backed by an agrag chat model.
+- [**repeat**](#agrag.eval.repeat) – Repeat a metric and report the median score.
+- [**settings**](#agrag.eval.settings) – Env-backed configuration for the eval judge model.
+
+**Classes:**
+
+- [**ChatModelJudge**](#agrag.eval.ChatModelJudge) – Wrap a LangChain chat model as a DeepEval judge.
+- [**EvalJudgeSettings**](#agrag.eval.EvalJudgeSettings) – LLM client config for the eval judge.
+- [**MedianOfN**](#agrag.eval.MedianOfN) – Run a metric `n` times and report the median score.
+- [**ScoreMetric**](#agrag.eval.ScoreMetric) – A DeepEval metric backed by a plain scoring function.
+- [**ScoreResult**](#agrag.eval.ScoreResult) – The outcome of one scoring function call.
+
+**Functions:**
+
+- [**parse_json_case**](#agrag.eval.parse_json_case) – Read the `(actual, expected)` models back from a JSON test case.
+- [**to_json_case**](#agrag.eval.to_json_case) – Build a test case that carries structured data as JSON.
+
+#### `agrag.eval.ChatModelJudge`
+
+```python
+ChatModelJudge(chat_model:Any, name:str) -> None
+```
+
+Bases: <code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>
+
+Wrap a LangChain chat model as a DeepEval judge.
+
+Pass an instance as `model=` to any DeepEval metric. With a `schema`,
+`generate` returns an instance of it. Without one, it returns the reply
+text. Provider errors surface unchanged.
+
+**Functions:**
+
+- [**a_generate**](#agrag.eval.ChatModelJudge.a_generate) – Run one judge call asynchronously. See `generate`.
+- [**from_settings**](#agrag.eval.ChatModelJudge.from_settings) – Build a judge from settings.
+- [**generate**](#agrag.eval.ChatModelJudge.generate) – Run one judge call, returning a `schema` instance or the reply text.
+- [**get_model_name**](#agrag.eval.ChatModelJudge.get_model_name) – Return the judge's model id.
+- [**load_model**](#agrag.eval.ChatModelJudge.load_model) – Return the wrapped chat model.
+
+##### `agrag.eval.ChatModelJudge.a_generate`
+
+```python
+a_generate(prompt:str, schema:type[BaseModel] | None = None) -> Any
+```
+
+Run one judge call asynchronously. See `generate`.
+
+##### `agrag.eval.ChatModelJudge.from_settings`
+
+```python
+from_settings(settings:EvalJudgeSettings) -> ChatModelJudge
+```
+
+Build a judge from settings.
+
+The chat model is copied with `settings.temperature` set. When that
+is `None`, no temperature is set. A model that rejects the
+parameter then needs `EVAL_JUDGE_TEMPERATURE` empty.
+
+**Parameters:**
+
+- **settings** (<code>[EvalJudgeSettings](#agrag.eval.settings.EvalJudgeSettings)</code>) – The judge client config and temperature.
+
+##### `agrag.eval.ChatModelJudge.generate`
+
+```python
+generate(prompt:str, schema:type[BaseModel] | None = None) -> Any
+```
+
+Run one judge call, returning a `schema` instance or the reply text.
+
+##### `agrag.eval.ChatModelJudge.get_model_name`
+
+```python
+get_model_name() -> str
+```
+
+Return the judge's model id.
+
+##### `agrag.eval.ChatModelJudge.load_model`
+
+```python
+load_model() -> Any
+```
+
+Return the wrapped chat model.
+
+#### `agrag.eval.EvalJudgeSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+LLM client config for the eval judge.
+
+**Attributes:**
+
+- [**client**](#agrag.eval.EvalJudgeSettings.client) (<code>[LLMClientConfig](#agrag.llm.client_config.LLMClientConfig)</code>) – The judge model's client config.
+- [**temperature**](#agrag.eval.EvalJudgeSettings.temperature) (<code>[Annotated](#typing.Annotated)\[[float](#float) | None, [NoDecode](#pydantic_settings.NoDecode)\]</code>) – The sampling temperature the judge sends. `None` sends
+  none, for models that reject the parameter. Set
+  `EVAL_JUDGE_TEMPERATURE` empty to get `None`.
+  Env: `EVAL_JUDGE_TEMPERATURE`.
+
+Env prefix: `EVAL_JUDGE_`.
+
+**Functions:**
+
+- [**from_openai_compatible_env**](#agrag.eval.EvalJudgeSettings.from_openai_compatible_env) – Build settings from OpenAI-compatible env vars.
+
+##### `agrag.eval.EvalJudgeSettings.client`
+
+```python
+client: LLMClientConfig
+```
+
+##### `agrag.eval.EvalJudgeSettings.from_openai_compatible_env`
+
+```python
+from_openai_compatible_env() -> EvalJudgeSettings
+```
+
+Build settings from OpenAI-compatible env vars.
+
+Loads `.env` first, then resolves `EVAL_JUDGE_BASE_URL`,
+`EVAL_JUDGE_API_KEY` and `EVAL_JUDGE_MODEL_ID` through
+pydantic-settings. Each falls back to the shared `LLM_*` variable
+when unset or empty, so the judge is the agent's own model unless
+`EVAL_JUDGE_*` is set. That model grades its own answers, which
+biases scores upward. There is no default model.
+
+**Returns:**
+
+- <code>[EvalJudgeSettings](#agrag.eval.settings.EvalJudgeSettings)</code> – EvalJudgeSettings with one openai-generic client.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – No model id resolves from either set of variables.
+
+##### `agrag.eval.EvalJudgeSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='EVAL_JUDGE_', env_file='.env', extra='ignore')
+```
+
+##### `agrag.eval.EvalJudgeSettings.temperature`
+
+```python
+temperature: Annotated[float | None, NoDecode] = 0.0
+```
+
+#### `agrag.eval.MedianOfN`
+
+```python
+MedianOfN(metric:BaseMetric, n:int = 3) -> None
+```
+
+Bases: <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code>
+
+Run a metric `n` times and report the median score.
+
+One noisy judge call cannot flip the result. `success` compares the
+median with the wrapped metric's threshold. `reason` comes from the run
+closest to the median, and `score_breakdown` lists every score.
+
+Under `a_measure` the runs execute concurrently, each on its own copy of
+the metric, because metrics keep their result in `self`. The copies share
+the judge model.
+
+**Attributes:**
+
+- [**metric**](#agrag.eval.MedianOfN.metric) – The wrapped metric.
+- [**n**](#agrag.eval.MedianOfN.n) – The number of runs. Must be odd.
+
+**Functions:**
+
+- [**a_measure**](#agrag.eval.MedianOfN.a_measure) – Run the wrapped metric `n` times at once.
+- [**measure**](#agrag.eval.MedianOfN.measure) – Run the wrapped metric `n` times in turn.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `n` is not a positive odd number.
+
+##### `agrag.eval.MedianOfN.a_measure`
+
+```python
+a_measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
+```
+
+Run the wrapped metric `n` times at once.
+
+##### `agrag.eval.MedianOfN.measure`
+
+```python
+measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
+```
+
+Run the wrapped metric `n` times in turn.
+
+##### `agrag.eval.MedianOfN.metric`
+
+```python
+metric = metric
+```
+
+##### `agrag.eval.MedianOfN.n`
+
+```python
+n = n
+```
+
+##### `agrag.eval.MedianOfN.threshold`
+
+```python
+threshold = 0.5 if metric.threshold is None else metric.threshold
+```
+
+#### `agrag.eval.ScoreMetric`
+
+```python
+ScoreMetric(name:str, scorer:Callable[[LLMTestCase], ScoreResult], threshold:float = 0.5) -> None
+```
+
+Bases: <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code>
+
+A DeepEval metric backed by a plain scoring function.
+
+Use it for scores that DeepEval does not compute, such as F1 from
+scikit-learn, so they report through the same `evaluate()` call.
+If the scorer raises, the error is stored in `error` and raised again.
+
+**Attributes:**
+
+- [**name**](#agrag.eval.ScoreMetric.name) – The metric name shown in reports.
+- [**scorer**](#agrag.eval.ScoreMetric.scorer) – The function that turns a test case into a `ScoreResult`.
+- [**threshold**](#agrag.eval.ScoreMetric.threshold) – The minimum score that counts as success.
+
+**Functions:**
+
+- [**a_measure**](#agrag.eval.ScoreMetric.a_measure) – Run `measure`; scoring functions are synchronous.
+- [**measure**](#agrag.eval.ScoreMetric.measure) – Run the scorer and record its score, reason and breakdown.
+
+##### `agrag.eval.ScoreMetric.a_measure`
+
+```python
+a_measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
+```
+
+Run `measure`; scoring functions are synchronous.
+
+##### `agrag.eval.ScoreMetric.measure`
+
+```python
+measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
+```
+
+Run the scorer and record its score, reason and breakdown.
+
+##### `agrag.eval.ScoreMetric.name`
+
+```python
+name = name
+```
+
+##### `agrag.eval.ScoreMetric.scorer`
+
+```python
+scorer = scorer
+```
+
+##### `agrag.eval.ScoreMetric.threshold`
+
+```python
+threshold = threshold
+```
+
+#### `agrag.eval.ScoreResult`
+
+Bases: <code>[NamedTuple](#typing.NamedTuple)</code>
+
+The outcome of one scoring function call.
+
+**Attributes:**
+
+- [**score**](#agrag.eval.ScoreResult.score) (<code>[float](#float)</code>) – The score, normally between 0 and 1.
+- [**reason**](#agrag.eval.ScoreResult.reason) (<code>[str](#str)</code>) – A short explanation shown in DeepEval reports.
+- [**breakdown**](#agrag.eval.ScoreResult.breakdown) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – Extra numbers behind the score, such as per-class values.
+
+##### `agrag.eval.ScoreResult.breakdown`
+
+```python
+breakdown: dict[str, Any]
+```
+
+##### `agrag.eval.ScoreResult.reason`
+
+```python
+reason: str
+```
+
+##### `agrag.eval.ScoreResult.score`
+
+```python
+score: float
+```
+
+#### `agrag.eval.adapter`
+
+Adapters that let plain scoring functions report through DeepEval.
+
+**Classes:**
+
+- [**ScoreMetric**](#agrag.eval.adapter.ScoreMetric) – A DeepEval metric backed by a plain scoring function.
+- [**ScoreResult**](#agrag.eval.adapter.ScoreResult) – The outcome of one scoring function call.
+
+**Functions:**
+
+- [**parse_json_case**](#agrag.eval.adapter.parse_json_case) – Read the `(actual, expected)` models back from a JSON test case.
+- [**to_json_case**](#agrag.eval.adapter.to_json_case) – Build a test case that carries structured data as JSON.
+
+**Attributes:**
+
+- [**ModelT**](#agrag.eval.adapter.ModelT) –
+
+##### `agrag.eval.adapter.ModelT`
+
+```python
+ModelT = TypeVar('ModelT', bound=BaseModel)
+```
+
+##### `agrag.eval.adapter.ScoreMetric`
+
+```python
+ScoreMetric(name:str, scorer:Callable[[LLMTestCase], ScoreResult], threshold:float = 0.5) -> None
+```
+
+Bases: <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code>
+
+A DeepEval metric backed by a plain scoring function.
+
+Use it for scores that DeepEval does not compute, such as F1 from
+scikit-learn, so they report through the same `evaluate()` call.
+If the scorer raises, the error is stored in `error` and raised again.
+
+**Attributes:**
+
+- [**name**](#agrag.eval.adapter.ScoreMetric.name) – The metric name shown in reports.
+- [**scorer**](#agrag.eval.adapter.ScoreMetric.scorer) – The function that turns a test case into a `ScoreResult`.
+- [**threshold**](#agrag.eval.adapter.ScoreMetric.threshold) – The minimum score that counts as success.
+
+**Functions:**
+
+- [**a_measure**](#agrag.eval.adapter.ScoreMetric.a_measure) – Run `measure`; scoring functions are synchronous.
+- [**measure**](#agrag.eval.adapter.ScoreMetric.measure) – Run the scorer and record its score, reason and breakdown.
+
+###### `agrag.eval.adapter.ScoreMetric.a_measure`
+
+```python
+a_measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
+```
+
+Run `measure`; scoring functions are synchronous.
+
+###### `agrag.eval.adapter.ScoreMetric.measure`
+
+```python
+measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
+```
+
+Run the scorer and record its score, reason and breakdown.
+
+###### `agrag.eval.adapter.ScoreMetric.name`
+
+```python
+name = name
+```
+
+###### `agrag.eval.adapter.ScoreMetric.scorer`
+
+```python
+scorer = scorer
+```
+
+###### `agrag.eval.adapter.ScoreMetric.threshold`
+
+```python
+threshold = threshold
+```
+
+##### `agrag.eval.adapter.ScoreResult`
+
+Bases: <code>[NamedTuple](#typing.NamedTuple)</code>
+
+The outcome of one scoring function call.
+
+**Attributes:**
+
+- [**score**](#agrag.eval.adapter.ScoreResult.score) (<code>[float](#float)</code>) – The score, normally between 0 and 1.
+- [**reason**](#agrag.eval.adapter.ScoreResult.reason) (<code>[str](#str)</code>) – A short explanation shown in DeepEval reports.
+- [**breakdown**](#agrag.eval.adapter.ScoreResult.breakdown) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – Extra numbers behind the score, such as per-class values.
+
+###### `agrag.eval.adapter.ScoreResult.breakdown`
+
+```python
+breakdown: dict[str, Any]
+```
+
+###### `agrag.eval.adapter.ScoreResult.reason`
+
+```python
+reason: str
+```
+
+###### `agrag.eval.adapter.ScoreResult.score`
+
+```python
+score: float
+```
+
+##### `agrag.eval.adapter.parse_json_case`
+
+```python
+parse_json_case(test_case:LLMTestCase, model:type[ModelT]) -> tuple[ModelT, ModelT]
+```
+
+Read the `(actual, expected)` models back from a JSON test case.
+
+**Parameters:**
+
+- **test_case** (<code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code>) – A case built by `to_json_case`.
+- **model** (<code>[type](#type)\[[ModelT](#agrag.eval.adapter.ModelT)\]</code>) – The pydantic model both outputs were serialized from.
+
+##### `agrag.eval.adapter.to_json_case`
+
+```python
+to_json_case(input:str, actual:BaseModel, expected:BaseModel) -> LLMTestCase
+```
+
+Build a test case that carries structured data as JSON.
+
+`LLMTestCase` has no field for structured gold data, so both models are
+serialized to JSON in `actual_output` and `expected_output`. The JSON
+also shows in DeepEval reports.
+
+**Parameters:**
+
+- **input** (<code>[str](#str)</code>) – The input text, such as a question or a chunk.
+- **actual** (<code>[BaseModel](#pydantic.BaseModel)</code>) – The system output.
+- **expected** (<code>[BaseModel](#pydantic.BaseModel)</code>) – The gold data.
+
+#### `agrag.eval.judge`
+
+A DeepEval judge model backed by an agrag chat model.
+
+**Classes:**
+
+- [**ChatModelJudge**](#agrag.eval.judge.ChatModelJudge) – Wrap a LangChain chat model as a DeepEval judge.
+
+##### `agrag.eval.judge.ChatModelJudge`
+
+```python
+ChatModelJudge(chat_model:Any, name:str) -> None
+```
+
+Bases: <code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>
+
+Wrap a LangChain chat model as a DeepEval judge.
+
+Pass an instance as `model=` to any DeepEval metric. With a `schema`,
+`generate` returns an instance of it. Without one, it returns the reply
+text. Provider errors surface unchanged.
+
+**Functions:**
+
+- [**a_generate**](#agrag.eval.judge.ChatModelJudge.a_generate) – Run one judge call asynchronously. See `generate`.
+- [**from_settings**](#agrag.eval.judge.ChatModelJudge.from_settings) – Build a judge from settings.
+- [**generate**](#agrag.eval.judge.ChatModelJudge.generate) – Run one judge call, returning a `schema` instance or the reply text.
+- [**get_model_name**](#agrag.eval.judge.ChatModelJudge.get_model_name) – Return the judge's model id.
+- [**load_model**](#agrag.eval.judge.ChatModelJudge.load_model) – Return the wrapped chat model.
+
+###### `agrag.eval.judge.ChatModelJudge.a_generate`
+
+```python
+a_generate(prompt:str, schema:type[BaseModel] | None = None) -> Any
+```
+
+Run one judge call asynchronously. See `generate`.
+
+###### `agrag.eval.judge.ChatModelJudge.from_settings`
+
+```python
+from_settings(settings:EvalJudgeSettings) -> ChatModelJudge
+```
+
+Build a judge from settings.
+
+The chat model is copied with `settings.temperature` set. When that
+is `None`, no temperature is set. A model that rejects the
+parameter then needs `EVAL_JUDGE_TEMPERATURE` empty.
+
+**Parameters:**
+
+- **settings** (<code>[EvalJudgeSettings](#agrag.eval.settings.EvalJudgeSettings)</code>) – The judge client config and temperature.
+
+###### `agrag.eval.judge.ChatModelJudge.generate`
+
+```python
+generate(prompt:str, schema:type[BaseModel] | None = None) -> Any
+```
+
+Run one judge call, returning a `schema` instance or the reply text.
+
+###### `agrag.eval.judge.ChatModelJudge.get_model_name`
+
+```python
+get_model_name() -> str
+```
+
+Return the judge's model id.
+
+###### `agrag.eval.judge.ChatModelJudge.load_model`
+
+```python
+load_model() -> Any
+```
+
+Return the wrapped chat model.
+
+#### `agrag.eval.parse_json_case`
+
+```python
+parse_json_case(test_case:LLMTestCase, model:type[ModelT]) -> tuple[ModelT, ModelT]
+```
+
+Read the `(actual, expected)` models back from a JSON test case.
+
+**Parameters:**
+
+- **test_case** (<code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code>) – A case built by `to_json_case`.
+- **model** (<code>[type](#type)\[[ModelT](#agrag.eval.adapter.ModelT)\]</code>) – The pydantic model both outputs were serialized from.
+
+#### `agrag.eval.repeat`
+
+Repeat a metric and report the median score.
+
+**Classes:**
+
+- [**MedianOfN**](#agrag.eval.repeat.MedianOfN) – Run a metric `n` times and report the median score.
+
+##### `agrag.eval.repeat.MedianOfN`
+
+```python
+MedianOfN(metric:BaseMetric, n:int = 3) -> None
+```
+
+Bases: <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code>
+
+Run a metric `n` times and report the median score.
+
+One noisy judge call cannot flip the result. `success` compares the
+median with the wrapped metric's threshold. `reason` comes from the run
+closest to the median, and `score_breakdown` lists every score.
+
+Under `a_measure` the runs execute concurrently, each on its own copy of
+the metric, because metrics keep their result in `self`. The copies share
+the judge model.
+
+**Attributes:**
+
+- [**metric**](#agrag.eval.repeat.MedianOfN.metric) – The wrapped metric.
+- [**n**](#agrag.eval.repeat.MedianOfN.n) – The number of runs. Must be odd.
+
+**Functions:**
+
+- [**a_measure**](#agrag.eval.repeat.MedianOfN.a_measure) – Run the wrapped metric `n` times at once.
+- [**measure**](#agrag.eval.repeat.MedianOfN.measure) – Run the wrapped metric `n` times in turn.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `n` is not a positive odd number.
+
+###### `agrag.eval.repeat.MedianOfN.a_measure`
+
+```python
+a_measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
+```
+
+Run the wrapped metric `n` times at once.
+
+###### `agrag.eval.repeat.MedianOfN.measure`
+
+```python
+measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
+```
+
+Run the wrapped metric `n` times in turn.
+
+###### `agrag.eval.repeat.MedianOfN.metric`
+
+```python
+metric = metric
+```
+
+###### `agrag.eval.repeat.MedianOfN.n`
+
+```python
+n = n
+```
+
+###### `agrag.eval.repeat.MedianOfN.threshold`
+
+```python
+threshold = 0.5 if metric.threshold is None else metric.threshold
+```
+
+#### `agrag.eval.settings`
+
+Env-backed configuration for the eval judge model.
+
+**Classes:**
+
+- [**EvalJudgeSettings**](#agrag.eval.settings.EvalJudgeSettings) – LLM client config for the eval judge.
+
+##### `agrag.eval.settings.EvalJudgeSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+LLM client config for the eval judge.
+
+**Attributes:**
+
+- [**client**](#agrag.eval.settings.EvalJudgeSettings.client) (<code>[LLMClientConfig](#agrag.llm.client_config.LLMClientConfig)</code>) – The judge model's client config.
+- [**temperature**](#agrag.eval.settings.EvalJudgeSettings.temperature) (<code>[Annotated](#typing.Annotated)\[[float](#float) | None, [NoDecode](#pydantic_settings.NoDecode)\]</code>) – The sampling temperature the judge sends. `None` sends
+  none, for models that reject the parameter. Set
+  `EVAL_JUDGE_TEMPERATURE` empty to get `None`.
+  Env: `EVAL_JUDGE_TEMPERATURE`.
+
+Env prefix: `EVAL_JUDGE_`.
+
+**Functions:**
+
+- [**from_openai_compatible_env**](#agrag.eval.settings.EvalJudgeSettings.from_openai_compatible_env) – Build settings from OpenAI-compatible env vars.
+
+###### `agrag.eval.settings.EvalJudgeSettings.client`
+
+```python
+client: LLMClientConfig
+```
+
+###### `agrag.eval.settings.EvalJudgeSettings.from_openai_compatible_env`
+
+```python
+from_openai_compatible_env() -> EvalJudgeSettings
+```
+
+Build settings from OpenAI-compatible env vars.
+
+Loads `.env` first, then resolves `EVAL_JUDGE_BASE_URL`,
+`EVAL_JUDGE_API_KEY` and `EVAL_JUDGE_MODEL_ID` through
+pydantic-settings. Each falls back to the shared `LLM_*` variable
+when unset or empty, so the judge is the agent's own model unless
+`EVAL_JUDGE_*` is set. That model grades its own answers, which
+biases scores upward. There is no default model.
+
+**Returns:**
+
+- <code>[EvalJudgeSettings](#agrag.eval.settings.EvalJudgeSettings)</code> – EvalJudgeSettings with one openai-generic client.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – No model id resolves from either set of variables.
+
+###### `agrag.eval.settings.EvalJudgeSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='EVAL_JUDGE_', env_file='.env', extra='ignore')
+```
+
+###### `agrag.eval.settings.EvalJudgeSettings.temperature`
+
+```python
+temperature: Annotated[float | None, NoDecode] = 0.0
+```
+
+#### `agrag.eval.to_json_case`
+
+```python
+to_json_case(input:str, actual:BaseModel, expected:BaseModel) -> LLMTestCase
+```
+
+Build a test case that carries structured data as JSON.
+
+`LLMTestCase` has no field for structured gold data, so both models are
+serialized to JSON in `actual_output` and `expected_output`. The JSON
+also shows in DeepEval reports.
+
+**Parameters:**
+
+- **input** (<code>[str](#str)</code>) – The input text, such as a question or a chunk.
+- **actual** (<code>[BaseModel](#pydantic.BaseModel)</code>) – The system output.
+- **expected** (<code>[BaseModel](#pydantic.BaseModel)</code>) – The gold data.
 
 ### `agrag.graphdb`
 
