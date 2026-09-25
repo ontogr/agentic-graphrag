@@ -98,22 +98,27 @@ def extraction_case(
 
 
 async def run_extractor(
-    extractor: Extractor, items: Sequence[ExtractionGold], schema: GraphSchema
+    extractor: Extractor,
+    items: Sequence[ExtractionGold],
+    schema: GraphSchema,
+    *,
+    concurrency: int = _CONCURRENCY,
 ) -> list[LLMTestCase]:
     """Run an extractor over gold items and build one test case per item.
 
-    Chunk and document ids come from the item id, so runs are repeatable. At
-    most 8 extractor calls run at once.
+    Chunk and document ids come from the item id, so runs are repeatable.
 
     Args:
         extractor: The extractor under test.
         items: The gold-annotated chunks.
         schema: The schema the extractor works to.
+        concurrency: The most extractor calls that run at once. Lower it for an
+            endpoint that limits concurrent requests.
 
     Returns:
         One test case per item, in the order of ``items``.
     """
-    semaphore = asyncio.Semaphore(_CONCURRENCY)
+    semaphore = asyncio.Semaphore(concurrency)
 
     async def run(item: ExtractionGold) -> LLMTestCase:
         chunk = Chunk(

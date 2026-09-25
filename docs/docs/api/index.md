@@ -7430,19 +7430,20 @@ triple is in gold. Use a new metric for each case.
 ##### `agrag.eval.extraction.run_extractor`
 
 ```python
-run_extractor(extractor:Extractor, items:Sequence[ExtractionGold], schema:GraphSchema) -> list[LLMTestCase]
+run_extractor(extractor:Extractor, items:Sequence[ExtractionGold], schema:GraphSchema, *, concurrency:int = _CONCURRENCY) -> list[LLMTestCase]
 ```
 
 Run an extractor over gold items and build one test case per item.
 
-Chunk and document ids come from the item id, so runs are repeatable. At
-most 8 extractor calls run at once.
+Chunk and document ids come from the item id, so runs are repeatable.
 
 **Parameters:**
 
 - **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – The extractor under test.
 - **items** (<code>[Sequence](#collections.abc.Sequence)\[[ExtractionGold](#agrag.eval.extraction.ExtractionGold)\]</code>) – The gold-annotated chunks.
 - **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The schema the extractor works to.
+- **concurrency** (<code>[int](#int)</code>) – The most extractor calls that run at once. Lower it for an
+  endpoint that limits concurrent requests.
 
 **Returns:**
 
@@ -7664,19 +7665,20 @@ threshold = 0.5 if metric.threshold is None else metric.threshold
 #### `agrag.eval.run_extractor`
 
 ```python
-run_extractor(extractor:Extractor, items:Sequence[ExtractionGold], schema:GraphSchema) -> list[LLMTestCase]
+run_extractor(extractor:Extractor, items:Sequence[ExtractionGold], schema:GraphSchema, *, concurrency:int = _CONCURRENCY) -> list[LLMTestCase]
 ```
 
 Run an extractor over gold items and build one test case per item.
 
-Chunk and document ids come from the item id, so runs are repeatable. At
-most 8 extractor calls run at once.
+Chunk and document ids come from the item id, so runs are repeatable.
 
 **Parameters:**
 
 - **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – The extractor under test.
 - **items** (<code>[Sequence](#collections.abc.Sequence)\[[ExtractionGold](#agrag.eval.extraction.ExtractionGold)\]</code>) – The gold-annotated chunks.
 - **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The schema the extractor works to.
+- **concurrency** (<code>[int](#int)</code>) – The most extractor calls that run at once. Lower it for an
+  endpoint that limits concurrent requests.
 
 **Returns:**
 
