@@ -54,10 +54,12 @@ _CORRECTNESS_STEPS = [
 ]
 _SUPPORT_STEPS = [
     "List each figure and entity that the actual output states.",
-    "Check that the retrieval context states each one, directly or by simple "
-    "arithmetic.",
+    "For a figure that the retrieval context does not state, do the calculation "
+    "yourself from the figures it does state (sum, difference, ratio, percent "
+    "change). Count the figure as supported when your result matches it after "
+    "rounding.",
     "Lower the score for each figure or entity that the retrieval context does "
-    "not support.",
+    "not state and that no such calculation gives.",
 ]
 
 
