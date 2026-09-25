@@ -1,25 +1,40 @@
 name: Eval
 
+# The harness smoke test runs the real agent and the judge, so it does not run
+# on pull requests. It runs after a merge that changes the agent, the retrieval
+# code or the eval harness, and once a week. It posts to Discord when it fails.
 on:
-  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "agrag/agents/**"
+      - "agrag/retrieval/**"
+      - "agrag/llm/**"
+      - "agrag/eval/judge.py"
+      - "agrag/eval/repeat.py"
+      - "agrag/eval/settings.py"
+      - "tests/integration/eval/conftest.py"
+      - "tests/integration/eval/test_harness_e2e.py"
+      - ".github/workflows/eval.yml"
+      - "pyproject.toml"
+      - "uv.lock"
   schedule:
-    - cron: "30 2 * * *"
+    - cron: "30 2 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 env:
   PYTHONUNBUFFERED: "1"
   FORCE_COLOR: "1"
   DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
-  # The agent and the judge use the existing LLM secrets. Both are empty on
-  # fork PRs, so the eval tests skip there. Set EVAL_JUDGE_* to grade with a
-  # model other than the agent's own.
+  # The agent and the judge use the existing LLM secrets. Set EVAL_JUDGE_* to
+  # grade with a model other than the agent's own.
   LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
   LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
   LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
@@ -73,7 +88,7 @@ jobs:
         with:
           name: eval-test-results
           path: pytest-eval-results.xml
-          retention-days: 30
+          retention-days: 90
 
       - name: Collect backend service logs
         if: failure()
@@ -82,3 +97,21 @@ jobs:
       - name: Stop backend services
         if: always()
         run: docker compose -f docker/docker-compose.ci.yml down -v
+
+      - name: Notify Discord
+        if: failure()
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MESSAGE: >-
+            Eval harness smoke test failed on ${{ github.event_name }} for
+            ${{ github.repository }}@${{ github.sha }}.
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL is not set, skipping the alert."
+            exit 0
+          fi
+          curl --silent --show-error --fail \
+            --header "Content-Type: application/json" \
+            --data "$(jq --null-input --arg content "$MESSAGE" '{content: $content}')" \
+            "$WEBHOOK_URL"
