@@ -8,8 +8,16 @@ on:
     branches: [main]
     paths:
       - "agrag/agents/**"
+      - "agrag/chunking/**"
+      - "agrag/common/**"
+      - "agrag/cypher/**"
+      - "agrag/embedding/**"
       - "agrag/retrieval/**"
+      - "agrag/ingestion/**"
+      - "agrag/graphdb/**"
+      - "agrag/vectordb/**"
       - "agrag/llm/**"
+      - "agrag/loaders/**"
       - "agrag/eval/judge.py"
       - "agrag/eval/repeat.py"
       - "agrag/eval/settings.py"
@@ -33,15 +41,6 @@ env:
   PYTHONUNBUFFERED: "1"
   FORCE_COLOR: "1"
   DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
-  # The agent and the judge use the existing LLM secrets. Set EVAL_JUDGE_* to
-  # grade with a model other than the agent's own.
-  LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
-  LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-  LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
-  EVAL_JUDGE_BASE_URL: ${{ secrets.LLM_BASE_URL }}
-  EVAL_JUDGE_API_KEY: ${{ secrets.LLM_API_KEY }}
-  EVAL_JUDGE_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
-
 jobs:
   eval:
     name: Eval
@@ -80,7 +79,22 @@ jobs:
         run: docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420 neo4j
 
       - name: Run eval tests
-        run: make test-eval
+        env:
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
+          EVAL_JUDGE_BASE_URL: ${{ secrets.EVAL_JUDGE_BASE_URL || secrets.LLM_BASE_URL }}
+          EVAL_JUDGE_API_KEY: ${{ secrets.EVAL_JUDGE_API_KEY || secrets.LLM_API_KEY }}
+          EVAL_JUDGE_MODEL_ID: ${{ secrets.EVAL_JUDGE_MODEL_ID || secrets.LLM_MODEL_ID }}
+        run: |
+          if [ -z "$LLM_BASE_URL" ] || [ -z "$LLM_API_KEY" ] || \
+             [ -z "$LLM_MODEL_ID" ] || [ -z "$EVAL_JUDGE_BASE_URL" ] || \
+             [ -z "$EVAL_JUDGE_API_KEY" ] || [ -z "$EVAL_JUDGE_MODEL_ID" ]; then
+            echo "::error::Configure LLM_BASE_URL, LLM_API_KEY, and LLM_MODEL_ID."
+            echo "EVAL_JUDGE_* secrets are optional and default to LLM_* values."
+            exit 1
+          fi
+          make test-eval
 
       - name: Upload test results
         if: always()
