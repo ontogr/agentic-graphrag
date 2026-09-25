@@ -107,6 +107,10 @@
           "kpi"
         ],
         [
+          "increase",
+          "thereof"
+        ],
+        [
           "increase_py",
           "kpi"
         ],
@@ -147,6 +151,10 @@
           "cy"
         ],
         [
+          "kpi_coref",
+          "thereof"
+        ],
+        [
           "py",
           "kpi"
         ],
@@ -176,7 +184,15 @@
         ],
         [
           "thereof",
+          "increase"
+        ],
+        [
+          "thereof",
           "kpi"
+        ],
+        [
+          "thereof",
+          "kpi_coref"
         ],
         [
           "thereof",

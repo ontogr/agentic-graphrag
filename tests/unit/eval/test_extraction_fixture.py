@@ -34,7 +34,7 @@ class TestKpiEdgarFixture:
 
     def test_ids_are_unique(self, items: list[ExtractionGold]) -> None:
         """Chunk ids derive from item ids, so a repeat would merge two chunks."""
-        assert len({item.id for item in items}) == len(items) >= 90
+        assert len({item.id for item in items}) == len(items) >= 15
 
     def test_every_span_reads_back_from_the_text(
         self, items: list[ExtractionGold]

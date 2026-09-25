@@ -1,7 +1,7 @@
 """Extraction quality regression test on a KPI-EDGAR gold slice.
 
-Runs a real extractor over 100 sentences of SEC filings from the KPI-EDGAR test
-split (MIT licence, see ``tests/fixtures/eval/extraction/NOTICE``) and gates on
+Runs a real extractor over 18 hand-picked sentences of SEC filings from the KPI-EDGAR
+test split (MIT licence, see ``tests/fixtures/eval/extraction/NOTICE``) and gates on
 the micro F1 of entities and of relation triples, both with exact span
 matching. The relaxed scores (overlap of at least 0.5) go to the report
 beside them, so a gap shows a span boundary problem and not a missed entity.
@@ -12,9 +12,9 @@ directory in ``E2E_ARTIFACT_DIR``. The test skips without ``LLM_*`` settings.
 Each threshold is the lowest of three baseline runs minus 0.05, rounded down to
 0.05. Baseline runs (entity F1, relation F1):
 
-    run 1: 0.577, 0.257
-    run 2: 0.577, 0.258
-    run 3: 0.558, 0.255
+    run 1: 0.538, 0.209
+    run 2: 0.542, 0.214
+    run 3: 0.564, 0.235
 """
 
 import os
@@ -42,11 +42,12 @@ from tests.integration.e2e._artifact import write_artifact
 FIXTURE_DIR = Path(__file__).parents[2] / "fixtures" / "eval" / "extraction"
 REPORT_DIR = Path(__file__).parents[3] / "reports" / "eval"
 SYMMETRIC_LABELS = frozenset({"RELATED_VALUE"})
-CONCURRENCY = 8
+# Endpoints often limit concurrent requests, and a 429 fails the run.
+CONCURRENCY = 2
 
 # Minimum exact micro F1 for entities and for relations.
-ENTITY_THRESHOLD = 0.50
-RELATION_THRESHOLD = 0.20
+ENTITY_THRESHOLD = 0.45
+RELATION_THRESHOLD = 0.15
 
 
 def _baml_extractor() -> Extractor:

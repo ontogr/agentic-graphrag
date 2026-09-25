@@ -14,9 +14,10 @@ Relation Extraction from Financial Documents." ICMLA 2022.
 https://arxiv.org/abs/2210.09163
 
 Changes made:
-- Only sentences of the KPI-EDGAR test split that have at least one entity, and
-  no longer than 600 characters, are used. 100 sentences are kept, chosen with a
-  fixed seed by taking turns across filings.
+- Only 18 sentences of the KPI-EDGAR test split are used, picked by hand. They
+  cover every entity type and every entity pair that the test split links, and
+  add common cases from nine filings. The list is PICKED_IDS in
+  build_kpi_edgar_fixture.py.
 - Entity spans changed from word indexes to character offsets in the sentence
   text. Each entity carries the exact text of its span.
 - The entity labels increase-py and decrease-py are written increase_py and

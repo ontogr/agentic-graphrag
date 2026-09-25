@@ -8,17 +8,14 @@ Usage::
 
 KPI-EDGAR annotates word-index spans over a tokenized sentence. The script
 keeps the sentence text as written and converts each span to character offsets
-by scanning the text word by word. A sentence is dropped, and logged, when its
-words do not match its text or when a converted span does not read back as the
-words it came from. Selection is seeded, so the same clone gives the same file.
+by scanning the text word by word. The script stops when a picked sentence has
+words that do not match its text, or a converted span that does not read back as
+the words it came from.
 """
 
 import argparse
 import json
 import logging
-import random
-from collections import defaultdict
-from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
@@ -37,7 +34,31 @@ logger = logging.getLogger(__name__)
 HERE = Path(__file__).parent
 RELATION_LABEL = "RELATED_VALUE"
 SOURCE_RELATION_LABEL = "matches"
-MAX_TEXT_CHARS = 600
+
+# Test-split sentences picked by hand. Together they cover every entity type
+# and every entity pair that the test split links, and add common cases (a KPI
+# with current, prior and earlier year values) from many filings. The set is
+# small because every extractor run costs one LLM call per sentence.
+PICKED_IDS = [
+    "AMZN_10-K_0001018724-21-000004.txt_59_1",
+    "AMZN_10-K_0001018724-20-000004.txt_28_9",
+    "CVX_10-K_0000093410-21-000009.txt_86_1",
+    "TSLA_10-K_0001564590-20-004475.txt_13_1",
+    "TSLA_10-K_0001564590-21-004599.txt_12_1",
+    "CVX_10-K_0000093410-21-000009.txt_90_2",
+    "TSLA_10-K_0001564590-21-004599.txt_32_0",
+    "TSLA_10-K_0001564590-20-004475.txt_86_8",
+    "PEP_10-K_0000077476-21-000007.txt_54_11",
+    "PFE_10-K_0000078003-21-000038.txt_46_2",
+    "UNH_10-K_0000731766-21-000013.txt_8_6",
+    "PEP_10-K_0000077476-21-000007.txt_12_1",
+    "PFE_10-K_0000078003-21-000038.txt_28_1",
+    "MSFT_10-K_0001564590-21-039151.txt_9_2",
+    "UNH_10-K_0000731766-21-000013.txt_8_5",
+    "DHR_10-K_0000313616-20-000041.txt_11_2",
+    "MSFT_10-K_0001564590-21-039151.txt_48_0",
+    "ADBE_10-K_0000796343-20-000013.txt_13_1",
+]
 
 # Entity definitions follow Table I of Deusser et al., "KPI-EDGAR: A Novel
 # Dataset and Accompanying Metric for Relation Extraction from Financial
@@ -147,38 +168,38 @@ def convert_sentence(sentence: dict[str, Any]) -> ExtractionGold | None:
     return ExtractionGold(id=sentence["unique_id"], text=text, gold=gold)
 
 
-def select_sentences(filings: list[dict[str, Any]], count: int, seed: int) -> list:
-    """Pick test-split sentences with entities, taking turns across filings."""
-    by_filing: dict[str, list[dict[str, Any]]] = defaultdict(list)
+def picked_sentences(filings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return the picked sentences in PICKED_IDS order."""
+    by_id = {
+        sentence["unique_id"]: sentence
+        for filing in filings
+        for segment in filing["segments"]
+        for sentence in segment["sentences"] or []
+    }
+    return [by_id[unique_id] for unique_id in PICKED_IDS]
+
+
+def build_schema(filings: list[dict[str, Any]]) -> GraphSchema:
+    """Build the schema. Patterns hold each entity pair the test split links.
+
+    The pairs come from the whole test split, not only the picked sentences, so
+    the schema does not change with the pick. Each pair is listed both ways
+    because the relation has no direction.
+    """
+    pairs = set()
     for filing in filings:
         for segment in filing["segments"]:
             for sentence in segment["sentences"] or []:
-                if (
-                    sentence["split_type"] == "test"
-                    and sentence["entities_anno"]
-                    and len(sentence["value"]) <= MAX_TEXT_CHARS
-                ):
-                    by_filing[filing["id_"]].append(sentence)
-    rng = random.Random(seed)
-    queues = []
-    for filing_id in sorted(by_filing):
-        queue = by_filing[filing_id]
-        rng.shuffle(queue)
-        queues.append(queue)
-    rng.shuffle(queues)
-    turns = (s for group in zip_longest(*queues) for s in group if s is not None)
-    return list(turns)[:count]
-
-
-def build_schema(items: list[ExtractionGold]) -> GraphSchema:
-    """Build the schema. Patterns hold each entity pair seen in gold, both ways."""
-    pairs = set()
-    for item in items:
-        entities = item.gold.entities
-        for relation in item.gold.relations:
-            source = entities[relation.source_index].label
-            target = entities[relation.target_index].label
-            pairs |= {(source, target), (target, source)}
+                if sentence["split_type"] != "test" or not sentence["entities_anno"]:
+                    continue
+                labels = [
+                    SOURCE_LABELS.get(e["type_"], e["type_"])
+                    for e in sentence["entities_anno"]
+                ]
+                for relation in sentence["relations_anno"] or []:
+                    source = labels[relation["head_idx"]]
+                    target = labels[relation["tail_idx"]]
+                    pairs |= {(source, target), (target, source)}
     return GraphSchema(
         name="kpi_edgar",
         version="1",
@@ -203,25 +224,23 @@ def main() -> None:
     """Write the slice and the schema next to this script."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True, help="KPI-EDGAR clone")
-    parser.add_argument("--count", type=int, default=100)
-    parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     filings = json.loads((args.source / "data" / "kpi_edgar.json").read_text())
-    # Draw extra sentences so dropped ones can be replaced.
-    candidates = select_sentences(filings, args.count * 2, args.seed)
-    items = [item for s in candidates if (item := convert_sentence(s)) is not None]
-    items = items[: args.count]
-    if len(items) < args.count:
-        raise SystemExit(f"only {len(items)} sentences converted")
+    items = []
+    for sentence in picked_sentences(filings):
+        item = convert_sentence(sentence)
+        if item is None:
+            raise SystemExit(f"cannot convert {sentence['unique_id']}")
+        items.append(item)
 
     (HERE / "kpi_edgar_test_slice.jsonl").write_text(
         "".join(item.model_dump_json() + "\n" for item in items)
     )
-    schema = build_schema(items)
+    schema = build_schema(filings)
     (HERE / "schema.json").write_text(schema.model_dump_json(indent=2) + "\n")
-    logger.info("wrote %d sentences from %d candidates", len(items), len(candidates))
+    logger.info("wrote %d sentences", len(items))
 
 
 if __name__ == "__main__":
