@@ -231,6 +231,7 @@ pytest-integration-results.xml
 coverage-data-*
 pytest-e2e-results.xml
 pytest-eval-results.xml
+pytest-eval-extraction-results.xml
 pytest-integration-results-*.xml
 
 # DeepEval run cache
