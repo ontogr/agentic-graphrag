@@ -7254,8 +7254,11 @@ weights a short chunk the same as a long one.
 
 **Classes:**
 
+- [**EntityBreakdown**](#agrag.eval.extraction.EntityBreakdown) – The `score_breakdown` of an entity quality metric for one case.
 - [**ExtractionGold**](#agrag.eval.extraction.ExtractionGold) – One gold-annotated chunk of text.
+- [**LabelCounts**](#agrag.eval.extraction.LabelCounts) – True positives, false positives and false negatives for one entity label.
 - [**MicroScores**](#agrag.eval.extraction.MicroScores) – Dataset scores pooled over every item, for entities and relations.
+- [**RelationBreakdown**](#agrag.eval.extraction.RelationBreakdown) – The `score_breakdown` of a relation quality metric for one case.
 - [**Scores**](#agrag.eval.extraction.Scores) – Precision, recall and F1.
 
 **Functions:**
@@ -7265,6 +7268,59 @@ weights a short chunk the same as a long one.
 - [**micro_scores**](#agrag.eval.extraction.micro_scores) – Pool measured entity and relation metrics into dataset scores.
 - [**relation_quality_metric**](#agrag.eval.extraction.relation_quality_metric) – Build a metric for relation triple F1 on one test case.
 - [**run_extractor**](#agrag.eval.extraction.run_extractor) – Run an extractor over gold items and build one test case per item.
+
+##### `agrag.eval.extraction.EntityBreakdown`
+
+Bases: <code>[RelationBreakdown](#agrag.eval.extraction.RelationBreakdown)</code>
+
+The `score_breakdown` of an entity quality metric for one case.
+
+`per_label` counts the exact-match results for each entity label.
+
+**Attributes:**
+
+- [**kind**](#agrag.eval.extraction.EntityBreakdown.kind) (<code>[Literal](#typing.Literal)['entity', 'relation']</code>) –
+- [**per_label**](#agrag.eval.extraction.EntityBreakdown.per_label) (<code>[dict](#dict)\[[str](#str), [LabelCounts](#agrag.eval.extraction.LabelCounts)\]</code>) –
+- [**relaxed_y_pred**](#agrag.eval.extraction.EntityBreakdown.relaxed_y_pred) (<code>[list](#list)\[[int](#int)\]</code>) –
+- [**relaxed_y_true**](#agrag.eval.extraction.EntityBreakdown.relaxed_y_true) (<code>[list](#list)\[[int](#int)\]</code>) –
+- [**y_pred**](#agrag.eval.extraction.EntityBreakdown.y_pred) (<code>[list](#list)\[[int](#int)\]</code>) –
+- [**y_true**](#agrag.eval.extraction.EntityBreakdown.y_true) (<code>[list](#list)\[[int](#int)\]</code>) –
+
+###### `agrag.eval.extraction.EntityBreakdown.kind`
+
+```python
+kind: Literal['entity', 'relation']
+```
+
+###### `agrag.eval.extraction.EntityBreakdown.per_label`
+
+```python
+per_label: dict[str, LabelCounts]
+```
+
+###### `agrag.eval.extraction.EntityBreakdown.relaxed_y_pred`
+
+```python
+relaxed_y_pred: list[int]
+```
+
+###### `agrag.eval.extraction.EntityBreakdown.relaxed_y_true`
+
+```python
+relaxed_y_true: list[int]
+```
+
+###### `agrag.eval.extraction.EntityBreakdown.y_pred`
+
+```python
+y_pred: list[int]
+```
+
+###### `agrag.eval.extraction.EntityBreakdown.y_true`
+
+```python
+y_true: list[int]
+```
 
 ##### `agrag.eval.extraction.ExtractionGold`
 
@@ -7294,6 +7350,36 @@ id: str
 
 ```python
 text: str
+```
+
+##### `agrag.eval.extraction.LabelCounts`
+
+Bases: <code>[TypedDict](#typing.TypedDict)</code>
+
+True positives, false positives and false negatives for one entity label.
+
+**Attributes:**
+
+- [**fn**](#agrag.eval.extraction.LabelCounts.fn) (<code>[int](#int)</code>) –
+- [**fp**](#agrag.eval.extraction.LabelCounts.fp) (<code>[int](#int)</code>) –
+- [**tp**](#agrag.eval.extraction.LabelCounts.tp) (<code>[int](#int)</code>) –
+
+###### `agrag.eval.extraction.LabelCounts.fn`
+
+```python
+fn: int
+```
+
+###### `agrag.eval.extraction.LabelCounts.fp`
+
+```python
+fp: int
+```
+
+###### `agrag.eval.extraction.LabelCounts.tp`
+
+```python
+tp: int
 ```
 
 ##### `agrag.eval.extraction.MicroScores`
@@ -7331,6 +7417,54 @@ relations_exact: Scores
 
 ```python
 relations_relaxed: Scores
+```
+
+##### `agrag.eval.extraction.RelationBreakdown`
+
+Bases: <code>[TypedDict](#typing.TypedDict)</code>
+
+The `score_breakdown` of a relation quality metric for one case.
+
+The label lists are 0/1 values over the union of gold and predicted items:
+`y_true` marks gold items and `y_pred` marks predicted ones. The
+`relaxed_` lists use an overlap of at least 0.5 to align entities.
+
+**Attributes:**
+
+- [**kind**](#agrag.eval.extraction.RelationBreakdown.kind) (<code>[Literal](#typing.Literal)['entity', 'relation']</code>) –
+- [**relaxed_y_pred**](#agrag.eval.extraction.RelationBreakdown.relaxed_y_pred) (<code>[list](#list)\[[int](#int)\]</code>) –
+- [**relaxed_y_true**](#agrag.eval.extraction.RelationBreakdown.relaxed_y_true) (<code>[list](#list)\[[int](#int)\]</code>) –
+- [**y_pred**](#agrag.eval.extraction.RelationBreakdown.y_pred) (<code>[list](#list)\[[int](#int)\]</code>) –
+- [**y_true**](#agrag.eval.extraction.RelationBreakdown.y_true) (<code>[list](#list)\[[int](#int)\]</code>) –
+
+###### `agrag.eval.extraction.RelationBreakdown.kind`
+
+```python
+kind: Literal['entity', 'relation']
+```
+
+###### `agrag.eval.extraction.RelationBreakdown.relaxed_y_pred`
+
+```python
+relaxed_y_pred: list[int]
+```
+
+###### `agrag.eval.extraction.RelationBreakdown.relaxed_y_true`
+
+```python
+relaxed_y_true: list[int]
+```
+
+###### `agrag.eval.extraction.RelationBreakdown.y_pred`
+
+```python
+y_pred: list[int]
+```
+
+###### `agrag.eval.extraction.RelationBreakdown.y_true`
+
+```python
+y_true: list[int]
 ```
 
 ##### `agrag.eval.extraction.Scores`
@@ -7448,6 +7582,10 @@ Chunk and document ids come from the item id, so runs are repeatable.
 **Returns:**
 
 - <code>[list](#list)\[[LLMTestCase](#deepeval.test_case.LLMTestCase)\]</code> – One test case per item, in the order of `items`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `concurrency` is less than 1.
 
 #### `agrag.eval.extraction_case`
 
@@ -7683,6 +7821,10 @@ Chunk and document ids come from the item id, so runs are repeatable.
 **Returns:**
 
 - <code>[list](#list)\[[LLMTestCase](#deepeval.test_case.LLMTestCase)\]</code> – One test case per item, in the order of `items`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `concurrency` is less than 1.
 
 #### `agrag.eval.settings`
 

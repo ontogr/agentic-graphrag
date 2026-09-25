@@ -260,3 +260,14 @@ class TestRunExtractor:
         assert [case.input for case in cases] == [item.text for item in items]
         metric = entity_quality_metric()
         assert metric.measure(cases[0]) == 1.0
+
+    @pytest.mark.parametrize("concurrency", [0, -1])
+    async def test_rejects_concurrency_below_one(self, concurrency: int) -> None:
+        """A zero limit would wait forever, so it raises before any call."""
+        schema = GraphSchema(name="s", version="1", entities=[], relations=[])
+        item = ExtractionGold(id="item", text="text", gold=result([]))
+
+        with pytest.raises(ValueError, match="concurrency"):
+            await run_extractor(
+                _FixedExtractor(), [item], schema, concurrency=concurrency
+            )

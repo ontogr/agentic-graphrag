@@ -18,6 +18,7 @@ weights a short chunk the same as a long one.
 
 import asyncio
 from collections.abc import Iterable, Sequence
+from typing import Literal, TypedDict, cast
 from uuid import NAMESPACE_URL, uuid5
 
 from deepeval.test_case import LLMTestCase
@@ -36,8 +37,6 @@ _CONCURRENCY = 8
 _RELAXED_MIN_OVERLAP = 0.5
 _ENTITY = "entity"
 _RELATION = "relation"
-
-_MODES = ("", "relaxed_")
 
 
 class ExtractionGold(BaseModel):
@@ -84,6 +83,38 @@ class MicroScores(BaseModel):
     relations_relaxed: Scores
 
 
+class LabelCounts(TypedDict):
+    """True positives, false positives and false negatives for one entity label."""
+
+    tp: int
+    fp: int
+    fn: int
+
+
+class RelationBreakdown(TypedDict):
+    """The ``score_breakdown`` of a relation quality metric for one case.
+
+    The label lists are 0/1 values over the union of gold and predicted items:
+    ``y_true`` marks gold items and ``y_pred`` marks predicted ones. The
+    ``relaxed_`` lists use an overlap of at least 0.5 to align entities.
+    """
+
+    kind: Literal["entity", "relation"]
+    y_true: list[int]
+    y_pred: list[int]
+    relaxed_y_true: list[int]
+    relaxed_y_pred: list[int]
+
+
+class EntityBreakdown(RelationBreakdown):
+    """The ``score_breakdown`` of an entity quality metric for one case.
+
+    ``per_label`` counts the exact-match results for each entity label.
+    """
+
+    per_label: dict[str, LabelCounts]
+
+
 def extraction_case(
     chunk_text: str, predicted: ExtractionResult, gold: ExtractionResult
 ) -> LLMTestCase:
@@ -117,7 +148,12 @@ async def run_extractor(
 
     Returns:
         One test case per item, in the order of ``items``.
+
+    Raises:
+        ValueError: ``concurrency`` is less than 1.
     """
+    if concurrency < 1:
+        raise ValueError(f"concurrency must be at least 1, got {concurrency}")
     semaphore = asyncio.Semaphore(concurrency)
 
     async def run(item: ExtractionGold) -> LLMTestCase:
@@ -177,25 +213,31 @@ def micro_scores(metrics: Iterable[ScoreMetric]) -> MicroScores:
     Raises:
         ValueError: No entity metric or no relation metric was given.
     """
-    pooled: dict[tuple[str, str], tuple[list[int], list[int]]] = {
-        (kind, mode): ([], []) for kind in (_ENTITY, _RELATION) for mode in _MODES
+    pooled: dict[tuple[str, bool], tuple[list[int], list[int]]] = {
+        (kind, relaxed): ([], [])
+        for kind in (_ENTITY, _RELATION)
+        for relaxed in (False, True)
     }
     seen: set[str] = set()
     for metric in metrics:
-        breakdown = metric.score_breakdown
-        seen.add(breakdown["kind"])
-        for mode in _MODES:
-            y_true, y_pred = pooled[(breakdown["kind"], mode)]
-            y_true += breakdown[f"{mode}y_true"]
-            y_pred += breakdown[f"{mode}y_pred"]
+        # The metrics from this module store the TypedDict their scorer built.
+        breakdown = cast(RelationBreakdown, metric.score_breakdown)
+        kind = breakdown["kind"]
+        seen.add(kind)
+        exact_true, exact_pred = pooled[(kind, False)]
+        exact_true += breakdown["y_true"]
+        exact_pred += breakdown["y_pred"]
+        relaxed_true, relaxed_pred = pooled[(kind, True)]
+        relaxed_true += breakdown["relaxed_y_true"]
+        relaxed_pred += breakdown["relaxed_y_pred"]
     for kind in (_ENTITY, _RELATION):
         if kind not in seen:
             raise ValueError(f"no measured {kind} metric to pool")
     return MicroScores(
-        entities_exact=_scores(*pooled[(_ENTITY, "")]),
-        entities_relaxed=_scores(*pooled[(_ENTITY, "relaxed_")]),
-        relations_exact=_scores(*pooled[(_RELATION, "")]),
-        relations_relaxed=_scores(*pooled[(_RELATION, "relaxed_")]),
+        entities_exact=_scores(*pooled[(_ENTITY, False)]),
+        entities_relaxed=_scores(*pooled[(_ENTITY, True)]),
+        relations_exact=_scores(*pooled[(_RELATION, False)]),
+        relations_relaxed=_scores(*pooled[(_RELATION, True)]),
     )
 
 
@@ -260,18 +302,21 @@ def _triple(
 
 def _entity_breakdown(
     predicted: ExtractionResult, gold: ExtractionResult, min_overlap: float
-) -> tuple[list[int], list[int], dict[str, dict[str, int]]]:
+) -> tuple[list[int], list[int], dict[str, LabelCounts]]:
     """Return label lists and per-label counts for one alignment mode."""
     aligned = _align(predicted.entities, gold.entities, min_overlap)
     hits = len(aligned)
     y_true, y_pred = _encode(
         hits, len(predicted.entities) - hits, len(gold.entities) - hits
     )
-    per_label: dict[str, dict[str, int]] = {}
+    per_label: dict[str, LabelCounts] = {}
     for label in {e.label for e in (*predicted.entities, *gold.entities)}:
-        per_label[label] = {"tp": 0, "fp": 0, "fn": 0}
+        per_label[label] = LabelCounts(tp=0, fp=0, fn=0)
     for i, entity in enumerate(predicted.entities):
-        per_label[entity.label]["tp" if i in aligned else "fp"] += 1
+        if i in aligned:
+            per_label[entity.label]["tp"] += 1
+        else:
+            per_label[entity.label]["fp"] += 1
     gold_hits = set(aligned.values())
     for j, entity in enumerate(gold.entities):
         if j not in gold_hits:
@@ -288,17 +333,18 @@ def _score_entities(test_case: LLMTestCase) -> ScoreResult:
     )
     exact = _scores(y_true, y_pred)
     relaxed = _scores(relaxed_true, relaxed_pred)
+    breakdown = EntityBreakdown(
+        kind=_ENTITY,
+        y_true=y_true,
+        y_pred=y_pred,
+        relaxed_y_true=relaxed_true,
+        relaxed_y_pred=relaxed_pred,
+        per_label=per_label,
+    )
     return ScoreResult(
         exact.f1,
         f"exact F1 {exact.f1:.2f}, relaxed F1 {relaxed.f1:.2f}",
-        {
-            "kind": _ENTITY,
-            "y_true": y_true,
-            "y_pred": y_pred,
-            "relaxed_y_true": relaxed_true,
-            "relaxed_y_pred": relaxed_pred,
-            "per_label": per_label,
-        },
+        dict(breakdown),
     )
 
 
@@ -340,14 +386,15 @@ def _score_relations(test_case: LLMTestCase, symmetric: frozenset[str]) -> Score
     )
     exact = _scores(y_true, y_pred)
     relaxed = _scores(relaxed_true, relaxed_pred)
+    breakdown = RelationBreakdown(
+        kind=_RELATION,
+        y_true=y_true,
+        y_pred=y_pred,
+        relaxed_y_true=relaxed_true,
+        relaxed_y_pred=relaxed_pred,
+    )
     return ScoreResult(
         exact.f1,
         f"exact F1 {exact.f1:.2f}, relaxed F1 {relaxed.f1:.2f}",
-        {
-            "kind": _RELATION,
-            "y_true": y_true,
-            "y_pred": y_pred,
-            "relaxed_y_true": relaxed_true,
-            "relaxed_y_pred": relaxed_pred,
-        },
+        dict(breakdown),
     )
