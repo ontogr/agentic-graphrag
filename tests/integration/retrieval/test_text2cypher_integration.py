@@ -286,4 +286,4 @@ class TestText2CypherIntegration:
             f"located in, counting the {self.person_label} who founded it?"
         )
 
-        assert len(re.findall(r"-\[", cypher)) >= 2
+        assert len(re.findall(r"-\s*\[", cypher)) >= 2
