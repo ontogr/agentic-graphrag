@@ -6664,6 +6664,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 **Modules:**
 
 - [**adapter**](#agrag.eval.adapter) – Adapters that let plain scoring functions report through DeepEval.
+- [**extraction**](#agrag.eval.extraction) – Extraction quality: entity and relation-triple F1 against gold annotations.
 - [**judge**](#agrag.eval.judge) – A DeepEval judge model backed by an agrag chat model.
 - [**repeat**](#agrag.eval.repeat) – Repeat a metric and report the median score.
 - [**settings**](#agrag.eval.settings) – Env-backed configuration for the eval judge model.
@@ -6672,13 +6673,21 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 
 - [**ChatModelJudge**](#agrag.eval.ChatModelJudge) – Wrap a LangChain chat model as a DeepEval judge.
 - [**EvalJudgeSettings**](#agrag.eval.EvalJudgeSettings) – LLM client config for the eval judge.
+- [**ExtractionGold**](#agrag.eval.ExtractionGold) – One gold-annotated chunk of text.
 - [**MedianOfN**](#agrag.eval.MedianOfN) – Run a metric `n` times and report the median score.
+- [**MicroScores**](#agrag.eval.MicroScores) – Dataset scores pooled over every item, for entities and relations.
 - [**ScoreMetric**](#agrag.eval.ScoreMetric) – A DeepEval metric backed by a plain scoring function.
 - [**ScoreResult**](#agrag.eval.ScoreResult) – The outcome of one scoring function call.
+- [**Scores**](#agrag.eval.Scores) – Precision, recall and F1.
 
 **Functions:**
 
+- [**entity_quality_metric**](#agrag.eval.entity_quality_metric) – Build a metric for entity F1 on one test case.
+- [**extraction_case**](#agrag.eval.extraction_case) – Build a test case that holds a predicted and a gold extraction.
+- [**micro_scores**](#agrag.eval.micro_scores) – Pool measured entity and relation metrics into dataset scores.
 - [**parse_json_case**](#agrag.eval.parse_json_case) – Read the `(actual, expected)` models back from a JSON test case.
+- [**relation_quality_metric**](#agrag.eval.relation_quality_metric) – Build a metric for relation triple F1 on one test case.
+- [**run_extractor**](#agrag.eval.run_extractor) – Run an extractor over gold items and build one test case per item.
 - [**to_json_case**](#agrag.eval.to_json_case) – Build a test case that carries structured data as JSON.
 
 #### `agrag.eval.ChatModelJudge`
@@ -6812,6 +6821,36 @@ model_config = SettingsConfigDict(env_prefix='EVAL_JUDGE_', env_file='.env', ext
 temperature: Annotated[float | None, NoDecode] = 0.0
 ```
 
+#### `agrag.eval.ExtractionGold`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One gold-annotated chunk of text.
+
+**Attributes:**
+
+- [**id**](#agrag.eval.ExtractionGold.id) (<code>[str](#str)</code>) – A stable id for the item. It seeds the chunk and document ids.
+- [**text**](#agrag.eval.ExtractionGold.text) (<code>[str](#str)</code>) – The chunk text the extractor reads.
+- [**gold**](#agrag.eval.ExtractionGold.gold) (<code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code>) – The annotation. Entity offsets index into `text`.
+
+##### `agrag.eval.ExtractionGold.gold`
+
+```python
+gold: ExtractionResult
+```
+
+##### `agrag.eval.ExtractionGold.id`
+
+```python
+id: str
+```
+
+##### `agrag.eval.ExtractionGold.text`
+
+```python
+text: str
+```
+
 #### `agrag.eval.MedianOfN`
 
 ```python
@@ -6876,6 +6915,43 @@ n = n
 
 ```python
 threshold = 0.5 if metric.threshold is None else metric.threshold
+```
+
+#### `agrag.eval.MicroScores`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Dataset scores pooled over every item, for entities and relations.
+
+**Attributes:**
+
+- [**entities_exact**](#agrag.eval.MicroScores.entities_exact) (<code>[Scores](#agrag.eval.extraction.Scores)</code>) – Entity scores with exact span matching.
+- [**entities_relaxed**](#agrag.eval.MicroScores.entities_relaxed) (<code>[Scores](#agrag.eval.extraction.Scores)</code>) – Entity scores with overlap of at least 0.5.
+- [**relations_exact**](#agrag.eval.MicroScores.relations_exact) (<code>[Scores](#agrag.eval.extraction.Scores)</code>) – Relation triple scores over exact entity alignment.
+- [**relations_relaxed**](#agrag.eval.MicroScores.relations_relaxed) (<code>[Scores](#agrag.eval.extraction.Scores)</code>) – Relation triple scores over relaxed entity alignment.
+
+##### `agrag.eval.MicroScores.entities_exact`
+
+```python
+entities_exact: Scores
+```
+
+##### `agrag.eval.MicroScores.entities_relaxed`
+
+```python
+entities_relaxed: Scores
+```
+
+##### `agrag.eval.MicroScores.relations_exact`
+
+```python
+relations_exact: Scores
+```
+
+##### `agrag.eval.MicroScores.relations_relaxed`
+
+```python
+relations_relaxed: Scores
 ```
 
 #### `agrag.eval.ScoreMetric`
@@ -6965,6 +7041,36 @@ reason: str
 
 ```python
 score: float
+```
+
+#### `agrag.eval.Scores`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Precision, recall and F1.
+
+**Attributes:**
+
+- [**precision**](#agrag.eval.Scores.precision) (<code>[float](#float)</code>) – Correct predictions over all predictions.
+- [**recall**](#agrag.eval.Scores.recall) (<code>[float](#float)</code>) – Correct predictions over all gold items.
+- [**f1**](#agrag.eval.Scores.f1) (<code>[float](#float)</code>) – The harmonic mean of precision and recall.
+
+##### `agrag.eval.Scores.f1`
+
+```python
+f1: float
+```
+
+##### `agrag.eval.Scores.precision`
+
+```python
+precision: float
+```
+
+##### `agrag.eval.Scores.recall`
+
+```python
+recall: float
 ```
 
 #### `agrag.eval.adapter`
@@ -7111,6 +7217,251 @@ also shows in DeepEval reports.
 - **actual** (<code>[BaseModel](#pydantic.BaseModel)</code>) – The system output.
 - **expected** (<code>[BaseModel](#pydantic.BaseModel)</code>) – The gold data.
 
+#### `agrag.eval.entity_quality_metric`
+
+```python
+entity_quality_metric(*, threshold:float = 0.0) -> ScoreMetric
+```
+
+Build a metric for entity F1 on one test case.
+
+The case score is the exact F1. Use a new metric for each case, and pass the
+measured metrics to `micro_scores`. The default threshold is 0 because the
+gate belongs on the dataset score.
+
+**Parameters:**
+
+- **threshold** (<code>[float](#float)</code>) – The minimum case score that counts as success.
+
+#### `agrag.eval.extraction`
+
+Extraction quality: entity and relation-triple F1 against gold annotations.
+
+A gold annotation for one chunk is a hand-written `ExtractionResult`. Scoring
+has two steps. First, each predicted entity is aligned to a gold entity of the
+same label. Second, each predicted relation is mapped through that alignment to
+gold entity indices and compared as a `(source, label, target)` triple. Exact
+alignment needs the same character span. Relaxed alignment needs an overlap
+(intersection over union) of at least 0.5. Both are one to one: when several
+predictions overlap one gold entity, the best overlap wins and the rest count
+as false positives.
+
+Every case reports exact and relaxed results. The exact score gates. A large gap
+between the two shows a span boundary problem, not a missed entity. The
+counting is scikit-learn's `precision_recall_fscore_support`. Use
+`micro_scores` for the dataset score, because a mean of per-chunk scores
+weights a short chunk the same as a long one.
+
+**Classes:**
+
+- [**ExtractionGold**](#agrag.eval.extraction.ExtractionGold) – One gold-annotated chunk of text.
+- [**MicroScores**](#agrag.eval.extraction.MicroScores) – Dataset scores pooled over every item, for entities and relations.
+- [**Scores**](#agrag.eval.extraction.Scores) – Precision, recall and F1.
+
+**Functions:**
+
+- [**entity_quality_metric**](#agrag.eval.extraction.entity_quality_metric) – Build a metric for entity F1 on one test case.
+- [**extraction_case**](#agrag.eval.extraction.extraction_case) – Build a test case that holds a predicted and a gold extraction.
+- [**micro_scores**](#agrag.eval.extraction.micro_scores) – Pool measured entity and relation metrics into dataset scores.
+- [**relation_quality_metric**](#agrag.eval.extraction.relation_quality_metric) – Build a metric for relation triple F1 on one test case.
+- [**run_extractor**](#agrag.eval.extraction.run_extractor) – Run an extractor over gold items and build one test case per item.
+
+##### `agrag.eval.extraction.ExtractionGold`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One gold-annotated chunk of text.
+
+**Attributes:**
+
+- [**id**](#agrag.eval.extraction.ExtractionGold.id) (<code>[str](#str)</code>) – A stable id for the item. It seeds the chunk and document ids.
+- [**text**](#agrag.eval.extraction.ExtractionGold.text) (<code>[str](#str)</code>) – The chunk text the extractor reads.
+- [**gold**](#agrag.eval.extraction.ExtractionGold.gold) (<code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code>) – The annotation. Entity offsets index into `text`.
+
+###### `agrag.eval.extraction.ExtractionGold.gold`
+
+```python
+gold: ExtractionResult
+```
+
+###### `agrag.eval.extraction.ExtractionGold.id`
+
+```python
+id: str
+```
+
+###### `agrag.eval.extraction.ExtractionGold.text`
+
+```python
+text: str
+```
+
+##### `agrag.eval.extraction.MicroScores`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Dataset scores pooled over every item, for entities and relations.
+
+**Attributes:**
+
+- [**entities_exact**](#agrag.eval.extraction.MicroScores.entities_exact) (<code>[Scores](#agrag.eval.extraction.Scores)</code>) – Entity scores with exact span matching.
+- [**entities_relaxed**](#agrag.eval.extraction.MicroScores.entities_relaxed) (<code>[Scores](#agrag.eval.extraction.Scores)</code>) – Entity scores with overlap of at least 0.5.
+- [**relations_exact**](#agrag.eval.extraction.MicroScores.relations_exact) (<code>[Scores](#agrag.eval.extraction.Scores)</code>) – Relation triple scores over exact entity alignment.
+- [**relations_relaxed**](#agrag.eval.extraction.MicroScores.relations_relaxed) (<code>[Scores](#agrag.eval.extraction.Scores)</code>) – Relation triple scores over relaxed entity alignment.
+
+###### `agrag.eval.extraction.MicroScores.entities_exact`
+
+```python
+entities_exact: Scores
+```
+
+###### `agrag.eval.extraction.MicroScores.entities_relaxed`
+
+```python
+entities_relaxed: Scores
+```
+
+###### `agrag.eval.extraction.MicroScores.relations_exact`
+
+```python
+relations_exact: Scores
+```
+
+###### `agrag.eval.extraction.MicroScores.relations_relaxed`
+
+```python
+relations_relaxed: Scores
+```
+
+##### `agrag.eval.extraction.Scores`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Precision, recall and F1.
+
+**Attributes:**
+
+- [**precision**](#agrag.eval.extraction.Scores.precision) (<code>[float](#float)</code>) – Correct predictions over all predictions.
+- [**recall**](#agrag.eval.extraction.Scores.recall) (<code>[float](#float)</code>) – Correct predictions over all gold items.
+- [**f1**](#agrag.eval.extraction.Scores.f1) (<code>[float](#float)</code>) – The harmonic mean of precision and recall.
+
+###### `agrag.eval.extraction.Scores.f1`
+
+```python
+f1: float
+```
+
+###### `agrag.eval.extraction.Scores.precision`
+
+```python
+precision: float
+```
+
+###### `agrag.eval.extraction.Scores.recall`
+
+```python
+recall: float
+```
+
+##### `agrag.eval.extraction.entity_quality_metric`
+
+```python
+entity_quality_metric(*, threshold:float = 0.0) -> ScoreMetric
+```
+
+Build a metric for entity F1 on one test case.
+
+The case score is the exact F1. Use a new metric for each case, and pass the
+measured metrics to `micro_scores`. The default threshold is 0 because the
+gate belongs on the dataset score.
+
+**Parameters:**
+
+- **threshold** (<code>[float](#float)</code>) – The minimum case score that counts as success.
+
+##### `agrag.eval.extraction.extraction_case`
+
+```python
+extraction_case(chunk_text:str, predicted:ExtractionResult, gold:ExtractionResult) -> LLMTestCase
+```
+
+Build a test case that holds a predicted and a gold extraction.
+
+**Parameters:**
+
+- **chunk_text** (<code>[str](#str)</code>) – The text the extractor read.
+- **predicted** (<code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code>) – The extractor output.
+- **gold** (<code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code>) – The gold annotation.
+
+##### `agrag.eval.extraction.micro_scores`
+
+```python
+micro_scores(metrics:Iterable[ScoreMetric]) -> MicroScores
+```
+
+Pool measured entity and relation metrics into dataset scores.
+
+**Parameters:**
+
+- **metrics** (<code>[Iterable](#collections.abc.Iterable)\[[ScoreMetric](#agrag.eval.adapter.ScoreMetric)\]</code>) – Metrics from `entity_quality_metric` and
+  `relation_quality_metric`, after `measure`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – No entity metric or no relation metric was given.
+
+##### `agrag.eval.extraction.relation_quality_metric`
+
+```python
+relation_quality_metric(*, symmetric_labels:frozenset[str] = frozenset(), threshold:float = 0.0) -> ScoreMetric
+```
+
+Build a metric for relation triple F1 on one test case.
+
+A relation counts only when both endpoints align to gold entities and the
+triple is in gold. Use a new metric for each case.
+
+**Parameters:**
+
+- **symmetric_labels** (<code>[frozenset](#frozenset)\[[str](#str)\]</code>) – Relation labels with no direction. Their two endpoints
+  are sorted before comparison.
+- **threshold** (<code>[float](#float)</code>) – The minimum case score that counts as success.
+
+##### `agrag.eval.extraction.run_extractor`
+
+```python
+run_extractor(extractor:Extractor, items:Sequence[ExtractionGold], schema:GraphSchema) -> list[LLMTestCase]
+```
+
+Run an extractor over gold items and build one test case per item.
+
+Chunk and document ids come from the item id, so runs are repeatable. At
+most 8 extractor calls run at once.
+
+**Parameters:**
+
+- **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – The extractor under test.
+- **items** (<code>[Sequence](#collections.abc.Sequence)\[[ExtractionGold](#agrag.eval.extraction.ExtractionGold)\]</code>) – The gold-annotated chunks.
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The schema the extractor works to.
+
+**Returns:**
+
+- <code>[list](#list)\[[LLMTestCase](#deepeval.test_case.LLMTestCase)\]</code> – One test case per item, in the order of `items`.
+
+#### `agrag.eval.extraction_case`
+
+```python
+extraction_case(chunk_text:str, predicted:ExtractionResult, gold:ExtractionResult) -> LLMTestCase
+```
+
+Build a test case that holds a predicted and a gold extraction.
+
+**Parameters:**
+
+- **chunk_text** (<code>[str](#str)</code>) – The text the extractor read.
+- **predicted** (<code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code>) – The extractor output.
+- **gold** (<code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code>) – The gold annotation.
+
 #### `agrag.eval.judge`
 
 A DeepEval judge model backed by an agrag chat model.
@@ -7189,6 +7540,23 @@ load_model() -> Any
 
 Return the wrapped chat model.
 
+#### `agrag.eval.micro_scores`
+
+```python
+micro_scores(metrics:Iterable[ScoreMetric]) -> MicroScores
+```
+
+Pool measured entity and relation metrics into dataset scores.
+
+**Parameters:**
+
+- **metrics** (<code>[Iterable](#collections.abc.Iterable)\[[ScoreMetric](#agrag.eval.adapter.ScoreMetric)\]</code>) – Metrics from `entity_quality_metric` and
+  `relation_quality_metric`, after `measure`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – No entity metric or no relation metric was given.
+
 #### `agrag.eval.parse_json_case`
 
 ```python
@@ -7201,6 +7569,23 @@ Read the `(actual, expected)` models back from a JSON test case.
 
 - **test_case** (<code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code>) – A case built by `to_json_case`.
 - **model** (<code>[type](#type)\[[ModelT](#agrag.eval.adapter.ModelT)\]</code>) – The pydantic model both outputs were serialized from.
+
+#### `agrag.eval.relation_quality_metric`
+
+```python
+relation_quality_metric(*, symmetric_labels:frozenset[str] = frozenset(), threshold:float = 0.0) -> ScoreMetric
+```
+
+Build a metric for relation triple F1 on one test case.
+
+A relation counts only when both endpoints align to gold entities and the
+triple is in gold. Use a new metric for each case.
+
+**Parameters:**
+
+- **symmetric_labels** (<code>[frozenset](#frozenset)\[[str](#str)\]</code>) – Relation labels with no direction. Their two endpoints
+  are sorted before comparison.
+- **threshold** (<code>[float](#float)</code>) – The minimum case score that counts as success.
 
 #### `agrag.eval.repeat`
 
@@ -7275,6 +7660,27 @@ n = n
 ```python
 threshold = 0.5 if metric.threshold is None else metric.threshold
 ```
+
+#### `agrag.eval.run_extractor`
+
+```python
+run_extractor(extractor:Extractor, items:Sequence[ExtractionGold], schema:GraphSchema) -> list[LLMTestCase]
+```
+
+Run an extractor over gold items and build one test case per item.
+
+Chunk and document ids come from the item id, so runs are repeatable. At
+most 8 extractor calls run at once.
+
+**Parameters:**
+
+- **extractor** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – The extractor under test.
+- **items** (<code>[Sequence](#collections.abc.Sequence)\[[ExtractionGold](#agrag.eval.extraction.ExtractionGold)\]</code>) – The gold-annotated chunks.
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The schema the extractor works to.
+
+**Returns:**
+
+- <code>[list](#list)\[[LLMTestCase](#deepeval.test_case.LLMTestCase)\]</code> – One test case per item, in the order of `items`.
 
 #### `agrag.eval.settings`
 
