@@ -1,0 +1,192 @@
+{
+  "name": "kpi_edgar",
+  "version": "1",
+  "entities": [
+    {
+      "label": "kpi",
+      "description": "Key performance indicator expressible in numerical and monetary value, such as revenue or net sales.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "cy",
+      "description": "Current year monetary value of a KPI.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "py",
+      "description": "Prior year monetary value of a KPI.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "py1",
+      "description": "Monetary value of a KPI two years before the current year.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "increase",
+      "description": "Increase of a KPI from the previous year to the current year.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "increase_py",
+      "description": "Analogous to increase, but from two years back to the prior year.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "decrease",
+      "description": "Decrease of a KPI from the previous year to the current year.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "decrease_py",
+      "description": "Analogous to decrease, but from two years back to the prior year.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "thereof",
+      "description": "A subordinate KPI: a KPI that is part of another, broader KPI.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "attr",
+      "description": "Attribute that further describes a KPI.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "kpi_coref",
+      "description": "A co-reference to a KPI mentioned in a previous sentence.",
+      "properties": {},
+      "subtypes": []
+    }
+  ],
+  "relations": [
+    {
+      "label": "RELATED_VALUE",
+      "description": "Links a KPI to a value or change that belongs to it. The link has no direction.",
+      "patterns": [
+        [
+          "attr",
+          "kpi"
+        ],
+        [
+          "attr",
+          "thereof"
+        ],
+        [
+          "cy",
+          "kpi"
+        ],
+        [
+          "cy",
+          "kpi_coref"
+        ],
+        [
+          "cy",
+          "thereof"
+        ],
+        [
+          "decrease",
+          "kpi"
+        ],
+        [
+          "decrease",
+          "thereof"
+        ],
+        [
+          "increase",
+          "kpi"
+        ],
+        [
+          "increase_py",
+          "kpi"
+        ],
+        [
+          "kpi",
+          "attr"
+        ],
+        [
+          "kpi",
+          "cy"
+        ],
+        [
+          "kpi",
+          "decrease"
+        ],
+        [
+          "kpi",
+          "increase"
+        ],
+        [
+          "kpi",
+          "increase_py"
+        ],
+        [
+          "kpi",
+          "py"
+        ],
+        [
+          "kpi",
+          "py1"
+        ],
+        [
+          "kpi",
+          "thereof"
+        ],
+        [
+          "kpi_coref",
+          "cy"
+        ],
+        [
+          "py",
+          "kpi"
+        ],
+        [
+          "py",
+          "thereof"
+        ],
+        [
+          "py1",
+          "kpi"
+        ],
+        [
+          "py1",
+          "thereof"
+        ],
+        [
+          "thereof",
+          "attr"
+        ],
+        [
+          "thereof",
+          "cy"
+        ],
+        [
+          "thereof",
+          "decrease"
+        ],
+        [
+          "thereof",
+          "kpi"
+        ],
+        [
+          "thereof",
+          "py"
+        ],
+        [
+          "thereof",
+          "py1"
+        ]
+      ]
+    }
+  ]
+}
