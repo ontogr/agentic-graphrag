@@ -1004,10 +1004,6 @@ provider or instrumentation is installed. deepagents forwards the parent's
 callbacks to the researcher and verifier subagents, so their tool and model
 calls appear in the same trace.
 
-The callback class is imported from a private module of
-`openinference-instrumentation-langchain`. The `observability` extra pins
-that package below 0.2 for this reason.
-
 **Functions:**
 
 - [**require_tracing**](#agrag.agents.tracing.require_tracing) – Raise `ImportError` when the tracing dependency is missing.
