@@ -77,14 +77,14 @@ jobs:
       - name: Notify Discord
         if: failure()
         env:
-          WEBHOOK_URL: ${{ secrets.EVAL_DISCORD_WEBHOOK_URL }}
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           MESSAGE: >-
             Extraction eval failed on ${{ github.event_name }} for
             ${{ github.repository }}@${{ github.sha }}.
             Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -z "$WEBHOOK_URL" ]; then
-            echo "EVAL_DISCORD_WEBHOOK_URL is not set, skipping the alert."
+            echo "DISCORD_WEBHOOK_URL is not set, skipping the alert."
             exit 0
           fi
           curl --silent --show-error --fail \
