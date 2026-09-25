@@ -20,6 +20,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
+from agrag.agents import AgentMissingExtraError
 from agrag.agents.tracing import require_tracing, run_callbacks
 
 
@@ -135,10 +136,10 @@ class TestRunCallbacks:
 class TestRequireTracing:
     """Tests the check for the observability extra."""
 
-    def test_names_the_extra_when_openinference_is_missing(
+    def test_identifies_the_missing_extra_when_openinference_is_missing(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The error names the extra when OpenInference is absent."""
+        """The error identifies the installable extra when OpenInference is absent."""
         real_import = builtins.__import__
 
         def blocked(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -148,8 +149,13 @@ class TestRequireTracing:
 
         monkeypatch.setattr(builtins, "__import__", blocked)
 
-        with pytest.raises(ImportError, match=r"agentic-graphrag\[observability\]"):
+        with pytest.raises(
+            AgentMissingExtraError,
+            match=r"agentic-graphrag\[observability\]",
+        ) as exc:
             require_tracing()
+
+        assert exc.value.extra == "observability"
 
     def test_passes_when_the_extra_is_installed(self) -> None:
         """No error when the extra is installed."""

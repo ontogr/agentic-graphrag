@@ -11,8 +11,7 @@ from typing import Any
 
 from opentelemetry.trace import Tracer
 
-
-_EXTRA_HINT = "pip install 'agentic-graphrag[observability]'"
+from agrag.agents.errors import AgentMissingExtraError
 
 
 def _import_tracer_classes() -> tuple[Any, Any, Any]:
@@ -23,9 +22,7 @@ def _import_tracer_classes() -> tuple[Any, Any, Any]:
             TraceConfig,
         )
     except ImportError as exc:
-        raise ImportError(
-            f"Agent tracing needs the observability extra: {_EXTRA_HINT}"
-        ) from exc
+        raise AgentMissingExtraError("observability") from exc
     try:
         from openinference.instrumentation.langchain._tracer import (  # noqa: PLC0415
             OpenInferenceTracer,
@@ -34,17 +31,18 @@ def _import_tracer_classes() -> tuple[Any, Any, Any]:
         raise ImportError(
             "The installed openinference-instrumentation-langchain no longer has "
             "the expected layout. Install a version in the range "
-            f">=0.1.76,<0.2: {_EXTRA_HINT}"
+            ">=0.1.76,<0.2: pip install 'agentic-graphrag[observability]'"
         ) from exc
     return OITracer, TraceConfig, OpenInferenceTracer
 
 
 def require_tracing() -> None:
-    """Raise ``ImportError`` when the tracing dependency is missing.
+    """Raise a typed error when tracing dependencies are unavailable.
 
     Raises:
-        ImportError: The ``observability`` extra is absent, or the installed
-            OpenInference package has an incompatible layout.
+        AgentMissingExtraError: The ``observability`` extra is not installed.
+        ImportError: The installed OpenInference package has an incompatible
+            layout.
     """
     _import_tracer_classes()
 

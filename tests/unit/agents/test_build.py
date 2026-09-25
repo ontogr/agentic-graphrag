@@ -22,6 +22,7 @@ from uuid import uuid4
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
 
+from agrag.agents import AgentMissingExtraError
 from agrag.agents.build import _RunScopedAgent, _SimpleAgent, build_agent
 from agrag.agents.ledger import Ledger
 from agrag.agents.middleware import ResearchAttemptLimiter
@@ -448,7 +449,10 @@ class TestBuildAgent:
             ]
         )
 
-        with pytest.raises(ImportError, match=r"agentic-graphrag\[observability\]"):
+        with pytest.raises(
+            AgentMissingExtraError,
+            match=r"agentic-graphrag\[observability\]",
+        ):
             build_agent(
                 engine=_engine(),
                 llm_settings=settings,

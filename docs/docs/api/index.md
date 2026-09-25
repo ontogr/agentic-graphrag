@@ -27,6 +27,7 @@ Agentic layer: planner/researcher/verifier over SearchEngine.
 **Modules:**
 
 - [**build**](#agrag.agents.build) – Build the planner/researcher/verifier agent graph.
+- [**errors**](#agrag.agents.errors) – Errors raised by the agent layer.
 - [**harness**](#agrag.agents.harness) – Process-global DeepAgents harness profile registration.
 - [**ledger**](#agrag.agents.ledger) – Citation ledger: assigns and tracks stable keys for one agent run.
 - [**middleware**](#agrag.agents.middleware) – Agent middleware for composing models and bounding the research loop.
@@ -38,6 +39,30 @@ Agentic layer: planner/researcher/verifier over SearchEngine.
 - [**tools**](#agrag.agents.tools) – Agent tools: thin wrappers calling SearchEngine with fixed Recipes.
 - [**tracing**](#agrag.agents.tracing) – Per-run OpenInference tracing for agent runs.
 - [**verification**](#agrag.agents.verification) – The verifier subagent's structured verdict.
+
+**Classes:**
+
+- [**AgentMissingExtraError**](#agrag.agents.AgentMissingExtraError) – Agent tracing needs a package extra that is not installed.
+
+#### `agrag.agents.AgentMissingExtraError`
+
+```python
+AgentMissingExtraError(extra:str) -> None
+```
+
+Bases: <code>[Exception](#Exception)</code>
+
+Agent tracing needs a package extra that is not installed.
+
+**Attributes:**
+
+- [**extra**](#agrag.agents.AgentMissingExtraError.extra) – The name of the package extra to install.
+
+##### `agrag.agents.AgentMissingExtraError.extra`
+
+```python
+extra = extra
+```
 
 #### `agrag.agents.build`
 
@@ -103,9 +128,37 @@ so one question's retry budget does not spend another's.
 
 **Raises:**
 
-- <code>[ImportError](#ImportError)</code> – `tracer` is set but the `observability` extra
-  is not installed.
+- <code>[AgentMissingExtraError](#agrag.agents.errors.AgentMissingExtraError)</code> – `tracer` is set but the `observability`
+  extra is not installed.
 - <code>[ValueError](#ValueError)</code> – `graph_schema` differs from the engine's schema.
+
+#### `agrag.agents.errors`
+
+Errors raised by the agent layer.
+
+**Classes:**
+
+- [**AgentMissingExtraError**](#agrag.agents.errors.AgentMissingExtraError) – Agent tracing needs a package extra that is not installed.
+
+##### `agrag.agents.errors.AgentMissingExtraError`
+
+```python
+AgentMissingExtraError(extra:str) -> None
+```
+
+Bases: <code>[Exception](#Exception)</code>
+
+Agent tracing needs a package extra that is not installed.
+
+**Attributes:**
+
+- [**extra**](#agrag.agents.errors.AgentMissingExtraError.extra) – The name of the package extra to install.
+
+###### `agrag.agents.errors.AgentMissingExtraError.extra`
+
+```python
+extra = extra
+```
 
 #### `agrag.agents.harness`
 
@@ -1044,7 +1097,7 @@ calls appear in the same trace.
 
 **Functions:**
 
-- [**require_tracing**](#agrag.agents.tracing.require_tracing) – Raise `ImportError` when the tracing dependency is missing.
+- [**require_tracing**](#agrag.agents.tracing.require_tracing) – Raise a typed error when tracing dependencies are unavailable.
 - [**run_callbacks**](#agrag.agents.tracing.run_callbacks) – Return the callbacks for one agent run.
 
 ##### `agrag.agents.tracing.require_tracing`
@@ -1053,12 +1106,13 @@ calls appear in the same trace.
 require_tracing() -> None
 ```
 
-Raise `ImportError` when the tracing dependency is missing.
+Raise a typed error when tracing dependencies are unavailable.
 
 **Raises:**
 
-- <code>[ImportError](#ImportError)</code> – The `observability` extra is absent, or the installed
-  OpenInference package has an incompatible layout.
+- <code>[AgentMissingExtraError](#agrag.agents.errors.AgentMissingExtraError)</code> – The `observability` extra is not installed.
+- <code>[ImportError](#ImportError)</code> – The installed OpenInference package has an incompatible
+  layout.
 
 ##### `agrag.agents.tracing.run_callbacks`
 

@@ -76,8 +76,8 @@ def build_agent(
         fallback with the same result shape.
 
     Raises:
-        ImportError: ``tracer`` is set but the ``observability`` extra
-            is not installed.
+        AgentMissingExtraError: ``tracer`` is set but the ``observability``
+            extra is not installed.
         ValueError: ``graph_schema`` differs from the engine's schema.
     """
     if tracer is not None:
