@@ -89,7 +89,8 @@ def precluster_ambiguous(
     for index in range(count):
         distances[index, index] = 0.0
     for (left, right), similarity in similarities.items():
-        distance = 1.0 - similarity
+        # Rounding can push the similarity of identical vectors above 1.
+        distance = max(0.0, 1.0 - similarity)
         distances[left, right] = distance
         distances[right, left] = distance
     clusters = average_linkage_clusters(
