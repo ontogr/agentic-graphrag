@@ -77,7 +77,7 @@ class HashedWordEmbedder(Embedder):
         """Count the words of ``text`` per bucket and normalise the counts."""
         counts = [0.0] * _DIMENSIONS
         for word in _TOKEN_PATTERN.findall(text.lower()):
-            digest = hashlib.sha1(word.encode()).digest()
+            digest = hashlib.sha1(word.encode(), usedforsecurity=False).digest()
             counts[int.from_bytes(digest[:4], "big") % _DIMENSIONS] += 1.0
         norm = sum(value * value for value in counts) ** 0.5
         if norm == 0.0:
