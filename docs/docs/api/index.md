@@ -35,6 +35,7 @@ Agentic layer: planner/researcher/verifier over SearchEngine.
 - [**settings**](#agrag.agents.settings) – Env-backed LLM and loop config for the agent layer.
 - [**subagents**](#agrag.agents.subagents) – Subagent specs for the researcher and verifier roles.
 - [**tools**](#agrag.agents.tools) – Agent tools: thin wrappers calling SearchEngine with fixed Recipes.
+- [**tracing**](#agrag.agents.tracing) – Per-run OpenInference tracing for agent runs.
 - [**verification**](#agrag.agents.verification) – The verifier subagent's structured verdict.
 
 #### `agrag.agents.build`
@@ -48,7 +49,7 @@ Build the planner/researcher/verifier agent graph.
 ##### `agrag.agents.build.build_agent`
 
 ```python
-build_agent(*, engine:SearchEngine, llm_settings:AgentLLMSettings, agent_settings:AgentSettings | None = None, filters:SearchFilters | None = None, graph_schema:GraphSchema | None = None) -> Any
+build_agent(*, engine:SearchEngine, llm_settings:AgentLLMSettings, agent_settings:AgentSettings | None = None, filters:SearchFilters | None = None, graph_schema:GraphSchema | None = None, tracer:Tracer | None = None) -> Any
 ```
 
 Build the planner/researcher/verifier agent graph.
@@ -85,12 +86,23 @@ so one question's retry budget does not spend another's.
   engine's own resolved schema; a value that differs from
   the engine's raises, so the prompt cannot describe a
   graph the engine does not search.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Receives OpenInference spans for every `ainvoke`,
+  including the researcher and verifier subagents' tool and
+  model calls. None emits no spans. Spans carry the question
+  and the evidence text; set `OPENINFERENCE_HIDE_INPUTS` or
+  `OPENINFERENCE_HIDE_OUTPUTS` to hide them.
 
 **Returns:**
 
 - <code>[Any](#typing.Any)</code> – A compiled agent graph ready for invoke/ainvoke, or a
 - <code>[Any](#typing.Any)</code> – single-search-plus-synthesis fallback when deepagents is
 - <code>[Any](#typing.Any)</code> – not installed.
+
+**Raises:**
+
+- <code>[ImportError](#ImportError)</code> – `tracer` is set but the `observability` extra
+  is not installed.
+- <code>[ValueError](#ValueError)</code> – `graph_schema` differs from the engine's schema.
 
 #### `agrag.agents.harness`
 
@@ -981,6 +993,59 @@ Build the traverse_from_entity tool.
 **Returns:**
 
 - <code>[Any](#typing.Any)</code> – A decorated tool function.
+
+#### `agrag.agents.tracing`
+
+Per-run OpenInference tracing for agent runs.
+
+`build_agent` takes an optional OpenTelemetry `Tracer`. Each `ainvoke`
+passes a fresh OpenInference callback built from it, so no global tracer
+provider or instrumentation is installed. deepagents forwards the parent's
+callbacks to the researcher and verifier subagents, so their tool and model
+calls appear in the same trace.
+
+The callback class is imported from a private module of
+`openinference-instrumentation-langchain`. The `observability` extra pins
+that package below 0.2 for this reason.
+
+**Functions:**
+
+- [**require_tracing**](#agrag.agents.tracing.require_tracing) – Raise `ImportError` when the tracing dependency is missing.
+- [**run_callbacks**](#agrag.agents.tracing.run_callbacks) – Return the callbacks for one agent run.
+
+##### `agrag.agents.tracing.require_tracing`
+
+```python
+require_tracing() -> None
+```
+
+Raise `ImportError` when the tracing dependency is missing.
+
+**Raises:**
+
+- <code>[ImportError](#ImportError)</code> – The `observability` extra is absent, or the installed
+  OpenInference package has an incompatible layout.
+
+##### `agrag.agents.tracing.run_callbacks`
+
+```python
+run_callbacks(tracer:Tracer | None) -> list[Any]
+```
+
+Return the callbacks for one agent run.
+
+The callback holds per-run state, so build a new one for every run.
+Spans carry the question and the evidence text by default. Set
+`OPENINFERENCE_HIDE_INPUTS` or `OPENINFERENCE_HIDE_OUTPUTS` to hide them.
+
+**Parameters:**
+
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – The tracer that receives the spans, or `None` to disable
+  tracing.
+
+**Returns:**
+
+- <code>[list](#list)\[[Any](#typing.Any)\]</code> – A one-item callback list, or an empty list when `tracer` is `None`.
 
 #### `agrag.agents.verification`
 

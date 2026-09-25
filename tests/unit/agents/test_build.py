@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
 
 from agrag.agents.build import _RunScopedAgent, _SimpleAgent, build_agent
 from agrag.agents.middleware import ResearchAttemptLimiter
@@ -381,3 +382,61 @@ class TestBuildAgent:
         _, kwargs = call
         assert kwargs["filters"] == filters
         assert kwargs["filters"] is not filters
+
+    async def test_run_scoped_agent_passes_a_tracing_callback_per_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each run gets its own callback built from the tracer."""
+        captured: dict = {}
+        _capture_deepagents(monkeypatch, captured)
+        agent = _RunScopedAgent(
+            engine=_engine(),
+            model=MagicMock(),
+            settings=AgentSettings(),
+            tracer=TracerProvider().get_tracer("t"),
+        )
+
+        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+        first = captured["config"]["callbacks"]
+        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+        second = captured["config"]["callbacks"]
+
+        assert len(first) == len(second) == 1
+        assert first[0] is not second[0]
+
+    async def test_run_scoped_agent_has_no_callbacks_without_a_tracer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No tracer means no callbacks, so the run works without the extra."""
+        captured: dict = {}
+        _capture_deepagents(monkeypatch, captured)
+        agent = _RunScopedAgent(
+            engine=_engine(), model=MagicMock(), settings=AgentSettings()
+        )
+
+        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+
+        assert captured["config"]["callbacks"] == []
+
+    def test_build_agent_with_tracer_fails_when_the_extra_is_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A tracer without the observability extra fails at build time."""
+        monkeypatch.setitem(sys.modules, "openinference.instrumentation", None)
+        settings = AgentLLMSettings(
+            clients=[
+                LLMClientConfig(
+                    name="test",
+                    provider="openai",
+                    model="gpt-4o",
+                    api_key="test",
+                )
+            ]
+        )
+
+        with pytest.raises(ImportError, match=r"agentic-graphrag\[observability\]"):
+            build_agent(
+                engine=_engine(),
+                llm_settings=settings,
+                tracer=TracerProvider().get_tracer("t"),
+            )
