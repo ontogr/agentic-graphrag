@@ -320,7 +320,16 @@ class CitationAccuracyMetric(BaseMetric):
         self._cutoff = threshold
 
     def measure(self, test_case: LLMTestCase, *args: Any, **kwargs: Any) -> float:
-        """Judge the cited sentences one after the other."""
+        """Judge the cited sentences one after the other.
+
+        Args:
+            test_case: The test case built by ``answer_case``.
+            *args: Additional positional arguments accepted by DeepEval.
+            **kwargs: Additional keyword arguments accepted by DeepEval.
+
+        Returns:
+            The citation accuracy score.
+        """
         plan = self._plan(test_case)
         if not isinstance(plan, tuple):
             return plan
@@ -336,7 +345,16 @@ class CitationAccuracyMetric(BaseMetric):
     async def a_measure(
         self, test_case: LLMTestCase, *args: Any, **kwargs: Any
     ) -> float:
-        """Judge the cited sentences at once, at most eight judge calls at a time."""
+        """Judge the cited sentences with up to eight concurrent calls.
+
+        Args:
+            test_case: The test case built by ``answer_case``.
+            *args: Additional positional arguments accepted by DeepEval.
+            **kwargs: Additional keyword arguments accepted by DeepEval.
+
+        Returns:
+            The citation accuracy score.
+        """
         plan = self._plan(test_case)
         if not isinstance(plan, tuple):
             return plan

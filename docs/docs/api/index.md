@@ -6801,7 +6801,7 @@ The test case must come from `answer_case`, which puts the evidence under
 
 **Functions:**
 
-- [**a_measure**](#agrag.eval.CitationAccuracyMetric.a_measure) – Judge the cited sentences at once, at most eight judge calls at a time.
+- [**a_measure**](#agrag.eval.CitationAccuracyMetric.a_measure) – Judge the cited sentences with up to eight concurrent calls.
 - [**measure**](#agrag.eval.CitationAccuracyMetric.measure) – Judge the cited sentences one after the other.
 
 ##### `agrag.eval.CitationAccuracyMetric.a_measure`
@@ -6810,7 +6810,17 @@ The test case must come from `answer_case`, which puts the evidence under
 a_measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
 ```
 
-Judge the cited sentences at once, at most eight judge calls at a time.
+Judge the cited sentences with up to eight concurrent calls.
+
+**Parameters:**
+
+- **test_case** (<code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code>) – The test case built by `answer_case`.
+- \***args** (<code>[Any](#typing.Any)</code>) – Additional positional arguments accepted by DeepEval.
+- \*\***kwargs** (<code>[Any](#typing.Any)</code>) – Additional keyword arguments accepted by DeepEval.
+
+**Returns:**
+
+- <code>[float](#float)</code> – The citation accuracy score.
 
 ##### `agrag.eval.CitationAccuracyMetric.judge`
 
@@ -6825,6 +6835,16 @@ measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
 ```
 
 Judge the cited sentences one after the other.
+
+**Parameters:**
+
+- **test_case** (<code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code>) – The test case built by `answer_case`.
+- \***args** (<code>[Any](#typing.Any)</code>) – Additional positional arguments accepted by DeepEval.
+- \*\***kwargs** (<code>[Any](#typing.Any)</code>) – Additional keyword arguments accepted by DeepEval.
+
+**Returns:**
+
+- <code>[float](#float)</code> – The citation accuracy score.
 
 ##### `agrag.eval.CitationAccuracyMetric.threshold`
 
@@ -7357,7 +7377,7 @@ The test case must come from `answer_case`, which puts the evidence under
 
 **Functions:**
 
-- [**a_measure**](#agrag.eval.answer.CitationAccuracyMetric.a_measure) – Judge the cited sentences at once, at most eight judge calls at a time.
+- [**a_measure**](#agrag.eval.answer.CitationAccuracyMetric.a_measure) – Judge the cited sentences with up to eight concurrent calls.
 - [**measure**](#agrag.eval.answer.CitationAccuracyMetric.measure) – Judge the cited sentences one after the other.
 
 ###### `agrag.eval.answer.CitationAccuracyMetric.a_measure`
@@ -7366,7 +7386,17 @@ The test case must come from `answer_case`, which puts the evidence under
 a_measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
 ```
 
-Judge the cited sentences at once, at most eight judge calls at a time.
+Judge the cited sentences with up to eight concurrent calls.
+
+**Parameters:**
+
+- **test_case** (<code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code>) – The test case built by `answer_case`.
+- \***args** (<code>[Any](#typing.Any)</code>) – Additional positional arguments accepted by DeepEval.
+- \*\***kwargs** (<code>[Any](#typing.Any)</code>) – Additional keyword arguments accepted by DeepEval.
+
+**Returns:**
+
+- <code>[float](#float)</code> – The citation accuracy score.
 
 ###### `agrag.eval.answer.CitationAccuracyMetric.judge`
 
@@ -7381,6 +7411,16 @@ measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
 ```
 
 Judge the cited sentences one after the other.
+
+**Parameters:**
+
+- **test_case** (<code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code>) – The test case built by `answer_case`.
+- \***args** (<code>[Any](#typing.Any)</code>) – Additional positional arguments accepted by DeepEval.
+- \*\***kwargs** (<code>[Any](#typing.Any)</code>) – Additional keyword arguments accepted by DeepEval.
+
+**Returns:**
+
+- <code>[float](#float)</code> – The citation accuracy score.
 
 ###### `agrag.eval.answer.CitationAccuracyMetric.threshold`
 
