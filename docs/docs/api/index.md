@@ -6683,7 +6683,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**answer_case**](#agrag.eval.answer_case) – Build the test case that every answer-quality metric scores.
 - [**context_precision**](#agrag.eval.context_precision) – Build the metric for useful evidence ranked before noise.
 - [**context_recall**](#agrag.eval.context_recall) – Build the metric for reference facts that the evidence covers.
-- [**correctness**](#agrag.eval.correctness) – Build the median-of-3 answer correctness metric against the reference.
+- [**correctness**](#agrag.eval.correctness) – Build the answer correctness metric against the reference.
 - [**faithfulness**](#agrag.eval.faithfulness) – Build the metric for claims that the evidence the agent saw does not contradict.
 - [**final_answer**](#agrag.eval.final_answer) – Return the text of the last assistant message in an agent run.
 - [**parse_json_case**](#agrag.eval.parse_json_case) – Read the `(actual, expected)` models back from a JSON test case.
@@ -6771,9 +6771,9 @@ Score whether each cited sentence follows from the evidence it cites.
 
 The unit is the sentence. A sentence counts as cited when it carries a
 citation key. A judge decides whether the text of the cited evidence supports
-the sentence. It scores each sentence with a `GEval` that reports the median
-of three runs. A cited key that the run's ledger did not assign is
-fabricated: the sentence is unsupported and no judge call happens.
+the sentence. It scores each sentence with one `GEval` run. A cited key that
+the run's ledger did not assign is fabricated: the sentence is unsupported and
+no judge call happens.
 
 The score is the F1 of two ratios. Precision is supported cited sentences
 over cited sentences. Recall is supported cited sentences over all sentences
@@ -7188,7 +7188,7 @@ also shows in DeepEval reports.
 Answer-quality metrics for agrag, scored from questions and reference answers.
 
 `answer_case` turns one agent run into a DeepEval test case. The four factories
-build DeepEval metrics wrapped in `MedianOfN`. `CitationAccuracyMetric` checks
+build DeepEval metrics that run the judge once. `CitationAccuracyMetric` checks
 each cited sentence against the evidence its citation keys point to.
 
 All metrics judge against the evidence text the agent saw, as `Ledger.render`
@@ -7204,7 +7204,7 @@ that point counts as unsupported.
 - [**answer_case**](#agrag.eval.answer.answer_case) – Build the test case that every answer-quality metric scores.
 - [**context_precision**](#agrag.eval.answer.context_precision) – Build the metric for useful evidence ranked before noise.
 - [**context_recall**](#agrag.eval.answer.context_recall) – Build the metric for reference facts that the evidence covers.
-- [**correctness**](#agrag.eval.answer.correctness) – Build the median-of-3 answer correctness metric against the reference.
+- [**correctness**](#agrag.eval.answer.correctness) – Build the answer correctness metric against the reference.
 - [**faithfulness**](#agrag.eval.answer.faithfulness) – Build the metric for claims that the evidence the agent saw does not contradict.
 - [**final_answer**](#agrag.eval.answer.final_answer) – Return the text of the last assistant message in an agent run.
 
@@ -7230,9 +7230,9 @@ Score whether each cited sentence follows from the evidence it cites.
 
 The unit is the sentence. A sentence counts as cited when it carries a
 citation key. A judge decides whether the text of the cited evidence supports
-the sentence. It scores each sentence with a `GEval` that reports the median
-of three runs. A cited key that the run's ledger did not assign is
-fabricated: the sentence is unsupported and no judge call happens.
+the sentence. It scores each sentence with one `GEval` run. A cited key that
+the run's ledger did not assign is fabricated: the sentence is unsupported and
+no judge call happens.
 
 The score is the F1 of two ratios. Precision is supported cited sentences
 over cited sentences. Recall is supported cited sentences over all sentences
@@ -7303,7 +7303,7 @@ key to that text for `CitationAccuracyMetric`.
 ##### `agrag.eval.answer.context_precision`
 
 ```python
-context_precision(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> MedianOfN
+context_precision(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 ```
 
 Build the metric for useful evidence ranked before noise.
@@ -7313,7 +7313,7 @@ Takes the same arguments as `correctness`.
 ##### `agrag.eval.answer.context_recall`
 
 ```python
-context_recall(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> MedianOfN
+context_recall(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 ```
 
 Build the metric for reference facts that the evidence covers.
@@ -7323,10 +7323,10 @@ Takes the same arguments as `correctness`.
 ##### `agrag.eval.answer.correctness`
 
 ```python
-correctness(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> MedianOfN
+correctness(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 ```
 
-Build the median-of-3 answer correctness metric against the reference.
+Build the answer correctness metric against the reference.
 
 **Parameters:**
 
@@ -7336,7 +7336,7 @@ Build the median-of-3 answer correctness metric against the reference.
 ##### `agrag.eval.answer.faithfulness`
 
 ```python
-faithfulness(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> MedianOfN
+faithfulness(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 ```
 
 Build the metric for claims that the evidence the agent saw does not contradict.
@@ -7385,7 +7385,7 @@ key to that text for `CitationAccuracyMetric`.
 #### `agrag.eval.context_precision`
 
 ```python
-context_precision(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> MedianOfN
+context_precision(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 ```
 
 Build the metric for useful evidence ranked before noise.
@@ -7395,7 +7395,7 @@ Takes the same arguments as `correctness`.
 #### `agrag.eval.context_recall`
 
 ```python
-context_recall(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> MedianOfN
+context_recall(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 ```
 
 Build the metric for reference facts that the evidence covers.
@@ -7405,10 +7405,10 @@ Takes the same arguments as `correctness`.
 #### `agrag.eval.correctness`
 
 ```python
-correctness(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> MedianOfN
+correctness(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 ```
 
-Build the median-of-3 answer correctness metric against the reference.
+Build the answer correctness metric against the reference.
 
 **Parameters:**
 
@@ -7418,7 +7418,7 @@ Build the median-of-3 answer correctness metric against the reference.
 #### `agrag.eval.faithfulness`
 
 ```python
-faithfulness(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> MedianOfN
+faithfulness(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 ```
 
 Build the metric for claims that the evidence the agent saw does not contradict.

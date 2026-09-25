@@ -54,5 +54,6 @@ Each row is one question. Each score is from 0 to 1. A higher score is better.
 | `context_recall` | The evidence that the agent read covers your reference answer. |
 | `citation_accuracy` | Each cited sentence is supported by the item it cites. |
 
-Each LLM-judged score is the median of three judge runs. One run makes about
-100 LLM calls for two questions, so cost grows with the number of questions.
+Each score is one judge run. The agent makes 8 to 21 LLM calls per question, and
+the judge adds about 1 call per metric plus 1 per cited sentence, so cost grows
+with the number of questions.

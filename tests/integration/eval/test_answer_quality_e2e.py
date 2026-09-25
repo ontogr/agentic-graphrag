@@ -104,7 +104,7 @@ async def _score(judge: ChatModelJudge, case: LLMTestCase) -> dict[str, dict[str
         name: {
             "score": metric.score,
             "reason": metric.reason,
-            "breakdown": metric.score_breakdown,
+            "breakdown": getattr(metric, "score_breakdown", {}),
         }
         for name, metric in metrics.items()
     }

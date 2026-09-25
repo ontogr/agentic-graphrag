@@ -1,7 +1,7 @@
 """Answer-quality metrics for agrag, scored from questions and reference answers.
 
 ``answer_case`` turns one agent run into a DeepEval test case. The four factories
-build DeepEval metrics wrapped in ``MedianOfN``. ``CitationAccuracyMetric`` checks
+build DeepEval metrics that run the judge once. ``CitationAccuracyMetric`` checks
 each cited sentence against the evidence its citation keys point to.
 
 All metrics judge against the evidence text the agent saw, as ``Ledger.render``
@@ -24,7 +24,6 @@ from deepeval.models import DeepEvalBaseLLM
 from deepeval.test_case import LLMTestCase, SingleTurnParams
 
 from agrag.agents.result import AgentRunResult
-from agrag.eval.repeat import MedianOfN
 
 
 ABSTENTION = "No relevant evidence found."
@@ -137,53 +136,50 @@ def answer_case(question: str, result: AgentRunResult, reference: str) -> LLMTes
     )
 
 
-def correctness(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> MedianOfN:
-    """Build the median-of-3 answer correctness metric against the reference.
+def correctness(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMetric:
+    """Build the answer correctness metric against the reference.
 
     Args:
         judge: The judge model.
         threshold: The minimum score that counts as success.
     """
-    return MedianOfN(
-        GEval(
-            name="Correctness",
-            evaluation_steps=_CORRECTNESS_STEPS,
-            evaluation_params=[
-                SingleTurnParams.INPUT,
-                SingleTurnParams.ACTUAL_OUTPUT,
-                SingleTurnParams.EXPECTED_OUTPUT,
-            ],
-            model=judge,
-            threshold=threshold,
-        ),
-        n=3,
+    return GEval(
+        name="Correctness",
+        evaluation_steps=_CORRECTNESS_STEPS,
+        evaluation_params=[
+            SingleTurnParams.INPUT,
+            SingleTurnParams.ACTUAL_OUTPUT,
+            SingleTurnParams.EXPECTED_OUTPUT,
+        ],
+        model=judge,
+        threshold=threshold,
     )
 
 
-def faithfulness(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> MedianOfN:
+def faithfulness(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMetric:
     """Build the metric for claims that the evidence the agent saw does not contradict.
 
     A claim that the evidence does not mention counts as faithful. Only a claim
     that the evidence contradicts lowers the score. ``CitationAccuracyMetric``
     catches unsupported claims. Takes the same arguments as ``correctness``.
     """
-    return MedianOfN(FaithfulnessMetric(model=judge, threshold=threshold), n=3)
+    return FaithfulnessMetric(model=judge, threshold=threshold)
 
 
-def context_precision(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> MedianOfN:
+def context_precision(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMetric:
     """Build the metric for useful evidence ranked before noise.
 
     Takes the same arguments as ``correctness``.
     """
-    return MedianOfN(ContextualPrecisionMetric(model=judge, threshold=threshold), n=3)
+    return ContextualPrecisionMetric(model=judge, threshold=threshold)
 
 
-def context_recall(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> MedianOfN:
+def context_recall(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMetric:
     """Build the metric for reference facts that the evidence covers.
 
     Takes the same arguments as ``correctness``.
     """
-    return MedianOfN(ContextualRecallMetric(model=judge, threshold=threshold), n=3)
+    return ContextualRecallMetric(model=judge, threshold=threshold)
 
 
 def _join_abbreviations(pieces: list[str]) -> list[str]:
@@ -239,21 +235,18 @@ def _without_keys(sentence: str, known: set[str]) -> str:
     return re.sub(r"\s{2,}", " ", text).strip()
 
 
-def _support_metric(judge: DeepEvalBaseLLM, threshold: float) -> MedianOfN:
+def _support_metric(judge: DeepEvalBaseLLM, threshold: float) -> BaseMetric:
     """Build the check that the evidence supports one sentence."""
-    return MedianOfN(
-        GEval(
-            name="Citation support",
-            evaluation_steps=_SUPPORT_STEPS,
-            evaluation_params=[
-                SingleTurnParams.ACTUAL_OUTPUT,
-                SingleTurnParams.RETRIEVAL_CONTEXT,
-            ],
-            model=judge,
-            threshold=threshold,
-            async_mode=False,
-        ),
-        n=3,
+    return GEval(
+        name="Citation support",
+        evaluation_steps=_SUPPORT_STEPS,
+        evaluation_params=[
+            SingleTurnParams.ACTUAL_OUTPUT,
+            SingleTurnParams.RETRIEVAL_CONTEXT,
+        ],
+        model=judge,
+        threshold=threshold,
+        async_mode=False,
     )
 
 
@@ -277,9 +270,9 @@ class CitationAccuracyMetric(BaseMetric):
 
     The unit is the sentence. A sentence counts as cited when it carries a
     citation key. A judge decides whether the text of the cited evidence supports
-    the sentence. It scores each sentence with a ``GEval`` that reports the median
-    of three runs. A cited key that the run's ledger did not assign is
-    fabricated: the sentence is unsupported and no judge call happens.
+    the sentence. It scores each sentence with one ``GEval`` run. A cited key that
+    the run's ledger did not assign is fabricated: the sentence is unsupported and
+    no judge call happens.
 
     The score is the F1 of two ratios. Precision is supported cited sentences
     over cited sentences. Recall is supported cited sentences over all sentences

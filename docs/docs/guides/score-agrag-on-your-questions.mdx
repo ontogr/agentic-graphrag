@@ -60,10 +60,10 @@ The table has one row for each question, and a last row with the means. Each sco
 | `context_recall` | The evidence does not cover the reference answer. |
 | `citation_accuracy` | A cited item does not support the sentence that cites it. |
 
-Each judged score is the median of three judge runs. The agent reads each chunk in full, up to 2000 characters.
+Each score is one judge run. The agent reads each chunk in full, up to 2000 characters.
 
 ## Control the cost
 
-Every question costs about 50 LLM calls: 8 to 12 for the agent, and the rest for the judge. Start with five questions. Do not run the script on each commit.
+Every question costs about 8 to 21 LLM calls for the agent, and about 1 call for each metric plus 1 for each cited sentence for the judge. Start with five questions. Do not run the script on each commit.
 
 The metrics are in `agrag.eval`. See the [API Reference](/api).
