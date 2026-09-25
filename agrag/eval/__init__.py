@@ -11,6 +11,15 @@ except ImportError as error:
     ) from error
 
 from agrag.eval.adapter import ScoreMetric, ScoreResult, parse_json_case, to_json_case
+from agrag.eval.answer import (
+    CitationAccuracyMetric,
+    answer_case,
+    context_precision,
+    context_recall,
+    correctness,
+    faithfulness,
+    final_answer,
+)
 from agrag.eval.judge import ChatModelJudge
 from agrag.eval.repeat import MedianOfN
 from agrag.eval.settings import EvalJudgeSettings
@@ -18,10 +27,17 @@ from agrag.eval.settings import EvalJudgeSettings
 
 __all__ = [
     "ChatModelJudge",
+    "CitationAccuracyMetric",
     "EvalJudgeSettings",
     "MedianOfN",
     "ScoreMetric",
     "ScoreResult",
+    "answer_case",
+    "context_precision",
+    "context_recall",
+    "correctness",
+    "faithfulness",
+    "final_answer",
     "parse_json_case",
     "to_json_case",
 ]
