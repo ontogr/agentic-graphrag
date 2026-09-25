@@ -3,7 +3,7 @@
 Ingests one FinQA page (2 handpicked questions, see
 ``tests/fixtures/eval/answer_quality/NOTICE``) with a fixed extractor, runs the
 real agent on each question and scores every answer with the five answer-quality
-metrics from the real judge. Each judged metric is the median of 3 runs. The gate
+metrics from the real judge. Each metric is one judge run. The gate
 is the mean of each metric over the questions.
 
 It runs after merges and weekly through ``make test-eval-answer``, not on pull
@@ -17,18 +17,18 @@ compare with scores from a real embedder. The fixed extractor keeps the graph th
 same on every run, so only the agent and the judge vary.
 
 Each threshold is the lowest of three baseline means minus 0.05, rounded down to
-0.05. With 2 questions a mean takes few distinct values, so the gate is coarse.
-Baseline means:
+0.05, except faithfulness. Its 0.70 keeps the margin from an earlier baseline of
+0.75. With 2 questions a mean takes few distinct values, so the gate is coarse.
+The judge runs once for each metric. Baseline means:
 
     correctness         1.000  1.000  1.000
-    faithfulness        1.000  0.750  1.000
-    context_precision   0.509  0.504  0.670
+    faithfulness        1.000  1.000  1.000
+    context_precision   0.883  0.763  0.895
     context_recall      1.000  1.000  1.000
-    citation_accuracy   0.500  0.444  0.472
+    citation_accuracy   0.583  0.333  0.375
 
-The agent made 8 to 12 LLM calls per question in these runs. With the 3 median
-runs of each judged metric and the citation checks, one run of this test makes
-about 100 LLM calls.
+The agent made 8 to 25 LLM calls per question in these runs. The judge adds about
+15 calls, one for each metric and one for each cited sentence.
 """
 
 import asyncio
@@ -64,9 +64,9 @@ from tests.integration.eval._answer_quality import load_questions
 THRESHOLDS = {
     "correctness": 0.95,
     "faithfulness": 0.70,
-    "context_precision": 0.45,
+    "context_precision": 0.70,
     "context_recall": 0.95,
-    "citation_accuracy": 0.35,
+    "citation_accuracy": 0.25,
 }
 
 _REPORT_DIR = Path(__file__).resolve().parents[3] / "reports" / "eval"
