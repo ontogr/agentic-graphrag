@@ -623,6 +623,9 @@ class TestRetrievalE2E:
         )
         assert "messages" in result
         assert len(result["messages"]) >= 1
+        ledger = result["ledger"]
+        assert ledger.keys
+        assert all(ledger.resolve(key) is not None for key in ledger.keys)
 
     @pytest.mark.skipif(
         not _agent_llm_configured(), reason="LLM endpoint not configured"
