@@ -21,7 +21,9 @@ def _import_tracer_classes() -> tuple[Any, Any, Any]:
             OITracer,
             TraceConfig,
         )
-    except ImportError as exc:
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"openinference", "openinference.instrumentation"}:
+            raise
         raise AgentMissingExtraError("observability") from exc
     try:
         from openinference.instrumentation.langchain._tracer import (  # noqa: PLC0415

@@ -144,7 +144,7 @@ class TestRequireTracing:
 
         def blocked(name: str, *args: Any, **kwargs: Any) -> Any:
             if name.startswith("openinference"):
-                raise ImportError(name)
+                raise ModuleNotFoundError(name, name=name)
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", blocked)
@@ -156,6 +156,22 @@ class TestRequireTracing:
             require_tracing()
 
         assert exc.value.extra == "observability"
+
+    def test_preserves_import_errors_from_installed_dependencies(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only a missing OpenInference package means the extra is absent."""
+        real_import = builtins.__import__
+
+        def blocked(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "openinference.instrumentation":
+                raise ModuleNotFoundError("opentelemetry", name="opentelemetry")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", blocked)
+
+        with pytest.raises(ModuleNotFoundError, match="opentelemetry"):
+            require_tracing()
 
     def test_passes_when_the_extra_is_installed(self) -> None:
         """No error when the extra is installed."""
