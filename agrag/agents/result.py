@@ -5,7 +5,7 @@ from typing import Any, TypedDict
 from agrag.agents.ledger import Ledger
 
 
-class AgentRunResult(TypedDict, total=False):
+class AgentRunResult(TypedDict):
     """Result of one agent run.
 
     The deep-agent path also passes through the other keys of the LangGraph
