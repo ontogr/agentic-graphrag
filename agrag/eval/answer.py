@@ -52,11 +52,13 @@ _CORRECTNESS_STEPS = [
     "equals $1,200 million.",
     "Accept vague wording and a differing opinion when the facts agree.",
 ]
-_SUPPORT_CRITERIA = (
-    "The retrieval context fully supports every figure and entity in the actual "
-    "output, directly or by simple arithmetic. Unsupported extra detail lowers "
-    "the score."
-)
+_SUPPORT_STEPS = [
+    "List each figure and entity that the actual output states.",
+    "Check that the retrieval context states each one, directly or by simple "
+    "arithmetic.",
+    "Lower the score for each figure or entity that the retrieval context does "
+    "not support.",
+]
 
 
 def _content_text(content: Any) -> str:
@@ -134,7 +136,12 @@ def answer_case(question: str, result: AgentRunResult, reference: str) -> LLMTes
 
 
 def correctness(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> MedianOfN:
-    """Build the median-of-3 answer correctness metric against the reference."""
+    """Build the median-of-3 answer correctness metric against the reference.
+
+    Args:
+        judge: The judge model.
+        threshold: The minimum score that counts as success.
+    """
     return MedianOfN(
         GEval(
             name="Correctness",
@@ -146,23 +153,35 @@ def correctness(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> MedianOfN:
             ],
             model=judge,
             threshold=threshold,
-        )
+        ),
+        n=3,
     )
 
 
 def faithfulness(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> MedianOfN:
-    """Build the median-of-3 metric for claims the evidence the agent saw supports."""
-    return MedianOfN(FaithfulnessMetric(model=judge, threshold=threshold))
+    """Build the metric for claims that the evidence the agent saw does not contradict.
+
+    A claim that the evidence does not mention counts as faithful. Only a claim
+    that the evidence contradicts lowers the score. ``CitationAccuracyMetric``
+    catches unsupported claims. Takes the same arguments as ``correctness``.
+    """
+    return MedianOfN(FaithfulnessMetric(model=judge, threshold=threshold), n=3)
 
 
 def context_precision(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> MedianOfN:
-    """Build the median-of-3 metric for useful evidence ranked before noise."""
-    return MedianOfN(ContextualPrecisionMetric(model=judge, threshold=threshold))
+    """Build the metric for useful evidence ranked before noise.
+
+    Takes the same arguments as ``correctness``.
+    """
+    return MedianOfN(ContextualPrecisionMetric(model=judge, threshold=threshold), n=3)
 
 
 def context_recall(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> MedianOfN:
-    """Build the median-of-3 metric for reference facts the evidence covers."""
-    return MedianOfN(ContextualRecallMetric(model=judge, threshold=threshold))
+    """Build the metric for reference facts that the evidence covers.
+
+    Takes the same arguments as ``correctness``.
+    """
+    return MedianOfN(ContextualRecallMetric(model=judge, threshold=threshold), n=3)
 
 
 def _join_abbreviations(pieces: list[str]) -> list[str]:
@@ -219,11 +238,11 @@ def _without_keys(sentence: str, known: set[str]) -> str:
 
 
 def _support_metric(judge: DeepEvalBaseLLM, threshold: float) -> MedianOfN:
-    """Build the median-of-3 check that evidence supports one sentence."""
+    """Build the check that the evidence supports one sentence."""
     return MedianOfN(
         GEval(
             name="Citation support",
-            criteria=_SUPPORT_CRITERIA,
+            evaluation_steps=_SUPPORT_STEPS,
             evaluation_params=[
                 SingleTurnParams.ACTUAL_OUTPUT,
                 SingleTurnParams.RETRIEVAL_CONTEXT,
@@ -231,7 +250,8 @@ def _support_metric(judge: DeepEvalBaseLLM, threshold: float) -> MedianOfN:
             model=judge,
             threshold=threshold,
             async_mode=False,
-        )
+        ),
+        n=3,
     )
 
 
@@ -254,10 +274,10 @@ class CitationAccuracyMetric(BaseMetric):
     """Score whether each cited sentence follows from the evidence it cites.
 
     The unit is the sentence. A sentence counts as cited when it carries a
-    citation key. A judge decides, with a median-of-3 ``GEval``, whether the
-    text of the cited evidence supports the sentence. A cited key that the run's
-    ledger did not assign is fabricated: the sentence is unsupported and no
-    judge call happens.
+    citation key. A judge decides whether the text of the cited evidence supports
+    the sentence. It scores each sentence with a ``GEval`` that reports the median
+    of three runs. A cited key that the run's ledger did not assign is
+    fabricated: the sentence is unsupported and no judge call happens.
 
     The score is the F1 of two ratios. Precision is supported cited sentences
     over cited sentences. Recall is supported cited sentences over all sentences

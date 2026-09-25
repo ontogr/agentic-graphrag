@@ -1,0 +1,123 @@
+name: Eval answer quality
+
+# The answer quality gate runs the real agent and the judge, so it does not run
+# on pull requests. It runs after a merge that changes the agent, retrieval,
+# ingestion or eval code, and once a week. It posts to Discord when it fails.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agrag/agents/**"
+      - "agrag/retrieval/**"
+      - "agrag/ingestion/**"
+      - "agrag/graphdb/**"
+      - "agrag/llm/**"
+      - "agrag/eval/answer.py"
+      - "agrag/eval/judge.py"
+      - "agrag/eval/repeat.py"
+      - "agrag/eval/settings.py"
+      - "tests/fixtures/eval/answer_quality/**"
+      - "tests/integration/eval/conftest.py"
+      - "tests/integration/eval/test_answer_quality_e2e.py"
+      - ".github/workflows/eval-answer.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  FORCE_COLOR: "1"
+  DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
+  # The agent, the extractor and the judge use the same LLM secrets, so the model
+  # that answers also grades. Set EVAL_JUDGE_* to grade with another model.
+  LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+  LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+  LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
+  EVAL_JUDGE_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+  EVAL_JUDGE_API_KEY: ${{ secrets.LLM_API_KEY }}
+  EVAL_JUDGE_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
+
+jobs:
+  eval-answer:
+    name: Eval answer quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UV_PYTHON: "3.12"
+      # Fixed, throwaway credentials scoped to this job's own Docker network.
+      NEO4J_URI: bolt://localhost:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ci-test-password
+      NEO4J_DATABASE: neo4j
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # Started without --wait so the image pull overlaps with the uv and
+      # Python setup below.
+      - name: Start backend services
+        run: docker compose -f docker/docker-compose.ci.yml up -d neo4j
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - run: make sync
+
+      - name: Wait for backend services to be healthy
+        run: docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420 neo4j
+
+      - name: Run answer quality eval
+        run: make test-eval-answer
+
+      - name: Upload scores
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eval-answer-scores
+          path: |
+            reports/eval/answer_quality.json
+            pytest-eval-answer-results.xml
+          retention-days: 90
+
+      - name: Collect backend service logs
+        if: failure()
+        run: docker compose -f docker/docker-compose.ci.yml logs
+
+      - name: Stop backend services
+        if: always()
+        run: docker compose -f docker/docker-compose.ci.yml down -v
+
+      - name: Notify Discord
+        if: failure()
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MESSAGE: >-
+            Answer quality eval failed on ${{ github.event_name }} for
+            ${{ github.repository }}@${{ github.sha }}.
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL is not set, skipping the alert."
+            exit 0
+          fi
+          curl --silent --show-error --fail \
+            --header "Content-Type: application/json" \
+            --data "$(jq --null-input --arg content "$MESSAGE" '{content: $content}')" \
+            "$WEBHOOK_URL"

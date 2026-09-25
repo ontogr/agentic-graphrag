@@ -1,0 +1,10 @@
+The documents and questions in this folder come from FinQA.
+
+Source:     https://github.com/czyssrs/FinQA (dataset/test.json)
+Paper:      Chen et al., "FinQA: A Dataset of Numerical Reasoning over
+            Financial Data", EMNLP 2021. https://arxiv.org/abs/2109.00122
+Licence:    MIT. Copyright (c) 2021 Zhiyu Chen.
+
+Each document is one filing page from FinQA, converted to Markdown. The pages and questions are chosen by hand: each has few chunks, and each answer sits inside the first 200 characters of a chunk. Each
+reference answer is built from a FinQA question and its answer. Run
+build_finqa_corpus.py to regenerate the folder from a copy of test.json.
