@@ -204,10 +204,11 @@ async def tiny_corpus() -> AsyncGenerator[TinyCorpus, None]:
                 )
                 for label in labels:
                     await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
-                # CHUNK_LABEL is shared with other integration suites, which
-                # expect a 4-dimension index. Dropping this fixture's
-                # 64-dimension one lets the next suite recreate its own.
-                await drop_schema_for(store, *labels, CHUNK_LABEL)
+                # CHUNK_LABEL's index and constraints are global: every suite
+                # writes CHUNK_LABEL, and its schema cannot be dropped per
+                # test. Deleting this fixture's own chunk ids by token, above,
+                # leaves a concurrent suite's chunk data alone.
+                await drop_schema_for(store, *labels)
             finally:
                 await store.close()
         else:
