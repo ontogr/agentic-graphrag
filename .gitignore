@@ -230,4 +230,8 @@ pytest-integration-results.xml
 /reports/
 coverage-data-*
 pytest-e2e-results.xml
+pytest-eval-results.xml
 pytest-integration-results-*.xml
+
+# DeepEval run cache
+.deepeval/

@@ -63,6 +63,13 @@ agents = [
     "deepagents>=0.7.15",
     "langchain-openai>=1.0",
 ]
+eval = [
+    "deepeval>=4.2.6",
+    "agentevals>=0.0.9",
+    "er-evaluation>=2.3.0",
+    "scikit-learn>=1.5",
+    "langchain-openai>=1.0",
+]
 community = ["graspologic-native>=1.2.5"]
 
 [project.urls]
