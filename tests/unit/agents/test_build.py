@@ -20,7 +20,12 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
 from agrag.agents import AgentMissingExtraError
 from agrag.agents.build import _RunScopedAgent, _SimpleAgent, build_agent
@@ -77,6 +82,50 @@ def _engine() -> MagicMock:
 
 class TestBuildAgent:
     """Tests agent construction and per-invocation agent wrappers."""
+
+    async def test_simple_agent_wraps_search_and_model_in_run_span(self) -> None:
+        """The fallback run span is active for search and model work."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        span_ids: dict[str, list[int]] = {"search": [], "model": []}
+        result = SearchResult(
+            item=Entity(id=uuid4(), label="Person", name="Alice"),
+            score=0.9,
+            method="entity",
+        )
+
+        async def search(*args: Any, **kwargs: Any) -> list[SearchResult]:
+            span_ids["search"].append(
+                trace.get_current_span().get_span_context().span_id
+            )
+            return [result]
+
+        async def invoke_model(*args: Any, **kwargs: Any) -> MagicMock:
+            span_ids["model"].append(
+                trace.get_current_span().get_span_context().span_id
+            )
+            return MagicMock(text="answer")
+
+        engine = MagicMock()
+        engine.search = AsyncMock(side_effect=search)
+        model = MagicMock()
+        model.ainvoke = AsyncMock(side_effect=invoke_model)
+        agent = _SimpleAgent(
+            model=model,
+            engine=engine,
+            tracer=provider.get_tracer("agrag-test"),
+        )
+
+        await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+
+        run_span = next(
+            span for span in exporter.get_finished_spans() if span.name == "agent.run"
+        )
+        assert span_ids == {
+            "search": [run_span.context.span_id],
+            "model": [run_span.context.span_id],
+        }
 
     def test_builds_simple_agent_without_deepagents(
         self, monkeypatch: pytest.MonkeyPatch

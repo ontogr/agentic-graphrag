@@ -1,6 +1,7 @@
 """Build the planner/researcher/verifier agent graph."""
 
 import importlib.util
+from contextlib import nullcontext
 from typing import Any
 
 from opentelemetry.trace import Tracer
@@ -235,36 +236,42 @@ class _SimpleAgent:
             Dict with ``messages`` containing the answer and this run's
             ``ledger``.
         """
-        ledger = Ledger()
-        messages = input_data.get("messages", [])
-        if not messages:
-            return {"messages": [], "ledger": ledger}
+        span_context = (
+            self._tracer.start_as_current_span("agent.run")
+            if self._tracer is not None
+            else nullcontext()
+        )
+        with span_context:
+            ledger = Ledger()
+            messages = input_data.get("messages", [])
+            if not messages:
+                return {"messages": [], "ledger": ledger}
 
-        question = messages[-1].get("content", "")
-        from agrag.retrieval.recipes import HYBRID  # noqa: PLC0415
+            question = messages[-1].get("content", "")
+            from agrag.retrieval.recipes import HYBRID  # noqa: PLC0415
 
-        results = await self._engine.search(question, HYBRID, filters=self._filters)
-        evidence = [ledger.render(r) for r in results]
-        if not evidence:
-            return {
-                "messages": [
-                    {"role": "assistant", "content": "No relevant evidence found."}
+            results = await self._engine.search(question, HYBRID, filters=self._filters)
+            evidence = [ledger.render(r) for r in results]
+            if not evidence:
+                return {
+                    "messages": [
+                        {"role": "assistant", "content": "No relevant evidence found."}
+                    ],
+                    "ledger": ledger,
+                }
+
+            response = await self._model.ainvoke(
+                [
+                    {"role": "system", "content": SIMPLE_ANSWER_SYSTEM},
+                    {
+                        "role": "user",
+                        "content": f"Question: {question}\n\nEvidence:\n"
+                        + "\n".join(evidence),
+                    },
                 ],
+                config={"callbacks": run_callbacks(self._tracer)},
+            )
+            return {
+                "messages": [{"role": "assistant", "content": response.text}],
                 "ledger": ledger,
             }
-
-        response = await self._model.ainvoke(
-            [
-                {"role": "system", "content": SIMPLE_ANSWER_SYSTEM},
-                {
-                    "role": "user",
-                    "content": f"Question: {question}\n\nEvidence:\n"
-                    + "\n".join(evidence),
-                },
-            ],
-            config={"callbacks": run_callbacks(self._tracer)},
-        )
-        return {
-            "messages": [{"role": "assistant", "content": response.text}],
-            "ledger": ledger,
-        }
