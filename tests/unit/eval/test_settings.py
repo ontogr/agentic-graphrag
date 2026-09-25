@@ -62,6 +62,17 @@ class TestEvalJudgeSettings:
         assert client.base_url == "http://agent/v1"
         assert client.api_key == "agent-key"
 
+    def test_falls_back_when_eval_judge_variables_are_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty EVAL_JUDGE_* value falls back to LLM_*, like an unset one."""
+        monkeypatch.setenv("EVAL_JUDGE_MODEL_ID", "")
+        monkeypatch.setenv("LLM_MODEL_ID", "agent-model")
+
+        client = EvalJudgeSettings.from_openai_compatible_env().client
+
+        assert client.model == "agent-model"
+
     def test_raises_without_a_model_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """No model id, or an empty one, is an error, never a default."""
         monkeypatch.setenv("LLM_MODEL_ID", "")

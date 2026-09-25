@@ -1,13 +1,53 @@
 """Env-backed configuration for the eval judge model."""
 
-import os
 from typing import Annotated
 
 from dotenv import load_dotenv
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from agrag.llm.client_config import LLMClientConfig
+
+
+class _JudgeEnvVariables(BaseSettings):
+    """Resolve the judge's OpenAI-compatible connection variables.
+
+    Reads each ``EVAL_JUDGE_*``/``LLM_*`` pair as two separate fields rather
+    than one aliased field, because ``AliasChoices`` stops at the first alias
+    present in the environment even when its value is empty. Falling back to
+    ``LLM_*`` on an empty ``EVAL_JUDGE_*`` needs the ``or`` in the properties
+    below.
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    eval_judge_base_url: str | None = Field(
+        default=None, validation_alias="EVAL_JUDGE_BASE_URL"
+    )
+    llm_base_url: str | None = Field(default=None, validation_alias="LLM_BASE_URL")
+    eval_judge_api_key: str | None = Field(
+        default=None, validation_alias="EVAL_JUDGE_API_KEY"
+    )
+    llm_api_key: str | None = Field(default=None, validation_alias="LLM_API_KEY")
+    eval_judge_model_id: str | None = Field(
+        default=None, validation_alias="EVAL_JUDGE_MODEL_ID"
+    )
+    llm_model_id: str | None = Field(default=None, validation_alias="LLM_MODEL_ID")
+
+    @property
+    def base_url(self) -> str | None:
+        """Return the judge base URL, falling back to the shared LLM one."""
+        return self.eval_judge_base_url or self.llm_base_url
+
+    @property
+    def api_key(self) -> str | None:
+        """Return the judge API key, falling back to the shared LLM one."""
+        return self.eval_judge_api_key or self.llm_api_key
+
+    @property
+    def model_id(self) -> str | None:
+        """Return the judge model id, falling back to the shared LLM one."""
+        return self.eval_judge_model_id or self.llm_model_id
 
 
 class EvalJudgeSettings(BaseSettings):
@@ -42,11 +82,12 @@ class EvalJudgeSettings(BaseSettings):
     def from_openai_compatible_env(cls) -> "EvalJudgeSettings":
         """Build settings from OpenAI-compatible env vars.
 
-        Loads ``.env`` first, then reads ``EVAL_JUDGE_BASE_URL``,
-        ``EVAL_JUDGE_API_KEY`` and ``EVAL_JUDGE_MODEL_ID``. Each falls back to
-        the shared ``LLM_*`` variable when unset, so the judge is the agent's
-        own model unless ``EVAL_JUDGE_*`` is set. That model grades its own
-        answers, which biases scores upward. There is no default model.
+        Loads ``.env`` first, then resolves ``EVAL_JUDGE_BASE_URL``,
+        ``EVAL_JUDGE_API_KEY`` and ``EVAL_JUDGE_MODEL_ID`` through
+        pydantic-settings. Each falls back to the shared ``LLM_*`` variable
+        when unset or empty, so the judge is the agent's own model unless
+        ``EVAL_JUDGE_*`` is set. That model grades its own answers, which
+        biases scores upward. There is no default model.
 
         Returns:
             EvalJudgeSettings with one openai-generic client.
@@ -55,12 +96,8 @@ class EvalJudgeSettings(BaseSettings):
             ValueError: No model id resolves from either set of variables.
         """
         load_dotenv()
-        base_url = os.environ.get("EVAL_JUDGE_BASE_URL") or os.environ.get(
-            "LLM_BASE_URL"
-        )
-        api_key = os.environ.get("EVAL_JUDGE_API_KEY") or os.environ.get("LLM_API_KEY")
-        model = os.environ.get("EVAL_JUDGE_MODEL_ID") or os.environ.get("LLM_MODEL_ID")
-        if not model:
+        variables = _JudgeEnvVariables()
+        if not variables.model_id:
             raise ValueError(
                 "No judge model id: set EVAL_JUDGE_MODEL_ID or LLM_MODEL_ID."
             )
@@ -68,8 +105,8 @@ class EvalJudgeSettings(BaseSettings):
             client=LLMClientConfig(
                 name="eval-judge",
                 provider="openai-generic",
-                model=model,
-                api_key=api_key or "",
-                base_url=base_url or "",
+                model=variables.model_id,
+                api_key=variables.api_key or "",
+                base_url=variables.base_url or "",
             )
         )
