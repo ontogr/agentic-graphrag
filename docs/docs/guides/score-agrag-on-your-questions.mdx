@@ -1,0 +1,69 @@
+---
+sidebar_position: 6
+title: Score agrag on your own question set
+---
+
+# Score agrag on your own question set
+
+This guide shows how to measure the quality of agrag answers on your own documents and questions with `agrag.eval`. The example script `examples/eval/score_agrag.py` does the work. For the full setup, see the [example README](https://github.com/ontogr/agentic-graphrag/blob/main/examples/eval/README.md).
+
+## Prerequisites
+
+Install the extras, and start Neo4j:
+
+```bash
+uv sync --extra docling --extra llm --extra agents --extra eval --extra neo4j --extra embed-local
+docker compose -f docker/docker-compose.ci.yml up -d neo4j
+```
+
+## Prepare the dataset
+
+1. Make a folder with this layout:
+
+   ```text
+   your-folder/
+     documents/
+     questions.jsonl
+   ```
+
+2. Put your files in `documents/`.
+
+3. Write one JSON object on each line of `questions.jsonl`:
+
+   ```json
+   {"question": "What was net income in 2021?", "answer": "$94 million"}
+   ```
+
+   The `answer` is the reference answer. Write an answer that a reader can check in the documents.
+
+## Choose the judge
+
+The judge is the model that scores the answers. Set `EVAL_JUDGE_*` in `.env` to a model other than the one that answers. If you leave `EVAL_JUDGE_*` unset, the judge falls back to the `LLM_*` model. The model then grades its own answers, and the scores are too high.
+
+## Run the script
+
+```bash
+uv run python examples/eval/score_agrag.py --dataset your-folder
+```
+
+Without `--dataset`, the script uses a five-question subset of FinanceBench. Its licence is CC-BY-NC-4.0. It does not fall under the Apache-2.0 licence of agrag.
+
+## Read the table
+
+The table has one row for each question, and a last row with the means. Each score is from 0 to 1.
+
+| Column | What a low score means |
+| --- | --- |
+| `correctness` | The answer disagrees with the reference answer. |
+| `faithfulness` | The answer contradicts the evidence the agent read. |
+| `context_precision` | Useful evidence ranks below evidence that does not help. |
+| `context_recall` | The evidence does not cover the reference answer. |
+| `citation_accuracy` | A cited item does not support the sentence that cites it. |
+
+Each judged score is the median of three judge runs. The agent reads only the first 200 characters of each chunk. A question whose answer sits deeper in a chunk scores low on `context_recall`.
+
+## Control the cost
+
+Every question costs about 50 LLM calls: 8 to 12 for the agent, and the rest for the judge. Start with five questions. Do not run the script on each commit.
+
+The metrics are in `agrag.eval`. See the [API Reference](/api).
