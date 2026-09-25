@@ -6632,11 +6632,12 @@ from_openai_compatible_env() -> EvalJudgeSettings
 
 Build settings from OpenAI-compatible env vars.
 
-Loads `.env` first, then reads `EVAL_JUDGE_BASE_URL`,
-`EVAL_JUDGE_API_KEY` and `EVAL_JUDGE_MODEL_ID`. Each falls back to
-the shared `LLM_*` variable when unset, so the judge is the agent's
-own model unless `EVAL_JUDGE_*` is set. That model grades its own
-answers, which biases scores upward. There is no default model.
+Loads `.env` first, then resolves `EVAL_JUDGE_BASE_URL`,
+`EVAL_JUDGE_API_KEY` and `EVAL_JUDGE_MODEL_ID` through
+pydantic-settings. Each falls back to the shared `LLM_*` variable
+when unset or empty, so the judge is the agent's own model unless
+`EVAL_JUDGE_*` is set. That model grades its own answers, which
+biases scores upward. There is no default model.
 
 **Returns:**
 
@@ -7164,11 +7165,12 @@ from_openai_compatible_env() -> EvalJudgeSettings
 
 Build settings from OpenAI-compatible env vars.
 
-Loads `.env` first, then reads `EVAL_JUDGE_BASE_URL`,
-`EVAL_JUDGE_API_KEY` and `EVAL_JUDGE_MODEL_ID`. Each falls back to
-the shared `LLM_*` variable when unset, so the judge is the agent's
-own model unless `EVAL_JUDGE_*` is set. That model grades its own
-answers, which biases scores upward. There is no default model.
+Loads `.env` first, then resolves `EVAL_JUDGE_BASE_URL`,
+`EVAL_JUDGE_API_KEY` and `EVAL_JUDGE_MODEL_ID` through
+pydantic-settings. Each falls back to the shared `LLM_*` variable
+when unset or empty, so the judge is the agent's own model unless
+`EVAL_JUDGE_*` is set. That model grades its own answers, which
+biases scores upward. There is no default model.
 
 **Returns:**
 
