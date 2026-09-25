@@ -15,11 +15,12 @@ the extra installed the tests expect a reachable Neo4j at the default
 import hashlib
 import importlib.util
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import Any
 from uuid import uuid4
 
 import pytest
+import pytest_asyncio
 
 import agrag.ingestion.graph as graph_module
 from agrag.common.data_models.chunk import Chunk
@@ -37,6 +38,8 @@ from agrag.ingestion.settings import CutoverJobSettings
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 
 _INCOMPLETE_JOB_STATUSES = ["pending", "committed", "cleaning"]
+
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 
 class _FixedEmbedder(Embedder):
@@ -120,6 +123,22 @@ async def _open_graph(
         extractor=extractor,
         cutover_settings=CutoverJobSettings(lease_ttl_seconds=lease_ttl_seconds),
     )
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def noop_graph() -> AsyncIterator[tuple[GraphStore, Graph]]:
+    """Open one graph with a no-op extractor for every additive crash test.
+
+    Opening a graph provisions the whole schema, which costs seconds. Each
+    test still writes its own uniquely keyed document, so tests do not share
+    data.
+    """
+    store = build_graph_store("neo4j")
+    await store.connect()
+    try:
+        yield store, await _open_graph(store, _NoopExtractor())
+    finally:
+        await store.close()
 
 
 def _kill_recovery(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -256,7 +275,9 @@ class TestCrashBeforeCommit:
     """A worker that dies before its commit leaves nothing behind."""
 
     async def test_add_rolls_back_to_the_prior_graph(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        noop_graph: tuple[GraphStore, Graph],
     ) -> None:
         """An interrupted add is deleted on the next open, leaving the graph intact.
 
@@ -264,12 +285,10 @@ class TestCrashBeforeCommit:
         and its edges — so rolling it back has to restore the graph exactly
         as it stood before the call.
         """
-        store = build_graph_store("neo4j")
-        await store.connect()
+        store, graph = noop_graph
         existing_key = f"crash://kept-{uuid4().hex}"
         crashed_key = f"crash://lost-{uuid4().hex}"
         try:
-            graph = await _open_graph(store, _NoopExtractor())
             await graph.add(
                 documents=[_document(existing_key, "crash kept version. " * 60)]
             )
@@ -313,7 +332,6 @@ class TestCrashBeforeCommit:
         finally:
             await _cleanup(store, existing_key, None)
             await _cleanup(store, crashed_key, None)
-            await store.close()
 
     async def test_update_rolls_back_without_touching_the_superseded_version(
         self, monkeypatch: pytest.MonkeyPatch
@@ -381,7 +399,9 @@ class TestCrashBeforeCommit:
             await store.close()
 
     async def test_a_live_lease_is_not_recovered(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        noop_graph: tuple[GraphStore, Graph],
     ) -> None:
         """A running worker's job survives another process opening the graph.
 
@@ -389,11 +409,9 @@ class TestCrashBeforeCommit:
         is still running, so recovery leaves it alone rather than deleting
         the writes underneath it.
         """
-        store = build_graph_store("neo4j")
-        await store.connect()
+        store, graph = noop_graph
         key = f"crash://live-{uuid4().hex}"
         try:
-            graph = await _open_graph(store, _NoopExtractor())
             _kill_recovery(monkeypatch)
             _die_after_pending_writes(monkeypatch)
             with pytest.raises(RuntimeError, match="worker died before commit"):
@@ -422,7 +440,6 @@ class TestCrashBeforeCommit:
                 await recovered_store.close()
         finally:
             await _cleanup(store, key, None)
-            await store.close()
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
@@ -470,6 +487,7 @@ class TestCrashAfterCommit:
 
             assert await _job_status(store, crashed_key) == "cleaning"
             assert await _probe_count(store, crashed_probe) == 1
+            await _age_lease(store, crashed_key)
 
             recovered_store = build_graph_store("neo4j")
             await recovered_store.connect()
@@ -500,14 +518,14 @@ class TestRecoveryIsIdempotent:
     """Recovery may run repeatedly, as a crash during recovery would cause."""
 
     async def test_reopening_twice_changes_nothing_the_second_time(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        noop_graph: tuple[GraphStore, Graph],
     ) -> None:
         """A second open finds no incomplete job and leaves the graph alone."""
-        store = build_graph_store("neo4j")
-        await store.connect()
+        store, graph = noop_graph
         key = f"crash://twice-{uuid4().hex}"
         try:
-            graph = await _open_graph(store, _NoopExtractor())
             _kill_recovery(monkeypatch)
             _die_after_pending_writes(monkeypatch)
             with pytest.raises(RuntimeError, match="worker died before commit"):
@@ -542,4 +560,3 @@ class TestRecoveryIsIdempotent:
                 await second_store.close()
         finally:
             await _cleanup(store, key, None)
-            await store.close()

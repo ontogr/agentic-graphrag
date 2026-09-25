@@ -339,7 +339,9 @@ async def compute_merge(  # noqa: PLR0912
         mentions: Fresh ExtractedEntity mentions to fold in.
         schema: Used to look up the entity type's declared properties for the
             canonical-id schema-completeness check.
-        rules: Per-property conflict resolution. Defaults to keep_first.
+        rules: Per-property conflict resolution. Defaults to keep_first. The
+            name is always a single string: under merge_all it takes the
+            canonical entity's name, or the first mention's when none exists.
         description_settings: LLM settings for description summarization.
         description_client: Injected LLM client for tests.
         job_id: The Cutover Job this merge runs under. A brand-new entity
@@ -377,6 +379,18 @@ async def compute_merge(  # noqa: PLR0912
         {"name": entity.name, **entity.properties} for entity in existing_entities
     ] + [{"name": mention.text, **mention.properties} for mention in mentions]
 
+    if "name" not in rules.rules and rules.default is PropertyStrategy.MERGE_ALL:
+        canonical_name = survivor_base.name if survivor_base is not None else None
+        rules = PropertyRules(
+            rules={
+                **rules.rules,
+                "name": lambda names: (
+                    canonical_name if canonical_name is not None else names[0]
+                ),
+            },
+            default=rules.default,
+        )
+
     resolved_fields, conflicts, desc_failures = await merge_properties(
         field_sources,
         rules,
@@ -386,7 +400,6 @@ async def compute_merge(  # noqa: PLR0912
     name = resolved_fields.pop("name")
     properties = resolved_fields
 
-    # Validate name type.
     if not isinstance(name, str):
         raise ValueError(f"Resolved name must be str, got {type(name)}")
 

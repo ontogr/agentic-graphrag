@@ -42,7 +42,6 @@ from agrag.ingestion.extract import (
     _describe_entity_type,
 )
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
-from agrag.loaders.corpus.errors import IngestionError
 
 
 _DOC_ID = uuid4()
@@ -179,16 +178,6 @@ class TestExtractorMissingExtraError:
         assert "GlinerExtractor" in str(err)
         assert "extract" in str(err)
         assert "pip install" in str(err)
-
-    def test_attributes_are_set(self) -> None:
-        """Component and extra are stored as attributes."""
-        err = ExtractorMissingExtraError("BAMLExtractor", "llm")
-        assert err.component == "BAMLExtractor"
-        assert err.extra == "llm"
-
-    def test_inherits_ingestion_error(self) -> None:
-        """ExtractorMissingExtraError is a subclass of IngestionError."""
-        assert issubclass(ExtractorMissingExtraError, IngestionError)
 
 
 class TestGlinerExtractor:

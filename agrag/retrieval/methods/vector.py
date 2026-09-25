@@ -22,6 +22,7 @@ async def vector_search(
     limit: int,
     filters: SearchFilters | None,
     settings: RetrievalSettings,
+    query_vector: Sequence[float] | None = None,
 ) -> list[VectorHit]:
     """Embed query and search on whichever store is configured.
 
@@ -52,6 +53,7 @@ async def vector_search(
             path and choose the searched indexes on the native path,
             so they are not sent as node property filters.
         settings: Supplies hybrid_alpha for the VectorStore path.
+        query_vector: Precomputed query embedding. None embeds ``query``.
 
     Returns:
         Ranked VectorHits, from whichever store was searched.
@@ -60,14 +62,16 @@ async def vector_search(
         ValueError: The native path was selected with no labels to
             search.
     """
-    query_vector = await embedder.embed_one(query)
+    dense_vector = query_vector
+    if dense_vector is None:
+        dense_vector = await embedder.embed_one(query)
 
     if vector_store is not None:
         payload_filters = dict(filters.to_payload_filter()) if filters else {}
         payload_filters[PENDING_VECTOR_FLAG] = False
         return await vector_store.hybrid_search(
             collection,
-            query_vector,
+            dense_vector,
             query,
             limit=limit,
             filters=payload_filters,
@@ -86,7 +90,7 @@ async def vector_search(
             graph_store.vector_search(
                 label=label,
                 vector_property="embedding",
-                query_vector=query_vector,
+                query_vector=dense_vector,
                 limit=limit,
                 filters=property_filters or None,
             )

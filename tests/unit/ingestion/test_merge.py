@@ -103,34 +103,6 @@ def _schema(
     )
 
 
-class TestPropertyStrategyAndRules:
-    """PropertyStrategy and PropertyRules defaults."""
-
-    def test_strategy_values(self) -> None:
-        """Strategy enum values are stable strings."""
-        assert PropertyStrategy.KEEP_FIRST == "keep_first"
-        assert PropertyStrategy.KEEP_LAST == "keep_last"
-        assert PropertyStrategy.MERGE_ALL == "merge_all"
-
-    def test_rules_defaults(self) -> None:
-        """Default rules are empty with keep_first."""
-        rules = PropertyRules()
-        assert rules.rules == {}
-        assert rules.default is PropertyStrategy.KEEP_FIRST
-
-    def test_custom_rules_store(self) -> None:
-        """Custom rules store the resolver."""
-
-        def _resolver(vals: list[object]) -> object:
-            return vals[0]
-
-        rules = PropertyRules(
-            rules={"title": _resolver}, default=PropertyStrategy.MERGE_ALL
-        )
-        assert rules.rules["title"] is _resolver
-        assert rules.default is PropertyStrategy.MERGE_ALL
-
-
 class TestSelectCanonical:
     """select_canonical tiebreaks."""
 
@@ -709,18 +681,35 @@ class TestComputeMerge:
         with pytest.raises(ValueError, match="at least one"):
             await compute_merge(existing_entities=[], mentions=[], schema=_schema())
 
-    async def test_name_not_str_raise(self) -> None:
-        """Resolved name not str raises."""
+    async def test_merge_all_default_keeps_canonical_name(self) -> None:
+        """MERGE_ALL as default still resolves the name to the canonical name."""
         e1 = _entity(name="Ada")
         e2 = _entity(name="Bob")
-        # MERGE_ALL will make name a list -> not str
-        with pytest.raises(ValueError, match="Resolved name must be str"):
-            await compute_merge(
-                existing_entities=[e1, e2],
-                mentions=[],
-                schema=_schema(),
-                rules=PropertyRules(default=PropertyStrategy.MERGE_ALL),
-            )
+        e1.created_at = datetime(2020, 1, 1, tzinfo=UTC)
+        e2.created_at = datetime(2020, 1, 2, tzinfo=UTC)
+        plan, _ = await compute_merge(
+            existing_entities=[e2, e1],
+            mentions=[],
+            schema=_schema(),
+            rules=PropertyRules(default=PropertyStrategy.MERGE_ALL),
+        )
+        assert plan.survivor.name == "Ada"
+
+    async def test_merge_all_default_keeps_empty_canonical_name(self) -> None:
+        """MERGE_ALL preserves an explicitly empty canonical name."""
+        canonical = _entity(name="")
+        absorbed = _entity(name="Ada")
+        canonical.created_at = datetime(2020, 1, 1, tzinfo=UTC)
+        absorbed.created_at = datetime(2020, 1, 2, tzinfo=UTC)
+
+        plan, _ = await compute_merge(
+            existing_entities=[absorbed, canonical],
+            mentions=[],
+            schema=_schema(),
+            rules=PropertyRules(default=PropertyStrategy.MERGE_ALL),
+        )
+
+        assert plan.survivor.name == ""
 
     async def test_merge_count_accumulation(self) -> None:
         """merge_count accumulates from survivor, absorbed, and mentions."""

@@ -13,7 +13,7 @@ running normally in another process, and only a lapsed lease means the
 document was abandoned.
 """
 
-import contextlib
+import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -23,11 +23,16 @@ from agrag.common.data_models.cutover_job import CutoverJobStatus
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
     claim_job_query,
+    claim_pending_job_query,
     finish_cleaning_query,
-    rollback_job_query,
+    rollback_claimed_job_query,
 )
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion._cutover import clear_pending_vectors, delete_pending_vectors
+from agrag.ingestion._cutover import (
+    _renew_periodically,
+    clear_pending_vectors,
+    delete_pending_vectors,
+)
 from agrag.ingestion.settings import CutoverJobSettings
 
 
@@ -73,13 +78,15 @@ async def resume_incomplete_jobs(
         job_id = str(row["id"])
         status = str(row.get("status") or "")
         if status == CutoverJobStatus.PENDING:
-            if not row.get("lease_expired"):
+            if row.get("lease_token") is None:
                 continue
             if await _roll_back(
                 graph_store,
                 job_id=job_id,
                 vector_store=vector_store,
                 vector_collections=vector_collections,
+                expected_lease_token=str(row["lease_token"]),
+                lease_ttl_seconds=lease_ttl_seconds,
             ):
                 handled.append(job_id)
             continue
@@ -125,26 +132,52 @@ async def _roll_back(
     job_id: str,
     vector_store: Any,
     vector_collections: Sequence[str],
+    expected_lease_token: str,
+    lease_ttl_seconds: int,
 ) -> bool:
-    """Delete one abandoned pending job's writes and the job node itself.
+    """Claim and delete one abandoned pending job's writes and job node.
 
-    The job's worker died without committing, so nothing it wrote was ever
-    visible; deleting the tagged rows and pending vectors restores the
-    graph to its pre-call state.
+    The claim rechecks the snapshot's lease token and expiry under the job
+    lock before external vector deletion starts. A job that renewed after
+    the initial scan therefore remains untouched.
 
     Returns:
-        Whether the deletion ran without raising.
+        Whether recovery completed deletion while its claim remained valid.
     """
+    try:
+        job_uuid = UUID(job_id)
+    except ValueError:
+        return False
+    token = str(uuid4())
+    try:
+        claimed = await graph_store.execute_write(
+            claim_pending_job_query(),
+            {
+                "job_id": job_id,
+                "expected_lease_token": expected_lease_token,
+                "lease_token": token,
+                "lease_expires_at": (
+                    datetime.now(UTC) + timedelta(seconds=lease_ttl_seconds)
+                ).isoformat(),
+            },
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    if not claimed:
+        return False
     try:
         await delete_pending_vectors(
             vector_store=vector_store,
             collections=vector_collections,
-            job_id=UUID(job_id),
+            job_id=job_uuid,
         )
-        await graph_store.execute_write(rollback_job_query(), {"job_id": job_id})
+        rolled_back = await graph_store.execute_write(
+            rollback_claimed_job_query(),
+            {"job_id": job_id, "lease_token": token},
+        )
     except Exception:  # noqa: BLE001
         return False
-    return True
+    return bool(rolled_back)
 
 
 async def _roll_forward(
@@ -170,8 +203,7 @@ async def _roll_forward(
     once its cleanup actually completed — so a later open retries it.
 
     Returns:
-        Whether this open claimed the job. Another open that claimed it
-        first, or a claim that could not be written, reports ``False``.
+        Whether this open completed cleanup and marked the job done.
     """
     token = str(uuid4())
     expires_at = datetime.now(UTC) + timedelta(seconds=lease_ttl_seconds)
@@ -189,24 +221,90 @@ async def _roll_forward(
         return False
     if not claimed:
         return False
-    pruned = prune is not None or not affected_entity_ids
+    try:
+        job_uuid = UUID(job_id)
+    except ValueError:
+        return False
+    stop_renewal = asyncio.Event()
+    renewal_stopped = asyncio.Event()
+    renewal = asyncio.create_task(
+        _renew_periodically(
+            graph_store=graph_store,
+            job_id=job_uuid,
+            token=UUID(token),
+            ttl_seconds=lease_ttl_seconds,
+            stop_event=stop_renewal,
+            stopped_event=renewal_stopped,
+        )
+    )
+    cleanup = asyncio.create_task(
+        _finish_roll_forward(
+            graph_store=graph_store,
+            job_id=job_id,
+            job_uuid=job_uuid,
+            affected_entity_ids=affected_entity_ids,
+            vector_store=vector_store,
+            vector_collections=vector_collections,
+            prune=prune,
+            lease_token=token,
+            stop_renewal=stop_renewal,
+            renewal_stopped=renewal_stopped,
+        )
+    )
+    try:
+        done, _ = await asyncio.wait(
+            (cleanup, renewal), return_when=asyncio.FIRST_COMPLETED
+        )
+        if cleanup in done:
+            return await cleanup
+        if stop_renewal.is_set():
+            return await cleanup
+        cleanup.cancel()
+        await asyncio.gather(cleanup, renewal, return_exceptions=True)
+        return False
+    finally:
+        if not cleanup.done():
+            cleanup.cancel()
+        if not renewal.done():
+            renewal.cancel()
+        await asyncio.gather(cleanup, renewal, return_exceptions=True)
+
+
+async def _finish_roll_forward(
+    *,
+    graph_store: GraphStore,
+    job_id: str,
+    job_uuid: UUID,
+    affected_entity_ids: list[UUID],
+    vector_store: Any,
+    vector_collections: Sequence[str],
+    prune: Callable[[list[UUID]], Awaitable[None]] | None,
+    lease_token: str,
+    stop_renewal: asyncio.Event,
+    renewal_stopped: asyncio.Event,
+) -> bool:
+    """Complete cleanup and mark one recovery claim done."""
+    if prune is None and affected_entity_ids:
+        return False
     if prune is not None and affected_entity_ids:
         try:
             await prune(affected_entity_ids)
         except Exception:  # noqa: BLE001
-            pruned = False
-    vectors_cleared = True
+            return False
     try:
         await clear_pending_vectors(
             vector_store=vector_store,
             collections=vector_collections,
-            job_id=UUID(job_id),
+            job_id=job_uuid,
         )
     except Exception:  # noqa: BLE001
-        vectors_cleared = False
-    if pruned and vectors_cleared:
-        with contextlib.suppress(Exception):
-            await graph_store.execute_write(
-                finish_cleaning_query(), {"job_id": job_id, "lease_token": token}
-            )
-    return True
+        return False
+    stop_renewal.set()
+    await renewal_stopped.wait()
+    try:
+        finished = await graph_store.execute_write(
+            finish_cleaning_query(), {"job_id": job_id, "lease_token": lease_token}
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(finished)

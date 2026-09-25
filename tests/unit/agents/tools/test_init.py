@@ -26,12 +26,6 @@ def _tool_named(tools: list, name: str):
 class TestMakeTools:
     """make_tools assembles the discovery and traversal tool set."""
 
-    def test_returns_eleven_tools_unscoped(self) -> None:
-        """Five discovery tools, four traversal tools, calculator, Cypher."""
-        tools = make_tools(MagicMock(), Ledger())
-
-        assert len(tools) == 11
-
     def test_returns_ten_tools_when_scoped(self) -> None:
         """A caller scope removes the unscoped-only Cypher tool."""
         tools = make_tools(

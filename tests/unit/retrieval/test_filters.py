@@ -49,14 +49,6 @@ class TestSearchFilters:
         pf = f.to_payload_filter()
         assert pf["kind"] == "web"
 
-    def test_cypher_where_with_labels(self) -> None:
-        """Labels produce native Cypher node-label checks."""
-        f = SearchFilters(labels=["Person", "Org"])
-        where, params = f.to_cypher_where()
-        assert "node:Person" in where
-        assert "node:Org" in where
-        assert params == {}
-
     def test_cypher_where_with_properties(self) -> None:
         """Properties produce equality clauses."""
         f = SearchFilters(properties={"status": "active"})

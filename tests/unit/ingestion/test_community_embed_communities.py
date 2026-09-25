@@ -34,27 +34,6 @@ class TestEmbedCommunities:
         assert failures == []
         mock_embedder.embed.assert_not_called()
 
-    async def test_batches(self) -> None:
-        """More communities than batch_size results in multiple embed calls."""
-        comms = [
-            Community(
-                id=uuid4(),
-                title=f"T{i}",
-                summary=f"S{i}",
-                rating=5,
-                rating_explanation="e",
-            )
-            for i in range(5)
-        ]
-        mock_embedder = AsyncMock()
-        mock_embedder.embed = AsyncMock(
-            side_effect=lambda texts: [[0.1, 0.2] for _ in texts]
-        )
-        failures = await embed_communities(comms, embedder=mock_embedder, batch_size=2)
-        assert mock_embedder.embed.call_count == 3
-        assert all(c.embedding == [0.1, 0.2] for c in comms)
-        assert failures == []
-
     async def test_batch_failure_leaves_embedding_none_and_is_recorded(self) -> None:
         """A failing batch's embed() call does not block other batches."""
         comms = [

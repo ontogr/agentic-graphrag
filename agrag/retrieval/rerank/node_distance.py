@@ -33,11 +33,16 @@ async def node_distance_rerank(
 
     Returns:
         Results reranked by proximity, closest first.
+
+    Raises:
+        Exception: Any error the graph store raises. A candidate with no
+            path to a seed is not an error and ranks with the penalty.
     """
     if not results or not seed_ids:
         return results
 
-    seed_strs = [str(sid) for sid in seed_ids]
+    seed_set = set(seed_ids)
+    seed_strs = [str(sid) for sid in seed_set]
 
     scored: list[tuple[float, SearchResult]] = []
     for result in results:
@@ -53,28 +58,27 @@ async def node_distance_rerank(
             scored.append((999999.0, result))
             continue
 
-        try:
-            rows = await graph_store.execute_read(
-                f"UNWIND $seed_ids AS seed_id "
-                f"UNWIND $target_ids AS target_id "
-                f"MATCH path = shortestPath("
-                f"  (seed:{NODE_IDENTITY_LABEL} {{id: seed_id}})"
-                f"-[*]-(target:{NODE_IDENTITY_LABEL} {{id: target_id}})"
-                f") "
-                f"RETURN length(path) AS dist",
-                {
-                    "seed_ids": seed_strs,
-                    "target_ids": [str(target_id) for target_id in target_ids],
-                },
-            )
-            distances = [
-                float(row["dist"]) for row in rows if row.get("dist") is not None
-            ]
-            dist = min(distances) if distances else 999999.0
-        except Exception:
-            dist = 999999.0
+        # shortestPath from a node to itself is a Neo4j error, so seeds are
+        # scored here and never sent to the path query.
+        if not seed_set.isdisjoint(target_ids):
+            scored.append((0.0, result))
+            continue
 
-        scored.append((dist, result))
+        rows = await graph_store.execute_read(
+            f"UNWIND $seed_ids AS seed_id "
+            f"UNWIND $target_ids AS target_id "
+            f"MATCH path = shortestPath("
+            f"  (seed:{NODE_IDENTITY_LABEL} {{id: seed_id}})"
+            f"-[*]-(target:{NODE_IDENTITY_LABEL} {{id: target_id}})"
+            f") "
+            f"RETURN length(path) AS dist",
+            {
+                "seed_ids": seed_strs,
+                "target_ids": [str(target_id) for target_id in target_ids],
+            },
+        )
+        distances = [float(row["dist"]) for row in rows if row.get("dist") is not None]
+        scored.append((min(distances) if distances else 999999.0, result))
 
     scored.sort(key=lambda pair: pair[0])
     return [result for _, result in scored]

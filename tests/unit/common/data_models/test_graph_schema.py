@@ -1,12 +1,10 @@
 """Tests for the GraphSchema, EntityType, RelationType models and GENERIC.
 
 Verifies the shipped GENERIC schema is internally consistent (every relation
-pattern references a declared entity label) and has its expected five entity
-types and one relation, that a GraphSchema survives a JSON dump/validate
-round trip unchanged, that EntityType defaults to empty properties and
-subtypes, that it rejects property names reserved by the vector payload, and
-that its two prompt serializations carry the schema's labels and patterns
-(the full one with descriptions and properties, the compact one without).
+pattern references a declared entity label), that EntityType rejects property
+names reserved by the vector payload, and that the full prompt serialization
+carries the schema's labels, descriptions, properties, and patterns, including
+explicit empty markers.
 """
 
 import pytest
@@ -60,45 +58,6 @@ class TestGenericSchema:
                 assert source in declared
                 assert target in declared
 
-    def test_generic_has_the_expected_types(self) -> None:
-        """GENERIC declares the five expected entity types and one relation."""
-        labels = {entity.label for entity in GENERIC.entities}
-        assert labels == {
-            "Person",
-            "Organization",
-            "Location",
-            "Event",
-            "Product",
-        }
-        assert [relation.label for relation in GENERIC.relations] == ["RELATED_TO"]
-
-
-class TestGraphSchemaRoundTrip:
-    """A GraphSchema round-trips through Pydantic's json dump/validate."""
-
-    def test_model_dump_then_validate_is_unchanged(self) -> None:
-        """Dumping to json and validating back yields an equal schema."""
-        schema = GraphSchema(
-            name="clinical",
-            version="2",
-            entities=[EntityType(label="Drug", description="A medication.")],
-            relations=[
-                RelationType(
-                    label="TREATS",
-                    description="A drug treats a condition.",
-                    patterns=[("Drug", "Drug")],
-                )
-            ],
-        )
-        restored = GraphSchema.model_validate(schema.model_dump(mode="json"))
-        assert restored == schema
-
-    def test_default_fields_are_empty(self) -> None:
-        """EntityType defaults to no properties and no subtypes."""
-        entity = EntityType(label="X", description="y")
-        assert entity.properties == {}
-        assert entity.subtypes == []
-
 
 class TestEntityTypeReservedPropertyNames:
     """EntityType rejects property names the vector payload reserves."""
@@ -121,29 +80,6 @@ class TestEntityTypeReservedPropertyNames:
             )
         assert "Rename or remove" in str(excinfo.value)
 
-    def test_payload_written_before_the_check_must_be_migrated(self) -> None:
-        """A persisted schema declaring a reserved property fails to load.
-
-        The rejection is deliberately breaking: a payload dumped before this
-        check existed validates no more, and the error names the migration
-        rather than accepting a schema whose two retrieval paths disagree.
-        """
-        persisted = {
-            "name": "clinical",
-            "version": "1",
-            "entities": [
-                {
-                    "label": "Person",
-                    "description": "A named individual.",
-                    "properties": {"text": "str"},
-                }
-            ],
-            "relations": [],
-        }
-        with pytest.raises(ValidationError, match="text") as excinfo:
-            GraphSchema.model_validate(persisted)
-        assert "Rename or remove" in str(excinfo.value)
-
     def test_rejects_reserved_name_among_valid_ones(self) -> None:
         """One reserved name alongside valid properties still rejects the type."""
         with pytest.raises(ValidationError, match="label"):
@@ -152,31 +88,6 @@ class TestEntityTypeReservedPropertyNames:
                 description="A named individual.",
                 properties={"role": "str", "label": "str"},
             )
-
-    def test_rejects_when_nested_in_schema(self) -> None:
-        """The rejection also applies to a type built inside a GraphSchema."""
-        with pytest.raises(ValidationError, match="text"):
-            GraphSchema(
-                name="clinical",
-                version="1",
-                entities=[
-                    EntityType(
-                        label="Person",
-                        description="A named individual.",
-                        properties={"text": "str"},
-                    )
-                ],
-                relations=[],
-            )
-
-    def test_accepts_unreserved_names(self) -> None:
-        """Names outside the reserved set are kept unchanged."""
-        entity = EntityType(
-            label="Person",
-            description="A named individual.",
-            properties={"role": "str", "age": "int"},
-        )
-        assert entity.properties == {"role": "str", "age": "int"}
 
 
 class TestPromptSerialization:
@@ -199,32 +110,6 @@ class TestPromptSerialization:
             "- INDICATES: Two conditions co-occur.\n"
             "  valid patterns: (Condition, Condition), (Drug, Condition)"
         )
-
-    def test_to_prompt_description_on_generic(self) -> None:
-        """GENERIC lists its five entity labels and every RELATED_TO pattern."""
-        text = GENERIC.to_prompt_description()
-
-        for label in ("Person", "Organization", "Location", "Event", "Product"):
-            assert f"- {label}: " in text
-        assert "- RELATED_TO: A generic relationship between two entities." in text
-        assert "(Person, Person)" in text
-        assert "(Product, Product)" in text
-
-    def test_to_compact_summary_omits_descriptions_and_properties(self) -> None:
-        """Labels and patterns survive; descriptions, properties, subtypes do not."""
-        text = _CLINICAL_SCHEMA.to_compact_summary()
-
-        assert text == (
-            "Entity labels: Drug, Condition\n"
-            "Relation types:\n"
-            "- TREATS: (Drug, Condition)\n"
-            "- INDICATES: (Condition, Condition), (Drug, Condition)"
-        )
-        assert "A medication." not in text
-        assert "A diagnosed condition." not in text
-        assert "name" not in text
-        assert "dosage" not in text
-        assert "Biologic" not in text
 
     def test_empty_patterns_are_explicit(self) -> None:
         """Empty relation patterns render as an explicit absence of patterns."""

@@ -21,6 +21,45 @@ _VECTOR_SIMILARITY: dict[Distance, str] = {
 }
 
 
+def node_id_constraint_name(label: str) -> str:
+    """Return the name of the node ``id`` uniqueness constraint for ``label``.
+
+    Args:
+        label: The node label. Must already be validated.
+
+    Returns:
+        The constraint name ``node_id_constraint_query`` creates.
+    """
+    safe_label = validate_identifier(label)
+    return f"node_{len(safe_label)}_{safe_label}_id_unique"
+
+
+def merge_key_constraint_name(label: str) -> str:
+    """Return the name of the ``merge_key`` uniqueness constraint for ``label``.
+
+    Args:
+        label: The node label. Must already be validated.
+
+    Returns:
+        The constraint name ``merge_key_constraint_query`` creates.
+    """
+    safe_label = validate_identifier(label)
+    return f"node_{len(safe_label)}_{safe_label}_merge_key_unique"
+
+
+def relation_id_constraint_name(rel_type: str) -> str:
+    """Return the name of the ``id`` uniqueness constraint for ``rel_type``.
+
+    Args:
+        rel_type: The relationship type. Must already be validated.
+
+    Returns:
+        The constraint name ``relation_id_constraint_query`` creates.
+    """
+    safe_type = validate_identifier(rel_type)
+    return f"rel_{len(safe_type)}_{safe_type}_id_unique"
+
+
 def node_id_constraint_query(label: str) -> str:
     """Build a CREATE CONSTRAINT query making ``id`` unique per node.
 
@@ -38,7 +77,7 @@ def node_id_constraint_query(label: str) -> str:
         A Cypher query creating the uniqueness constraint if absent.
     """
     safe_label = validate_identifier(label)
-    name = f"node_{len(safe_label)}_{safe_label}_id_unique"
+    name = node_id_constraint_name(safe_label)
     return (
         f"CREATE CONSTRAINT {name} IF NOT EXISTS "
         f"FOR (n:{safe_label}) REQUIRE n.id IS UNIQUE"
@@ -60,7 +99,7 @@ def relation_id_constraint_query(rel_type: str) -> str:
         A Cypher query creating the uniqueness constraint if absent.
     """
     safe_type = validate_identifier(rel_type)
-    name = f"rel_{len(safe_type)}_{safe_type}_id_unique"
+    name = relation_id_constraint_name(safe_type)
     return (
         f"CREATE CONSTRAINT {name} IF NOT EXISTS "
         f"FOR ()-[r:{safe_type}]-() REQUIRE r.id IS UNIQUE"
@@ -100,7 +139,7 @@ def merge_key_constraint_query(label: str) -> str:
         A Cypher query creating the uniqueness constraint if absent.
     """
     safe_label = validate_identifier(label)
-    name = f"node_{len(safe_label)}_{safe_label}_merge_key_unique"
+    name = merge_key_constraint_name(safe_label)
     return (
         f"CREATE CONSTRAINT {name} IF NOT EXISTS "
         f"FOR (n:{safe_label}) REQUIRE n.merge_key IS UNIQUE"

@@ -75,6 +75,7 @@ module-name = "agrag"
 
 [tool.uv]
 default-groups = ["dev"]
+required-version = "==0.12.18"
 
 [dependency-groups]
 dev = [

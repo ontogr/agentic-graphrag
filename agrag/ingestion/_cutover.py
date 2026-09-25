@@ -4,6 +4,7 @@
 every dependency explicitly rather than reaching into ``Graph``.
 """
 
+import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
@@ -20,6 +21,7 @@ from agrag.cypher.cutover_job_write import (
     clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
+    renew_lease_query,
     rollback_job_query,
     start_cleaning_query,
     steal_expired_lease_query,
@@ -97,6 +99,46 @@ async def _acquire_lease(
     raise CutoverJobLeaseError(
         f"Another live job holds the lease for document {document_key!r}."
     )
+
+
+async def _renew_periodically(
+    *,
+    graph_store: GraphStore,
+    job_id: UUID,
+    token: UUID,
+    ttl_seconds: int,
+    stop_event: asyncio.Event,
+    stopped_event: asyncio.Event,
+) -> None:
+    """Extend the job's lease every third of the TTL until finalization.
+
+    Raises:
+        CutoverJobLeaseError: The job no longer holds its lease.
+    """
+    try:
+        while True:
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=ttl_seconds / 3)
+            except TimeoutError:
+                pass
+            else:
+                return
+            renewed = await graph_store.execute_write(
+                renew_lease_query(),
+                {
+                    "job_id": str(job_id),
+                    "lease_token": str(token),
+                    "lease_expires_at": (
+                        datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+                    ).isoformat(),
+                },
+            )
+            if not renewed:
+                raise CutoverJobLeaseError(
+                    f"Job {job_id} lost its lease during renewal."
+                )
+    finally:
+        stopped_event.set()
 
 
 async def clear_pending_vectors(
@@ -206,6 +248,37 @@ async def _rollback(
         await graph_store.execute_write(rollback_job_query(), {"job_id": str(job_id)})
 
 
+async def _commit_pending_writes(
+    *,
+    job_id: UUID,
+    token: UUID,
+    graph_store: GraphStore,
+    close_document_node_id: UUID | None,
+) -> int:
+    """Atomically expose pending graph writes and close superseded edges."""
+    job_arg = str(job_id)
+    token_arg = str(token)
+    async with graph_store.transaction() as txn:
+        committed = await txn.execute_write(
+            commit_job_query(),
+            {"job_id": job_arg, "lease_token": token_arg},
+        )
+        if not committed:
+            raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before commit.")
+        # The close runs before the tag clear so it can tell the
+        # superseded version's edges from the ones this job just
+        # wrote; both land in the same transaction as the flip.
+        chunks_closed = 0
+        if close_document_node_id is not None:
+            chunks_closed = await close_open_part_of_edges(
+                txn,
+                document_node_id=close_document_node_id,
+                job_id=job_id,
+            )
+        await txn.execute_write(clear_pending_tag_query(), {"job_id": job_arg})
+    return chunks_closed
+
+
 async def run_cutover_job(
     *,
     verb: Literal["add", "update", "delete_document"],
@@ -239,7 +312,8 @@ async def run_cutover_job(
         vector_store: Second write target for embeddings, if configured.
         vector_collections: Collections the pending phase may have
             written pending-tagged vectors to.
-        settings: Lease TTL configuration.
+        settings: Lease TTL configuration. The lease is renewed every third
+            of the TTL while the job runs, so a phase can outlast the TTL.
         pending_write: The caller's pipeline stages, tagging every write
             with the passed job id.
         cleanup: Post-commit work over the snapshot (closing is already
@@ -253,11 +327,11 @@ async def run_cutover_job(
         PART_OF edges closed by the commit.
 
     Raises:
-        CutoverJobLeaseError: Another live job holds the lease, or this
-            job lost its lease before a fenced transition.
-        Exception: Whatever ``pending_write`` or ``cleanup`` raised, after
-            rolling back (pre-commit) or leaving the job for resume
-            (post-commit).
+        CutoverJobLeaseError: Another live job holds the lease, or a fenced
+            transition or renewal reports the job lost it.
+        Exception: Whatever ``pending_write``, ``cleanup``, or lease renewal
+            raised, after rolling back (pre-commit) or leaving the job for
+            resume (post-commit).
     """
     job_id, token = await _acquire_lease(
         document_key=document_key,
@@ -266,11 +340,69 @@ async def run_cutover_job(
         graph_store=graph_store,
         settings=settings,
     )
-    job_arg = str(job_id)
-    token_arg = str(token)
+    stop_renewal = asyncio.Event()
+    renewal_stopped = asyncio.Event()
+    renewal = asyncio.create_task(
+        _renew_periodically(
+            graph_store=graph_store,
+            job_id=job_id,
+            token=token,
+            ttl_seconds=settings.lease_ttl_seconds,
+            stop_event=stop_renewal,
+            stopped_event=renewal_stopped,
+        )
+    )
+    leased = asyncio.create_task(
+        _run_leased(
+            job_id=job_id,
+            token=token,
+            graph_store=graph_store,
+            vector_store=vector_store,
+            vector_collections=vector_collections,
+            pending_write=pending_write,
+            cleanup=cleanup,
+            close_document_node_id=close_document_node_id,
+            stop_renewal=stop_renewal,
+            renewal_stopped=renewal_stopped,
+        )
+    )
+    try:
+        done, _ = await asyncio.wait(
+            (leased, renewal), return_when=asyncio.FIRST_COMPLETED
+        )
+        if leased in done:
+            return await leased
+        if stop_renewal.is_set():
+            return await leased
+        leased.cancel()
+        await asyncio.gather(leased, return_exceptions=True)
+        await renewal
+        raise RuntimeError("Lease renewal stopped unexpectedly.")
+    finally:
+        if not leased.done():
+            leased.cancel()
+        if not renewal.done():
+            renewal.cancel()
+        await asyncio.gather(leased, renewal, return_exceptions=True)
+
+
+async def _run_leased(
+    *,
+    job_id: UUID,
+    token: UUID,
+    graph_store: GraphStore,
+    vector_store: VectorStore | None,
+    vector_collections: Sequence[str],
+    pending_write: Callable[[UUID], Awaitable[T]],
+    cleanup: Callable[[], Awaitable[S]],
+    close_document_node_id: UUID | None,
+    stop_renewal: asyncio.Event,
+    renewal_stopped: asyncio.Event,
+) -> tuple[T, S, int]:
+    """Run the pending, commit, and cleanup phases under a held lease."""
     try:
         pending_result = await pending_write(job_id)
-    except Exception:
+    except (asyncio.CancelledError, Exception):
         await _rollback(
             graph_store=graph_store,
             vector_store=vector_store,
@@ -278,27 +410,27 @@ async def run_cutover_job(
             job_id=job_id,
         )
         raise
+    commit_task = asyncio.create_task(
+        _commit_pending_writes(
+            job_id=job_id,
+            token=token,
+            graph_store=graph_store,
+            close_document_node_id=close_document_node_id,
+        )
+    )
     try:
-        async with graph_store.transaction() as txn:
-            committed = await txn.execute_write(
-                commit_job_query(),
-                {"job_id": job_arg, "lease_token": token_arg},
+        chunks_closed = await asyncio.shield(commit_task)
+    except asyncio.CancelledError:
+        try:
+            await asyncio.shield(commit_task)
+        except Exception:  # noqa: BLE001
+            await _rollback(
+                graph_store=graph_store,
+                vector_store=vector_store,
+                vector_collections=vector_collections,
+                job_id=job_id,
             )
-            if not committed:
-                raise CutoverJobLeaseError(
-                    f"Job {job_arg} lost its lease before commit."
-                )
-            # The close runs before the tag clear so it can tell the
-            # superseded version's edges from the ones this job just
-            # wrote; both land in the same transaction as the flip.
-            chunks_closed = 0
-            if close_document_node_id is not None:
-                chunks_closed = await close_open_part_of_edges(
-                    txn,
-                    document_node_id=close_document_node_id,
-                    job_id=job_id,
-                )
-            await txn.execute_write(clear_pending_tag_query(), {"job_id": job_arg})
+        raise
     except Exception:
         await _rollback(
             graph_store=graph_store,
@@ -307,6 +439,8 @@ async def run_cutover_job(
             job_id=job_id,
         )
         raise
+    job_arg = str(job_id)
+    token_arg = str(token)
     started = await graph_store.execute_write(
         start_cleaning_query(), {"job_id": job_arg, "lease_token": token_arg}
     )
@@ -316,6 +450,8 @@ async def run_cutover_job(
     await clear_pending_vectors(
         vector_store=vector_store, collections=vector_collections, job_id=job_id
     )
+    stop_renewal.set()
+    await renewal_stopped.wait()
     finished = await graph_store.execute_write(
         finish_cleaning_query(), {"job_id": job_arg, "lease_token": token_arg}
     )

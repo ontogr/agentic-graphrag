@@ -2,28 +2,18 @@
 
 Covers identifier validation and its non-raising counterpart
 (is_safe_identifier), parametrized over injection-shaped inputs (spaces,
-backticks, semicolons, leading digits, dots, hyphens). Verifies
-upsert_node_query and upsert_survivor_query always MERGE on
-NODE_IDENTITY_LABEL rather than the content labels being set, so that adding
-a label to an existing node updates it instead of creating a duplicate.
-Also covers upsert_survivor_query's atomic accumulator fields
-(source_chunk_ids, merged_from, merge_count) being read before the
-property SET rather than after, upsert_merge_alias_query's ON CREATE-only
-alias claiming, and filter_clause building WHERE clauses from a flat filter
-dict.
+backticks, semicolons, leading digits, dots, hyphens). Verifies that
+upsert_node_query and upsert_survivor_query reject unsafe or empty labels,
+that filter_clause builds WHERE clauses from a flat filter dict, and that
+clear_property_query reports the matched node id.
 """
 
 import pytest
 
 from agrag.cypher.entities import (
-    NODE_IDENTITY_LABEL,
     clear_property_query,
-    fetch_entity_neighbors_query,
     filter_clause,
-    hydrate_chunks_by_id_query,
     is_safe_identifier,
-    set_embedding_query,
-    upsert_merge_alias_query,
     upsert_node_query,
     upsert_survivor_query,
     validate_identifier,
@@ -65,46 +55,7 @@ class TestIsSafeIdentifier:
 
 
 class TestUpsertNodeQuery:
-    """upsert_node_query builds a validated, UNWIND-batched merge."""
-
-    def test_builds_unwind_merge(self) -> None:
-        """The query merges on the identity anchor and sets the properties map."""
-        q = upsert_node_query(["Chunk"])
-        assert "UNWIND $records" in q
-        assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in q
-        assert "SET n:Chunk" in q
-        assert "SET n += record.properties" in q
-        assert "SET n.id = record.id" in q
-
-    def test_tags_the_pending_job_only_when_the_merge_creates_the_node(self) -> None:
-        """The Cutover Job tag applies with ON CREATE SET, not a plain SET.
-
-        A node a job merely writes over must stay untagged: tagging it
-        would hide committed data from retrieval and put it in reach of
-        that job's rollback.
-        """
-        q = upsert_node_query(["Chunk"])
-        assert "ON CREATE SET n._pending_job_id = record.pending_job_id" in q
-        assert "ON MATCH SET n._pending_job_id" not in q
-        assert q.count("_pending_job_id = record.pending_job_id") == 1
-
-    def test_merge_identity_is_independent_of_content_labels(self) -> None:
-        """MERGE always anchors on NODE_IDENTITY_LABEL, never the content labels.
-
-        Regression guard: MERGE-ing on the full requested label set would
-        only match a node that already has every one of those labels, so
-        adding a label to an existing same-id node would create a duplicate
-        instead of updating it.
-        """
-        q = upsert_node_query(["Chunk", "Entity"])
-        assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in q
-        assert "MERGE (n:Chunk" not in q
-        assert "MERGE (n:Entity" not in q
-
-    def test_builds_compound_label_set(self) -> None:
-        """Multiple labels are joined into one additive SET expression."""
-        q = upsert_node_query(["Chunk", "Entity"])
-        assert "SET n:Chunk:Entity" in q
+    """upsert_node_query validates its labels."""
 
     def test_validates_label(self) -> None:
         """An unsafe label raises before the query is built."""
@@ -123,111 +74,12 @@ class TestUpsertNodeQuery:
 
 
 class TestUpsertSurvivorQuery:
-    """upsert_survivor_query accumulates atomically instead of overwriting."""
-
-    def test_unions_source_chunk_ids_and_merged_from(self) -> None:
-        """The accumulator fields are read and unioned/incremented in-query.
-
-        Regression test: two concurrent callers merging into the same
-        entity each compute their update from a snapshot taken before
-        either write lands. Reading source_chunk_ids/merged_from/
-        merge_count fresh inside this same query, rather than trusting a
-        Python-computed absolute value, is what keeps neither writer's
-        contribution from being lost to the other landing second.
-        """
-        q = upsert_survivor_query("Person")
-        assert "coalesce(n.source_chunk_ids, [])" in q
-        assert "coalesce(n.merged_from, [])" in q
-        assert "coalesce(n.merge_count, 0)" in q
-        assert "SET n.source_chunk_ids =" in q
-        assert "record.new_source_chunk_ids" in q
-        assert "SET n.merged_from =" in q
-        assert "record.new_merged_from" in q
-        assert "existing_merge_count + record.merge_count_delta" in q
-
-    def test_tags_the_pending_job_only_when_the_merge_creates_the_survivor(
-        self,
-    ) -> None:
-        """A survivor a job only accumulates into must stay untagged."""
-        q = upsert_survivor_query("Person")
-        assert "ON CREATE SET n._pending_job_id = record.pending_job_id" in q
-
-    def test_reads_accumulators_before_the_blind_property_set(self) -> None:
-        """The accumulator read happens before the guarded property set.
-
-        Otherwise it would read back the value this same write just
-        overwrote instead of whatever another writer already committed.
-        """
-        q = upsert_survivor_query("Person")
-        assert q.index("existing_source_chunk_ids") < q.index(
-            "SET n += CASE WHEN can_update THEN record.properties"
-        )
-
-    def test_pending_merge_is_fenced_from_another_inflight_job(self) -> None:
-        """A pending merge cannot overwrite a node pinned by another job."""
-        q = upsert_survivor_query("Person")
-        assert "record.pending_job_id IS NULL" in q
-        assert "OR n._pending_job_id = record.pending_job_id" in q
-        assert "ELSE n.merge_count END" in q
-
-    def test_merge_identity_is_independent_of_content_label(self) -> None:
-        """MERGE anchors on NODE_IDENTITY_LABEL, matching upsert_node_query."""
-        q = upsert_survivor_query("Person")
-        assert f"MERGE (n:{NODE_IDENTITY_LABEL} {{id: record.id}})" in q
-        assert "SET n:Person" in q
+    """upsert_survivor_query validates its label."""
 
     def test_validates_label(self) -> None:
         """An unsafe label raises before the query is built."""
         with pytest.raises(ValueError):
             upsert_survivor_query("Bad Label")
-
-
-class TestUpsertMergeAliasQuery:
-    """upsert_merge_alias_query claims a name without stealing an existing one."""
-
-    def test_batches_over_merge_keys(self) -> None:
-        """The query is UNWIND-batched over $merge_keys, not a single key."""
-        q = upsert_merge_alias_query()
-        assert "UNWIND $merge_keys AS merge_key" in q
-        assert "MERGE (a:_AgragMergeAlias {merge_key: merge_key})" in q
-
-    def test_only_claims_an_unclaimed_key(self) -> None:
-        """ON CREATE SET means an existing alias keeps its owner.
-
-        Regression test: without this, one merge's accepted names could
-        overwrite an alias a different, unrelated entity already owns.
-        """
-        q = upsert_merge_alias_query()
-        assert "ON CREATE SET a.entity_id = $entity_id" in q
-        assert "SET a.entity_id = $entity_id" not in q.replace(
-            "ON CREATE SET a.entity_id = $entity_id", ""
-        )
-
-
-class TestFetchEntityNeighborsQuery:
-    """fetch_entity_neighbors_query bounds a per-id neighbor sample."""
-
-    def test_builds_the_exact_expected_cypher(self) -> None:
-        """The query is a UNWIND-batched, per-entity bounded subquery."""
-        assert fetch_entity_neighbors_query() == (
-            "UNWIND $ids AS entity_id "
-            "CALL { "
-            "WITH entity_id "
-            f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: entity_id}})-[r]-"
-            f"(m:{NODE_IDENTITY_LABEL}) "
-            "WHERE NOT type(r) IN $exclude_types "
-            "RETURN type(r) AS rel_type, m.name AS neighbor_name "
-            "LIMIT $limit "
-            "} "
-            "RETURN entity_id, rel_type, neighbor_name"
-        )
-
-    def test_binds_every_value_as_a_parameter(self) -> None:
-        """Ids, excluded types, and the limit are all bound, not interpolated."""
-        query = fetch_entity_neighbors_query()
-        assert "$ids" in query
-        assert "$exclude_types" in query
-        assert "$limit" in query
 
 
 class TestFilterClause:
@@ -263,36 +115,15 @@ class TestFilterClause:
 
 
 class TestGuardedPropertyWrites:
-    """set_embedding_query / clear_property_query report which node matched.
+    """clear_property_query reports which node matched.
 
     A caller needs to know which guarded writes actually applied so it can
     tell a node a concurrent write already changed or removed apart from one
     it safely wrote to (see resolved_embeddings.py's use of this).
     """
 
-    def test_set_embedding_returns_matched_id(self) -> None:
-        """The guarded SET reports the id it wrote to."""
-        query = set_embedding_query("embedding")
-        assert "RETURN n.id AS id" in query
-        assert "SET n.embedding = record.vector" in query
-
     def test_clear_property_returns_matched_id(self) -> None:
         """The guarded REMOVE reports the id it cleared."""
         query = clear_property_query("embedding")
         assert "RETURN n.id AS id" in query
         assert "REMOVE n.embedding" in query
-
-
-class TestHydrateChunksByIdQuery:
-    """hydrate_chunks_by_id_query hides superseded chunks at read time."""
-
-    def test_filters_to_open_part_of_edges(self) -> None:
-        """A chunk behind only closed PART_OF edges is never returned."""
-        query = hydrate_chunks_by_id_query()
-        assert "p.invalid_at IS NULL" in query
-
-    def test_returns_chunks_without_any_part_of_edge(self) -> None:
-        """Direct or legacy chunks with no PART_OF edge still hydrate."""
-        query = hydrate_chunks_by_id_query()
-        assert "NOT EXISTS" in query
-        assert "-[p:PART_OF]->(n)" in query

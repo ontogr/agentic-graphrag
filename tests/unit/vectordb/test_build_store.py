@@ -1,42 +1,21 @@
 """Tests for build_vector_store and the backend lookup table.
 
-Covers building each named backend (qdrant, weaviate, milvus) with its
-matching settings class, passthrough of an already-constructed VectorStore
-instance, and a reflection check that every ``Literal`` backend name in
-``build_vector_store``'s type annotation has a matching entry in
-``_VECTOR_STORE_FACTORIES``.
+Covers passthrough of an already-constructed VectorStore instance (named
+backends are built in the integration tests), and a reflection check that
+every ``Literal`` backend name in ``build_vector_store``'s type annotation has
+a matching entry in ``_VECTOR_STORE_FACTORIES``.
 """
 
 import typing
 from typing import get_args, get_origin
 
 from agrag.vectordb import _VECTOR_STORE_FACTORIES, build_vector_store
-from agrag.vectordb.milvus import MilvusVectorStore
 from agrag.vectordb.qdrant import QdrantVectorStore
-from agrag.vectordb.settings import MilvusSettings, QdrantSettings, WeaviateSettings
-from agrag.vectordb.weaviate import WeaviateVectorStore
+from agrag.vectordb.settings import QdrantSettings
 
 
 class TestBuildVectorStore:
     """build_vector_store resolves a name or passes an instance through."""
-
-    def test_build_qdrant_from_name(self) -> None:
-        """The "qdrant" name builds a QdrantVectorStore."""
-        store = build_vector_store("qdrant")
-        assert isinstance(store, QdrantVectorStore)
-        assert isinstance(store._settings, QdrantSettings)
-
-    def test_build_weaviate_from_name(self) -> None:
-        """The "weaviate" name builds a WeaviateVectorStore."""
-        store = build_vector_store("weaviate")
-        assert isinstance(store, WeaviateVectorStore)
-        assert isinstance(store._settings, WeaviateSettings)
-
-    def test_build_milvus_from_name(self) -> None:
-        """The "milvus" name builds a MilvusVectorStore."""
-        store = build_vector_store("milvus")
-        assert isinstance(store, MilvusVectorStore)
-        assert isinstance(store._settings, MilvusSettings)
 
     def test_passthrough_instance(self) -> None:
         """An existing VectorStore is returned unchanged."""

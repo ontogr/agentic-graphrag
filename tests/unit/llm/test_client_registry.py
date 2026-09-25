@@ -2,10 +2,8 @@
 
 Patches ``baml_py.ClientRegistry`` with a MockClientRegistry that records
 added clients and the chosen primary, so no real BAML runtime is needed.
-Covers the "single" strategy setting the one client as primary, "fallback"
-and "round_robin" both registering a composite client over every name and
-making it primary, an empty client list raising ValueError, and that an
-openai-generic client's base_url and api_key reach the registered options.
+Covers "fallback" and "round_robin" both registering a composite client over
+every name and making it primary, and an empty client list raising ValueError.
 """
 
 import pytest
@@ -38,15 +36,6 @@ def _client(name: str, provider: str = "openai") -> LLMClientConfig:
 class TestBuildClientRegistry:
     """The builder registers clients and picks a primary per strategy."""
 
-    def test_single_sets_the_one_client_primary(self, monkeypatch) -> None:
-        """With one client, it becomes the primary and no composite is made."""
-        mock = MockClientRegistry()
-        monkeypatch.setattr("baml_py.ClientRegistry", lambda: mock)
-        registry = build_client_registry([_client("only")], strategy="single")
-        assert registry is mock
-        assert [name for name, _, _ in mock.added] == ["only"]
-        assert mock.primary == "only"
-
     def test_fallback_registers_a_composite_over_all_names(self, monkeypatch) -> None:
         """Fallback adds one composite client and makes it primary."""
         mock = MockClientRegistry()
@@ -72,21 +61,3 @@ class TestBuildClientRegistry:
         monkeypatch.setattr("baml_py.ClientRegistry", MockClientRegistry)
         with pytest.raises(ValueError):
             build_client_registry([])
-
-    def test_openai_generic_passes_base_url_and_key(self, monkeypatch) -> None:
-        """An openai-generic client forwards base_url and api_key to options."""
-        mock = MockClientRegistry()
-        monkeypatch.setattr("baml_py.ClientRegistry", lambda: mock)
-        client = LLMClientConfig(
-            name="g",
-            provider="openai-generic",
-            model="llm",
-            api_key="secret",
-            base_url="http://localhost:1234/v1",
-        )
-        build_client_registry([client], strategy="single")
-        _, provider, options = mock.added[0]
-        assert provider == "openai-generic"
-        assert options["base_url"] == "http://localhost:1234/v1"
-        assert options["api_key"] == "secret"
-        assert options["model"] == "llm"

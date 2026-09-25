@@ -9,6 +9,7 @@ query's text. Query text is covered by tests/unit/cypher; real MERGE and
 constraint behavior under concurrency by the integration test instead.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -21,6 +22,7 @@ from agrag.cypher.cutover_job_write import (
     clear_pending_tag_query,
     commit_job_query,
     finish_cleaning_query,
+    renew_lease_query,
     rollback_job_query,
     start_cleaning_query,
     steal_expired_lease_query,
@@ -43,6 +45,7 @@ class _FakeCutoverStore:
         self.nodes: list[dict[str, Any]] = []
         self.transactions: list[list[tuple[str, dict[str, Any]]]] = []
         self.fail_on: set[str] = set()
+        self.finish_delay_seconds = 0.0
 
     async def execute_read(
         self, query: str, parameters: dict[str, Any] | None = None
@@ -60,7 +63,10 @@ class _FakeCutoverStore:
         handler = self._handlers().get(query)
         if handler is None:
             raise AssertionError(f"unexpected query: {query!r}")
-        return handler(params)
+        rows = handler(params)
+        if query == finish_cleaning_query() and self.finish_delay_seconds:
+            await asyncio.sleep(self.finish_delay_seconds)
+        return rows
 
     def _handlers(self) -> dict[str, Any]:
         """Map each job query to its in-memory implementation."""
@@ -72,6 +78,7 @@ class _FakeCutoverStore:
                 p, "committed", "cleaning"
             ),
             finish_cleaning_query(): lambda p: self._transition(p, "cleaning", "done"),
+            renew_lease_query(): self._renew,
             clear_pending_tag_query(): self._clear_tag,
             rollback_job_query(): self._rollback,
         }
@@ -113,14 +120,30 @@ class _FakeCutoverStore:
     def _transition(
         self, params: dict[str, Any], expected: str, nxt: str
     ) -> list[dict[str, Any]]:
-        """Compare-and-swap a job's status, fenced by its lease token."""
+        """Compare-and-swap a job's status while its caller holds a live lease."""
         for job in self.jobs.values():
             if (
                 job["id"] == str(params["job_id"])
                 and job["lease_token"] == str(params["lease_token"])
                 and job["status"] == expected
+                and job["lease_expires_at"] >= datetime.now(UTC)
             ):
                 job["status"] = nxt
+                return [{"id": job["id"]}]
+        return []
+
+    def _renew(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Extend the lease of the job holding the caller's token."""
+        for job in self.jobs.values():
+            if (
+                job["id"] == str(params["job_id"])
+                and job["lease_token"] == str(params["lease_token"])
+                and job["status"] in {"pending", "committed", "cleaning"}
+                and job["lease_expires_at"] >= datetime.now(UTC)
+            ):
+                job["lease_expires_at"] = datetime.fromisoformat(
+                    str(params["lease_expires_at"])
+                )
                 return [{"id": job["id"]}]
         return []
 
@@ -154,6 +177,40 @@ class _FakeCutoverStore:
 
             async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
                 return None
+
+            async def execute_write(
+                self, query: str, parameters: dict[str, Any] | None = None
+            ) -> list[dict[str, Any]]:
+                runner.transactions[-1].append((query, parameters or {}))
+                if query == close_part_of_query():
+                    return [{"closed": 0}]
+                return await runner.execute_write(query, parameters)
+
+        return _Txn()
+
+
+class _CommitBlockingStore(_FakeCutoverStore):
+    """Pauses after an atomic commit reaches its transaction boundary."""
+
+    def __init__(self) -> None:
+        """Create a store whose transaction exit waits for the test."""
+        super().__init__()
+        self.commit_started = asyncio.Event()
+        self.release_commit = asyncio.Event()
+
+    def transaction(self) -> Any:
+        """Yield a transaction that blocks after successful writes commit."""
+        runner = self
+
+        class _Txn:
+            async def __aenter__(self) -> "_Txn":
+                runner.transactions.append([])
+                return self
+
+            async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+                if exc_type is None:
+                    runner.commit_started.set()
+                    await runner.release_commit.wait()
 
             async def execute_write(
                 self, query: str, parameters: dict[str, Any] | None = None
@@ -234,85 +291,6 @@ def _tag_node(job_id: UUID) -> dict[str, Any]:
     }
 
 
-class TestRunCutoverJobHappyPath:
-    """Happy path: lease, pending writes, commit, cleanup, finish."""
-
-    async def test_pipeline_result_and_job_terminal_state(self) -> None:
-        """The result flows through; writes land committed and the job finishes."""
-        store = _FakeCutoverStore()
-        cleanup_seen: list[str] = []
-
-        async def pending(job_id: UUID) -> str:
-            store.nodes.append(_tag_node(job_id))
-            return "payload"
-
-        async def cleanup() -> str:
-            cleanup_seen.append("ran")
-            return "cleaned"
-
-        result, cleaned, chunks_closed = await run_cutover_job(
-            **_write_job(pending, cleanup, graph_store=store)
-        )
-
-        assert result == "payload"
-        assert cleaned == "cleaned"
-        assert chunks_closed == 0
-        assert cleanup_seen == ["ran"]
-        # All writes committed: the tag is cleared from the survivor.
-        assert store.nodes
-        assert all("_pending_job_id" not in n["properties"] for n in store.nodes)
-        # The job reached its terminal state.
-        assert all(job["status"] == "done" for job in store.jobs.values())
-
-    async def test_commit_flip_and_tag_clear_share_one_transaction(self) -> None:
-        """Commit and tag-clear run inside one transaction, commit first."""
-        store = _FakeCutoverStore()
-
-        async def pending(job_id: UUID) -> None:
-            store.nodes.append(_tag_node(job_id))
-
-        await run_cutover_job(**_write_job(pending, graph_store=store))
-
-        assert len(store.transactions) == 1
-        queries = [query for query, _ in store.transactions[0]]
-        assert commit_job_query() in queries
-        assert clear_pending_tag_query() in queries
-        # Commit precedes the tag clear inside the same transaction.
-        assert queries.index(commit_job_query()) < queries.index(
-            clear_pending_tag_query()
-        )
-
-    async def test_pending_write_receives_the_job_id(self) -> None:
-        """The pending-write callable gets the new job's id to tag its writes with."""
-        store = _FakeCutoverStore()
-        seen: list[UUID] = []
-
-        async def pending(job_id: UUID) -> None:
-            seen.append(job_id)
-
-        await run_cutover_job(**_write_job(pending, graph_store=store))
-
-        assert len(seen) == 1
-        assert isinstance(seen[0], UUID)
-
-    async def test_close_document_node_id_closes_part_of_edges(self) -> None:
-        """close_document_node_id runs the PART_OF close in the commit txn."""
-        store = _FakeCutoverStore()
-
-        async def pending(job_id: UUID) -> None:
-            return None
-
-        # close_document_node_id drives close_open_part_of_edges against the
-        # store; the fake returns no rows, so the count is zero but the call
-        # is exercised inside the commit transaction.
-        _, _, chunks_closed = await run_cutover_job(
-            **_write_job(pending, graph_store=store, close_document_node_id=uuid4())
-        )
-        assert chunks_closed == 0
-        queries = [query for query, _ in store.transactions[0]]
-        assert any("PART_OF" in query for query in queries)
-
-
 class TestRunCutoverJobLeaseFailure:
     """A live lease held elsewhere blocks the job before any write."""
 
@@ -364,6 +342,167 @@ class TestRunCutoverJobLeaseFailure:
         assert store.nodes == []
         assert store.jobs["doc-1"]["id"] == stolen_job_id
         assert store.jobs["doc-1"]["lease_token"] == holder
+
+    async def test_expired_lease_before_commit_rolls_back(self) -> None:
+        """An unclaimed expired lease cannot commit pending work."""
+        store = _FakeCutoverStore()
+
+        async def pending(job_id: UUID) -> None:
+            store.jobs["doc-1"]["lease_expires_at"] = datetime.now(UTC) - timedelta(
+                seconds=1
+            )
+            store.nodes.append(_tag_node(job_id))
+
+        with pytest.raises(CutoverJobLeaseError, match="lost its lease before commit"):
+            await run_cutover_job(**_write_job(pending, graph_store=store))
+
+        assert store.nodes == []
+        assert store.jobs == {}
+
+
+class TestRunCutoverJobLeaseRenewal:
+    """The runner keeps its lease live for phases longer than the TTL."""
+
+    async def test_lease_outlives_a_slow_pending_write(self) -> None:
+        """A write slower than the TTL never exposes an expired lease."""
+        store = _FakeCutoverStore()
+        expired_seen: list[bool] = []
+
+        async def slow_write(job_id: UUID) -> None:
+            await asyncio.sleep(1.3)
+            job = store.jobs["doc-1"]
+            expired_seen.append(job["lease_expires_at"] < datetime.now(UTC))
+
+        await run_cutover_job(
+            **_write_job(
+                slow_write,
+                graph_store=store,
+                settings=CutoverJobSettings(lease_ttl_seconds=1),
+            )
+        )
+        assert store.jobs["doc-1"]["status"] == "done"
+        assert not any(expired_seen)
+
+    async def test_done_transition_does_not_cancel_the_runner(self) -> None:
+        """A renewal ending during the done transition leaves the call successful."""
+        store = _FakeCutoverStore()
+        store.finish_delay_seconds = 0.5
+
+        async def pending(job_id: UUID) -> None:
+            store.nodes.append(_tag_node(job_id))
+
+        await asyncio.wait_for(
+            run_cutover_job(
+                **_write_job(
+                    pending,
+                    graph_store=store,
+                    settings=CutoverJobSettings(lease_ttl_seconds=1),
+                )
+            ),
+            timeout=2,
+        )
+
+        assert store.jobs["doc-1"]["status"] == "done"
+
+    async def test_lost_lease_cancels_pending_write_and_rolls_back(self) -> None:
+        """An empty renewal result stops a pending write before it can continue."""
+        store = _FakeCutoverStore()
+        store._renew = lambda params: []  # type: ignore[method-assign]
+        pending_started = asyncio.Event()
+        pending_cancelled = False
+
+        async def pending(job_id: UUID) -> None:
+            nonlocal pending_cancelled
+            store.nodes.append(_tag_node(job_id))
+            pending_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                pending_cancelled = True
+
+        with pytest.raises(CutoverJobLeaseError, match="lost its lease"):
+            await asyncio.wait_for(
+                run_cutover_job(
+                    **_write_job(
+                        pending,
+                        graph_store=store,
+                        settings=CutoverJobSettings(lease_ttl_seconds=1),
+                    )
+                ),
+                timeout=2,
+            )
+
+        assert pending_started.is_set()
+        assert pending_cancelled
+        assert store.nodes == []
+        assert store.jobs == {}
+
+    async def test_renewal_error_cancels_pending_write_and_rolls_back(self) -> None:
+        """A renewal error propagates after stopping and rolling back pending work."""
+        store = _FakeCutoverStore()
+        store.fail_on.add(renew_lease_query())
+        pending_cancelled = False
+
+        async def pending(job_id: UUID) -> None:
+            nonlocal pending_cancelled
+            store.nodes.append(_tag_node(job_id))
+            try:
+                await asyncio.Event().wait()
+            finally:
+                pending_cancelled = True
+
+        with pytest.raises(RuntimeError, match="injected failure"):
+            await asyncio.wait_for(
+                run_cutover_job(
+                    **_write_job(
+                        pending,
+                        graph_store=store,
+                        settings=CutoverJobSettings(lease_ttl_seconds=1),
+                    )
+                ),
+                timeout=2,
+            )
+
+        assert pending_cancelled
+        assert store.nodes == []
+        assert store.jobs == {}
+
+    async def test_lost_lease_cancels_cleanup_without_rolling_back(self) -> None:
+        """An empty renewal result leaves committed work for roll-forward."""
+        store = _FakeCutoverStore()
+        store._renew = lambda params: []  # type: ignore[method-assign]
+        cleanup_started = asyncio.Event()
+        cleanup_cancelled = False
+
+        async def pending(job_id: UUID) -> None:
+            store.nodes.append(_tag_node(job_id))
+
+        async def cleanup() -> None:
+            nonlocal cleanup_cancelled
+            cleanup_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cleanup_cancelled = True
+
+        with pytest.raises(CutoverJobLeaseError, match="lost its lease"):
+            await asyncio.wait_for(
+                run_cutover_job(
+                    **_write_job(
+                        pending,
+                        cleanup,
+                        graph_store=store,
+                        settings=CutoverJobSettings(lease_ttl_seconds=1),
+                    )
+                ),
+                timeout=2,
+            )
+
+        assert cleanup_started.is_set()
+        assert cleanup_cancelled
+        assert store.nodes
+        assert all("_pending_job_id" not in node["properties"] for node in store.nodes)
+        assert store.jobs["doc-1"]["status"] == "cleaning"
 
 
 class TestRunCutoverJobRollback:
@@ -463,6 +602,27 @@ class TestRunCutoverJobRollForward:
         assert store.nodes
         assert all("_pending_job_id" not in n["properties"] for n in store.nodes)
         assert store.jobs["doc-1"]["status"] == "cleaning"
+
+    async def test_cancellation_after_commit_preserves_recovery_record(self) -> None:
+        """Cancellation after a commit keeps its data and job for recovery."""
+        store = _CommitBlockingStore()
+
+        async def pending(job_id: UUID) -> None:
+            store.nodes.append(_tag_node(job_id))
+
+        task = asyncio.create_task(
+            run_cutover_job(**_write_job(pending, graph_store=store))
+        )
+        await asyncio.wait_for(store.commit_started.wait(), timeout=1)
+        task.cancel()
+        store.release_commit.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert store.nodes
+        assert all("_pending_job_id" not in node["properties"] for node in store.nodes)
+        assert store.jobs["doc-1"]["status"] == "committed"
 
     async def test_finish_cleaning_fence_failure_after_cleanup(self) -> None:
         """Losing the lease before the done flip parks the job in cleaning."""

@@ -1,14 +1,12 @@
 """Tests for the Document domain model's graph-node identity and persistence.
 
-Covers ``node_id_for``'s determinism, ``document_key`` defaulting to ``uri``,
-and ``to_node_record()``'s shape, distinct from the content-hash-derived
-``id``/``id_for()`` pair the rest of this model already covers.
+Covers ``node_id_for``'s collision resistance, ``document_key`` defaulting to
+``uri``, and ``to_node_record()`` omitting the document body.
 """
 
 import pytest
 
 from agrag.common.data_models.document import (
-    DOCUMENT_LABEL,
     Document,
     DocumentFamily,
     SourceFormat,
@@ -31,13 +29,7 @@ def _doc(*, uri: str = "u", document_key: str | None = None) -> Document:
 
 
 class TestNodeIdFor:
-    """node_id_for is a deterministic function of document_key alone."""
-
-    def test_same_key_returns_same_id(self) -> None:
-        """Repeated calls with the same key always return the same id."""
-        first = Document.node_id_for(document_key="doc-a")
-        second = Document.node_id_for(document_key="doc-a")
-        assert first == second
+    """node_id_for maps distinct document keys to distinct ids."""
 
     @pytest.mark.parametrize(
         ("key_a", "key_b"),
@@ -80,15 +72,3 @@ class TestToNodeRecord:
         """The record never carries the full document body."""
         record = _doc().to_node_record()
         assert "text" not in record.properties
-
-    def test_record_shape(self) -> None:
-        """The record carries the expected id, label, and properties."""
-        doc = _doc(uri="path/to/file.txt", document_key="doc-key")
-        record = doc.to_node_record()
-        assert record.id == Document.node_id_for(document_key="doc-key")
-        assert record.labels == [DOCUMENT_LABEL]
-        assert record.properties["document_key"] == "doc-key"
-        assert record.properties["uri"] == "path/to/file.txt"
-        assert record.properties["current_content_hash"] == "h"
-        assert record.properties["title"] == "t"
-        assert "updated_at" in record.properties

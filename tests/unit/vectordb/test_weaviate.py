@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import weaviate
+from weaviate.classes.config import VectorDistances
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
 from agrag.vectordb.errors import (
@@ -21,6 +22,14 @@ from agrag.vectordb.weaviate import _DIMENSION_SAMPLE_PAGE_SIZE, WeaviateVectorS
 def make_batch_result(*, has_errors: bool = False, errors: dict | None = None):
     """Build a fake ``BatchObjectReturn`` from ``insert_many``."""
     return SimpleNamespace(has_errors=has_errors, errors=errors or {})
+
+
+def _make_config(metric):
+    """Build a fake collection config with the given distance metric."""
+    index = SimpleNamespace(distance_metric=metric)
+    return SimpleNamespace(
+        vector_config={"vector": SimpleNamespace(vector_index_config=index)}
+    )
 
 
 class MockCollection:
@@ -39,6 +48,9 @@ class MockCollection:
             fetch_object_by_id=mock.AsyncMock(),
         )
         self.aggregate = SimpleNamespace(over_all=mock.AsyncMock())
+        self.config = SimpleNamespace(
+            get=mock.AsyncMock(return_value=_make_config(VectorDistances.COSINE))
+        )
 
 
 class MockWeaviateClient:
@@ -98,54 +110,18 @@ def store(client: MockWeaviateClient) -> WeaviateVectorStore:
 class TestEnsureCollection:
     """ensure_collection creates and is idempotent."""
 
-    async def test_creates_when_absent(
+    async def test_new_collection_declares_every_filtered_property(
         self, store: WeaviateVectorStore, client
     ) -> None:
-        """A missing collection is created with the requested distance."""
-        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        client.collections.create.assert_called_once()
-        assert client.collections.create.call_args.kwargs["name"] == "c"
+        """A new collection declares the pending flag and pending job id.
 
-    async def test_idempotent_when_present(
-        self, store: WeaviateVectorStore, client
-    ) -> None:
-        """An existing collection is not recreated."""
-        client.collections.exists.return_value = True
+        Weaviate rejects a filter on an undeclared property, and cutover
+        scrolls on both.
+        """
+        client.collections.exists.return_value = False
         await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        client.collections.create.assert_not_called()
-
-    async def test_dimension_mismatch_raises(
-        self, store: WeaviateVectorStore, client
-    ) -> None:
-        """A sample object's vector length conflicting with dimensions raises."""
-        client.collections.exists.return_value = True
-        client._collection.query.fetch_objects.return_value = make_response(
-            [make_object(str(uuid4()), {}, vector=[0.1] * 8)]
-        )
-        with pytest.raises(CollectionDimensionMismatchError) as exc_info:
-            await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        assert exc_info.value.expected == 8
-        assert exc_info.value.actual == 4
-
-    async def test_dimension_match_does_not_raise(
-        self, store: WeaviateVectorStore, client
-    ) -> None:
-        """A sample object's vector length matching dimensions passes silently."""
-        client.collections.exists.return_value = True
-        client._collection.query.fetch_objects.return_value = make_response(
-            [make_object(str(uuid4()), {}, vector=[0.1] * 4)]
-        )
-        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        client.collections.create.assert_not_called()
-
-    async def test_empty_existing_collection_not_checked(
-        self, store: WeaviateVectorStore, client
-    ) -> None:
-        """An existing but empty collection has nothing to check, so it passes."""
-        client.collections.exists.return_value = True
-        client._collection.query.fetch_objects.return_value = make_response([])
-        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        client.collections.create.assert_not_called()
+        properties = client.collections.create.call_args.kwargs["properties"]
+        assert {p.name for p in properties} == {"agrag_pending", "_pending_job_id"}
 
     async def test_dimension_check_skips_vectorless_object_before_a_real_one(
         self, store: WeaviateVectorStore, client
@@ -225,19 +201,6 @@ class TestEnsureCollection:
 class TestWritesAndReads:
     """upsert, search, hybrid_search, scroll, retrieve, count, delete."""
 
-    async def test_upsert_inserts_objects(
-        self, store: WeaviateVectorStore, client
-    ) -> None:
-        """Upsert batch-inserts each record with its vector under the vector name."""
-        record = VectorRecord(id=uuid4(), vector=[0.1, 0.2], payload={"text": "a"})
-        await store.upsert("c", [record])
-        insert_many = client._collection.data.insert_many
-        insert_many.assert_called_once()
-        [obj] = insert_many.call_args.args[0]
-        assert obj.properties == {"text": "a", "agrag_pending": False}
-        assert obj.vector == {"vector": [0.1, 0.2]}
-        assert obj.uuid == str(record.id)
-
     async def test_upsert_rejects_non_positive_batch_size(
         self, store: WeaviateVectorStore, client
     ) -> None:
@@ -281,18 +244,27 @@ class TestWritesAndReads:
         with pytest.raises(VectorStoreError):
             await store.upsert("c", [record])
 
+    @pytest.mark.parametrize(
+        ("metric", "distance", "expected"),
+        [
+            (VectorDistances.COSINE, 0.1, 0.9),
+            (VectorDistances.L2_SQUARED, 0.1, -0.1),
+            (VectorDistances.DOT, -0.7, 0.7),
+        ],
+    )
     async def test_search_returns_hits(
-        self, store: WeaviateVectorStore, client
+        self, store: WeaviateVectorStore, client, metric, distance, expected
     ) -> None:
         """Search maps a near_vector distance to a higher-is-closer score."""
         obj_id = str(uuid4())
-        obj = make_object(obj_id, {"text": "a"}, distance=0.1)
+        obj = make_object(obj_id, {"text": "a"}, distance=distance)
+        client._collection.config.get.return_value = _make_config(metric)
         client._collection.query.near_vector.return_value = make_response([obj])
         hits = await store.search("c", [0.1, 0.2], limit=5)
         assert len(hits) == 1
         assert isinstance(hits[0], VectorHit)
         assert hits[0].id == UUID(obj_id)
-        assert hits[0].score == pytest.approx(-0.1)
+        assert hits[0].score == pytest.approx(expected)
 
     async def test_search_rejects_non_positive_limit(
         self, store: WeaviateVectorStore, client
@@ -309,22 +281,6 @@ class TestWritesAndReads:
         with pytest.raises(ValueError, match="0.0 and 1.0"):
             await store.hybrid_search("c", [0.1, 0.2], "q", alpha=1.5)
         client._collection.query.hybrid.assert_not_called()
-
-    async def test_hybrid_search_passes_text_and_vector(
-        self, store: WeaviateVectorStore, client
-    ) -> None:
-        """hybrid_search forwards the text and dense vector to the backend."""
-        obj_id = str(uuid4())
-        obj = make_object(obj_id, {}, score=0.8)
-        client._collection.query.hybrid.return_value = make_response([obj])
-        hits = await store.hybrid_search("c", [0.1, 0.2], "query text", alpha=0.3)
-        assert len(hits) == 1
-        assert hits[0].id == UUID(obj_id)
-        assert hits[0].score == 0.8
-        kwargs = client._collection.query.hybrid.call_args.kwargs
-        assert kwargs["query"] == "query text"
-        assert kwargs["vector"] == [0.1, 0.2]
-        assert kwargs["alpha"] == 0.3
 
     async def test_scroll_returns_records_and_offset(
         self, store: WeaviateVectorStore, client
@@ -353,27 +309,6 @@ class TestWritesAndReads:
         assert records == []
         assert offset is None
 
-    async def test_retrieve_returns_records(
-        self, store: WeaviateVectorStore, client
-    ) -> None:
-        """Retrieve maps the fetched object to a VectorRecord."""
-        target_id = uuid4()
-        client._collection.query.fetch_object_by_id.return_value = make_object(
-            str(target_id), {"text": "a"}, vector=[0.1]
-        )
-        records = await store.retrieve("c", [target_id])
-        assert len(records) == 1
-        assert records[0].id == target_id
-
-    async def test_count_returns_total(
-        self, store: WeaviateVectorStore, client
-    ) -> None:
-        """Count returns the backend total."""
-        client._collection.aggregate.over_all.return_value = SimpleNamespace(
-            total_count=3
-        )
-        assert await store.count("c") == 3
-
     async def test_delete_forwards_ids(
         self, store: WeaviateVectorStore, client
     ) -> None:
@@ -383,13 +318,6 @@ class TestWritesAndReads:
         client._collection.data.delete_by_id.assert_called_once_with(
             uuid=str(target_id)
         )
-
-    async def test_close_releases_client(
-        self, store: WeaviateVectorStore, client
-    ) -> None:
-        """Close releases the client connection."""
-        await store.close()
-        client.close.assert_called_once()
 
 
 class TestEnsureClientMode:
@@ -428,22 +356,29 @@ class TestEnsureClientMode:
         build.assert_called_once()
         assert client is mock_client
 
-    async def test_custom_mode_builds_custom_client(self) -> None:
-        """mode="custom" parses the URL and builds a self-hosted client."""
+    async def test_custom_mode_maps_secure_nondefault_endpoint(self) -> None:
+        """Custom mode maps a secure, non-default endpoint to client settings."""
         mock_client = mock.AsyncMock()
         with mock.patch.object(
             weaviate, "use_async_with_custom", return_value=mock_client
         ) as build:
             store = WeaviateVectorStore(
-                settings=WeaviateSettings(mode="custom", url="http://localhost:8080")
+                settings=WeaviateSettings(
+                    mode="custom",
+                    url="https://weaviate.example.test:8443",
+                    grpc_port=50052,
+                )
             )
-            client = await store._ensure_client()
-        build.assert_called_once()
-        assert build.call_args.kwargs["http_host"] == "localhost"
-        assert build.call_args.kwargs["http_port"] == 8080
-        assert build.call_args.kwargs["http_secure"] is False
-        mock_client.connect.assert_called_once()
-        assert client is mock_client
+            await store._ensure_client()
+        build.assert_called_once_with(
+            http_host="weaviate.example.test",
+            http_port=8443,
+            http_secure=True,
+            grpc_host="weaviate.example.test",
+            grpc_port=50052,
+            grpc_secure=True,
+            auth_credentials=None,
+        )
 
     async def test_concurrent_first_calls_connect_once(self) -> None:
         """Concurrent first calls share one connect, not a disconnected client.

@@ -225,3 +225,9 @@ __marimo__/
 # pytest JUnit output
 pytest-results.xml
 pytest-integration-results.xml
+
+# Per-test coverage map output and CI coverage data files
+/reports/
+coverage-data-*
+pytest-e2e-results.xml
+pytest-integration-results-*.xml

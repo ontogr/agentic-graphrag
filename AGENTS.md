@@ -235,6 +235,11 @@ for the full conventions.
 
 Read @.claude/.rules/testing.md before adding or changing tests.
 
+- Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work. At the end of E2E tests, produce a verifiable and repeatable artifact.
+- Never write unit tests after you write code (follow Test Driven Development). If you must test a system in isolation, first write down all the ways it could fail, then write the code.
+- Tautological tests considered harmful.
+- Change-detector tests considered harmful.
+- Do not create regression tests for bug fixes without a genuine gap in behavior testing.
 - Use `pytest` and `pytest-asyncio`; async tests do not need
   `@pytest.mark.asyncio`.
 - Tests mirror the `agrag/` package under `tests/unit/` and

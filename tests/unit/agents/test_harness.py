@@ -1,8 +1,8 @@
 """Tests for the DeepAgents harness profile registration.
 
 Mocks ``register_harness_profile`` at the deepagents boundary and asserts
-the per-provider dedup, the profile's exact shape, and that importing the
-module never requires deepagents to be installed.
+the per-provider dedup and that importing the module never requires
+deepagents to be installed.
 """
 
 import subprocess
@@ -15,7 +15,6 @@ import pytest
 from agrag.agents.harness import (
     _HARNESS_PROFILE_REGISTERED,
     ensure_harness_profile,
-    model_provider_key,
 )
 
 
@@ -76,41 +75,6 @@ class TestHarness:
         registered_keys = [call.args[0] for call in register.call_args_list]
         assert registered_keys == ["openai", "anthropic"]
 
-    def test_excluded_tools_and_general_purpose_subagent_disabled(self) -> None:
-        """The registered profile excludes execute and disables the subagent."""
-        captured: dict = {}
-
-        def fake_register(key: str, profile: object) -> None:
-            captured["key"] = key
-            captured["profile"] = profile
-
-        profile_cls = MagicMock()
-        gp_instance = MagicMock()
-        gp_instance.enabled = False
-        profile_cls.GeneralPurposeSubagentProfile.return_value = gp_instance
-        profile_cls.HarnessProfile = MagicMock(side_effect=lambda **kwargs: kwargs)
-        monkeydeep = MagicMock(
-            HarnessProfile=profile_cls.HarnessProfile,
-            GeneralPurposeSubagentProfile=profile_cls.GeneralPurposeSubagentProfile,
-            register_harness_profile=fake_register,
-        )
-        original = sys.modules.get("deepagents")
-        sys.modules["deepagents"] = monkeydeep
-        try:
-            ensure_harness_profile("openai")
-        finally:
-            if original is None:
-                del sys.modules["deepagents"]
-            else:
-                sys.modules["deepagents"] = original
-
-        assert captured["key"] == "openai"
-        assert captured["profile"]["excluded_tools"] == frozenset({"execute"})
-        assert (
-            profile_cls.GeneralPurposeSubagentProfile.call_args.kwargs["enabled"]
-            is False
-        )
-
     def test_importable_without_deepagents_installed(self) -> None:
         """Importing the module never imports deepagents."""
         code = (
@@ -127,18 +91,3 @@ class TestHarness:
         )
         assert "ok" in result.stdout
         assert result.returncode == 0
-
-    @pytest.mark.parametrize(
-        ("provider", "expected_key"),
-        [
-            ("anthropic", "anthropic"),
-            ("openai", "openai"),
-            ("openai-generic", "openai"),
-            ("google-ai", "google_genai"),
-        ],
-    )
-    def test_maps_supported_provider_to_harness_key(
-        self, provider: str, expected_key: str
-    ) -> None:
-        """Each supported configured provider uses its harness key."""
-        assert model_provider_key(provider) == expected_key

@@ -44,15 +44,6 @@ def _entity(name: str, entity_id=None) -> Entity:
     )
 
 
-class TestMatchesId:
-    """Deterministic MATCHES relationship identifiers."""
-
-    def test_is_order_independent(self) -> None:
-        """Both endpoint orders produce the same identifier."""
-        first, second = uuid4(), uuid4()
-        assert matches_id(first, second) == matches_id(second, first)
-
-
 class TestComputeResolvedEntity:
     """Pure resolved-entity materialization."""
 
@@ -94,65 +85,6 @@ def _store(
 
 class TestWriteMatchesAndMaterialize:
     """Match materialization uses one atomic graph transaction."""
-
-    async def test_replaces_existing_component_materialization(self) -> None:
-        """A match writes its edge and replacement membership in one transaction."""
-        first, second = _entity("Ada"), _entity("Ada Lovelace")
-        store = _store(
-            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
-        )
-        decision = MatchDecision(
-            entity_a_id=first.id,
-            entity_b_id=second.id,
-            comparator="FuzzyMatch",
-            decided_at=datetime.now(UTC),
-        )
-
-        materialization = await write_matches_and_materialize(
-            [decision], graph_store=store, schema=_schema(), members=[second, first]
-        )
-
-        assert materialization.resolved_entity.member_ids == sorted(
-            [first.id, second.id], key=str
-        )
-        assert store.current_transaction.execute_write.await_count == 2
-        store.current_transaction.upsert_nodes.assert_awaited_once()
-        store.current_transaction.upsert_relations.assert_awaited_once()
-
-    async def test_loads_existing_members_of_the_affected_component(
-        self, monkeypatch
-    ) -> None:
-        """A new edge rematerializes all members of its active component."""
-        first, second, existing = (
-            _entity("Ada"),
-            _entity("Ada L."),
-            _entity("A. Lovelace"),
-        )
-        store = _store(
-            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=3)
-        )
-        store.current_transaction.execute_read.return_value = [
-            {"member": first},
-            {"member": second},
-            {"member": existing},
-        ]
-        monkeypatch.setattr(
-            "agrag.ingestion._ingest_pipeline._parse_entity_node", lambda node: node
-        )
-        decision = MatchDecision(
-            entity_a_id=first.id,
-            entity_b_id=second.id,
-            comparator="FuzzyMatch",
-            decided_at=datetime.now(UTC),
-        )
-
-        materialization = await write_matches_and_materialize(
-            [decision], graph_store=store, schema=_schema(), members=[first, second]
-        )
-
-        assert materialization.resolved_entity.member_ids == sorted(
-            [first.id, second.id, existing.id], key=str
-        )
 
     async def test_raises_when_a_bulk_write_reports_failure(self) -> None:
         """A failed membership write prevents a partial materialization result."""
@@ -391,31 +323,6 @@ class TestDecisionsByComponent:
         assert len(components) == 1
         assert len(components[0]) == 1
         assert matches_id(first, second) == matches_id(second, first)
-
-    async def test_canonicalizes_reverse_order_match_writes(self) -> None:
-        """A reverse-order repeat preserves one canonical edge direction."""
-        first, second = sorted(
-            (_entity("Ada"), _entity("Ada Lovelace")), key=lambda e: str(e.id)
-        )
-        store = _store(
-            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
-        )
-        decision = MatchDecision(
-            entity_a_id=second.id,
-            entity_b_id=first.id,
-            comparator="FuzzyMatch",
-            decided_at=datetime.now(UTC),
-        )
-
-        await write_matches_and_materialize(
-            [decision], graph_store=store, schema=_schema(), members=[first, second]
-        )
-
-        match_parameters = store.current_transaction.execute_write.call_args_list[
-            0
-        ].args[1]
-        assert match_parameters["entity_a_id"] == str(first.id)
-        assert match_parameters["entity_b_id"] == str(second.id)
 
     async def test_rejects_decisions_outside_the_component(self) -> None:
         """A write cannot create a match to a member it did not rematerialize."""

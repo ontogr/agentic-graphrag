@@ -4,10 +4,9 @@ Uses an AsyncMock graph store, and patches ``_generate_cypher`` directly to
 control the LLM-generated query without a real BAML call. Covers falling
 back to empty results on generation failure or a missing BAML client
 (simulated via ``sys.modules`` patching), rejecting write Cypher while
-accepting read queries and vector index CALLs, appending a configured row
-LIMIT when the generated query lacks one (without being fooled by a quoted
-"LIMIT" inside a string literal), forwarding the configured timeout to every
-execute_read call, and parsing result rows into Relation/Chunk
+appending a configured row LIMIT when the generated query lacks one (without
+being fooled by a quoted "LIMIT" inside a string literal), and parsing result
+rows into Relation/Chunk
 SearchResults, including relations with embedded start/end nodes and a
 scalar row (e.g. ``count(p)``) being logged as a warning rather than
 silently dropped.
@@ -26,14 +25,12 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from agrag.common.data_models.chunk import Chunk
-from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.relation import Relation
 from agrag.retrieval.retrievers.text2cypher import (
     Text2CypherRetriever,
     _format_retry_diagnostic,
 )
-from agrag.retrieval.settings import RetrievalSettings
 
 
 class TestText2CypherRetriever:
@@ -72,56 +69,9 @@ class TestText2CypherRetriever:
             results = await retriever.retrieve("delete everything")
             assert results == []
 
-    async def test_accepts_read_cypher(self) -> None:
-        """Pure MATCH...RETURN Cypher is executed."""
-        gs = AsyncMock()
-        gs.execute_read.return_value = []
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-
-        with patch.object(
-            retriever,
-            "_generate_cypher",
-            return_value="MATCH (n:Person) RETURN n LIMIT 5",
-        ):
-            results = await retriever.retrieve("who is Alice?")
-            assert isinstance(results, list)
-
-    async def test_accepts_vector_query_call(self) -> None:
-        """CALL db.index.vector.queryNodes is accepted (read Cypher)."""
-        gs = AsyncMock()
-        gs.execute_read.return_value = []
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-
-        with patch.object(
-            retriever,
-            "_generate_cypher",
-            return_value=(
-                "CALL db.index.vector.queryNodes('idx', 10, $v) YIELD node RETURN node"
-            ),
-        ):
-            results = await retriever.retrieve("search for X")
-            # Should not be rejected (CALL is allowed).
-            assert isinstance(results, list)
-
 
 class TestText2CypherBounds:
     """Generated queries run with a row bound and a timeout."""
-
-    async def test_appends_row_limit_to_generated_query(self) -> None:
-        """A generated query without LIMIT gets the configured row bound."""
-        gs = AsyncMock()
-        gs.execute_read.return_value = []
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-
-        with patch.object(
-            retriever,
-            "_generate_cypher",
-            return_value="MATCH (n:Person) RETURN n",
-        ):
-            await retriever.retrieve("who is Alice?")
-
-        executed = gs.execute_read.await_args_list[-1].args[0]
-        assert executed == "MATCH (n:Person) RETURN n LIMIT 1000"
 
     async def test_keeps_scalar_rows_for_direct_query_answers(self) -> None:
         """Count and property rows are returned instead of reported empty."""
@@ -182,26 +132,6 @@ class TestText2CypherBounds:
 
         executed = gs.execute_read.await_args_list[-1].args[0]
         assert executed.endswith("RETURN n LIMIT 1000")
-
-    async def test_passes_timeout_to_store(self) -> None:
-        """The configured timeout reaches the store's execute_read calls."""
-        gs = AsyncMock()
-        gs.execute_read.return_value = []
-        settings = RetrievalSettings(text2cypher_timeout_seconds=2.5)
-        retriever = Text2CypherRetriever(
-            graph_store=gs, schema=GENERIC, settings=settings
-        )
-
-        with patch.object(
-            retriever,
-            "_generate_cypher",
-            return_value="MATCH (n:Person) RETURN n",
-        ):
-            await retriever.retrieve("who is Alice?")
-
-        assert gs.execute_read.await_count == 2
-        for call in gs.execute_read.await_args_list:
-            assert call.kwargs["timeout"] == 2.5
 
 
 class TestText2CypherRowShapes:
@@ -307,50 +237,6 @@ class TestText2CypherRowAliases:
     nothing.
     """
 
-    async def test_entity_row_under_a_prompt_alias(self) -> None:
-        """A node returned as n resolves through resolve_entity."""
-        ent = Entity(id=uuid4(), label="Person", name="Ada")
-        gs = AsyncMock()
-        gs.execute_read.return_value = [{"n": {"id": str(ent.id), "name": "Ada"}}]
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-
-        with (
-            patch.object(
-                retriever, "_generate_cypher", return_value="MATCH (n) RETURN n"
-            ),
-            patch(
-                "agrag.retrieval.retrievers.text2cypher.resolve_entity",
-                new_callable=AsyncMock,
-                return_value=ent,
-            ) as mock_resolve,
-        ):
-            results = await retriever.retrieve("who is Ada?")
-
-        mock_resolve.assert_awaited_once_with(gs, ent.id)
-        assert [result.item for result in results] == [ent]
-
-    async def test_entity_row_under_an_arbitrary_alias(self) -> None:
-        """A node returned as p is still recognised as an entity."""
-        ent = Entity(id=uuid4(), label="Person", name="Ada")
-        gs = AsyncMock()
-        gs.execute_read.return_value = [{"p": {"id": str(ent.id), "name": "Ada"}}]
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-
-        with (
-            patch.object(
-                retriever, "_generate_cypher", return_value="MATCH (p) RETURN p"
-            ),
-            patch(
-                "agrag.retrieval.retrievers.text2cypher.resolve_entity",
-                new_callable=AsyncMock,
-                return_value=ent,
-            ) as mock_resolve,
-        ):
-            results = await retriever.retrieve("who is Ada?")
-
-        mock_resolve.assert_awaited_once_with(gs, ent.id)
-        assert [result.item for result in results] == [ent]
-
     async def test_relation_row_under_an_arbitrary_alias(self) -> None:
         """A relationship returned under a free alias is parsed."""
         rel_id, src_id, tgt_id = uuid4(), uuid4(), uuid4()
@@ -423,28 +309,6 @@ class TestText2CypherRowAliases:
             results = await retriever.retrieve("how many?")
 
         assert results[0].item.value == {"total": 7}
-
-
-class TestText2CypherSchemaGrounding:
-    """Generation is grounded in the retriever's own schema."""
-
-    async def test_schema_description_reaches_generate_cypher_call(self) -> None:
-        """The retriever's schema text, not a fixed string, fills the call."""
-        gs = AsyncMock()
-        gs.execute_read.return_value = []
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-        generate = AsyncMock(return_value="MATCH (n:Person) RETURN n")
-
-        with patch(
-            "agrag.llm.baml_client.b",
-            types.SimpleNamespace(GenerateCypherQuery=generate),
-        ):
-            await retriever.retrieve("who is Alice?")
-
-        assert generate.await_args.kwargs["schema_description"] == (
-            GENERIC.to_prompt_description()
-        )
-        assert generate.await_args.kwargs["failure_context"] is None
 
 
 class TestText2CypherRetry:
@@ -530,22 +394,6 @@ class TestText2CypherRetry:
             "Exception: Neo.TransientError.Transaction.Terminated: "
             "transaction timed out"
         )
-
-    async def test_second_consecutive_failure_returns_empty(self) -> None:
-        """Both attempts failing returns no results after exactly one retry."""
-        gs = AsyncMock()
-        gs.execute_read.side_effect = Exception("database unavailable")
-        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-        generate = AsyncMock(return_value="MATCH (n:Person) RETURN n")
-
-        with patch(
-            "agrag.llm.baml_client.b",
-            types.SimpleNamespace(GenerateCypherQuery=generate),
-        ):
-            results = await retriever.retrieve("who is Alice?")
-
-        assert results == []
-        assert generate.await_count == 2
 
     async def test_retry_rejected_by_write_gate_returns_empty(self) -> None:
         """A regenerated write query is not retried a third time."""

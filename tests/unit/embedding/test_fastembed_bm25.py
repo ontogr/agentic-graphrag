@@ -1,8 +1,7 @@
 """Tests for FastEmbedBM25Embedder in agrag.embedding.fastembed_bm25.
 
 Uses a MockSparseModel injected via ``_model`` so no real fastembed model is
-downloaded. Covers model-name resolution, lazy loading (the model is not
-built at construction), that embed and query_embed delegate to distinct
+downloaded. Covers that embed and query_embed delegate to distinct
 model methods (a query must not use document-side term weighting), that
 concurrent first-time embeds share one model build via
 ``mock.patch.object(..., autospec=True)`` and threading events rather than
@@ -41,25 +40,6 @@ class MockSparseModel:
         delegates to this method, not the document-side ``embed``.
         """
         return [type("SV", (), {"indices": [9], "values": [1.0]})() for _ in texts]
-
-
-class TestFastEmbedBM25Construction:
-    """Construction resolves the model name."""
-
-    def test_default_model_name(self) -> None:
-        """The default model name is the FastEmbed BM25 default."""
-        embedder = FastEmbedBM25Embedder()
-        assert embedder.model == DEFAULT_BM25_MODEL
-
-    def test_explicit_model_name(self) -> None:
-        """An explicit model name is exposed."""
-        embedder = FastEmbedBM25Embedder(model="custom/bm25")
-        assert embedder.model == "custom/bm25"
-
-    def test_model_not_loaded_on_construct(self) -> None:
-        """Construction does not import or build the model."""
-        embedder = FastEmbedBM25Embedder(model=MockSparseModel.model_name)
-        assert embedder._model is None
 
 
 class TestFastEmbedBM25Embed:

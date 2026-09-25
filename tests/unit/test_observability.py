@@ -1,4 +1,4 @@
-"""Tests for get_tracer and the traced decorator in agrag.observability.
+"""Tests for the traced decorator in agrag.observability.
 
 Uses a minimal real ``trace.Span`` subclass and a recording tracer stand-in
 instead of the OpenTelemetry SDK, so no exporter or SDK setup is needed.
@@ -11,7 +11,7 @@ from contextlib import contextmanager
 import pytest
 from opentelemetry import trace
 
-from agrag.observability import get_tracer, traced
+from agrag.observability import traced
 
 
 class _RecordingSpan(trace.Span):
@@ -63,19 +63,6 @@ class _RecordingTracer:
     def start_span(self, name: str) -> _RecordingSpan:
         self.spans.append(name)
         return _RecordingSpan()
-
-
-class TestGetTracer:
-    """The tracer helper falls back to a no-op global tracer."""
-
-    def test_returns_caller_tracer(self) -> None:
-        """Returns caller tracer."""
-        tracer = _RecordingTracer()
-        assert get_tracer(tracer) is tracer
-
-    def test_none_returns_a_tracer(self) -> None:
-        """None returns a tracer."""
-        assert get_tracer(None) is not None
 
 
 class TestTraced:

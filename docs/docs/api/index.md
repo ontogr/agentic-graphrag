@@ -3857,9 +3857,12 @@ Cypher writes for the Cutover Job crash-recovery machine.
 
 - [**acquire_lease_query**](#agrag.cypher.cutover_job_write.acquire_lease_query) – Build Cypher tentatively creating a job node and returning its lease.
 - [**claim_job_query**](#agrag.cypher.cutover_job_write.claim_job_query) – Build Cypher taking over an interrupted job for resume-on-open.
+- [**claim_pending_job_query**](#agrag.cypher.cutover_job_write.claim_pending_job_query) – Build Cypher claiming an expired pending job before rollback.
 - [**clear_pending_tag_query**](#agrag.cypher.cutover_job_write.clear_pending_tag_query) – Build Cypher clearing the pending tag off everything a job created.
 - [**commit_job_query**](#agrag.cypher.cutover_job_write.commit_job_query) – Build Cypher flipping a job from pending to committed, fenced by lease.
 - [**finish_cleaning_query**](#agrag.cypher.cutover_job_write.finish_cleaning_query) – Build Cypher marking a job done after its cleanup phase completes.
+- [**renew_lease_query**](#agrag.cypher.cutover_job_write.renew_lease_query) – Build Cypher extending a live job's lease, fenced by its token.
+- [**rollback_claimed_job_query**](#agrag.cypher.cutover_job_write.rollback_claimed_job_query) – Build Cypher deleting a pending job that recovery still holds.
 - [**rollback_job_query**](#agrag.cypher.cutover_job_write.rollback_job_query) – Build Cypher deleting everything a job created, then the job itself.
 - [**start_cleaning_query**](#agrag.cypher.cutover_job_write.start_cleaning_query) – Build Cypher moving a committed job into cleaning, fenced by lease.
 - [**steal_expired_lease_query**](#agrag.cypher.cutover_job_write.steal_expired_lease_query) – Build Cypher taking over a job whose lease lapsed or went terminal.
@@ -3915,6 +3918,25 @@ skips the job as claimed.
 - <code>[str](#str)</code> – claim applied, no row when the job is pending or was claimed by
 - <code>[str](#str)</code> – another open first.
 
+##### `agrag.cypher.cutover_job_write.claim_pending_job_query`
+
+```python
+claim_pending_job_query() -> str
+```
+
+Build Cypher claiming an expired pending job before rollback.
+
+The recovery scan can become stale before it starts deleting pending
+graph or vector writes. This compare-and-swap claim rechecks the
+pending status, original token, and expiry while holding the job lock,
+then gives recovery a fresh lease for the destructive phase.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $expected_lease_token,
+- <code>[str](#str)</code> – $lease_token, and $lease_expires_at. Returns the job id when the
+- <code>[str](#str)</code> – claim applied, no row when another worker renewed or changed it.
+
 ##### `agrag.cypher.cutover_job_write.clear_pending_tag_query`
 
 ```python
@@ -3945,8 +3967,9 @@ Build Cypher flipping a job from pending to committed, fenced by lease.
 
 Follows `set_embedding_query`'s compare-and-swap shape: the write
 applies only while the `WHERE` guard (caller's fencing token still
-current, job still pending) holds, so a worker that lost its lease
-cannot complete a stale commit even if it is still alive and slow.
+current, job still pending, and lease still live) holds, so a worker
+that lost its lease cannot complete a stale commit even if it is still
+alive and slow.
 
 **Returns:**
 
@@ -3961,13 +3984,50 @@ finish_cleaning_query() -> str
 
 Build Cypher marking a job done after its cleanup phase completes.
 
-Same compare-and-swap shape as `commit_job_query`: only the lease
-holder that started cleaning may finish it.
+Same compare-and-swap shape as `commit_job_query`: only the current
+lease holder that started cleaning may finish it.
 
 **Returns:**
 
 - <code>[str](#str)</code> – Parameterized Cypher expecting $job_id and $lease_token. Returns
 - <code>[str](#str)</code> – the job id when the transition applied, no row otherwise.
+
+##### `agrag.cypher.cutover_job_write.renew_lease_query`
+
+```python
+renew_lease_query() -> str
+```
+
+Build Cypher extending a live job's lease, fenced by its token.
+
+Applies in every non-terminal phase (pending, committed, cleaning) only
+while the lease remains live and the caller's fencing token is still
+current, so a worker that lost its lease cannot revive it.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id, $lease_token, and
+- <code>[str](#str)</code> – $lease_expires_at (ISO-8601 string). Returns the job id when the
+- <code>[str](#str)</code> – lease was extended, no row on fencing failure.
+
+##### `agrag.cypher.cutover_job_write.rollback_claimed_job_query`
+
+```python
+rollback_claimed_job_query() -> str
+```
+
+Build Cypher deleting a pending job that recovery still holds.
+
+Recovery claims a job before deleting its pending vector payloads. This
+query repeats the lease fence before deleting graph writes, so a claim
+that expired during external vector cleanup cannot remove a newer
+worker's graph state.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Parameterized Cypher expecting $job_id and $lease_token. Returns
+- <code>[str](#str)</code> – deleted node and relationship counts when recovery still owns a live
+- <code>[str](#str)</code> – pending job, no row otherwise.
 
 ##### `agrag.cypher.cutover_job_write.rollback_job_query`
 
@@ -3999,8 +4059,11 @@ start_cleaning_query() -> str
 
 Build Cypher moving a committed job into cleaning, fenced by lease.
 
-Same compare-and-swap shape as `commit_job_query`: only the lease
-holder that committed the job may start its cleanup.
+Same compare-and-swap shape as `commit_job_query`: only the current
+lease holder that committed the job may start its cleanup. The lease
+expiry is left as the holder last renewed it: cleanup is live work, so
+resetting it to now would make a running job look abandoned and let a
+concurrent resume take it over.
 
 **Returns:**
 
@@ -5152,9 +5215,12 @@ identifier-validation contract shared by every Cypher builder.
 - [**cutover_job_document_key_constraint_query**](#agrag.cypher.schema.cutover_job_document_key_constraint_query) – Build a CREATE CONSTRAINT query making the job table's key unique.
 - [**cutover_job_status_index_query**](#agrag.cypher.schema.cutover_job_status_index_query) – Build an index for the incomplete CutoverJob recovery scan.
 - [**merge_alias_constraint_query**](#agrag.cypher.schema.merge_alias_constraint_query) – Build a CREATE CONSTRAINT query making the merge-key alias table unique.
+- [**merge_key_constraint_name**](#agrag.cypher.schema.merge_key_constraint_name) – Return the name of the `merge_key` uniqueness constraint for `label`.
 - [**merge_key_constraint_query**](#agrag.cypher.schema.merge_key_constraint_query) – Build a CREATE CONSTRAINT query making `merge_key` unique per label.
+- [**node_id_constraint_name**](#agrag.cypher.schema.node_id_constraint_name) – Return the name of the node `id` uniqueness constraint for `label`.
 - [**node_id_constraint_query**](#agrag.cypher.schema.node_id_constraint_query) – Build a CREATE CONSTRAINT query making `id` unique per node.
 - [**plain_index_query**](#agrag.cypher.schema.plain_index_query) – Build a CREATE INDEX query on the node `id` property.
+- [**relation_id_constraint_name**](#agrag.cypher.schema.relation_id_constraint_name) – Return the name of the `id` uniqueness constraint for `rel_type`.
 - [**relation_id_constraint_query**](#agrag.cypher.schema.relation_id_constraint_query) – Build a CREATE CONSTRAINT query making `id` unique per relationship type.
 - [**vector_index_name**](#agrag.cypher.schema.vector_index_name) – Derive the deterministic name a vector index is created under.
 - [**vector_index_query**](#agrag.cypher.schema.vector_index_query) – Build a CREATE VECTOR INDEX query for native vector search.
@@ -5204,6 +5270,22 @@ sufficient.
 
 - <code>[str](#str)</code> – A Cypher query creating the uniqueness constraint if absent.
 
+##### `agrag.cypher.schema.merge_key_constraint_name`
+
+```python
+merge_key_constraint_name(label:str) -> str
+```
+
+Return the name of the `merge_key` uniqueness constraint for `label`.
+
+**Parameters:**
+
+- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The constraint name `merge_key_constraint_query` creates.
+
 ##### `agrag.cypher.schema.merge_key_constraint_query`
 
 ```python
@@ -5226,6 +5308,22 @@ survivor per key plus any number of tombstones.
 **Returns:**
 
 - <code>[str](#str)</code> – A Cypher query creating the uniqueness constraint if absent.
+
+##### `agrag.cypher.schema.node_id_constraint_name`
+
+```python
+node_id_constraint_name(label:str) -> str
+```
+
+Return the name of the node `id` uniqueness constraint for `label`.
+
+**Parameters:**
+
+- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The constraint name `node_id_constraint_query` creates.
 
 ##### `agrag.cypher.schema.node_id_constraint_query`
 
@@ -5265,6 +5363,22 @@ Build a CREATE INDEX query on the node `id` property.
 **Returns:**
 
 - <code>[str](#str)</code> – A Cypher query creating the range index if absent.
+
+##### `agrag.cypher.schema.relation_id_constraint_name`
+
+```python
+relation_id_constraint_name(rel_type:str) -> str
+```
+
+Return the name of the `id` uniqueness constraint for `rel_type`.
+
+**Parameters:**
+
+- **rel_type** (<code>[str](#str)</code>) – The relationship type. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The constraint name `relation_id_constraint_query` creates.
 
 ##### `agrag.cypher.schema.relation_id_constraint_query`
 
@@ -6792,6 +6906,10 @@ ensure_vector_index(*, label:str, vector_property:str, dimensions:int, distance:
 
 Create a native vector index if it does not exist.
 
+A concurrent creator can commit the same index after this operation
+starts. Neo4j reports that race as an equivalent-schema error, which
+means the requested index already exists.
+
 ##### `agrag.graphdb.Neo4jGraphStore.execute_read`
 
 ```python
@@ -7574,6 +7692,10 @@ ensure_vector_index(*, label:str, vector_property:str, dimensions:int, distance:
 ```
 
 Create a native vector index if it does not exist.
+
+A concurrent creator can commit the same index after this operation
+starts. Neo4j reports that race as an equivalent-schema error, which
+means the requested index already exists.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.execute_read`
 
@@ -9213,6 +9335,10 @@ Non-destructive match persistence and resolved-entity computation.
 - [**prune_orphaned_entities**](#agrag.ingestion.materialize.prune_orphaned_entities) – Delete candidates with no open-chunk evidence and rebuild clusters.
 - [**write_matches_and_materialize**](#agrag.ingestion.materialize.write_matches_and_materialize) – Persist matches and materialize their supplied connected component.
 
+**Attributes:**
+
+- [**MatchComponent**](#agrag.ingestion.materialize.MatchComponent) – One connected component: its match decisions and its raw member entities.
+
 ##### `agrag.ingestion.materialize.DeactivationResult`
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
@@ -9235,6 +9361,14 @@ removed_entity_ids: list[UUID]
 ```python
 resolved_entities: list[ResolvedEntity]
 ```
+
+##### `agrag.ingestion.materialize.MatchComponent`
+
+```python
+MatchComponent = tuple[list[MatchDecision], list[Entity]]
+```
+
+One connected component: its match decisions and its raw member entities.
 
 ##### `agrag.ingestion.materialize.MatchDecision`
 
@@ -9672,7 +9806,9 @@ canonical survivor and marks the rest for tombstoning.
 - **mentions** (<code>[list](#list)\[[ExtractedEntity](#agrag.common.data_models.extraction.ExtractedEntity)\]</code>) – Fresh ExtractedEntity mentions to fold in.
 - **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – Used to look up the entity type's declared properties for the
   canonical-id schema-completeness check.
-- **rules** (<code>[PropertyRules](#agrag.ingestion.merge.PropertyRules) | None</code>) – Per-property conflict resolution. Defaults to keep_first.
+- **rules** (<code>[PropertyRules](#agrag.ingestion.merge.PropertyRules) | None</code>) – Per-property conflict resolution. Defaults to keep_first. The
+  name is always a single string: under merge_all it takes the
+  canonical entity's name, or the first mention's when none exists.
 - **description_settings** (<code>[Any](#typing.Any) | None</code>) – LLM settings for description summarization.
 - **description_client** (<code>[Any](#typing.Any) | None</code>) – Injected LLM client for tests.
 - **job_id** (<code>[UUID](#uuid.UUID) | [str](#str) | None</code>) – The Cutover Job this merge runs under. A brand-new entity
@@ -13593,8 +13729,8 @@ Constraints applied across every retrieval method in one call.
 - [**labels**](#agrag.retrieval.filters.SearchFilters.labels) (<code>[list](#list)\[[str](#str)\]</code>) – Entity labels a result must have, when searching
   entities.
 - [**relation_types**](#agrag.retrieval.filters.SearchFilters.relation_types) (<code>[list](#list)\[[str](#str)\]</code>) – Relation types a traversal may cross.
-- [**document_ids**](#agrag.retrieval.filters.SearchFilters.document_ids) (<code>[list](#list)\[[str](#str)\]</code>) – Restrict chunk results to these source
-  documents.
+- [**document_ids**](#agrag.retrieval.filters.SearchFilters.document_ids) (<code>[list](#list)\[[str](#str)\]</code>) – Restrict results to entities and chunks from these
+  source documents.
 - [**properties**](#agrag.retrieval.filters.SearchFilters.properties) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – Exact-match property filters, applied
   identically to vector-store payload filters and Cypher
   WHERE clauses.
@@ -13953,7 +14089,7 @@ Shared vector search helper for GraphStore and VectorStore.
 ###### `agrag.retrieval.methods.vector.vector_search`
 
 ```python
-vector_search(query:str, *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, collection:str, labels:Sequence[str], limit:int, filters:SearchFilters | None, settings:RetrievalSettings) -> list[VectorHit]
+vector_search(query:str, *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, collection:str, labels:Sequence[str], limit:int, filters:SearchFilters | None, settings:RetrievalSettings, query_vector:Sequence[float] | None = None) -> list[VectorHit]
 ```
 
 Embed query and search on whichever store is configured.
@@ -13986,6 +14122,7 @@ receive an uncommitted job's node or vector.
   path and choose the searched indexes on the native path,
   so they are not sent as node property filters.
 - **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings)</code>) – Supplies hybrid_alpha for the VectorStore path.
+- **query_vector** (<code>[Sequence](#collections.abc.Sequence)\[[float](#float)\] | None</code>) – Precomputed query embedding. None embeds `query`.
 
 **Returns:**
 
@@ -14215,6 +14352,11 @@ at the end with a high distance penalty.
 **Returns:**
 
 - <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Results reranked by proximity, closest first.
+
+**Raises:**
+
+- <code>[Exception](#Exception)</code> – Any error the graph store raises. A candidate with no
+  path to a seed is not an error and ranks with the penalty.
 
 #### `agrag.retrieval.resolved_entities`
 

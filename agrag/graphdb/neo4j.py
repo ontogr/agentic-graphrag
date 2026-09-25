@@ -27,8 +27,11 @@ from agrag.cypher.schema import (
     cutover_job_document_key_constraint_query,
     cutover_job_status_index_query,
     merge_alias_constraint_query,
+    merge_key_constraint_name,
     merge_key_constraint_query,
+    node_id_constraint_name,
     node_id_constraint_query,
+    relation_id_constraint_name,
     relation_id_constraint_query,
     vector_index_name,
     vector_index_query,
@@ -54,6 +57,9 @@ if TYPE_CHECKING:
 # Neo4j's own practical limit on a single vector query's k.
 _VECTOR_SEARCH_OVERFETCH_MULTIPLIER = 4
 _VECTOR_SEARCH_MAX_K = 1000
+_EQUIVALENT_SCHEMA_RULE_ERROR = (
+    "Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists"
+)
 
 
 class _Neo4jTransaction(GraphStoreTransaction):
@@ -349,12 +355,22 @@ class Neo4jGraphStore(GraphStore):
         await self._ensure_merge_alias_constraint()
         await self._ensure_cutover_job_constraint()
         await self._ensure_cutover_job_status_index()
+        # Read the existing names once so the cost does not grow with the
+        # number of constraints already in the database. Creates keep
+        # IF NOT EXISTS because another writer can create one in between.
+        rows = await self.execute_read("SHOW CONSTRAINTS YIELD name RETURN name")
+        existing = {row["name"] for row in rows}
         for label in await self._all_labels():
-            await self.execute_write(node_id_constraint_query(label))
+            if node_id_constraint_name(label) not in existing:
+                await self.execute_write(node_id_constraint_query(label))
             # Merge-key uniqueness backs concurrent add() safety: two writers for
             # the same (label, normalized name) cannot both create a canonical.
-            await self.execute_write(merge_key_constraint_query(label))
+            if merge_key_constraint_name(label) not in existing:
+                await self.execute_write(merge_key_constraint_query(label))
         for rel_type in await self._all_relation_types():
+            if relation_id_constraint_name(rel_type) in existing:
+                self._relation_type_constraints_ready.add(rel_type)
+                continue
             await self._ensure_relation_constraint(rel_type)
 
     async def _ensure_identity_constraint(self) -> None:
@@ -640,13 +656,24 @@ class Neo4jGraphStore(GraphStore):
     async def ensure_vector_index(
         self, *, label: str, vector_property: str, dimensions: int, distance: Distance
     ) -> None:
-        """Create a native vector index if it does not exist."""
+        """Create a native vector index if it does not exist.
+
+        A concurrent creator can commit the same index after this operation
+        starts. Neo4j reports that race as an equivalent-schema error, which
+        means the requested index already exists.
+        """
+        from neo4j.exceptions import ClientError  # noqa: PLC0415
+
         validate_identifier(label)
         validate_identifier(vector_property)
         self._known_labels.add(label)
-        await self.execute_write(
-            vector_index_query(label, vector_property, dimensions, distance)
-        )
+        try:
+            await self.execute_write(
+                vector_index_query(label, vector_property, dimensions, distance)
+            )
+        except ClientError as exc:
+            if exc.code != _EQUIVALENT_SCHEMA_RULE_ERROR:
+                raise
 
     async def vector_search(
         self,

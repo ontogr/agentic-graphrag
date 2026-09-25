@@ -10,14 +10,12 @@ import pytest
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import (
-    DOCUMENT_LABEL,
     Document,
     DocumentFamily,
     SourceFormat,
 )
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion._lexical_backbone import (
-    build_document_record,
     build_next_chunk_records,
     build_part_of_records,
     distinct_documents,
@@ -73,49 +71,8 @@ class TestDistinctDocuments:
         assert result == [first, second]
 
 
-class TestBuildDocumentRecord:
-    """build_document_record delegates to Document.to_node_record."""
-
-    def test_produces_expected_shape(self) -> None:
-        """The record carries the document's node id, label, and properties."""
-        doc = _doc(document_key="doc-key")
-        record = build_document_record(doc)
-        assert record.id == Document.node_id_for(document_key="doc-key")
-        assert record.labels == [DOCUMENT_LABEL]
-        assert record.properties["document_key"] == "doc-key"
-
-    def test_same_document_key_returns_same_id(self) -> None:
-        """Two documents with the same document_key converge on one node id."""
-        first = build_document_record(_doc(uri="a", document_key="shared"))
-        second = build_document_record(_doc(uri="b", document_key="shared"))
-        assert first.id == second.id
-
-
 class TestBuildPartOfRecords:
     """build_part_of_records links one document node to its chunks."""
-
-    def test_one_record_per_chunk(self) -> None:
-        """An N-chunk document produces exactly N PART_OF records."""
-        document_id = uuid4()
-        document_node_id = uuid4()
-        chunks = [
-            _chunk(document_id, text="zero", index=0, start=0),
-            _chunk(document_id, text="one!", index=1, start=4),
-            _chunk(document_id, text="two!!", index=2, start=8),
-        ]
-        records = build_part_of_records(document_node_id, chunks, version_id="v1")
-        assert len(records) == 3
-        assert len({record.id for record in records}) == 3
-
-    def test_records_are_open(self) -> None:
-        """Every record has valid_at set and invalid_at unset."""
-        document_id = uuid4()
-        document_node_id = uuid4()
-        [record] = build_part_of_records(
-            document_node_id, [_chunk(document_id)], version_id="v1"
-        )
-        assert record.properties["valid_at"] is not None
-        assert record.properties["invalid_at"] is None
 
     def test_record_endpoints_and_type(self) -> None:
         """Each record points Document -[:PART_OF]-> Chunk with the right id."""
@@ -129,31 +86,6 @@ class TestBuildPartOfRecords:
         assert chunk.id is not None
         assert record.id == part_of_id(document_node_id, chunk.id, "v1")
         assert record.properties["version_id"] == "v1"
-
-    def test_same_version_converges(self) -> None:
-        """Rebuilding the same version returns the same edge ids."""
-        document_id, document_node_id = uuid4(), uuid4()
-        chunk = _chunk(document_id)
-
-        first, second = (
-            build_part_of_records(document_node_id, [chunk], version_id="v1"),
-            build_part_of_records(document_node_id, [chunk], version_id="v1"),
-        )
-
-        assert first[0].id == second[0].id
-
-    def test_new_version_gets_distinct_edge_ids(self) -> None:
-        """New content creates a new PART_OF history interval."""
-        document_id, document_node_id = uuid4(), uuid4()
-        chunk = _chunk(document_id)
-
-        first, second = (
-            build_part_of_records(document_node_id, [chunk], version_id="v1"),
-            build_part_of_records(document_node_id, [chunk], version_id="v2"),
-        )
-
-        assert first[0].id != second[0].id
-        assert first[0].properties["version_id"] != second[0].properties["version_id"]
 
     def test_never_cross_links_distinct_documents(self) -> None:
         """Chunks from two documents each link only to their own document node."""

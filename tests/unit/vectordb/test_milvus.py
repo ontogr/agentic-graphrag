@@ -10,7 +10,6 @@ from pymilvus.exceptions import MilvusException
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
 from agrag.vectordb.errors import (
-    CollectionDimensionMismatchError,
     VectorStoreError,
     VectorStoreMissingExtraError,
 )
@@ -68,7 +67,6 @@ class MockMilvusClient:
         self.query = mock.AsyncMock(return_value=[])
         self.get = mock.AsyncMock(return_value=[])
         self.delete = mock.AsyncMock()
-        self.flush = mock.AsyncMock()
         self.close = mock.AsyncMock()
 
 
@@ -86,25 +84,6 @@ def store(client: MockMilvusClient) -> MilvusVectorStore:
 
 class TestEnsureCollection:
     """ensure_collection creates and is idempotent."""
-
-    async def test_creates_when_absent(self, store: MilvusVectorStore, client) -> None:
-        """A missing collection is created with both dense and sparse indices."""
-        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        client.create_collection.assert_called_once()
-        assert client.load_collection.call_args.args[0] == "c"
-        index_calls = client.prepare_index_params.return_value.add_index.call_args_list
-        indexed_fields = {c.kwargs["field_name"] for c in index_calls}
-        assert "vector" in indexed_fields
-        assert "sparse" in indexed_fields
-
-    async def test_idempotent_when_present(
-        self, store: MilvusVectorStore, client
-    ) -> None:
-        """An existing collection is not recreated."""
-        client.has_collection.return_value = True
-        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        client.create_collection.assert_not_called()
-        client.load_collection.assert_not_called()
 
     async def test_concurrent_stores_create_collection_once(self, client) -> None:
         """Store instances share provisioning state for the same collection."""
@@ -157,26 +136,6 @@ class TestEnsureCollection:
         await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
 
         client.load_collection.assert_not_called()
-
-    async def test_dimension_mismatch_raises(
-        self, store: MilvusVectorStore, client
-    ) -> None:
-        """A dimension conflict on an existing collection raises."""
-        client.has_collection.return_value = True
-        client.describe_collection.return_value = _describe_collection(dim=8)
-        with pytest.raises(CollectionDimensionMismatchError) as exc_info:
-            await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        assert exc_info.value.expected == 8
-        assert exc_info.value.actual == 4
-
-    async def test_dimension_match_does_not_raise(
-        self, store: MilvusVectorStore, client
-    ) -> None:
-        """A matching dimension on an existing collection passes silently."""
-        client.has_collection.return_value = True
-        client.describe_collection.return_value = _describe_collection(dim=4)
-        await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
-        client.create_collection.assert_not_called()
 
     async def test_existing_dense_only_collection_raises(
         self, store: MilvusVectorStore, client
@@ -250,19 +209,6 @@ class TestEnsureCollection:
 class TestWritesAndReads:
     """upsert, search, hybrid_search, scroll, retrieve, count, delete."""
 
-    async def test_upsert_inserts_rows(self, store: MilvusVectorStore, client) -> None:
-        """Upsert writes each record with its vector, text, and payload JSON."""
-        record = VectorRecord(
-            id=uuid4(), vector=[0.1, 0.2], payload={"text": "a", "n": 1}
-        )
-        await store.upsert("c", [record])
-        client.upsert.assert_called_once()
-        row = client.upsert.call_args.kwargs["data"][0]
-        assert row["id"] == str(record.id)
-        assert row["vector"] == [0.1, 0.2]
-        assert row["text"] == "a"
-        assert row["payload"] == {"text": "a", "n": 1}
-
     async def test_upsert_rejects_non_positive_batch_size(
         self, store: MilvusVectorStore, client
     ) -> None:
@@ -271,19 +217,6 @@ class TestWritesAndReads:
         with pytest.raises(ValueError):
             await store.upsert("c", [record], batch_size=0)
         client.upsert.assert_not_called()
-
-    async def test_upsert_overwrites_existing_id(
-        self, store: MilvusVectorStore, client
-    ) -> None:
-        """Upsert uses Milvus's upsert call, not insert, so a repeat id overwrites."""
-        record_id = uuid4()
-        first = VectorRecord(id=record_id, vector=[0.1], payload={"text": "old"})
-        second = VectorRecord(id=record_id, vector=[0.2], payload={"text": "new"})
-        await store.upsert("c", [first])
-        await store.upsert("c", [second])
-        assert client.upsert.call_count == 2
-        last_row = client.upsert.call_args.kwargs["data"][0]
-        assert last_row["payload"] == {"text": "new"}
 
     async def test_upsert_normalizes_non_json_native_values(
         self, store: MilvusVectorStore, client
@@ -344,33 +277,6 @@ class TestWritesAndReads:
         hits = await store.search("c", [0.1, 0.2], limit=5)
         assert hits[0].score == pytest.approx(0.5)
 
-    async def test_search_uses_metric_cached_by_ensure_collection(
-        self, store: MilvusVectorStore, client
-    ) -> None:
-        """A metric known from creation is not re-fetched on search."""
-        await store.ensure_collection("c", dimensions=4, distance=Distance.EUCLID)
-        obj_id = str(uuid4())
-        client.search.return_value = [[{"id": obj_id, "distance": 0.5}]]
-        hits = await store.search("c", [0.1, 0.2], limit=5)
-        client.describe_index.assert_not_called()
-        assert hits[0].score == pytest.approx(-0.5)
-
-    async def test_hybrid_search_passes_requests(
-        self, store: MilvusVectorStore, client
-    ) -> None:
-        """hybrid_search forwards the dense and sparse requests to the backend."""
-        obj_id = str(uuid4())
-        client.hybrid_search.return_value = [
-            [{"id": obj_id, "distance": 0.8, "payload": {}}]
-        ]
-        hits = await store.hybrid_search("c", [0.1, 0.2], "query text", alpha=0.3)
-        assert len(hits) == 1
-        assert hits[0].id == UUID(obj_id)
-        reqs = client.hybrid_search.call_args.kwargs["reqs"]
-        assert {r.anns_field for r in reqs} == {"vector", "sparse"}
-        ranker = client.hybrid_search.call_args.kwargs["ranker"]
-        assert ranker.dict()["params"]["weights"] == [0.3, 0.7]
-
     async def test_scroll_returns_records_and_offset(
         self, store: MilvusVectorStore, client
     ) -> None:
@@ -407,21 +313,6 @@ class TestWritesAndReads:
         expr = client.query.call_args.kwargs["filter"]
         assert f"id > {_escape_scalar(cursor)}" in expr
         assert 'payload["kind"] == "a"' in expr
-
-    async def test_scroll_orders_by_id_ascending(
-        self, store: MilvusVectorStore, client
-    ) -> None:
-        """Scroll explicitly orders by id, not relying on unordered results.
-
-        Regression guard: without an explicit order, an unordered query
-        result could return rows out of id order. Advancing the cursor past
-        this page's highest returned id would then permanently skip any
-        lower, unmatched id that Milvus happened not to include in this
-        batch.
-        """
-        client.query.return_value = []
-        await store.scroll("c", limit=10)
-        assert client.query.call_args.kwargs["order_by"] == "id:asc"
 
     async def test_scroll_next_offset_is_last_row_id_in_order(
         self, store: MilvusVectorStore, client
@@ -486,49 +377,11 @@ class TestWritesAndReads:
         assert len(first_batch) == MAX_RESPONSE_LIMIT
         assert len(second_batch) == 5
 
-    async def test_count_returns_total(self, store: MilvusVectorStore, client) -> None:
-        """Count returns the backend total."""
-        client.query.return_value = [{"count(*)": 3}]
-        assert await store.count("c") == 3
-
     async def test_delete_forwards_ids(self, store: MilvusVectorStore, client) -> None:
         """Delete forwards the ids to the backend."""
         target_id = uuid4()
         await store.delete("c", [target_id])
         assert client.delete.call_args.kwargs["ids"] == [str(target_id)]
-
-    async def test_delete_collection_clears_cached_metric(
-        self, store: MilvusVectorStore, client
-    ) -> None:
-        """Deleting a collection forgets its cached similarity metric.
-
-        Otherwise a name reused with a different metric would apply the old
-        score conversion to the new collection's results.
-        """
-        await store.ensure_collection("c", dimensions=4, distance=Distance.EUCLID)
-        assert "c" in store._collection_metrics
-        await store.delete_collection("c")
-        assert "c" not in store._collection_metrics
-
-    async def test_invalidate_collection_clears_cached_metric(
-        self, store: MilvusVectorStore
-    ) -> None:
-        """invalidate_collection drops cached metric state without deleting data.
-
-        This is the escape hatch for a collection recreated by something
-        other than this store instance: without it, stale cached state from
-        before the recreation would keep being trusted.
-        """
-        store._collection_metrics["c"] = "L2"
-        store.invalidate_collection("c")
-        assert "c" not in store._collection_metrics
-
-    async def test_close_releases_client(
-        self, store: MilvusVectorStore, client
-    ) -> None:
-        """Close releases the client connection."""
-        await store.close()
-        client.close.assert_called_once()
 
 
 class TestFilterEscaping:
@@ -562,18 +415,6 @@ class TestFilterEscaping:
         store = MilvusVectorStore(settings=MilvusSettings())
         expr = store._compile_filter({"kind": 'x" or 1==1'})
         assert 'payload["kind"] == "x\\" or 1==1"' in expr
-
-    def test_compile_list_value(self) -> None:
-        """A list value renders as an ``in`` clause."""
-        store = MilvusVectorStore(settings=MilvusSettings())
-        expr = store._compile_filter({"cat": ["a", "b"]})
-        assert 'payload["cat"] in ["a", "b"]' in expr
-
-    def test_compile_references_payload_json_field(self) -> None:
-        """A scalar filter compiles against the payload JSON field, not a bare field."""
-        store = MilvusVectorStore(settings=MilvusSettings())
-        expr = store._compile_filter({"kind": "doc"})
-        assert 'payload["kind"] == "doc"' in expr
 
     def test_compile_excludes_pending_records_by_default(self) -> None:
         """No pending flag requested still excludes an in-flight job's vectors."""

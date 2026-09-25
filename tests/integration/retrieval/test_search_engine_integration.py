@@ -34,6 +34,7 @@ from agrag.retrieval.recipes import (
 )
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
+from tests.integration._schema_cleanup import drop_schema_for
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -85,6 +86,35 @@ class _FixedEmbedder(Embedder):
                     0.5,
                 ]
             )
+        return vectors
+
+
+class _OrthogonalEmbedder(Embedder):
+    """Embedder giving each distinct text its own orthogonal unit vector.
+
+    Neo4j's vector index scores nearby vectors imprecisely, so entity
+    resolution by top-1 hit is only reliable when distinct names are far
+    apart. One-hot vectors make a name's own vector the unique best match.
+    """
+
+    model = "orthogonal"
+    _DIMENSIONS = 64
+
+    def __init__(self) -> None:
+        self._slots: dict[str, int] = {}
+
+    async def dimensions(self) -> int:
+        """Return the vector size, which caps the number of distinct texts."""
+        return self._DIMENSIONS
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """Return the one-hot vector assigned to each text."""
+        vectors: list[list[float]] = []
+        for text in texts:
+            slot = self._slots.setdefault(text, len(self._slots))
+            vector = [0.0] * self._DIMENSIONS
+            vector[slot] = 1.0
+            vectors.append(vector)
         return vectors
 
 
@@ -419,7 +449,7 @@ class TestTraversalIntegration:
         suffix = uuid4().hex[:8]
         self.person_label = validate_identifier(f"Person_{suffix}")
         self.org_label = validate_identifier(f"Organization_{suffix}")
-        self.embedder = _FixedEmbedder()
+        self.embedder = _OrthogonalEmbedder()
         self.settings = RetrievalSettings()
         self.schema = GraphSchema(
             name="traversal_integration",
@@ -439,6 +469,7 @@ class TestTraversalIntegration:
         yield
         for label in (self.person_label, self.org_label):
             await self.store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+        await drop_schema_for(self.store, self.person_label, self.org_label)
         await self.store.close()
 
     async def _write_entity(self, label: str, name: str) -> Entity:
@@ -466,7 +497,7 @@ class TestTraversalIntegration:
         await self.store.ensure_vector_index(
             label=label,
             vector_property="embedding",
-            dimensions=4,
+            dimensions=await self.embedder.dimensions(),
             distance=Distance.COSINE,
         )
         return entity

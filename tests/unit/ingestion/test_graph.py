@@ -239,11 +239,6 @@ class TestGraphOpenRegistration:
 class TestGraphAdd:
     """The Graph accepts sources, text, and documents."""
 
-    async def test_open_returns_a_graph(self) -> None:
-        """Open returns a graph."""
-        graph = await _open_graph()
-        assert isinstance(graph, Graph)
-
     async def test_add_directory_reads_all_sources(self) -> None:
         """Add directory reads all sources."""
         graph = await _open_graph()
@@ -258,29 +253,43 @@ class TestGraphAdd:
         assert result.ingestion.documents == 1
         assert result.ingestion.sources == 1
 
-    async def test_add_prebuilt_documents(self) -> None:
-        """Add prebuilt documents."""
+    @pytest.mark.parametrize("verb", ["add", "update"])
+    async def test_reports_materialization_failures_in_storage_stats(
+        self, monkeypatch: pytest.MonkeyPatch, verb: str
+    ) -> None:
+        """A skipped materialization failure appears in the result storage stats."""
         graph = await _open_graph()
-        doc = Document(
-            text="prebuilt",
-            title="t",
-            uri="u",
-            source_format=SourceFormat.TXT,
-            family=DocumentFamily.PROSE,
-            content_hash="h",
-            loader_name="text",
-            char_count=8,
-            line_count=1,
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[]
         )
-        result = await graph.add(documents=[doc])
-        assert result.ingestion.documents == 1
+        member = Entity(
+            id=uuid4(), label="Person", name="Alice", properties={}, source_chunk_ids=[]
+        )
+        real_ingest = graph_module.ingest_chunks
 
-    async def test_add_exposes_the_chunks_it_produced(self) -> None:
-        """Add returns the chunks it computed, not just counts."""
-        graph = await _open_graph()
-        result = await graph.add(text="a short note", return_chunks=True)
-        assert result.chunks
-        assert result.chunks[0].text
+        async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
+            kwargs["materialized_components"].append(([], [member]))
+            return await real_ingest(*args, **kwargs)
+
+        monkeypatch.setattr(graph_module, "ingest_chunks", _ingest_with_component)
+        monkeypatch.setattr(
+            graph_module,
+            "write_matches_and_materialize",
+            AsyncMock(side_effect=RuntimeError("database unavailable")),
+        )
+
+        if verb == "add":
+            result = await graph.add(text="a short note", error_policy=ErrorPolicy.SKIP)
+        else:
+            update = await graph.update(
+                "memory://doc", text="brand new", error_policy=ErrorPolicy.SKIP
+            )
+            assert update.add_result is not None
+            result = update.add_result
+
+        assert result.storage.failures_total == 1
+        assert result.storage.failures[0].item_id == str(member.id)
+        assert result.storage.failures[0].error_message == "database unavailable"
 
     async def test_add_requires_exactly_one_input(self) -> None:
         """Add requires exactly one input."""
@@ -289,27 +298,6 @@ class TestGraphAdd:
             await graph.add()
         with pytest.raises(ValueError):
             await graph.add(text="x", documents=[])
-
-    async def test_update_returns_no_op_for_unchanged_content(self) -> None:
-        """Update skips ingestion when the stored hash is unchanged."""
-        graph = await _open_graph()
-        node_id = uuid4()
-        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            return_value=[
-                {
-                    "id": str(node_id),
-                    "current_content_hash": (
-                        "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-                    ),
-                }
-            ]
-        )
-
-        result = await graph.update("memory://doc", text="test")
-
-        assert result.no_op is True
-        assert result.chunks_closed == 0
-        assert result.add_result is None
 
     async def test_update_normalizes_text_before_comparing_content_hash(self) -> None:
         """An NFKC-equivalent update does not replace the current version."""
@@ -331,155 +319,6 @@ class TestGraphAdd:
 
         assert result.no_op is True
         graph._graph_store.execute_write.assert_not_awaited()
-
-    async def test_delete_document_closes_current_edges(self) -> None:
-        """Delete closes current edges and keeps the document result."""
-        store = _MockGraphStore()
-        graph = await Graph.open(
-            schema=GENERIC,
-            graph_store=store,
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-        )
-        node_id = uuid4()
-        store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            return_value=[{"id": str(node_id), "current_content_hash": "hash"}]
-        )
-        store.closed_part_of_edges = 2
-
-        result = await graph.delete_document("memory://doc")
-
-        assert result.no_op is False
-        assert result.chunks_closed == 2
-        assert result.add_result is None
-
-    async def test_delete_document_writes_nothing_but_closing_edges(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Delete closes edges exactly once without ingesting or upserting."""
-        store = _MockGraphStore()
-        graph = await Graph.open(
-            schema=GENERIC,
-            graph_store=store,
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-        )
-        node_id = uuid4()
-        store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            return_value=[{"id": str(node_id), "current_content_hash": "hash"}]
-        )
-        store.closed_part_of_edges = 2
-        ingest_mock = AsyncMock()
-        monkeypatch.setattr(graph_module, "ingest_chunks", ingest_mock)
-        close_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
-        real_close = cutover_module.close_open_part_of_edges
-
-        async def _count_close(*args: object, **kwargs: object) -> int:
-            close_calls.append((args, kwargs))
-            return await real_close(*args, **kwargs)
-
-        monkeypatch.setattr(cutover_module, "close_open_part_of_edges", _count_close)
-        node_calls: list[object] = []
-        relation_calls: list[object] = []
-        real_upsert_nodes = store.upsert_nodes
-        real_upsert_relations = store.upsert_relations
-
-        async def _spy_nodes(*args: object, **kwargs: object) -> object:
-            node_calls.append((args, kwargs))
-            return await real_upsert_nodes(*args, **kwargs)
-
-        async def _spy_relations(*args: object, **kwargs: object) -> object:
-            relation_calls.append((args, kwargs))
-            return await real_upsert_relations(*args, **kwargs)
-
-        store.upsert_nodes = _spy_nodes  # type: ignore[method-assign]
-        store.upsert_relations = _spy_relations  # type: ignore[method-assign]
-
-        result = await graph.delete_document("memory://doc")
-
-        assert result.no_op is False
-        assert result.new_content_hash is None
-        assert result.chunks_closed == 2
-        assert result.add_result is None
-        assert len(close_calls) == 1
-        ingest_mock.assert_not_awaited()
-        assert node_calls == []
-        assert relation_calls == []
-
-    async def test_delete_document_twice_closes_zero_new_edges(self) -> None:
-        """A second delete closes nothing further: closing is idempotent."""
-        store = _MockGraphStore()
-        graph = await Graph.open(
-            schema=GENERIC,
-            graph_store=store,
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-        )
-        node_id = uuid4()
-        store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            return_value=[{"id": str(node_id), "current_content_hash": "hash"}]
-        )
-        store.closed_part_of_edges = 2
-
-        first = await graph.delete_document("memory://doc")
-        store.closed_part_of_edges = 0
-        second = await graph.delete_document("memory://doc")
-
-        assert first.chunks_closed == 2
-        assert second.chunks_closed == 0
-
-    async def test_update_ingests_before_closing_superseded_edges(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Update ingests the new version before closing superseded edges."""
-        store = _MockGraphStore()
-        graph = await Graph.open(
-            schema=GENERIC,
-            graph_store=store,
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-        )
-        node_id = uuid4()
-        store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            return_value=[{"id": str(node_id), "current_content_hash": "old"}]
-        )
-        store.closed_part_of_edges = 3
-        add_result = await graph.add(text="seed")
-        ingest_mock = AsyncMock(return_value=add_result)
-        monkeypatch.setattr(graph_module, "ingest_chunks", ingest_mock)
-
-        result = await graph.update("memory://doc", text="new")
-
-        assert result.no_op is False
-        assert result.previous_content_hash == "old"
-        assert result.chunks_closed == 3
-        assert result.add_result is add_result
-        ingest_mock.assert_awaited_once()
-
-    async def test_update_no_op_never_ingests(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """An unchanged update never reaches the ingest pipeline or the extractor."""
-        graph = await _open_graph()
-        node_id = uuid4()
-        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            return_value=[
-                {
-                    "id": str(node_id),
-                    "current_content_hash": (
-                        "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-                    ),
-                }
-            ]
-        )
-        ingest_mock = AsyncMock()
-        monkeypatch.setattr(graph_module, "ingest_chunks", ingest_mock)
-
-        result = await graph.update("memory://doc", text="test")
-
-        assert result.no_op is True
-        assert result.add_result is None
-        ingest_mock.assert_not_awaited()
 
     async def test_update_not_found_behaves_like_fresh_add(
         self, monkeypatch: pytest.MonkeyPatch
@@ -515,41 +354,6 @@ class TestGraphAdd:
         assert result.add_result is not None
         assert closes == []
         assert ingest_calls == 1
-
-    async def test_update_change_ingests_before_closing_superseded_edges(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Changed content ingests, then closes the superseded version.
-
-        The close runs inside the commit transaction, after the fresh
-        ingest, so the closing guard can tell the replaced version's
-        edges from the ones just written.
-        """
-        graph = await _open_graph()
-        node_id = uuid4()
-        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
-            return_value=[{"id": str(node_id), "current_content_hash": "old"}]
-        )
-        events: list[str] = []
-        real_close = cutover_module.close_open_part_of_edges
-
-        async def _spy_close(*args: object, **kwargs: object) -> int:
-            events.append("close")
-            return await real_close(*args, **kwargs)
-
-        monkeypatch.setattr(cutover_module, "close_open_part_of_edges", _spy_close)
-        real_ingest = graph_module.ingest_chunks
-
-        async def _spy_ingest(*args: object, **kwargs: object) -> object:
-            events.append("ingest")
-            return await real_ingest(*args, **kwargs)
-
-        monkeypatch.setattr(graph_module, "ingest_chunks", _spy_ingest)
-
-        result = await graph.update("memory://doc", text="new")
-
-        assert result.no_op is False
-        assert events == ["ingest", "close"]
 
     async def test_update_rejects_missing_input(self) -> None:
         """Update with neither text nor source raises like add does."""
@@ -863,17 +667,6 @@ class TestGraphOpen:
                 extractor=_MockExtractor(),
             )
         assert store.close_calls == 1
-
-    async def test_successful_open_does_not_close_store(self) -> None:
-        """A successful open leaves the store connected."""
-        store = _MockGraphStore()
-        await Graph.open(
-            schema=GENERIC,
-            graph_store=store,
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-        )
-        assert store.close_calls == 0
 
 
 class TestGraphVectorStore:

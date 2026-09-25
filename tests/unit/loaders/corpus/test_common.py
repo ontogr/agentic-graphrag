@@ -45,21 +45,6 @@ def _decoded(text: str) -> DecodedText:
 class TestDocumentId:
     """The document id resolves from content hash or record id."""
 
-    def test_id_from_content_hash(self) -> None:
-        """Id from content hash."""
-        doc = Document(
-            text="x",
-            title="t",
-            uri="u",
-            source_format=SourceFormat.TXT,
-            family=DocumentFamily.PROSE,
-            content_hash="abc",
-            loader_name="text",
-            char_count=1,
-            line_count=1,
-        )
-        assert doc.id is not None
-
     def test_record_id_overrides_content_hash(self) -> None:
         """Record id overrides content hash."""
         base = {

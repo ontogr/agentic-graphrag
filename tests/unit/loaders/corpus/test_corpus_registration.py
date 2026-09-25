@@ -67,7 +67,3 @@ class TestCorpusRegistration:
         pytest.importorskip("docling")
         loader = registry.for_source(SourceRef(uri="x.xml", extension=".xml"))
         assert isinstance(loader, DoclingLoader)
-
-    def test_docling_loader_advertises_extra(self) -> None:
-        """Docling loader advertises extra."""
-        assert DoclingLoader.extra == "docling"

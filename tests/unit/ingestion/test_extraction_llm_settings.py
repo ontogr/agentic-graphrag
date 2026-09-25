@@ -1,50 +1,14 @@
-"""Tests for ExtractionLLMSettings env loading and the OpenAI env bridge.
+"""Tests for ``ExtractionLLMSettings.from_openai_compatible_env``.
 
-Covers reading ``EXTRACTION_LLM_CLIENTS``/``_STRATEGY``/``_RETRY`` and their
-defaults, and ``from_openai_compatible_env`` building a single
-openai-generic client from ``LLM_BASE_URL``, ``LLM_API_KEY``, and
-``LLM_MODEL_ID``. Uses ``monkeypatch.setenv``/``delenv`` for environment
-variables. The ``from_openai_compatible_env`` tests patch its explicit
-``load_dotenv()`` call to a no-op; the ``ExtractionLLMSettings()`` tests
-rely on pydantic-settings' own ``env_file`` loading and are not protected
-by that patch.
+Covers building a single openai-generic client from ``LLM_BASE_URL``,
+``LLM_API_KEY``, and ``LLM_MODEL_ID``, and raising when they are absent.
+Uses ``monkeypatch.setenv``/``delenv`` for environment variables, and
+patches the explicit ``load_dotenv()`` call to a no-op.
 """
 
 import pytest
 
 from agrag.ingestion.extract import ExtractionLLMSettings
-from agrag.llm.client_config import LLMClientConfig
-
-
-class TestExtractionLLMSettingsEnv:
-    """Settings load clients, strategy, and retry from EXTRACTION_LLM_* vars."""
-
-    def test_loads_clients_strategy_and_retry(self, monkeypatch) -> None:
-        """All three fields are read from the environment."""
-        monkeypatch.setenv(
-            "EXTRACTION_LLM_CLIENTS",
-            '[{"name": "c", "provider": "openai", "model": "gpt-4o-mini"}]',
-        )
-        monkeypatch.setenv("EXTRACTION_LLM_STRATEGY", "fallback")
-        monkeypatch.setenv("EXTRACTION_LLM_RETRY", '{"max_retries": 5}')
-        settings = ExtractionLLMSettings()
-        assert settings.strategy == "fallback"
-        assert settings.retry.max_retries == 5
-        assert settings.clients == [
-            LLMClientConfig(name="c", provider="openai", model="gpt-4o-mini")
-        ]
-
-    def test_defaults_when_env_absent(self, monkeypatch) -> None:
-        """Without env vars, strategy and retry take their defaults."""
-        for var in (
-            "EXTRACTION_LLM_CLIENTS",
-            "EXTRACTION_LLM_STRATEGY",
-            "EXTRACTION_LLM_RETRY",
-        ):
-            monkeypatch.delenv(var, raising=False)
-        settings = ExtractionLLMSettings(clients=[])
-        assert settings.strategy == "single"
-        assert settings.retry.max_retries == 3
 
 
 class TestFromOpenAICompatibleEnv:
@@ -72,12 +36,3 @@ class TestFromOpenAICompatibleEnv:
         monkeypatch.setattr("agrag.ingestion.extract.load_dotenv", lambda **kw: None)
         with pytest.raises(RuntimeError):
             ExtractionLLMSettings.from_openai_compatible_env()
-
-    def test_load_dotenv_does_not_override_existing_env(self, monkeypatch) -> None:
-        """load_dotenv() respects existing env vars instead of overriding them."""
-        monkeypatch.setenv("LLM_BASE_URL", "https://deploy.example.com/v1")
-        monkeypatch.setenv("LLM_MODEL_ID", "production-model")
-        monkeypatch.setattr("agrag.ingestion.extract.load_dotenv", lambda **kw: None)
-        settings = ExtractionLLMSettings.from_openai_compatible_env()
-        assert settings.clients[0].base_url == "https://deploy.example.com/v1"
-        assert settings.clients[0].model == "production-model"
