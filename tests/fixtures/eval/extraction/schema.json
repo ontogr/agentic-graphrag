@@ -1,0 +1,208 @@
+{
+  "name": "kpi_edgar",
+  "version": "1",
+  "entities": [
+    {
+      "label": "kpi",
+      "description": "Key performance indicator expressible in numerical and monetary value, such as revenue or net sales. Every word of the KPI name.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "cy",
+      "description": "The current year value of a KPI. Only the number, without a currency sign or a scale word such as million. Not a forecast or a limit that the company sets.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "py",
+      "description": "The prior year value of a KPI (current year minus 1). Only the number, without a currency sign or a scale word such as million. Not a forecast or a limit that the company sets.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "py1",
+      "description": "The value of a KPI two years before the current year. Only the number, without a currency sign or a scale word such as million. Not a forecast or a limit that the company sets.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "increase",
+      "description": "The number that gives an increase of a KPI from the previous year to the current year. Only the number, without a currency sign or a scale word.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "increase_py",
+      "description": "The number that gives an increase of a KPI from two years back to the prior year. Only the number, without a currency sign or a scale word.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "decrease",
+      "description": "The number that gives a decrease of a KPI from the previous year to the current year. Only the number, without a currency sign or a scale word.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "decrease_py",
+      "description": "The number that gives a decrease of a KPI from two years back to the prior year. Only the number, without a currency sign or a scale word.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "thereof",
+      "description": "A subordinate KPI: a KPI that is part of another, broader KPI. Every word of its name.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "attr",
+      "description": "Words that further describe a KPI and define its exact name.",
+      "properties": {},
+      "subtypes": []
+    },
+    {
+      "label": "kpi_coref",
+      "description": "A co-reference to a KPI mentioned in a previous sentence.",
+      "properties": {},
+      "subtypes": []
+    }
+  ],
+  "relations": [
+    {
+      "label": "RELATED_VALUE",
+      "description": "Links a KPI to a value or change that belongs to it. The link has no direction.",
+      "patterns": [
+        [
+          "attr",
+          "kpi"
+        ],
+        [
+          "attr",
+          "thereof"
+        ],
+        [
+          "cy",
+          "kpi"
+        ],
+        [
+          "cy",
+          "kpi_coref"
+        ],
+        [
+          "cy",
+          "thereof"
+        ],
+        [
+          "decrease",
+          "kpi"
+        ],
+        [
+          "decrease",
+          "thereof"
+        ],
+        [
+          "increase",
+          "kpi"
+        ],
+        [
+          "increase",
+          "thereof"
+        ],
+        [
+          "increase_py",
+          "kpi"
+        ],
+        [
+          "kpi",
+          "attr"
+        ],
+        [
+          "kpi",
+          "cy"
+        ],
+        [
+          "kpi",
+          "decrease"
+        ],
+        [
+          "kpi",
+          "increase"
+        ],
+        [
+          "kpi",
+          "increase_py"
+        ],
+        [
+          "kpi",
+          "py"
+        ],
+        [
+          "kpi",
+          "py1"
+        ],
+        [
+          "kpi",
+          "thereof"
+        ],
+        [
+          "kpi_coref",
+          "cy"
+        ],
+        [
+          "kpi_coref",
+          "thereof"
+        ],
+        [
+          "py",
+          "kpi"
+        ],
+        [
+          "py",
+          "thereof"
+        ],
+        [
+          "py1",
+          "kpi"
+        ],
+        [
+          "py1",
+          "thereof"
+        ],
+        [
+          "thereof",
+          "attr"
+        ],
+        [
+          "thereof",
+          "cy"
+        ],
+        [
+          "thereof",
+          "decrease"
+        ],
+        [
+          "thereof",
+          "increase"
+        ],
+        [
+          "thereof",
+          "kpi"
+        ],
+        [
+          "thereof",
+          "kpi_coref"
+        ],
+        [
+          "thereof",
+          "py"
+        ],
+        [
+          "thereof",
+          "py1"
+        ]
+      ]
+    }
+  ]
+}
