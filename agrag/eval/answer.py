@@ -11,7 +11,7 @@ that point counts as unsupported.
 
 import asyncio
 import re
-from typing import Any
+from typing import Any, TypedDict
 
 from deepeval.metrics import (
     BaseMetric,
@@ -289,6 +289,27 @@ class _CitedSentence:
         )
 
 
+class CitationScoreBreakdown(TypedDict, total=False):
+    """Available precision, recall, and sentence-count fields for one score.
+
+    All fields are optional because abstentions and uncited answers have partial
+    breakdowns.
+
+    Attributes:
+        citation_precision: Fraction of cited sentences supported by evidence.
+        citation_recall: Fraction of eligible sentences supported by evidence.
+        cited_sentences: Number of sentences with citations.
+        supported_sentences: Number of cited sentences supported by evidence.
+        sentences: Number of eligible sentences in the answer.
+    """
+
+    citation_precision: float
+    citation_recall: float
+    cited_sentences: int
+    supported_sentences: int
+    sentences: int
+
+
 class CitationAccuracyMetric(BaseMetric):
     """Score whether each cited sentence follows from the evidence it cites.
 
@@ -311,7 +332,10 @@ class CitationAccuracyMetric(BaseMetric):
         judge: The judge model.
         threshold: The minimum score that counts as success, and the minimum
             support score for one sentence.
+        score_breakdown: Precision, recall, and sentence counts for the score.
     """
+
+    score_breakdown: CitationScoreBreakdown
 
     def __init__(self, judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> None:
         """Bind the judge and the threshold."""
@@ -430,7 +454,9 @@ class CitationAccuracyMetric(BaseMetric):
             },
         )
 
-    def _set(self, score: float, reason: str, breakdown: dict[str, Any]) -> float:
+    def _set(
+        self, score: float, reason: str, breakdown: CitationScoreBreakdown
+    ) -> float:
         self.score = score
         self.reason = reason
         self.score_breakdown = breakdown

@@ -6674,6 +6674,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 
 - [**ChatModelJudge**](#agrag.eval.ChatModelJudge) – Wrap a LangChain chat model as a DeepEval judge.
 - [**CitationAccuracyMetric**](#agrag.eval.CitationAccuracyMetric) – Score whether each cited sentence follows from the evidence it cites.
+- [**CitationScoreBreakdown**](#agrag.eval.CitationScoreBreakdown) – Available precision, recall, and sentence-count fields for one score.
 - [**EvalJudgeSettings**](#agrag.eval.EvalJudgeSettings) – LLM client config for the eval judge.
 - [**ExtractionGold**](#agrag.eval.ExtractionGold) – One gold-annotated chunk of text.
 - [**MedianOfN**](#agrag.eval.MedianOfN) – Run a metric `n` times and report the median score.
@@ -6798,6 +6799,7 @@ The test case must come from `answer_case`, which puts the evidence under
 - [**judge**](#agrag.eval.CitationAccuracyMetric.judge) – The judge model.
 - [**threshold**](#agrag.eval.CitationAccuracyMetric.threshold) – The minimum score that counts as success, and the minimum
   support score for one sentence.
+- [**score_breakdown**](#agrag.eval.CitationAccuracyMetric.score_breakdown) (<code>[CitationScoreBreakdown](#agrag.eval.answer.CitationScoreBreakdown)</code>) – Precision, recall, and sentence counts for the score.
 
 **Functions:**
 
@@ -6846,10 +6848,63 @@ Judge the cited sentences one after the other.
 
 - <code>[float](#float)</code> – The citation accuracy score.
 
+##### `agrag.eval.CitationAccuracyMetric.score_breakdown`
+
+```python
+score_breakdown: CitationScoreBreakdown
+```
+
 ##### `agrag.eval.CitationAccuracyMetric.threshold`
 
 ```python
 threshold = threshold
+```
+
+#### `agrag.eval.CitationScoreBreakdown`
+
+Bases: <code>[TypedDict](#typing.TypedDict)</code>
+
+Available precision, recall, and sentence-count fields for one score.
+
+All fields are optional because abstentions and uncited answers have partial
+breakdowns.
+
+**Attributes:**
+
+- [**citation_precision**](#agrag.eval.CitationScoreBreakdown.citation_precision) (<code>[float](#float)</code>) – Fraction of cited sentences supported by evidence.
+- [**citation_recall**](#agrag.eval.CitationScoreBreakdown.citation_recall) (<code>[float](#float)</code>) – Fraction of eligible sentences supported by evidence.
+- [**cited_sentences**](#agrag.eval.CitationScoreBreakdown.cited_sentences) (<code>[int](#int)</code>) – Number of sentences with citations.
+- [**supported_sentences**](#agrag.eval.CitationScoreBreakdown.supported_sentences) (<code>[int](#int)</code>) – Number of cited sentences supported by evidence.
+- [**sentences**](#agrag.eval.CitationScoreBreakdown.sentences) (<code>[int](#int)</code>) – Number of eligible sentences in the answer.
+
+##### `agrag.eval.CitationScoreBreakdown.citation_precision`
+
+```python
+citation_precision: float
+```
+
+##### `agrag.eval.CitationScoreBreakdown.citation_recall`
+
+```python
+citation_recall: float
+```
+
+##### `agrag.eval.CitationScoreBreakdown.cited_sentences`
+
+```python
+cited_sentences: int
+```
+
+##### `agrag.eval.CitationScoreBreakdown.sentences`
+
+```python
+sentences: int
+```
+
+##### `agrag.eval.CitationScoreBreakdown.supported_sentences`
+
+```python
+supported_sentences: int
 ```
 
 #### `agrag.eval.EvalJudgeSettings`
@@ -7324,6 +7379,7 @@ that point counts as unsupported.
 **Classes:**
 
 - [**CitationAccuracyMetric**](#agrag.eval.answer.CitationAccuracyMetric) – Score whether each cited sentence follows from the evidence it cites.
+- [**CitationScoreBreakdown**](#agrag.eval.answer.CitationScoreBreakdown) – Available precision, recall, and sentence-count fields for one score.
 
 **Functions:**
 
@@ -7374,6 +7430,7 @@ The test case must come from `answer_case`, which puts the evidence under
 - [**judge**](#agrag.eval.answer.CitationAccuracyMetric.judge) – The judge model.
 - [**threshold**](#agrag.eval.answer.CitationAccuracyMetric.threshold) – The minimum score that counts as success, and the minimum
   support score for one sentence.
+- [**score_breakdown**](#agrag.eval.answer.CitationAccuracyMetric.score_breakdown) (<code>[CitationScoreBreakdown](#agrag.eval.answer.CitationScoreBreakdown)</code>) – Precision, recall, and sentence counts for the score.
 
 **Functions:**
 
@@ -7422,10 +7479,63 @@ Judge the cited sentences one after the other.
 
 - <code>[float](#float)</code> – The citation accuracy score.
 
+###### `agrag.eval.answer.CitationAccuracyMetric.score_breakdown`
+
+```python
+score_breakdown: CitationScoreBreakdown
+```
+
 ###### `agrag.eval.answer.CitationAccuracyMetric.threshold`
 
 ```python
 threshold = threshold
+```
+
+##### `agrag.eval.answer.CitationScoreBreakdown`
+
+Bases: <code>[TypedDict](#typing.TypedDict)</code>
+
+Available precision, recall, and sentence-count fields for one score.
+
+All fields are optional because abstentions and uncited answers have partial
+breakdowns.
+
+**Attributes:**
+
+- [**citation_precision**](#agrag.eval.answer.CitationScoreBreakdown.citation_precision) (<code>[float](#float)</code>) – Fraction of cited sentences supported by evidence.
+- [**citation_recall**](#agrag.eval.answer.CitationScoreBreakdown.citation_recall) (<code>[float](#float)</code>) – Fraction of eligible sentences supported by evidence.
+- [**cited_sentences**](#agrag.eval.answer.CitationScoreBreakdown.cited_sentences) (<code>[int](#int)</code>) – Number of sentences with citations.
+- [**supported_sentences**](#agrag.eval.answer.CitationScoreBreakdown.supported_sentences) (<code>[int](#int)</code>) – Number of cited sentences supported by evidence.
+- [**sentences**](#agrag.eval.answer.CitationScoreBreakdown.sentences) (<code>[int](#int)</code>) – Number of eligible sentences in the answer.
+
+###### `agrag.eval.answer.CitationScoreBreakdown.citation_precision`
+
+```python
+citation_precision: float
+```
+
+###### `agrag.eval.answer.CitationScoreBreakdown.citation_recall`
+
+```python
+citation_recall: float
+```
+
+###### `agrag.eval.answer.CitationScoreBreakdown.cited_sentences`
+
+```python
+cited_sentences: int
+```
+
+###### `agrag.eval.answer.CitationScoreBreakdown.sentences`
+
+```python
+sentences: int
+```
+
+###### `agrag.eval.answer.CitationScoreBreakdown.supported_sentences`
+
+```python
+supported_sentences: int
 ```
 
 ##### `agrag.eval.answer.answer_case`
