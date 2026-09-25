@@ -7,8 +7,11 @@ matching. The relaxed scores (overlap of at least 0.5) go to the report
 beside them, so a gap shows a span boundary problem and not a missed entity.
 
 The report is written to ``reports/eval/extraction_quality.json``, or to the
-directory in ``E2E_ARTIFACT_DIR``. The BAML case skips without ``LLM_*``
-settings. The GLiNER case skips without the ``extract`` extra.
+directory in ``E2E_ARTIFACT_DIR``. The test skips without ``LLM_*`` settings.
+
+GLiNER (``fastino/gliner2.5-small-v1``) is not gated. On this slice it scores
+0.04 entity F1 and finds no relations, on every run, so a threshold would never
+fail. It tags years as ``cy`` and misses most KPI names.
 
 Each threshold is the lowest of three baseline runs minus 0.05, rounded down to
 0.05. Baseline runs (entity F1, relation F1):
