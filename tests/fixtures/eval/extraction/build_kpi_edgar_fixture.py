@@ -41,21 +41,42 @@ MAX_TEXT_CHARS = 600
 
 # Entity definitions follow Table I of Deusser et al., "KPI-EDGAR: A Novel
 # Dataset and Accompanying Metric for Relation Extraction from Financial
-# Documents" (arXiv 2210.09163).
+# Documents" (arXiv 2210.09163) and the annotation guide in kpi_edgar.xlsx.
+# The guide marks a value as the number alone, so the descriptions say to leave
+# out the currency sign and the scale word. An extractor cannot guess that.
+_VALUE = (
+    "Only the number, without a currency sign or a scale word such as million. "
+    "Not a forecast or a limit that the company sets."
+)
 ENTITY_DESCRIPTIONS = {
     "kpi": (
         "Key performance indicator expressible in numerical and monetary value, "
-        "such as revenue or net sales."
+        "such as revenue or net sales. Every word of the KPI name."
     ),
-    "cy": "Current year monetary value of a KPI.",
-    "py": "Prior year monetary value of a KPI.",
-    "py1": "Monetary value of a KPI two years before the current year.",
-    "increase": "Increase of a KPI from the previous year to the current year.",
-    "increase_py": "Analogous to increase, but from two years back to the prior year.",
-    "decrease": "Decrease of a KPI from the previous year to the current year.",
-    "decrease_py": "Analogous to decrease, but from two years back to the prior year.",
-    "thereof": ("A subordinate KPI: a KPI that is part of another, broader KPI."),
-    "attr": "Attribute that further describes a KPI.",
+    "cy": f"The current year value of a KPI. {_VALUE}",
+    "py": f"The prior year value of a KPI (current year minus 1). {_VALUE}",
+    "py1": f"The value of a KPI two years before the current year. {_VALUE}",
+    "increase": (
+        "The number that gives an increase of a KPI from the previous year to "
+        "the current year. Only the number, without a currency sign or a scale word."
+    ),
+    "increase_py": (
+        "The number that gives an increase of a KPI from two years back to the "
+        "prior year. Only the number, without a currency sign or a scale word."
+    ),
+    "decrease": (
+        "The number that gives a decrease of a KPI from the previous year to "
+        "the current year. Only the number, without a currency sign or a scale word."
+    ),
+    "decrease_py": (
+        "The number that gives a decrease of a KPI from two years back to the "
+        "prior year. Only the number, without a currency sign or a scale word."
+    ),
+    "thereof": (
+        "A subordinate KPI: a KPI that is part of another, broader KPI. Every "
+        "word of its name."
+    ),
+    "attr": "Words that further describe a KPI and define its exact name.",
     "kpi_coref": "A co-reference to a KPI mentioned in a previous sentence.",
 }
 # KPI-EDGAR names these labels differently in the source file.

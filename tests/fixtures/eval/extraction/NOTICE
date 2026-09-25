@@ -24,6 +24,7 @@ Changes made:
 - The relation "matches" is renamed RELATED_VALUE, because MATCHES names the
   entity resolution edge in agrag. The relation has no direction. The schema
   lists each entity pair in both orders.
-- Entity descriptions in schema.json are written from Table I of the paper.
+- Entity descriptions in schema.json are written from Table I of the paper and
+  the annotation guide in kpi_edgar.xlsx.
 - Data is stored as agrag ExtractionResult objects. Run
   build_kpi_edgar_fixture.py against a clone of KPI-EDGAR to rebuild the files.
