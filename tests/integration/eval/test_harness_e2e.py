@@ -16,7 +16,6 @@ from deepeval.test_case import LLMTestCase, SingleTurnParams
 from agrag.agents.settings import AgentLLMSettings
 from agrag.eval.judge import ChatModelJudge
 from agrag.eval.repeat import MedianOfN
-from tests.integration.eval.conftest import TinyCorpus
 
 
 QUESTION = "Who designed the Lumen-9 lifting arm at Zephyra Robotics?"
@@ -31,7 +30,6 @@ def _answer_text(result: dict[str, Any]) -> str:
 
 async def test_agent_answer_scores_in_unit_range(
     judge: ChatModelJudge,
-    tiny_corpus: TinyCorpus,
     agent_factory: Callable[[], Any],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
