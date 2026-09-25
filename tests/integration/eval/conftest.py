@@ -3,7 +3,7 @@
 ``judge`` builds the DeepEval judge from ``EVAL_JUDGE_*`` (falling back to
 ``LLM_*``) and skips when no key is set, as on fork pull requests.
 ``tiny_corpus`` ingests three short documents about one invented company into
-Neo4j with a fixed extractor and ``HashedWordEmbedder``, so the graph is the
+Neo4j with a fixed extractor and ``_FakeHashedWordEmbedder``, so the graph is the
 same on every run. The embedder scores word overlap only, so questions must
 share words with the passages they target. ``agent_factory`` builds an agent
 over that graph with the real LLM.
@@ -55,7 +55,7 @@ DOCUMENTS = (
 )
 
 
-class HashedWordEmbedder(Embedder):
+class _FakeHashedWordEmbedder(Embedder):
     """Embedder that hashes each lower-cased word into one of 64 buckets.
 
     Vectors are counts of words per bucket, L2-normalised. They are never
@@ -162,7 +162,7 @@ async def tiny_corpus() -> AsyncGenerator[TinyCorpus, None]:
         ],
         relations=[],
     )
-    embedder = HashedWordEmbedder()
+    embedder = _FakeHashedWordEmbedder()
     connected = False
     try:
         await store.connect()
