@@ -7233,6 +7233,10 @@ gate belongs on the dataset score.
 
 - **threshold** (<code>[float](#float)</code>) – The minimum case score that counts as success.
 
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A metric that scores exact entity F1 for one case.
+
 #### `agrag.eval.extraction`
 
 Extraction quality: entity and relation-triple F1 against gold annotations.
@@ -7243,8 +7247,8 @@ same label. Second, each predicted relation is mapped through that alignment to
 gold entity indices and compared as a `(source, label, target)` triple. Exact
 alignment needs the same character span. Relaxed alignment needs an overlap
 (intersection over union) of at least 0.5. Both are one to one: when several
-predictions overlap one gold entity, the best overlap wins and the rest count
-as false positives.
+predictions overlap gold entities, alignment maximizes valid pairs and then
+total overlap. Unaligned predictions count as false positives.
 
 Every case reports exact and relaxed results. The exact score gates. A large gap
 between the two shows a span boundary problem, not a missed entity. The
@@ -7513,6 +7517,10 @@ gate belongs on the dataset score.
 
 - **threshold** (<code>[float](#float)</code>) – The minimum case score that counts as success.
 
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A metric that scores exact entity F1 for one case.
+
 ##### `agrag.eval.extraction.extraction_case`
 
 ```python
@@ -7527,6 +7535,10 @@ Build a test case that holds a predicted and a gold extraction.
 - **predicted** (<code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code>) – The extractor output.
 - **gold** (<code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code>) – The gold annotation.
 
+**Returns:**
+
+- <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – A test case with serialized predicted and gold extractions.
+
 ##### `agrag.eval.extraction.micro_scores`
 
 ```python
@@ -7539,6 +7551,10 @@ Pool measured entity and relation metrics into dataset scores.
 
 - **metrics** (<code>[Iterable](#collections.abc.Iterable)\[[ScoreMetric](#agrag.eval.adapter.ScoreMetric)\]</code>) – Metrics from `entity_quality_metric` and
   `relation_quality_metric`, after `measure`.
+
+**Returns:**
+
+- <code>[MicroScores](#agrag.eval.extraction.MicroScores)</code> – Pooled exact and relaxed scores for entities and relations.
 
 **Raises:**
 
@@ -7560,6 +7576,10 @@ triple is in gold. Use a new metric for each case.
 - **symmetric_labels** (<code>[frozenset](#frozenset)\[[str](#str)\]</code>) – Relation labels with no direction. Their two endpoints
   are sorted before comparison.
 - **threshold** (<code>[float](#float)</code>) – The minimum case score that counts as success.
+
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A metric that scores exact relation F1 for one case.
 
 ##### `agrag.eval.extraction.run_extractor`
 
@@ -7600,6 +7620,10 @@ Build a test case that holds a predicted and a gold extraction.
 - **chunk_text** (<code>[str](#str)</code>) – The text the extractor read.
 - **predicted** (<code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code>) – The extractor output.
 - **gold** (<code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code>) – The gold annotation.
+
+**Returns:**
+
+- <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – A test case with serialized predicted and gold extractions.
 
 #### `agrag.eval.judge`
 
@@ -7692,6 +7716,10 @@ Pool measured entity and relation metrics into dataset scores.
 - **metrics** (<code>[Iterable](#collections.abc.Iterable)\[[ScoreMetric](#agrag.eval.adapter.ScoreMetric)\]</code>) – Metrics from `entity_quality_metric` and
   `relation_quality_metric`, after `measure`.
 
+**Returns:**
+
+- <code>[MicroScores](#agrag.eval.extraction.MicroScores)</code> – Pooled exact and relaxed scores for entities and relations.
+
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – No entity metric or no relation metric was given.
@@ -7725,6 +7753,10 @@ triple is in gold. Use a new metric for each case.
 - **symmetric_labels** (<code>[frozenset](#frozenset)\[[str](#str)\]</code>) – Relation labels with no direction. Their two endpoints
   are sorted before comparison.
 - **threshold** (<code>[float](#float)</code>) – The minimum case score that counts as success.
+
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A metric that scores exact relation F1 for one case.
 
 #### `agrag.eval.repeat`
 

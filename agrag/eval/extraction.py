@@ -6,8 +6,8 @@ same label. Second, each predicted relation is mapped through that alignment to
 gold entity indices and compared as a ``(source, label, target)`` triple. Exact
 alignment needs the same character span. Relaxed alignment needs an overlap
 (intersection over union) of at least 0.5. Both are one to one: when several
-predictions overlap one gold entity, the best overlap wins and the rest count
-as false positives.
+predictions overlap gold entities, alignment maximizes valid pairs and then
+total overlap. Unaligned predictions count as false positives.
 
 Every case reports exact and relaxed results. The exact score gates. A large gap
 between the two shows a span boundary problem, not a missed entity. The
@@ -23,6 +23,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from deepeval.test_case import LLMTestCase
 from pydantic import BaseModel
+from scipy.optimize import linear_sum_assignment
 from sklearn.metrics import precision_recall_fscore_support
 
 from agrag.common.data_models.chunk import Chunk
@@ -124,6 +125,9 @@ def extraction_case(
         chunk_text: The text the extractor read.
         predicted: The extractor output.
         gold: The gold annotation.
+
+    Returns:
+        A test case with serialized predicted and gold extractions.
     """
     return to_json_case(chunk_text, predicted, gold)
 
@@ -179,6 +183,9 @@ def entity_quality_metric(*, threshold: float = 0.0) -> ScoreMetric:
 
     Args:
         threshold: The minimum case score that counts as success.
+
+    Returns:
+        A metric that scores exact entity F1 for one case.
     """
     return ScoreMetric("Entity quality", _score_entities, threshold)
 
@@ -195,6 +202,9 @@ def relation_quality_metric(
         symmetric_labels: Relation labels with no direction. Their two endpoints
             are sorted before comparison.
         threshold: The minimum case score that counts as success.
+
+    Returns:
+        A metric that scores exact relation F1 for one case.
     """
 
     def scorer(test_case: LLMTestCase) -> ScoreResult:
@@ -209,6 +219,9 @@ def micro_scores(metrics: Iterable[ScoreMetric]) -> MicroScores:
     Args:
         metrics: Metrics from ``entity_quality_metric`` and
             ``relation_quality_metric``, after ``measure``.
+
+    Returns:
+        Pooled exact and relaxed scores for entities and relations.
 
     Raises:
         ValueError: No entity metric or no relation metric was given.
@@ -252,23 +265,31 @@ def _overlap(a: ExtractedEntity, b: ExtractedEntity) -> float:
 def _align(
     predicted: list[ExtractedEntity], gold: list[ExtractedEntity], min_overlap: float
 ) -> dict[int, int]:
-    """Map predicted entity indices to gold indices, one to one, best overlap first."""
-    candidates = sorted(
-        (
-            (-_overlap(p, g), i, j)
-            for i, p in enumerate(predicted)
-            for j, g in enumerate(gold)
-            if p.label == g.label
-        ),
-    )
+    """Align entities by maximum cardinality, then total overlap."""
     aligned: dict[int, int] = {}
-    taken: set[int] = set()
-    for negative_overlap, i, j in candidates:
-        if -negative_overlap < min_overlap:
-            break
-        if i not in aligned and j not in taken:
-            aligned[i] = j
-            taken.add(j)
+    labels = {entity.label for entity in (*predicted, *gold)}
+    for label in labels:
+        predicted_indices = [
+            index for index, entity in enumerate(predicted) if entity.label == label
+        ]
+        gold_indices = [
+            index for index, entity in enumerate(gold) if entity.label == label
+        ]
+        if not predicted_indices or not gold_indices:
+            continue
+
+        cardinality_bonus = min(len(predicted_indices), len(gold_indices)) + 1
+        weights = [[0.0] * len(gold_indices) for _ in predicted_indices]
+        for row, predicted_index in enumerate(predicted_indices):
+            for column, gold_index in enumerate(gold_indices):
+                overlap = _overlap(predicted[predicted_index], gold[gold_index])
+                if overlap >= min_overlap:
+                    weights[row][column] = cardinality_bonus + overlap
+
+        rows, columns = linear_sum_assignment(weights, maximize=True)
+        for row, column in zip(rows, columns, strict=True):
+            if weights[row][column] > cardinality_bonus:
+                aligned[predicted_indices[row]] = gold_indices[column]
     return aligned
 
 
