@@ -7406,6 +7406,10 @@ key to that text for `CitationAccuracyMetric`.
 - **result** (<code>[AgentRunResult](#agrag.agents.result.AgentRunResult)</code>) – The result of `agent.ainvoke` for that question.
 - **reference** (<code>[str](#str)</code>) – The reference answer.
 
+**Returns:**
+
+- <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – The test case with the answer and rendered evidence.
+
 ##### `agrag.eval.answer.context_precision`
 
 ```python
@@ -7414,7 +7418,14 @@ context_precision(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 
 Build the metric for useful evidence ranked before noise.
 
-Takes the same arguments as `correctness`.
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The context precision metric.
 
 ##### `agrag.eval.answer.context_recall`
 
@@ -7424,7 +7435,14 @@ context_recall(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 
 Build the metric for reference facts that the evidence covers.
 
-Takes the same arguments as `correctness`.
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The context recall metric.
 
 ##### `agrag.eval.answer.correctness`
 
@@ -7439,6 +7457,10 @@ Build the answer correctness metric against the reference.
 - **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
 - **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
 
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The correctness metric.
+
 ##### `agrag.eval.answer.faithfulness`
 
 ```python
@@ -7449,7 +7471,16 @@ Build the metric for claims that the evidence the agent saw does not contradict.
 
 A claim that the evidence does not mention counts as faithful. Only a claim
 that the evidence contradicts lowers the score. `CitationAccuracyMetric`
-catches unsupported claims. Takes the same arguments as `correctness`.
+catches unsupported claims.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The faithfulness metric.
 
 ##### `agrag.eval.answer.final_answer`
 
@@ -7488,6 +7519,10 @@ key to that text for `CitationAccuracyMetric`.
 - **result** (<code>[AgentRunResult](#agrag.agents.result.AgentRunResult)</code>) – The result of `agent.ainvoke` for that question.
 - **reference** (<code>[str](#str)</code>) – The reference answer.
 
+**Returns:**
+
+- <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – The test case with the answer and rendered evidence.
+
 #### `agrag.eval.context_precision`
 
 ```python
@@ -7496,7 +7531,14 @@ context_precision(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 
 Build the metric for useful evidence ranked before noise.
 
-Takes the same arguments as `correctness`.
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The context precision metric.
 
 #### `agrag.eval.context_recall`
 
@@ -7506,7 +7548,14 @@ context_recall(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 
 Build the metric for reference facts that the evidence covers.
 
-Takes the same arguments as `correctness`.
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The context recall metric.
 
 #### `agrag.eval.correctness`
 
@@ -7520,6 +7569,10 @@ Build the answer correctness metric against the reference.
 
 - **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
 - **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The correctness metric.
 
 #### `agrag.eval.entity_quality_metric`
 
@@ -7939,7 +7992,16 @@ Build the metric for claims that the evidence the agent saw does not contradict.
 
 A claim that the evidence does not mention counts as faithful. Only a claim
 that the evidence contradicts lowers the score. `CitationAccuracyMetric`
-catches unsupported claims. Takes the same arguments as `correctness`.
+catches unsupported claims.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The faithfulness metric.
 
 #### `agrag.eval.final_answer`
 

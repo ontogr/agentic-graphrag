@@ -22,6 +22,7 @@ from deepeval.metrics import (
 )
 from deepeval.models import DeepEvalBaseLLM
 from deepeval.test_case import LLMTestCase, SingleTurnParams
+from langchain_core.messages import BaseMessage
 
 from agrag.agents.result import AgentRunResult
 
@@ -79,7 +80,7 @@ def _is_assistant(message: Any) -> bool:
     """Tell an assistant message from a dict or a LangChain message object."""
     if isinstance(message, dict):
         return message.get("role") == "assistant"
-    return getattr(message, "type", None) == "ai"
+    return isinstance(message, BaseMessage) and message.type == "ai"
 
 
 def final_answer(result: AgentRunResult) -> str:
@@ -125,6 +126,9 @@ def answer_case(question: str, result: AgentRunResult, reference: str) -> LLMTes
         question: The question the agent answered.
         result: The result of ``agent.ainvoke`` for that question.
         reference: The reference answer.
+
+    Returns:
+        The test case with the answer and rendered evidence.
     """
     evidence = _rendered_evidence(result)
     return LLMTestCase(
@@ -142,6 +146,9 @@ def correctness(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMetric
     Args:
         judge: The judge model.
         threshold: The minimum score that counts as success.
+
+    Returns:
+        The correctness metric.
     """
     return GEval(
         name="Correctness",
@@ -161,7 +168,14 @@ def faithfulness(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMetri
 
     A claim that the evidence does not mention counts as faithful. Only a claim
     that the evidence contradicts lowers the score. ``CitationAccuracyMetric``
-    catches unsupported claims. Takes the same arguments as ``correctness``.
+    catches unsupported claims.
+
+    Args:
+        judge: The judge model.
+        threshold: The minimum score that counts as success.
+
+    Returns:
+        The faithfulness metric.
     """
     return FaithfulnessMetric(model=judge, threshold=threshold)
 
@@ -169,7 +183,12 @@ def faithfulness(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMetri
 def context_precision(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMetric:
     """Build the metric for useful evidence ranked before noise.
 
-    Takes the same arguments as ``correctness``.
+    Args:
+        judge: The judge model.
+        threshold: The minimum score that counts as success.
+
+    Returns:
+        The context precision metric.
     """
     return ContextualPrecisionMetric(model=judge, threshold=threshold)
 
@@ -177,7 +196,12 @@ def context_precision(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> Base
 def context_recall(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMetric:
     """Build the metric for reference facts that the evidence covers.
 
-    Takes the same arguments as ``correctness``.
+    Args:
+        judge: The judge model.
+        threshold: The minimum score that counts as success.
+
+    Returns:
+        The context recall metric.
     """
     return ContextualRecallMetric(model=judge, threshold=threshold)
 

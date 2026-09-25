@@ -42,9 +42,9 @@ env:
   LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
   LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
   LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
-  EVAL_JUDGE_BASE_URL: ${{ secrets.LLM_BASE_URL }}
-  EVAL_JUDGE_API_KEY: ${{ secrets.LLM_API_KEY }}
-  EVAL_JUDGE_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
+  EVAL_JUDGE_BASE_URL: ${{ secrets.EVAL_JUDGE_BASE_URL || secrets.LLM_BASE_URL }}
+  EVAL_JUDGE_API_KEY: ${{ secrets.EVAL_JUDGE_API_KEY || secrets.LLM_API_KEY }}
+  EVAL_JUDGE_MODEL_ID: ${{ secrets.EVAL_JUDGE_MODEL_ID || secrets.LLM_MODEL_ID }}
 
 jobs:
   eval-answer:
