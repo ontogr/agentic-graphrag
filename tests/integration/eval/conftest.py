@@ -146,7 +146,6 @@ async def tiny_corpus() -> AsyncGenerator[TinyCorpus, None]:
     if importlib.util.find_spec("neo4j") is None:
         pytest.skip("neo4j extra not installed")
     store = build_graph_store("neo4j")
-    await store.connect()
     token = f"run{uuid4().hex[:8]}"
     suffix = uuid4().hex[:8]
     person = validate_identifier(f"Person_{suffix}")
@@ -164,25 +163,28 @@ async def tiny_corpus() -> AsyncGenerator[TinyCorpus, None]:
         relations=[],
     )
     embedder = HashedWordEmbedder()
-    for label in (*labels, CHUNK_LABEL):
-        await store.ensure_vector_index(
-            label=label,
-            vector_property="embedding",
-            dimensions=_DIMENSIONS,
-            distance=Distance.COSINE,
-        )
-    name_labels = {
-        **dict.fromkeys(_PEOPLE, person),
-        **dict.fromkeys(_ORGANIZATIONS, organization),
-        **dict.fromkeys(_PRODUCTS, product),
-    }
-    graph = Graph(
-        schema=schema,
-        graph_store=store,
-        embedder=embedder,
-        extractor=_FactExtractor(name_labels),
-    )
+    connected = False
     try:
+        await store.connect()
+        connected = True
+        for label in (*labels, CHUNK_LABEL):
+            await store.ensure_vector_index(
+                label=label,
+                vector_property="embedding",
+                dimensions=_DIMENSIONS,
+                distance=Distance.COSINE,
+            )
+        name_labels = {
+            **dict.fromkeys(_PEOPLE, person),
+            **dict.fromkeys(_ORGANIZATIONS, organization),
+            **dict.fromkeys(_PRODUCTS, product),
+        }
+        graph = Graph(
+            schema=schema,
+            graph_store=store,
+            embedder=embedder,
+            extractor=_FactExtractor(name_labels),
+        )
         for template in DOCUMENTS:
             await graph.add(text=template.format(token=token))
         engine = SearchEngine(
@@ -193,15 +195,19 @@ async def tiny_corpus() -> AsyncGenerator[TinyCorpus, None]:
         )
         yield TinyCorpus(engine=engine, store=store, labels=labels, token=token)
     finally:
-        try:
-            await store.execute_write(
-                f"MATCH (c:{CHUNK_LABEL}) WHERE c.text CONTAINS $token DETACH DELETE c",
-                {"token": token},
-            )
-            for label in labels:
-                await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
-            await drop_schema_for(store, *labels)
-        finally:
+        if connected:
+            try:
+                await store.execute_write(
+                    f"MATCH (c:{CHUNK_LABEL}) WHERE c.text CONTAINS $token "
+                    "DETACH DELETE c",
+                    {"token": token},
+                )
+                for label in labels:
+                    await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
+                await drop_schema_for(store, *labels)
+            finally:
+                await store.close()
+        else:
             await store.close()
 
 
