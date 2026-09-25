@@ -65,6 +65,7 @@ Pushing to `main` with changes under `docs/`, `agrag/`, or `pyproject.toml` buil
 | --- | --- |
 | `make sync` | Install all dependencies |
 | `make test` | Run unit tests with coverage |
+| `make test-eval` | Run judged and real-agent evals (needs Neo4j and an LLM key) |
 | `make lint-all` | Format, lint, and type check |
 | `make lint-check` | Check formatting and lint without modifying files |
 | `make security` | Run Bandit and pip-audit |
