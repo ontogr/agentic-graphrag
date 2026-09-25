@@ -31,6 +31,7 @@ class _ScriptedJudge(DeepEvalBaseLLM):
 
     def __init__(self, fail_on: str | None = None) -> None:
         self.scoring_calls = 0
+        self.scoring_prompts: list[str] = []
         self._fail_on = fail_on
         super().__init__("scripted")
 
@@ -48,6 +49,7 @@ class _ScriptedJudge(DeepEvalBaseLLM):
                 {"steps": ["Compare the output with the context."]}
             )
         self.scoring_calls += 1
+        self.scoring_prompts.append(prompt)
         if self._fail_on and self._fail_on in prompt:
             raise RuntimeError("judge failed")
         score = 10 if "supported claim" in prompt else 0
@@ -151,6 +153,15 @@ class TestAnswerCase:
 
 class TestCitationAccuracyMetric:
     """The metric scores each cited sentence and combines precision and recall."""
+
+    async def test_judge_checks_claims_and_relationships_against_evidence(self) -> None:
+        """The judge gets instructions to check claims, not just entity mentions."""
+        judge = _ScriptedJudge()
+        await _score("Acme founded in 1994 [E1].", judge)
+
+        assert len(judge.scoring_prompts) == 1
+        assert "claims and relationships" in judge.scoring_prompts[0]
+        assert "entities or figures appear individually" in judge.scoring_prompts[0]
 
     @pytest.mark.parametrize(
         "answer",

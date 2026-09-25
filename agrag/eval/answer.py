@@ -53,13 +53,17 @@ _CORRECTNESS_STEPS = [
     "Accept vague wording and a differing opinion when the facts agree.",
 ]
 _SUPPORT_STEPS = [
-    "List each figure and entity that the actual output states.",
+    "Check every factual claim in the sentence against the cited evidence, "
+    "including the claims and relationships between entities. The fact that "
+    "entities or figures appear individually does not support the relationship "
+    "or claim asserted about them.",
     "For a figure that the retrieval context does not state, do the calculation "
     "yourself from the figures it does state (sum, difference, ratio, percent "
-    "change). Count the figure as supported when your result matches it after "
-    "rounding.",
-    "Lower the score for each figure or entity that the retrieval context does "
-    "not state and that no such calculation gives.",
+    "change). Count only that figure as supported when your result matches it "
+    "after rounding; this does not establish other claims in the sentence.",
+    "Lower the score when any claim or relationship is unsupported or "
+    "contradicted by the cited evidence, even if its entities or figures appear "
+    "in the evidence.",
 ]
 
 
