@@ -1,7 +1,7 @@
 """End-to-end answer-quality evaluation on the FinQA fixture.
 
 Ingests one FinQA page (2 handpicked questions, see
-``tests/fixtures/eval/answer_quality/NOTICE``) with the real extractor, runs the
+``tests/fixtures/eval/answer_quality/NOTICE``) with a fixed extractor, runs the
 real agent on each question and scores every answer with the five answer-quality
 metrics from the real judge. Each judged metric is the median of 3 runs. The gate
 is the mean of each metric over the questions.
@@ -13,9 +13,8 @@ breakdown and the number of LLM calls the agent made for each question.
 
 Retrieval here uses hashed word overlap, not a real embedder, so scores follow
 lexical match plus graph traversal. They guard against regression. They do not
-compare with scores from a real embedder. The agent also reads only the first
-200 characters of each chunk, so the fixture holds only questions whose gold
-figures sit inside one such preview.
+compare with scores from a real embedder. The fixed extractor keeps the graph the
+same on every run, so only the agent and the judge vary.
 
 Each threshold is the lowest of three baseline means minus 0.05, rounded down to
 0.05. With 2 questions a mean takes few distinct values, so the gate is coarse.

@@ -60,7 +60,7 @@ The table has one row for each question, and a last row with the means. Each sco
 | `context_recall` | The evidence does not cover the reference answer. |
 | `citation_accuracy` | A cited item does not support the sentence that cites it. |
 
-Each judged score is the median of three judge runs. The agent reads only the first 200 characters of each chunk. A question whose answer sits deeper in a chunk scores low on `context_recall`.
+Each judged score is the median of three judge runs. The agent reads each chunk in full, up to 2000 characters.
 
 ## Control the cost
 

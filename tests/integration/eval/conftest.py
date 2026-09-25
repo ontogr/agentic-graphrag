@@ -8,7 +8,7 @@ same on every run. The embedder scores word overlap only, so questions must
 share words with the passages they target. ``agent_factory`` builds an agent
 over that graph with the real LLM.
 ``answer_quality_graph`` ingests the FinQA pages of the answer-quality fixture
-with the real extractor and the same embedder. ``answer_quality_agent_factory``
+with a fixed extractor and the same embedder. ``answer_quality_agent_factory``
 builds an agent over it.
 """
 
@@ -39,9 +39,8 @@ from agrag.eval.judge import ChatModelJudge
 from agrag.eval.settings import EvalJudgeSettings
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings, Extractor
+from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
-from agrag.llm.client_config import RetryConfig
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 from tests.integration._schema_cleanup import drop_schema_for
@@ -136,24 +135,6 @@ class TinyCorpus:
     store: GraphStore
     labels: tuple[str, ...]
     token: str
-
-
-class _ThrottledExtractor(Extractor):
-    """Extractor that runs at most two extraction calls at once.
-
-    The endpoint answers 429 and drops connections when the pipeline extracts
-    every chunk together.
-    """
-
-    def __init__(self, extractor: Extractor) -> None:
-        """Wrap ``extractor`` and create the call gate."""
-        self._extractor = extractor
-        self._gate = asyncio.Semaphore(2)
-
-    async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
-        """Extract once a slot is free."""
-        async with self._gate:
-            return await self._extractor.extract(chunk, schema)
 
 
 @dataclass
@@ -308,16 +289,6 @@ async def answer_quality_graph(
     """Ingest the FinQA pages with the real extractor into a fresh set of labels."""
     if importlib.util.find_spec("neo4j") is None:
         pytest.skip("neo4j extra not installed")
-    try:
-        extraction_settings = ExtractionLLMSettings.from_openai_compatible_env()
-    except ValueError:
-        pytest.skip("Extraction LLM not configured")
-    if not extraction_settings.clients[0].api_key:
-        pytest.skip("Extraction LLM API key not configured")
-    # The endpoint drops connections when many extraction calls run at once.
-    extraction_settings = extraction_settings.model_copy(
-        update={"retry": RetryConfig(max_retries=6, delay_ms=2000, max_delay_ms=30_000)}
-    )
     documents = tmp_path / "documents"
     shutil.copytree(FIXTURE_DIR / "documents", documents)
     store = build_graph_store("neo4j")
@@ -326,6 +297,18 @@ async def answer_quality_graph(
     metric = validate_identifier(f"FinancialMetric_{suffix}")
     period = validate_identifier(f"Period_{suffix}")
     labels = (company, metric, period)
+    # A fixed extractor keeps the graph the same on every run and needs no LLM.
+    # Extraction quality has its own evaluation.
+    names = {
+        "euro": metric,
+        "pound sterling": metric,
+        "indian rupee": metric,
+        "total impact": metric,
+        "foreign currency": metric,
+        "2012": period,
+        "2011": period,
+        "2010": period,
+    }
     schema = GraphSchema(
         name="answer_quality",
         version="1",
@@ -355,7 +338,7 @@ async def answer_quality_graph(
             schema=schema,
             graph_store=store,
             embedder=embedder,
-            extractor=_ThrottledExtractor(BAMLExtractor(settings=extraction_settings)),
+            extractor=_FactExtractor(names),
         )
         await graph.add(source=documents)
         engine = SearchEngine(

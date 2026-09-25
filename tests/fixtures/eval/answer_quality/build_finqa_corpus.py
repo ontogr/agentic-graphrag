@@ -8,8 +8,7 @@ Run it once to regenerate the committed fixture:
 It writes the pages in ``_CHOSEN_IDS`` as Markdown under ``documents/`` and their
 questions to ``questions.jsonl``.
 
-The agent reads only the first 200 characters of each chunk, so each chosen
-question must have its gold figures inside one such preview. ``build`` checks
+Each chosen question must have its gold figures inside one chunk. ``build`` checks
 this with the chunker that ingestion uses. The pages have few chunks, which keeps
 extraction and resolution short.
 """
@@ -23,7 +22,6 @@ from agrag.chunking import default_chunker
 
 
 _HERE = Path(__file__).parent
-_PREVIEW_CHARACTERS = 200
 _CHOSEN_IDS = (
     "FIS/2012/page_48.pdf-1",
     "FIS/2012/page_48.pdf-2",
@@ -58,19 +56,17 @@ def _reference(question: str, answer: str) -> str:
     return f'The answer to "{question.strip()}" is {answer.strip()}.'
 
 
-def _answerable_from_preview(example: dict, text: str) -> bool:
-    """Tell whether one chunk preview holds every gold figure of the question."""
+def _answerable_from_chunk(example: dict, text: str) -> bool:
+    """Tell whether one chunk holds every gold figure of the question."""
     figures = {
         number.strip(",.")
         for evidence in example["qa"]["gold_inds"].values()
         for number in _NUMBER.findall(evidence)
     }
     figures = {figure for figure in figures if len(figure) >= 2}
-    previews = [
-        chunk.text[:_PREVIEW_CHARACTERS] for chunk in default_chunker().chunk(text)
-    ]
+    chunks = [chunk.text for chunk in default_chunker().chunk(text)]
     return bool(figures) and any(
-        all(figure in preview for figure in figures) for preview in previews
+        all(figure in chunk for figure in figures) for chunk in chunks
     )
 
 
@@ -79,7 +75,7 @@ def build(source: Path) -> None:
 
     Raises:
         ValueError: A chosen id is missing from ``source``, or its answer is not
-            inside a chunk preview.
+            inside one chunk.
     """
     by_id = {example["id"]: example for example in json.loads(source.read_text())}
     missing = [item for item in _CHOSEN_IDS if item not in by_id]
@@ -94,8 +90,8 @@ def build(source: Path) -> None:
     for example_id in _CHOSEN_IDS:
         example = by_id[example_id]
         text = _document(example)
-        if not _answerable_from_preview(example, text):
-            raise ValueError(f"{example_id} is not answerable from chunk previews")
+        if not _answerable_from_chunk(example, text):
+            raise ValueError(f"{example_id} is not answerable from one chunk")
         document_id = example["filename"].removesuffix(".pdf").replace("/", "_")
         (documents / f"{document_id}.md").write_text(text + "\n")
         qa = example["qa"]
