@@ -8,7 +8,8 @@ mocked with ``MagicMock``/``AsyncMock``. Covers per-run citation ledger and
 research-attempt-limiter isolation, the harness profile registration, that
 search filters reach the engine through both agent implementations, and
 that ``_SimpleAgent`` synthesizes its answer through a model call rather
-than returning raw concatenated evidence.
+than returning raw concatenated evidence, and that every run returns its own
+``Ledger`` so a citation key resolves to the evidence behind it.
 """
 
 import importlib.util
@@ -22,10 +23,13 @@ import pytest
 from opentelemetry.sdk.trace import TracerProvider
 
 from agrag.agents.build import _RunScopedAgent, _SimpleAgent, build_agent
+from agrag.agents.ledger import Ledger
 from agrag.agents.middleware import ResearchAttemptLimiter
 from agrag.agents.settings import AgentLLMSettings, AgentSettings
+from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
+from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.search_result import SearchResult
 from agrag.llm.client_config import LLMClientConfig
 from agrag.retrieval.filters import SearchFilters
@@ -50,6 +54,16 @@ def _capture_deepagents(monkeypatch: pytest.MonkeyPatch, captured: dict) -> None
         register_harness_profile=MagicMock(),
     )
     monkeypatch.setitem(sys.modules, "deepagents", fake_deepagents)
+
+
+def _chunk(text: str) -> Chunk:
+    """Return a chunk with text provenance."""
+    return Chunk(
+        id=uuid4(),
+        document_id=uuid4(),
+        text=text,
+        provenance=TextProvenance(char_start=0, char_end=len(text)),
+    )
 
 
 def _engine() -> MagicMock:
@@ -440,3 +454,105 @@ class TestBuildAgent:
                 llm_settings=settings,
                 tracer=TracerProvider().get_tracer("t"),
             )
+
+    async def test_simple_agent_ledger_resolves_prompt_keys_to_evidence(self) -> None:
+        """A key in the evidence sent to the model resolves to its result."""
+        chunk = _chunk("Aspirin treats pain.")
+        result = SearchResult(item=chunk, score=0.9, method="chunk")
+        engine = MagicMock()
+        engine.search = AsyncMock(return_value=[result])
+        model = AsyncMock(ainvoke=AsyncMock(return_value=MagicMock(text="answer")))
+
+        agent = _SimpleAgent(model=model, engine=engine)
+        run = await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+
+        prompt = model.ainvoke.call_args.args[0][1]["content"]
+        assert "[C1]" in prompt
+        assert run["ledger"].resolve("C1") is result
+
+    async def test_simple_agent_returns_empty_ledger_without_evidence(self) -> None:
+        """No evidence gives the fixed answer and a ledger with no keys."""
+        engine = MagicMock()
+        engine.search = AsyncMock(return_value=[])
+
+        agent = _SimpleAgent(model=MagicMock(), engine=engine)
+        run = await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+
+        assert run["messages"][0]["content"] == "No relevant evidence found."
+        assert run["ledger"].keys == []
+
+    async def test_simple_agent_returns_ledger_for_empty_messages(self) -> None:
+        """Empty input still returns a ledger."""
+        agent = _SimpleAgent(model=MagicMock(), engine=MagicMock())
+
+        run = await agent.ainvoke({"messages": []})
+
+        assert run["messages"] == []
+        assert isinstance(run["ledger"], Ledger)
+
+    async def test_simple_agent_ledger_does_not_carry_over_between_runs(self) -> None:
+        """The second run's ledger holds no keys from the first run."""
+        first = SearchResult(
+            item=Entity(id=uuid4(), label="Person", name="Alice"),
+            score=0.9,
+            method="entity",
+        )
+        engine = MagicMock()
+        engine.search = AsyncMock(side_effect=[[first], []])
+        model = AsyncMock(ainvoke=AsyncMock(return_value=MagicMock(text="answer")))
+
+        agent = _SimpleAgent(model=model, engine=engine)
+        run_one = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": "first"}]}
+        )
+        run_two = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": "second"}]}
+        )
+
+        assert run_one["ledger"].keys == ["E1"]
+        assert run_two["ledger"].keys == []
+
+    async def test_run_scoped_agent_returns_the_ledger_its_tools_filled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Keys assigned by the researcher's tools land in the returned ledger."""
+        captured: dict = {}
+        graph_messages = [{"role": "assistant", "content": "answer"}]
+
+        class _ToolCallingAgent:
+            async def ainvoke(
+                self, input_data: dict, config: dict | None = None
+            ) -> dict:
+                researcher = captured["subagents"][0]
+                search_tool = next(
+                    t for t in researcher["tools"] if t.name == "search_source_text"
+                )
+                await search_tool.ainvoke({"query": "aspirin"})
+                return {"messages": graph_messages}
+
+        def fake_create_deep_agent(**kwargs: object) -> _ToolCallingAgent:
+            captured.update(kwargs)
+            return _ToolCallingAgent()
+
+        monkeypatch.setitem(
+            sys.modules,
+            "deepagents",
+            types.SimpleNamespace(
+                create_deep_agent=fake_create_deep_agent,
+                HarnessProfile=MagicMock(),
+                GeneralPurposeSubagentProfile=MagicMock(),
+                register_harness_profile=MagicMock(),
+            ),
+        )
+        chunk = _chunk("Aspirin treats pain.")
+        found = SearchResult(item=chunk, score=0.9, method="chunk")
+        engine = _engine()
+        engine.search = AsyncMock(return_value=[found])
+
+        agent = _RunScopedAgent(
+            engine=engine, model=MagicMock(), settings=AgentSettings()
+        )
+        run = await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
+
+        assert run["messages"] is graph_messages
+        assert run["ledger"].resolve("C1") is found
