@@ -1307,17 +1307,20 @@ verify_findings(model:Any, question:str, sub_questions:Sequence[str], findings:s
 
 Run the verifier on fixed inputs and return its structured verdict.
 
-Reproduces what the verifier subagent does: `VERIFIER_SYSTEM` as the system
-prompt, one user message, and `VerificationResult` as structured output.
-It calibrates the verifier prompt and model on a fixed input format. It does
-not test the text the planner writes when it delegates to the verifier.
+Runs the agent that the verifier subagent runs: `VERIFIER_SYSTEM` as the
+system prompt, one user message, and `VerificationResult` as the response
+format. The response format is handled as it is in a full run, so the model
+must answer through the verdict tool. This calibrates the verifier prompt and
+model on a fixed input format. It does not test the text the planner writes
+when it delegates to the verifier.
 
 **Parameters:**
 
 - **model** (<code>[Any](#typing.Any)</code>) – A LangChain chat model.
 - **question** (<code>[str](#str)</code>) – The original question.
 - **sub_questions** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The sub-questions the question was split into.
-- **findings** (<code>[str](#str)</code>) – The researcher's findings with citation keys such as `E1`.
+- **findings** (<code>[str](#str)</code>) – The researcher's findings with citation keys such as `E1`,
+  and the evidence text for each key.
 
 **Returns:**
 
@@ -1325,7 +1328,8 @@ not test the text the planner writes when it delegates to the verifier.
 
 **Raises:**
 
-- <code>[ValueError](#ValueError)</code> – The model returned no verdict.
+- <code>[ValueError](#ValueError)</code> – The model returned no verdict, after the agent asked again a
+  few times.
 
 ### `agrag.chunking`
 

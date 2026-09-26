@@ -8,8 +8,10 @@ handling and classes that never appear.
 from typing import Any
 
 import pytest
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 
-from agrag.agents.verification import VerificationResult
 from agrag.eval import (
     VerdictItem,
     run_verifier,
@@ -22,26 +24,40 @@ from agrag.eval import (
 LABELS = ["PASS", "INSUFFICIENT", "CONTRADICTORY"]
 
 
-class _ScriptedModel:
-    """Chat model stand-in that answers by the question text."""
+class _ScriptedModel(BaseChatModel):
+    """Chat model that answers with the verdict tool, chosen by the question."""
 
-    def __init__(self, verdicts: dict[str, str]) -> None:
-        """Map each question to a status; ``boom`` questions raise."""
-        self.verdicts = verdicts
-        self.question = ""
+    verdicts: dict[str, str]
 
-    def with_structured_output(self, schema: Any, **kwargs: Any) -> "_ScriptedModel":
-        """Return self; the reply is built in ``ainvoke``."""
+    @property
+    def _llm_type(self) -> str:
+        """Name the fake model type."""
+        return "scripted"
+
+    def bind_tools(self, tools: Any, **kwargs: Any) -> "_ScriptedModel":
+        """Return self; the reply is built in ``_generate``."""
         return self
 
-    async def ainvoke(self, messages: list[Any]) -> VerificationResult:
-        """Answer from the question found in the user message."""
+    def _generate(
+        self,
+        messages: list[Any],
+        stop: Any = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        """Call the verdict tool with the status set for the question."""
         text = messages[-1].content
         for question, status in self.verdicts.items():
             if question in text:
                 if status == "boom":
                     raise RuntimeError("endpoint down")
-                return VerificationResult(reasoning="r", status=status)
+                call = {
+                    "name": "VerificationResult",
+                    "args": {"reasoning": "r", "status": status},
+                    "id": "call-1",
+                }
+                message = AIMessage(content="", tool_calls=[call])
+                return ChatResult(generations=[ChatGeneration(message=message)])
         raise AssertionError(text)
 
 
@@ -62,7 +78,7 @@ class TestRunVerifier:
     async def test_error_item_is_labelled_and_others_are_kept(self) -> None:
         """A raising item becomes ERROR and counts as a miss in the report."""
         items = [_item("qa", "PASS"), _item("qb", "PASS"), _item("qc", "PASS")]
-        model = _ScriptedModel({"qa": "PASS", "qb": "boom", "qc": "PASS"})
+        model = _ScriptedModel(verdicts={"qa": "PASS", "qb": "boom", "qc": "PASS"})
 
         predicted = await run_verifier(model, items, concurrency=2)
         report = verdict_report([i.gold for i in items], predicted)
@@ -74,7 +90,7 @@ class TestRunVerifier:
     async def test_concurrency_below_one_is_rejected(self) -> None:
         """A zero limit would hang, so it is an error."""
         with pytest.raises(ValueError, match="concurrency"):
-            await run_verifier(_ScriptedModel({}), [], concurrency=0)
+            await run_verifier(_ScriptedModel(verdicts={}), [], concurrency=0)
 
 
 class TestVerdictReport:

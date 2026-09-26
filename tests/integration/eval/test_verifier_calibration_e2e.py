@@ -11,14 +11,13 @@ without ``LLM_*`` settings.
 The threshold is the lowest of three baseline runs minus 0.05, rounded down to
 0.05. Baseline runs (macro F1):
 
-    run 1: 1.000 (0 errors)
-    run 2: 0.983 (2 errors)
-    run 3: 0.964 (4 errors)
+    run 1: 0.967 (0 errors)
+    run 2: 0.983 (0 errors)
+    run 3: 0.950 (0 errors)
 
-Every miss in these runs is an ``ERROR``: the model answered without calling the
-verdict tool. No run gave a wrong verdict, so the confusion matrix is diagonal.
-A wrong verdict is what the gate must catch, and an always-PASS verifier scores
-0.33.
+The verifier runs as an agent with the verdict tool forced, so a run gave no
+missing verdicts. The misses are wrong verdicts, mostly a ``CONTRADICTORY`` item
+read as ``PASS`` or ``INSUFFICIENT``. An always-PASS verifier scores 0.33.
 """
 
 import os
