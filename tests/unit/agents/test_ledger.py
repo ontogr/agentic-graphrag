@@ -10,6 +10,7 @@ from uuid import uuid4
 import pytest
 
 from agrag.agents.ledger import Ledger
+from agrag.common.data_models.chunk import Chunk, TextProvenance
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.resolved_entity import ResolvedEntity
@@ -51,3 +52,30 @@ class TestLedger:
         assert text.startswith("[")
         assert "Aspirin research" in text
         assert "headache treatments" in text
+
+
+def _chunk_result(text: str) -> SearchResult:
+    """Build a chunk search result holding ``text``."""
+    chunk = Chunk(
+        document_id=uuid4(),
+        text=text,
+        provenance=TextProvenance(char_start=0, char_end=len(text)),
+    )
+    return SearchResult(item=chunk, score=1.0, method="chunk")
+
+
+class TestChunkRendering:
+    """The agent sees the whole chunk, up to a cap."""
+
+    def test_render_chunk_keeps_text_past_200_characters(self) -> None:
+        """A figure late in a chunk stays visible to the agent."""
+        text = "x" * 500 + " euro 26.4"
+
+        assert Ledger().render(_chunk_result(text)) == f"[C1] Chunk: {text}"
+
+    def test_render_chunk_cuts_text_over_the_cap(self) -> None:
+        """A chunk over the cap is cut and marked."""
+        rendered = Ledger().render(_chunk_result("y" * 5000))
+
+        assert rendered.endswith("...")
+        assert len(rendered) < 2100

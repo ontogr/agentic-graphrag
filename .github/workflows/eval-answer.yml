@@ -1,8 +1,8 @@
-name: Eval
+name: Eval answer quality
 
-# The harness smoke test runs the real agent and the judge, so it does not run
-# on pull requests. It runs after a merge that changes the agent, the retrieval
-# code or the eval harness, and once a week. It posts to Discord when it fails.
+# The answer quality gate runs the real agent and the judge, so it does not run
+# on pull requests. It runs after a merge that changes the agent, retrieval,
+# ingestion or eval code, and once a week. It posts to Discord when it fails.
 on:
   push:
     branches: [main]
@@ -15,19 +15,22 @@ on:
       - "agrag/retrieval/**"
       - "agrag/ingestion/**"
       - "agrag/graphdb/**"
-      - "agrag/vectordb/**"
       - "agrag/llm/**"
       - "agrag/loaders/**"
+      - "agrag/vectordb/**"
+      - "agrag/eval/answer.py"
       - "agrag/eval/judge.py"
       - "agrag/eval/repeat.py"
       - "agrag/eval/settings.py"
-      - "tests/integration/eval/conftest.py"
-      - "tests/integration/eval/test_harness_e2e.py"
-      - ".github/workflows/eval.yml"
+      - "tests/fixtures/eval/answer_quality/**"
+      - "tests/integration/eval/**"
+      - "docker/docker-compose.ci.yml"
+      - "Makefile"
+      - ".github/workflows/eval-answer.yml"
       - "pyproject.toml"
       - "uv.lock"
   schedule:
-    - cron: "30 2 * * 1"
+    - cron: "0 4 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -42,8 +45,8 @@ env:
   FORCE_COLOR: "1"
   DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
 jobs:
-  eval:
-    name: Eval
+  eval-answer:
+    name: Eval answer quality
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -78,7 +81,7 @@ jobs:
       - name: Wait for backend services to be healthy
         run: docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420 neo4j
 
-      - name: Run eval tests
+      - name: Run answer quality eval
         env:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
@@ -94,14 +97,16 @@ jobs:
             echo "EVAL_JUDGE_* secrets are optional and default to LLM_* values."
             exit 1
           fi
-          make test-eval
+          make test-eval-answer
 
-      - name: Upload test results
+      - name: Upload scores
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: eval-test-results
-          path: pytest-eval-results.xml
+          name: eval-answer-scores
+          path: |
+            reports/eval/answer_quality.json
+            pytest-eval-answer-results.xml
           retention-days: 90
 
       - name: Collect backend service logs
@@ -117,7 +122,7 @@ jobs:
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           MESSAGE: >-
-            Eval harness smoke test failed on ${{ github.event_name }} for
+            Answer quality eval failed on ${{ github.event_name }} for
             ${{ github.repository }}@${{ github.sha }}.
             Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |

@@ -106,6 +106,12 @@ class TestPreclusterAmbiguous:
 
         assert precluster_ambiguous(ids, {(0, 1): 0.99}) == [ids[0:2]]
 
+    def test_similarity_above_one_from_rounding_still_merges(self) -> None:
+        """Float error can put a cosine similarity of identical vectors above 1."""
+        ids = [uuid4(), uuid4(), uuid4()]
+
+        assert precluster_ambiguous(ids, {(0, 1): 1.0000000002}) == [ids[0:2]]
+
     def test_ambiguous_band_pair_needs_llm_review(self) -> None:
         """A merely ambiguous similarity never auto-merges."""
         ids = [uuid4(), uuid4()]

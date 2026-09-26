@@ -6664,6 +6664,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 **Modules:**
 
 - [**adapter**](#agrag.eval.adapter) – Adapters that let plain scoring functions report through DeepEval.
+- [**answer**](#agrag.eval.answer) – Answer-quality metrics for agrag, scored from questions and reference answers.
 - [**extraction**](#agrag.eval.extraction) – Extraction quality: entity and relation-triple F1 against gold annotations.
 - [**judge**](#agrag.eval.judge) – A DeepEval judge model backed by an agrag chat model.
 - [**repeat**](#agrag.eval.repeat) – Repeat a metric and report the median score.
@@ -6672,6 +6673,8 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 **Classes:**
 
 - [**ChatModelJudge**](#agrag.eval.ChatModelJudge) – Wrap a LangChain chat model as a DeepEval judge.
+- [**CitationAccuracyMetric**](#agrag.eval.CitationAccuracyMetric) – Score whether each cited sentence follows from the evidence it cites.
+- [**CitationScoreBreakdown**](#agrag.eval.CitationScoreBreakdown) – Available precision, recall, and sentence-count fields for one score.
 - [**EvalJudgeSettings**](#agrag.eval.EvalJudgeSettings) – LLM client config for the eval judge.
 - [**ExtractionGold**](#agrag.eval.ExtractionGold) – One gold-annotated chunk of text.
 - [**MedianOfN**](#agrag.eval.MedianOfN) – Run a metric `n` times and report the median score.
@@ -6682,8 +6685,14 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 
 **Functions:**
 
+- [**answer_case**](#agrag.eval.answer_case) – Build the test case that every answer-quality metric scores.
+- [**context_precision**](#agrag.eval.context_precision) – Build the metric for useful evidence ranked before noise.
+- [**context_recall**](#agrag.eval.context_recall) – Build the metric for reference facts that the evidence covers.
+- [**correctness**](#agrag.eval.correctness) – Build the answer correctness metric against the reference.
 - [**entity_quality_metric**](#agrag.eval.entity_quality_metric) – Build a metric for entity F1 on one test case.
 - [**extraction_case**](#agrag.eval.extraction_case) – Build a test case that holds a predicted and a gold extraction.
+- [**faithfulness**](#agrag.eval.faithfulness) – Build the metric for claims that the evidence the agent saw does not contradict.
+- [**final_answer**](#agrag.eval.final_answer) – Return the text of the last assistant message in an agent run.
 - [**micro_scores**](#agrag.eval.micro_scores) – Pool measured entity and relation metrics into dataset scores.
 - [**parse_json_case**](#agrag.eval.parse_json_case) – Read the `(actual, expected)` models back from a JSON test case.
 - [**relation_quality_metric**](#agrag.eval.relation_quality_metric) – Build a metric for relation triple F1 on one test case.
@@ -6759,6 +6768,144 @@ load_model() -> Any
 ```
 
 Return the wrapped chat model.
+
+#### `agrag.eval.CitationAccuracyMetric`
+
+```python
+CitationAccuracyMetric(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> None
+```
+
+Bases: <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code>
+
+Score whether each cited sentence follows from the evidence it cites.
+
+The unit is the sentence. A sentence counts as cited when it carries a
+citation key. A judge decides whether the text of the cited evidence supports
+the sentence. It scores each sentence with one `GEval` run. A cited key that
+the run's ledger did not assign is fabricated: the sentence is unsupported and
+no judge call happens.
+
+The score is the F1 of two ratios. Precision is supported cited sentences
+over cited sentences. Recall is supported cited sentences over all sentences
+of at least four words, plus any shorter cited sentence. `score_breakdown`
+holds both and the sentence counts. An answer with no citations scores 0. An
+abstention, the exact text `No relevant evidence found.`, scores 1.
+
+The test case must come from `answer_case`, which puts the evidence under
+`metadata["citations"]`. A judge failure on any sentence raises.
+
+**Attributes:**
+
+- [**judge**](#agrag.eval.CitationAccuracyMetric.judge) – The judge model.
+- [**threshold**](#agrag.eval.CitationAccuracyMetric.threshold) – The minimum score that counts as success, and the minimum
+  support score for one sentence.
+- [**score_breakdown**](#agrag.eval.CitationAccuracyMetric.score_breakdown) (<code>[CitationScoreBreakdown](#agrag.eval.answer.CitationScoreBreakdown)</code>) – Precision, recall, and sentence counts for the score.
+
+**Functions:**
+
+- [**a_measure**](#agrag.eval.CitationAccuracyMetric.a_measure) – Judge the cited sentences with up to eight concurrent calls.
+- [**measure**](#agrag.eval.CitationAccuracyMetric.measure) – Judge the cited sentences one after the other.
+
+##### `agrag.eval.CitationAccuracyMetric.a_measure`
+
+```python
+a_measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
+```
+
+Judge the cited sentences with up to eight concurrent calls.
+
+**Parameters:**
+
+- **test_case** (<code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code>) – The test case built by `answer_case`.
+- \***args** (<code>[Any](#typing.Any)</code>) – Additional positional arguments accepted by DeepEval.
+- \*\***kwargs** (<code>[Any](#typing.Any)</code>) – Additional keyword arguments accepted by DeepEval.
+
+**Returns:**
+
+- <code>[float](#float)</code> – The citation accuracy score.
+
+##### `agrag.eval.CitationAccuracyMetric.judge`
+
+```python
+judge = judge
+```
+
+##### `agrag.eval.CitationAccuracyMetric.measure`
+
+```python
+measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
+```
+
+Judge the cited sentences one after the other.
+
+**Parameters:**
+
+- **test_case** (<code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code>) – The test case built by `answer_case`.
+- \***args** (<code>[Any](#typing.Any)</code>) – Additional positional arguments accepted by DeepEval.
+- \*\***kwargs** (<code>[Any](#typing.Any)</code>) – Additional keyword arguments accepted by DeepEval.
+
+**Returns:**
+
+- <code>[float](#float)</code> – The citation accuracy score.
+
+##### `agrag.eval.CitationAccuracyMetric.score_breakdown`
+
+```python
+score_breakdown: CitationScoreBreakdown
+```
+
+##### `agrag.eval.CitationAccuracyMetric.threshold`
+
+```python
+threshold = threshold
+```
+
+#### `agrag.eval.CitationScoreBreakdown`
+
+Bases: <code>[TypedDict](#typing.TypedDict)</code>
+
+Available precision, recall, and sentence-count fields for one score.
+
+All fields are optional because abstentions and uncited answers have partial
+breakdowns.
+
+**Attributes:**
+
+- [**citation_precision**](#agrag.eval.CitationScoreBreakdown.citation_precision) (<code>[float](#float)</code>) – Fraction of cited sentences supported by evidence.
+- [**citation_recall**](#agrag.eval.CitationScoreBreakdown.citation_recall) (<code>[float](#float)</code>) – Fraction of eligible sentences supported by evidence.
+- [**cited_sentences**](#agrag.eval.CitationScoreBreakdown.cited_sentences) (<code>[int](#int)</code>) – Number of sentences with citations.
+- [**supported_sentences**](#agrag.eval.CitationScoreBreakdown.supported_sentences) (<code>[int](#int)</code>) – Number of cited sentences supported by evidence.
+- [**sentences**](#agrag.eval.CitationScoreBreakdown.sentences) (<code>[int](#int)</code>) – Number of eligible sentences in the answer.
+
+##### `agrag.eval.CitationScoreBreakdown.citation_precision`
+
+```python
+citation_precision: float
+```
+
+##### `agrag.eval.CitationScoreBreakdown.citation_recall`
+
+```python
+citation_recall: float
+```
+
+##### `agrag.eval.CitationScoreBreakdown.cited_sentences`
+
+```python
+cited_sentences: int
+```
+
+##### `agrag.eval.CitationScoreBreakdown.sentences`
+
+```python
+sentences: int
+```
+
+##### `agrag.eval.CitationScoreBreakdown.supported_sentences`
+
+```python
+supported_sentences: int
+```
 
 #### `agrag.eval.EvalJudgeSettings`
 
@@ -7217,6 +7364,366 @@ also shows in DeepEval reports.
 - **actual** (<code>[BaseModel](#pydantic.BaseModel)</code>) – The system output.
 - **expected** (<code>[BaseModel](#pydantic.BaseModel)</code>) – The gold data.
 
+#### `agrag.eval.answer`
+
+Answer-quality metrics for agrag, scored from questions and reference answers.
+
+`answer_case` turns one agent run into a DeepEval test case. The four factories
+build DeepEval metrics that run the judge once. `CitationAccuracyMetric` checks
+each cited sentence against the evidence its citation keys point to.
+
+All metrics judge against the evidence text the agent saw, as `Ledger.render`
+shows it. A chunk shows in full up to 2000 characters, so a claim that needs text past
+that point counts as unsupported.
+
+**Classes:**
+
+- [**CitationAccuracyMetric**](#agrag.eval.answer.CitationAccuracyMetric) – Score whether each cited sentence follows from the evidence it cites.
+- [**CitationScoreBreakdown**](#agrag.eval.answer.CitationScoreBreakdown) – Available precision, recall, and sentence-count fields for one score.
+
+**Functions:**
+
+- [**answer_case**](#agrag.eval.answer.answer_case) – Build the test case that every answer-quality metric scores.
+- [**context_precision**](#agrag.eval.answer.context_precision) – Build the metric for useful evidence ranked before noise.
+- [**context_recall**](#agrag.eval.answer.context_recall) – Build the metric for reference facts that the evidence covers.
+- [**correctness**](#agrag.eval.answer.correctness) – Build the answer correctness metric against the reference.
+- [**faithfulness**](#agrag.eval.answer.faithfulness) – Build the metric for claims that the evidence the agent saw does not contradict.
+- [**final_answer**](#agrag.eval.answer.final_answer) – Return the text of the last assistant message in an agent run.
+
+**Attributes:**
+
+- [**ABSTENTION**](#agrag.eval.answer.ABSTENTION) –
+
+##### `agrag.eval.answer.ABSTENTION`
+
+```python
+ABSTENTION = 'No relevant evidence found.'
+```
+
+##### `agrag.eval.answer.CitationAccuracyMetric`
+
+```python
+CitationAccuracyMetric(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> None
+```
+
+Bases: <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code>
+
+Score whether each cited sentence follows from the evidence it cites.
+
+The unit is the sentence. A sentence counts as cited when it carries a
+citation key. A judge decides whether the text of the cited evidence supports
+the sentence. It scores each sentence with one `GEval` run. A cited key that
+the run's ledger did not assign is fabricated: the sentence is unsupported and
+no judge call happens.
+
+The score is the F1 of two ratios. Precision is supported cited sentences
+over cited sentences. Recall is supported cited sentences over all sentences
+of at least four words, plus any shorter cited sentence. `score_breakdown`
+holds both and the sentence counts. An answer with no citations scores 0. An
+abstention, the exact text `No relevant evidence found.`, scores 1.
+
+The test case must come from `answer_case`, which puts the evidence under
+`metadata["citations"]`. A judge failure on any sentence raises.
+
+**Attributes:**
+
+- [**judge**](#agrag.eval.answer.CitationAccuracyMetric.judge) – The judge model.
+- [**threshold**](#agrag.eval.answer.CitationAccuracyMetric.threshold) – The minimum score that counts as success, and the minimum
+  support score for one sentence.
+- [**score_breakdown**](#agrag.eval.answer.CitationAccuracyMetric.score_breakdown) (<code>[CitationScoreBreakdown](#agrag.eval.answer.CitationScoreBreakdown)</code>) – Precision, recall, and sentence counts for the score.
+
+**Functions:**
+
+- [**a_measure**](#agrag.eval.answer.CitationAccuracyMetric.a_measure) – Judge the cited sentences with up to eight concurrent calls.
+- [**measure**](#agrag.eval.answer.CitationAccuracyMetric.measure) – Judge the cited sentences one after the other.
+
+###### `agrag.eval.answer.CitationAccuracyMetric.a_measure`
+
+```python
+a_measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
+```
+
+Judge the cited sentences with up to eight concurrent calls.
+
+**Parameters:**
+
+- **test_case** (<code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code>) – The test case built by `answer_case`.
+- \***args** (<code>[Any](#typing.Any)</code>) – Additional positional arguments accepted by DeepEval.
+- \*\***kwargs** (<code>[Any](#typing.Any)</code>) – Additional keyword arguments accepted by DeepEval.
+
+**Returns:**
+
+- <code>[float](#float)</code> – The citation accuracy score.
+
+###### `agrag.eval.answer.CitationAccuracyMetric.judge`
+
+```python
+judge = judge
+```
+
+###### `agrag.eval.answer.CitationAccuracyMetric.measure`
+
+```python
+measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
+```
+
+Judge the cited sentences one after the other.
+
+**Parameters:**
+
+- **test_case** (<code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code>) – The test case built by `answer_case`.
+- \***args** (<code>[Any](#typing.Any)</code>) – Additional positional arguments accepted by DeepEval.
+- \*\***kwargs** (<code>[Any](#typing.Any)</code>) – Additional keyword arguments accepted by DeepEval.
+
+**Returns:**
+
+- <code>[float](#float)</code> – The citation accuracy score.
+
+###### `agrag.eval.answer.CitationAccuracyMetric.score_breakdown`
+
+```python
+score_breakdown: CitationScoreBreakdown
+```
+
+###### `agrag.eval.answer.CitationAccuracyMetric.threshold`
+
+```python
+threshold = threshold
+```
+
+##### `agrag.eval.answer.CitationScoreBreakdown`
+
+Bases: <code>[TypedDict](#typing.TypedDict)</code>
+
+Available precision, recall, and sentence-count fields for one score.
+
+All fields are optional because abstentions and uncited answers have partial
+breakdowns.
+
+**Attributes:**
+
+- [**citation_precision**](#agrag.eval.answer.CitationScoreBreakdown.citation_precision) (<code>[float](#float)</code>) – Fraction of cited sentences supported by evidence.
+- [**citation_recall**](#agrag.eval.answer.CitationScoreBreakdown.citation_recall) (<code>[float](#float)</code>) – Fraction of eligible sentences supported by evidence.
+- [**cited_sentences**](#agrag.eval.answer.CitationScoreBreakdown.cited_sentences) (<code>[int](#int)</code>) – Number of sentences with citations.
+- [**supported_sentences**](#agrag.eval.answer.CitationScoreBreakdown.supported_sentences) (<code>[int](#int)</code>) – Number of cited sentences supported by evidence.
+- [**sentences**](#agrag.eval.answer.CitationScoreBreakdown.sentences) (<code>[int](#int)</code>) – Number of eligible sentences in the answer.
+
+###### `agrag.eval.answer.CitationScoreBreakdown.citation_precision`
+
+```python
+citation_precision: float
+```
+
+###### `agrag.eval.answer.CitationScoreBreakdown.citation_recall`
+
+```python
+citation_recall: float
+```
+
+###### `agrag.eval.answer.CitationScoreBreakdown.cited_sentences`
+
+```python
+cited_sentences: int
+```
+
+###### `agrag.eval.answer.CitationScoreBreakdown.sentences`
+
+```python
+sentences: int
+```
+
+###### `agrag.eval.answer.CitationScoreBreakdown.supported_sentences`
+
+```python
+supported_sentences: int
+```
+
+##### `agrag.eval.answer.answer_case`
+
+```python
+answer_case(question:str, result:AgentRunResult, reference:str) -> LLMTestCase
+```
+
+Build the test case that every answer-quality metric scores.
+
+`retrieval_context` holds the evidence the agent saw, as the ledger
+rendered it, in key order. `metadata["citations"]` maps each
+key to that text for `CitationAccuracyMetric`.
+
+**Parameters:**
+
+- **question** (<code>[str](#str)</code>) – The question the agent answered.
+- **result** (<code>[AgentRunResult](#agrag.agents.result.AgentRunResult)</code>) – The result of `agent.ainvoke` for that question.
+- **reference** (<code>[str](#str)</code>) – The reference answer.
+
+**Returns:**
+
+- <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – The test case with the answer and rendered evidence.
+
+##### `agrag.eval.answer.context_precision`
+
+```python
+context_precision(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
+```
+
+Build the metric for useful evidence ranked before noise.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The context precision metric.
+
+##### `agrag.eval.answer.context_recall`
+
+```python
+context_recall(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
+```
+
+Build the metric for reference facts that the evidence covers.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The context recall metric.
+
+##### `agrag.eval.answer.correctness`
+
+```python
+correctness(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
+```
+
+Build the answer correctness metric against the reference.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The correctness metric.
+
+##### `agrag.eval.answer.faithfulness`
+
+```python
+faithfulness(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
+```
+
+Build the metric for claims that the evidence the agent saw does not contradict.
+
+A claim that the evidence does not mention counts as faithful. Only a claim
+that the evidence contradicts lowers the score. `CitationAccuracyMetric`
+catches unsupported claims.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The faithfulness metric.
+
+##### `agrag.eval.answer.final_answer`
+
+```python
+final_answer(result:AgentRunResult) -> str
+```
+
+Return the text of the last assistant message in an agent run.
+
+Handles message dicts and LangChain message objects, and content that is a
+string or a list of blocks. Only text blocks count.
+
+**Parameters:**
+
+- **result** (<code>[AgentRunResult](#agrag.agents.result.AgentRunResult)</code>) – The result of `agent.ainvoke`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – The run holds no assistant message.
+
+#### `agrag.eval.answer_case`
+
+```python
+answer_case(question:str, result:AgentRunResult, reference:str) -> LLMTestCase
+```
+
+Build the test case that every answer-quality metric scores.
+
+`retrieval_context` holds the evidence the agent saw, as the ledger
+rendered it, in key order. `metadata["citations"]` maps each
+key to that text for `CitationAccuracyMetric`.
+
+**Parameters:**
+
+- **question** (<code>[str](#str)</code>) – The question the agent answered.
+- **result** (<code>[AgentRunResult](#agrag.agents.result.AgentRunResult)</code>) – The result of `agent.ainvoke` for that question.
+- **reference** (<code>[str](#str)</code>) – The reference answer.
+
+**Returns:**
+
+- <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – The test case with the answer and rendered evidence.
+
+#### `agrag.eval.context_precision`
+
+```python
+context_precision(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
+```
+
+Build the metric for useful evidence ranked before noise.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The context precision metric.
+
+#### `agrag.eval.context_recall`
+
+```python
+context_recall(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
+```
+
+Build the metric for reference facts that the evidence covers.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The context recall metric.
+
+#### `agrag.eval.correctness`
+
+```python
+correctness(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
+```
+
+Build the answer correctness metric against the reference.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The correctness metric.
+
 #### `agrag.eval.entity_quality_metric`
 
 ```python
@@ -7624,6 +8131,46 @@ Build a test case that holds a predicted and a gold extraction.
 **Returns:**
 
 - <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – A test case with serialized predicted and gold extractions.
+
+#### `agrag.eval.faithfulness`
+
+```python
+faithfulness(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
+```
+
+Build the metric for claims that the evidence the agent saw does not contradict.
+
+A claim that the evidence does not mention counts as faithful. Only a claim
+that the evidence contradicts lowers the score. `CitationAccuracyMetric`
+catches unsupported claims.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The faithfulness metric.
+
+#### `agrag.eval.final_answer`
+
+```python
+final_answer(result:AgentRunResult) -> str
+```
+
+Return the text of the last assistant message in an agent run.
+
+Handles message dicts and LangChain message objects, and content that is a
+string or a list of blocks. Only text blocks count.
+
+**Parameters:**
+
+- **result** (<code>[AgentRunResult](#agrag.agents.result.AgentRunResult)</code>) – The result of `agent.ainvoke`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – The run holds no assistant message.
 
 #### `agrag.eval.judge`
 

@@ -1,4 +1,4 @@
-.PHONY: test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-extraction test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
+.PHONY: test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
 export UV_LOCKED = 1
 
@@ -9,6 +9,7 @@ help:
 	@echo "  make test-integration - Run integration tests (requires network)"
 	@echo "  make test-e2e         - Run end-to-end pipeline tests (requires Neo4j)"
 	@echo "  make test-eval        - Run judged and real-agent evals (requires Neo4j and an LLM key)"
+	@echo "  make test-eval-answer - Score agrag answers on the FinQA fixture (requires Neo4j and an LLM key)"
 	@echo "  make test-eval-extraction - Score the extractor on the KPI-EDGAR gold set (requires an LLM key)"
 	@echo "  make test-all         - Run unit, integration, and e2e tests in order"
 	@echo "  make test-cov-map     - Run all suites with JUnit files and per-test coverage contexts"
@@ -86,9 +87,19 @@ test-e2e:
 # because the DeepEval plugin would otherwise report each run.
 test-eval:
 	DEEPEVAL_TELEMETRY_OPT_OUT=YES uv run pytest tests/integration/eval -v \
+		--ignore=tests/integration/eval/test_answer_quality_e2e.py \
 		--ignore=tests/integration/eval/test_extraction_quality_e2e.py \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
 		--junitxml=pytest-eval-results.xml
+
+# The answer quality gate ingests a small corpus, runs the real agent and calls
+# the judge for each answer. It runs after merges and on a schedule, not on every
+# pull request, and writes its scores to reports/eval/answer_quality.json.
+test-eval-answer:
+	DEEPEVAL_TELEMETRY_OPT_OUT=YES uv run pytest \
+		tests/integration/eval/test_answer_quality_e2e.py -v \
+		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
+		--junitxml=pytest-eval-answer-results.xml
 
 # The extraction quality gate makes one LLM call per gold sentence and needs no
 # database. It runs after merges and on a schedule, not on every pull request,
