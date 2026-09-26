@@ -2,9 +2,9 @@
 
 Resolves every name of ``tests/fixtures/eval/resolution/company_clusters.json``
 (SEC EDGAR and GLEIF records, see the NOTICE beside it) with all tiers: exact,
-fuzzy, embedding similarity and LLM verification. It gates on B-cubed F1. The
-report has the B-cubed and pairwise scores and the matches per tier. It goes to
-``reports/eval/resolution_quality.json``, or to the directory in
+fuzzy, embedding similarity and LLM verification. It gates on B-cubed F1 and on
+pairwise F1. The report has the B-cubed and pairwise scores and the matches per
+tier. It goes to ``reports/eval/resolution_quality.json``, or to the directory in
 ``E2E_ARTIFACT_DIR``.
 
 The test skips without ``LLM_*`` settings or without ``sentence-transformers``.
@@ -17,16 +17,17 @@ requests run one after another, so they do not trip a concurrency limit.
 ``LLMVerify`` maps a failed request to "no match", so the test also asserts that
 the LLM confirmed at least one match. A dead endpoint then fails the run.
 
-The threshold is the lowest of three baseline runs minus 0.05, rounded down to
-0.05. Baseline runs (B-cubed F1):
+Each threshold is the lowest of three baseline runs minus 0.05, rounded down to
+0.05. Baseline runs (B-cubed F1, pairwise F1):
 
-    run 1: 0.884
-    run 2: 0.884
-    run 3: 0.886
+    run 1: 0.884, 0.679
+    run 2: 0.884, 0.679
+    run 3: 0.886, 0.687
 
-The exact and fuzzy tiers alone score 0.824 on the same names. Most of the score
-comes from names that need no merge, so the threshold sits only just under that
-score and the LLM assertion guards the upper tiers.
+The exact and fuzzy tiers alone score 0.824 and 0.019 on the same names. Most
+B-cubed credit comes from names that need no merge, so the B-cubed gate sits
+just under the score of the deterministic tiers. The pairwise gate is what
+fails when the embedding or LLM tier stops merging.
 """
 
 import os
@@ -54,8 +55,9 @@ from tests.integration.eval._resolution_quality import (
 
 REPORT_DIR = Path(__file__).parents[3] / "reports" / "eval"
 
-# Minimum B-cubed F1.
+# Minimum B-cubed F1 and pairwise F1.
 THRESHOLD = 0.80
+PAIRWISE_THRESHOLD = 0.60
 
 
 def _llm_settings() -> ExtractionLLMSettings:
@@ -111,3 +113,4 @@ async def test_full_resolver_meets_threshold_on_company_names(
     assert report["mentions"] == len(mentions)
     assert predicted.matches_by_tier.get("llm", 0) >= 1
     assert score >= THRESHOLD
+    assert metric.score_breakdown["pairwise_f"] >= PAIRWISE_THRESHOLD
