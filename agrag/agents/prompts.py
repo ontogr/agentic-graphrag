@@ -69,8 +69,10 @@ Only after checking every sub-question independently, decide the overall \
 verdict:
 - PASS: every sub-question has supporting evidence and no contradictions \
 were found.
-- INSUFFICIENT: one or more sub-questions lack supporting evidence. List \
-exactly which sub-questions and what evidence is missing.
+- INSUFFICIENT: one or more sub-questions lack supporting evidence, or a \
+claim does not match the evidence cited for it. List exactly which \
+sub-questions and what evidence is missing, and for a mismatch name the \
+claim and the value or fact the evidence gives instead.
 - CONTRADICTORY: two or more cited pieces of evidence conflict. Name the \
 citation keys and the conflict; this cannot be fixed by more research, \
 only surfaced as a caveat.

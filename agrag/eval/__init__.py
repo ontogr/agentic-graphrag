@@ -34,6 +34,14 @@ from agrag.eval.extraction import (
 from agrag.eval.judge import ChatModelJudge
 from agrag.eval.repeat import MedianOfN
 from agrag.eval.settings import EvalJudgeSettings
+from agrag.eval.verifier import (
+    VerdictItem,
+    VerdictReport,
+    run_verifier,
+    verdict_case,
+    verdict_match_metric,
+    verdict_report,
+)
 
 
 __all__ = [
@@ -47,6 +55,8 @@ __all__ = [
     "ScoreMetric",
     "ScoreResult",
     "Scores",
+    "VerdictItem",
+    "VerdictReport",
     "answer_case",
     "context_precision",
     "context_recall",
@@ -59,5 +69,9 @@ __all__ = [
     "parse_json_case",
     "relation_quality_metric",
     "run_extractor",
+    "run_verifier",
     "to_json_case",
+    "verdict_case",
+    "verdict_match_metric",
+    "verdict_report",
 ]

@@ -300,8 +300,73 @@ Agent middleware for composing models and bounding the research loop.
 
 **Classes:**
 
+- [**HideToolsMiddleware**](#agrag.agents.middleware.HideToolsMiddleware) – Remove tools by name from every model request.
+- [**RequireVerdictMiddleware**](#agrag.agents.middleware.RequireVerdictMiddleware) – Ask again when the verifier answers in prose instead of with its verdict.
 - [**ResearchAttemptLimiter**](#agrag.agents.middleware.ResearchAttemptLimiter) – Cap how many times the planner may re-delegate after verification.
 - [**RoundRobinModelMiddleware**](#agrag.agents.middleware.RoundRobinModelMiddleware) – Rotate across the configured chat models, one model per call.
+- [**VerifierEvidenceMiddleware**](#agrag.agents.middleware.VerifierEvidenceMiddleware) – Give the verifier the evidence text behind each key a task cites.
+
+##### `agrag.agents.middleware.HideToolsMiddleware`
+
+```python
+HideToolsMiddleware(names:frozenset[str]) -> None
+```
+
+Bases: <code>[AgentMiddleware](#langchain.agents.middleware.types.AgentMiddleware)</code>
+
+Remove tools by name from every model request.
+
+DeepAgents gives each subagent its filesystem tools, even when the spec
+lists none. A role that needs no tools, such as the verifier, hides them so
+the model can only answer through its structured output.
+
+**Functions:**
+
+- [**awrap_model_call**](#agrag.agents.middleware.HideToolsMiddleware.awrap_model_call) – Run the call with the named tools removed from the request.
+
+**Parameters:**
+
+- **names** (<code>[frozenset](#frozenset)\[[str](#str)\]</code>) – The tool names to remove.
+
+###### `agrag.agents.middleware.HideToolsMiddleware.awrap_model_call`
+
+```python
+awrap_model_call(request:ModelRequest, handler:Callable[[ModelRequest], Awaitable[ModelResponse]]) -> Any
+```
+
+Run the call with the named tools removed from the request.
+
+##### `agrag.agents.middleware.RequireVerdictMiddleware`
+
+```python
+RequireVerdictMiddleware(max_reminders:int = 2) -> None
+```
+
+Bases: <code>[AgentMiddleware](#langchain.agents.middleware.types.AgentMiddleware)</code>
+
+Ask again when the verifier answers in prose instead of with its verdict.
+
+A subagent that has tools stops as soon as the model replies without a tool
+call, even when the reply is not the structured response. The planner then
+reads prose where it expects a `VerificationResult`. This middleware sends a
+short reminder and calls the model again, up to `max_reminders` times in one
+subagent run, and then lets the run end as before.
+
+**Functions:**
+
+- [**after_model**](#agrag.agents.middleware.RequireVerdictMiddleware.after_model) – Send a reminder and jump back to the model after a prose reply.
+
+**Parameters:**
+
+- **max_reminders** (<code>[int](#int)</code>) – How many reminders one subagent run may send.
+
+###### `agrag.agents.middleware.RequireVerdictMiddleware.after_model`
+
+```python
+after_model(state:Any, runtime:Any) -> dict[str, Any] | None
+```
+
+Send a reminder and jump back to the model after a prose reply.
 
 ##### `agrag.agents.middleware.ResearchAttemptLimiter`
 
@@ -396,6 +461,49 @@ wrap_model_call(request:ModelRequest, handler:Callable[[ModelRequest], ModelResp
 ```
 
 Run the call against the next model in rotation.
+
+##### `agrag.agents.middleware.VerifierEvidenceMiddleware`
+
+```python
+VerifierEvidenceMiddleware(ledger:Ledger) -> None
+```
+
+Bases: <code>[AgentMiddleware](#langchain.agents.middleware.types.AgentMiddleware)</code>
+
+Give the verifier the evidence text behind each key a task cites.
+
+The planner writes the verifier's task from the researcher's summary, so the
+task carries citation keys and no evidence. The verifier has no tools, so it
+cannot check that a key supports a claim. This middleware appends the ledger
+text of every key in a verifier task, and marks a key that this run never
+retrieved. Tasks for other subagents pass through unchanged.
+
+Holds a run's `Ledger`, so construct one per `ainvoke` call.
+
+**Functions:**
+
+- [**awrap_tool_call**](#agrag.agents.middleware.VerifierEvidenceMiddleware.awrap_tool_call) – Append an Evidence block to a verifier task, then run the call.
+
+**Parameters:**
+
+- **ledger** (<code>[Ledger](#agrag.agents.ledger.Ledger)</code>) – The ledger of the run whose keys the planner cites.
+
+###### `agrag.agents.middleware.VerifierEvidenceMiddleware.awrap_tool_call`
+
+```python
+awrap_tool_call(request:ToolCallRequest, handler:Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]) -> ToolMessage | Command[Any]
+```
+
+Append an Evidence block to a verifier task, then run the call.
+
+**Parameters:**
+
+- **request** (<code>[ToolCallRequest](#langchain.agents.middleware.types.ToolCallRequest)</code>) – The intercepted tool call request.
+- **handler** (<code>[Callable](#collections.abc.Callable)\[\[[ToolCallRequest](#langchain.agents.middleware.types.ToolCallRequest)\], [Awaitable](#collections.abc.Awaitable)\[[ToolMessage](#langchain_core.messages.ToolMessage) | [Command](#langgraph.types.Command)\[[Any](#typing.Any)\]\]\]</code>) – The rest of the tool-call pipeline.
+
+**Returns:**
+
+- <code>[ToolMessage](#langchain_core.messages.ToolMessage) | [Command](#langgraph.types.Command)\[[Any](#typing.Any)\]</code> – The handler's result.
 
 #### `agrag.agents.model`
 
@@ -507,7 +615,7 @@ SIMPLE_ANSWER_SYSTEM = 'You are a knowledge-graph question-answering assistant. 
 ##### `agrag.agents.prompts.VERIFIER_SYSTEM`
 
 ```python
-VERIFIER_SYSTEM = "You are an evidence verifier for a knowledge-graph question-answering system. You will be given the original question, the sub-questions it was decomposed into, and the researcher's findings with citation keys (e.g. E1, C3, R2).\n\nCheck each sub-question independently, in isolation from the others and from the researcher's overall narrative:\n1. Does this sub-question have at least one citation?\n2. Does each cited key correspond to evidence that actually supports the claim made for this sub-question -- not just present, but on point?\n3. Do any two cited pieces of evidence, across any sub-questions, contradict each other?\n\nOnly after checking every sub-question independently, decide the overall verdict:\n- PASS: every sub-question has supporting evidence and no contradictions were found.\n- INSUFFICIENT: one or more sub-questions lack supporting evidence. List exactly which sub-questions and what evidence is missing.\n- CONTRADICTORY: two or more cited pieces of evidence conflict. Name the citation keys and the conflict; this cannot be fixed by more research, only surfaced as a caveat.\n\nReturn your reasoning first, then the verdict -- decide by checking, not by restating a conclusion you have already formed."
+VERIFIER_SYSTEM = "You are an evidence verifier for a knowledge-graph question-answering system. You will be given the original question, the sub-questions it was decomposed into, and the researcher's findings with citation keys (e.g. E1, C3, R2).\n\nCheck each sub-question independently, in isolation from the others and from the researcher's overall narrative:\n1. Does this sub-question have at least one citation?\n2. Does each cited key correspond to evidence that actually supports the claim made for this sub-question -- not just present, but on point?\n3. Do any two cited pieces of evidence, across any sub-questions, contradict each other?\n\nOnly after checking every sub-question independently, decide the overall verdict:\n- PASS: every sub-question has supporting evidence and no contradictions were found.\n- INSUFFICIENT: one or more sub-questions lack supporting evidence, or a claim does not match the evidence cited for it. List exactly which sub-questions and what evidence is missing, and for a mismatch name the claim and the value or fact the evidence gives instead.\n- CONTRADICTORY: two or more cited pieces of evidence conflict. Name the citation keys and the conflict; this cannot be fixed by more research, only surfaced as a caveat.\n\nReturn your reasoning first, then the verdict -- decide by checking, not by restating a conclusion you have already formed."
 ```
 
 #### `agrag.agents.result`
@@ -714,7 +822,9 @@ Build the verifier subagent spec.
 
 - <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A SubAgent-shaped dict for create_deep_agent's subagents= list.
 - <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – tools is the explicit empty list, not omitted -- an omitted key
-- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – would inherit the parent's tools instead of granting none.
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – would inherit the parent's tools instead of granting none. The
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – filesystem tools DeepAgents adds are hidden, and a reply without a
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – `VerificationResult` is met with a reminder.
 
 #### `agrag.agents.tools`
 
@@ -1144,6 +1254,10 @@ The verifier subagent's structured verdict.
 
 - [**VerificationResult**](#agrag.agents.verification.VerificationResult) – The verifier's structured verdict on the researcher's findings.
 
+**Functions:**
+
+- [**verify_findings**](#agrag.agents.verification.verify_findings) – Run the verifier on fixed inputs and return its structured verdict.
+
 ##### `agrag.agents.verification.VerificationResult`
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
@@ -1184,6 +1298,38 @@ reasoning: str
 ```python
 status: Literal['PASS', 'INSUFFICIENT', 'CONTRADICTORY']
 ```
+
+##### `agrag.agents.verification.verify_findings`
+
+```python
+verify_findings(model:Any, question:str, sub_questions:Sequence[str], findings:str) -> VerificationResult
+```
+
+Run the verifier on fixed inputs and return its structured verdict.
+
+Runs the agent that the verifier subagent runs: `VERIFIER_SYSTEM` as the
+system prompt, one user message, and `VerificationResult` as the response
+format. The response format is handled as it is in a full run, so the model
+must answer through the verdict tool. This calibrates the verifier prompt and
+model on a fixed input format. It does not test the text the planner writes
+when it delegates to the verifier.
+
+**Parameters:**
+
+- **model** (<code>[Any](#typing.Any)</code>) – A LangChain chat model.
+- **question** (<code>[str](#str)</code>) – The original question.
+- **sub_questions** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The sub-questions the question was split into.
+- **findings** (<code>[str](#str)</code>) – The researcher's findings with citation keys such as `E1`,
+  and the evidence text for each key.
+
+**Returns:**
+
+- <code>[VerificationResult](#agrag.agents.verification.VerificationResult)</code> – The verifier's verdict.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – The model returned no verdict, after the agent asked again a
+  few times.
 
 ### `agrag.chunking`
 
@@ -6669,6 +6815,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**judge**](#agrag.eval.judge) – A DeepEval judge model backed by an agrag chat model.
 - [**repeat**](#agrag.eval.repeat) – Repeat a metric and report the median score.
 - [**settings**](#agrag.eval.settings) – Env-backed configuration for the eval judge model.
+- [**verifier**](#agrag.eval.verifier) – Verifier calibration: does the verifier give the right verdict?
 
 **Classes:**
 
@@ -6682,6 +6829,8 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**ScoreMetric**](#agrag.eval.ScoreMetric) – A DeepEval metric backed by a plain scoring function.
 - [**ScoreResult**](#agrag.eval.ScoreResult) – The outcome of one scoring function call.
 - [**Scores**](#agrag.eval.Scores) – Precision, recall and F1.
+- [**VerdictItem**](#agrag.eval.VerdictItem) – One fixed verifier input with its gold verdict.
+- [**VerdictReport**](#agrag.eval.VerdictReport) – Scores of predicted verdicts against gold verdicts.
 
 **Functions:**
 
@@ -6697,7 +6846,11 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**parse_json_case**](#agrag.eval.parse_json_case) – Read the `(actual, expected)` models back from a JSON test case.
 - [**relation_quality_metric**](#agrag.eval.relation_quality_metric) – Build a metric for relation triple F1 on one test case.
 - [**run_extractor**](#agrag.eval.run_extractor) – Run an extractor over gold items and build one test case per item.
+- [**run_verifier**](#agrag.eval.run_verifier) – Run the verifier over items and return one label per item.
 - [**to_json_case**](#agrag.eval.to_json_case) – Build a test case that carries structured data as JSON.
+- [**verdict_case**](#agrag.eval.verdict_case) – Build a test case with the predicted and the gold verdict.
+- [**verdict_match_metric**](#agrag.eval.verdict_match_metric) – Build a metric that scores 1.0 when the verdict equals the gold verdict.
+- [**verdict_report**](#agrag.eval.verdict_report) – Score predicted verdicts against gold verdicts.
 
 #### `agrag.eval.ChatModelJudge`
 
@@ -7218,6 +7371,103 @@ precision: float
 
 ```python
 recall: float
+```
+
+#### `agrag.eval.VerdictItem`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One fixed verifier input with its gold verdict.
+
+**Attributes:**
+
+- [**id**](#agrag.eval.VerdictItem.id) (<code>[str](#str)</code>) – A stable id for the item.
+- [**question**](#agrag.eval.VerdictItem.question) (<code>[str](#str)</code>) – The original question.
+- [**sub_questions**](#agrag.eval.VerdictItem.sub_questions) (<code>[list](#list)\[[str](#str)\]</code>) – The sub-questions the question was split into.
+- [**findings**](#agrag.eval.VerdictItem.findings) (<code>[str](#str)</code>) – The findings text with citation keys such as `E1`.
+- [**gold**](#agrag.eval.VerdictItem.gold) (<code>[Literal](#typing.Literal)['PASS', 'INSUFFICIENT', 'CONTRADICTORY']</code>) – The verdict the verifier should give.
+- [**human_reviewed**](#agrag.eval.VerdictItem.human_reviewed) (<code>[bool](#bool)</code>) – True when a person confirmed the gold label.
+
+##### `agrag.eval.VerdictItem.findings`
+
+```python
+findings: str
+```
+
+##### `agrag.eval.VerdictItem.gold`
+
+```python
+gold: Literal['PASS', 'INSUFFICIENT', 'CONTRADICTORY']
+```
+
+##### `agrag.eval.VerdictItem.human_reviewed`
+
+```python
+human_reviewed: bool = False
+```
+
+##### `agrag.eval.VerdictItem.id`
+
+```python
+id: str
+```
+
+##### `agrag.eval.VerdictItem.question`
+
+```python
+question: str
+```
+
+##### `agrag.eval.VerdictItem.sub_questions`
+
+```python
+sub_questions: list[str]
+```
+
+#### `agrag.eval.VerdictReport`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Scores of predicted verdicts against gold verdicts.
+
+**Attributes:**
+
+- [**labels**](#agrag.eval.VerdictReport.labels) (<code>[list](#list)\[[str](#str)\]</code>) – The class order of `confusion_matrix`.
+- [**per_class**](#agrag.eval.VerdictReport.per_class) (<code>[dict](#dict)\[[str](#str), [ClassScores](#agrag.eval.verifier.ClassScores)\]</code>) – Scores for each class.
+- [**macro_f1**](#agrag.eval.VerdictReport.macro_f1) (<code>[float](#float)</code>) – The mean F1 over the three classes.
+- [**confusion_matrix**](#agrag.eval.VerdictReport.confusion_matrix) (<code>[list](#list)\[[list](#list)\[[int](#int)\]\]</code>) – Counts with gold classes as rows and predicted classes
+  as columns. A prediction of `ERROR` is in no column.
+- [**errors**](#agrag.eval.VerdictReport.errors) (<code>[int](#int)</code>) – The number of `ERROR` predictions. Each one is a miss for
+  the gold class of its item.
+
+##### `agrag.eval.VerdictReport.confusion_matrix`
+
+```python
+confusion_matrix: list[list[int]]
+```
+
+##### `agrag.eval.VerdictReport.errors`
+
+```python
+errors: int
+```
+
+##### `agrag.eval.VerdictReport.labels`
+
+```python
+labels: list[str]
+```
+
+##### `agrag.eval.VerdictReport.macro_f1`
+
+```python
+macro_f1: float
+```
+
+##### `agrag.eval.VerdictReport.per_class`
+
+```python
+per_class: dict[str, ClassScores]
 ```
 
 #### `agrag.eval.adapter`
@@ -8405,6 +8655,32 @@ Chunk and document ids come from the item id, so runs are repeatable.
 
 - <code>[ValueError](#ValueError)</code> – `concurrency` is less than 1.
 
+#### `agrag.eval.run_verifier`
+
+```python
+run_verifier(model:Any, items:Sequence[VerdictItem], *, concurrency:int = _CONCURRENCY) -> list[str]
+```
+
+Run the verifier over items and return one label per item.
+
+A call that raises gives the label `ERROR`. It is wrong for every gold
+class and shows in the report. It is never dropped.
+
+**Parameters:**
+
+- **model** (<code>[Any](#typing.Any)</code>) – The chat model under test.
+- **items** (<code>[Sequence](#collections.abc.Sequence)\[[VerdictItem](#agrag.eval.verifier.VerdictItem)\]</code>) – The fixed inputs.
+- **concurrency** (<code>[int](#int)</code>) – The most calls that run at once. Lower it for an endpoint
+  that limits concurrent requests.
+
+**Returns:**
+
+- <code>[list](#list)\[[str](#str)\]</code> – One verdict label per item, in the order of `items`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `concurrency` is less than 1.
+
 #### `agrag.eval.settings`
 
 Env-backed configuration for the eval judge model.
@@ -8491,6 +8767,271 @@ also shows in DeepEval reports.
 - **input** (<code>[str](#str)</code>) – The input text, such as a question or a chunk.
 - **actual** (<code>[BaseModel](#pydantic.BaseModel)</code>) – The system output.
 - **expected** (<code>[BaseModel](#pydantic.BaseModel)</code>) – The gold data.
+
+#### `agrag.eval.verdict_case`
+
+```python
+verdict_case(item:VerdictItem, predicted:str) -> LLMTestCase
+```
+
+Build a test case with the predicted and the gold verdict.
+
+**Parameters:**
+
+- **item** (<code>[VerdictItem](#agrag.eval.verifier.VerdictItem)</code>) – The fixed input.
+- **predicted** (<code>[str](#str)</code>) – The label from `run_verifier`.
+
+#### `agrag.eval.verdict_match_metric`
+
+```python
+verdict_match_metric(*, threshold:float = 0.0) -> ScoreMetric
+```
+
+Build a metric that scores 1.0 when the verdict equals the gold verdict.
+
+The default threshold is 0 because the gate belongs on the macro F1 of
+`verdict_report`.
+
+**Parameters:**
+
+- **threshold** (<code>[float](#float)</code>) – The minimum case score that counts as success.
+
+#### `agrag.eval.verdict_report`
+
+```python
+verdict_report(gold:Sequence[str], predicted:Sequence[str]) -> VerdictReport
+```
+
+Score predicted verdicts against gold verdicts.
+
+**Parameters:**
+
+- **gold** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The gold label of each item.
+- **predicted** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The label of each item from `run_verifier`.
+
+**Returns:**
+
+- <code>[VerdictReport](#agrag.eval.verifier.VerdictReport)</code> – Per-class scores, macro F1, the confusion matrix and the error count.
+
+#### `agrag.eval.verifier`
+
+Verifier calibration: does the verifier give the right verdict?
+
+Each item is a fixed `(question, sub-questions, findings)` input with a gold
+verdict. The verdict and the gold label are both one of three values, so scoring
+is an equality check and needs no judge. `verdict_report` gives per-class
+precision, recall and F1, the macro F1 that gates, and a confusion matrix.
+
+**Classes:**
+
+- [**ClassScores**](#agrag.eval.verifier.ClassScores) – Precision, recall and F1 of one verdict class.
+- [**VerdictItem**](#agrag.eval.verifier.VerdictItem) – One fixed verifier input with its gold verdict.
+- [**VerdictReport**](#agrag.eval.verifier.VerdictReport) – Scores of predicted verdicts against gold verdicts.
+
+**Functions:**
+
+- [**run_verifier**](#agrag.eval.verifier.run_verifier) – Run the verifier over items and return one label per item.
+- [**verdict_case**](#agrag.eval.verifier.verdict_case) – Build a test case with the predicted and the gold verdict.
+- [**verdict_match_metric**](#agrag.eval.verifier.verdict_match_metric) – Build a metric that scores 1.0 when the verdict equals the gold verdict.
+- [**verdict_report**](#agrag.eval.verifier.verdict_report) – Score predicted verdicts against gold verdicts.
+
+##### `agrag.eval.verifier.ClassScores`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Precision, recall and F1 of one verdict class.
+
+**Attributes:**
+
+- [**f1**](#agrag.eval.verifier.ClassScores.f1) (<code>[float](#float)</code>) –
+- [**precision**](#agrag.eval.verifier.ClassScores.precision) (<code>[float](#float)</code>) –
+- [**recall**](#agrag.eval.verifier.ClassScores.recall) (<code>[float](#float)</code>) –
+
+###### `agrag.eval.verifier.ClassScores.f1`
+
+```python
+f1: float
+```
+
+###### `agrag.eval.verifier.ClassScores.precision`
+
+```python
+precision: float
+```
+
+###### `agrag.eval.verifier.ClassScores.recall`
+
+```python
+recall: float
+```
+
+##### `agrag.eval.verifier.VerdictItem`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One fixed verifier input with its gold verdict.
+
+**Attributes:**
+
+- [**id**](#agrag.eval.verifier.VerdictItem.id) (<code>[str](#str)</code>) – A stable id for the item.
+- [**question**](#agrag.eval.verifier.VerdictItem.question) (<code>[str](#str)</code>) – The original question.
+- [**sub_questions**](#agrag.eval.verifier.VerdictItem.sub_questions) (<code>[list](#list)\[[str](#str)\]</code>) – The sub-questions the question was split into.
+- [**findings**](#agrag.eval.verifier.VerdictItem.findings) (<code>[str](#str)</code>) – The findings text with citation keys such as `E1`.
+- [**gold**](#agrag.eval.verifier.VerdictItem.gold) (<code>[Literal](#typing.Literal)['PASS', 'INSUFFICIENT', 'CONTRADICTORY']</code>) – The verdict the verifier should give.
+- [**human_reviewed**](#agrag.eval.verifier.VerdictItem.human_reviewed) (<code>[bool](#bool)</code>) – True when a person confirmed the gold label.
+
+###### `agrag.eval.verifier.VerdictItem.findings`
+
+```python
+findings: str
+```
+
+###### `agrag.eval.verifier.VerdictItem.gold`
+
+```python
+gold: Literal['PASS', 'INSUFFICIENT', 'CONTRADICTORY']
+```
+
+###### `agrag.eval.verifier.VerdictItem.human_reviewed`
+
+```python
+human_reviewed: bool = False
+```
+
+###### `agrag.eval.verifier.VerdictItem.id`
+
+```python
+id: str
+```
+
+###### `agrag.eval.verifier.VerdictItem.question`
+
+```python
+question: str
+```
+
+###### `agrag.eval.verifier.VerdictItem.sub_questions`
+
+```python
+sub_questions: list[str]
+```
+
+##### `agrag.eval.verifier.VerdictReport`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Scores of predicted verdicts against gold verdicts.
+
+**Attributes:**
+
+- [**labels**](#agrag.eval.verifier.VerdictReport.labels) (<code>[list](#list)\[[str](#str)\]</code>) – The class order of `confusion_matrix`.
+- [**per_class**](#agrag.eval.verifier.VerdictReport.per_class) (<code>[dict](#dict)\[[str](#str), [ClassScores](#agrag.eval.verifier.ClassScores)\]</code>) – Scores for each class.
+- [**macro_f1**](#agrag.eval.verifier.VerdictReport.macro_f1) (<code>[float](#float)</code>) – The mean F1 over the three classes.
+- [**confusion_matrix**](#agrag.eval.verifier.VerdictReport.confusion_matrix) (<code>[list](#list)\[[list](#list)\[[int](#int)\]\]</code>) – Counts with gold classes as rows and predicted classes
+  as columns. A prediction of `ERROR` is in no column.
+- [**errors**](#agrag.eval.verifier.VerdictReport.errors) (<code>[int](#int)</code>) – The number of `ERROR` predictions. Each one is a miss for
+  the gold class of its item.
+
+###### `agrag.eval.verifier.VerdictReport.confusion_matrix`
+
+```python
+confusion_matrix: list[list[int]]
+```
+
+###### `agrag.eval.verifier.VerdictReport.errors`
+
+```python
+errors: int
+```
+
+###### `agrag.eval.verifier.VerdictReport.labels`
+
+```python
+labels: list[str]
+```
+
+###### `agrag.eval.verifier.VerdictReport.macro_f1`
+
+```python
+macro_f1: float
+```
+
+###### `agrag.eval.verifier.VerdictReport.per_class`
+
+```python
+per_class: dict[str, ClassScores]
+```
+
+##### `agrag.eval.verifier.run_verifier`
+
+```python
+run_verifier(model:Any, items:Sequence[VerdictItem], *, concurrency:int = _CONCURRENCY) -> list[str]
+```
+
+Run the verifier over items and return one label per item.
+
+A call that raises gives the label `ERROR`. It is wrong for every gold
+class and shows in the report. It is never dropped.
+
+**Parameters:**
+
+- **model** (<code>[Any](#typing.Any)</code>) – The chat model under test.
+- **items** (<code>[Sequence](#collections.abc.Sequence)\[[VerdictItem](#agrag.eval.verifier.VerdictItem)\]</code>) – The fixed inputs.
+- **concurrency** (<code>[int](#int)</code>) – The most calls that run at once. Lower it for an endpoint
+  that limits concurrent requests.
+
+**Returns:**
+
+- <code>[list](#list)\[[str](#str)\]</code> – One verdict label per item, in the order of `items`.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `concurrency` is less than 1.
+
+##### `agrag.eval.verifier.verdict_case`
+
+```python
+verdict_case(item:VerdictItem, predicted:str) -> LLMTestCase
+```
+
+Build a test case with the predicted and the gold verdict.
+
+**Parameters:**
+
+- **item** (<code>[VerdictItem](#agrag.eval.verifier.VerdictItem)</code>) – The fixed input.
+- **predicted** (<code>[str](#str)</code>) – The label from `run_verifier`.
+
+##### `agrag.eval.verifier.verdict_match_metric`
+
+```python
+verdict_match_metric(*, threshold:float = 0.0) -> ScoreMetric
+```
+
+Build a metric that scores 1.0 when the verdict equals the gold verdict.
+
+The default threshold is 0 because the gate belongs on the macro F1 of
+`verdict_report`.
+
+**Parameters:**
+
+- **threshold** (<code>[float](#float)</code>) – The minimum case score that counts as success.
+
+##### `agrag.eval.verifier.verdict_report`
+
+```python
+verdict_report(gold:Sequence[str], predicted:Sequence[str]) -> VerdictReport
+```
+
+Score predicted verdicts against gold verdicts.
+
+**Parameters:**
+
+- **gold** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The gold label of each item.
+- **predicted** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The label of each item from `run_verifier`.
+
+**Returns:**
+
+- <code>[VerdictReport](#agrag.eval.verifier.VerdictReport)</code> – Per-class scores, macro F1, the confusion matrix and the error count.
 
 ### `agrag.graphdb`
 
