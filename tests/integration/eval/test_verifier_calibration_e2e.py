@@ -11,9 +11,14 @@ without ``LLM_*`` settings.
 The threshold is the lowest of three baseline runs minus 0.05, rounded down to
 0.05. Baseline runs (macro F1):
 
-    run 1: not measured yet
-    run 2: not measured yet
-    run 3: not measured yet
+    run 1: 1.000 (0 errors)
+    run 2: 0.983 (2 errors)
+    run 3: 0.964 (4 errors)
+
+Every miss in these runs is an ``ERROR``: the model answered without calling the
+verdict tool. No run gave a wrong verdict, so the confusion matrix is diagonal.
+A wrong verdict is what the gate must catch, and an always-PASS verifier scores
+0.33.
 """
 
 import os
@@ -35,7 +40,7 @@ CONCURRENCY = 2
 MAX_RETRIES = 8
 
 # Minimum macro F1 over PASS, INSUFFICIENT and CONTRADICTORY.
-THRESHOLD = 0.0
+THRESHOLD = 0.90
 
 
 def _verifier_model() -> object:
