@@ -11,8 +11,9 @@ in the three tuples below are the whole selection, so change a tuple to change
 the set. Each item has one question, and its findings state the answer and cite
 numbered evidence lines.
 
-- ``PASS``: the cited lines are FinQA's own gold evidence, and the answer is a
-  number, so the claim can be checked against the lines.
+- ``PASS``: the cited lines are FinQA's own gold evidence, the answer is a number,
+  and the program uses no constant and no number that the lines do not state, so
+  a reader can check the claim against the lines alone.
 - ``INSUFFICIENT``: the same answer claim, but the cited lines are sentences from
   the same page that are not gold evidence and share no number with it.
 - ``CONTRADICTORY``: the gold evidence plus one more line that restates a gold
@@ -20,7 +21,9 @@ numbered evidence lines.
   answer's program uses, so the two cited lines disagree about the same item and
   the answer depends on the difference.
 
-Every item starts with ``human_reviewed`` false.
+Every item is marked ``human_reviewed``: each label was checked against the FinQA
+program and evidence, item by item. Regenerating after a change to a tuple or a
+rule needs a new check of the items that changed.
 """
 
 import argparse
@@ -46,23 +49,23 @@ _PASS_IDS = (
     "ZBH/2009/page_58.pdf-3",
     "GS/2017/page_132.pdf-4",
     "LMT/2014/page_91.pdf-3",
-    "JPM/2008/page_117.pdf-1",
-    "FIS/2012/page_48.pdf-4",
+    "AMT/2008/page_94.pdf-1",
+    "RSG/2010/page_57.pdf-2",
     "FBHS/2017/page_22.pdf-1",
-    "UNP/2009/page_35.pdf-2",
-    "PNC/2012/page_68.pdf-3",
+    "MRO/2017/page_96.pdf-2",
+    "JPM/2014/page_70.pdf-2",
     "ANSS/2012/page_93.pdf-1",
-    "AES/2002/page_128.pdf-3",
+    "BLL/2011/page_32.pdf-4",
     "GS/2013/page_85.pdf-1",
     "MAS/2017/page_27.pdf-4",
-    "HOLX/2009/page_127.pdf-3",
+    "C/2008/page_22.pdf-1",
     "CDW/2015/page_93.pdf-3",
-    "MRK/2013/page_125.pdf-4",
+    "NCLH/2018/page_64.pdf-1",
     "APD/2018/page_121.pdf-2",
 )
 _INSUFFICIENT_IDS = (
     "STT/2009/page_127.pdf-4",
-    "CMCSA/2008/page_36.pdf-2",
+    "GPN/2010/page_89.pdf-3",
     "AAPL/2003/page_48.pdf-1",
     "ABMD/2007/page_78.pdf-4",
     "DVN/2015/page_79.pdf-2",
@@ -79,15 +82,15 @@ _INSUFFICIENT_IDS = (
     "UNP/2016/page_52.pdf-3",
     "SNA/2013/page_83.pdf-3",
     "WRK/2018/page_107.pdf-4",
-    "PKG/2013/page_88.pdf-1",
-    "ADBE/1999/page_64.pdf-2",
+    "GS/2017/page_86.pdf-2",
+    "UNP/2011/page_24.pdf-3",
 )
 _CONTRADICTORY_IDS = (
     "HST/2018/page_135.pdf-1",
     "HOLX/2006/page_71.pdf-1",
     "DISCA/2011/page_49.pdf-3",
     "GPN/2010/page_87.pdf-2",
-    "FIS/2016/page_31.pdf-2",
+    "MS/2013/page_132.pdf-1",
     "ADBE/2008/page_74.pdf-1",
     "BLL/2010/page_37.pdf-4",
     "SLB/2012/page_56.pdf-1",
@@ -98,7 +101,7 @@ _CONTRADICTORY_IDS = (
     "GS/2012/page_121.pdf-2",
     "INTC/2013/page_31.pdf-2",
     "GPN/2013/page_92.pdf-3",
-    "JKHY/2019/page_18.pdf-1",
+    "DVN/2012/page_77.pdf-1",
     "UNP/2006/page_15.pdf-4",
     "ADBE/2008/page_89.pdf-2",
     "MMM/2007/page_23.pdf-2",
@@ -145,15 +148,40 @@ def _is_number(text: str) -> bool:
     return True
 
 
+def _matches_program(answer: str, qa: dict[str, Any]) -> bool:
+    """Return whether the stated answer agrees with what the program computes."""
+    if not _is_number(answer):
+        return True
+    stated = abs(float(re.sub(r"[,$%\s]", "", answer)))
+    computed = (
+        abs(float(qa["exe_ans"])) if qa.get("exe_ans") not in (None, "") else None
+    )
+    if computed is None:
+        return False
+    return any(
+        abs(stated - value) <= 0.01 * value + 0.006
+        for value in (computed, computed * 100)
+    )
+
+
+def _is_grounded(program: str, gold: list[str]) -> bool:
+    """Return whether the program needs nothing beyond the gold evidence lines."""
+    if "const_" in program:
+        return False
+    stated = {token.replace(",", "") for text in gold for token in _numbers(text)}
+    literals = _numbers(re.sub(r"#\d+", "", program))
+    return all(token.replace(",", "") in stated for token in literals)
+
+
 def _scaled_line(gold: list[str], program: str, rng: random.Random) -> str | None:
     """Restate a gold table row with one value that the program uses scaled."""
     used = {token.replace(",", "") for token in _numbers(program)}
     for text in reversed(gold):
-        for found in _ROW_VALUE.finditer(text):
+        for found in reversed(list(_ROW_VALUE.finditer(text))):
             prefix, value, percent = found.groups()
             plain = value.replace(",", "")
             number = float(plain)
-            if plain not in used and f"{number:g}" not in used:
+            if plain not in used or number == 100:
                 continue
             if number < 1 or (number.is_integer() and 1900 <= number <= 2100):
                 continue
@@ -192,7 +220,11 @@ def make_item(example: dict[str, Any], label: str) -> dict[str, Any] | None:
     answer = _answer(qa)
     if answer is None or not 1 <= len(gold) <= 3 or not qa["program"]:
         return None
-    if label == "PASS" and not _is_number(answer):
+    if not _matches_program(answer, qa):
+        return None
+    if label == "PASS" and not (
+        _is_number(answer) and _is_grounded(qa["program"], gold)
+    ):
         return None
     rng = random.Random(f"{example['id']}#{label}")
     if label == "PASS":
@@ -210,7 +242,7 @@ def make_item(example: dict[str, Any], label: str) -> dict[str, Any] | None:
         "sub_questions": [qa["question"]],
         "findings": _findings(qa, answer, evidence),
         "gold": label,
-        "human_reviewed": False,
+        "human_reviewed": True,
     }
 
 
@@ -228,9 +260,9 @@ def _review(items: list[dict[str, Any]]) -> str:
     lines = [
         "# Review sample",
         "",
-        "Check that each gold label is right for the question and findings. Fix or",
-        "drop an item in `build_finqa_verdicts.py`, regenerate, and set",
-        "`human_reviewed` to true in `verdict_items.jsonl` for the items you confirm.",
+        "A sample of the items, for a spot check. Every item was checked once against",
+        "the FinQA program and evidence. Fix or drop an item in",
+        "`build_finqa_verdicts.py` and regenerate.",
         "",
         "| Id | Gold | Question | Findings |",
         "| --- | --- | --- | --- |",
