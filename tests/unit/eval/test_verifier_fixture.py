@@ -5,6 +5,7 @@ checks fail when a rebuilt file has the wrong class counts, a repeated id, or an
 INSUFFICIENT or CONTRADICTORY item whose evidence does not differ from a PASS item.
 """
 
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -54,11 +55,13 @@ class TestVerdictFixture:
     def test_contradictory_items_cite_two_lines_for_one_item(
         self, items: list[VerdictItem]
     ) -> None:
-        """The last evidence line repeats an earlier line with one value changed."""
+        """The last evidence line repeats an earlier row with one value changed."""
         for item in items:
             if item.gold != "CONTRADICTORY":
                 continue
-            *earlier, last = item.findings.split("\n")[-3:]
-            last_text = last.split("] ", 1)[1]
-            assert last_text != earlier[-1].split("] ", 1)[1]
-            assert last_text.split(" is ")[0] in "".join(earlier)
+            lines = re.findall(r"^\[E\d+\] (.*)$", item.findings, re.MULTILINE)
+            *earlier, last = lines
+            assert last not in earlier
+            assert any(
+                last.split(" is ")[0] == line.split(" is ")[0] for line in earlier
+            )

@@ -11,12 +11,14 @@ in the three tuples below are the whole selection, so change a tuple to change
 the set. Each item has one question, and its findings state the answer and cite
 numbered evidence lines.
 
-- ``PASS``: the cited lines are FinQA's own gold evidence.
+- ``PASS``: the cited lines are FinQA's own gold evidence, and the answer is a
+  number, so the claim can be checked against the lines.
 - ``INSUFFICIENT``: the same answer claim, but the cited lines are sentences from
   the same page that are not gold evidence and share no number with it.
-- ``CONTRADICTORY``: the gold evidence plus one more line that restates the last
-  value of a table row with the number scaled by 1.1 to 1.5, so two cited lines
-  disagree about the same item.
+- ``CONTRADICTORY``: the gold evidence plus one more line that restates a gold
+  table row with one value scaled by 1.1 to 1.5. The scaled value is one that the
+  answer's program uses, so the two cited lines disagree about the same item and
+  the answer depends on the difference.
 
 Every item starts with ``human_reviewed`` false.
 """
@@ -34,7 +36,7 @@ _SAMPLE_PER_CLASS = 6
 _DISTRACTOR_MIN_CHARS = 60
 _DISTRACTOR_MAX_CHARS = 400
 _NUMBER = re.compile(r"\d[\d,]*\.?\d*")
-_LAST_VALUE = re.compile(r"^(.* is (?:\$ )?)(\d[\d,]*(?:\.\d+)?)( %)? ;$")
+_ROW_VALUE = re.compile(r"( is (?:\$ )?)(\d[\d,]*(?:\.\d+)?)( %)? ;")
 
 _PASS_IDS = (
     "MAS/2012/page_26.pdf-3",
@@ -50,7 +52,7 @@ _PASS_IDS = (
     "UNP/2009/page_35.pdf-2",
     "PNC/2012/page_68.pdf-3",
     "ANSS/2012/page_93.pdf-1",
-    "PPG/2018/page_85.pdf-1",
+    "AES/2002/page_128.pdf-3",
     "GS/2013/page_85.pdf-1",
     "MAS/2017/page_27.pdf-4",
     "HOLX/2009/page_127.pdf-3",
@@ -88,9 +90,9 @@ _CONTRADICTORY_IDS = (
     "FIS/2016/page_31.pdf-2",
     "ADBE/2008/page_74.pdf-1",
     "BLL/2010/page_37.pdf-4",
-    "LMT/2016/page_49.pdf-3",
+    "SLB/2012/page_56.pdf-1",
     "SNA/2012/page_110.pdf-2",
-    "MRO/2013/page_19.pdf-1",
+    "GS/2015/page_171.pdf-3",
     "PNC/2012/page_100.pdf-2",
     "DISCA/2011/page_49.pdf-2",
     "GS/2012/page_121.pdf-2",
@@ -134,22 +136,34 @@ def _findings(qa: dict[str, Any], answer: str, evidence: list[str]) -> str:
     )
 
 
-def _scaled_line(gold: list[str], rng: random.Random) -> str | None:
-    """Restate the last value of a gold table row with the number scaled."""
+def _is_number(text: str) -> bool:
+    """Return whether an answer is a plain number, with optional $, % and commas."""
+    try:
+        float(text.replace(",", "").replace("$", "").replace("%", "").strip())
+    except ValueError:
+        return False
+    return True
+
+
+def _scaled_line(gold: list[str], program: str, rng: random.Random) -> str | None:
+    """Restate a gold table row with one value that the program uses scaled."""
+    used = {token.replace(",", "") for token in _numbers(program)}
     for text in reversed(gold):
-        found = _LAST_VALUE.match(text)
-        if not found:
-            continue
-        prefix, value, percent = found.groups()
-        number = float(value.replace(",", ""))
-        if number < 1 or (float(number).is_integer() and 1900 <= number <= 2100):
-            continue
-        decimals = len(value.split(".")[1]) if "." in value else 0
-        commas = "," if "," in value else ""
-        scaled = f"{number * rng.uniform(1.1, 1.5):{commas}.{decimals}f}"
-        if scaled == value:
-            continue
-        return f"{prefix}{scaled}{percent or ''} ;"
+        for found in _ROW_VALUE.finditer(text):
+            prefix, value, percent = found.groups()
+            plain = value.replace(",", "")
+            number = float(plain)
+            if plain not in used and f"{number:g}" not in used:
+                continue
+            if number < 1 or (number.is_integer() and 1900 <= number <= 2100):
+                continue
+            decimals = len(value.split(".")[1]) if "." in value else 0
+            commas = "," if "," in value else ""
+            scaled = f"{number * rng.uniform(1.1, 1.5):{commas}.{decimals}f}"
+            if scaled == value:
+                continue
+            restated = f"{prefix}{scaled}{percent or ''} ;"
+            return text[: found.start()] + restated + text[found.end() :]
     return None
 
 
@@ -178,13 +192,15 @@ def make_item(example: dict[str, Any], label: str) -> dict[str, Any] | None:
     answer = _answer(qa)
     if answer is None or not 1 <= len(gold) <= 3 or not qa["program"]:
         return None
+    if label == "PASS" and not _is_number(answer):
+        return None
     rng = random.Random(f"{example['id']}#{label}")
     if label == "PASS":
         evidence = gold
     elif label == "INSUFFICIENT":
         evidence = _distractors(example, gold, answer, rng)
     else:
-        extra = _scaled_line(gold, rng)
+        extra = _scaled_line(gold, qa["program"], rng)
         evidence = None if extra is None else [*gold, extra]
     if evidence is None:
         return None
