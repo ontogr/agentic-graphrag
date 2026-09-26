@@ -1,0 +1,643 @@
+{
+ "fetched": "2026-09-26",
+ "clusters": [
+  {
+   "id": "sec:1326801",
+   "source": "sec",
+   "names": [
+    "Meta Platforms, Inc.",
+    "Facebook Inc"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1318605",
+   "source": "sec",
+   "names": [
+    "Tesla, Inc.",
+    "TESLA MOTORS INC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:19617",
+   "source": "sec",
+   "names": [
+    "JPMORGAN CHASE & CO",
+    "J P MORGAN CHASE & CO",
+    "CHASE MANHATTAN CORP /DE/",
+    "CHEMICAL BANKING CORP"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1652044",
+   "source": "sec",
+   "names": [
+    "Alphabet Inc."
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1108524",
+   "source": "sec",
+   "names": [
+    "Salesforce, Inc.",
+    "SALESFORCE.COM, INC.",
+    "SALESFORCE COM INC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:796343",
+   "source": "sec",
+   "names": [
+    "ADOBE INC.",
+    "ADOBE SYSTEMS INC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1075531",
+   "source": "sec",
+   "names": [
+    "Booking Holdings Inc.",
+    "Priceline Group Inc.",
+    "PRICELINE COM INC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:64803",
+   "source": "sec",
+   "names": [
+    "CVS HEALTH Corp",
+    "CVS CAREMARK CORP",
+    "CVS/CAREMARK CORP",
+    "CVS CORP",
+    "MELVILLE CORP"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1156039",
+   "source": "sec",
+   "names": [
+    "Elevance Health, Inc.",
+    "Anthem, Inc.",
+    "WELLPOINT, INC",
+    "WELLPOINT INC",
+    "ANTHEM INC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:4281",
+   "source": "sec",
+   "names": [
+    "Howmet Aerospace Inc.",
+    "Arconic Inc.",
+    "ALCOA INC.",
+    "ALCOA INC",
+    "ALUMINUM CO OF AMERICA"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1466258",
+   "source": "sec",
+   "names": [
+    "Trane Technologies plc",
+    "Ingersoll-Rand plc"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1131399",
+   "source": "sec",
+   "names": [
+    "GSK plc",
+    "GLAXOSMITHKLINE PLC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1140625",
+   "source": "sec",
+   "names": [
+    "EQUINOR ASA",
+    "STATOIL ASA",
+    "STATOILHYDRO ASA"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:879764",
+   "source": "sec",
+   "names": [
+    "TotalEnergies SE",
+    "TOTAL SE",
+    "TOTAL S.A.",
+    "TOTAL SA",
+    "TOTAL FINA ELF SA",
+    "TOTAL FINA SA",
+    "TOTAL"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1045609",
+   "source": "sec",
+   "names": [
+    "Prologis, Inc.",
+    "AMB PROPERTY CORP"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:766704",
+   "source": "sec",
+   "names": [
+    "WELLTOWER INC.",
+    "HEALTH CARE REIT INC /DE/"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:732717",
+   "source": "sec",
+   "names": [
+    "AT&T INC.",
+    "SBC COMMUNICATIONS INC",
+    "SOUTHWESTERN BELL CORP"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:865752",
+   "source": "sec",
+   "names": [
+    "Monster Beverage Corp",
+    "HANSEN NATURAL CORP"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:896159",
+   "source": "sec",
+   "names": [
+    "Chubb Ltd",
+    "ACE LTD"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1156375",
+   "source": "sec",
+   "names": [
+    "CME GROUP INC.",
+    "CHICAGO MERCANTILE EXCHANGE HOLDINGS INC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:732712",
+   "source": "sec",
+   "names": [
+    "VERIZON COMMUNICATIONS INC",
+    "BELL ATLANTIC CORP"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:831001",
+   "source": "sec",
+   "names": [
+    "CITIGROUP INC",
+    "TRAVELERS GROUP INC",
+    "TRAVELERS INC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:753308",
+   "source": "sec",
+   "names": [
+    "NEXTERA ENERGY INC",
+    "FPL GROUP INC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:320193",
+   "source": "sec",
+   "names": [
+    "Apple Inc.",
+    "APPLE INC",
+    "APPLE COMPUTER INC",
+    "APPLE COMPUTER INC/ FA"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:789019",
+   "source": "sec",
+   "names": [
+    "MICROSOFT CORP"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:51143",
+   "source": "sec",
+   "names": [
+    "INTERNATIONAL BUSINESS MACHINES CORP"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1018724",
+   "source": "sec",
+   "names": [
+    "AMAZON COM INC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:21344",
+   "source": "sec",
+   "names": [
+    "COCA COLA CO"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:886982",
+   "source": "sec",
+   "names": [
+    "GOLDMAN SACHS GROUP INC",
+    "GOLDMAN SACHS GROUP INC/"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1403161",
+   "source": "sec",
+   "names": [
+    "VISA INC."
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:1141391",
+   "source": "sec",
+   "names": [
+    "Mastercard Inc"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:2488",
+   "source": "sec",
+   "names": [
+    "ADVANCED MICRO DEVICES INC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:40545",
+   "source": "sec",
+   "names": [
+    "GENERAL ELECTRIC CO"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec:18230",
+   "source": "sec",
+   "names": [
+    "CATERPILLAR INC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900Q9YI74NYMY3648",
+   "source": "gleif",
+   "names": [
+    "Old Dam Neck, L.L.C.",
+    "Mini Price Storage"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:2549001F9Q96RS08UD12",
+   "source": "gleif",
+   "names": [
+    "LOGOSFI, INC.",
+    "Logos"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900ZR1T6BVSAW4V88",
+   "source": "gleif",
+   "names": [
+    "CONFIDENCE SYSTEMS INC.",
+    "Confidence"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900VPSGI2D9SH5W46",
+   "source": "gleif",
+   "names": [
+    "DAIKIN COMFORT TECHNOLOGIES NORTH AMERICA, INC.",
+    "GOODMAN GLOBAL GROUP, INC."
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:984500I56838018ADF10",
+   "source": "gleif",
+   "names": [
+    "WESTMORELAND WATER",
+    "WESTMORELAND WATER FEDERAL CREDIT UNION"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900G2KY3MXSU44Z57",
+   "source": "gleif",
+   "names": [
+    "F&R ASSOCIATES LIMITED PARTNERSHIP",
+    "F & R ASSOCIATES"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:984500E4B7QDK7B4E606",
+   "source": "gleif",
+   "names": [
+    "XMG, Inc.",
+    "X Markets Group, Inc."
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900VXMKG9W5SSCA66",
+   "source": "gleif",
+   "names": [
+    "Biz2X LLC",
+    "BIZ2CREDIT PLATFORM LLC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900XZN9ZIV5LLIR85",
+   "source": "gleif",
+   "names": [
+    "DISTRIBUTED COGNITION, INC.",
+    "Distributed Capital"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:2549004L5WM5AGKYAE29",
+   "source": "gleif",
+   "names": [
+    "TRANSLUCENCE RESEARCH, INC.",
+    "Espresso Systems"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:25490065UUMJ6QPWHL66",
+   "source": "gleif",
+   "names": [
+    "ORBIS FUNDING, LLC",
+    "CASTLE PARK LENDING, LLC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900O060DOC1R1UM08",
+   "source": "gleif",
+   "names": [
+    "SUREPAY FINANCE INC.",
+    "SUREPAY LENDING GROUP LLC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900RCPTHCVEBRG506",
+   "source": "gleif",
+   "names": [
+    "PAYNUITY MTS, INC",
+    "Greycastle Universal Inc."
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900EQC8Y9U1QDZJ32",
+   "source": "gleif",
+   "names": [
+    "NEPTUNE LIFE, INC.",
+    "BEDELIA, INC."
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900GVBJ6UPTKUFU66",
+   "source": "gleif",
+   "names": [
+    "RISKSPAN, INC.",
+    "NEWBREAK, INC."
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900G4Q0LF80KPMN17",
+   "source": "gleif",
+   "names": [
+    "HN MANSION, LLC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900XOTBLWDULRHL45",
+   "source": "gleif",
+   "names": [
+    "Ira Hyundai-Maitland, LLC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:254900YBFCSS3L3TYU97",
+   "source": "gleif",
+   "names": [
+    "TROIS HOLDINGS, L.L.C."
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:894500SDGD3CZSMA9K46",
+   "source": "gleif",
+   "names": [
+    "ONE GREEN ENERGY GROUP LLC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:2549004MS3SPTLFP1P26",
+   "source": "gleif",
+   "names": [
+    "MLM PACIFIC LLC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "gleif:98450000E2F80C7EE021",
+   "source": "gleif",
+   "names": [
+    "MFMF LLC"
+   ],
+   "hard_negative_of": null
+  },
+  {
+   "id": "sec-hard-negative:1318605",
+   "source": "sec",
+   "names": [
+    "TSS, Inc."
+   ],
+   "hard_negative_of": "sec:1318605"
+  },
+  {
+   "id": "sec-hard-negative:1108524",
+   "source": "sec",
+   "names": [
+    "SCANSOURCE, INC."
+   ],
+   "hard_negative_of": "sec:1108524"
+  },
+  {
+   "id": "sec-hard-negative:796343",
+   "source": "sec",
+   "names": [
+    "Adeia Inc."
+   ],
+   "hard_negative_of": "sec:796343"
+  },
+  {
+   "id": "sec-hard-negative:1075531",
+   "source": "sec",
+   "names": [
+    "BLOOMIA HOLDINGS, INC."
+   ],
+   "hard_negative_of": "sec:1075531"
+  },
+  {
+   "id": "sec-hard-negative:64803",
+   "source": "sec",
+   "names": [
+    "CSX CORP"
+   ],
+   "hard_negative_of": "sec:64803"
+  },
+  {
+   "id": "sec-hard-negative:1156039",
+   "source": "sec",
+   "names": [
+    "Evolent Health, Inc."
+   ],
+   "hard_negative_of": "sec:1156039"
+  },
+  {
+   "id": "sec-hard-negative:4281",
+   "source": "sec",
+   "names": [
+    "ALCON INC"
+   ],
+   "hard_negative_of": "sec:4281"
+  },
+  {
+   "id": "sec-hard-negative:1466258",
+   "source": "sec",
+   "names": [
+    "TETRA TECHNOLOGIES INC"
+   ],
+   "hard_negative_of": "sec:1466258"
+  },
+  {
+   "id": "sec-hard-negative:1045609",
+   "source": "sec",
+   "names": [
+    "Personalis, Inc."
+   ],
+   "hard_negative_of": "sec:1045609"
+  },
+  {
+   "id": "sec-hard-negative:732717",
+   "source": "sec",
+   "names": [
+    "SAGA COMMUNICATIONS INC"
+   ],
+   "hard_negative_of": "sec:732717"
+  },
+  {
+   "id": "sec-hard-negative:1156375",
+   "source": "sec",
+   "names": [
+    "CIM GROUP, INC."
+   ],
+   "hard_negative_of": "sec:1156375"
+  },
+  {
+   "id": "sec-hard-negative:732712",
+   "source": "sec",
+   "names": [
+    "Ribbon Communications Inc."
+   ],
+   "hard_negative_of": "sec:732712"
+  },
+  {
+   "id": "sec-hard-negative:831001",
+   "source": "sec",
+   "names": [
+    "Triller Group Inc."
+   ],
+   "hard_negative_of": "sec:831001"
+  },
+  {
+   "id": "sec-hard-negative:753308",
+   "source": "sec",
+   "names": [
+    "Nexera Energy Inc."
+   ],
+   "hard_negative_of": "sec:753308"
+  },
+  {
+   "id": "sec-hard-negative:320193",
+   "source": "sec",
+   "names": [
+    "Axe Compute Inc."
+   ],
+   "hard_negative_of": "sec:320193"
+  },
+  {
+   "id": "sec-hard-negative:1403161",
+   "source": "sec",
+   "names": [
+    "VIASAT INC"
+   ],
+   "hard_negative_of": "sec:1403161"
+  },
+  {
+   "id": "sec-hard-negative:1141391",
+   "source": "sec",
+   "names": [
+    "MASTEC INC"
+   ],
+   "hard_negative_of": "sec:1141391"
+  }
+ ]
+}

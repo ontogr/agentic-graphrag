@@ -33,6 +33,12 @@ from agrag.eval.extraction import (
 )
 from agrag.eval.judge import ChatModelJudge
 from agrag.eval.repeat import MedianOfN
+from agrag.eval.resolution import (
+    ClusterAssignment,
+    cluster_quality_metric,
+    resolution_case,
+    run_resolver,
+)
 from agrag.eval.settings import EvalJudgeSettings
 
 
@@ -40,6 +46,7 @@ __all__ = [
     "ChatModelJudge",
     "CitationAccuracyMetric",
     "CitationScoreBreakdown",
+    "ClusterAssignment",
     "EvalJudgeSettings",
     "ExtractionGold",
     "MedianOfN",
@@ -48,6 +55,7 @@ __all__ = [
     "ScoreResult",
     "Scores",
     "answer_case",
+    "cluster_quality_metric",
     "context_precision",
     "context_recall",
     "correctness",
@@ -58,6 +66,8 @@ __all__ = [
     "micro_scores",
     "parse_json_case",
     "relation_quality_metric",
+    "resolution_case",
     "run_extractor",
+    "run_resolver",
     "to_json_case",
 ]
