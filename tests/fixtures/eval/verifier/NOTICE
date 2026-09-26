@@ -1,0 +1,35 @@
+The items in this folder come from FinQA.
+
+Source:     https://github.com/czyssrs/FinQA (dataset/test.json)
+Paper:      Chen et al., "FinQA: A Dataset of Numerical Reasoning over
+            Financial Data", EMNLP 2021. https://arxiv.org/abs/2109.00122
+MIT License
+
+Copyright (c) 2021 Zhiyu Chen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Each item is one FinQA question with findings that cite numbered evidence lines.
+PASS items keep the human-verified gold evidence of FinQA. INSUFFICIENT and
+CONTRADICTORY items are generated from it: an INSUFFICIENT item cites sentences
+of the same page that are not gold evidence, and a CONTRADICTORY item adds a
+line that restates a gold value with a changed number. A sample of the items is
+checked by hand (see REVIEW.md). The examples are chosen by hand. Run
+build_finqa_verdicts.py to regenerate verdict_items.jsonl and REVIEW.md from a
+copy of test.json.
