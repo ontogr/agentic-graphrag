@@ -1,5 +1,6 @@
 """Agent middleware for composing models and bounding the research loop."""
 
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -8,9 +9,18 @@ from langchain.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
     ToolCallRequest,
+    hook_config,
 )
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
+
+from agrag.agents.ledger import Ledger
+
+
+_VERDICT_REMINDER = "Answer only by calling the VerificationResult tool."
+
+# The prefixes of the citation keys that Ledger assigns.
+_CITATION_KEY = re.compile(r"\b[EGRCVX]\d+\b")
 
 
 class RoundRobinModelMiddleware(AgentMiddleware):
@@ -126,3 +136,122 @@ class ResearchAttemptLimiter(AgentMiddleware):
                 )
             self._attempts += 1
         return await handler(request)
+
+
+class VerifierEvidenceMiddleware(AgentMiddleware):
+    """Give the verifier the evidence text behind each key a task cites.
+
+    The planner writes the verifier's task from the researcher's summary, so the
+    task carries citation keys and no evidence. The verifier has no tools, so it
+    cannot check that a key supports a claim. This middleware appends the ledger
+    text of every key in a verifier task, and marks a key that this run never
+    retrieved. Tasks for other subagents pass through unchanged.
+
+    Holds a run's ``Ledger``, so construct one per ``ainvoke`` call.
+    """
+
+    def __init__(self, ledger: Ledger) -> None:
+        """Construct the middleware.
+
+        Args:
+            ledger: The ledger of the run whose keys the planner cites.
+        """
+        self._ledger = ledger
+
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
+    ) -> ToolMessage | Command[Any]:
+        """Append an Evidence block to a verifier task, then run the call.
+
+        Args:
+            request: The intercepted tool call request.
+            handler: The rest of the tool-call pipeline.
+
+        Returns:
+            The handler's result.
+        """
+        args = request.tool_call.get("args", {})
+        if request.tool_call.get("name") != "task" or (
+            args.get("subagent_type") != "verifier"
+        ):
+            return await handler(request)
+        description = args.get("description", "")
+        keys = list(dict.fromkeys(_CITATION_KEY.findall(description)))
+        if not keys:
+            return await handler(request)
+        evidence = "\n".join(self._evidence_line(key) for key in keys)
+        task = {**args, "description": f"{description}\n\nEvidence:\n{evidence}"}
+        return await handler(
+            request.override(tool_call={**request.tool_call, "args": task})
+        )
+
+    def _evidence_line(self, key: str) -> str:
+        """Return the ledger text for a key, or a note that it is missing."""
+        result = self._ledger.resolve(key)
+        if result is None:
+            return f"[{key}] Not in the evidence retrieved in this run."
+        return self._ledger.render(result)
+
+
+class HideToolsMiddleware(AgentMiddleware):
+    """Remove tools by name from every model request.
+
+    DeepAgents gives each subagent its filesystem tools, even when the spec
+    lists none. A role that needs no tools, such as the verifier, hides them so
+    the model can only answer through its structured output.
+    """
+
+    def __init__(self, names: frozenset[str]) -> None:
+        """Construct the middleware.
+
+        Args:
+            names: The tool names to remove.
+        """
+        self._names = names
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> Any:
+        """Run the call with the named tools removed from the request."""
+        kept = [t for t in request.tools if getattr(t, "name", None) not in self._names]
+        return await handler(request.override(tools=kept))
+
+
+class RequireVerdictMiddleware(AgentMiddleware):
+    """Ask again when the verifier answers in prose instead of with its verdict.
+
+    A subagent that has tools stops as soon as the model replies without a tool
+    call, even when the reply is not the structured response. The planner then
+    reads prose where it expects a ``VerificationResult``. This middleware sends a
+    short reminder and calls the model again, up to ``max_reminders`` times in one
+    subagent run, and then lets the run end as before.
+    """
+
+    def __init__(self, max_reminders: int = 2) -> None:
+        """Construct the middleware.
+
+        Args:
+            max_reminders: How many reminders one subagent run may send.
+        """
+        self._max_reminders = max_reminders
+
+    @hook_config(can_jump_to=["model"])
+    def after_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        """Send a reminder and jump back to the model after a prose reply."""
+        if state.get("structured_response") is not None:
+            return None
+        messages = state["messages"]
+        last = messages[-1]
+        if not isinstance(last, AIMessage) or last.tool_calls:
+            return None
+        reminders = sum(
+            isinstance(m, HumanMessage) and m.content == _VERDICT_REMINDER
+            for m in messages
+        )
+        if reminders >= self._max_reminders:
+            return None
+        return {"messages": [HumanMessage(_VERDICT_REMINDER)], "jump_to": "model"}

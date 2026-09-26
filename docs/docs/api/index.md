@@ -300,8 +300,73 @@ Agent middleware for composing models and bounding the research loop.
 
 **Classes:**
 
+- [**HideToolsMiddleware**](#agrag.agents.middleware.HideToolsMiddleware) – Remove tools by name from every model request.
+- [**RequireVerdictMiddleware**](#agrag.agents.middleware.RequireVerdictMiddleware) – Ask again when the verifier answers in prose instead of with its verdict.
 - [**ResearchAttemptLimiter**](#agrag.agents.middleware.ResearchAttemptLimiter) – Cap how many times the planner may re-delegate after verification.
 - [**RoundRobinModelMiddleware**](#agrag.agents.middleware.RoundRobinModelMiddleware) – Rotate across the configured chat models, one model per call.
+- [**VerifierEvidenceMiddleware**](#agrag.agents.middleware.VerifierEvidenceMiddleware) – Give the verifier the evidence text behind each key a task cites.
+
+##### `agrag.agents.middleware.HideToolsMiddleware`
+
+```python
+HideToolsMiddleware(names:frozenset[str]) -> None
+```
+
+Bases: <code>[AgentMiddleware](#langchain.agents.middleware.types.AgentMiddleware)</code>
+
+Remove tools by name from every model request.
+
+DeepAgents gives each subagent its filesystem tools, even when the spec
+lists none. A role that needs no tools, such as the verifier, hides them so
+the model can only answer through its structured output.
+
+**Functions:**
+
+- [**awrap_model_call**](#agrag.agents.middleware.HideToolsMiddleware.awrap_model_call) – Run the call with the named tools removed from the request.
+
+**Parameters:**
+
+- **names** (<code>[frozenset](#frozenset)\[[str](#str)\]</code>) – The tool names to remove.
+
+###### `agrag.agents.middleware.HideToolsMiddleware.awrap_model_call`
+
+```python
+awrap_model_call(request:ModelRequest, handler:Callable[[ModelRequest], Awaitable[ModelResponse]]) -> Any
+```
+
+Run the call with the named tools removed from the request.
+
+##### `agrag.agents.middleware.RequireVerdictMiddleware`
+
+```python
+RequireVerdictMiddleware(max_reminders:int = 2) -> None
+```
+
+Bases: <code>[AgentMiddleware](#langchain.agents.middleware.types.AgentMiddleware)</code>
+
+Ask again when the verifier answers in prose instead of with its verdict.
+
+A subagent that has tools stops as soon as the model replies without a tool
+call, even when the reply is not the structured response. The planner then
+reads prose where it expects a `VerificationResult`. This middleware sends a
+short reminder and calls the model again, up to `max_reminders` times in one
+subagent run, and then lets the run end as before.
+
+**Functions:**
+
+- [**after_model**](#agrag.agents.middleware.RequireVerdictMiddleware.after_model) – Send a reminder and jump back to the model after a prose reply.
+
+**Parameters:**
+
+- **max_reminders** (<code>[int](#int)</code>) – How many reminders one subagent run may send.
+
+###### `agrag.agents.middleware.RequireVerdictMiddleware.after_model`
+
+```python
+after_model(state:Any, runtime:Any) -> dict[str, Any] | None
+```
+
+Send a reminder and jump back to the model after a prose reply.
 
 ##### `agrag.agents.middleware.ResearchAttemptLimiter`
 
@@ -396,6 +461,49 @@ wrap_model_call(request:ModelRequest, handler:Callable[[ModelRequest], ModelResp
 ```
 
 Run the call against the next model in rotation.
+
+##### `agrag.agents.middleware.VerifierEvidenceMiddleware`
+
+```python
+VerifierEvidenceMiddleware(ledger:Ledger) -> None
+```
+
+Bases: <code>[AgentMiddleware](#langchain.agents.middleware.types.AgentMiddleware)</code>
+
+Give the verifier the evidence text behind each key a task cites.
+
+The planner writes the verifier's task from the researcher's summary, so the
+task carries citation keys and no evidence. The verifier has no tools, so it
+cannot check that a key supports a claim. This middleware appends the ledger
+text of every key in a verifier task, and marks a key that this run never
+retrieved. Tasks for other subagents pass through unchanged.
+
+Holds a run's `Ledger`, so construct one per `ainvoke` call.
+
+**Functions:**
+
+- [**awrap_tool_call**](#agrag.agents.middleware.VerifierEvidenceMiddleware.awrap_tool_call) – Append an Evidence block to a verifier task, then run the call.
+
+**Parameters:**
+
+- **ledger** (<code>[Ledger](#agrag.agents.ledger.Ledger)</code>) – The ledger of the run whose keys the planner cites.
+
+###### `agrag.agents.middleware.VerifierEvidenceMiddleware.awrap_tool_call`
+
+```python
+awrap_tool_call(request:ToolCallRequest, handler:Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]) -> ToolMessage | Command[Any]
+```
+
+Append an Evidence block to a verifier task, then run the call.
+
+**Parameters:**
+
+- **request** (<code>[ToolCallRequest](#langchain.agents.middleware.types.ToolCallRequest)</code>) – The intercepted tool call request.
+- **handler** (<code>[Callable](#collections.abc.Callable)\[\[[ToolCallRequest](#langchain.agents.middleware.types.ToolCallRequest)\], [Awaitable](#collections.abc.Awaitable)\[[ToolMessage](#langchain_core.messages.ToolMessage) | [Command](#langgraph.types.Command)\[[Any](#typing.Any)\]\]\]</code>) – The rest of the tool-call pipeline.
+
+**Returns:**
+
+- <code>[ToolMessage](#langchain_core.messages.ToolMessage) | [Command](#langgraph.types.Command)\[[Any](#typing.Any)\]</code> – The handler's result.
 
 #### `agrag.agents.model`
 
@@ -507,7 +615,7 @@ SIMPLE_ANSWER_SYSTEM = 'You are a knowledge-graph question-answering assistant. 
 ##### `agrag.agents.prompts.VERIFIER_SYSTEM`
 
 ```python
-VERIFIER_SYSTEM = "You are an evidence verifier for a knowledge-graph question-answering system. You will be given the original question, the sub-questions it was decomposed into, and the researcher's findings with citation keys (e.g. E1, C3, R2).\n\nCheck each sub-question independently, in isolation from the others and from the researcher's overall narrative:\n1. Does this sub-question have at least one citation?\n2. Does each cited key correspond to evidence that actually supports the claim made for this sub-question -- not just present, but on point?\n3. Do any two cited pieces of evidence, across any sub-questions, contradict each other?\n\nOnly after checking every sub-question independently, decide the overall verdict:\n- PASS: every sub-question has supporting evidence and no contradictions were found.\n- INSUFFICIENT: one or more sub-questions lack supporting evidence. List exactly which sub-questions and what evidence is missing.\n- CONTRADICTORY: two or more cited pieces of evidence conflict. Name the citation keys and the conflict; this cannot be fixed by more research, only surfaced as a caveat.\n\nReturn your reasoning first, then the verdict -- decide by checking, not by restating a conclusion you have already formed."
+VERIFIER_SYSTEM = "You are an evidence verifier for a knowledge-graph question-answering system. You will be given the original question, the sub-questions it was decomposed into, and the researcher's findings with citation keys (e.g. E1, C3, R2).\n\nCheck each sub-question independently, in isolation from the others and from the researcher's overall narrative:\n1. Does this sub-question have at least one citation?\n2. Does each cited key correspond to evidence that actually supports the claim made for this sub-question -- not just present, but on point?\n3. Do any two cited pieces of evidence, across any sub-questions, contradict each other?\n\nOnly after checking every sub-question independently, decide the overall verdict:\n- PASS: every sub-question has supporting evidence and no contradictions were found.\n- INSUFFICIENT: one or more sub-questions lack supporting evidence, or a claim does not match the evidence cited for it. List exactly which sub-questions and what evidence is missing, and for a mismatch name the claim and the value or fact the evidence gives instead.\n- CONTRADICTORY: two or more cited pieces of evidence conflict. Name the citation keys and the conflict; this cannot be fixed by more research, only surfaced as a caveat.\n\nReturn your reasoning first, then the verdict -- decide by checking, not by restating a conclusion you have already formed."
 ```
 
 #### `agrag.agents.result`
@@ -714,7 +822,9 @@ Build the verifier subagent spec.
 
 - <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A SubAgent-shaped dict for create_deep_agent's subagents= list.
 - <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – tools is the explicit empty list, not omitted -- an omitted key
-- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – would inherit the parent's tools instead of granting none.
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – would inherit the parent's tools instead of granting none. The
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – filesystem tools DeepAgents adds are hidden, and a reply without a
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – `VerificationResult` is met with a reminder.
 
 #### `agrag.agents.tools`
 
