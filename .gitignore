@@ -233,6 +233,7 @@ pytest-e2e-results.xml
 pytest-eval-results.xml
 pytest-eval-answer-results.xml
 pytest-eval-extraction-results.xml
+pytest-eval-verifier-results.xml
 pytest-integration-results-*.xml
 
 # DeepEval run cache
