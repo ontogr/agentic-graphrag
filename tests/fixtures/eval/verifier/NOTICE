@@ -29,7 +29,6 @@ Each item is one FinQA question with findings that cite numbered evidence lines.
 PASS items keep the human-verified gold evidence of FinQA. INSUFFICIENT and
 CONTRADICTORY items are generated from it: an INSUFFICIENT item cites sentences
 of the same page that are not gold evidence, and a CONTRADICTORY item adds a
-line that restates a gold value with a changed number. A sample of the items is
-checked by hand (see REVIEW.md). The examples are chosen by hand. Run
-build_finqa_verdicts.py to regenerate verdict_items.jsonl and REVIEW.md from a
-copy of test.json.
+line that restates a gold value with a changed number. The examples are chosen by hand. Run
+build_finqa_verdicts.py to regenerate verdict_items.jsonl from a copy of
+test.json.

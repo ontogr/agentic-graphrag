@@ -35,7 +35,6 @@ from typing import Any
 
 
 _HERE = Path(__file__).parent
-_SAMPLE_PER_CLASS = 6
 _DISTRACTOR_MIN_CHARS = 60
 _DISTRACTOR_MAX_CHARS = 400
 _NUMBER = re.compile(r"\d[\d,]*\.?\d*")
@@ -246,37 +245,8 @@ def make_item(example: dict[str, Any], label: str) -> dict[str, Any] | None:
     }
 
 
-def _review(items: list[dict[str, Any]]) -> str:
-    """Write a table of a seeded sample of each class for a hand check."""
-    rng = random.Random(0)
-    rows = []
-    for label, _ in _CLASSES:
-        of_class = [item for item in items if item["gold"] == label]
-        rows += rng.sample(of_class, _SAMPLE_PER_CLASS)
-
-    def cell(text: str) -> str:
-        return text.replace("|", "\\|").replace("\n", "<br>")
-
-    lines = [
-        "# Review sample",
-        "",
-        "A sample of the items, for a spot check. Every item was checked once against",
-        "the FinQA program and evidence. Fix or drop an item in",
-        "`build_finqa_verdicts.py` and regenerate.",
-        "",
-        "| Id | Gold | Question | Findings |",
-        "| --- | --- | --- | --- |",
-    ]
-    lines += [
-        f"| {cell(r['id'])} | {r['gold']} | {cell(r['question'])} "
-        f"| {cell(r['findings'])} |"
-        for r in rows
-    ]
-    return "\n".join(lines) + "\n"
-
-
 def build(source: Path) -> None:
-    """Write ``verdict_items.jsonl`` and ``REVIEW.md`` from ``source``.
+    """Write ``verdict_items.jsonl`` from ``source``.
 
     Raises:
         ValueError: A chosen id is missing from ``source``, is used twice, or is
@@ -300,7 +270,6 @@ def build(source: Path) -> None:
     (_HERE / "verdict_items.jsonl").write_text(
         "".join(json.dumps(item) + "\n" for item in items)
     )
-    (_HERE / "REVIEW.md").write_text(_review(items))
 
 
 if __name__ == "__main__":
