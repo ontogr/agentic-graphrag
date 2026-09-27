@@ -24,6 +24,7 @@ from agrag.eval.answer import (
     answer_case,
     final_answer,
 )
+from tests.integration.eval._citation_gate import citation_gate
 
 
 class _ScriptedJudge(DeepEvalBaseLLM):
@@ -292,3 +293,141 @@ class TestCitationAccuracyMetric:
         )
 
         assert metric.measure(case) == 0.5
+
+    async def test_breakdown_holds_one_row_per_cited_sentence(self) -> None:
+        """Each cited sentence lands in the breakdown with keys and reason."""
+        judge = _ScriptedJudge()
+        answer = "This is a supported claim [E1]. This is a supported claim [E9]."
+
+        metric = await _score(answer, judge)
+
+        assert judge.scoring_calls == 1
+        rows = metric.score_breakdown["sentence_rows"]
+        assert [row["keys"] for row in rows] == [["E1"], ["E9"]]
+        assert [row["fabricated"] for row in rows] == [False, True]
+        assert [row["supported"] for row in rows] == [True, False]
+        assert rows[0]["reason"] != ""
+        assert rows[1]["reason"] != ""
+
+    async def test_measure_rows_match_a_measure_rows(self) -> None:
+        """The synchronous path records the same sentence rows as async."""
+        answer = "This is a supported claim [E1]. This is an invented claim [V1]."
+        sync_metric = CitationAccuracyMetric(_ScriptedJudge())
+        sync_metric.measure(answer_case("q", _result(answer), "reference"))
+        async_metric = await _score(answer)
+
+        assert (
+            sync_metric.score_breakdown["sentence_rows"]
+            == async_metric.score_breakdown["sentence_rows"]
+        )
+
+    async def test_fabricated_only_answer_names_its_key_without_judge_call(
+        self,
+    ) -> None:
+        """A fabricated-only answer records its key and costs no judge call."""
+        judge = _ScriptedJudge()
+
+        metric = await _score("This is a supported claim [E9].", judge)
+
+        assert judge.scoring_calls == 0
+        assert metric.score_breakdown["sentence_rows"] == [
+            {
+                "text": "This is a supported claim.",
+                "keys": ["E9"],
+                "fabricated": True,
+                "supported": False,
+                "reason": "Fabricated citation key.",
+            }
+        ]
+
+    async def test_abstention_and_uncited_answers_emit_empty_rows(self) -> None:
+        """Early returns emit empty rows so consumers need no default."""
+        abstained = await _score("No relevant evidence found.")
+        uncited = await _score("Net income rose by ninety four million dollars.")
+
+        assert abstained.score_breakdown["sentence_rows"] == []
+        assert uncited.score_breakdown["sentence_rows"] == []
+
+    async def test_missing_judge_reason_records_empty_reason(self, monkeypatch) -> None:
+        """A judge with no reason still yields a string reason."""
+        metric = CitationAccuracyMetric(_ScriptedJudge())
+
+        class _MuteMetric:
+            reason = None
+
+            async def a_measure(self, case: Any) -> float:  # noqa: ANN401, ARG002
+                return 10.0
+
+        monkeypatch.setattr(
+            "agrag.eval.answer._support_metric", lambda *args, **kwargs: _MuteMetric()
+        )
+        await metric.a_measure(
+            answer_case("q", _result("This is a supported claim [E1]."), "reference")
+        )
+
+        assert metric.score_breakdown["sentence_rows"][0]["reason"] == ""
+
+
+def _gate_row(
+    question_id: str, score: float, rows: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Build one gate row with the given citation score and sentence rows."""
+    return {
+        "id": question_id,
+        "scores": {
+            "citation_accuracy": {"score": score, "breakdown": {"sentence_rows": rows}}
+        },
+    }
+
+
+def _gate_sentence(text: str, keys: list[str], fabricated: bool) -> dict[str, Any]:
+    """Build one sentence row for the gate helper."""
+    return {
+        "text": text,
+        "keys": keys,
+        "fabricated": fabricated,
+        "supported": not fabricated,
+        "reason": "scripted",
+    }
+
+
+class TestCitationGate:
+    """citation_gate decides the gate from report rows without a judge."""
+
+    def test_names_fabricated_citations_with_keys(self) -> None:
+        """A fabricated row yields its question, sentence and key."""
+        rows = [
+            _gate_row("q1", 0.5, [_gate_sentence("A claim [E1].", ["E1"], False)]),
+            _gate_row("q2", 0.0, [_gate_sentence("A claim [E9].", ["E9"], True)]),
+        ]
+
+        fabricated, mean, warn = citation_gate(rows)
+
+        assert fabricated == [("q2", "A claim [E9].", ["E9"])]
+        assert mean == 0.25
+        assert warn is False
+
+    def test_warn_band_sits_between_floor_and_historical_level(self) -> None:
+        """A mean of 0.2 warns instead of failing."""
+        rows = [
+            _gate_row("q1", 0.2, [_gate_sentence("A claim [E1].", ["E1"], False)]),
+            _gate_row("q2", 0.2, [_gate_sentence("A claim [E1].", ["E1"], False)]),
+        ]
+
+        fabricated, mean, warn = citation_gate(rows)
+
+        assert fabricated == []
+        assert mean == 0.2
+        assert warn is True
+
+    def test_missing_sentence_rows_raise_loudly(self) -> None:
+        """A breakdown without rows fails instead of passing vacuously."""
+        rows = [
+            {
+                "id": "q1",
+                "scores": {"citation_accuracy": {"score": 1.0, "breakdown": {}}},
+            }
+        ]
+
+        with pytest.raises(KeyError):
+            citation_gate(rows)

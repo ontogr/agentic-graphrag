@@ -235,15 +235,16 @@ def _split_sentences(text: str) -> list[str]:
     return sentences
 
 
-def _citations(sentence: str, known: set[str]) -> tuple[list[str], bool]:
-    """Return the keys a sentence cites and whether any is fabricated.
+def _citations(sentence: str, known: set[str]) -> tuple[list[str], list[str], bool]:
+    """Return the known keys, the unknown bracketed keys, and fabrication.
 
     A token that looks like a key counts as a citation when it is a known key or
     sits inside brackets or parentheses. A bracketed key that is not known is
-    fabricated.
+    fabricated, and is returned so the report can name it.
     """
     bracketed = [m.span() for m in _BRACKETED.finditer(sentence)]
     keys: list[str] = []
+    unknown: list[str] = []
     fabricated = False
     for match in _KEY_TOKEN.finditer(sentence):
         key = match.group()
@@ -252,7 +253,8 @@ def _citations(sentence: str, known: set[str]) -> tuple[list[str], bool]:
             keys.append(key)
         elif inside:
             fabricated = True
-    return list(dict.fromkeys(keys)), fabricated
+            unknown.append(key)
+    return list(dict.fromkeys(keys)), list(dict.fromkeys(unknown)), fabricated
 
 
 def _without_keys(sentence: str, known: set[str]) -> str:
@@ -278,19 +280,54 @@ def _support_metric(judge: DeepEvalBaseLLM, threshold: float) -> BaseMetric:
     )
 
 
+class CitationSentenceRow(TypedDict):
+    """One cited sentence and its support verdict, for the report.
+
+    Attributes:
+        text: The sentence with its citation keys removed.
+        keys: The keys the sentence cites, including bracketed keys the run
+            never assigned. Empty only when the sentence cites no key-shaped
+            token at all.
+        fabricated: Whether the sentence cites a key the run never assigned.
+        supported: Whether the cited evidence supports the sentence.
+        reason: The support judge's reason, or why no judge call happened.
+    """
+
+    text: str
+    keys: list[str]
+    fabricated: bool
+    supported: bool
+    reason: str
+
+
 class _CitedSentence:
     """One sentence with the evidence it cites, ready to judge."""
 
-    def __init__(self, text: str, evidence: list[str], fabricated: bool) -> None:
+    def __init__(
+        self, text: str, evidence: list[str], fabricated: bool, keys: list[str]
+    ) -> None:
         self.text = text
         self.evidence = evidence
         self.fabricated = fabricated
+        self.keys = keys
+        self.supported = False
+        self.reason = "Fabricated citation key." if fabricated else ""
 
     def case(self) -> LLMTestCase:
         """Return the test case that asks whether the evidence supports the text."""
         return LLMTestCase(
             input=self.text, actual_output=self.text, retrieval_context=self.evidence
         )
+
+    def row(self) -> CitationSentenceRow:
+        """Return this sentence and its support verdict for the report."""
+        return {
+            "text": self.text,
+            "keys": self.keys,
+            "fabricated": self.fabricated,
+            "supported": self.supported,
+            "reason": self.reason,
+        }
 
 
 class CitationScoreBreakdown(TypedDict, total=False):
@@ -305,6 +342,7 @@ class CitationScoreBreakdown(TypedDict, total=False):
         cited_sentences: Number of sentences with citations.
         supported_sentences: Number of cited sentences supported by evidence.
         sentences: Number of eligible sentences in the answer.
+        sentence_rows: One row per cited sentence with its keys and verdict.
     """
 
     citation_precision: float
@@ -312,6 +350,7 @@ class CitationScoreBreakdown(TypedDict, total=False):
     cited_sentences: int
     supported_sentences: int
     sentences: int
+    sentence_rows: list[CitationSentenceRow]
 
 
 class CitationAccuracyMetric(BaseMetric):
@@ -328,6 +367,8 @@ class CitationAccuracyMetric(BaseMetric):
     of at least four words, plus any shorter cited sentence. ``score_breakdown``
     holds both and the sentence counts. An answer with no citations scores 0. An
     abstention, the exact text ``No relevant evidence found.``, scores 1.
+    ``score_breakdown`` also holds one row per cited sentence with its keys,
+    fabricated flag, support verdict and judge reason.
 
     The test case must come from ``answer_case``, which puts the evidence under
     ``metadata["citations"]``. A judge failure on any sentence raises.
@@ -362,13 +403,13 @@ class CitationAccuracyMetric(BaseMetric):
         if not isinstance(plan, tuple):
             return plan
         cited, eligible = plan
-        supported = [
-            not sentence.fabricated
-            and _support_metric(self.judge, self._cutoff).measure(sentence.case())
-            >= self._cutoff
-            for sentence in cited
-        ]
-        return self._finish(supported, eligible)
+        for sentence in cited:
+            if sentence.fabricated:
+                continue
+            sub = _support_metric(self.judge, self._cutoff)
+            sentence.supported = sub.measure(sentence.case()) >= self._cutoff
+            sentence.reason = sub.reason or ""
+        return self._finish(cited, eligible)
 
     async def a_measure(
         self, test_case: LLMTestCase, *args: Any, **kwargs: Any
@@ -389,17 +430,17 @@ class CitationAccuracyMetric(BaseMetric):
         cited, eligible = plan
         gate = asyncio.Semaphore(_MAX_CONCURRENT_JUDGE_CALLS)
 
-        async def is_supported(sentence: _CitedSentence) -> bool:
+        async def judge_one(sentence: _CitedSentence) -> None:
             if sentence.fabricated:
-                return False
+                return
             async with gate:
-                score = await _support_metric(self.judge, self._cutoff).a_measure(
-                    sentence.case()
-                )
-            return score >= self._cutoff
+                sub = _support_metric(self.judge, self._cutoff)
+                score = await sub.a_measure(sentence.case())
+            sentence.supported = score >= self._cutoff
+            sentence.reason = sub.reason or ""
 
-        supported = await asyncio.gather(*(is_supported(s) for s in cited))
-        return self._finish(list(supported), eligible)
+        await asyncio.gather(*(judge_one(sentence) for sentence in cited))
+        return self._finish(cited, eligible)
 
     @property
     def __name__(self) -> str:
@@ -420,41 +461,49 @@ class CitationAccuracyMetric(BaseMetric):
         known = set(citations)
 
         if answer == ABSTENTION:
-            return self._set(1.0, "The agent abstained.", {})
+            return self._set(1.0, "The agent abstained.", {"sentence_rows": []})
 
         cited: list[_CitedSentence] = []
         eligible = 0
         for sentence in _split_sentences(answer):
-            keys, fabricated = _citations(sentence, known)
+            keys, unknown, fabricated = _citations(sentence, known)
             text = _without_keys(sentence, known)
             if keys or fabricated:
                 cited.append(
-                    _CitedSentence(text, [citations[key] for key in keys], fabricated)
+                    _CitedSentence(
+                        text=text,
+                        evidence=[citations[key] for key in keys],
+                        fabricated=fabricated,
+                        keys=[*keys, *unknown],
+                    )
                 )
                 eligible += 1
             elif len(text.split()) >= _MIN_WORDS:
                 eligible += 1
         if not cited:
             return self._set(
-                0.0, "The answer has no citations.", {"sentences": eligible}
+                0.0,
+                "The answer has no citations.",
+                {"sentences": eligible, "sentence_rows": []},
             )
         return cited, eligible
 
-    def _finish(self, supported: list[bool], eligible: int) -> float:
+    def _finish(self, cited: list[_CitedSentence], eligible: int) -> float:
         """Record precision, recall and their F1 for judged sentences."""
-        hits = sum(supported)
-        precision = hits / len(supported)
+        hits = sum(sentence.supported for sentence in cited)
+        precision = hits / len(cited)
         recall = hits / eligible
         score = 2 * precision * recall / (precision + recall) if hits else 0.0
         return self._set(
             score,
-            f"{hits} of {len(supported)} cited sentences are supported.",
+            f"{hits} of {len(cited)} cited sentences are supported.",
             {
                 "citation_precision": precision,
                 "citation_recall": recall,
-                "cited_sentences": len(supported),
+                "cited_sentences": len(cited),
                 "supported_sentences": hits,
                 "sentences": eligible,
+                "sentence_rows": [sentence.row() for sentence in cited],
             },
         )
 
