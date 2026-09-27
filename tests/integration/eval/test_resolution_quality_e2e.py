@@ -33,11 +33,12 @@ fails when the embedding or LLM tier stops merging.
 
 import math
 import os
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypedDict
 from unittest.mock import AsyncMock
 
 import pytest
-from rapidfuzz import fuzz
 
 from agrag.common.text import normalize_text
 from agrag.embedding import SentenceTransformerEmbedder
@@ -45,7 +46,6 @@ from agrag.eval import (
     ClusterAssignment,
     cluster_quality_metric,
     resolution_case,
-    run_resolver,
 )
 from agrag.ingestion.extract import ExtractionLLMSettings
 from agrag.ingestion.resolve.candidate_source import GraphCandidateSource
@@ -53,12 +53,14 @@ from agrag.ingestion.resolve.resolver import (
     ExactMatch,
     FuzzyMatch,
     LLMVerify,
+    ResolutionGroup,
+    ResolutionResult,
+    ResolvedMatch,
     Resolver,
 )
 from agrag.ingestion.resolve.zone_classifier import (
     DISCARD_THRESHOLD,
     HARD_MERGE_THRESHOLD,
-    MAX_LLM_PAIRS,
 )
 from tests.integration.e2e._artifact import write_artifact
 from tests.integration.eval._resolution_quality import (
@@ -106,67 +108,58 @@ def _pairs_of(assignment: ClusterAssignment) -> set[tuple[int, int]]:
     return pairs
 
 
-def _is_fast_path(left: str, right: str) -> bool:
-    """Check whether exact or fuzzy tier merges the pair outright."""
-    if normalize_text(left) == normalize_text(right):
-        return True
-    ratio = fuzz.token_sort_ratio(normalize_text(left), normalize_text(right))
-    return ratio / 100 >= 0.97
+class _PairFate(TypedDict):
+    """One scored pair and the outcome supported by resolver evidence."""
+
+    pair: list[str]
+    fate: str
+    cosine: float
 
 
 async def _pair_fates(
     mentions: list[str],
     gold: ClusterAssignment,
     predicted: ClusterAssignment,
+    result: ResolutionResult,
     embedder: SentenceTransformerEmbedder,
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    """Explain each false merge and each missed gold pair by zone.
-
-    Fates mirror the resolver zones: above the hard-merge threshold the
-    embedding merges, below the discard threshold it drops, inside the
-    band the top-ranked pairs reach the LLM up to the per-label cap and
-    the rest are cut. A band pair that reaches the LLM and merges was
-    accepted by the LLM, while one that reaches it and stays split was
-    rejected by it.
-    """
+) -> tuple[list[_PairFate], list[_PairFate]]:
+    """Explain pair outcomes using direct resolver evidence when available."""
     vectors = await embedder.embed(mentions)
     similarities: dict[tuple[int, int], float] = {}
     for left in range(len(mentions)):
         for right in range(left + 1, len(mentions)):
-            if _is_fast_path(mentions[left], mentions[right]):
-                continue
             similarities[(left, right)] = _cosine(vectors[left], vectors[right])
-    band = sorted(sim for sim in similarities.values() if sim >= DISCARD_THRESHOLD)
-    band = [sim for sim in band if sim < HARD_MERGE_THRESHOLD]
-    cutoff = (
-        sorted(band, reverse=True)[MAX_LLM_PAIRS - 1]
-        if len(band) >= MAX_LLM_PAIRS
-        else min(band, default=DISCARD_THRESHOLD)
-    )
+    direct_matches = {
+        (
+            min(match.left_index, match.right_index),
+            max(match.left_index, match.right_index),
+        ): match.comparator
+        for match in result.matches
+    }
     gold_pairs = _pairs_of(gold)
     predicted_pairs = _pairs_of(predicted)
 
-    def fate(left: int, right: int, merged: bool) -> dict[str, object]:
-        """Label one pair with its zone outcome and similarity."""
-        if _is_fast_path(mentions[left], mentions[right]):
-            sim = _cosine(vectors[left], vectors[right])
-            label = (
-                "hard-merged"
-                if sim >= HARD_MERGE_THRESHOLD
-                else ("accepted-by-llm" if merged else "rejected-by-llm")
-            )
+    def fate(left: int, right: int, merged: bool) -> _PairFate:
+        """Label a pair without attributing a decision that was not recorded."""
+        pair = (left, right)
+        sim = similarities[pair]
+        comparator = direct_matches.get(pair)
+        if comparator == "llm":
+            label = "accepted-by-llm"
+        elif comparator == "embedding":
+            label = "accepted-by-embedding"
+        elif comparator == "fuzzy_fast_path":
+            label = "accepted-by-fuzzy-fast-path"
+        elif normalize_text(mentions[left]) == normalize_text(mentions[right]):
+            label = "accepted-by-exact-match"
+        elif merged:
+            label = "transitive-merge"
+        elif sim < DISCARD_THRESHOLD:
+            label = "low-similarity-not-merged"
+        elif sim >= HARD_MERGE_THRESHOLD:
+            label = "high-similarity-not-merged"
         else:
-            sim = similarities[(left, right)]
-            if sim >= HARD_MERGE_THRESHOLD:
-                label = "hard-merged"
-            elif sim < DISCARD_THRESHOLD:
-                label = "discarded-below-0.80"
-            elif sim < cutoff:
-                label = "cut-by-cap"
-            elif merged:
-                label = "accepted-by-llm"
-            else:
-                label = "rejected-by-llm"
+            label = "boundary-not-merged"
         names = sorted([mentions[left], mentions[right]])
         return {"pair": names, "fate": label, "cosine": round(sim, 4)}
 
@@ -174,9 +167,47 @@ async def _pair_fates(
     missed = sorted(gold_pairs - predicted_pairs)
     false_merges = [fate(left, right, True) for left, right in false]
     missed_pairs = [fate(left, right, False) for left, right in missed]
-    false_merges.sort(key=lambda entry: str(entry["pair"]))
-    missed_pairs.sort(key=lambda entry: str(entry["pair"]))
+    false_merges.sort(key=lambda entry: entry["pair"])
+    missed_pairs.sort(key=lambda entry: entry["pair"])
     return false_merges, missed_pairs
+
+
+async def test_pair_fates_report_transitive_merges_without_llm_attribution() -> None:
+    """A cluster path does not make every pair an LLM-confirmed match."""
+
+    class _FakeEmbedder:
+        async def embed(self, mentions: list[str]) -> list[list[float]]:
+            return [[1.0, 0.0] for _ in mentions]
+
+    now = datetime.now(UTC)
+    result = ResolutionResult(
+        groups=[ResolutionGroup(entity_indices=[0, 1, 2])],
+        matches=[
+            ResolvedMatch(
+                left_index=0,
+                right_index=1,
+                comparator="llm",
+                decided_at=now,
+            ),
+            ResolvedMatch(
+                left_index=1,
+                right_index=2,
+                comparator="embedding",
+                decided_at=now,
+            ),
+        ],
+    )
+    predicted = ClusterAssignment(size=3, clusters=[[0, 1, 2]])
+    gold = ClusterAssignment(size=3, clusters=[[0, 1]])
+
+    false_merges, _ = await _pair_fates(
+        ["Alpha", "Beta", "Gamma"], gold, predicted, result, _FakeEmbedder()
+    )
+
+    assert false_merges == [
+        {"pair": ["Alpha", "Gamma"], "fate": "transitive-merge", "cosine": 1.0},
+        {"pair": ["Beta", "Gamma"], "fate": "accepted-by-embedding", "cosine": 1.0},
+    ]
 
 
 async def test_full_resolver_meets_threshold_on_company_names(
@@ -202,11 +233,20 @@ async def test_full_resolver_meets_threshold_on_company_names(
     )
     mentions, gold = mentions_and_gold(load_company_clusters().clusters)
 
-    predicted = await run_resolver(resolver, mentions)
+    result = await resolver.resolve(mentions)
+    matches_by_tier: dict[str, int] = {}
+    for match in result.matches:
+        matches_by_tier[match.comparator] = matches_by_tier.get(match.comparator, 0) + 1
+    predicted = ClusterAssignment(
+        size=len(mentions),
+        clusters=[group.entity_indices for group in result.groups],
+        matches_by_tier=matches_by_tier,
+        failed_llm_requests=result.failed_llm_requests,
+    )
     metric = cluster_quality_metric(threshold=THRESHOLD)
     score = metric.measure(resolution_case(mentions, predicted, gold))
     false_merges, missed_pairs = await _pair_fates(
-        list(mentions), gold, predicted, embedder
+        list(mentions), gold, predicted, result, embedder
     )
 
     if "E2E_ARTIFACT_DIR" not in os.environ:
