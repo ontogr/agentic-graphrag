@@ -40,6 +40,14 @@ from agrag.eval.resolution import (
     run_resolver,
 )
 from agrag.eval.settings import EvalJudgeSettings
+from agrag.eval.verifier import (
+    VerdictItem,
+    VerdictReport,
+    run_verifier,
+    verdict_case,
+    verdict_match_metric,
+    verdict_report,
+)
 
 
 __all__ = [
@@ -54,6 +62,8 @@ __all__ = [
     "ScoreMetric",
     "ScoreResult",
     "Scores",
+    "VerdictItem",
+    "VerdictReport",
     "answer_case",
     "cluster_quality_metric",
     "context_precision",
@@ -69,5 +79,9 @@ __all__ = [
     "resolution_case",
     "run_extractor",
     "run_resolver",
+    "run_verifier",
     "to_json_case",
+    "verdict_case",
+    "verdict_match_metric",
+    "verdict_report",
 ]

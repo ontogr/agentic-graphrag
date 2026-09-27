@@ -8,7 +8,7 @@ from opentelemetry.trace import Tracer
 
 from agrag.agents.harness import ensure_harness_profile, model_provider_key
 from agrag.agents.ledger import Ledger
-from agrag.agents.middleware import ResearchAttemptLimiter
+from agrag.agents.middleware import ResearchAttemptLimiter, VerifierEvidenceMiddleware
 from agrag.agents.model import build_chat_model, build_model_middleware
 from agrag.agents.prompts import PLANNER_SYSTEM, SIMPLE_ANSWER_SYSTEM
 from agrag.agents.result import AgentRunResult
@@ -184,7 +184,7 @@ class _RunScopedAgent:
             model=self._model,
             system_prompt=planner_system,
             subagents=subagents,
-            middleware=[*self._middleware, limiter],
+            middleware=[*self._middleware, limiter, VerifierEvidenceMiddleware(ledger)],
         )
         result = await agent.ainvoke(
             input_data,
