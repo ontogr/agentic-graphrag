@@ -14,6 +14,7 @@ from agrag.eval.adapter import ScoreMetric, ScoreResult, parse_json_case, to_jso
 from agrag.eval.answer import (
     CitationAccuracyMetric,
     CitationScoreBreakdown,
+    CitationSentenceRow,
     answer_case,
     context_precision,
     context_recall,
@@ -55,6 +56,7 @@ __all__ = [
     "ChatModelJudge",
     "CitationAccuracyMetric",
     "CitationScoreBreakdown",
+    "CitationSentenceRow",
     "ClusterAssignment",
     "EvalJudgeSettings",
     "ExtractionGold",

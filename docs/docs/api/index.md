@@ -6841,6 +6841,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**ChatModelJudge**](#agrag.eval.ChatModelJudge) – Wrap a LangChain chat model as a DeepEval judge.
 - [**CitationAccuracyMetric**](#agrag.eval.CitationAccuracyMetric) – Score whether each cited sentence follows from the evidence it cites.
 - [**CitationScoreBreakdown**](#agrag.eval.CitationScoreBreakdown) – Available precision, recall, and sentence-count fields for one score.
+- [**CitationSentenceRow**](#agrag.eval.CitationSentenceRow) – One cited sentence and its support verdict, for the report.
 - [**ClusterAssignment**](#agrag.eval.ClusterAssignment) – A grouping of mentions, listed by position in the mention list.
 - [**EvalJudgeSettings**](#agrag.eval.EvalJudgeSettings) – LLM client config for the eval judge.
 - [**ExtractionGold**](#agrag.eval.ExtractionGold) – One gold-annotated chunk of text.
@@ -6967,6 +6968,8 @@ over cited sentences. Recall is supported cited sentences over all sentences
 of at least four words, plus any shorter cited sentence. `score_breakdown`
 holds both and the sentence counts. An answer with no citations scores 0. An
 abstention, the exact text `No relevant evidence found.`, scores 1.
+`score_breakdown` also holds one row per cited sentence with its keys,
+fabricated flag, support verdict and judge reason.
 
 The test case must come from `answer_case`, which puts the evidence under
 `metadata["citations"]`. A judge failure on any sentence raises.
@@ -7053,6 +7056,7 @@ breakdowns.
 - [**cited_sentences**](#agrag.eval.CitationScoreBreakdown.cited_sentences) (<code>[int](#int)</code>) – Number of sentences with citations.
 - [**supported_sentences**](#agrag.eval.CitationScoreBreakdown.supported_sentences) (<code>[int](#int)</code>) – Number of cited sentences supported by evidence.
 - [**sentences**](#agrag.eval.CitationScoreBreakdown.sentences) (<code>[int](#int)</code>) – Number of eligible sentences in the answer.
+- [**sentence_rows**](#agrag.eval.CitationScoreBreakdown.sentence_rows) (<code>[list](#list)\[[CitationSentenceRow](#agrag.eval.answer.CitationSentenceRow)\]</code>) – One row per cited sentence with its keys and verdict.
 
 ##### `agrag.eval.CitationScoreBreakdown.citation_precision`
 
@@ -7072,6 +7076,12 @@ citation_recall: float
 cited_sentences: int
 ```
 
+##### `agrag.eval.CitationScoreBreakdown.sentence_rows`
+
+```python
+sentence_rows: list[CitationSentenceRow]
+```
+
 ##### `agrag.eval.CitationScoreBreakdown.sentences`
 
 ```python
@@ -7082,6 +7092,52 @@ sentences: int
 
 ```python
 supported_sentences: int
+```
+
+#### `agrag.eval.CitationSentenceRow`
+
+Bases: <code>[TypedDict](#typing.TypedDict)</code>
+
+One cited sentence and its support verdict, for the report.
+
+**Attributes:**
+
+- [**text**](#agrag.eval.CitationSentenceRow.text) (<code>[str](#str)</code>) – The sentence with its citation keys removed.
+- [**keys**](#agrag.eval.CitationSentenceRow.keys) (<code>[list](#list)\[[str](#str)\]</code>) – The keys the sentence cites, including bracketed keys the run
+  never assigned. Empty only when the sentence cites no key-shaped
+  token at all.
+- [**fabricated**](#agrag.eval.CitationSentenceRow.fabricated) (<code>[bool](#bool)</code>) – Whether the sentence cites a key the run never assigned.
+- [**supported**](#agrag.eval.CitationSentenceRow.supported) (<code>[bool](#bool)</code>) – Whether the cited evidence supports the sentence.
+- [**reason**](#agrag.eval.CitationSentenceRow.reason) (<code>[str](#str)</code>) – The support judge's reason, or why no judge call happened.
+
+##### `agrag.eval.CitationSentenceRow.fabricated`
+
+```python
+fabricated: bool
+```
+
+##### `agrag.eval.CitationSentenceRow.keys`
+
+```python
+keys: list[str]
+```
+
+##### `agrag.eval.CitationSentenceRow.reason`
+
+```python
+reason: str
+```
+
+##### `agrag.eval.CitationSentenceRow.supported`
+
+```python
+supported: bool
+```
+
+##### `agrag.eval.CitationSentenceRow.text`
+
+```python
+text: str
 ```
 
 #### `agrag.eval.ClusterAssignment`
@@ -7694,6 +7750,7 @@ that point counts as unsupported.
 
 - [**CitationAccuracyMetric**](#agrag.eval.answer.CitationAccuracyMetric) – Score whether each cited sentence follows from the evidence it cites.
 - [**CitationScoreBreakdown**](#agrag.eval.answer.CitationScoreBreakdown) – Available precision, recall, and sentence-count fields for one score.
+- [**CitationSentenceRow**](#agrag.eval.answer.CitationSentenceRow) – One cited sentence and its support verdict, for the report.
 
 **Functions:**
 
@@ -7735,6 +7792,8 @@ over cited sentences. Recall is supported cited sentences over all sentences
 of at least four words, plus any shorter cited sentence. `score_breakdown`
 holds both and the sentence counts. An answer with no citations scores 0. An
 abstention, the exact text `No relevant evidence found.`, scores 1.
+`score_breakdown` also holds one row per cited sentence with its keys,
+fabricated flag, support verdict and judge reason.
 
 The test case must come from `answer_case`, which puts the evidence under
 `metadata["citations"]`. A judge failure on any sentence raises.
@@ -7821,6 +7880,7 @@ breakdowns.
 - [**cited_sentences**](#agrag.eval.answer.CitationScoreBreakdown.cited_sentences) (<code>[int](#int)</code>) – Number of sentences with citations.
 - [**supported_sentences**](#agrag.eval.answer.CitationScoreBreakdown.supported_sentences) (<code>[int](#int)</code>) – Number of cited sentences supported by evidence.
 - [**sentences**](#agrag.eval.answer.CitationScoreBreakdown.sentences) (<code>[int](#int)</code>) – Number of eligible sentences in the answer.
+- [**sentence_rows**](#agrag.eval.answer.CitationScoreBreakdown.sentence_rows) (<code>[list](#list)\[[CitationSentenceRow](#agrag.eval.answer.CitationSentenceRow)\]</code>) – One row per cited sentence with its keys and verdict.
 
 ###### `agrag.eval.answer.CitationScoreBreakdown.citation_precision`
 
@@ -7840,6 +7900,12 @@ citation_recall: float
 cited_sentences: int
 ```
 
+###### `agrag.eval.answer.CitationScoreBreakdown.sentence_rows`
+
+```python
+sentence_rows: list[CitationSentenceRow]
+```
+
 ###### `agrag.eval.answer.CitationScoreBreakdown.sentences`
 
 ```python
@@ -7850,6 +7916,52 @@ sentences: int
 
 ```python
 supported_sentences: int
+```
+
+##### `agrag.eval.answer.CitationSentenceRow`
+
+Bases: <code>[TypedDict](#typing.TypedDict)</code>
+
+One cited sentence and its support verdict, for the report.
+
+**Attributes:**
+
+- [**text**](#agrag.eval.answer.CitationSentenceRow.text) (<code>[str](#str)</code>) – The sentence with its citation keys removed.
+- [**keys**](#agrag.eval.answer.CitationSentenceRow.keys) (<code>[list](#list)\[[str](#str)\]</code>) – The keys the sentence cites, including bracketed keys the run
+  never assigned. Empty only when the sentence cites no key-shaped
+  token at all.
+- [**fabricated**](#agrag.eval.answer.CitationSentenceRow.fabricated) (<code>[bool](#bool)</code>) – Whether the sentence cites a key the run never assigned.
+- [**supported**](#agrag.eval.answer.CitationSentenceRow.supported) (<code>[bool](#bool)</code>) – Whether the cited evidence supports the sentence.
+- [**reason**](#agrag.eval.answer.CitationSentenceRow.reason) (<code>[str](#str)</code>) – The support judge's reason, or why no judge call happened.
+
+###### `agrag.eval.answer.CitationSentenceRow.fabricated`
+
+```python
+fabricated: bool
+```
+
+###### `agrag.eval.answer.CitationSentenceRow.keys`
+
+```python
+keys: list[str]
+```
+
+###### `agrag.eval.answer.CitationSentenceRow.reason`
+
+```python
+reason: str
+```
+
+###### `agrag.eval.answer.CitationSentenceRow.supported`
+
+```python
+supported: bool
+```
+
+###### `agrag.eval.answer.CitationSentenceRow.text`
+
+```python
+text: str
 ```
 
 ##### `agrag.eval.answer.answer_case`
