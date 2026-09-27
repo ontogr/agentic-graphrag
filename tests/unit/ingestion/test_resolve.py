@@ -14,7 +14,9 @@ Also covers the union-find _group_matches helper clustering transitively
 connected indices and the zone-routed Resolver: exact identity groups without
 evidence, fuzzy fast-path records ``fuzzy_fast_path`` evidence, embedding
 similarity hard-merges, discards, or defers to a capped LLM tier, and uncertain
-LLM verdicts count as ambiguous without merging.
+LLM verdicts count as ambiguous without merging. Failed LLM requests count as
+failed without merging, and boundary pairs past the per-label cap count as
+truncated without reaching the LLM.
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -792,6 +794,52 @@ class TestZoneRouting:
 
         assert client.calls <= 2
         assert result.ambiguous_count == 0
+
+    async def test_failing_llm_client_counts_failed_requests(self) -> None:
+        """A raising LLM client maps to no-match and counts one failed request."""
+        chunk = _llm_chunk()
+
+        class RaisingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                raise RuntimeError("LLM call failed")
+
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=RaisingClient()),
+            ],
+            candidate_source=_candidate_source(),
+        )
+        result = await resolver.resolve(
+            [_llm_entity("Jon Smith", chunk), _llm_entity("John Smith", chunk)]
+        )
+
+        assert sorted(group.entity_indices for group in result.groups) == [[0], [1]]
+        assert result.matches == []
+        assert result.failed_llm_requests == 1
+        assert result.cap_truncated_pairs == 0
+
+    async def test_pairs_over_cap_count_truncated(self) -> None:
+        """Boundary pairs past max_llm_pairs never reach the LLM."""
+        chunk = _llm_chunk()
+        client = _CountingClient("no_match")
+        entities = [_llm_entity(f"branch-{index}", chunk) for index in range(4)]
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=client),
+            ],
+            candidate_source=_candidate_source(),
+            max_llm_pairs=1,
+            llm_batch_size=1,
+        )
+        result = await resolver.resolve(entities)
+
+        assert client.calls == 1
+        assert result.cap_truncated_pairs == 5
+        assert result.failed_llm_requests == 0
 
     async def test_neighbors_reach_the_llm_verify_tier(self) -> None:
         """Neighbor context passed to resolve() arrives in the LLM request."""

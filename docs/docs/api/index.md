@@ -6925,11 +6925,19 @@ A grouping of mentions, listed by position in the mention list.
   of one.
 - [**matches_by_tier**](#agrag.eval.ClusterAssignment.matches_by_tier) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – How many confirmed non-exact matches each comparator
   made. Empty for gold clusters.
+- [**failed_llm_requests**](#agrag.eval.ClusterAssignment.failed_llm_requests) (<code>[int](#int)</code>) – LLM verification requests that errored and were
+  mapped to "no match". Zero on gold clusters.
 
 ##### `agrag.eval.ClusterAssignment.clusters`
 
 ```python
 clusters: list[list[int]]
+```
+
+##### `agrag.eval.ClusterAssignment.failed_llm_requests`
+
+```python
+failed_llm_requests: int = 0
 ```
 
 ##### `agrag.eval.ClusterAssignment.matches_by_tier`
@@ -8475,11 +8483,19 @@ A grouping of mentions, listed by position in the mention list.
   of one.
 - [**matches_by_tier**](#agrag.eval.resolution.ClusterAssignment.matches_by_tier) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – How many confirmed non-exact matches each comparator
   made. Empty for gold clusters.
+- [**failed_llm_requests**](#agrag.eval.resolution.ClusterAssignment.failed_llm_requests) (<code>[int](#int)</code>) – LLM verification requests that errored and were
+  mapped to "no match". Zero on gold clusters.
 
 ###### `agrag.eval.resolution.ClusterAssignment.clusters`
 
 ```python
 clusters: list[list[int]]
+```
+
+###### `agrag.eval.resolution.ClusterAssignment.failed_llm_requests`
+
+```python
+failed_llm_requests: int = 0
 ```
 
 ###### `agrag.eval.resolution.ClusterAssignment.matches_by_tier`
@@ -8556,7 +8572,8 @@ position, so runs are repeatable.
 
 **Returns:**
 
-- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – The predicted clusters, and the count of matches per comparator.
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – The predicted clusters, the count of matches per comparator, and
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – the count of failed LLM requests.
 
 #### `agrag.eval.resolution_case`
 
@@ -8623,7 +8640,8 @@ position, so runs are repeatable.
 
 **Returns:**
 
-- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – The predicted clusters, and the count of matches per comparator.
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – The predicted clusters, the count of matches per comparator, and
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – the count of failed LLM requests.
 
 #### `agrag.eval.settings`
 
@@ -13100,6 +13118,7 @@ raised outright instead (see compare's Raises section).
 **Attributes:**
 
 - [**chunks_by_id**](#agrag.ingestion.resolve.LLMVerify.chunks_by_id) –
+- [**failed_requests**](#agrag.ingestion.resolve.LLMVerify.failed_requests) (<code>[int](#int)</code>) –
 - [**max_pairs_per_batch**](#agrag.ingestion.resolve.LLMVerify.max_pairs_per_batch) –
 - [**settings**](#agrag.ingestion.resolve.LLMVerify.settings) –
 
@@ -13179,7 +13198,9 @@ Verify pairs and count how many verdicts came back uncertain.
 **Returns:**
 
 - <code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\]</code> – The per-pair results and the count of raw uncertain verdicts,
-- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH.
+- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH. A request that
+- <code>[tuple](#tuple)\[[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\], [int](#int)\]</code> – errors maps its pairs to NO_MATCH and increments
+- <code>[tuple](#tuple)\[[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\], [int](#int)\]</code> – failed_requests.
 
 ###### `agrag.ingestion.resolve.LLMVerify.compare_with_evidence`
 
@@ -13188,6 +13209,12 @@ compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
 ```
 
 Compare two entities and retain any available decision evidence.
+
+###### `agrag.ingestion.resolve.LLMVerify.failed_requests`
+
+```python
+failed_requests: int = 0
+```
 
 ###### `agrag.ingestion.resolve.LLMVerify.max_pairs_per_batch`
 
@@ -13262,11 +13289,27 @@ The groups, non-exact evidence, and ambiguity count of one pass.
 - [**matches**](#agrag.ingestion.resolve.ResolutionResult.matches) (<code>[list](#list)\[[ResolvedMatch](#agrag.ingestion.resolve.resolver.ResolvedMatch)\]</code>) – Evidence for every confirmed non-exact pair.
 - [**ambiguous_count**](#agrag.ingestion.resolve.ResolutionResult.ambiguous_count) (<code>[int](#int)</code>) – LLM verdicts that came back uncertain. These
   pairs never merge.
+- [**failed_llm_requests**](#agrag.ingestion.resolve.ResolutionResult.failed_llm_requests) (<code>[int](#int)</code>) – LLM verification requests that errored
+  and were mapped to "no match".
+- [**cap_truncated_pairs**](#agrag.ingestion.resolve.ResolutionResult.cap_truncated_pairs) (<code>[int](#int)</code>) – Boundary pairs that never reached the LLM
+  because of the per-label pair cap.
 
 ###### `agrag.ingestion.resolve.ResolutionResult.ambiguous_count`
 
 ```python
 ambiguous_count: int = 0
+```
+
+###### `agrag.ingestion.resolve.ResolutionResult.cap_truncated_pairs`
+
+```python
+cap_truncated_pairs: int = 0
+```
+
+###### `agrag.ingestion.resolve.ResolutionResult.failed_llm_requests`
+
+```python
+failed_llm_requests: int = 0
 ```
 
 ###### `agrag.ingestion.resolve.ResolutionResult.groups`
@@ -13458,7 +13501,8 @@ Resolve entity groups and retain each confirmed non-exact match.
 **Returns:**
 
 - <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index, evidence for every confirmed
-- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair, and the count of uncertain LLM verdicts.
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair, the count of uncertain LLM verdicts, and the
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – counts of failed LLM requests and cap-truncated pairs.
 
 ##### `agrag.ingestion.resolve.batch_validation`
 
@@ -13991,6 +14035,7 @@ raised outright instead (see compare's Raises section).
 **Attributes:**
 
 - [**chunks_by_id**](#agrag.ingestion.resolve.comparators.LLMVerify.chunks_by_id) –
+- [**failed_requests**](#agrag.ingestion.resolve.comparators.LLMVerify.failed_requests) (<code>[int](#int)</code>) –
 - [**max_pairs_per_batch**](#agrag.ingestion.resolve.comparators.LLMVerify.max_pairs_per_batch) –
 - [**settings**](#agrag.ingestion.resolve.comparators.LLMVerify.settings) –
 
@@ -14070,7 +14115,9 @@ Verify pairs and count how many verdicts came back uncertain.
 **Returns:**
 
 - <code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\]</code> – The per-pair results and the count of raw uncertain verdicts,
-- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH.
+- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH. A request that
+- <code>[tuple](#tuple)\[[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\], [int](#int)\]</code> – errors maps its pairs to NO_MATCH and increments
+- <code>[tuple](#tuple)\[[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\], [int](#int)\]</code> – failed_requests.
 
 ####### `agrag.ingestion.resolve.comparators.LLMVerify.compare_with_evidence`
 
@@ -14079,6 +14126,12 @@ compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
 ```
 
 Compare two entities and retain any available decision evidence.
+
+####### `agrag.ingestion.resolve.comparators.LLMVerify.failed_requests`
+
+```python
+failed_requests: int = 0
+```
 
 ####### `agrag.ingestion.resolve.comparators.LLMVerify.max_pairs_per_batch`
 
@@ -14197,6 +14250,10 @@ Entity resolution: deciding which ExtractedEntity mentions are the same thing.
 - [**ResolutionResult**](#agrag.ingestion.resolve.resolver.ResolutionResult) – The groups, non-exact evidence, and ambiguity count of one pass.
 - [**ResolvedMatch**](#agrag.ingestion.resolve.resolver.ResolvedMatch) – One confirmed non-exact match between two input entity indices.
 - [**Resolver**](#agrag.ingestion.resolve.resolver.Resolver) – Routes blocked candidate pairs through exact, fuzzy, embedding, and LLM zones.
+
+**Attributes:**
+
+- [**logger**](#agrag.ingestion.resolve.resolver.logger) –
 
 ###### `agrag.ingestion.resolve.resolver.Comparator`
 
@@ -14391,6 +14448,7 @@ raised outright instead (see compare's Raises section).
 **Attributes:**
 
 - [**chunks_by_id**](#agrag.ingestion.resolve.resolver.LLMVerify.chunks_by_id) –
+- [**failed_requests**](#agrag.ingestion.resolve.resolver.LLMVerify.failed_requests) (<code>[int](#int)</code>) –
 - [**max_pairs_per_batch**](#agrag.ingestion.resolve.resolver.LLMVerify.max_pairs_per_batch) –
 - [**settings**](#agrag.ingestion.resolve.resolver.LLMVerify.settings) –
 
@@ -14470,7 +14528,9 @@ Verify pairs and count how many verdicts came back uncertain.
 **Returns:**
 
 - <code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\]</code> – The per-pair results and the count of raw uncertain verdicts,
-- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH.
+- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH. A request that
+- <code>[tuple](#tuple)\[[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\], [int](#int)\]</code> – errors maps its pairs to NO_MATCH and increments
+- <code>[tuple](#tuple)\[[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\], [int](#int)\]</code> – failed_requests.
 
 ####### `agrag.ingestion.resolve.resolver.LLMVerify.compare_with_evidence`
 
@@ -14479,6 +14539,12 @@ compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
 ```
 
 Compare two entities and retain any available decision evidence.
+
+####### `agrag.ingestion.resolve.resolver.LLMVerify.failed_requests`
+
+```python
+failed_requests: int = 0
+```
 
 ####### `agrag.ingestion.resolve.resolver.LLMVerify.max_pairs_per_batch`
 
@@ -14521,11 +14587,27 @@ The groups, non-exact evidence, and ambiguity count of one pass.
 - [**matches**](#agrag.ingestion.resolve.resolver.ResolutionResult.matches) (<code>[list](#list)\[[ResolvedMatch](#agrag.ingestion.resolve.resolver.ResolvedMatch)\]</code>) – Evidence for every confirmed non-exact pair.
 - [**ambiguous_count**](#agrag.ingestion.resolve.resolver.ResolutionResult.ambiguous_count) (<code>[int](#int)</code>) – LLM verdicts that came back uncertain. These
   pairs never merge.
+- [**failed_llm_requests**](#agrag.ingestion.resolve.resolver.ResolutionResult.failed_llm_requests) (<code>[int](#int)</code>) – LLM verification requests that errored
+  and were mapped to "no match".
+- [**cap_truncated_pairs**](#agrag.ingestion.resolve.resolver.ResolutionResult.cap_truncated_pairs) (<code>[int](#int)</code>) – Boundary pairs that never reached the LLM
+  because of the per-label pair cap.
 
 ####### `agrag.ingestion.resolve.resolver.ResolutionResult.ambiguous_count`
 
 ```python
 ambiguous_count: int = 0
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolutionResult.cap_truncated_pairs`
+
+```python
+cap_truncated_pairs: int = 0
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolutionResult.failed_llm_requests`
+
+```python
+failed_llm_requests: int = 0
 ```
 
 ####### `agrag.ingestion.resolve.resolver.ResolutionResult.groups`
@@ -14717,7 +14799,14 @@ Resolve entity groups and retain each confirmed non-exact match.
 **Returns:**
 
 - <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index, evidence for every confirmed
-- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair, and the count of uncertain LLM verdicts.
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair, the count of uncertain LLM verdicts, and the
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – counts of failed LLM requests and cap-truncated pairs.
+
+###### `agrag.ingestion.resolve.resolver.logger`
+
+```python
+logger = logging.getLogger(__name__)
+```
 
 ##### `agrag.ingestion.resolve.zone_classifier`
 

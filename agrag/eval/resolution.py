@@ -34,11 +34,14 @@ class ClusterAssignment(BaseModel):
             of one.
         matches_by_tier: How many confirmed non-exact matches each comparator
             made. Empty for gold clusters.
+        failed_llm_requests: LLM verification requests that errored and were
+            mapped to "no match". Zero on gold clusters.
     """
 
     size: int
     clusters: list[list[int]]
     matches_by_tier: dict[str, int] = {}
+    failed_llm_requests: int = 0
 
     @model_validator(mode="after")
     def _check_indices(self) -> "ClusterAssignment":
@@ -69,7 +72,8 @@ async def run_resolver(
         label: The entity label given to every mention.
 
     Returns:
-        The predicted clusters, and the count of matches per comparator.
+        The predicted clusters, the count of matches per comparator, and
+        the count of failed LLM requests.
     """
     chunk_ids = [
         uuid5(NAMESPACE_URL, f"mention:{index}") for index in range(len(mentions))
@@ -104,6 +108,7 @@ async def run_resolver(
         size=len(mentions),
         clusters=[group.entity_indices for group in result.groups],
         matches_by_tier=matches_by_tier,
+        failed_llm_requests=result.failed_llm_requests,
     )
 
 
