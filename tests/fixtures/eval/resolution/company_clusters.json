@@ -631,13 +631,29 @@
    ],
    "hard_negative_of": "sec:1403161"
   },
-  {
-   "id": "sec-hard-negative:1141391",
-   "source": "sec",
-   "names": [
-    "MASTEC INC"
-   ],
-   "hard_negative_of": "sec:1141391"
-  }
- ]
+   {
+    "id": "sec-hard-negative:1141391",
+    "source": "sec",
+    "names": [
+     "MASTEC INC"
+    ],
+    "hard_negative_of": "sec:1141391"
+   },
+   {
+    "id": "sec:72971",
+    "source": "sec",
+    "names": [
+     "Wells Fargo & Company"
+    ],
+    "hard_negative_of": null
+   },
+   {
+    "id": "sec-hard-negative:72971",
+    "source": "sec",
+    "names": [
+     "Wells Fargo Bank, N.A."
+    ],
+    "hard_negative_of": "sec:72971"
+   }
+  ]
 }

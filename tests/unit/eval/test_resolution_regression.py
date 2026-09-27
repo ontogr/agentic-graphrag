@@ -8,7 +8,7 @@ of the score comes from the many names that need no merge, and pairwise recall
 is near zero. A fall below the threshold means the tiers merged different
 companies, or lost a merge they made before.
 
-The system is deterministic, so the threshold is the measured score (0.8236)
+The system is deterministic, so the threshold is the measured score (0.8292)
 minus 0.02, rounded down to 0.01. The in-batch candidate source must never call
 the graph store.
 """
