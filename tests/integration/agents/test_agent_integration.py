@@ -742,6 +742,9 @@ class TestAgentBuildIntegration:
         alice = await self._seed_entity(self.label, "Alice")
         acme = await self._seed_entity(self.other_label, "Acme")
         await self._seed_relation("WORKS_FOR", alice, acme)
+        await self._seed_chunk(
+            "Alice works at Acme, where she founded the engines team."
+        )
 
         settings = AgentLLMSettings.from_openai_compatible_env()
         agent = build_agent(
@@ -754,7 +757,10 @@ class TestAgentBuildIntegration:
                 "messages": [
                     {
                         "role": "user",
-                        "content": "How many publications has Alice authored?",
+                        "content": (
+                            "Where does Alice work, and what does the source "
+                            "text say about her time there?"
+                        ),
                     }
                 ]
             }
