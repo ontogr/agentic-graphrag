@@ -151,7 +151,7 @@ class AnswerQualityGraph:
 class _ThrottledJudge(ChatModelJudge):
     """Judge that runs at most four calls at once and retries an empty reply.
 
-    The endpoint answers 429 when the median-of-3 metrics and the per-sentence
+    The endpoint answers 429 when the judged metrics and the per-sentence
     citation checks all call it together. It also sometimes returns an empty
     reply, which no schema can parse.
     """
