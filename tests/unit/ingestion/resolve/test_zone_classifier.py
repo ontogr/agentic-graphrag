@@ -84,6 +84,12 @@ class TestSelectLlmPairs:
 
         assert select_llm_pairs(candidates, max_pairs=2) == [(2, 3), (4, 5)]
 
+    def test_fuzzy_quads_rank_by_rank_fusion(self) -> None:
+        """Quads with a fuzzy score fuse cosine and fuzzy ranks."""
+        candidates = [(0, 1, 0.90, 0.85), (2, 3, 0.80, 0.90), (4, 5, 0.85, 0.10)]
+
+        assert select_llm_pairs(candidates) == [(0, 1), (2, 3), (4, 5)]
+
     def test_non_positive_cap_returns_no_pairs(self) -> None:
         """A non-positive cap cannot bypass the LLM review limit."""
         candidates = [(0, 1, 0.82), (2, 3, 0.90)]

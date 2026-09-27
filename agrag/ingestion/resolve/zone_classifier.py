@@ -1,6 +1,7 @@
 """Zone classification for entity-resolution candidate pairs."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from typing import cast
 from uuid import UUID
 
 import numpy as np
@@ -44,22 +45,65 @@ def classify_zone(fuzzy_score: float, embedding_similarity: float | None) -> str
 
 
 def select_llm_pairs(
-    candidates: list[tuple[int, int, float]], *, max_pairs: int = MAX_LLM_PAIRS
+    candidates: Sequence[tuple[int, int, float] | tuple[int, int, float, float]],
+    *,
+    max_pairs: int = MAX_LLM_PAIRS,
 ) -> list[tuple[int, int]]:
     """Rank ambiguous candidates for LLM review, most similar first.
 
+    Triples rank by similarity descending. Quadruples carrying a fuzzy
+    score as fourth element rank by rank fusion: the cosine rank plus
+    the fuzzy rank, smallest first, with ties broken by index pair.
+    All candidates must share one shape.
+
     Args:
-        candidates: ``(left_index, right_index, similarity)`` triples.
+        candidates: ``(left_index, right_index, similarity)`` triples,
+            or quadruples with a fuzzy score appended.
         max_pairs: Maximum pairs to return.
 
     Returns:
-        Index pairs ordered by similarity descending, capped at
-        ``max_pairs``.
+        Index pairs in ranked order, capped at ``max_pairs``.
     """
     if max_pairs <= 0:
         return []
-    ranked = sorted(candidates, key=lambda candidate: candidate[2], reverse=True)
+    if candidates and len(candidates[0]) == 4:
+        fused = cast(Sequence[tuple[int, int, float, float]], candidates)
+        return _rank_fused_pairs(fused, max_pairs)
+    triples = cast(Sequence[tuple[int, int, float]], candidates)
+    ranked = sorted(triples, key=lambda candidate: candidate[2], reverse=True)
     return [(left, right) for left, right, _ in ranked[:max_pairs]]
+
+
+def _competition_rank(scores: list[float]) -> list[int]:
+    """Map each score to its zero-based rank, highest first.
+
+    Tied scores share the best rank for their group.
+    """
+    order = sorted(range(len(scores)), key=lambda index: scores[index], reverse=True)
+    ranks = [0] * len(scores)
+    for position, index in enumerate(order):
+        if position and scores[index] == scores[order[position - 1]]:
+            ranks[index] = ranks[order[position - 1]]
+        else:
+            ranks[index] = position
+    return ranks
+
+
+def _rank_fused_pairs(
+    candidates: Sequence[tuple[int, int, float, float]], max_pairs: int
+) -> list[tuple[int, int]]:
+    """Rank cosine-plus-fuzzy quadruples by rank-sum fusion."""
+    cosine_rank = _competition_rank([similarity for _, _, similarity, _ in candidates])
+    fuzzy_rank = _competition_rank([fuzzy for _, _, _, fuzzy in candidates])
+    order = sorted(
+        range(len(candidates)),
+        key=lambda index: (
+            cosine_rank[index] + fuzzy_rank[index],
+            candidates[index][0],
+            candidates[index][1],
+        ),
+    )
+    return [(candidates[index][0], candidates[index][1]) for index in order[:max_pairs]]
 
 
 def precluster_ambiguous(

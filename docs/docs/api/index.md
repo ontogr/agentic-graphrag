@@ -14812,20 +14812,25 @@ distant and never join a group.
 ###### `agrag.ingestion.resolve.zone_classifier.select_llm_pairs`
 
 ```python
-select_llm_pairs(candidates:list[tuple[int, int, float]], *, max_pairs:int = MAX_LLM_PAIRS) -> list[tuple[int, int]]
+select_llm_pairs(candidates:Sequence[tuple[int, int, float] | tuple[int, int, float, float]], *, max_pairs:int = MAX_LLM_PAIRS) -> list[tuple[int, int]]
 ```
 
 Rank ambiguous candidates for LLM review, most similar first.
 
+Triples rank by similarity descending. Quadruples carrying a fuzzy
+score as fourth element rank by rank fusion: the cosine rank plus
+the fuzzy rank, smallest first, with ties broken by index pair.
+All candidates must share one shape.
+
 **Parameters:**
 
-- **candidates** (<code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int), [float](#float)\]\]</code>) – `(left_index, right_index, similarity)` triples.
+- **candidates** (<code>[Sequence](#collections.abc.Sequence)\[[tuple](#tuple)\[[int](#int), [int](#int), [float](#float)\] | [tuple](#tuple)\[[int](#int), [int](#int), [float](#float), [float](#float)\]\]</code>) – `(left_index, right_index, similarity)` triples,
+  or quadruples with a fuzzy score appended.
 - **max_pairs** (<code>[int](#int)</code>) – Maximum pairs to return.
 
 **Returns:**
 
-- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – Index pairs ordered by similarity descending, capped at
-- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – `max_pairs`.
+- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – Index pairs in ranked order, capped at `max_pairs`.
 
 #### `agrag.ingestion.resolved_embeddings`
 
