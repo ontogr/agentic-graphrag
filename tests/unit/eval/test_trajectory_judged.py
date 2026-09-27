@@ -171,6 +171,27 @@ class TestTrajectoryQuality:
 
         assert "no new results" in chat.prompts[0]
 
+    def test_judge_receives_calls_and_results_interleaved(self) -> None:
+        """Each call is followed by its own result, not batched with others."""
+        trajectory = Trajectory(
+            steps=[
+                _research_tool("search_a", start=10, end=20, output="result-a"),
+                _research_tool("search_b", start=30, end=40, output="result-b"),
+            ]
+        )
+        case = trajectory_case("Who founded Zephyra Robotics?", "unknown", trajectory)
+        chat = _ScriptedChatModel()
+        metric = trajectory_quality(ChatModelJudge(chat, "scripted"))
+
+        metric.measure(case)
+
+        prompt = chat.prompts[0]
+        assert (
+            prompt.index("search_a")
+            < prompt.index("result-a")
+            < prompt.index("search_b")
+        )
+
     def test_bare_number_reply_scores(self) -> None:
         """A judge that answers with a bare number still scores."""
         chat = _ScriptedChatModel(score=0.7, raw=0.7)
@@ -184,6 +205,14 @@ class TestTrajectoryQuality:
         metric = trajectory_quality(ChatModelJudge(chat, "scripted"))
 
         assert metric.measure(_case()) == 0.7
+
+    def test_out_of_range_bare_number_does_not_score(self) -> None:
+        """A bare number outside 0 to 1 does not silently pass as a score."""
+        chat = _ScriptedChatModel(raw=2)
+        metric = trajectory_quality(ChatModelJudge(chat, "scripted"))
+
+        with pytest.raises(TypeError):
+            metric.measure(_case())
 
     def test_judge_error_surfaces(self) -> None:
         """A judge error is not scored as a pass."""

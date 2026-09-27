@@ -341,21 +341,49 @@ def _tool_calls_message(tool_steps: list[Step]) -> _ToolCallsMessage:
     }
 
 
+def _tool_call_pair(
+    index: int, step: Step
+) -> tuple[_ToolCallsMessage, _ToolResultMessage]:
+    """Build one assistant tool call and its matching result message."""
+    call_id = f"call-{index}"
+    assistant_message: _ToolCallsMessage = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": step.name, "arguments": json.dumps(step.args)},
+            }
+        ],
+    }
+    result_message: _ToolResultMessage = {
+        "role": "tool",
+        "tool_call_id": call_id,
+        "content": step.output,
+    }
+    return assistant_message, result_message
+
+
 def _trajectory_messages(
     question: str, trajectory: Trajectory
 ) -> list[_UserMessage | _ToolCallsMessage | _ToolResultMessage]:
-    """Build the judge's view: the question, each tool call, then its result.
+    """Build the judge's view: the question, then each call and its result.
 
-    The judge needs tool outputs, not only names and arguments, to tell
-    whether a repeated call gathered new information.
+    Each tool step becomes its own assistant/tool message pair, in the order
+    the agent made the call, so the judge sees the same causal sequence the
+    agent took, including whether a repeated call followed an unhelpful
+    result, rather than every call batched ahead of every result.
     """
     tool_steps = [step for step in trajectory.steps if step.kind == "tool"]
-    assistant_message = _tool_calls_message(tool_steps)
-    results: list[_ToolResultMessage] = [
-        {"role": "tool", "tool_call_id": call["id"], "content": step.output}
-        for call, step in zip(assistant_message["tool_calls"], tool_steps, strict=True)
+    messages: list[_UserMessage | _ToolCallsMessage | _ToolResultMessage] = [
+        {"role": "user", "content": question}
     ]
-    return [{"role": "user", "content": question}, assistant_message, *results]
+    for index, step in enumerate(tool_steps):
+        assistant_message, result_message = _tool_call_pair(index, step)
+        messages.append(assistant_message)
+        messages.append(result_message)
+    return messages
 
 
 _TRAJECTORY_QUALITY_PROMPT = (
@@ -375,13 +403,13 @@ _TRAJECTORY_QUALITY_PROMPT = (
 
 
 class _ScoreRepairRunnable:
-    """Structured judge that maps a bare numeric score into a score object.
+    """Structured judge that maps a bare in-range numeric score into an object.
 
     Some OpenAI-compatible endpoints answer a score prompt with a bare
-    number instead of the requested object. The trajectory judge needs
-    ``score`` and ``reasoning`` keys, so a numeric reply becomes that
-    object with empty reasoning. Anything else passes through, and the
-    judge call fails as usual when it is unparsable.
+    number instead of the requested object. A number within the prompt's
+    promised 0 to 1 range becomes that object with empty reasoning.
+    Anything else, including an out-of-range number, passes through
+    unrepaired, and the judge call fails as usual when it is unparsable.
     """
 
     def __init__(self, structured: Any) -> None:
@@ -389,7 +417,7 @@ class _ScoreRepairRunnable:
         self._structured = structured
 
     def invoke(self, prompt_input: Any, config: Any = None, **kwargs: Any) -> Any:
-        """Run the judge, repairing a bare numeric reply."""
+        """Run the judge, repairing a bare numeric reply within 0 to 1."""
         response = self._structured.invoke(prompt_input, config, **kwargs)
         if isinstance(response, (dict, bool)):
             return response
@@ -398,7 +426,7 @@ class _ScoreRepairRunnable:
                 response = float(response)
             except ValueError:
                 return response
-        if isinstance(response, (int, float)):
+        if isinstance(response, (int, float)) and 0.0 <= float(response) <= 1.0:
             return {"score": float(response), "reasoning": ""}
         return response
 
