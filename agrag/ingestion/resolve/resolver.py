@@ -1,5 +1,6 @@
 """Entity resolution: deciding which ExtractedEntity mentions are the same thing."""
 
+import logging
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -23,6 +24,9 @@ from agrag.ingestion.resolve.zone_classifier import (
     select_llm_pairs,
 )
 from agrag.llm.retry import NO_RETRY, call_with_retry
+
+
+logger = logging.getLogger(__name__)
 
 
 class ResolutionGroup(BaseModel):
@@ -59,11 +63,17 @@ class ResolutionResult(BaseModel):
         matches: Evidence for every confirmed non-exact pair.
         ambiguous_count: LLM verdicts that came back uncertain. These
             pairs never merge.
+        failed_llm_requests: LLM verification requests that errored
+            and were mapped to "no match".
+        cap_truncated_pairs: Boundary pairs that never reached the LLM
+            because of the per-label pair cap.
     """
 
     groups: list[ResolutionGroup]
     matches: list[ResolvedMatch]
     ambiguous_count: int = 0
+    failed_llm_requests: int = 0
+    cap_truncated_pairs: int = 0
 
 
 class ComparisonVerdict(StrEnum):
@@ -196,6 +206,7 @@ class LLMVerify(Comparator):
         self.settings = settings
         self._client = client
         self.max_pairs_per_batch = max_pairs_per_batch
+        self.failed_requests: int = 0
 
     async def compare(
         self, a: ExtractedEntity, b: ExtractedEntity
@@ -257,7 +268,9 @@ class LLMVerify(Comparator):
 
         Returns:
             The per-pair results and the count of raw uncertain verdicts,
-            before the fail-safe maps them to NO_MATCH.
+            before the fail-safe maps them to NO_MATCH. A request that
+            errors maps its pairs to NO_MATCH and increments
+            failed_requests.
         """
         if not pairs:
             return {}, 0
@@ -337,6 +350,7 @@ class LLMVerify(Comparator):
         except ExtractorMissingExtraError:
             raise
         except Exception:  # noqa: BLE001
+            self.failed_requests += 1
             return {
                 (left, right): ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)
                 for left, right, _, _ in pairs
@@ -533,7 +547,8 @@ class Resolver:
 
         Returns:
             Groups for every input index, evidence for every confirmed
-            non-exact pair, and the count of uncertain LLM verdicts.
+            non-exact pair, the count of uncertain LLM verdicts, and the
+            counts of failed LLM requests and cap-truncated pairs.
         """
         pairs: list[tuple[int, int]] = []
         compared: set[tuple[int, int]] = set()
@@ -545,15 +560,28 @@ class Resolver:
                     continue
                 compared.add(pair)
                 pairs.append(pair)
-        edges, matches, ambiguous_count = await self._resolve_pairs(
+        edges, matches, ambiguous_count, failed, truncated = await self._resolve_pairs(
             pairs, entities, neighbors_by_index or {}, similarity_by_pair or {}
         )
         groups = _group_matches(len(entities), edges)
-        return ResolutionResult(
+        result = ResolutionResult(
             groups=[ResolutionGroup(entity_indices=group) for group in groups],
             matches=matches,
             ambiguous_count=ambiguous_count,
+            failed_llm_requests=failed,
+            cap_truncated_pairs=truncated,
         )
+        if result.failed_llm_requests:
+            logger.warning(
+                "Resolution mapped %d failed LLM requests to no-match",
+                result.failed_llm_requests,
+            )
+        if result.cap_truncated_pairs:
+            logger.warning(
+                "Resolution dropped %d boundary pairs at the LLM cap",
+                result.cap_truncated_pairs,
+            )
+        return result
 
     async def _resolve_pairs(
         self,
@@ -561,7 +589,7 @@ class Resolver:
         entities: list[ExtractedEntity],
         neighbors_by_index: dict[int, list[str]],
         similarity_by_pair: dict[tuple[int, int], float],
-    ) -> tuple[list[tuple[int, int]], list[ResolvedMatch], int]:
+    ) -> tuple[list[tuple[int, int]], list[ResolvedMatch], int, int, int]:
         """Route candidate pairs through the exact, fuzzy, embedding, and LLM zones.
 
         LLM calls stay bounded: ambiguous pairs are capped per label at
@@ -604,7 +632,7 @@ class Resolver:
             fuzzy_uncertain, entities, edges, matches
         )
         boundary = self._precluster_tier(ambiguous, scored, edges, matches)
-        ambiguous_count = await self._llm_tier(
+        ambiguous_count, failed, truncated = await self._llm_tier(
             boundary,
             entities,
             edges,
@@ -612,7 +640,7 @@ class Resolver:
             neighbors_by_index=neighbors_by_index,
             similarity_by_pair=similarity_by_pair,
         )
-        return edges, matches, ambiguous_count
+        return edges, matches, ambiguous_count, failed, truncated
 
     async def _embedding_tier(
         self,
@@ -746,22 +774,27 @@ class Resolver:
         *,
         neighbors_by_index: dict[int, list[str]],
         similarity_by_pair: dict[tuple[int, int], float],
-    ) -> int:
+    ) -> tuple[int, int, int]:
         """Verify capped boundary pairs with the LLM and merge its matches.
 
         Returns:
-            How many verdicts came back uncertain.
+            Uncertain verdicts, failed LLM requests, and boundary pairs
+            dropped by the per-label cap.
         """
         if not boundary or self._llm is None:
-            return 0
+            return 0, 0, 0
         by_label: dict[str, list[tuple[int, int, float]]] = {}
         for left, right, similarity in boundary:
             by_label.setdefault(entities[left].label, []).append(
                 (left, right, similarity)
             )
         selected: list[tuple[int, int]] = []
+        cap_truncated_pairs = 0
         for candidates in by_label.values():
-            selected.extend(select_llm_pairs(candidates, max_pairs=self.max_llm_pairs))
+            chosen = select_llm_pairs(candidates, max_pairs=self.max_llm_pairs)
+            cap_truncated_pairs += len(candidates) - len(chosen)
+            selected.extend(chosen)
+        failed_before = self._llm.failed_requests
         ambiguous_count = 0
         for start in range(0, len(selected), self.llm_batch_size):
             selected_chunk = selected[start : start + self.llm_batch_size]
@@ -792,4 +825,5 @@ class Resolver:
                             reasoning=comparison.reasoning,
                         )
                     )
-        return ambiguous_count
+        failed_llm_requests = self._llm.failed_requests - failed_before
+        return ambiguous_count, failed_llm_requests, cap_truncated_pairs
