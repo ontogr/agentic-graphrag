@@ -22,7 +22,7 @@ from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.eval.adapter import ScoreMetric, ScoreResult, parse_json_case, to_json_case
-from agrag.ingestion.resolve.resolver import LLMVerify, Resolver
+from agrag.ingestion.resolve.resolver import LLMVerify, ResolutionResult, Resolver
 
 
 class ClusterAssignment(BaseModel):
@@ -56,10 +56,10 @@ class ClusterAssignment(BaseModel):
         return self
 
 
-async def run_resolver(
+async def run_resolver_detailed(
     resolver: Resolver, mentions: Sequence[str], *, label: str = "Organization"
-) -> ClusterAssignment:
-    """Resolve mention strings and return the clusters the resolver forms.
+) -> tuple[ClusterAssignment, ResolutionResult]:
+    """Resolve mention strings and return the clusters plus raw evidence.
 
     Each mention becomes one entity in its own chunk. The chunk holds only the
     mention text, and is registered with any ``LLMVerify`` comparator of the
@@ -72,8 +72,9 @@ async def run_resolver(
         label: The entity label given to every mention.
 
     Returns:
-        The predicted clusters, the count of matches per comparator, and
-        the count of failed LLM requests.
+        The predicted clusters with the counts of matches per comparator and
+        of failed LLM requests, and the raw ``ResolutionResult`` whose match
+        records carry the comparator that confirmed each pair.
     """
     chunk_ids = [
         uuid5(NAMESPACE_URL, f"mention:{index}") for index in range(len(mentions))
@@ -104,12 +105,33 @@ async def run_resolver(
     matches_by_tier: dict[str, int] = {}
     for match in result.matches:
         matches_by_tier[match.comparator] = matches_by_tier.get(match.comparator, 0) + 1
-    return ClusterAssignment(
+    assignment = ClusterAssignment(
         size=len(mentions),
         clusters=[group.entity_indices for group in result.groups],
         matches_by_tier=matches_by_tier,
         failed_llm_requests=result.failed_llm_requests,
     )
+    return assignment, result
+
+
+async def run_resolver(
+    resolver: Resolver, mentions: Sequence[str], *, label: str = "Organization"
+) -> ClusterAssignment:
+    """Resolve mention strings and return the clusters the resolver forms.
+
+    See ``run_resolver_detailed`` for the chunk construction. Use that variant
+    when a caller also needs the raw ``ResolutionResult`` evidence.
+
+    Args:
+        resolver: The resolver under test.
+        mentions: The mention texts.
+        label: The entity label given to every mention.
+
+    Returns:
+        The predicted clusters, the count of matches per comparator, and
+        the count of failed LLM requests.
+    """
+    return (await run_resolver_detailed(resolver, mentions, label=label))[0]
 
 
 def resolution_case(

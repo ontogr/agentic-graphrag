@@ -36,7 +36,6 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypedDict
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -46,6 +45,7 @@ from agrag.eval import (
     ClusterAssignment,
     cluster_quality_metric,
     resolution_case,
+    run_resolver_detailed,
 )
 from agrag.ingestion.extract import ExtractionLLMSettings
 from agrag.ingestion.resolve.candidate_source import GraphCandidateSource
@@ -217,7 +217,6 @@ async def test_full_resolver_meets_threshold_on_company_names(
     pytest.importorskip("sentence_transformers")
     settings = _llm_settings()
     embedder = SentenceTransformerEmbedder()
-    graph_store = AsyncMock()
     resolver = Resolver(
         comparators=[
             ExactMatch(),
@@ -233,16 +232,7 @@ async def test_full_resolver_meets_threshold_on_company_names(
     )
     mentions, gold = mentions_and_gold(load_company_clusters().clusters)
 
-    result = await resolver.resolve(mentions)
-    matches_by_tier: dict[str, int] = {}
-    for match in result.matches:
-        matches_by_tier[match.comparator] = matches_by_tier.get(match.comparator, 0) + 1
-    predicted = ClusterAssignment(
-        size=len(mentions),
-        clusters=[group.entity_indices for group in result.groups],
-        matches_by_tier=matches_by_tier,
-        failed_llm_requests=result.failed_llm_requests,
-    )
+    predicted, result = await run_resolver_detailed(resolver, mentions)
     metric = cluster_quality_metric(threshold=THRESHOLD)
     score = metric.measure(resolution_case(mentions, predicted, gold))
     false_merges, missed_pairs = await _pair_fates(
@@ -262,7 +252,6 @@ async def test_full_resolver_meets_threshold_on_company_names(
         },
     )
 
-    assert graph_store.mock_calls == []
     assert report["mentions"] == len(mentions)
     assert predicted.matches_by_tier.get("llm", 0) >= 1
     assert predicted.failed_llm_requests == 0
