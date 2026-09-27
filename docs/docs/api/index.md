@@ -7475,6 +7475,10 @@ tracer: Tracer
 
 The tracer to pass as `tracer=` to `build_agent`.
 
+**Returns:**
+
+- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – A tracer bound to this capture's private provider.
+
 ##### `agrag.eval.SpanCapture.trajectory`
 
 ```python
@@ -7482,6 +7486,10 @@ trajectory() -> Trajectory
 ```
 
 Read the captured spans as a trajectory.
+
+**Returns:**
+
+- <code>[Trajectory](#agrag.eval.trajectory.Trajectory)</code> – The trajectory read from the spans captured so far.
 
 #### `agrag.eval.Trajectory`
 
@@ -9265,6 +9273,10 @@ tracer: Tracer
 
 The tracer to pass as `tracer=` to `build_agent`.
 
+**Returns:**
+
+- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – A tracer bound to this capture's private provider.
+
 ###### `agrag.eval.trajectory.SpanCapture.trajectory`
 
 ```python
@@ -9272,6 +9284,10 @@ trajectory() -> Trajectory
 ```
 
 Read the captured spans as a trajectory.
+
+**Returns:**
+
+- <code>[Trajectory](#agrag.eval.trajectory.Trajectory)</code> – The trajectory read from the spans captured so far.
 
 ##### `agrag.eval.trajectory.Step`
 

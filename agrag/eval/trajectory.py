@@ -221,19 +221,35 @@ class SpanCapture:
 
     @property
     def tracer(self) -> Tracer:
-        """The tracer to pass as ``tracer=`` to ``build_agent``."""
+        """The tracer to pass as ``tracer=`` to ``build_agent``.
+
+        Returns:
+            A tracer bound to this capture's private provider.
+        """
         return self._provider.get_tracer("agrag.eval")
 
     def trajectory(self) -> Trajectory:
-        """Read the captured spans as a trajectory."""
+        """Read the captured spans as a trajectory.
+
+        Returns:
+            The trajectory read from the spans captured so far.
+        """
         return read_trajectory(self._exporter.get_finished_spans())
 
     def __enter__(self) -> "SpanCapture":
-        """Return this capture."""
+        """Return this capture.
+
+        Returns:
+            This capture, for use as the context manager's bound name.
+        """
         return self
 
     def __exit__(self, *args: Any) -> None:
-        """Shut down the private provider."""
+        """Shut down the private provider.
+
+        Args:
+            *args: The exception type, value, and traceback, if any.
+        """
         self._provider.shutdown()
 
 
