@@ -7,7 +7,7 @@ it are deterministic; task completion and trajectory quality use an LLM judge.
 
 import json
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 from agentevals.trajectory import (
     create_trajectory_llm_as_judge,
@@ -282,7 +282,37 @@ def _task_spans(trajectory: Trajectory, subagent_type: str) -> list[Step]:
     ]
 
 
-def _tool_calls_message(tool_steps: list[Step]) -> dict[str, Any]:
+class _ToolCallFunction(TypedDict):
+    """A tool call's function name and JSON-encoded arguments."""
+
+    name: str
+    arguments: str
+
+
+class _ToolCall(TypedDict):
+    """One function tool call, in the shape agentevals expects."""
+
+    id: str
+    type: Literal["function"]
+    function: _ToolCallFunction
+
+
+class _ToolCallsMessage(TypedDict):
+    """An assistant message carrying tool calls, in agentevals' shape."""
+
+    role: Literal["assistant"]
+    content: str
+    tool_calls: list[_ToolCall]
+
+
+class _UserMessage(TypedDict):
+    """A user message, in agentevals' shape."""
+
+    role: Literal["user"]
+    content: str
+
+
+def _tool_calls_message(tool_steps: list[Step]) -> _ToolCallsMessage:
     """Build one assistant message with a tool call per step, in order."""
     return {
         "role": "assistant",
@@ -301,7 +331,9 @@ def _tool_calls_message(tool_steps: list[Step]) -> dict[str, Any]:
     }
 
 
-def _trajectory_messages(question: str, trajectory: Trajectory) -> list[dict[str, Any]]:
+def _trajectory_messages(
+    question: str, trajectory: Trajectory
+) -> list[_UserMessage | _ToolCallsMessage]:
     """Build the judge's view: the question, then each tool call in order."""
     tool_steps = [step for step in trajectory.steps if step.kind == "tool"]
     return [{"role": "user", "content": question}, _tool_calls_message(tool_steps)]
@@ -479,7 +511,7 @@ def expected_tools_metric(
     Returns:
         A ``ScoreMetric`` that scores tool presence.
     """
-    reference = [
+    reference: list[_ToolCallsMessage] = [
         {
             "role": "assistant",
             "content": "",

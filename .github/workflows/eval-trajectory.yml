@@ -39,7 +39,7 @@ concurrency:
 jobs:
   eval-trajectory:
     name: Eval agent trajectory
-    uses: $/.github/workflows/eval-shared.yml
+    uses: ./.github/workflows/eval-shared.yml
     secrets:
       LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
