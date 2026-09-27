@@ -9,9 +9,13 @@ import json
 from collections.abc import Sequence
 from typing import Any, Literal
 
+from agentevals.trajectory import create_trajectory_match_evaluator
+from deepeval.test_case import LLMTestCase, ToolCall
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import Tracer
 from pydantic import BaseModel
+
+from agrag.eval.adapter import ScoreMetric, ScoreResult
 
 
 class Step(BaseModel):
@@ -223,3 +227,201 @@ class SpanCapture:
     def __exit__(self, *args: Any) -> None:
         """Shut down the private provider."""
         self._provider.shutdown()
+
+
+def trajectory_case(question: str, answer: str, trajectory: Trajectory) -> LLMTestCase:
+    """Build the test case every trajectory metric scores.
+
+    ``tools_called`` holds every ``TOOL`` step, planner and researcher, as a
+    ``ToolCall``. ``metadata["trajectory"]`` holds the serialized trajectory
+    the deterministic metrics read.
+
+    Args:
+        question: The question the agent answered.
+        answer: The agent's final answer.
+        trajectory: The run's trajectory from ``read_trajectory``.
+
+    Returns:
+        The test case with the answer, the tool calls and the trajectory.
+    """
+    return LLMTestCase(
+        input=question,
+        actual_output=answer,
+        tools_called=[
+            ToolCall(name=step.name, input_parameters=step.args, output=step.output)
+            for step in trajectory.steps
+            if step.kind == "tool"
+        ],
+        metadata={"trajectory": trajectory.model_dump()},
+    )
+
+
+def _case_trajectory(test_case: LLMTestCase) -> Trajectory:
+    """Read the trajectory from a case built by ``trajectory_case``."""
+    metadata = test_case.metadata or {}
+    raw = metadata.get("trajectory")
+    if raw is None:
+        raise ValueError("trajectory metric needs a case built by trajectory_case")
+    return Trajectory.model_validate(raw)
+
+
+def _task_spans(trajectory: Trajectory, subagent_type: str) -> list[Step]:
+    """Return the delegation spans for one subagent type."""
+    return [
+        step
+        for step in trajectory.steps
+        if step.name == "task" and step.args.get("subagent_type") == subagent_type
+    ]
+
+
+def verifier_before_answer_metric(*, threshold: float = 0.5) -> ScoreMetric:
+    """Build the metric that the verifier ran before the answer.
+
+    Passes when the planner's last ``LLM`` span starts after at least one
+    verifier ``task`` span ended. Scores 1.0 or 0.0.
+
+    Args:
+        threshold: The minimum score that counts as success.
+
+    Returns:
+        A ``ScoreMetric`` that scores verifier-before-answer.
+    """
+
+    def scorer(test_case: LLMTestCase) -> ScoreResult:
+        trajectory = _case_trajectory(test_case)
+        verifier_ends = [step.ended for step in _task_spans(trajectory, "verifier")]
+        if not verifier_ends:
+            return ScoreResult(0.0, "No verifier task span ran before the answer.", {})
+        planner_starts = [
+            step.started
+            for step in trajectory.steps
+            if step.kind == "llm" and step.subagent is None
+        ]
+        if not planner_starts:
+            return ScoreResult(0.0, "No planner LLM span wrote an answer.", {})
+        if any(end <= max(planner_starts) for end in verifier_ends):
+            return ScoreResult(1.0, "The verifier ran before the answer.", {})
+        return ScoreResult(0.0, "The verifier finished after the answer started.", {})
+
+    return ScoreMetric("Verifier before answer", scorer, threshold)
+
+
+def retry_budget_metric(max_attempts: int, *, threshold: float = 0.5) -> ScoreMetric:
+    """Build the metric that retries stay within budget.
+
+    Counts researcher ``task`` spans starting after the first verifier
+    ``task`` span ended. A call the limiter blocks leaves no span, so only
+    executed delegations count. Scores 1.0 or 0.0.
+
+    Args:
+        max_attempts: How many researcher retries after verification pass.
+        threshold: The minimum score that counts as success.
+
+    Returns:
+        A ``ScoreMetric`` that scores the retry budget.
+    """
+
+    def scorer(test_case: LLMTestCase) -> ScoreResult:
+        trajectory = _case_trajectory(test_case)
+        verifier_ends = sorted(
+            step.ended for step in _task_spans(trajectory, "verifier")
+        )
+        if not verifier_ends:
+            return ScoreResult(
+                1.0, "No verifier span ran, so no retry was counted.", {}
+            )
+        retries = sum(
+            1
+            for step in _task_spans(trajectory, "researcher")
+            if step.started > verifier_ends[0]
+        )
+        if retries <= max_attempts:
+            return ScoreResult(
+                1.0,
+                f"{retries} researcher retries after verification "
+                f"(budget {max_attempts}).",
+                {},
+            )
+        return ScoreResult(
+            0.0,
+            f"{retries} researcher retries after verification exceed "
+            f"the budget of {max_attempts}.",
+            {},
+        )
+
+    return ScoreMetric("Retry budget", scorer, threshold)
+
+
+def expected_tools_metric(
+    names: Sequence[str], *, threshold: float = 0.5
+) -> ScoreMetric:
+    """Build the metric that the run called every expected tool.
+
+    Compares the trajectory's tool calls with the expected names as a
+    superset, ignoring arguments: extra tools do not matter, a missing name
+    fails. Scores 1.0 or 0.0.
+
+    Args:
+        names: The tool names the run must include.
+        threshold: The minimum score that counts as success.
+
+    Returns:
+        A ``ScoreMetric`` that scores tool presence.
+    """
+    reference = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": f"expected-{index}",
+                    "type": "function",
+                    "function": {"name": name, "arguments": "{}"},
+                }
+                for index, name in enumerate(names)
+            ],
+        }
+    ]
+    evaluator = create_trajectory_match_evaluator(
+        trajectory_match_mode="superset", tool_args_match_mode="ignore"
+    )
+
+    def scorer(test_case: LLMTestCase) -> ScoreResult:
+        trajectory = _case_trajectory(test_case)
+        tool_steps = [step for step in trajectory.steps if step.kind == "tool"]
+        outputs = [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": f"call-{index}",
+                        "type": "function",
+                        "function": {
+                            "name": step.name,
+                            "arguments": json.dumps(step.args),
+                        },
+                    }
+                    for index, step in enumerate(tool_steps)
+                ],
+            }
+        ]
+        result = evaluator(outputs=outputs, reference_outputs=reference)
+        if isinstance(result, list):
+            result = result[0]
+        called = [step.name for step in tool_steps]
+        if bool(result["score"]):
+            return ScoreResult(
+                1.0,
+                f"All {len(names)} expected tools were called.",
+                {"called": called},
+            )
+        missing = [name for name in names if name not in called]
+        return ScoreResult(
+            0.0,
+            f"Missing tools: {', '.join(missing)}. "
+            f"Called: {', '.join(called) or 'none'}.",
+            {"called": called, "missing": missing},
+        )
+
+    return ScoreMetric("Expected tools", scorer, threshold)

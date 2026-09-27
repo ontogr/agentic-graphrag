@@ -6850,6 +6850,8 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**ScoreMetric**](#agrag.eval.ScoreMetric) – A DeepEval metric backed by a plain scoring function.
 - [**ScoreResult**](#agrag.eval.ScoreResult) – The outcome of one scoring function call.
 - [**Scores**](#agrag.eval.Scores) – Precision, recall and F1.
+- [**SpanCapture**](#agrag.eval.SpanCapture) – Capture one agent run's spans for `read_trajectory`.
+- [**Trajectory**](#agrag.eval.Trajectory) – The ordered steps of one agent run.
 - [**VerdictItem**](#agrag.eval.VerdictItem) – One fixed verifier input with its gold verdict.
 - [**VerdictReport**](#agrag.eval.VerdictReport) – Scores of predicted verdicts against gold verdicts.
 
@@ -6861,21 +6863,26 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**context_recall**](#agrag.eval.context_recall) – Build the metric for reference facts that the evidence covers.
 - [**correctness**](#agrag.eval.correctness) – Build the answer correctness metric against the reference.
 - [**entity_quality_metric**](#agrag.eval.entity_quality_metric) – Build a metric for entity F1 on one test case.
+- [**expected_tools_metric**](#agrag.eval.expected_tools_metric) – Build the metric that the run called every expected tool.
 - [**extraction_case**](#agrag.eval.extraction_case) – Build a test case that holds a predicted and a gold extraction.
 - [**faithfulness**](#agrag.eval.faithfulness) – Build the metric for claims that the evidence the agent saw does not contradict.
 - [**final_answer**](#agrag.eval.final_answer) – Return the text of the last assistant message in an agent run.
 - [**micro_scores**](#agrag.eval.micro_scores) – Pool measured entity and relation metrics into dataset scores.
 - [**parse_json_case**](#agrag.eval.parse_json_case) – Read the `(actual, expected)` models back from a JSON test case.
+- [**read_trajectory**](#agrag.eval.read_trajectory) – Read the tool and model steps from finished spans.
 - [**relation_quality_metric**](#agrag.eval.relation_quality_metric) – Build a metric for relation triple F1 on one test case.
 - [**resolution_case**](#agrag.eval.resolution_case) – Build a test case that holds predicted and gold clusters.
+- [**retry_budget_metric**](#agrag.eval.retry_budget_metric) – Build the metric that retries stay within budget.
 - [**run_extractor**](#agrag.eval.run_extractor) – Run an extractor over gold items and build one test case per item.
 - [**run_resolver**](#agrag.eval.run_resolver) – Resolve mention strings and return the clusters the resolver forms.
 - [**run_resolver_detailed**](#agrag.eval.run_resolver_detailed) – Resolve mention strings and return the clusters plus raw evidence.
 - [**run_verifier**](#agrag.eval.run_verifier) – Run the verifier over items and return one label per item.
 - [**to_json_case**](#agrag.eval.to_json_case) – Build a test case that carries structured data as JSON.
+- [**trajectory_case**](#agrag.eval.trajectory_case) – Build the test case every trajectory metric scores.
 - [**verdict_case**](#agrag.eval.verdict_case) – Build a test case with the predicted and the gold verdict.
 - [**verdict_match_metric**](#agrag.eval.verdict_match_metric) – Build a metric that scores 1.0 when the verdict equals the gold verdict.
 - [**verdict_report**](#agrag.eval.verdict_report) – Score predicted verdicts against gold verdicts.
+- [**verifier_before_answer_metric**](#agrag.eval.verifier_before_answer_metric) – Build the metric that the verifier ran before the answer.
 
 #### `agrag.eval.ChatModelJudge`
 
@@ -7436,6 +7443,68 @@ precision: float
 
 ```python
 recall: float
+```
+
+#### `agrag.eval.SpanCapture`
+
+```python
+SpanCapture() -> None
+```
+
+Capture one agent run's spans for `read_trajectory`.
+
+Use as a context manager around `agent.ainvoke` and read the run with
+`trajectory()` after. Each capture has its own provider and exporter,
+so captures never share spans and the global provider is unchanged.
+
+<details class="example" open markdown="1">
+<summary>Example</summary>
+
+with SpanCapture() as capture:
+agent = build_agent(engine, settings, tracer=capture.tracer)
+result = await agent.ainvoke({"messages": [...]})
+trajectory = capture.trajectory()
+
+</details>
+
+**Functions:**
+
+- [**trajectory**](#agrag.eval.SpanCapture.trajectory) – Read the captured spans as a trajectory.
+
+**Attributes:**
+
+- [**tracer**](#agrag.eval.SpanCapture.tracer) (<code>[Tracer](#opentelemetry.trace.Tracer)</code>) – The tracer to pass as `tracer=` to `build_agent`.
+
+##### `agrag.eval.SpanCapture.tracer`
+
+```python
+tracer: Tracer
+```
+
+The tracer to pass as `tracer=` to `build_agent`.
+
+##### `agrag.eval.SpanCapture.trajectory`
+
+```python
+trajectory() -> Trajectory
+```
+
+Read the captured spans as a trajectory.
+
+#### `agrag.eval.Trajectory`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The ordered steps of one agent run.
+
+**Attributes:**
+
+- [**steps**](#agrag.eval.Trajectory.steps) (<code>[list](#list)\[[Step](#agrag.eval.trajectory.Step)\]</code>) – The run's tool and model steps in start order.
+
+##### `agrag.eval.Trajectory.steps`
+
+```python
+steps: list[Step]
 ```
 
 #### `agrag.eval.VerdictItem`
@@ -8082,6 +8151,27 @@ gate belongs on the dataset score.
 
 - <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A metric that scores exact entity F1 for one case.
 
+#### `agrag.eval.expected_tools_metric`
+
+```python
+expected_tools_metric(names:Sequence[str], *, threshold:float = 0.5) -> ScoreMetric
+```
+
+Build the metric that the run called every expected tool.
+
+Compares the trajectory's tool calls with the expected names as a
+superset, ignoring arguments: extra tools do not matter, a missing name
+fails. Scores 1.0 or 0.0.
+
+**Parameters:**
+
+- **names** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The tool names the run must include.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A `ScoreMetric` that scores tool presence.
+
 #### `agrag.eval.extraction`
 
 Extraction quality: entity and relation-triple F1 against gold annotations.
@@ -8622,6 +8712,27 @@ Read the `(actual, expected)` models back from a JSON test case.
 - **test_case** (<code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code>) – A case built by `to_json_case`.
 - **model** (<code>[type](#type)\[[ModelT](#agrag.eval.adapter.ModelT)\]</code>) – The pydantic model both outputs were serialized from.
 
+#### `agrag.eval.read_trajectory`
+
+```python
+read_trajectory(spans:Sequence[ReadableSpan]) -> Trajectory
+```
+
+Read the tool and model steps from finished spans.
+
+Keeps `TOOL` and `LLM` spans, drops `CHAIN` spans, and orders steps
+by start time rather than export order. A step's `subagent` is the
+`subagent_type` of its nearest ancestor `task` span, or None for a
+planner step.
+
+**Parameters:**
+
+- **spans** (<code>[Sequence](#collections.abc.Sequence)\[[ReadableSpan](#opentelemetry.sdk.trace.ReadableSpan)\]</code>) – The finished spans of one traced agent run.
+
+**Returns:**
+
+- <code>[Trajectory](#agrag.eval.trajectory.Trajectory)</code> – The run's trajectory in start order.
+
 #### `agrag.eval.relation_quality_metric`
 
 ```python
@@ -8887,6 +8998,27 @@ Build a test case that holds predicted and gold clusters.
 
 - <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – A test case with serialized predicted and gold clusters.
 
+#### `agrag.eval.retry_budget_metric`
+
+```python
+retry_budget_metric(max_attempts:int, *, threshold:float = 0.5) -> ScoreMetric
+```
+
+Build the metric that retries stay within budget.
+
+Counts researcher `task` spans starting after the first verifier
+`task` span ended. A call the limiter blocks leaves no span, so only
+executed delegations count. Scores 1.0 or 0.0.
+
+**Parameters:**
+
+- **max_attempts** (<code>[int](#int)</code>) – How many researcher retries after verification pass.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A `ScoreMetric` that scores the retry budget.
+
 #### `agrag.eval.run_extractor`
 
 ```python
@@ -9089,7 +9221,11 @@ it are deterministic; task completion and trajectory quality use an LLM judge.
 
 **Functions:**
 
+- [**expected_tools_metric**](#agrag.eval.trajectory.expected_tools_metric) – Build the metric that the run called every expected tool.
 - [**read_trajectory**](#agrag.eval.trajectory.read_trajectory) – Read the tool and model steps from finished spans.
+- [**retry_budget_metric**](#agrag.eval.trajectory.retry_budget_metric) – Build the metric that retries stay within budget.
+- [**trajectory_case**](#agrag.eval.trajectory.trajectory_case) – Build the test case every trajectory metric scores.
+- [**verifier_before_answer_metric**](#agrag.eval.trajectory.verifier_before_answer_metric) – Build the metric that the verifier ran before the answer.
 
 ##### `agrag.eval.trajectory.SpanCapture`
 
@@ -9226,6 +9362,27 @@ The ordered steps of one agent run.
 steps: list[Step]
 ```
 
+##### `agrag.eval.trajectory.expected_tools_metric`
+
+```python
+expected_tools_metric(names:Sequence[str], *, threshold:float = 0.5) -> ScoreMetric
+```
+
+Build the metric that the run called every expected tool.
+
+Compares the trajectory's tool calls with the expected names as a
+superset, ignoring arguments: extra tools do not matter, a missing name
+fails. Scores 1.0 or 0.0.
+
+**Parameters:**
+
+- **names** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The tool names the run must include.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A `ScoreMetric` that scores tool presence.
+
 ##### `agrag.eval.trajectory.read_trajectory`
 
 ```python
@@ -9246,6 +9403,90 @@ planner step.
 **Returns:**
 
 - <code>[Trajectory](#agrag.eval.trajectory.Trajectory)</code> – The run's trajectory in start order.
+
+##### `agrag.eval.trajectory.retry_budget_metric`
+
+```python
+retry_budget_metric(max_attempts:int, *, threshold:float = 0.5) -> ScoreMetric
+```
+
+Build the metric that retries stay within budget.
+
+Counts researcher `task` spans starting after the first verifier
+`task` span ended. A call the limiter blocks leaves no span, so only
+executed delegations count. Scores 1.0 or 0.0.
+
+**Parameters:**
+
+- **max_attempts** (<code>[int](#int)</code>) – How many researcher retries after verification pass.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A `ScoreMetric` that scores the retry budget.
+
+##### `agrag.eval.trajectory.trajectory_case`
+
+```python
+trajectory_case(question:str, answer:str, trajectory:Trajectory) -> LLMTestCase
+```
+
+Build the test case every trajectory metric scores.
+
+`tools_called` holds every `TOOL` step, planner and researcher, as a
+`ToolCall`. `metadata["trajectory"]` holds the serialized trajectory
+the deterministic metrics read.
+
+**Parameters:**
+
+- **question** (<code>[str](#str)</code>) – The question the agent answered.
+- **answer** (<code>[str](#str)</code>) – The agent's final answer.
+- **trajectory** (<code>[Trajectory](#agrag.eval.trajectory.Trajectory)</code>) – The run's trajectory from `read_trajectory`.
+
+**Returns:**
+
+- <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – The test case with the answer, the tool calls and the trajectory.
+
+##### `agrag.eval.trajectory.verifier_before_answer_metric`
+
+```python
+verifier_before_answer_metric(*, threshold:float = 0.5) -> ScoreMetric
+```
+
+Build the metric that the verifier ran before the answer.
+
+Passes when the planner's last `LLM` span starts after at least one
+verifier `task` span ended. Scores 1.0 or 0.0.
+
+**Parameters:**
+
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A `ScoreMetric` that scores verifier-before-answer.
+
+#### `agrag.eval.trajectory_case`
+
+```python
+trajectory_case(question:str, answer:str, trajectory:Trajectory) -> LLMTestCase
+```
+
+Build the test case every trajectory metric scores.
+
+`tools_called` holds every `TOOL` step, planner and researcher, as a
+`ToolCall`. `metadata["trajectory"]` holds the serialized trajectory
+the deterministic metrics read.
+
+**Parameters:**
+
+- **question** (<code>[str](#str)</code>) – The question the agent answered.
+- **answer** (<code>[str](#str)</code>) – The agent's final answer.
+- **trajectory** (<code>[Trajectory](#agrag.eval.trajectory.Trajectory)</code>) – The run's trajectory from `read_trajectory`.
+
+**Returns:**
+
+- <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – The test case with the answer, the tool calls and the trajectory.
 
 #### `agrag.eval.verdict_case`
 
@@ -9527,6 +9768,25 @@ Score predicted verdicts against gold verdicts.
 **Returns:**
 
 - <code>[VerdictReport](#agrag.eval.verifier.VerdictReport)</code> – Per-class scores, macro F1, the confusion matrix and the error count.
+
+#### `agrag.eval.verifier_before_answer_metric`
+
+```python
+verifier_before_answer_metric(*, threshold:float = 0.5) -> ScoreMetric
+```
+
+Build the metric that the verifier ran before the answer.
+
+Passes when the planner's last `LLM` span starts after at least one
+verifier `task` span ended. Scores 1.0 or 0.0.
+
+**Parameters:**
+
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A `ScoreMetric` that scores verifier-before-answer.
 
 ### `agrag.graphdb`
 
