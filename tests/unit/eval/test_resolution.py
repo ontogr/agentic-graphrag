@@ -5,6 +5,7 @@ tests cover the direction of each error, the handling of singletons and bad
 input, and one run of the real exact and fuzzy tiers with a mock graph store.
 """
 
+from typing import TypedDict
 from unittest.mock import AsyncMock
 
 import pytest
@@ -23,11 +24,32 @@ MENTIONS = ["a", "b", "c", "d"]
 GOLD = ClusterAssignment(size=4, clusters=[[0, 1, 2]])
 
 
-def _score(predicted: ClusterAssignment, gold: ClusterAssignment = GOLD) -> dict:
+class _ScoreBreakdown(TypedDict):
+    """Score fields returned by the quality metric."""
+
+    score: float
+    b_cubed_precision: float
+    b_cubed_recall: float
+    pairwise_precision: float
+    pairwise_recall: float
+    pairwise_f: float
+
+
+def _score(
+    predicted: ClusterAssignment, gold: ClusterAssignment = GOLD
+) -> _ScoreBreakdown:
     """Measure one case and return its score and breakdown."""
     metric = cluster_quality_metric()
     metric.measure(resolution_case(MENTIONS, predicted, gold))
-    return {"score": metric.score, **metric.score_breakdown}
+    breakdown = metric.score_breakdown
+    return {
+        "score": float(metric.score),
+        "b_cubed_precision": float(breakdown["b_cubed_precision"]),
+        "b_cubed_recall": float(breakdown["b_cubed_recall"]),
+        "pairwise_precision": float(breakdown["pairwise_precision"]),
+        "pairwise_recall": float(breakdown["pairwise_recall"]),
+        "pairwise_f": float(breakdown["pairwise_f"]),
+    }
 
 
 class TestClusterQualityMetric:

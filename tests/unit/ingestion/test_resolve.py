@@ -799,7 +799,7 @@ class TestZoneRouting:
         """A raising LLM client maps to no-match and counts one failed request."""
         chunk = _llm_chunk()
 
-        class RaisingClient:
+        class _FakeRaisingClient:
             async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
                 raise RuntimeError("LLM call failed")
 
@@ -807,7 +807,7 @@ class TestZoneRouting:
             comparators=[
                 ExactMatch(),
                 FuzzyMatch(),
-                LLMVerify(chunks_by_id={chunk.id: chunk}, client=RaisingClient()),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=_FakeRaisingClient()),
             ],
             candidate_source=_candidate_source(),
         )
