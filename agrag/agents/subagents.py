@@ -9,9 +9,16 @@ parent agent's middleware.
 
 from typing import Any
 
+from agrag.agents.middleware import HideToolsMiddleware, RequireVerdictMiddleware
 from agrag.agents.prompts import RESEARCHER_SYSTEM, VERIFIER_SYSTEM
 from agrag.agents.verification import VerificationResult
 from agrag.common.data_models.graph_schema import GraphSchema
+
+
+# The tools DeepAgents adds to every subagent.
+_FILESYSTEM_TOOLS = frozenset(
+    {"ls", "read_file", "write_file", "edit_file", "delete", "glob", "grep"}
+)
 
 
 def make_researcher_spec(
@@ -53,13 +60,19 @@ def make_verifier_spec(middleware: list[Any]) -> dict[str, Any]:
     Returns:
         A SubAgent-shaped dict for create_deep_agent's subagents= list.
         tools is the explicit empty list, not omitted -- an omitted key
-        would inherit the parent's tools instead of granting none.
+        would inherit the parent's tools instead of granting none. The
+        filesystem tools DeepAgents adds are hidden, and a reply without a
+        ``VerificationResult`` is met with a reminder.
     """
     return {
         "name": "verifier",
         "description": "Checks whether researcher findings answer a question.",
         "tools": [],
-        "middleware": middleware,
+        "middleware": [
+            *middleware,
+            HideToolsMiddleware(_FILESYSTEM_TOOLS),
+            RequireVerdictMiddleware(),
+        ],
         "response_format": VerificationResult,
         "system_prompt": VERIFIER_SYSTEM,
         "mode": "isolated",

@@ -22,25 +22,35 @@ async def drop_schema_for(store: GraphStore, *names: str) -> None:
         store: A connected graph store.
         *names: Node labels or relationship types the test created.
     """
-    for name in names:
-        safe = validate_identifier(name)
-        for kind, query in (
-            (
-                "CONSTRAINT",
-                "SHOW CONSTRAINTS YIELD name, labelsOrTypes "
-                "WHERE $name IN labelsOrTypes RETURN name",
-            ),
-            (
-                "INDEX",
-                "SHOW INDEXES YIELD name, labelsOrTypes, owningConstraint "
-                "WHERE $name IN labelsOrTypes AND owningConstraint IS NULL RETURN name",
-            ),
-        ):
-            rows = await store.execute_read(query, {"name": safe})
-            for row in rows:
-                object_name = row["name"]
-                if not isinstance(object_name, str):
-                    continue
-                if not is_safe_identifier(object_name):
-                    continue
-                await store.execute_write(f"DROP {kind} {object_name} IF EXISTS")
+    safe_names = {validate_identifier(name) for name in names}
+    if not safe_names:
+        return
+
+    constraints = await store.execute_read(
+        "SHOW CONSTRAINTS YIELD name, labelsOrTypes RETURN name, labelsOrTypes"
+    )
+    for row in constraints:
+        labels_or_types = row["labelsOrTypes"]
+        if not isinstance(labels_or_types, list):
+            continue
+        if not safe_names.intersection(labels_or_types):
+            continue
+        object_name = row["name"]
+        if isinstance(object_name, str) and is_safe_identifier(object_name):
+            await store.execute_write(f"DROP CONSTRAINT {object_name} IF EXISTS")
+
+    indexes = await store.execute_read(
+        "SHOW INDEXES YIELD name, labelsOrTypes, owningConstraint "
+        "RETURN name, labelsOrTypes, owningConstraint"
+    )
+    for row in indexes:
+        if row["owningConstraint"] is not None:
+            continue
+        labels_or_types = row["labelsOrTypes"]
+        if not isinstance(labels_or_types, list):
+            continue
+        if not safe_names.intersection(labels_or_types):
+            continue
+        object_name = row["name"]
+        if isinstance(object_name, str) and is_safe_identifier(object_name):
+            await store.execute_write(f"DROP INDEX {object_name} IF EXISTS")

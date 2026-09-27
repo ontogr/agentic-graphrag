@@ -696,14 +696,19 @@ class TestAgentBuildIntegration:
         # The model chooses its own decomposition and synthesis style, so
         # the number of tool results is not deterministic run to run. The
         # final answer must still cite evidence from the transcript.
+        # Exclude the final answer message itself, so a citation only
+        # counts as evidence when it also appears in the research messages
+        # that produced the answer.
         transcript = "\n".join(
             self._message_text({"messages": [message]})
-            for message in result.get("messages", [])
+            for message in result.get("messages", [])[:-1]
         )
-        transcript_keys = set(re.findall(r"\bE\d+\b", transcript))
+        citation_pattern = r"\b[EGRCVX]\d+\b"
+        transcript_keys = set(re.findall(citation_pattern, transcript))
         assert transcript_keys, "research findings contain no citation keys"
         answer = self._message_text(result)
-        assert re.search(r"\bE\d+\b", answer), "final answer cites no evidence"
+        answer_keys = set(re.findall(citation_pattern, answer))
+        assert answer_keys & transcript_keys, "final answer cites no research evidence"
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     @pytest.mark.skipif(
@@ -740,6 +745,9 @@ class TestAgentBuildIntegration:
         alice = await self._seed_entity(self.label, "Alice")
         acme = await self._seed_entity(self.other_label, "Acme")
         await self._seed_relation("WORKS_FOR", alice, acme)
+        await self._seed_chunk(
+            "Alice works at Acme, where she founded the engines team."
+        )
 
         settings = AgentLLMSettings.from_openai_compatible_env()
         agent = build_agent(
@@ -752,7 +760,10 @@ class TestAgentBuildIntegration:
                 "messages": [
                     {
                         "role": "user",
-                        "content": "How many publications has Alice authored?",
+                        "content": (
+                            "Where does Alice work, and what does the source "
+                            "text say about her time there?"
+                        ),
                     }
                 ]
             }
