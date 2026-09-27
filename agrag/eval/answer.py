@@ -408,7 +408,7 @@ class CitationAccuracyMetric(BaseMetric):
                 continue
             sub = _support_metric(self.judge, self._cutoff)
             sentence.supported = sub.measure(sentence.case()) >= self._cutoff
-            sentence.reason = sub.reason if sub.reason is not None else ""
+            sentence.reason = sub.reason or ""
         return self._finish(cited, eligible)
 
     async def a_measure(
@@ -430,20 +430,16 @@ class CitationAccuracyMetric(BaseMetric):
         cited, eligible = plan
         gate = asyncio.Semaphore(_MAX_CONCURRENT_JUDGE_CALLS)
 
-        async def verdict(sentence: _CitedSentence) -> tuple[bool, str]:
+        async def judge_one(sentence: _CitedSentence) -> None:
             if sentence.fabricated:
-                return False, sentence.reason
+                return
             async with gate:
                 sub = _support_metric(self.judge, self._cutoff)
                 score = await sub.a_measure(sentence.case())
-            supported = score >= self._cutoff
-            reason = sub.reason if sub.reason is not None else ""
-            return supported, reason
+            sentence.supported = score >= self._cutoff
+            sentence.reason = sub.reason or ""
 
-        for sentence, (supported, reason) in zip(
-            cited, await asyncio.gather(*(verdict(s) for s in cited)), strict=True
-        ):
-            sentence.supported, sentence.reason = supported, reason
+        await asyncio.gather(*(judge_one(sentence) for sentence in cited))
         return self._finish(cited, eligible)
 
     @property
@@ -494,18 +490,17 @@ class CitationAccuracyMetric(BaseMetric):
 
     def _finish(self, cited: list[_CitedSentence], eligible: int) -> float:
         """Record precision, recall and their F1 for judged sentences."""
-        supported = [sentence.supported for sentence in cited]
-        hits = sum(supported)
-        precision = hits / len(supported)
+        hits = sum(sentence.supported for sentence in cited)
+        precision = hits / len(cited)
         recall = hits / eligible
         score = 2 * precision * recall / (precision + recall) if hits else 0.0
         return self._set(
             score,
-            f"{hits} of {len(supported)} cited sentences are supported.",
+            f"{hits} of {len(cited)} cited sentences are supported.",
             {
                 "citation_precision": precision,
                 "citation_recall": recall,
-                "cited_sentences": len(supported),
+                "cited_sentences": len(cited),
                 "supported_sentences": hits,
                 "sentences": eligible,
                 "sentence_rows": [sentence.row() for sentence in cited],
