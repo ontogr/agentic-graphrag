@@ -17,7 +17,7 @@ name: Eval (shared)
 #   with_judge       true when the eval uses EVAL_JUDGE_* (validated before
 #                    the run; it defaults to LLM_* at the provider fallback).
 #
-# Callers must pass `secrets: inherit` so LLM_* and EVAL_JUDGE_* resolve here.
+# Callers pass only the LLM, judge, and Discord secrets each eval uses.
 # Fork runs never reach these workflows: no eval runs on pull requests.
 
 on:
