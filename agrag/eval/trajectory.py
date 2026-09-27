@@ -17,6 +17,8 @@ from deepeval.metrics import BaseMetric, TaskCompletionMetric
 from deepeval.models import DeepEvalBaseLLM
 from deepeval.test_case import LLMTestCase, ToolCall
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import Tracer
 from pydantic import BaseModel
@@ -316,8 +318,67 @@ _TRAJECTORY_QUALITY_PROMPT = (
     "repeat without new information, or skip verification. Shorter is not "
     "better and longer is not better: judge only whether the work answers "
     "the question.\n\n"
+    'Reply with ONLY a JSON object of the form {{"score": <number from 0 '
+    'to 1>, "reasoning": <one sentence>}}, and no other text.\n\n'
     "Question and trajectory:\n{outputs}"
 )
+
+
+class _ScoreRepairRunnable:
+    """Structured judge that maps a bare numeric score into a score object.
+
+    Some OpenAI-compatible endpoints answer a score prompt with a bare
+    number instead of the requested object. The trajectory judge needs
+    ``score`` and ``reasoning`` keys, so a numeric reply becomes that
+    object with empty reasoning. Anything else passes through, and the
+    judge call fails as usual when it is unparsable.
+    """
+
+    def __init__(self, structured: Any) -> None:
+        """Bind the structured runnable to repair."""
+        self._structured = structured
+
+    def invoke(self, prompt_input: Any, config: Any = None, **kwargs: Any) -> Any:
+        """Run the judge, repairing a bare numeric reply."""
+        response = self._structured.invoke(prompt_input, config, **kwargs)
+        if isinstance(response, (dict, bool)):
+            return response
+        if isinstance(response, (int, float)):
+            return {"score": float(response), "reasoning": ""}
+        return response
+
+
+class _ScoreRepairModel(BaseChatModel):
+    """Chat model that repairs bare-number structured judge replies.
+
+    Wraps the judge's chat model for the trajectory judge only. Structured
+    calls go to the wrapped model with the caller's own method; direct calls
+    run the wrapped model as is.
+    """
+
+    wrapped: Any
+
+    @property
+    def _llm_type(self) -> str:
+        """Name the wrapper model type."""
+        return "score-repair"
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: Any = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        """Run the wrapped model and return its reply."""
+        message = self.wrapped.invoke(messages)
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+    def with_structured_output(self, schema: Any, **kwargs: Any) -> Any:
+        """Return the wrapped structured judge with numeric repair."""
+        return _ScoreRepairRunnable(
+            self.wrapped.with_structured_output(schema, **kwargs)
+        )
 
 
 def verifier_before_answer_metric(*, threshold: float = 0.5) -> ScoreMetric:
@@ -495,7 +556,7 @@ def trajectory_quality(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> Bas
         raise TypeError("trajectory_quality needs a judge holding a chat model")
     evaluator = create_trajectory_llm_as_judge(
         prompt=_TRAJECTORY_QUALITY_PROMPT,
-        judge=chat_model,
+        judge=_ScoreRepairModel(wrapped=chat_model),
         feedback_key="trajectory_quality",
         continuous=True,
     )

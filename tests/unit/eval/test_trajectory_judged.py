@@ -63,6 +63,7 @@ class _ScriptedChatModel(BaseChatModel):
     prompts: list[str] = Field(default_factory=list)
     score: float = 0.8
     fail_on: str | None = None
+    bare: bool = False
 
     @property
     def _llm_type(self) -> str:
@@ -92,6 +93,8 @@ class _ScriptedChatModel(BaseChatModel):
                 )
                 if model.fail_on is not None and model.fail_on in model.prompts[-1]:
                     raise RuntimeError("judge failed")
+                if model.bare:
+                    return model.score
                 return {"score": model.score, "reasoning": "scripted"}
 
         return _StructuredReply()
@@ -144,8 +147,16 @@ class TestTrajectoryQuality:
         assert len(chat.prompts) == 3
         for prompt in chat.prompts:
             assert "Who founded Zephyra Robotics?" in prompt
+            assert "JSON object" in prompt
             assert prompt.index("task") < prompt.index("search_source_text")
             assert "reference_trajectory" not in prompt
+
+    def test_bare_number_reply_scores(self) -> None:
+        """A judge that answers with a bare number still scores."""
+        chat = _ScriptedChatModel(score=0.7, bare=True)
+        metric = trajectory_quality(ChatModelJudge(chat, "scripted"))
+
+        assert metric.measure(_case()) == 0.7
 
     def test_judge_error_surfaces(self) -> None:
         """A judge error is not scored as a pass."""
