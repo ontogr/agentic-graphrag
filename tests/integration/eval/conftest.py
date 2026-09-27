@@ -268,16 +268,18 @@ async def tiny_corpus() -> AsyncGenerator[TinyCorpus, None]:
 
 
 @pytest.fixture
-def agent_factory(request: pytest.FixtureRequest) -> Callable[[], Any]:
+def agent_factory(request: pytest.FixtureRequest) -> Callable[..., Any]:
     """Return a function that builds an agent over the corpus with the real LLM."""
     settings = AgentLLMSettings.from_openai_compatible_env()
     if not settings.clients[0].api_key:
         pytest.skip("Agent LLM API key not configured")
     tiny_corpus: TinyCorpus = request.getfixturevalue("tiny_corpus")
 
-    def build() -> Any:
+    def build(tracer: Any = None) -> Any:
         """Build a new agent, so each test gets its own run state."""
-        return build_agent(engine=tiny_corpus.engine, llm_settings=settings)
+        return build_agent(
+            engine=tiny_corpus.engine, llm_settings=settings, tracer=tracer
+        )
 
     return build
 
