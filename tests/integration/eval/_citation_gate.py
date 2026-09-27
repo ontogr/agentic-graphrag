@@ -1,7 +1,9 @@
 """Citation gate decision for the answer-quality eval, without a judge call."""
 
 import statistics
-from typing import Any
+from typing import TypedDict
+
+from agrag.eval.answer import CitationScoreBreakdown
 
 
 # Citation accuracy mean that fails the run. Historical means span 0.243 to
@@ -11,8 +13,26 @@ CITATION_ACCURACY_FLOOR = 0.15
 CITATION_ACCURACY_WARN = 0.25
 
 
+class _CitationAccuracyScore(TypedDict):
+    """The ``citation_accuracy`` entry in one question's report row."""
+
+    score: float
+    breakdown: CitationScoreBreakdown
+
+
+class AnswerQualityRow(TypedDict):
+    """One question's report row, restricted to what the gate reads.
+
+    The report holds more fields (question, answer, other metrics); only the
+    ones the gate reads are declared here.
+    """
+
+    id: str
+    scores: dict[str, _CitationAccuracyScore]
+
+
 def citation_gate(
-    rows: list[dict[str, Any]],
+    rows: list[AnswerQualityRow],
 ) -> tuple[list[tuple[str, str, list[str]]], float, bool]:
     """Decide the citation gate from the report rows, without a judge call.
 
