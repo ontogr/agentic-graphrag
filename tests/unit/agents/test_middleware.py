@@ -323,7 +323,10 @@ class TestHideToolsMiddleware:
     async def test_removes_only_the_named_tools(self) -> None:
         """The model sees every tool except the hidden ones, in order."""
         tools = [
-            type("Tool", (), {"name": name})() for name in ("ls", "search", "grep")
+            type("Tool", (), {"name": "ls"})(),
+            {"name": "search", "description": "Search"},
+            type("Tool", (), {"name": "grep"})(),
+            {"description": "Unnamed"},
         ]
         request = _request(object())
         request = request.override(tools=tools)
@@ -334,7 +337,7 @@ class TestHideToolsMiddleware:
         )
 
         seen = handler.await_args.args[0]
-        assert [tool.name for tool in seen.tools] == ["search"]
+        assert seen.tools == [tools[1], tools[3]]
 
 
 class _RepliesModel(BaseChatModel):

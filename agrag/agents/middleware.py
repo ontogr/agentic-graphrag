@@ -217,7 +217,12 @@ class HideToolsMiddleware(AgentMiddleware):
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> Any:
         """Run the call with the named tools removed from the request."""
-        kept = [t for t in request.tools if getattr(t, "name", None) not in self._names]
+        kept = [
+            tool
+            for tool in request.tools
+            if (tool.get("name") if isinstance(tool, dict) else tool.name)
+            not in self._names
+        ]
         return await handler(request.override(tools=kept))
 
 

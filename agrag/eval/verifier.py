@@ -117,6 +117,9 @@ def verdict_case(item: VerdictItem, predicted: str) -> LLMTestCase:
     Args:
         item: The fixed input.
         predicted: The label from ``run_verifier``.
+
+    Returns:
+        An ``LLMTestCase`` with the question, predicted verdict and gold verdict.
     """
     return LLMTestCase(
         input=item.question, actual_output=predicted, expected_output=item.gold
@@ -131,6 +134,9 @@ def verdict_match_metric(*, threshold: float = 0.0) -> ScoreMetric:
 
     Args:
         threshold: The minimum case score that counts as success.
+
+    Returns:
+        A ``ScoreMetric`` that scores verdict equality against ``threshold``.
     """
 
     def scorer(test_case: LLMTestCase) -> ScoreResult:

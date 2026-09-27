@@ -8781,6 +8781,10 @@ Build a test case with the predicted and the gold verdict.
 - **item** (<code>[VerdictItem](#agrag.eval.verifier.VerdictItem)</code>) – The fixed input.
 - **predicted** (<code>[str](#str)</code>) – The label from `run_verifier`.
 
+**Returns:**
+
+- <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – An `LLMTestCase` with the question, predicted verdict and gold verdict.
+
 #### `agrag.eval.verdict_match_metric`
 
 ```python
@@ -8795,6 +8799,10 @@ The default threshold is 0 because the gate belongs on the macro F1 of
 **Parameters:**
 
 - **threshold** (<code>[float](#float)</code>) – The minimum case score that counts as success.
+
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A `ScoreMetric` that scores verdict equality against `threshold`.
 
 #### `agrag.eval.verdict_report`
 
@@ -9001,6 +9009,10 @@ Build a test case with the predicted and the gold verdict.
 - **item** (<code>[VerdictItem](#agrag.eval.verifier.VerdictItem)</code>) – The fixed input.
 - **predicted** (<code>[str](#str)</code>) – The label from `run_verifier`.
 
+**Returns:**
+
+- <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – An `LLMTestCase` with the question, predicted verdict and gold verdict.
+
 ##### `agrag.eval.verifier.verdict_match_metric`
 
 ```python
@@ -9015,6 +9027,10 @@ The default threshold is 0 because the gate belongs on the macro F1 of
 **Parameters:**
 
 - **threshold** (<code>[float](#float)</code>) – The minimum case score that counts as success.
+
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A `ScoreMetric` that scores verdict equality against `threshold`.
 
 ##### `agrag.eval.verifier.verdict_report`
 
