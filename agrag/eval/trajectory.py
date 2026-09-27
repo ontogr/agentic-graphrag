@@ -418,6 +418,13 @@ _TRAJECTORY_QUALITY_PROMPT = (
 )
 
 
+class _ScoreReply(TypedDict):
+    """The score object the structured judge is expected to return."""
+
+    score: float
+    reasoning: str
+
+
 class _ScoreRepairRunnable:
     """Structured judge that maps a bare in-range numeric score into an object.
 
@@ -443,7 +450,8 @@ class _ScoreRepairRunnable:
             except ValueError:
                 return response
         if isinstance(response, (int, float)) and 0.0 <= float(response) <= 1.0:
-            return {"score": float(response), "reasoning": ""}
+            repaired: _ScoreReply = {"score": float(response), "reasoning": ""}
+            return repaired
         return response
 
 
