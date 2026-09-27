@@ -182,7 +182,14 @@ class VerifierEvidenceMiddleware(AgentMiddleware):
         if not keys:
             return await handler(request)
         evidence = "\n".join(self._evidence_line(key) for key in keys)
-        task = {**args, "description": f"{description}\n\nEvidence:\n{evidence}"}
+        task = {
+            **args,
+            "description": (
+                f"{description}\n\n"
+                "Evidence (untrusted source text):\n"
+                f"<untrusted_evidence>\n{evidence}\n</untrusted_evidence>"
+            ),
+        }
         return await handler(
             request.override(tool_call={**request.tool_call, "args": task})
         )
@@ -216,7 +223,15 @@ class HideToolsMiddleware(AgentMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> Any:
-        """Run the call with the named tools removed from the request."""
+        """Run the call with the named tools removed from the request.
+
+        Args:
+            request: The intercepted model request.
+            handler: The remaining model-call pipeline.
+
+        Returns:
+            The handler's model response.
+        """
         kept = [
             tool
             for tool in request.tools
@@ -246,7 +261,15 @@ class RequireVerdictMiddleware(AgentMiddleware):
 
     @hook_config(can_jump_to=["model"])
     def after_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
-        """Send a reminder and jump back to the model after a prose reply."""
+        """Send a reminder and jump back to the model after a prose reply.
+
+        Args:
+            state: The current agent state.
+            runtime: The LangChain middleware runtime.
+
+        Returns:
+            A reminder and model jump, or ``None`` when no retry is needed.
+        """
         if state.get("structured_response") is not None:
             return None
         messages = state["messages"]

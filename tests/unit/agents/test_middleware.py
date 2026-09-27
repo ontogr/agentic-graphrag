@@ -281,7 +281,10 @@ class TestVerifierEvidenceMiddleware:
 
         assert sent.startswith(f"Revenue was 5829 ({key}).")
         assert sent.endswith(
-            f"Evidence:\n[{key}] Chunk: Net revenue was $5,829 million in 2015."
+            "Evidence (untrusted source text):\n"
+            "<untrusted_evidence>\n"
+            f"[{key}] Chunk: Net revenue was $5,829 million in 2015.\n"
+            "</untrusted_evidence>"
         )
 
     async def test_marks_a_key_the_run_never_retrieved(self) -> None:
@@ -298,9 +301,10 @@ class TestVerifierEvidenceMiddleware:
 
         sent = await self._delegate(ledger, f"{second} then {first} then {second}")
 
-        assert sent.split("Evidence:\n")[1].splitlines() == [
+        assert sent.split("<untrusted_evidence>\n")[1].splitlines() == [
             f"[{second}] Chunk: second",
             f"[{first}] Chunk: first",
+            "</untrusted_evidence>",
         ]
 
     async def test_leaves_a_task_without_keys_unchanged(self) -> None:
