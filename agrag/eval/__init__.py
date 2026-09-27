@@ -32,7 +32,6 @@ from agrag.eval.extraction import (
     run_extractor,
 )
 from agrag.eval.judge import ChatModelJudge
-from agrag.eval.repeat import MedianOfN
 from agrag.eval.resolution import (
     ClusterAssignment,
     cluster_quality_metric,
@@ -69,7 +68,6 @@ __all__ = [
     "ClusterAssignment",
     "EvalJudgeSettings",
     "ExtractionGold",
-    "MedianOfN",
     "MicroScores",
     "ScoreMetric",
     "ScoreResult",

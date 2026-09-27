@@ -131,8 +131,8 @@ class TestTaskCompletion:
 
         assert metric.score == 0.9
         assert metric.success
-        # Two judge calls per measure (outcome, then verdict), median of three.
-        assert len(judge.prompts) == 6
+        # One measure makes two judge calls: outcome, then verdict.
+        assert len(judge.prompts) == 2
         assert any("search_source_text" in prompt for prompt in judge.prompts)
         assert any("task" in prompt for prompt in judge.prompts)
 
@@ -146,7 +146,7 @@ class TestTrajectoryQuality:
         metric = trajectory_quality(ChatModelJudge(chat, "scripted"))
 
         assert metric.measure(_case()) == 0.8
-        assert len(chat.prompts) == 3
+        assert len(chat.prompts) == 1
         for prompt in chat.prompts:
             assert "Who founded Zephyra Robotics?" in prompt
             assert "JSON object" in prompt

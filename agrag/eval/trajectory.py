@@ -28,7 +28,6 @@ from opentelemetry.trace import Tracer
 from pydantic import BaseModel
 
 from agrag.eval.adapter import ScoreMetric, ScoreResult
-from agrag.eval.repeat import MedianOfN
 
 
 class Step(BaseModel):
@@ -527,8 +526,9 @@ def task_completion(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMe
     """Build the judged metric for task completion.
 
     Scores whether the run achieved the question's goal, from the question,
-    the answer and the tool calls. The judge runs three times and the median
-    reports, so one noisy judgment cannot flip the result.
+    the answer and the tool calls, with one judge call. The gate is the mean
+    over questions, following the answer-quality eval, so no median of
+    repeated calls is needed.
 
     Args:
         judge: The judge model.
@@ -537,14 +537,15 @@ def task_completion(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMe
     Returns:
         The task completion metric.
     """
-    return MedianOfN(TaskCompletionMetric(model=judge, threshold=threshold))
+    return TaskCompletionMetric(model=judge, threshold=threshold)
 
 
 def trajectory_quality(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMetric:
     """Build the judged metric for trajectory quality.
 
     Scores whether the steps follow logically from the question, with no
-    reference trajectory. The judge runs three times and the median reports.
+    reference trajectory and one judge call. The gate is the mean over
+    questions, following the answer-quality eval.
 
     Args:
         judge: The judge model. Its chat model grades the trajectory.
@@ -578,4 +579,4 @@ def trajectory_quality(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> Bas
             {"key": result.get("key")},
         )
 
-    return MedianOfN(ScoreMetric("Trajectory quality", scorer, threshold))
+    return ScoreMetric("Trajectory quality", scorer, threshold)

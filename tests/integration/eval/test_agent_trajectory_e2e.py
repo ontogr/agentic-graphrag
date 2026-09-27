@@ -29,9 +29,9 @@ question. Baseline pass rates (rules) and means (judged):
     task_completion           1.0  1.0  1.0
     trajectory_quality        1.0  1.0  1.0
 
-Each run made 6 to 10 LLM calls in these runs. The judged metrics add 9 judge
-calls per run: 6 for task completion (outcome plus verdict per median run)
-and 3 for trajectory quality.
+Each run made 6 to 10 LLM calls in these runs. The judged metrics add 3 judge
+calls per run: 2 for task completion (outcome plus verdict) and 1 for
+trajectory quality.
 """
 
 import asyncio

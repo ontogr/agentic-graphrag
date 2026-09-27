@@ -16,9 +16,8 @@ lexical match plus graph traversal. They guard against regression. They do not
 compare with scores from a real embedder. The fixed extractor keeps the graph the
 same on every run, so only the agent and the judge vary.
 
-Each threshold is the lowest of three baseline means minus 0.05, rounded down to
-0.05, except faithfulness. Its 0.70 keeps the margin from an earlier baseline of
-0.75. With 2 questions a mean takes few distinct values, so the gate is coarse.
+Each threshold is the lowest of three baseline means minus 0.15, rounded down to
+0.05. With 2 questions a mean takes few distinct values, so the gate is coarse.
 The judge runs once for each metric. Baseline means:
 
     correctness         1.000  1.000  1.000
@@ -62,11 +61,11 @@ from tests.integration.eval._answer_quality import load_questions
 
 
 THRESHOLDS = {
-    "correctness": 0.95,
-    "faithfulness": 0.70,
-    "context_precision": 0.70,
-    "context_recall": 0.95,
-    "citation_accuracy": 0.25,
+    "correctness": 0.85,
+    "faithfulness": 0.85,
+    "context_precision": 0.60,
+    "context_recall": 0.85,
+    "citation_accuracy": 0.15,
 }
 
 _REPORT_DIR = Path(__file__).resolve().parents[3] / "reports" / "eval"

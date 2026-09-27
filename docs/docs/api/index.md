@@ -6831,7 +6831,6 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**answer**](#agrag.eval.answer) – Answer-quality metrics for agrag, scored from questions and reference answers.
 - [**extraction**](#agrag.eval.extraction) – Extraction quality: entity and relation-triple F1 against gold annotations.
 - [**judge**](#agrag.eval.judge) – A DeepEval judge model backed by an agrag chat model.
-- [**repeat**](#agrag.eval.repeat) – Repeat a metric and report the median score.
 - [**resolution**](#agrag.eval.resolution) – Resolution quality: B-cubed and pairwise scores of mention clusters.
 - [**settings**](#agrag.eval.settings) – Env-backed configuration for the eval judge model.
 - [**trajectory**](#agrag.eval.trajectory) – Agent trajectory evaluation: read runs, check structure, judge quality.
@@ -6845,7 +6844,6 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**ClusterAssignment**](#agrag.eval.ClusterAssignment) – A grouping of mentions, listed by position in the mention list.
 - [**EvalJudgeSettings**](#agrag.eval.EvalJudgeSettings) – LLM client config for the eval judge.
 - [**ExtractionGold**](#agrag.eval.ExtractionGold) – One gold-annotated chunk of text.
-- [**MedianOfN**](#agrag.eval.MedianOfN) – Run a metric `n` times and report the median score.
 - [**MicroScores**](#agrag.eval.MicroScores) – Dataset scores pooled over every item, for entities and relations.
 - [**ScoreMetric**](#agrag.eval.ScoreMetric) – A DeepEval metric backed by a plain scoring function.
 - [**ScoreResult**](#agrag.eval.ScoreResult) – The outcome of one scoring function call.
@@ -7223,72 +7221,6 @@ id: str
 
 ```python
 text: str
-```
-
-#### `agrag.eval.MedianOfN`
-
-```python
-MedianOfN(metric:BaseMetric, n:int = 3) -> None
-```
-
-Bases: <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code>
-
-Run a metric `n` times and report the median score.
-
-One noisy judge call cannot flip the result. `success` compares the
-median with the wrapped metric's threshold. `reason` comes from the run
-closest to the median, and `score_breakdown` lists every score.
-
-Under `a_measure` the runs execute concurrently, each on its own copy of
-the metric, because metrics keep their result in `self`. The copies share
-the judge model.
-
-**Attributes:**
-
-- [**metric**](#agrag.eval.MedianOfN.metric) – The wrapped metric.
-- [**n**](#agrag.eval.MedianOfN.n) – The number of runs. Must be odd.
-
-**Functions:**
-
-- [**a_measure**](#agrag.eval.MedianOfN.a_measure) – Run the wrapped metric `n` times at once.
-- [**measure**](#agrag.eval.MedianOfN.measure) – Run the wrapped metric `n` times in turn.
-
-**Raises:**
-
-- <code>[ValueError](#ValueError)</code> – `n` is not a positive odd number.
-
-##### `agrag.eval.MedianOfN.a_measure`
-
-```python
-a_measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
-```
-
-Run the wrapped metric `n` times at once.
-
-##### `agrag.eval.MedianOfN.measure`
-
-```python
-measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
-```
-
-Run the wrapped metric `n` times in turn.
-
-##### `agrag.eval.MedianOfN.metric`
-
-```python
-metric = metric
-```
-
-##### `agrag.eval.MedianOfN.n`
-
-```python
-n = n
-```
-
-##### `agrag.eval.MedianOfN.threshold`
-
-```python
-threshold = 0.5 if metric.threshold is None else metric.threshold
 ```
 
 #### `agrag.eval.MicroScores`
@@ -8756,80 +8688,6 @@ triple is in gold. Use a new metric for each case.
 
 - <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A metric that scores exact relation F1 for one case.
 
-#### `agrag.eval.repeat`
-
-Repeat a metric and report the median score.
-
-**Classes:**
-
-- [**MedianOfN**](#agrag.eval.repeat.MedianOfN) – Run a metric `n` times and report the median score.
-
-##### `agrag.eval.repeat.MedianOfN`
-
-```python
-MedianOfN(metric:BaseMetric, n:int = 3) -> None
-```
-
-Bases: <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code>
-
-Run a metric `n` times and report the median score.
-
-One noisy judge call cannot flip the result. `success` compares the
-median with the wrapped metric's threshold. `reason` comes from the run
-closest to the median, and `score_breakdown` lists every score.
-
-Under `a_measure` the runs execute concurrently, each on its own copy of
-the metric, because metrics keep their result in `self`. The copies share
-the judge model.
-
-**Attributes:**
-
-- [**metric**](#agrag.eval.repeat.MedianOfN.metric) – The wrapped metric.
-- [**n**](#agrag.eval.repeat.MedianOfN.n) – The number of runs. Must be odd.
-
-**Functions:**
-
-- [**a_measure**](#agrag.eval.repeat.MedianOfN.a_measure) – Run the wrapped metric `n` times at once.
-- [**measure**](#agrag.eval.repeat.MedianOfN.measure) – Run the wrapped metric `n` times in turn.
-
-**Raises:**
-
-- <code>[ValueError](#ValueError)</code> – `n` is not a positive odd number.
-
-###### `agrag.eval.repeat.MedianOfN.a_measure`
-
-```python
-a_measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
-```
-
-Run the wrapped metric `n` times at once.
-
-###### `agrag.eval.repeat.MedianOfN.measure`
-
-```python
-measure(test_case:LLMTestCase, *args:Any, **kwargs:Any) -> float
-```
-
-Run the wrapped metric `n` times in turn.
-
-###### `agrag.eval.repeat.MedianOfN.metric`
-
-```python
-metric = metric
-```
-
-###### `agrag.eval.repeat.MedianOfN.n`
-
-```python
-n = n
-```
-
-###### `agrag.eval.repeat.MedianOfN.threshold`
-
-```python
-threshold = 0.5 if metric.threshold is None else metric.threshold
-```
-
 #### `agrag.eval.resolution`
 
 Resolution quality: B-cubed and pairwise scores of mention clusters.
@@ -9198,8 +9056,9 @@ task_completion(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 Build the judged metric for task completion.
 
 Scores whether the run achieved the question's goal, from the question,
-the answer and the tool calls. The judge runs three times and the median
-reports, so one noisy judgment cannot flip the result.
+the answer and the tool calls, with one judge call. The gate is the mean
+over questions, following the answer-quality eval, so no median of
+repeated calls is needed.
 
 **Parameters:**
 
@@ -9459,8 +9318,9 @@ task_completion(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
 Build the judged metric for task completion.
 
 Scores whether the run achieved the question's goal, from the question,
-the answer and the tool calls. The judge runs three times and the median
-reports, so one noisy judgment cannot flip the result.
+the answer and the tool calls, with one judge call. The gate is the mean
+over questions, following the answer-quality eval, so no median of
+repeated calls is needed.
 
 **Parameters:**
 
@@ -9502,7 +9362,8 @@ trajectory_quality(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetri
 Build the judged metric for trajectory quality.
 
 Scores whether the steps follow logically from the question, with no
-reference trajectory. The judge runs three times and the median reports.
+reference trajectory and one judge call. The gate is the mean over
+questions, following the answer-quality eval.
 
 **Parameters:**
 
@@ -9567,7 +9428,8 @@ trajectory_quality(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetri
 Build the judged metric for trajectory quality.
 
 Scores whether the steps follow logically from the question, with no
-reference trajectory. The judge runs three times and the median reports.
+reference trajectory and one judge call. The gate is the mean over
+questions, following the answer-quality eval.
 
 **Parameters:**
 
