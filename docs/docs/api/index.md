@@ -6832,6 +6832,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**extraction**](#agrag.eval.extraction) – Extraction quality: entity and relation-triple F1 against gold annotations.
 - [**judge**](#agrag.eval.judge) – A DeepEval judge model backed by an agrag chat model.
 - [**repeat**](#agrag.eval.repeat) – Repeat a metric and report the median score.
+- [**resolution**](#agrag.eval.resolution) – Resolution quality: B-cubed and pairwise scores of mention clusters.
 - [**settings**](#agrag.eval.settings) – Env-backed configuration for the eval judge model.
 - [**verifier**](#agrag.eval.verifier) – Verifier calibration: does the verifier give the right verdict?
 
@@ -6840,6 +6841,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**ChatModelJudge**](#agrag.eval.ChatModelJudge) – Wrap a LangChain chat model as a DeepEval judge.
 - [**CitationAccuracyMetric**](#agrag.eval.CitationAccuracyMetric) – Score whether each cited sentence follows from the evidence it cites.
 - [**CitationScoreBreakdown**](#agrag.eval.CitationScoreBreakdown) – Available precision, recall, and sentence-count fields for one score.
+- [**ClusterAssignment**](#agrag.eval.ClusterAssignment) – A grouping of mentions, listed by position in the mention list.
 - [**EvalJudgeSettings**](#agrag.eval.EvalJudgeSettings) – LLM client config for the eval judge.
 - [**ExtractionGold**](#agrag.eval.ExtractionGold) – One gold-annotated chunk of text.
 - [**MedianOfN**](#agrag.eval.MedianOfN) – Run a metric `n` times and report the median score.
@@ -6853,6 +6855,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 **Functions:**
 
 - [**answer_case**](#agrag.eval.answer_case) – Build the test case that every answer-quality metric scores.
+- [**cluster_quality_metric**](#agrag.eval.cluster_quality_metric) – Build a metric for cluster quality on one test case.
 - [**context_precision**](#agrag.eval.context_precision) – Build the metric for useful evidence ranked before noise.
 - [**context_recall**](#agrag.eval.context_recall) – Build the metric for reference facts that the evidence covers.
 - [**correctness**](#agrag.eval.correctness) – Build the answer correctness metric against the reference.
@@ -6863,7 +6866,9 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**micro_scores**](#agrag.eval.micro_scores) – Pool measured entity and relation metrics into dataset scores.
 - [**parse_json_case**](#agrag.eval.parse_json_case) – Read the `(actual, expected)` models back from a JSON test case.
 - [**relation_quality_metric**](#agrag.eval.relation_quality_metric) – Build a metric for relation triple F1 on one test case.
+- [**resolution_case**](#agrag.eval.resolution_case) – Build a test case that holds predicted and gold clusters.
 - [**run_extractor**](#agrag.eval.run_extractor) – Run an extractor over gold items and build one test case per item.
+- [**run_resolver**](#agrag.eval.run_resolver) – Resolve mention strings and return the clusters the resolver forms.
 - [**run_verifier**](#agrag.eval.run_verifier) – Run the verifier over items and return one label per item.
 - [**to_json_case**](#agrag.eval.to_json_case) – Build a test case that carries structured data as JSON.
 - [**verdict_case**](#agrag.eval.verdict_case) – Build a test case with the predicted and the gold verdict.
@@ -7076,6 +7081,46 @@ sentences: int
 
 ```python
 supported_sentences: int
+```
+
+#### `agrag.eval.ClusterAssignment`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+A grouping of mentions, listed by position in the mention list.
+
+**Attributes:**
+
+- [**size**](#agrag.eval.ClusterAssignment.size) (<code>[int](#int)</code>) – The number of mentions.
+- [**clusters**](#agrag.eval.ClusterAssignment.clusters) (<code>[list](#list)\[[list](#list)\[[int](#int)\]\]</code>) – Groups of mention indices. An index in no group is a cluster
+  of one.
+- [**matches_by_tier**](#agrag.eval.ClusterAssignment.matches_by_tier) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – How many confirmed non-exact matches each comparator
+  made. Empty for gold clusters.
+- [**failed_llm_requests**](#agrag.eval.ClusterAssignment.failed_llm_requests) (<code>[int](#int)</code>) – LLM verification requests that errored and were
+  mapped to "no match". Zero on gold clusters.
+
+##### `agrag.eval.ClusterAssignment.clusters`
+
+```python
+clusters: list[list[int]]
+```
+
+##### `agrag.eval.ClusterAssignment.failed_llm_requests`
+
+```python
+failed_llm_requests: int = 0
+```
+
+##### `agrag.eval.ClusterAssignment.matches_by_tier`
+
+```python
+matches_by_tier: dict[str, int] = {}
+```
+
+##### `agrag.eval.ClusterAssignment.size`
+
+```python
+size: int
 ```
 
 #### `agrag.eval.EvalJudgeSettings`
@@ -7941,6 +7986,29 @@ key to that text for `CitationAccuracyMetric`.
 
 - <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – The test case with the answer and rendered evidence.
 
+#### `agrag.eval.cluster_quality_metric`
+
+```python
+cluster_quality_metric(*, threshold:float = 0.5) -> ScoreMetric
+```
+
+Build a metric for cluster quality on one test case.
+
+The score is B-cubed F1. The breakdown holds `b_cubed_precision`,
+`b_cubed_recall`, `pairwise_precision`, `pairwise_recall` and
+`pairwise_f`. An over-merge lowers precision and an under-merge lowers
+recall. The score of a whole dataset is the score of one case that holds
+all its mentions, because pooling clusters from separate cases is not
+defined.
+
+**Parameters:**
+
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A metric that scores one case from `resolution_case`.
+
 #### `agrag.eval.context_precision`
 
 ```python
@@ -8647,6 +8715,152 @@ n = n
 threshold = 0.5 if metric.threshold is None else metric.threshold
 ```
 
+#### `agrag.eval.resolution`
+
+Resolution quality: B-cubed and pairwise scores of mention clusters.
+
+`run_resolver` sends mention strings through a `Resolver` and returns the
+clusters it forms. `cluster_quality_metric` compares those clusters with gold
+clusters. The score is B-cubed F1. The breakdown also holds B-cubed precision
+and recall and pairwise precision, recall and F1. The counting is
+`er-evaluation`'s.
+
+Both sides list mentions by index. A mention that is in no cluster is a cluster
+of one, so a gold set can list only its multi-mention clusters.
+
+**Classes:**
+
+- [**ClusterAssignment**](#agrag.eval.resolution.ClusterAssignment) – A grouping of mentions, listed by position in the mention list.
+
+**Functions:**
+
+- [**cluster_quality_metric**](#agrag.eval.resolution.cluster_quality_metric) – Build a metric for cluster quality on one test case.
+- [**resolution_case**](#agrag.eval.resolution.resolution_case) – Build a test case that holds predicted and gold clusters.
+- [**run_resolver**](#agrag.eval.resolution.run_resolver) – Resolve mention strings and return the clusters the resolver forms.
+
+##### `agrag.eval.resolution.ClusterAssignment`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+A grouping of mentions, listed by position in the mention list.
+
+**Attributes:**
+
+- [**size**](#agrag.eval.resolution.ClusterAssignment.size) (<code>[int](#int)</code>) – The number of mentions.
+- [**clusters**](#agrag.eval.resolution.ClusterAssignment.clusters) (<code>[list](#list)\[[list](#list)\[[int](#int)\]\]</code>) – Groups of mention indices. An index in no group is a cluster
+  of one.
+- [**matches_by_tier**](#agrag.eval.resolution.ClusterAssignment.matches_by_tier) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – How many confirmed non-exact matches each comparator
+  made. Empty for gold clusters.
+- [**failed_llm_requests**](#agrag.eval.resolution.ClusterAssignment.failed_llm_requests) (<code>[int](#int)</code>) – LLM verification requests that errored and were
+  mapped to "no match". Zero on gold clusters.
+
+###### `agrag.eval.resolution.ClusterAssignment.clusters`
+
+```python
+clusters: list[list[int]]
+```
+
+###### `agrag.eval.resolution.ClusterAssignment.failed_llm_requests`
+
+```python
+failed_llm_requests: int = 0
+```
+
+###### `agrag.eval.resolution.ClusterAssignment.matches_by_tier`
+
+```python
+matches_by_tier: dict[str, int] = {}
+```
+
+###### `agrag.eval.resolution.ClusterAssignment.size`
+
+```python
+size: int
+```
+
+##### `agrag.eval.resolution.cluster_quality_metric`
+
+```python
+cluster_quality_metric(*, threshold:float = 0.5) -> ScoreMetric
+```
+
+Build a metric for cluster quality on one test case.
+
+The score is B-cubed F1. The breakdown holds `b_cubed_precision`,
+`b_cubed_recall`, `pairwise_precision`, `pairwise_recall` and
+`pairwise_f`. An over-merge lowers precision and an under-merge lowers
+recall. The score of a whole dataset is the score of one case that holds
+all its mentions, because pooling clusters from separate cases is not
+defined.
+
+**Parameters:**
+
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A metric that scores one case from `resolution_case`.
+
+##### `agrag.eval.resolution.resolution_case`
+
+```python
+resolution_case(mentions:Sequence[str], predicted:ClusterAssignment, gold:ClusterAssignment) -> LLMTestCase
+```
+
+Build a test case that holds predicted and gold clusters.
+
+**Parameters:**
+
+- **mentions** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The mention texts. They show in DeepEval reports.
+- **predicted** (<code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code>) – The clusters the resolver formed.
+- **gold** (<code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code>) – The gold clusters.
+
+**Returns:**
+
+- <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – A test case with serialized predicted and gold clusters.
+
+##### `agrag.eval.resolution.run_resolver`
+
+```python
+run_resolver(resolver:Resolver, mentions:Sequence[str], *, label:str = 'Organization') -> ClusterAssignment
+```
+
+Resolve mention strings and return the clusters the resolver forms.
+
+Each mention becomes one entity in its own chunk. The chunk holds only the
+mention text, and is registered with any `LLMVerify` comparator of the
+resolver so the comparator can look it up. Chunk ids come from the mention
+position, so runs are repeatable.
+
+**Parameters:**
+
+- **resolver** (<code>[Resolver](#agrag.ingestion.resolve.resolver.Resolver)</code>) – The resolver under test.
+- **mentions** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The mention texts.
+- **label** (<code>[str](#str)</code>) – The entity label given to every mention.
+
+**Returns:**
+
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – The predicted clusters, the count of matches per comparator, and
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – the count of failed LLM requests.
+
+#### `agrag.eval.resolution_case`
+
+```python
+resolution_case(mentions:Sequence[str], predicted:ClusterAssignment, gold:ClusterAssignment) -> LLMTestCase
+```
+
+Build a test case that holds predicted and gold clusters.
+
+**Parameters:**
+
+- **mentions** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The mention texts. They show in DeepEval reports.
+- **predicted** (<code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code>) – The clusters the resolver formed.
+- **gold** (<code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code>) – The gold clusters.
+
+**Returns:**
+
+- <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – A test case with serialized predicted and gold clusters.
+
 #### `agrag.eval.run_extractor`
 
 ```python
@@ -8672,6 +8886,30 @@ Chunk and document ids come from the item id, so runs are repeatable.
 **Raises:**
 
 - <code>[ValueError](#ValueError)</code> – `concurrency` is less than 1.
+
+#### `agrag.eval.run_resolver`
+
+```python
+run_resolver(resolver:Resolver, mentions:Sequence[str], *, label:str = 'Organization') -> ClusterAssignment
+```
+
+Resolve mention strings and return the clusters the resolver forms.
+
+Each mention becomes one entity in its own chunk. The chunk holds only the
+mention text, and is registered with any `LLMVerify` comparator of the
+resolver so the comparator can look it up. Chunk ids come from the mention
+position, so runs are repeatable.
+
+**Parameters:**
+
+- **resolver** (<code>[Resolver](#agrag.ingestion.resolve.resolver.Resolver)</code>) – The resolver under test.
+- **mentions** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The mention texts.
+- **label** (<code>[str](#str)</code>) – The entity label given to every mention.
+
+**Returns:**
+
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – The predicted clusters, the count of matches per comparator, and
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – the count of failed LLM requests.
 
 #### `agrag.eval.run_verifier`
 
@@ -13455,6 +13693,7 @@ raised outright instead (see compare's Raises section).
 **Attributes:**
 
 - [**chunks_by_id**](#agrag.ingestion.resolve.LLMVerify.chunks_by_id) –
+- [**failed_requests**](#agrag.ingestion.resolve.LLMVerify.failed_requests) (<code>[int](#int)</code>) –
 - [**max_pairs_per_batch**](#agrag.ingestion.resolve.LLMVerify.max_pairs_per_batch) –
 - [**settings**](#agrag.ingestion.resolve.LLMVerify.settings) –
 
@@ -13534,7 +13773,9 @@ Verify pairs and count how many verdicts came back uncertain.
 **Returns:**
 
 - <code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\]</code> – The per-pair results and the count of raw uncertain verdicts,
-- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH.
+- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH. A request that
+- <code>[tuple](#tuple)\[[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\], [int](#int)\]</code> – errors maps its pairs to NO_MATCH and increments
+- <code>[tuple](#tuple)\[[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\], [int](#int)\]</code> – failed_requests.
 
 ###### `agrag.ingestion.resolve.LLMVerify.compare_with_evidence`
 
@@ -13543,6 +13784,12 @@ compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
 ```
 
 Compare two entities and retain any available decision evidence.
+
+###### `agrag.ingestion.resolve.LLMVerify.failed_requests`
+
+```python
+failed_requests: int = 0
+```
 
 ###### `agrag.ingestion.resolve.LLMVerify.max_pairs_per_batch`
 
@@ -13617,11 +13864,27 @@ The groups, non-exact evidence, and ambiguity count of one pass.
 - [**matches**](#agrag.ingestion.resolve.ResolutionResult.matches) (<code>[list](#list)\[[ResolvedMatch](#agrag.ingestion.resolve.resolver.ResolvedMatch)\]</code>) – Evidence for every confirmed non-exact pair.
 - [**ambiguous_count**](#agrag.ingestion.resolve.ResolutionResult.ambiguous_count) (<code>[int](#int)</code>) – LLM verdicts that came back uncertain. These
   pairs never merge.
+- [**failed_llm_requests**](#agrag.ingestion.resolve.ResolutionResult.failed_llm_requests) (<code>[int](#int)</code>) – LLM verification requests that errored
+  and were mapped to "no match".
+- [**cap_truncated_pairs**](#agrag.ingestion.resolve.ResolutionResult.cap_truncated_pairs) (<code>[int](#int)</code>) – Boundary pairs that never reached the LLM
+  because of the per-label pair cap.
 
 ###### `agrag.ingestion.resolve.ResolutionResult.ambiguous_count`
 
 ```python
 ambiguous_count: int = 0
+```
+
+###### `agrag.ingestion.resolve.ResolutionResult.cap_truncated_pairs`
+
+```python
+cap_truncated_pairs: int = 0
+```
+
+###### `agrag.ingestion.resolve.ResolutionResult.failed_llm_requests`
+
+```python
+failed_llm_requests: int = 0
 ```
 
 ###### `agrag.ingestion.resolve.ResolutionResult.groups`
@@ -13813,7 +14076,8 @@ Resolve entity groups and retain each confirmed non-exact match.
 **Returns:**
 
 - <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index, evidence for every confirmed
-- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair, and the count of uncertain LLM verdicts.
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair, the count of uncertain LLM verdicts, and the
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – counts of failed LLM requests and cap-truncated pairs.
 
 ##### `agrag.ingestion.resolve.batch_validation`
 
@@ -14346,6 +14610,7 @@ raised outright instead (see compare's Raises section).
 **Attributes:**
 
 - [**chunks_by_id**](#agrag.ingestion.resolve.comparators.LLMVerify.chunks_by_id) –
+- [**failed_requests**](#agrag.ingestion.resolve.comparators.LLMVerify.failed_requests) (<code>[int](#int)</code>) –
 - [**max_pairs_per_batch**](#agrag.ingestion.resolve.comparators.LLMVerify.max_pairs_per_batch) –
 - [**settings**](#agrag.ingestion.resolve.comparators.LLMVerify.settings) –
 
@@ -14425,7 +14690,9 @@ Verify pairs and count how many verdicts came back uncertain.
 **Returns:**
 
 - <code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\]</code> – The per-pair results and the count of raw uncertain verdicts,
-- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH.
+- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH. A request that
+- <code>[tuple](#tuple)\[[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\], [int](#int)\]</code> – errors maps its pairs to NO_MATCH and increments
+- <code>[tuple](#tuple)\[[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\], [int](#int)\]</code> – failed_requests.
 
 ####### `agrag.ingestion.resolve.comparators.LLMVerify.compare_with_evidence`
 
@@ -14434,6 +14701,12 @@ compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
 ```
 
 Compare two entities and retain any available decision evidence.
+
+####### `agrag.ingestion.resolve.comparators.LLMVerify.failed_requests`
+
+```python
+failed_requests: int = 0
+```
 
 ####### `agrag.ingestion.resolve.comparators.LLMVerify.max_pairs_per_batch`
 
@@ -14552,6 +14825,10 @@ Entity resolution: deciding which ExtractedEntity mentions are the same thing.
 - [**ResolutionResult**](#agrag.ingestion.resolve.resolver.ResolutionResult) – The groups, non-exact evidence, and ambiguity count of one pass.
 - [**ResolvedMatch**](#agrag.ingestion.resolve.resolver.ResolvedMatch) – One confirmed non-exact match between two input entity indices.
 - [**Resolver**](#agrag.ingestion.resolve.resolver.Resolver) – Routes blocked candidate pairs through exact, fuzzy, embedding, and LLM zones.
+
+**Attributes:**
+
+- [**logger**](#agrag.ingestion.resolve.resolver.logger) –
 
 ###### `agrag.ingestion.resolve.resolver.Comparator`
 
@@ -14746,6 +15023,7 @@ raised outright instead (see compare's Raises section).
 **Attributes:**
 
 - [**chunks_by_id**](#agrag.ingestion.resolve.resolver.LLMVerify.chunks_by_id) –
+- [**failed_requests**](#agrag.ingestion.resolve.resolver.LLMVerify.failed_requests) (<code>[int](#int)</code>) –
 - [**max_pairs_per_batch**](#agrag.ingestion.resolve.resolver.LLMVerify.max_pairs_per_batch) –
 - [**settings**](#agrag.ingestion.resolve.resolver.LLMVerify.settings) –
 
@@ -14825,7 +15103,9 @@ Verify pairs and count how many verdicts came back uncertain.
 **Returns:**
 
 - <code>[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\]</code> – The per-pair results and the count of raw uncertain verdicts,
-- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH.
+- <code>[int](#int)</code> – before the fail-safe maps them to NO_MATCH. A request that
+- <code>[tuple](#tuple)\[[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\], [int](#int)\]</code> – errors maps its pairs to NO_MATCH and increments
+- <code>[tuple](#tuple)\[[dict](#dict)\[[tuple](#tuple)\[[int](#int), [int](#int)\], [ComparisonResult](#agrag.ingestion.resolve.resolver.ComparisonResult)\], [int](#int)\]</code> – failed_requests.
 
 ####### `agrag.ingestion.resolve.resolver.LLMVerify.compare_with_evidence`
 
@@ -14834,6 +15114,12 @@ compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
 ```
 
 Compare two entities and retain any available decision evidence.
+
+####### `agrag.ingestion.resolve.resolver.LLMVerify.failed_requests`
+
+```python
+failed_requests: int = 0
+```
 
 ####### `agrag.ingestion.resolve.resolver.LLMVerify.max_pairs_per_batch`
 
@@ -14876,11 +15162,27 @@ The groups, non-exact evidence, and ambiguity count of one pass.
 - [**matches**](#agrag.ingestion.resolve.resolver.ResolutionResult.matches) (<code>[list](#list)\[[ResolvedMatch](#agrag.ingestion.resolve.resolver.ResolvedMatch)\]</code>) – Evidence for every confirmed non-exact pair.
 - [**ambiguous_count**](#agrag.ingestion.resolve.resolver.ResolutionResult.ambiguous_count) (<code>[int](#int)</code>) – LLM verdicts that came back uncertain. These
   pairs never merge.
+- [**failed_llm_requests**](#agrag.ingestion.resolve.resolver.ResolutionResult.failed_llm_requests) (<code>[int](#int)</code>) – LLM verification requests that errored
+  and were mapped to "no match".
+- [**cap_truncated_pairs**](#agrag.ingestion.resolve.resolver.ResolutionResult.cap_truncated_pairs) (<code>[int](#int)</code>) – Boundary pairs that never reached the LLM
+  because of the per-label pair cap.
 
 ####### `agrag.ingestion.resolve.resolver.ResolutionResult.ambiguous_count`
 
 ```python
 ambiguous_count: int = 0
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolutionResult.cap_truncated_pairs`
+
+```python
+cap_truncated_pairs: int = 0
+```
+
+####### `agrag.ingestion.resolve.resolver.ResolutionResult.failed_llm_requests`
+
+```python
+failed_llm_requests: int = 0
 ```
 
 ####### `agrag.ingestion.resolve.resolver.ResolutionResult.groups`
@@ -15072,7 +15374,14 @@ Resolve entity groups and retain each confirmed non-exact match.
 **Returns:**
 
 - <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – Groups for every input index, evidence for every confirmed
-- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair, and the count of uncertain LLM verdicts.
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – non-exact pair, the count of uncertain LLM verdicts, and the
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – counts of failed LLM requests and cap-truncated pairs.
+
+###### `agrag.ingestion.resolve.resolver.logger`
+
+```python
+logger = logging.getLogger(__name__)
+```
 
 ##### `agrag.ingestion.resolve.zone_classifier`
 

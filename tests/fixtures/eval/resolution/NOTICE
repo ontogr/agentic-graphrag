@@ -1,0 +1,52 @@
+Company name clusters
+=====================
+
+company_clusters.json holds clusters of names of the same legal entity. It was
+built on the date in its "fetched" field by build_company_names_fixture.py from
+two public sources. The companies are picked by hand: the CIK and LEI lists are
+in that script. The file has no other data from the source records.
+
+SEC EDGAR
+---------
+
+Names and former names come from the submissions records at
+https://data.sec.gov/submissions/, and the hard negatives come from the ticker
+list at https://www.sec.gov/files/company_tickers.json. Terms were read on
+2026-09-26.
+
+From https://www.sec.gov/about/privacy-information:
+
+  "Information presented on sec.gov is considered public information and may be
+  copied or further distributed by users of the web site without the SEC’s
+  permission. Please consider appropriate citation to the SEC as the source."
+
+Source: U.S. Securities and Exchange Commission, EDGAR.
+
+The builder script declares its contact in the User-Agent header and stays under
+the request limit that SEC states at
+https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data
+("Current max request rate: 10 requests/second.").
+
+GLEIF
+-----
+
+Legal names and other names come from the Global LEI Index records at
+https://api.gleif.org/api/v1/lei-records. GLEIF publishes this data under the
+CC0 1.0 Universal public domain dedication:
+https://www.gleif.org/en/about/open-data
+
+Selection
+---------
+
+- SEC: 34 registrants. A cluster is the current name plus every former name,
+  with names that differ only by case or surrounding space merged. Registrants
+  with no former name give single-name clusters.
+- SEC hard negatives: for each registrant, the most similar name (token sort
+  ratio of at least 0.8) of another registrant in the ticker list, as its own
+  cluster.
+- GLEIF: 21 records. A cluster is the legal name plus every other name of the
+  record. GLEIF lists other names of the same legal entity, so each cluster is
+  one entity by definition. Records with no other name give single-name
+  clusters.
+- The two sources are not joined. No identifier links a SEC registrant to a
+  GLEIF record, and a join by name would assume what the test measures.
