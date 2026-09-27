@@ -35,8 +35,12 @@ concurrency:
 jobs:
   eval-extraction:
     name: Eval extraction
-    uses: ./.github/workflows/eval-shared.yml
-    secrets: inherit
+    uses: $/.github/workflows/eval-shared.yml
+    secrets:
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
     with:
       eval_name: extraction
       eval_label: Eval extraction

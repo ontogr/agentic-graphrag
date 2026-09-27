@@ -44,6 +44,21 @@ on:
       with_judge:
         type: boolean
         default: false
+    secrets:
+      LLM_BASE_URL:
+        required: false
+      LLM_API_KEY:
+        required: false
+      LLM_MODEL_ID:
+        required: false
+      EVAL_JUDGE_BASE_URL:
+        required: false
+      EVAL_JUDGE_API_KEY:
+        required: false
+      EVAL_JUDGE_MODEL_ID:
+        required: false
+      DISCORD_WEBHOOK_URL:
+        required: false
 
 permissions:
   contents: read
@@ -100,6 +115,7 @@ jobs:
           EVAL_JUDGE_BASE_URL: ${{ secrets.EVAL_JUDGE_BASE_URL || secrets.LLM_BASE_URL }}
           EVAL_JUDGE_API_KEY: ${{ secrets.EVAL_JUDGE_API_KEY || secrets.LLM_API_KEY }}
           EVAL_JUDGE_MODEL_ID: ${{ secrets.EVAL_JUDGE_MODEL_ID || secrets.LLM_MODEL_ID }}
+          MAKE_TARGET: ${{ inputs.make_target }}
         run: |
           if [ -z "$LLM_BASE_URL" ] || [ -z "$LLM_API_KEY" ] || [ -z "$LLM_MODEL_ID" ]; then
             echo "::error::Configure LLM_BASE_URL, LLM_API_KEY, and LLM_MODEL_ID."
@@ -113,7 +129,7 @@ jobs:
               exit 1
             fi
           fi
-          make ${{ inputs.make_target }}
+          make "$MAKE_TARGET"
 
       - name: Upload scores
         if: ${{ always() }}
