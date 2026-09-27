@@ -700,10 +700,12 @@ class TestAgentBuildIntegration:
             self._message_text({"messages": [message]})
             for message in result.get("messages", [])
         )
-        transcript_keys = set(re.findall(r"\bE\d+\b", transcript))
+        citation_pattern = r"\b[EGRCVX]\d+\b"
+        transcript_keys = set(re.findall(citation_pattern, transcript))
         assert transcript_keys, "research findings contain no citation keys"
         answer = self._message_text(result)
-        assert re.search(r"\bE\d+\b", answer), "final answer cites no evidence"
+        answer_keys = set(re.findall(citation_pattern, answer))
+        assert answer_keys & transcript_keys, "final answer cites no research evidence"
 
     @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
     @pytest.mark.skipif(
