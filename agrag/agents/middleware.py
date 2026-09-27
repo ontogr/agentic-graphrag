@@ -1,5 +1,6 @@
 """Agent middleware for composing models and bounding the research loop."""
 
+import html
 import re
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -182,6 +183,9 @@ class VerifierEvidenceMiddleware(AgentMiddleware):
         if not keys:
             return await handler(request)
         evidence = "\n".join(self._evidence_line(key) for key in keys)
+        # Escape angle brackets so source text cannot close the
+        # <untrusted_evidence> wrapper and escape into the trusted prompt.
+        evidence = html.escape(evidence, quote=False)
         task = {
             **args,
             "description": (

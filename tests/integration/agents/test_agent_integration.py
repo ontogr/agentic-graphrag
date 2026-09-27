@@ -696,9 +696,12 @@ class TestAgentBuildIntegration:
         # The model chooses its own decomposition and synthesis style, so
         # the number of tool results is not deterministic run to run. The
         # final answer must still cite evidence from the transcript.
+        # Exclude the final answer message itself, so a citation only
+        # counts as evidence when it also appears in the research messages
+        # that produced the answer.
         transcript = "\n".join(
             self._message_text({"messages": [message]})
-            for message in result.get("messages", [])
+            for message in result.get("messages", [])[:-1]
         )
         citation_pattern = r"\b[EGRCVX]\d+\b"
         transcript_keys = set(re.findall(citation_pattern, transcript))
