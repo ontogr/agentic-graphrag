@@ -38,6 +38,7 @@ from agrag.eval.resolution import (
     cluster_quality_metric,
     resolution_case,
     run_resolver,
+    run_resolver_detailed,
 )
 from agrag.eval.settings import EvalJudgeSettings
 from agrag.eval.verifier import (
@@ -79,6 +80,7 @@ __all__ = [
     "resolution_case",
     "run_extractor",
     "run_resolver",
+    "run_resolver_detailed",
     "run_verifier",
     "to_json_case",
     "verdict_case",

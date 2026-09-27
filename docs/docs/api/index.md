@@ -6869,6 +6869,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**resolution_case**](#agrag.eval.resolution_case) – Build a test case that holds predicted and gold clusters.
 - [**run_extractor**](#agrag.eval.run_extractor) – Run an extractor over gold items and build one test case per item.
 - [**run_resolver**](#agrag.eval.run_resolver) – Resolve mention strings and return the clusters the resolver forms.
+- [**run_resolver_detailed**](#agrag.eval.run_resolver_detailed) – Resolve mention strings and return the clusters plus raw evidence.
 - [**run_verifier**](#agrag.eval.run_verifier) – Run the verifier over items and return one label per item.
 - [**to_json_case**](#agrag.eval.to_json_case) – Build a test case that carries structured data as JSON.
 - [**verdict_case**](#agrag.eval.verdict_case) – Build a test case with the predicted and the gold verdict.
@@ -8737,6 +8738,7 @@ of one, so a gold set can list only its multi-mention clusters.
 - [**cluster_quality_metric**](#agrag.eval.resolution.cluster_quality_metric) – Build a metric for cluster quality on one test case.
 - [**resolution_case**](#agrag.eval.resolution.resolution_case) – Build a test case that holds predicted and gold clusters.
 - [**run_resolver**](#agrag.eval.resolution.run_resolver) – Resolve mention strings and return the clusters the resolver forms.
+- [**run_resolver_detailed**](#agrag.eval.resolution.run_resolver_detailed) – Resolve mention strings and return the clusters plus raw evidence.
 
 ##### `agrag.eval.resolution.ClusterAssignment`
 
@@ -8827,6 +8829,28 @@ run_resolver(resolver:Resolver, mentions:Sequence[str], *, label:str = 'Organiza
 
 Resolve mention strings and return the clusters the resolver forms.
 
+See `run_resolver_detailed` for the chunk construction. Use that variant
+when a caller also needs the raw `ResolutionResult` evidence.
+
+**Parameters:**
+
+- **resolver** (<code>[Resolver](#agrag.ingestion.resolve.resolver.Resolver)</code>) – The resolver under test.
+- **mentions** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The mention texts.
+- **label** (<code>[str](#str)</code>) – The entity label given to every mention.
+
+**Returns:**
+
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – The predicted clusters, the count of matches per comparator, and
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – the count of failed LLM requests.
+
+##### `agrag.eval.resolution.run_resolver_detailed`
+
+```python
+run_resolver_detailed(resolver:Resolver, mentions:Sequence[str], *, label:str = 'Organization') -> tuple[ClusterAssignment, ResolutionResult]
+```
+
+Resolve mention strings and return the clusters plus raw evidence.
+
 Each mention becomes one entity in its own chunk. The chunk holds only the
 mention text, and is registered with any `LLMVerify` comparator of the
 resolver so the comparator can look it up. Chunk ids come from the mention
@@ -8840,8 +8864,9 @@ position, so runs are repeatable.
 
 **Returns:**
 
-- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – The predicted clusters, the count of matches per comparator, and
-- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – the count of failed LLM requests.
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – The predicted clusters with the counts of matches per comparator and
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – of failed LLM requests, and the raw `ResolutionResult` whose match
+- <code>[tuple](#tuple)\[[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment), [ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)\]</code> – records carry the comparator that confirmed each pair.
 
 #### `agrag.eval.resolution_case`
 
@@ -8895,6 +8920,28 @@ run_resolver(resolver:Resolver, mentions:Sequence[str], *, label:str = 'Organiza
 
 Resolve mention strings and return the clusters the resolver forms.
 
+See `run_resolver_detailed` for the chunk construction. Use that variant
+when a caller also needs the raw `ResolutionResult` evidence.
+
+**Parameters:**
+
+- **resolver** (<code>[Resolver](#agrag.ingestion.resolve.resolver.Resolver)</code>) – The resolver under test.
+- **mentions** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\]</code>) – The mention texts.
+- **label** (<code>[str](#str)</code>) – The entity label given to every mention.
+
+**Returns:**
+
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – The predicted clusters, the count of matches per comparator, and
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – the count of failed LLM requests.
+
+#### `agrag.eval.run_resolver_detailed`
+
+```python
+run_resolver_detailed(resolver:Resolver, mentions:Sequence[str], *, label:str = 'Organization') -> tuple[ClusterAssignment, ResolutionResult]
+```
+
+Resolve mention strings and return the clusters plus raw evidence.
+
 Each mention becomes one entity in its own chunk. The chunk holds only the
 mention text, and is registered with any `LLMVerify` comparator of the
 resolver so the comparator can look it up. Chunk ids come from the mention
@@ -8908,8 +8955,9 @@ position, so runs are repeatable.
 
 **Returns:**
 
-- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – The predicted clusters, the count of matches per comparator, and
-- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – the count of failed LLM requests.
+- <code>[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment)</code> – The predicted clusters with the counts of matches per comparator and
+- <code>[ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)</code> – of failed LLM requests, and the raw `ResolutionResult` whose match
+- <code>[tuple](#tuple)\[[ClusterAssignment](#agrag.eval.resolution.ClusterAssignment), [ResolutionResult](#agrag.ingestion.resolve.resolver.ResolutionResult)\]</code> – records carry the comparator that confirmed each pair.
 
 #### `agrag.eval.run_verifier`
 

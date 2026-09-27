@@ -3,6 +3,8 @@ name: Eval
 # The harness smoke test runs the real agent and the judge, so it does not run
 # on pull requests. It runs after a merge that changes the agent, the retrieval
 # code or the eval harness, and once a week. It posts to Discord when it fails.
+# The shared job steps live in the shared workflow.
+
 on:
   push:
     branches: [main]
@@ -24,6 +26,7 @@ on:
       - "tests/integration/eval/conftest.py"
       - "tests/integration/eval/test_harness_e2e.py"
       - ".github/workflows/eval.yml"
+      - ".github/workflows/eval-shared.yml"
       - "pyproject.toml"
       - "uv.lock"
   schedule:
@@ -37,95 +40,23 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
-env:
-  PYTHONUNBUFFERED: "1"
-  FORCE_COLOR: "1"
-  DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
 jobs:
   eval:
     name: Eval
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      UV_PYTHON: "3.12"
-      # Fixed, throwaway credentials scoped to this job's own Docker network.
-      NEO4J_URI: bolt://localhost:7687
-      NEO4J_USERNAME: neo4j
-      NEO4J_PASSWORD: ci-test-password
-      NEO4J_DATABASE: neo4j
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      # Started without --wait so the image pull overlaps with the uv and
-      # Python setup below.
-      - name: Start backend services
-        run: docker compose -f docker/docker-compose.ci.yml up -d neo4j
-
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-
-      - run: make sync
-
-      - name: Wait for backend services to be healthy
-        run: docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420 neo4j
-
-      - name: Run eval tests
-        env:
-          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
-          EVAL_JUDGE_BASE_URL: ${{ secrets.EVAL_JUDGE_BASE_URL || secrets.LLM_BASE_URL }}
-          EVAL_JUDGE_API_KEY: ${{ secrets.EVAL_JUDGE_API_KEY || secrets.LLM_API_KEY }}
-          EVAL_JUDGE_MODEL_ID: ${{ secrets.EVAL_JUDGE_MODEL_ID || secrets.LLM_MODEL_ID }}
-        run: |
-          if [ -z "$LLM_BASE_URL" ] || [ -z "$LLM_API_KEY" ] || \
-             [ -z "$LLM_MODEL_ID" ] || [ -z "$EVAL_JUDGE_BASE_URL" ] || \
-             [ -z "$EVAL_JUDGE_API_KEY" ] || [ -z "$EVAL_JUDGE_MODEL_ID" ]; then
-            echo "::error::Configure LLM_BASE_URL, LLM_API_KEY, and LLM_MODEL_ID."
-            echo "EVAL_JUDGE_* secrets are optional and default to LLM_* values."
-            exit 1
-          fi
-          make test-eval
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: eval-test-results
-          path: pytest-eval-results.xml
-          retention-days: 90
-
-      - name: Collect backend service logs
-        if: failure()
-        run: docker compose -f docker/docker-compose.ci.yml logs
-
-      - name: Stop backend services
-        if: always()
-        run: docker compose -f docker/docker-compose.ci.yml down -v
-
-      - name: Notify Discord
-        if: failure()
-        env:
-          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          MESSAGE: >-
-            Eval harness smoke test failed on ${{ github.event_name }} for
-            ${{ github.repository }}@${{ github.sha }}.
-            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          if [ -z "$WEBHOOK_URL" ]; then
-            echo "DISCORD_WEBHOOK_URL is not set, skipping the alert."
-            exit 0
-          fi
-          curl --silent --show-error --fail \
-            --header "Content-Type: application/json" \
-            --data "$(jq --null-input --arg content "$MESSAGE" '{content: $content}')" \
-            "$WEBHOOK_URL"
+    uses: $/.github/workflows/eval-shared.yml
+    secrets:
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
+      EVAL_JUDGE_BASE_URL: ${{ secrets.EVAL_JUDGE_BASE_URL }}
+      EVAL_JUDGE_API_KEY: ${{ secrets.EVAL_JUDGE_API_KEY }}
+      EVAL_JUDGE_MODEL_ID: ${{ secrets.EVAL_JUDGE_MODEL_ID }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    with:
+      eval_name: harness
+      eval_label: Eval
+      make_target: test-eval
+      report_paths: pytest-eval-results.xml
+      timeout_minutes: 30
+      needs_services: true
+      with_judge: true
