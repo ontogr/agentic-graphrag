@@ -6877,8 +6877,10 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**run_resolver**](#agrag.eval.run_resolver) – Resolve mention strings and return the clusters the resolver forms.
 - [**run_resolver_detailed**](#agrag.eval.run_resolver_detailed) – Resolve mention strings and return the clusters plus raw evidence.
 - [**run_verifier**](#agrag.eval.run_verifier) – Run the verifier over items and return one label per item.
+- [**task_completion**](#agrag.eval.task_completion) – Build the judged metric for task completion.
 - [**to_json_case**](#agrag.eval.to_json_case) – Build a test case that carries structured data as JSON.
 - [**trajectory_case**](#agrag.eval.trajectory_case) – Build the test case every trajectory metric scores.
+- [**trajectory_quality**](#agrag.eval.trajectory_quality) – Build the judged metric for trajectory quality.
 - [**verdict_case**](#agrag.eval.verdict_case) – Build a test case with the predicted and the gold verdict.
 - [**verdict_match_metric**](#agrag.eval.verdict_match_metric) – Build a metric that scores 1.0 when the verdict equals the gold verdict.
 - [**verdict_report**](#agrag.eval.verdict_report) – Score predicted verdicts against gold verdicts.
@@ -9187,6 +9189,27 @@ model_config = SettingsConfigDict(env_prefix='EVAL_JUDGE_', env_file='.env', ext
 temperature: Annotated[float | None, NoDecode] = 0.0
 ```
 
+#### `agrag.eval.task_completion`
+
+```python
+task_completion(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
+```
+
+Build the judged metric for task completion.
+
+Scores whether the run achieved the question's goal, from the question,
+the answer and the tool calls. The judge runs three times and the median
+reports, so one noisy judgment cannot flip the result.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The task completion metric.
+
 #### `agrag.eval.to_json_case`
 
 ```python
@@ -9224,7 +9247,9 @@ it are deterministic; task completion and trajectory quality use an LLM judge.
 - [**expected_tools_metric**](#agrag.eval.trajectory.expected_tools_metric) – Build the metric that the run called every expected tool.
 - [**read_trajectory**](#agrag.eval.trajectory.read_trajectory) – Read the tool and model steps from finished spans.
 - [**retry_budget_metric**](#agrag.eval.trajectory.retry_budget_metric) – Build the metric that retries stay within budget.
+- [**task_completion**](#agrag.eval.trajectory.task_completion) – Build the judged metric for task completion.
 - [**trajectory_case**](#agrag.eval.trajectory.trajectory_case) – Build the test case every trajectory metric scores.
+- [**trajectory_quality**](#agrag.eval.trajectory.trajectory_quality) – Build the judged metric for trajectory quality.
 - [**verifier_before_answer_metric**](#agrag.eval.trajectory.verifier_before_answer_metric) – Build the metric that the verifier ran before the answer.
 
 ##### `agrag.eval.trajectory.SpanCapture`
@@ -9425,6 +9450,27 @@ executed delegations count. Scores 1.0 or 0.0.
 
 - <code>[ScoreMetric](#agrag.eval.adapter.ScoreMetric)</code> – A `ScoreMetric` that scores the retry budget.
 
+##### `agrag.eval.trajectory.task_completion`
+
+```python
+task_completion(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
+```
+
+Build the judged metric for task completion.
+
+Scores whether the run achieved the question's goal, from the question,
+the answer and the tool calls. The judge runs three times and the median
+reports, so one noisy judgment cannot flip the result.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The task completion metric.
+
 ##### `agrag.eval.trajectory.trajectory_case`
 
 ```python
@@ -9446,6 +9492,30 @@ the deterministic metrics read.
 **Returns:**
 
 - <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – The test case with the answer, the tool calls and the trajectory.
+
+##### `agrag.eval.trajectory.trajectory_quality`
+
+```python
+trajectory_quality(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
+```
+
+Build the judged metric for trajectory quality.
+
+Scores whether the steps follow logically from the question, with no
+reference trajectory. The judge runs three times and the median reports.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model. Its chat model grades the trajectory.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The trajectory quality metric.
+
+**Raises:**
+
+- <code>[TypeError](#TypeError)</code> – The judge holds no LangChain chat model.
 
 ##### `agrag.eval.trajectory.verifier_before_answer_metric`
 
@@ -9487,6 +9557,30 @@ the deterministic metrics read.
 **Returns:**
 
 - <code>[LLMTestCase](#deepeval.test_case.LLMTestCase)</code> – The test case with the answer, the tool calls and the trajectory.
+
+#### `agrag.eval.trajectory_quality`
+
+```python
+trajectory_quality(judge:DeepEvalBaseLLM, *, threshold:float = 0.5) -> BaseMetric
+```
+
+Build the judged metric for trajectory quality.
+
+Scores whether the steps follow logically from the question, with no
+reference trajectory. The judge runs three times and the median reports.
+
+**Parameters:**
+
+- **judge** (<code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>) – The judge model. Its chat model grades the trajectory.
+- **threshold** (<code>[float](#float)</code>) – The minimum score that counts as success.
+
+**Returns:**
+
+- <code>[BaseMetric](#deepeval.metrics.BaseMetric)</code> – The trajectory quality metric.
+
+**Raises:**
+
+- <code>[TypeError](#TypeError)</code> – The judge holds no LangChain chat model.
 
 #### `agrag.eval.verdict_case`
 

@@ -47,7 +47,9 @@ from agrag.eval.trajectory import (
     expected_tools_metric,
     read_trajectory,
     retry_budget_metric,
+    task_completion,
     trajectory_case,
+    trajectory_quality,
     verifier_before_answer_metric,
 )
 from agrag.eval.verifier import (
@@ -96,8 +98,10 @@ __all__ = [
     "run_resolver",
     "run_resolver_detailed",
     "run_verifier",
+    "task_completion",
     "to_json_case",
     "trajectory_case",
+    "trajectory_quality",
     "verdict_case",
     "verdict_match_metric",
     "verdict_report",

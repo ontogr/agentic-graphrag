@@ -9,13 +9,20 @@ import json
 from collections.abc import Sequence
 from typing import Any, Literal
 
-from agentevals.trajectory import create_trajectory_match_evaluator
+from agentevals.trajectory import (
+    create_trajectory_llm_as_judge,
+    create_trajectory_match_evaluator,
+)
+from deepeval.metrics import BaseMetric, TaskCompletionMetric
+from deepeval.models import DeepEvalBaseLLM
 from deepeval.test_case import LLMTestCase, ToolCall
+from langchain_core.language_models.chat_models import BaseChatModel
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import Tracer
 from pydantic import BaseModel
 
 from agrag.eval.adapter import ScoreMetric, ScoreResult
+from agrag.eval.repeat import MedianOfN
 
 
 class Step(BaseModel):
@@ -274,6 +281,45 @@ def _task_spans(trajectory: Trajectory, subagent_type: str) -> list[Step]:
     ]
 
 
+def _tool_calls_message(tool_steps: list[Step]) -> dict[str, Any]:
+    """Build one assistant message with a tool call per step, in order."""
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": f"call-{index}",
+                "type": "function",
+                "function": {
+                    "name": step.name,
+                    "arguments": json.dumps(step.args),
+                },
+            }
+            for index, step in enumerate(tool_steps)
+        ],
+    }
+
+
+def _trajectory_messages(question: str, trajectory: Trajectory) -> list[dict[str, Any]]:
+    """Build the judge's view: the question, then each tool call in order."""
+    tool_steps = [step for step in trajectory.steps if step.kind == "tool"]
+    return [{"role": "user", "content": question}, _tool_calls_message(tool_steps)]
+
+
+_TRAJECTORY_QUALITY_PROMPT = (
+    "You grade the trajectory of an AI agent that answers questions from "
+    "a knowledge graph. Read the question and the tool calls the agent made, "
+    "in order, then score the trajectory from 0 to 1.\n\n"
+    "Score high when the steps follow logically from the question, the "
+    "researcher's tool calls are targeted at the question, and the verifier "
+    "was consulted before the answer. Score low when the steps wander, "
+    "repeat without new information, or skip verification. Shorter is not "
+    "better and longer is not better: judge only whether the work answers "
+    "the question.\n\n"
+    "Question and trajectory:\n{outputs}"
+)
+
+
 def verifier_before_answer_metric(*, threshold: float = 0.5) -> ScoreMetric:
     """Build the metric that the verifier ran before the answer.
 
@@ -389,23 +435,7 @@ def expected_tools_metric(
     def scorer(test_case: LLMTestCase) -> ScoreResult:
         trajectory = _case_trajectory(test_case)
         tool_steps = [step for step in trajectory.steps if step.kind == "tool"]
-        outputs = [
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": f"call-{index}",
-                        "type": "function",
-                        "function": {
-                            "name": step.name,
-                            "arguments": json.dumps(step.args),
-                        },
-                    }
-                    for index, step in enumerate(tool_steps)
-                ],
-            }
-        ]
+        outputs = [_tool_calls_message(tool_steps)]
         result = evaluator(outputs=outputs, reference_outputs=reference)
         if isinstance(result, list):
             result = result[0]
@@ -425,3 +455,61 @@ def expected_tools_metric(
         )
 
     return ScoreMetric("Expected tools", scorer, threshold)
+
+
+def task_completion(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMetric:
+    """Build the judged metric for task completion.
+
+    Scores whether the run achieved the question's goal, from the question,
+    the answer and the tool calls. The judge runs three times and the median
+    reports, so one noisy judgment cannot flip the result.
+
+    Args:
+        judge: The judge model.
+        threshold: The minimum score that counts as success.
+
+    Returns:
+        The task completion metric.
+    """
+    return MedianOfN(TaskCompletionMetric(model=judge, threshold=threshold))
+
+
+def trajectory_quality(judge: DeepEvalBaseLLM, *, threshold: float = 0.5) -> BaseMetric:
+    """Build the judged metric for trajectory quality.
+
+    Scores whether the steps follow logically from the question, with no
+    reference trajectory. The judge runs three times and the median reports.
+
+    Args:
+        judge: The judge model. Its chat model grades the trajectory.
+        threshold: The minimum score that counts as success.
+
+    Returns:
+        The trajectory quality metric.
+
+    Raises:
+        TypeError: The judge holds no LangChain chat model.
+    """
+    chat_model = judge.model
+    if not isinstance(chat_model, BaseChatModel):
+        raise TypeError("trajectory_quality needs a judge holding a chat model")
+    evaluator = create_trajectory_llm_as_judge(
+        prompt=_TRAJECTORY_QUALITY_PROMPT,
+        judge=chat_model,
+        feedback_key="trajectory_quality",
+        continuous=True,
+    )
+
+    def scorer(test_case: LLMTestCase) -> ScoreResult:
+        trajectory = _case_trajectory(test_case)
+        messages = _trajectory_messages(test_case.input, trajectory)
+        result = evaluator(outputs=messages)
+        if isinstance(result, list):
+            result = result[0]
+        return ScoreResult(
+            float(result["score"]),
+            str(result.get("comment") or ""),
+            {"key": result.get("key")},
+        )
+
+    return MedianOfN(ScoreMetric("Trajectory quality", scorer, threshold))
