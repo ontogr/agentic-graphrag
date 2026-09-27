@@ -19,7 +19,11 @@ from deepeval.test_case import LLMTestCase, ToolCall
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from opentelemetry.sdk.trace import ReadableSpan
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 from opentelemetry.trace import Tracer
 from pydantic import BaseModel
 
@@ -210,12 +214,6 @@ class SpanCapture:
 
     def __init__(self) -> None:
         """Create a private provider and exporter."""
-        from opentelemetry.sdk.trace import TracerProvider  # noqa: PLC0415
-        from opentelemetry.sdk.trace.export import SimpleSpanProcessor  # noqa: PLC0415
-        from opentelemetry.sdk.trace.export.in_memory_span_exporter import (  # noqa: PLC0415
-            InMemorySpanExporter,
-        )
-
         self._exporter = InMemorySpanExporter()
         self._provider = TracerProvider()
         self._provider.add_span_processor(SimpleSpanProcessor(self._exporter))
@@ -279,7 +277,9 @@ def _task_spans(trajectory: Trajectory, subagent_type: str) -> list[Step]:
     return [
         step
         for step in trajectory.steps
-        if step.name == "task" and step.args.get("subagent_type") == subagent_type
+        if step.kind == "tool"
+        and step.name == "task"
+        and step.args.get("subagent_type") == subagent_type
     ]
 
 
@@ -343,6 +343,11 @@ class _ScoreRepairRunnable:
         response = self._structured.invoke(prompt_input, config, **kwargs)
         if isinstance(response, (dict, bool)):
             return response
+        if isinstance(response, str):
+            try:
+                response = float(response)
+            except ValueError:
+                return response
         if isinstance(response, (int, float)):
             return {"score": float(response), "reasoning": ""}
         return response
@@ -406,7 +411,7 @@ def verifier_before_answer_metric(*, threshold: float = 0.5) -> ScoreMetric:
         ]
         if not planner_starts:
             return ScoreResult(0.0, "No planner LLM span wrote an answer.", {})
-        if any(end <= max(planner_starts) for end in verifier_ends):
+        if any(end < max(planner_starts) for end in verifier_ends):
             return ScoreResult(1.0, "The verifier ran before the answer.", {})
         return ScoreResult(0.0, "The verifier finished after the answer started.", {})
 

@@ -7,7 +7,6 @@ retry counting, and how the case carries the trajectory.
 
 import itertools
 import json
-from typing import Literal
 
 import pytest
 from deepeval.metrics import BaseMetric
@@ -24,55 +23,11 @@ from agrag.eval.trajectory import (
     trajectory_case,
     verifier_before_answer_metric,
 )
+from tests.unit.eval.conftest import _answer, _research_tool, _step, _task
 
 
 _TRACE_ID = 0x9F86D081884C7D65
 _ids = itertools.count(1000)
-
-
-def _step(
-    kind: Literal["tool", "llm"],
-    name: str,
-    *,
-    start: int,
-    end: int,
-    args: dict | None = None,
-    output: str = "",
-    subagent: str | None = None,
-) -> Step:
-    """Build one trajectory step with fixed times."""
-    return Step(
-        kind=kind,
-        name=name,
-        args=args or {},
-        output=output,
-        span_id=f"{next(_ids):016x}",
-        parent_ids=[],
-        started=start,
-        ended=end,
-        subagent=subagent,
-    )
-
-
-def _task(subagent_type: str, start: int, end: int) -> Step:
-    """Build a delegation step for one subagent type."""
-    return _step(
-        "tool",
-        "task",
-        start=start,
-        end=end,
-        args={"description": "delegate", "subagent_type": subagent_type},
-    )
-
-
-def _research_tool(name: str, start: int, end: int) -> Step:
-    """Build a researcher tool step."""
-    return _step("tool", name, start=start, end=end, subagent="researcher")
-
-
-def _answer(start: int, end: int) -> Step:
-    """Build the planner model step that wrote the answer."""
-    return _step("llm", "ChatOpenAI", start=start, end=end, subagent=None)
 
 
 def _case(*steps: Step) -> LLMTestCase:
@@ -193,6 +148,15 @@ class TestVerifierBeforeAnswer:
         assert score == 1.0
         assert metric.success
 
+    def test_no_planner_answer_fails(self) -> None:
+        """A verifier with no planner answer fails with that reason."""
+        metric = verifier_before_answer_metric()
+
+        score = metric.measure(_case(_task("verifier", 10, 20)))
+
+        assert score == 0.0
+        assert "No planner" in _reason(metric)
+
 
 class TestRetryBudget:
     """Retries are researcher delegations after the first verifier run."""
@@ -254,6 +218,26 @@ class TestRetryBudget:
         metric = retry_budget_metric(0)
 
         score = metric.measure(_case(_task("researcher", 10, 20), _answer(30, 40)))
+
+        assert score == 1.0
+
+    def test_model_step_named_task_is_not_a_delegation(self) -> None:
+        """Only tool steps count as delegations."""
+        metric = retry_budget_metric(0)
+
+        score = metric.measure(
+            _case(
+                _task("verifier", 30, 100),
+                _step(
+                    "llm",
+                    "task",
+                    start=110,
+                    end=120,
+                    args={"subagent_type": "researcher"},
+                ),
+                _answer(130, 140),
+            )
+        )
 
         assert score == 1.0
 

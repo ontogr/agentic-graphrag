@@ -20,7 +20,7 @@ from agrag.eval.trajectory import (
     trajectory_case,
     trajectory_quality,
 )
-from tests.unit.eval.test_trajectory_rules import _answer, _research_tool, _task
+from tests.unit.eval.conftest import _answer, _research_tool, _task
 
 
 class _ScriptedJudge(DeepEvalBaseLLM):
@@ -63,7 +63,7 @@ class _ScriptedChatModel(BaseChatModel):
     prompts: list[str] = Field(default_factory=list)
     score: float = 0.8
     fail_on: str | None = None
-    bare: bool = False
+    raw: Any = None
 
     @property
     def _llm_type(self) -> str:
@@ -93,8 +93,8 @@ class _ScriptedChatModel(BaseChatModel):
                 )
                 if model.fail_on is not None and model.fail_on in model.prompts[-1]:
                     raise RuntimeError("judge failed")
-                if model.bare:
-                    return model.score
+                if model.raw is not None:
+                    return model.raw
                 return {"score": model.score, "reasoning": "scripted"}
 
         return _StructuredReply()
@@ -131,6 +131,8 @@ class TestTaskCompletion:
 
         assert metric.score == 0.9
         assert metric.success
+        # Two judge calls per measure (outcome, then verdict), median of three.
+        assert len(judge.prompts) == 6
         assert any("search_source_text" in prompt for prompt in judge.prompts)
         assert any("task" in prompt for prompt in judge.prompts)
 
@@ -153,7 +155,14 @@ class TestTrajectoryQuality:
 
     def test_bare_number_reply_scores(self) -> None:
         """A judge that answers with a bare number still scores."""
-        chat = _ScriptedChatModel(score=0.7, bare=True)
+        chat = _ScriptedChatModel(score=0.7, raw=0.7)
+        metric = trajectory_quality(ChatModelJudge(chat, "scripted"))
+
+        assert metric.measure(_case()) == 0.7
+
+    def test_bare_numeric_string_reply_scores(self) -> None:
+        """A judge that answers with a numeric string still scores."""
+        chat = _ScriptedChatModel(raw="0.7")
         metric = trajectory_quality(ChatModelJudge(chat, "scripted"))
 
         assert metric.measure(_case()) == 0.7
