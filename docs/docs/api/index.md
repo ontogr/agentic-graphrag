@@ -7450,10 +7450,12 @@ so captures never share spans and the global provider is unchanged.
 <details class="example" open markdown="1">
 <summary>Example</summary>
 
+```python
 with SpanCapture() as capture:
-agent = build_agent(engine, settings, tracer=capture.tracer)
-result = await agent.ainvoke({"messages": [...]})
+    agent = build_agent(engine, settings, tracer=capture.tracer)
+    result = await agent.ainvoke({"messages": [...]})
 trajectory = capture.trajectory()
+```
 
 </details>
 
@@ -9238,10 +9240,12 @@ so captures never share spans and the global provider is unchanged.
 <details class="example" open markdown="1">
 <summary>Example</summary>
 
+```python
 with SpanCapture() as capture:
-agent = build_agent(engine, settings, tracer=capture.tracer)
-result = await agent.ainvoke({"messages": [...]})
+    agent = build_agent(engine, settings, tracer=capture.tracer)
+    result = await agent.ainvoke({"messages": [...]})
 trajectory = capture.trajectory()
+```
 
 </details>
 

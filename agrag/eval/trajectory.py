@@ -205,10 +205,12 @@ class SpanCapture:
     so captures never share spans and the global provider is unchanged.
 
     Example:
+        ```python
         with SpanCapture() as capture:
             agent = build_agent(engine, settings, tracer=capture.tracer)
             result = await agent.ainvoke({"messages": [...]})
         trajectory = capture.trajectory()
+        ```
     """
 
     def __init__(self) -> None:
