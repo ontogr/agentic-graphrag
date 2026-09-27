@@ -69,6 +69,8 @@ eval = [
     "er-evaluation>=2.3.0",
     "scikit-learn>=1.5",
     "langchain-openai>=1.0",
+    "opentelemetry-sdk>=1.20",
+    "openinference-instrumentation-langchain>=0.1.76,<0.2",
 ]
 community = ["graspologic-native>=1.2.5"]
 

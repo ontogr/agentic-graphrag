@@ -118,7 +118,7 @@ class TestBuildNextChunkRecords:
         assert build_next_chunk_records([_chunk(uuid4())]) == []
 
     def test_records_carry_no_temporal_properties(self) -> None:
-        """NEXT_CHUNK records carry no valid_at/invalid_at, per ADR 0040."""
+        """NEXT_CHUNK records carry no valid_at/invalid_at."""
         document_id = uuid4()
         chunks = [_chunk(document_id, index=0), _chunk(document_id, index=1)]
         [first, *_] = build_next_chunk_records(chunks)

@@ -1,7 +1,7 @@
 """Smoke test for the evaluation harness.
 
 Runs the real agent over the tiny corpus and scores its answer with a
-median-of-3 ``GEval`` from the real judge. It checks that the pieces connect,
+``GEval`` from the real judge. It checks that the pieces connect,
 not the answer quality: the score only has to fall in ``[0, 1]``. The judge
 and the agent model ids print to the log so a run shows what graded what.
 """
@@ -15,7 +15,6 @@ from deepeval.test_case import LLMTestCase, SingleTurnParams
 
 from agrag.agents.settings import AgentLLMSettings
 from agrag.eval.judge import ChatModelJudge
-from agrag.eval.repeat import MedianOfN
 
 
 QUESTION = "Who designed the Lumen-9 lifting arm at Zephyra Robotics?"
@@ -33,25 +32,22 @@ async def test_agent_answer_scores_in_unit_range(
     agent_factory: Callable[[], Any],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A real agent answer gets a median-of-3 GEval score between 0 and 1."""
+    """A real agent answer gets a GEval score between 0 and 1."""
     agent = agent_factory()
     result = await agent.ainvoke({"messages": [{"role": "user", "content": QUESTION}]})
-    metric = MedianOfN(
-        GEval(
-            name="Correctness",
-            criteria=(
-                "Check whether the actual output states the same fact as the "
-                "expected output. Penalize contradictions and missing facts."
-            ),
-            evaluation_params=[
-                SingleTurnParams.INPUT,
-                SingleTurnParams.ACTUAL_OUTPUT,
-                SingleTurnParams.EXPECTED_OUTPUT,
-            ],
-            model=judge,
-            async_mode=False,
+    metric = GEval(
+        name="Correctness",
+        criteria=(
+            "Check whether the actual output states the same fact as the "
+            "expected output. Penalize contradictions and missing facts."
         ),
-        n=3,
+        evaluation_params=[
+            SingleTurnParams.INPUT,
+            SingleTurnParams.ACTUAL_OUTPUT,
+            SingleTurnParams.EXPECTED_OUTPUT,
+        ],
+        model=judge,
+        async_mode=False,
     )
 
     await metric.a_measure(

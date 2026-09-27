@@ -70,6 +70,7 @@ Pushing to `main` with changes under `docs/`, `agrag/`, or `pyproject.toml` buil
 | `make test-eval-verifier` | Score the verifier verdicts on the FinQA-derived set (needs an LLM key) |
 | `make test-eval-resolution` | Score entity resolution on the gold set (needs an LLM key) |
 | `make test-eval-answer` | Score agrag answers on the FinQA fixture (needs Neo4j and an LLM key) |
+| `make test-eval-trajectory` | Score agent trajectories on the tiny corpus (needs Neo4j and an LLM key) |
 | `make lint-all` | Format, lint, and type check |
 | `make lint-check` | Check formatting and lint without modifying files |
 | `make security` | Run Bandit and pip-audit |

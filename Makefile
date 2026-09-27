@@ -1,4 +1,4 @@
-.PHONY: test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
+.PHONY: test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
 export UV_LOCKED = 1
 
@@ -13,6 +13,7 @@ help:
 	@echo "  make test-eval-extraction - Score the extractor on the KPI-EDGAR gold set (requires an LLM key)"
 	@echo "  make test-eval-verifier - Score the verifier verdicts on the FinQA-derived set (requires an LLM key)"
 	@echo "  make test-eval-resolution - Score entity resolution on the gold set (requires an LLM key)"
+	@echo "  make test-eval-trajectory - Score agent trajectories on the tiny corpus (requires Neo4j and an LLM key)"
 	@echo "  make test-all         - Run unit, integration, and e2e tests in order"
 	@echo "  make test-cov-map     - Run all suites with JUnit files and per-test coverage contexts"
 	@echo "  make dev-services-up  - Start local Neo4j/Qdrant/Weaviate/Milvus for integration tests"
@@ -93,6 +94,7 @@ test-eval:
 		--ignore=tests/integration/eval/test_extraction_quality_e2e.py \
 		--ignore=tests/integration/eval/test_verifier_calibration_e2e.py \
 		--ignore=tests/integration/eval/test_resolution_quality_e2e.py \
+		--ignore=tests/integration/eval/test_agent_trajectory_e2e.py \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
 		--junitxml=pytest-eval-results.xml
 
@@ -131,6 +133,15 @@ test-eval-resolution:
 		tests/integration/eval/test_resolution_quality_e2e.py -v \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
 		--junitxml=pytest-eval-resolution-results.xml
+
+# The agent trajectory gate traces 5 real agent runs and judges each one. It
+# runs after merges and weekly, not on every pull request, and writes its
+# scores to reports/eval/agent_trajectory.json.
+test-eval-trajectory:
+	DEEPEVAL_TELEMETRY_OPT_OUT=YES uv run pytest \
+		tests/integration/eval/test_agent_trajectory_e2e.py -v \
+		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
+		--junitxml=pytest-eval-trajectory-results.xml
 
 # Runs every suite in the safe order with one coverage data file, a JUnit file per
 # suite, and per-test coverage contexts. The JSON report maps each line to the

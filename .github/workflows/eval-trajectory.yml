@@ -1,0 +1,60 @@
+name: Eval agent trajectory
+
+# The trajectory gate traces 5 real agent runs and judges each one, so it does
+# not run on pull requests. It runs after a merge that changes the agent, the
+# trajectory eval or its harness, and once a week. It posts to Discord when it
+# fails. The shared job steps live in the shared workflow.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agrag/agents/**"
+      - "agrag/retrieval/**"
+      - "agrag/eval/trajectory.py"
+      - "agrag/eval/adapter.py"
+      - "agrag/eval/judge.py"
+      - "agrag/eval/repeat.py"
+      - "agrag/eval/settings.py"
+      - "agrag/eval/__init__.py"
+      - "tests/integration/eval/conftest.py"
+      - "tests/integration/eval/test_agent_trajectory_e2e.py"
+      - "docker/docker-compose.ci.yml"
+      - "Makefile"
+      - ".github/workflows/eval-trajectory.yml"
+      - ".github/workflows/eval-shared.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  schedule:
+    - cron: "30 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  eval-trajectory:
+    name: Eval agent trajectory
+    uses: $/.github/workflows/eval-shared.yml
+    secrets:
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_MODEL_ID: ${{ secrets.LLM_MODEL_ID }}
+      EVAL_JUDGE_BASE_URL: ${{ secrets.EVAL_JUDGE_BASE_URL }}
+      EVAL_JUDGE_API_KEY: ${{ secrets.EVAL_JUDGE_API_KEY }}
+      EVAL_JUDGE_MODEL_ID: ${{ secrets.EVAL_JUDGE_MODEL_ID }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    with:
+      eval_name: trajectory
+      eval_label: Eval agent trajectory
+      make_target: test-eval-trajectory
+      report_paths: |
+        reports/eval/agent_trajectory.json
+        pytest-eval-trajectory-results.xml
+      timeout_minutes: 30
+      needs_services: true
+      with_judge: true
