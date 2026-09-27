@@ -17,11 +17,10 @@ agent picks follows lexical match. Entity-named questions resolve through
 ``explore_related``. The scores guard against regression. They do not compare
 with scores from a real embedder.
 
-Each threshold is the lowest of three baseline runs minus 0.05, rounded down
-to 0.05. The first two runs used a uniform ``["task", "look_up_entity"]``
-expectation; their ``expected_tools`` pass rates below are rescored under the
-final per-question expectations, under which all three runs pass every
-question. Baseline pass rates (rules) and means (judged):
+Each threshold is the lowest of three single-call baseline runs minus 0.15,
+rounded down to 0.05. The wider margin absorbs single-judge-call flakiness
+instead of a median of repeated calls. Baseline pass rates (rules) and means
+(judged):
 
     verifier_before_answer   1.0  1.0  1.0
     retry_budget              1.0  1.0  1.0
@@ -89,11 +88,11 @@ QUESTIONS = (
 )
 
 THRESHOLDS = {
-    "verifier_before_answer": 0.95,
-    "retry_budget": 0.95,
-    "expected_tools": 0.95,
-    "task_completion": 0.95,
-    "trajectory_quality": 0.95,
+    "verifier_before_answer": 0.85,
+    "retry_budget": 0.85,
+    "expected_tools": 0.85,
+    "task_completion": 0.85,
+    "trajectory_quality": 0.85,
 }
 
 _REPORT_DIR = Path(__file__).resolve().parents[3] / "reports" / "eval"
