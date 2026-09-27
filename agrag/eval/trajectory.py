@@ -312,6 +312,14 @@ class _UserMessage(TypedDict):
     content: str
 
 
+class _ToolResultMessage(TypedDict):
+    """A tool-result message, in agentevals' shape."""
+
+    role: Literal["tool"]
+    tool_call_id: str
+    content: str
+
+
 def _tool_calls_message(tool_steps: list[Step]) -> _ToolCallsMessage:
     """Build one assistant message with a tool call per step, in order."""
     return {
@@ -333,10 +341,19 @@ def _tool_calls_message(tool_steps: list[Step]) -> _ToolCallsMessage:
 
 def _trajectory_messages(
     question: str, trajectory: Trajectory
-) -> list[_UserMessage | _ToolCallsMessage]:
-    """Build the judge's view: the question, then each tool call in order."""
+) -> list[_UserMessage | _ToolCallsMessage | _ToolResultMessage]:
+    """Build the judge's view: the question, each tool call, then its result.
+
+    The judge needs tool outputs, not only names and arguments, to tell
+    whether a repeated call gathered new information.
+    """
     tool_steps = [step for step in trajectory.steps if step.kind == "tool"]
-    return [{"role": "user", "content": question}, _tool_calls_message(tool_steps)]
+    assistant_message = _tool_calls_message(tool_steps)
+    results: list[_ToolResultMessage] = [
+        {"role": "tool", "tool_call_id": call["id"], "content": step.output}
+        for call, step in zip(assistant_message["tool_calls"], tool_steps, strict=True)
+    ]
+    return [{"role": "user", "content": question}, assistant_message, *results]
 
 
 _TRAJECTORY_QUALITY_PROMPT = (

@@ -52,9 +52,11 @@ def _task(subagent_type: str, start: int, end: int) -> Step:
     )
 
 
-def _research_tool(name: str, start: int, end: int) -> Step:
+def _research_tool(name: str, start: int, end: int, *, output: str = "") -> Step:
     """Build a researcher tool step."""
-    return _step("tool", name, start=start, end=end, subagent="researcher")
+    return _step(
+        "tool", name, start=start, end=end, output=output, subagent="researcher"
+    )
 
 
 def _answer(start: int, end: int) -> Step:

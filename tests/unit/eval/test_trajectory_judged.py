@@ -153,6 +153,24 @@ class TestTrajectoryQuality:
             assert prompt.index("task") < prompt.index("search_source_text")
             assert "reference_trajectory" not in prompt
 
+    def test_judge_receives_tool_outputs(self) -> None:
+        """The prompt holds each tool's output, not only its call."""
+        trajectory = Trajectory(
+            steps=[
+                _task("researcher", start=10, end=50),
+                _research_tool(
+                    "search_source_text", start=20, end=30, output="no new results"
+                ),
+            ]
+        )
+        case = trajectory_case("Who founded Zephyra Robotics?", "unknown", trajectory)
+        chat = _ScriptedChatModel()
+        metric = trajectory_quality(ChatModelJudge(chat, "scripted"))
+
+        metric.measure(case)
+
+        assert "no new results" in chat.prompts[0]
+
     def test_bare_number_reply_scores(self) -> None:
         """A judge that answers with a bare number still scores."""
         chat = _ScriptedChatModel(score=0.7, raw=0.7)
