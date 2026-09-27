@@ -6834,6 +6834,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 - [**repeat**](#agrag.eval.repeat) – Repeat a metric and report the median score.
 - [**resolution**](#agrag.eval.resolution) – Resolution quality: B-cubed and pairwise scores of mention clusters.
 - [**settings**](#agrag.eval.settings) – Env-backed configuration for the eval judge model.
+- [**trajectory**](#agrag.eval.trajectory) – Agent trajectory evaluation: read runs, check structure, judge quality.
 - [**verifier**](#agrag.eval.verifier) – Verifier calibration: does the verifier give the right verdict?
 
 **Classes:**
@@ -9071,6 +9072,180 @@ also shows in DeepEval reports.
 - **input** (<code>[str](#str)</code>) – The input text, such as a question or a chunk.
 - **actual** (<code>[BaseModel](#pydantic.BaseModel)</code>) – The system output.
 - **expected** (<code>[BaseModel](#pydantic.BaseModel)</code>) – The gold data.
+
+#### `agrag.eval.trajectory`
+
+Agent trajectory evaluation: read runs, check structure, judge quality.
+
+A trajectory is the ordered tool and model steps of one agent run, read from
+its OpenTelemetry spans (see `agrag.agents.tracing`). Structural rules over
+it are deterministic; task completion and trajectory quality use an LLM judge.
+
+**Classes:**
+
+- [**SpanCapture**](#agrag.eval.trajectory.SpanCapture) – Capture one agent run's spans for `read_trajectory`.
+- [**Step**](#agrag.eval.trajectory.Step) – One tool or model step of an agent run.
+- [**Trajectory**](#agrag.eval.trajectory.Trajectory) – The ordered steps of one agent run.
+
+**Functions:**
+
+- [**read_trajectory**](#agrag.eval.trajectory.read_trajectory) – Read the tool and model steps from finished spans.
+
+##### `agrag.eval.trajectory.SpanCapture`
+
+```python
+SpanCapture() -> None
+```
+
+Capture one agent run's spans for `read_trajectory`.
+
+Use as a context manager around `agent.ainvoke` and read the run with
+`trajectory()` after. Each capture has its own provider and exporter,
+so captures never share spans and the global provider is unchanged.
+
+<details class="example" open markdown="1">
+<summary>Example</summary>
+
+with SpanCapture() as capture:
+agent = build_agent(engine, settings, tracer=capture.tracer)
+result = await agent.ainvoke({"messages": [...]})
+trajectory = capture.trajectory()
+
+</details>
+
+**Functions:**
+
+- [**trajectory**](#agrag.eval.trajectory.SpanCapture.trajectory) – Read the captured spans as a trajectory.
+
+**Attributes:**
+
+- [**tracer**](#agrag.eval.trajectory.SpanCapture.tracer) (<code>[Tracer](#opentelemetry.trace.Tracer)</code>) – The tracer to pass as `tracer=` to `build_agent`.
+
+###### `agrag.eval.trajectory.SpanCapture.tracer`
+
+```python
+tracer: Tracer
+```
+
+The tracer to pass as `tracer=` to `build_agent`.
+
+###### `agrag.eval.trajectory.SpanCapture.trajectory`
+
+```python
+trajectory() -> Trajectory
+```
+
+Read the captured spans as a trajectory.
+
+##### `agrag.eval.trajectory.Step`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One tool or model step of an agent run.
+
+**Attributes:**
+
+- [**kind**](#agrag.eval.trajectory.Step.kind) (<code>[Literal](#typing.Literal)['tool', 'llm']</code>) – `"tool"` for a tool call, `"llm"` for a model call.
+- [**name**](#agrag.eval.trajectory.Step.name) (<code>[str](#str)</code>) – The tool name, or the span name for a model call.
+- [**args**](#agrag.eval.trajectory.Step.args) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – The parsed `input.value` span attribute.
+- [**output**](#agrag.eval.trajectory.Step.output) (<code>[str](#str)</code>) – The step's output text, unwrapped from its tool message.
+- [**span_id**](#agrag.eval.trajectory.Step.span_id) (<code>[str](#str)</code>) – The span id as hex.
+- [**parent_ids**](#agrag.eval.trajectory.Step.parent_ids) (<code>[list](#list)\[[str](#str)\]</code>) – The ancestor span ids, nearest first, as hex.
+- [**started**](#agrag.eval.trajectory.Step.started) (<code>[int](#int)</code>) – Start time in nanoseconds.
+- [**ended**](#agrag.eval.trajectory.Step.ended) (<code>[int](#int)</code>) – End time in nanoseconds.
+- [**subagent**](#agrag.eval.trajectory.Step.subagent) (<code>[str](#str) | None</code>) – The `subagent_type` of the nearest ancestor `task`
+  span, or None for a planner step.
+
+###### `agrag.eval.trajectory.Step.args`
+
+```python
+args: dict[str, Any]
+```
+
+###### `agrag.eval.trajectory.Step.ended`
+
+```python
+ended: int
+```
+
+###### `agrag.eval.trajectory.Step.kind`
+
+```python
+kind: Literal['tool', 'llm']
+```
+
+###### `agrag.eval.trajectory.Step.name`
+
+```python
+name: str
+```
+
+###### `agrag.eval.trajectory.Step.output`
+
+```python
+output: str
+```
+
+###### `agrag.eval.trajectory.Step.parent_ids`
+
+```python
+parent_ids: list[str]
+```
+
+###### `agrag.eval.trajectory.Step.span_id`
+
+```python
+span_id: str
+```
+
+###### `agrag.eval.trajectory.Step.started`
+
+```python
+started: int
+```
+
+###### `agrag.eval.trajectory.Step.subagent`
+
+```python
+subagent: str | None
+```
+
+##### `agrag.eval.trajectory.Trajectory`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The ordered steps of one agent run.
+
+**Attributes:**
+
+- [**steps**](#agrag.eval.trajectory.Trajectory.steps) (<code>[list](#list)\[[Step](#agrag.eval.trajectory.Step)\]</code>) – The run's tool and model steps in start order.
+
+###### `agrag.eval.trajectory.Trajectory.steps`
+
+```python
+steps: list[Step]
+```
+
+##### `agrag.eval.trajectory.read_trajectory`
+
+```python
+read_trajectory(spans:Sequence[ReadableSpan]) -> Trajectory
+```
+
+Read the tool and model steps from finished spans.
+
+Keeps `TOOL` and `LLM` spans, drops `CHAIN` spans, and orders steps
+by start time rather than export order. A step's `subagent` is the
+`subagent_type` of its nearest ancestor `task` span, or None for a
+planner step.
+
+**Parameters:**
+
+- **spans** (<code>[Sequence](#collections.abc.Sequence)\[[ReadableSpan](#opentelemetry.sdk.trace.ReadableSpan)\]</code>) – The finished spans of one traced agent run.
+
+**Returns:**
+
+- <code>[Trajectory](#agrag.eval.trajectory.Trajectory)</code> – The run's trajectory in start order.
 
 #### `agrag.eval.verdict_case`
 
