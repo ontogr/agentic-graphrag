@@ -95,7 +95,7 @@ from agrag.loaders.corpus._walk import _CorpusWalk, _InMemoryWalk
 from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions
 from agrag.loaders.docling.chunking import chunk_docling_document
-from agrag.observability import get_tracer, traced
+from agrag.observability import get_tracer
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 
@@ -1297,12 +1297,19 @@ class Graph:
             The chunks, in document then chunk order.
         """
         chunks: list[Chunk] = []
+        tracer = get_tracer(self._tracer)
         for document in documents:
+            document_chunks: list[Chunk]
             if document.loader_name == "docling":
                 docling_doc = document.metadata.get("_docling_document")
                 if docling_doc is not None:
-                    chunks.extend(
-                        traced(self._tracer)(chunk_docling_document)(
+                    with tracer.start_as_current_span(
+                        "agrag.ingestion.chunk_docling_document",
+                        attributes={
+                            "agrag.document_key": document.resolved_document_key
+                        },
+                    ) as span:
+                        document_chunks = chunk_docling_document(
                             docling_doc,
                             Document.node_id_for(
                                 document_key=document.resolved_document_key
@@ -1311,9 +1318,18 @@ class Graph:
                                 content_hash=document.content_hash
                             ),
                         )
-                    )
+                        span.set_attribute(
+                            "agrag.chunks_produced", len(document_chunks)
+                        )
+                    chunks.extend(document_chunks)
                     continue
-            chunks.extend(traced(self._tracer)(chunk_document)(document, self._chunker))
+            with tracer.start_as_current_span(
+                "agrag.ingestion.chunk_document",
+                attributes={"agrag.document_key": document.resolved_document_key},
+            ) as span:
+                document_chunks = chunk_document(document, self._chunker)
+                span.set_attribute("agrag.chunks_produced", len(document_chunks))
+            chunks.extend(document_chunks)
         return chunks
 
     async def _all_entities_by_label(self, label: str) -> list[Entity]:

@@ -237,7 +237,7 @@ class _SimpleAgent:
             ``ledger``.
         """
         span_context = (
-            self._tracer.start_as_current_span("agent.run")
+            self._tracer.start_as_current_span("agrag.agents.run")
             if self._tracer is not None
             else nullcontext()
         )

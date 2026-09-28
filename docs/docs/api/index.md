@@ -16916,12 +16916,12 @@ OpenTelemetry wiring for the ingestion layer.
 This module imports only `opentelemetry-api`. The SDK and exporters stay in
 the optional `observability` extra and are never imported here; a caller
 wires them before opening a graph. The tracer is constructor-injected, never
-ambient.
+ambient: `get_tracer(None)` returns an explicit no-op tracer instead of
+reaching the global `TracerProvider`.
 
 **Functions:**
 
 - [**get_tracer**](#agrag.observability.get_tracer) – Return a usable tracer.
-- [**traced**](#agrag.observability.traced) – Wrap a call in a span on the given tracer.
 
 #### `agrag.observability.get_tracer`
 
@@ -16933,32 +16933,14 @@ Return a usable tracer.
 
 **Parameters:**
 
-- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A caller-supplied tracer, or `None` to use OpenTelemetry's
-  global no-op tracer.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – A caller-supplied tracer, or `None` for an explicit no-op tracer.
 
 **Returns:**
 
-- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – The supplied tracer, or the global no-op tracer when the caller passed `None`.
-
-#### `agrag.observability.traced`
-
-```python
-traced(tracer:Tracer | None) -> Callable[[Callable], Callable]
-```
-
-Wrap a call in a span on the given tracer.
-
-Use this at each pipeline call site (loader, chunker). It works on both
-sync and async functions; the span name is the wrapped callable's
-qualified name.
-
-**Parameters:**
-
-- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – The tracer to record on, or `None` for a no-op span.
-
-**Returns:**
-
-- <code>[Callable](#typing.Callable)\[\[[Callable](#typing.Callable)\], [Callable](#typing.Callable)\]</code> – A decorator that wraps the target callable in a span.
+- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – The supplied tracer, or an `opentelemetry.trace.NoOpTracer` when the
+- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – caller passed `None`. Never reaches a global `TracerProvider`, so a
+- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – host application's own global SDK configuration never causes agrag to
+- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – emit spans a caller did not explicitly ask for.
 
 ### `agrag.retrieval`
 
