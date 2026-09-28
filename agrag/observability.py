@@ -11,6 +11,17 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode, Tracer
 
 
+# Spellings follow the OpenTelemetry database span conventions. The package
+# that ships these names is not a dependency because every release pins
+# opentelemetry-api to an exact version.
+DB_SYSTEM_NAME = "db.system.name"
+DB_NAMESPACE = "db.namespace"
+DB_QUERY_TEXT = "db.query.text"
+DB_COLLECTION_NAME = "db.collection.name"
+DB_OPERATION_BATCH_SIZE = "db.operation.batch.size"
+DB_QUERY_PARAMETER_PREFIX = "db.query.parameter."
+
+
 def get_tracer(tracer: Tracer | None) -> Tracer:
     """Return a usable tracer.
 
