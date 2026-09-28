@@ -8,6 +8,8 @@ import re
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
+from opentelemetry.trace import Tracer
+
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.query_value import QueryValue
@@ -19,6 +21,8 @@ from agrag.cypher.safety import (
     strip_cypher_syntax,
 )
 from agrag.graphdb.base import GraphStore
+from agrag.llm.retry import NO_RETRY, call_with_retry
+from agrag.observability import get_tracer
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.identity import resolve_entity
 from agrag.retrieval.retrievers.base import Retriever
@@ -427,6 +431,7 @@ class Text2CypherRetriever(Retriever):
         graph_store: GraphStore,
         schema: GraphSchema,
         settings: RetrievalSettings | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Construct a Text2CypherRetriever.
 
@@ -437,10 +442,12 @@ class Text2CypherRetriever(Retriever):
                 graph cannot answer is not generated.
             settings: Retrieval configuration; defaults from
                 environment.
+            tracer: Opens the generation span and the BAML call spans.
         """
         self._graph_store = graph_store
         self._schema = schema
         self._settings = settings or RetrievalSettings()
+        self._tracer = tracer
 
     async def retrieve(  # noqa: PLR0912
         self,
@@ -569,12 +576,23 @@ class Text2CypherRetriever(Retriever):
         """
         from agrag.llm.baml_client import b as baml_client  # noqa: PLC0415
 
-        generated = await baml_client.GenerateCypherQuery(
-            question=question,
-            schema_description=self._schema.to_prompt_description(),
-            failure_context=failure_context,
-            baml_options=_baml_call_options(),
-        )
+        schema_description = self._schema.to_prompt_description()
+        with get_tracer(self._tracer).start_as_current_span(
+            "agrag.retrieval.generate_cypher",
+            attributes={"agrag.is_repair": failure_context is not None},
+        ):
+            generated = await call_with_retry(
+                lambda options: baml_client.GenerateCypherQuery(
+                    question=question,
+                    schema_description=schema_description,
+                    failure_context=failure_context,
+                    baml_options=cast("BamlCallOptions", options),
+                ),
+                NO_RETRY,
+                options=_baml_call_options(),
+                tracer=self._tracer,
+                function="GenerateCypherQuery",
+            )
         return _strip_code_fence(generated)
 
     @staticmethod

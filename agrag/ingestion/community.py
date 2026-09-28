@@ -501,6 +501,7 @@ async def generate_community_reports(  # noqa: PLR0915
                             ),
                             retry,
                             options=baml_options,
+                            tracer=tracer,
                             function="SummarizeCommunities",
                         )
                     else:
@@ -513,6 +514,7 @@ async def generate_community_reports(  # noqa: PLR0915
                                 communities=inputs
                             ),
                             retry,
+                            tracer=tracer,
                             function="SummarizeCommunities",
                         )
                 except Exception as exc:  # noqa: BLE001

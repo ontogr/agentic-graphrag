@@ -176,3 +176,99 @@ class TestRequireTracing:
     def test_passes_when_the_extra_is_installed(self) -> None:
         """No error when the extra is installed."""
         require_tracing()
+
+
+class TestPrivacySwitchIsGone:
+    """No environment variable hides text on an agent LLM span."""
+
+    _HIDE_FLAGS = (
+        "OPENINFERENCE_HIDE_INPUTS",
+        "OPENINFERENCE_HIDE_OUTPUTS",
+        "OPENINFERENCE_HIDE_INPUT_MESSAGES",
+        "OPENINFERENCE_HIDE_OUTPUT_MESSAGES",
+        "OPENINFERENCE_HIDE_MODEL_INVOCATION_PARAMS",
+        "OPENINFERENCE_HIDE_EMBEDDING_VECTORS",
+    )
+
+    def _chat_model(self) -> Any:
+        """Return a chat model answering from a mock transport."""
+        import httpx  # noqa: PLC0415
+        from langchain_openai import ChatOpenAI  # noqa: PLC0415
+
+        def reply(request: httpx.Request) -> httpx.Response:
+            """Answer any chat completion with plain text."""
+            return httpx.Response(
+                200,
+                json={
+                    "id": "x",
+                    "object": "chat.completion",
+                    "created": 0,
+                    "model": "fake",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "the answer"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                },
+            )
+
+        transport = httpx.MockTransport(reply)
+        return ChatOpenAI(
+            model="fake",
+            api_key="x",
+            base_url="http://fake/v1",
+            http_client=httpx.Client(transport=transport),
+            http_async_client=httpx.AsyncClient(transport=transport),
+        )
+
+    async def _llm_span(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+        """Run a real chat-model call through the callback and return its span."""
+        for name in self._HIDE_FLAGS:
+            monkeypatch.setenv(name, "true")
+        provider, exporter = _provider()
+        callback = run_callbacks(provider.get_tracer("t"))
+
+        await self._chat_model().ainvoke(
+            "secret question", config={"callbacks": callback}
+        )
+
+        llm_spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.attributes.get("openinference.span.kind") == "LLM"
+        ]
+        assert len(llm_spans) == 1, f"expected one LLM span, got {len(llm_spans)}"
+        attributes = llm_spans[0].attributes
+        assert attributes is not None
+        return dict(attributes)
+
+    async def test_hide_variables_do_not_redact_input_value(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """input.value keeps the request even with every hide flag set."""
+        attributes = await self._llm_span(monkeypatch)
+
+        assert attributes["input.value"] != "__REDACTED__"
+        assert "secret question" in str(attributes["input.value"])
+
+    async def test_hide_variables_do_not_redact_input_messages(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The first input message keeps its text too."""
+        attributes = await self._llm_span(monkeypatch)
+
+        content = str(attributes["llm.input_messages.0.message.content"])
+        assert content != "__REDACTED__"
+        assert "secret question" in content
+
+    async def test_hide_variables_do_not_redact_output_messages(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The reply text is recorded as well."""
+        attributes = await self._llm_span(monkeypatch)
+
+        content = str(attributes["llm.output_messages.0.message.content"])
+        assert content != "__REDACTED__"
+        assert "the answer" in content

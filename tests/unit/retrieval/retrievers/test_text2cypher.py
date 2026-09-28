@@ -24,6 +24,13 @@ import types
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import StatusCode
+
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.relation import Relation
@@ -412,6 +419,71 @@ class TestText2CypherRetry:
 
         assert results == []
         assert generate.await_count == 2
+
+
+class TestText2CypherTracing:
+    """Generation spans nest the BAML call spans under a tracer."""
+
+    def _provider(self) -> tuple[TracerProvider, InMemorySpanExporter]:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        return provider, exporter
+
+    async def test_failed_generation_marks_call_span_error(self) -> None:
+        """A raising client still returns [] with an ERROR call span."""
+        provider, exporter = self._provider()
+        gs = AsyncMock()
+        retriever = Text2CypherRetriever(
+            graph_store=gs, schema=GENERIC, tracer=provider.get_tracer("test")
+        )
+        generate = AsyncMock(side_effect=RuntimeError("down"))
+
+        with patch(
+            "agrag.llm.baml_client.b",
+            types.SimpleNamespace(GenerateCypherQuery=generate),
+        ):
+            results = await retriever.retrieve("what is X?")
+
+        assert results == []
+        assert generate.await_count == 1
+        call_spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.llm.call"
+        ]
+        assert len(call_spans) == 1
+        assert call_spans[0].status.status_code is StatusCode.ERROR
+        assert (call_spans[0].attributes or {})["agrag.llm.function"] == (
+            "GenerateCypherQuery"
+        )
+
+    async def test_success_marks_repair_flag_on_retry(self) -> None:
+        """First generation is not a repair; the retry after failure is."""
+        provider, exporter = self._provider()
+        gs = AsyncMock()
+        gs.execute_read.side_effect = [
+            Exception("plan failed"),
+            [],
+            [],
+        ]
+        retriever = Text2CypherRetriever(
+            graph_store=gs, schema=GENERIC, tracer=provider.get_tracer("test")
+        )
+        generate = AsyncMock(return_value="MATCH (n:Person) RETURN n")
+
+        with patch(
+            "agrag.llm.baml_client.b",
+            types.SimpleNamespace(GenerateCypherQuery=generate),
+        ):
+            await retriever.retrieve("who is Alice?")
+
+        repair_flags = [
+            (span.attributes or {})["agrag.is_repair"]
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.retrieval.generate_cypher"
+        ]
+        assert repair_flags == [False, True]
 
 
 class TestRetryDiagnostic:

@@ -394,7 +394,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             comparators=[
                 ExactMatch(),
                 FuzzyMatch(),
-                LLMVerify(chunks_by_id=chunks_by_id),
+                LLMVerify(chunks_by_id=chunks_by_id, tracer=tracer),
             ],
             candidate_source=PersistedCandidateSource(candidates_by_index),
             embedder=embedder,
@@ -468,6 +468,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                         mentions=group_mentions,
                         schema=graph_schema,
                         job_id=job_id,
+                        tracer=tracer,
                     )
                 except Exception as exc:  # noqa: BLE001
                     if error_policy is ErrorPolicy.RAISE:
@@ -544,6 +545,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                             schema=graph_schema,
                             members=members,
                             pending_job_id=pending_job_id,
+                            tracer=tracer,
                         )
                     except Exception as exc:  # noqa: BLE001
                         if error_policy is ErrorPolicy.RAISE:

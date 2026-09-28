@@ -25,7 +25,7 @@ from agrag.ingestion.resolve.zone_classifier import (
     select_llm_pairs,
 )
 from agrag.llm.retry import NO_RETRY, call_with_retry
-from agrag.observability import get_tracer
+from agrag.observability import get_tracer, record_swallowed_exception
 
 
 logger = logging.getLogger(__name__)
@@ -187,6 +187,7 @@ class LLMVerify(Comparator):
         settings: ExtractionLLMSettings | None = None,
         client: object | None = None,
         max_pairs_per_batch: int = 50,
+        tracer: Tracer | None = None,
     ) -> None:
         """Create a comparator with chunk lookup for context and an LLM client.
 
@@ -201,6 +202,8 @@ class LLMVerify(Comparator):
                 A large ambiguous population is split into requests of at most
                 this size so one oversized request cannot exceed the model's
                 context limit and silently fail every pair in the batch.
+            tracer: Opens the ``agrag.resolution.llm_verify`` span and the
+                LLM call spans below it.
         """
         if max_pairs_per_batch <= 0:
             raise ValueError("max_pairs_per_batch must be positive")
@@ -209,6 +212,7 @@ class LLMVerify(Comparator):
         self._client = client
         self.max_pairs_per_batch = max_pairs_per_batch
         self.failed_requests: int = 0
+        self._tracer = tracer
 
     async def compare(
         self, a: ExtractedEntity, b: ExtractedEntity
@@ -295,83 +299,101 @@ class LLMVerify(Comparator):
         neighbors_by_index: dict[int, list[str]] | None = None,
     ) -> tuple[dict[tuple[int, int], ComparisonResult], int]:
         """Verify one bounded chunk of ambiguous candidate pairs in one LLM request."""
-        try:
-            if self._client is not None:
-                client = self._client
-                baml_options: dict = {}
-                retry = NO_RETRY
-            else:
-                from agrag.llm import client_registry  # noqa: PLC0415
-
-                client = self._default_client()
-                if self.settings is not None:
-                    settings = self.settings
+        with get_tracer(self._tracer).start_as_current_span(
+            "agrag.resolution.llm_verify",
+            attributes={"agrag.pair_count": len(pairs)},
+        ) as span:
+            try:
+                if self._client is not None:
+                    client = self._client
+                    baml_options: dict = {}
+                    retry = NO_RETRY
                 else:
-                    try:
-                        settings = ExtractionLLMSettings()
-                    except Exception:
-                        try:
-                            settings = (
-                                ExtractionLLMSettings.from_openai_compatible_env()
-                            )
-                        except Exception:
-                            return {
-                                (left, right): ComparisonResult(
-                                    verdict=ComparisonVerdict.NO_MATCH
-                                )
-                                for left, right, _, _ in pairs
-                            }, 0
-                registry = client_registry.build_client_registry(
-                    settings.clients, strategy=settings.strategy
-                )
-                baml_options = {"client_registry": registry}
-                retry = settings.retry
-            pair_ids = [f"{left}:{right}" for left, right, _, _ in pairs]
-            known = similarities or {}
-            inputs = [
-                {
-                    "pair_id": pair_id,
-                    "entity_a": first.text,
-                    "context_a": self._context_for(first),
-                    "neighbors_a": (neighbors_by_index or {}).get(left, []),
-                    "entity_b": second.text,
-                    "context_b": self._context_for(second),
-                    "neighbors_b": (neighbors_by_index or {}).get(right, []),
-                    "similarity": known.get((left, right), 0.0),
-                }
-                for pair_id, (left, right, first, second) in zip(
-                    pair_ids, pairs, strict=True
-                )
-            ]
-            results = await call_with_retry(
-                lambda options: client.VerifyEntityMatches(  # ty: ignore[unresolved-attribute]
-                    inputs, options
-                ),
-                retry,
-                options=baml_options,
-                function="VerifyEntityMatches",
-            )
-        except ExtractorMissingExtraError:
-            raise
-        except Exception:  # noqa: BLE001
-            self.failed_requests += 1
-            return {
-                (left, right): ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)
-                for left, right, _, _ in pairs
-            }, 0
-        from agrag.ingestion.resolve.batch_validation import (  # noqa: PLC0415
-            validate_batch_verdicts,
-        )
+                    from agrag.llm import client_registry  # noqa: PLC0415
 
-        verdicts = validate_batch_verdicts(pair_ids, results)
-        uncertain = sum(
-            verdict.verdict is ComparisonVerdict.UNCERTAIN
-            for verdict in verdicts.values()
-        )
-        return {
-            (left, right): _final_llm_result(verdicts[pair_id])
-            for pair_id, (left, right, _, _) in zip(pair_ids, pairs, strict=True)
-        }, uncertain
+                    client = self._default_client()
+                    if self.settings is not None:
+                        settings = self.settings
+                    else:
+                        try:
+                            settings = ExtractionLLMSettings()
+                        except Exception:
+                            try:
+                                settings = (
+                                    ExtractionLLMSettings.from_openai_compatible_env()
+                                )
+                            except Exception:
+                                span.set_attribute("agrag.request_failed", True)
+                                return {
+                                    (left, right): ComparisonResult(
+                                        verdict=ComparisonVerdict.NO_MATCH
+                                    )
+                                    for left, right, _, _ in pairs
+                                }, 0
+                    registry = client_registry.build_client_registry(
+                        settings.clients, strategy=settings.strategy
+                    )
+                    baml_options = {"client_registry": registry}
+                    retry = settings.retry
+                pair_ids = [f"{left}:{right}" for left, right, _, _ in pairs]
+                known = similarities or {}
+                inputs = [
+                    {
+                        "pair_id": pair_id,
+                        "entity_a": first.text,
+                        "context_a": self._context_for(first),
+                        "neighbors_a": (neighbors_by_index or {}).get(left, []),
+                        "entity_b": second.text,
+                        "context_b": self._context_for(second),
+                        "neighbors_b": (neighbors_by_index or {}).get(right, []),
+                        "similarity": known.get((left, right), 0.0),
+                    }
+                    for pair_id, (left, right, first, second) in zip(
+                        pair_ids, pairs, strict=True
+                    )
+                ]
+                results = await call_with_retry(
+                    lambda options: client.VerifyEntityMatches(  # ty: ignore[unresolved-attribute]
+                        inputs, options
+                    ),
+                    retry,
+                    options=baml_options,
+                    tracer=self._tracer,
+                    function="VerifyEntityMatches",
+                )
+            except ExtractorMissingExtraError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                record_swallowed_exception(exc)
+                span.set_attribute("agrag.request_failed", True)
+                self.failed_requests += 1
+                return {
+                    (left, right): ComparisonResult(verdict=ComparisonVerdict.NO_MATCH)
+                    for left, right, _, _ in pairs
+                }, 0
+            from agrag.ingestion.resolve.batch_validation import (  # noqa: PLC0415
+                validate_batch_verdicts,
+            )
+
+            verdicts = validate_batch_verdicts(pair_ids, results)
+            uncertain = sum(
+                verdict.verdict is ComparisonVerdict.UNCERTAIN
+                for verdict in verdicts.values()
+            )
+            final = {
+                (left, right): _final_llm_result(verdicts[pair_id])
+                for pair_id, (left, right, _, _) in zip(pair_ids, pairs, strict=True)
+            }
+            span.set_attribute(
+                "agrag.match_count",
+                sum(
+                    result.verdict is ComparisonVerdict.MATCH
+                    for result in final.values()
+                ),
+            )
+            span.set_attribute("agrag.uncertain_count", uncertain)
+            span.set_attribute("agrag.request_failed", False)
+            return final, uncertain
 
     def _default_client(self) -> object:
         """Return the default generated BAML client."""

@@ -16,6 +16,12 @@ from unittest.mock import AsyncMock, patch
 from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import StatusCode
 from pydantic import ValidationError
 
 from agrag.common.data_models.entity import Entity
@@ -474,6 +480,85 @@ class TestResolveDescription:
         assert conflicted is True
         assert isinstance(failure, StageFailure)
         assert failure.error_type == "ImportError"
+
+
+class TestResolveDescriptionSpans:
+    """resolve_description opens a span only for multiple distinct candidates."""
+
+    def _tracer(self, exporter: InMemorySpanExporter):
+        """Build a tracer writing finished spans to exporter."""
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        return provider.get_tracer("test")
+
+    async def test_failing_client_links_failure_to_error_span(self) -> None:
+        """The fallback join carries a StageFailure pointing at the ERROR span."""
+
+        class FailingClient:
+            async def SummarizeDescriptions(self, *args, **kwargs):  # noqa: N802
+                raise RuntimeError("boom")
+
+        exporter = InMemorySpanExporter()
+        value, conflicted, failure = await resolve_description(
+            ["d1", "d2"],
+            client=FailingClient(),
+            tracer=self._tracer(exporter),
+        )
+
+        assert value == "d1 | d2"
+        assert conflicted is True
+        assert isinstance(failure, StageFailure)
+        (span,) = [
+            finished
+            for finished in exporter.get_finished_spans()
+            if finished.name == "agrag.merge.resolve_description"
+        ]
+        assert (span.attributes or {})["agrag.description_count"] == 2
+        assert (span.attributes or {})["agrag.summarized"] is False
+        assert span.status.status_code is StatusCode.ERROR
+        assert failure.span_id == format(span.context.span_id, "016x")
+        assert failure.trace_id == format(span.context.trace_id, "032x")
+
+    async def test_single_candidate_opens_no_span(self) -> None:
+        """One distinct candidate returns without opening the span."""
+        exporter = InMemorySpanExporter()
+        value, conflicted, failure = await resolve_description(
+            ["only one"], client=AsyncMock(), tracer=self._tracer(exporter)
+        )
+
+        assert value == "only one"
+        assert conflicted is False
+        assert failure is None
+        assert [
+            finished
+            for finished in exporter.get_finished_spans()
+            if finished.name == "agrag.merge.resolve_description"
+        ] == []
+
+    async def test_success_marks_summarized(self) -> None:
+        """A client summary marks the span summarized."""
+
+        class MockClient:
+            async def SummarizeDescriptions(  # noqa: N802
+                self, descriptions, baml_options
+            ):
+                return "summarized"
+
+        exporter = InMemorySpanExporter()
+        value, conflicted, failure = await resolve_description(
+            ["d1", "d2"], client=MockClient(), tracer=self._tracer(exporter)
+        )
+
+        assert value == "summarized"
+        assert conflicted is True
+        assert failure is None
+        (span,) = [
+            finished
+            for finished in exporter.get_finished_spans()
+            if finished.name == "agrag.merge.resolve_description"
+        ]
+        assert (span.attributes or {})["agrag.description_count"] == 2
+        assert (span.attributes or {})["agrag.summarized"] is True
 
 
 class TestMergeProperties:

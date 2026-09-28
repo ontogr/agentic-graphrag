@@ -12,7 +12,12 @@ import json
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import SpanContext, get_tracer_provider
 
-from agrag.eval.trajectory import SpanCapture, read_trajectory
+from agrag.eval.trajectory import (
+    SpanCapture,
+    read_trajectory,
+    trajectory_case,
+    verifier_before_answer_metric,
+)
 
 
 _TRACE_ID = 0x9F86D081884C7D65
@@ -215,3 +220,69 @@ class TestSpanCapture:
             pass
 
         assert [step.name for step in first.trajectory().steps] == ["first_tool"]
+
+
+class TestNonAgentSpansAreExcluded:
+    """Spans agrag opens, and judge calls, never read as planner steps."""
+
+    def test_agrag_spans_are_never_steps(self) -> None:
+        """A BAML request span is not a model step, whatever its kind says."""
+        request = _span(
+            "agrag.llm.request",
+            "LLM",
+            input_value='{"messages": []}',
+            start=10,
+            end=20,
+        )
+
+        assert read_trajectory([request]).steps == []
+
+    def test_an_llm_span_under_a_judge_is_not_a_step(self) -> None:
+        """A judge call sharing the capture never reads as the planner."""
+        judge = _span("agrag.eval.judge", start=80, end=100)
+        judge_llm = _span(
+            "ChatOpenAI",
+            "LLM",
+            input_value='{"messages": []}',
+            parent=judge,
+            start=85,
+            end=95,
+        )
+
+        assert read_trajectory([judge, judge_llm]).steps == []
+
+    def test_a_judge_llm_span_does_not_outdate_the_answer(self) -> None:
+        """A late judge call does not make a correct trajectory look wrong."""
+        verifier = _task("verifier", start=10, end=20)
+        answer = _span("ChatOpenAI", "LLM", start=60, end=70)
+        judge = _span("agrag.eval.judge", start=80, end=100)
+        judge_llm = _span("ChatOpenAI", "LLM", parent=judge, start=85, end=95)
+
+        trajectory = read_trajectory([verifier, answer, judge, judge_llm])
+
+        assert [step.name for step in trajectory.steps] == ["task", "ChatOpenAI"]
+        case = trajectory_case("q", "a", trajectory)
+        score = verifier_before_answer_metric().measure(case)
+        assert score == 1.0
+
+    def test_a_baml_request_span_does_not_outdate_the_answer(self) -> None:
+        """A late BAML call does not make a correct trajectory look wrong."""
+        verifier = _task("verifier", start=10, end=20)
+        answer = _span("ChatOpenAI", "LLM", start=60, end=70)
+        request = _span("agrag.llm.request", "LLM", input_value="{}", start=85, end=95)
+
+        trajectory = read_trajectory([verifier, answer, request])
+
+        case = trajectory_case("q", "a", trajectory)
+        score = verifier_before_answer_metric().measure(case)
+        assert score == 1.0
+
+    def test_a_late_planner_answer_still_fails(self) -> None:
+        """The exclusion does not weaken the rule it protects."""
+        verifier = _task("verifier", start=65, end=80)
+        answer = _span("ChatOpenAI", "LLM", start=60, end=70)
+
+        trajectory = read_trajectory([verifier, answer])
+        case = trajectory_case("q", "a", trajectory)
+
+        assert verifier_before_answer_metric().measure(case) == 0.0

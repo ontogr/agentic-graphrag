@@ -107,11 +107,46 @@ tracer = provider.get_tracer("my-app")
 
 Pass this `tracer` to `build_agent` as in the previous section. Call `provider.shutdown()` before your program exits, so the processor sends the last spans.
 
-## Hide question and evidence text
+## Spans always hold full text
 
-By default, spans hold the question, the tool inputs, and the evidence text. To remove them, set these environment variables before the agent runs:
+Spans hold the question, the tool inputs, and the evidence text. There is no option to hide them on the agent path. To record less, redact in the exporter with a `SpanProcessor` that scrubs span attributes before export, or run without a tracer.
 
-```bash
-export OPENINFERENCE_HIDE_INPUTS=true
-export OPENINFERENCE_HIDE_OUTPUTS=true
+## Trace the rest of the library with the same tracer
+
+The same tracer traces every other component that calls an LLM, so one run of an ingestion or retrieval pipeline produces a single connected trace. Pass it wherever a component takes `tracer=`:
+
+```python
+from agrag.agents.model import build_chat_model
+from agrag.eval.judge import ChatModelJudge
+from agrag.ingestion.extract import BAMLExtractor, EscalatingExtractor, ExtractionLLMSettings
+from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
+
+# Extraction
+extractor = BAMLExtractor(
+    settings=ExtractionLLMSettings.from_openai_compatible_env(), tracer=tracer
+)
+
+# An escalating extractor traces its own decision as well
+escalating = EscalatingExtractor(
+    primary=GlinerExtractor(tracer=tracer),
+    escalate_to=extractor,
+    tracer=tracer,
+)
+
+# Resolution, when you build the comparator yourself
+from agrag.ingestion.resolve.resolver import LLMVerify
+
+verifier = LLMVerify(chunks_by_id=chunks_by_id, tracer=tracer)
+
+# Text2cypher
+retriever = Text2CypherRetriever(
+    graph_store=graph_store, schema=schema, tracer=tracer
+)
+
+# The eval judge
+judge = ChatModelJudge(chat_model, "gpt-4o-mini", tracer=tracer)
 ```
+
+`Graph` passes its own tracer down to the resolution and merge steps it runs, and community report generation reads the same tracer, so a `Graph.open(...)` or `Graph.add(...)` built with a tracer needs nothing extra.
+
+The span names and attributes these components emit are listed in [Trace Spans](../reference/trace-spans.mdx).

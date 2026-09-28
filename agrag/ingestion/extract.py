@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Literal
 
 from dotenv import load_dotenv
+from opentelemetry.trace import Tracer
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -19,6 +20,7 @@ from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
 from agrag.llm.retry import NO_RETRY, call_with_retry
 from agrag.loaders.corpus.errors import IngestionError
+from agrag.observability import get_tracer
 
 
 def _resolve_span(
@@ -323,6 +325,7 @@ class GlinerExtractor(Extractor):
         *,
         model_name: str = "fastino/gliner2.5-small-v1",
         model: object | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Create an extractor with a model name or an already-built model.
 
@@ -330,9 +333,13 @@ class GlinerExtractor(Extractor):
             model_name: The checkpoint to load if ``model`` is not given.
             model: An already-built GLiNER2.5 model. Tests inject a fake here
                 to avoid a real model download.
+            tracer: Opens ``agrag.extraction.gliner`` and
+                ``agrag.extraction.model_load`` spans. ``None`` opens no
+                recorded span.
         """
         self.model_name = model_name
         self._model = model
+        self._tracer = tracer
         self._load_task: asyncio.Task[object] | None = None
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
@@ -345,15 +352,24 @@ class GlinerExtractor(Extractor):
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
-        model = await self._load_model()
-        gliner_schema = self._build_schema(model, schema)
-        raw = await asyncio.to_thread(
-            model.extract,  # ty: ignore[unresolved-attribute]
-            chunk.text,
-            gliner_schema,
-            include_spans=True,
-        )
-        return _normalize_extraction_result(self._to_result(raw, chunk, schema), schema)
+        with get_tracer(self._tracer).start_as_current_span(
+            "agrag.extraction.gliner",
+            attributes={"agrag.chunk_id": str(chunk.id)},
+        ) as span:
+            model = await self._load_model()
+            gliner_schema = self._build_schema(model, schema)
+            raw = await asyncio.to_thread(
+                model.extract,  # ty: ignore[unresolved-attribute]
+                chunk.text,
+                gliner_schema,
+                include_spans=True,
+            )
+            result = _normalize_extraction_result(
+                self._to_result(raw, chunk, schema), schema
+            )
+            span.set_attribute("agrag.entities_extracted", len(result.entities))
+            span.set_attribute("agrag.relations_extracted", len(result.relations))
+            return result
 
     async def _load_model(self) -> object:
         """Return the cached model, loading it once even under concurrent calls.
@@ -397,7 +413,11 @@ class GlinerExtractor(Extractor):
             from gliner2 import AutoExtractor  # noqa: PLC0415
         except ImportError as exc:
             raise ExtractorMissingExtraError("GlinerExtractor", "extract") from exc
-        self._model = AutoExtractor.from_pretrained(self.model_name)
+        with get_tracer(self._tracer).start_as_current_span(
+            "agrag.extraction.model_load",
+            attributes={"agrag.model": self.model_name},
+        ):
+            self._model = AutoExtractor.from_pretrained(self.model_name)
         return self._model
 
     def _build_schema(self, model: object, schema: GraphSchema) -> object:
@@ -535,6 +555,7 @@ class BAMLExtractor(Extractor):
         *,
         settings: "ExtractionLLMSettings | None" = None,
         client: object | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Create an extractor from settings or an already-built BAML client.
 
@@ -546,9 +567,12 @@ class BAMLExtractor(Extractor):
                 own retry behavior too.
             client: An already-built BAML client object exposing
                 ``ExtractEntitiesAndRelations``. Tests inject a fake here.
+            tracer: Opens ``agrag.extraction.baml`` and the nested
+                ``agrag.llm.call`` spans. ``None`` opens no recorded span.
         """
         self.settings = settings
         self._client = client
+        self._tracer = tracer
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
         """Extract with an LLM call through the configured ClientRegistry.
@@ -560,36 +584,48 @@ class BAMLExtractor(Extractor):
         """
         if chunk.id is None:
             raise ValueError("Chunk must have an id for extraction.")
-        if self._client is not None:
-            client = self._client
-            baml_options: dict = {}
-            retry = NO_RETRY
-        else:
-            from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
+        with get_tracer(self._tracer).start_as_current_span(
+            "agrag.extraction.baml",
+            attributes={"agrag.chunk_id": str(chunk.id)},
+        ) as span:
+            if self._client is not None:
+                client = self._client
+                baml_options: dict = {}
+                retry = NO_RETRY
+            else:
+                from agrag.llm.client_registry import (  # noqa: PLC0415
+                    build_client_registry,
+                )
 
-            client = self._default_client()
-            settings = self.settings or ExtractionLLMSettings()
-            registry = build_client_registry(
-                settings.clients, strategy=settings.strategy
+                client = self._default_client()
+                settings = self.settings or ExtractionLLMSettings()
+                registry = build_client_registry(
+                    settings.clients, strategy=settings.strategy
+                )
+                baml_options = {"client_registry": registry}
+                retry = settings.retry
+            type_builder = self._type_builder_for(schema)
+            call_options: dict = {**baml_options}
+            if type_builder is not None:
+                call_options["tb"] = type_builder
+            # ponytail: retries every exception except the BAML error types
+            # call_with_retry recognizes as permanently unretryable (an invalid
+            # argument or a non-429 4xx); narrow further if that proves noisy.
+            raw = await call_with_retry(
+                lambda options: client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
+                    chunk.text, options
+                ),
+                retry,
+                options=call_options,
+                tracer=self._tracer,
+                function="ExtractEntitiesAndRelations",
             )
-            baml_options = {"client_registry": registry}
-            retry = settings.retry
-        type_builder = self._type_builder_for(schema)
-        call_options: dict = {**baml_options}
-        if type_builder is not None:
-            call_options["tb"] = type_builder
-        # ponytail: retries every exception except the BAML error types
-        # call_with_retry recognizes as permanently unretryable (an invalid
-        # argument or a non-429 4xx); narrow further if that proves noisy.
-        raw = await call_with_retry(
-            lambda options: client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
-                chunk.text, options
-            ),
-            retry,
-            options=call_options,
-            function="ExtractEntitiesAndRelations",
-        )
-        return _normalize_extraction_result(self._to_result(raw, chunk, schema), schema)
+            result = _normalize_extraction_result(
+                self._to_result(raw, chunk, schema), schema
+            )
+            span.set_attribute("agrag.entities_extracted", len(result.entities))
+            span.set_attribute("agrag.relations_extracted", len(result.relations))
+            return result
 
     def _default_client(self) -> object:
         """Return the default generated BAML client."""
@@ -730,6 +766,7 @@ class EscalatingExtractor(Extractor):
         *,
         min_confidence: float = 0.5,
         min_chunk_words: int = 8,
+        tracer: Tracer | None = None,
     ) -> None:
         """Create an extractor that escalates from a primary to a stronger one.
 
@@ -743,11 +780,14 @@ class EscalatingExtractor(Extractor):
                 falls below this, among entities that report a confidence.
             min_chunk_words: Below this word count, a zero-entity result from
                 the primary is treated as plausibly correct, not a miss.
+            tracer: Opens the ``agrag.extraction.escalating`` span. ``None``
+                opens no recorded span.
         """
         self.primary = primary
         self.escalate_to = escalate_to
         self.min_confidence = min_confidence
         self.min_chunk_words = min_chunk_words
+        self._tracer = tracer
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
         """Extract with the primary extractor, escalating when it's weak.
@@ -755,10 +795,16 @@ class EscalatingExtractor(Extractor):
         Returns escalate_to's result outright when escalation triggers, never
         a combination of both extractors' results.
         """
-        result = await self.primary.extract(chunk, schema)
-        if self._should_escalate(result, chunk):
-            return await self.escalate_to.extract(chunk, schema)
-        return result
+        with get_tracer(self._tracer).start_as_current_span(
+            "agrag.extraction.escalating",
+            attributes={"agrag.chunk_id": str(chunk.id)},
+        ) as span:
+            result = await self.primary.extract(chunk, schema)
+            escalate = self._should_escalate(result, chunk)
+            span.set_attribute("agrag.escalated", escalate)
+            if escalate:
+                return await self.escalate_to.extract(chunk, schema)
+            return result
 
     def _should_escalate(self, result: ExtractionResult, chunk: Chunk) -> bool:
         """Return whether result is weak enough to escalate.

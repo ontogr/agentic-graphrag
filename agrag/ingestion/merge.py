@@ -13,6 +13,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, cast
 from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
+from opentelemetry.trace import Tracer
 from pydantic import BaseModel
 
 from agrag.common.data_models.entity import Entity
@@ -20,7 +21,7 @@ from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.text import normalize_text
-from agrag.observability import record_stage_failure
+from agrag.observability import get_tracer, record_stage_failure
 
 
 if TYPE_CHECKING:
@@ -183,6 +184,7 @@ async def resolve_description(
     *,
     settings: Any | None = None,
     client: Any | None = None,
+    tracer: Tracer | None = None,
 ) -> tuple[object, bool, Any | None]:
     """Resolve a description field, trying LLM summarization.
 
@@ -193,6 +195,8 @@ async def resolve_description(
         candidates: Candidate values in encounter order.
         settings: LLM settings for summarization. None uses defaults.
         client: An already-built BAML client for tests.
+        tracer: Opens the ``agrag.merge.resolve_description`` span and the
+            LLM call spans below it.
 
     Returns:
         The resolved value, whether it conflicted, and an optional failure.
@@ -201,52 +205,61 @@ async def resolve_description(
     if len(distinct) <= 1:
         return (distinct[0] if distinct else None), False, None
 
-    # Try LLM summarization.
-    try:
-        from agrag.ingestion.extract import ExtractionLLMSettings  # noqa: PLC0415
-        from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
-        from agrag.llm.retry import NO_RETRY, call_with_retry  # noqa: PLC0415
+    with get_tracer(tracer).start_as_current_span(
+        "agrag.merge.resolve_description",
+        attributes={"agrag.description_count": len(distinct)},
+    ) as span:
+        # Try LLM summarization.
+        try:
+            from agrag.ingestion.extract import ExtractionLLMSettings  # noqa: PLC0415
+            from agrag.llm.client_registry import build_client_registry  # noqa: PLC0415
+            from agrag.llm.retry import NO_RETRY, call_with_retry  # noqa: PLC0415
 
-        baml_options: BamlCallOptions = {}
-        if client is not None:
-            retry = NO_RETRY
-            active_client = client
-        else:
-            active_settings = settings or ExtractionLLMSettings()  # type: ignore[call-arg]
-            registry = build_client_registry(
-                active_settings.clients, strategy=active_settings.strategy
+            baml_options: BamlCallOptions = {}
+            if client is not None:
+                retry = NO_RETRY
+                active_client = client
+            else:
+                active_settings = settings or ExtractionLLMSettings()  # type: ignore[call-arg]
+                registry = build_client_registry(
+                    active_settings.clients, strategy=active_settings.strategy
+                )
+                baml_options["client_registry"] = cast("ClientRegistry", registry)
+                retry_obj = active_settings.retry
+                try:
+                    from agrag.llm.baml_client import (  # noqa: PLC0415
+                        b as default_client,
+                    )
+                except ImportError as exc:
+                    raise ImportError("llm extra not installed") from exc
+                active_client = default_client
+                retry = retry_obj if retry_obj is not None else NO_RETRY
+
+            descriptions = [str(candidate) for candidate in distinct]
+            result = await call_with_retry(
+                lambda options: active_client.SummarizeDescriptions(
+                    descriptions=descriptions,
+                    baml_options=cast("BamlCallOptions", options),
+                ),
+                retry,  # type: ignore[misc]
+                options=baml_options,
+                tracer=tracer,
+                function="SummarizeDescriptions",
             )
-            baml_options["client_registry"] = cast("ClientRegistry", registry)
-            retry_obj = active_settings.retry
-            try:
-                from agrag.llm.baml_client import b as default_client  # noqa: PLC0415
-            except ImportError as exc:
-                raise ImportError("llm extra not installed") from exc
-            active_client = default_client
-            retry = retry_obj if retry_obj is not None else NO_RETRY
-
-        descriptions = [str(candidate) for candidate in distinct]
-        result = await call_with_retry(
-            lambda options: active_client.SummarizeDescriptions(
-                descriptions=descriptions,
-                baml_options=cast("BamlCallOptions", options),
-            ),
-            retry,  # type: ignore[misc]
-            options=baml_options,
-            function="SummarizeDescriptions",
-        )
-        return result, True, None
-    except Exception as exc:  # noqa: BLE001
-        fallback = " | ".join(str(v) for v in distinct)
-        trace_id, span_id = record_stage_failure(exc)
-        failure = StageFailure(
-            item_id="description",
-            error_type=type(exc).__name__,
-            error_message=str(exc),
-            trace_id=trace_id,
-            span_id=span_id,
-        )
-        return fallback, True, failure
+            span.set_attribute("agrag.summarized", True)
+            return result, True, None
+        except Exception as exc:  # noqa: BLE001
+            fallback = " | ".join(str(v) for v in distinct)
+            trace_id, span_id = record_stage_failure(exc)
+            span.set_attribute("agrag.summarized", False)
+            failure = StageFailure(
+                item_id="description",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                trace_id=trace_id,
+                span_id=span_id,
+            )
+            return fallback, True, failure
 
 
 async def merge_properties(
@@ -255,6 +268,7 @@ async def merge_properties(
     *,
     description_settings: Any | None = None,
     description_client: Any | None = None,
+    tracer: Tracer | None = None,
 ) -> tuple[dict[str, object], list[ConflictRecord], list[Any]]:
     """Return field-resolved properties and records of every real conflict.
 
@@ -263,6 +277,7 @@ async def merge_properties(
         rules: The per-property rule table.
         description_settings: LLM settings for description summarization.
         description_client: Injected LLM client for tests.
+        tracer: Passed to description summarization.
 
     Returns:
         The resolved properties, conflict records, and optional stage failures.
@@ -282,6 +297,7 @@ async def merge_properties(
                 candidates,
                 settings=description_settings,
                 client=description_client,
+                tracer=tracer,
             )
             resolved[field_name] = value  # type: ignore[assignment]
             if conflicted:
@@ -334,6 +350,7 @@ async def compute_merge(  # noqa: PLR0912
     description_settings: Any | None = None,
     description_client: Any | None = None,
     job_id: UUID | str | None = None,
+    tracer: Tracer | None = None,
 ) -> tuple[MergePlan, list[Any]]:
     """Compute how existing_entities and mentions combine into one Entity.
 
@@ -355,6 +372,7 @@ async def compute_merge(  # noqa: PLR0912
             derives its id from (job_id, merge_key) instead of uuid4, so
             replaying the job after a crash reproduces the same id. None
             keeps today's random-id behavior for callers outside a job.
+        tracer: Passed to description summarization.
 
     Returns:
         The computed MergePlan and any description-LLM failures.
@@ -403,6 +421,7 @@ async def compute_merge(  # noqa: PLR0912
         rules,
         description_settings=description_settings,
         description_client=description_client,
+        tracer=tracer,
     )
     name = resolved_fields.pop("name")
     properties = resolved_fields
