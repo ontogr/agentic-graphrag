@@ -24,6 +24,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from opentelemetry.trace import StatusCode
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.loaders.corpus import registry
 from agrag.loaders.corpus._walk import _CorpusWalk, _InMemoryWalk
 from agrag.loaders.corpus.base import Loader
@@ -526,3 +527,63 @@ class TestCorpusWalkTracing:
             span.status.status_code == StatusCode.ERROR
             for span in exporter.get_finished_spans()
         )
+
+
+class TestCorpusWalkQuarantineCorrelation:
+    """Quarantined sources carry the failing load span's ids, when one exists."""
+
+    async def test_mid_source_failure_carries_its_span_ids(
+        self, tmp_path: Path
+    ) -> None:
+        """A source failing mid-iteration quarantines with its span's ids."""
+        path = tmp_path / "bad.txt"
+        path.write_text("x")
+        provider, exporter = _tracing_provider()
+        walk = _CorpusWalk(
+            [path],
+            registry=registry,
+            opts=ReadOptions(),
+            error_policy=ErrorPolicy.QUARANTINE,
+            loader=_PartiallyRaisingLoader(),
+            tracer=provider.get_tracer("test"),
+        )
+        final_stats = None
+        async for _batch, _cursor, stats in walk.iter_batches():
+            final_stats = stats
+        assert final_stats is not None
+        assert final_stats.quarantined == 1
+        (failure,) = final_stats.quarantined_items
+        assert isinstance(failure, StageFailure)
+        assert failure.trace_id is not None
+        assert failure.span_id is not None
+        error_spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.status.status_code == StatusCode.ERROR
+        ]
+        assert len(error_spans) == 1
+        assert failure.trace_id == format(error_spans[0].context.trace_id, "032x")
+        assert failure.span_id == format(error_spans[0].context.span_id, "016x")
+
+    async def test_registry_lookup_failure_carries_no_ids(self, tmp_path: Path) -> None:
+        """A source with no loader quarantines with (None, None) ids."""
+        path = tmp_path / "file.unknown"
+        path.write_text("x")
+        provider, exporter = _tracing_provider()
+        walk = _CorpusWalk(
+            [path],
+            registry=registry,
+            opts=ReadOptions(),
+            error_policy=ErrorPolicy.QUARANTINE,
+            tracer=provider.get_tracer("test"),
+        )
+        final_stats = None
+        async for _batch, _cursor, stats in walk.iter_batches():
+            final_stats = stats
+        assert final_stats is not None
+        assert final_stats.quarantined == 1
+        (failure,) = final_stats.quarantined_items
+        assert isinstance(failure, StageFailure)
+        assert failure.trace_id is None
+        assert failure.span_id is None
+        assert list(exporter.get_finished_spans()) == []

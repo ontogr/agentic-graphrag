@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
+from opentelemetry.trace import Tracer
 from pydantic import BaseModel
 
 from agrag.common.data_models.chunk import Chunk
@@ -24,6 +25,7 @@ from agrag.ingestion.resolve.zone_classifier import (
     select_llm_pairs,
 )
 from agrag.llm.retry import NO_RETRY, call_with_retry
+from agrag.observability import get_tracer
 
 
 logger = logging.getLogger(__name__)
@@ -474,6 +476,7 @@ class Resolver:
         discard_threshold: float = DISCARD_THRESHOLD,
         max_llm_pairs: int = MAX_LLM_PAIRS,
         llm_batch_size: int = 10,
+        tracer: Tracer | None = None,
     ) -> None:
         """Create a zone-routed resolver from comparators and a candidate source.
 
@@ -494,6 +497,7 @@ class Resolver:
                 label.
             llm_batch_size: Pairs per LLM request. Must fit the
                 LLMVerify comparator's max_pairs_per_batch.
+            tracer: Opens this resolver's spans.
 
         Raises:
             ValueError: llm_batch_size is not positive, or exceeds the
@@ -508,6 +512,7 @@ class Resolver:
         self.discard_threshold = discard_threshold
         self.max_llm_pairs = max_llm_pairs
         self.llm_batch_size = llm_batch_size
+        self._tracer = get_tracer(tracer)
         self._exact = next(
             (c for c in comparators if isinstance(c, ExactMatch)), ExactMatch()
         )
@@ -550,38 +555,51 @@ class Resolver:
             non-exact pair, the count of uncertain LLM verdicts, and the
             counts of failed LLM requests and cap-truncated pairs.
         """
-        pairs: list[tuple[int, int]] = []
-        compared: set[tuple[int, int]] = set()
-        for index in range(len(entities)):
-            candidates = await self.candidate_source.candidates_for(index, entities)
-            for candidate_index in candidates:
-                pair = (min(index, candidate_index), max(index, candidate_index))
-                if pair in compared:
-                    continue
-                compared.add(pair)
-                pairs.append(pair)
-        edges, matches, ambiguous_count, failed, truncated = await self._resolve_pairs(
-            pairs, entities, neighbors_by_index or {}, similarity_by_pair or {}
-        )
-        groups = _group_matches(len(entities), edges)
-        result = ResolutionResult(
-            groups=[ResolutionGroup(entity_indices=group) for group in groups],
-            matches=matches,
-            ambiguous_count=ambiguous_count,
-            failed_llm_requests=failed,
-            cap_truncated_pairs=truncated,
-        )
-        if result.failed_llm_requests:
-            logger.warning(
-                "Resolution mapped %d failed LLM requests to no-match",
-                result.failed_llm_requests,
+        with self._tracer.start_as_current_span(
+            "agrag.resolution.resolve", attributes={"agrag.entity_count": len(entities)}
+        ) as span:
+            pairs: list[tuple[int, int]] = []
+            compared: set[tuple[int, int]] = set()
+            for index in range(len(entities)):
+                candidates = await self.candidate_source.candidates_for(index, entities)
+                for candidate_index in candidates:
+                    pair = (min(index, candidate_index), max(index, candidate_index))
+                    if pair in compared:
+                        continue
+                    compared.add(pair)
+                    pairs.append(pair)
+            (
+                edges,
+                matches,
+                ambiguous_count,
+                failed,
+                truncated,
+            ) = await self._resolve_pairs(
+                pairs, entities, neighbors_by_index or {}, similarity_by_pair or {}
             )
-        if result.cap_truncated_pairs:
-            logger.warning(
-                "Resolution dropped %d boundary pairs at the LLM cap",
-                result.cap_truncated_pairs,
+            span.set_attribute("agrag.pair_count", len(pairs))
+            span.set_attribute("agrag.ambiguous_count", ambiguous_count)
+            span.set_attribute("agrag.failed_llm_requests", failed)
+            span.set_attribute("agrag.cap_truncated_pairs", truncated)
+            groups = _group_matches(len(entities), edges)
+            result = ResolutionResult(
+                groups=[ResolutionGroup(entity_indices=group) for group in groups],
+                matches=matches,
+                ambiguous_count=ambiguous_count,
+                failed_llm_requests=failed,
+                cap_truncated_pairs=truncated,
             )
-        return result
+            if result.failed_llm_requests:
+                logger.warning(
+                    "Resolution mapped %d failed LLM requests to no-match",
+                    result.failed_llm_requests,
+                )
+            if result.cap_truncated_pairs:
+                logger.warning(
+                    "Resolution dropped %d boundary pairs at the LLM cap",
+                    result.cap_truncated_pairs,
+                )
+            return result
 
     async def _resolve_pairs(
         self,
@@ -604,29 +622,36 @@ class Resolver:
         edges: list[tuple[int, int]] = []
         matches: list[ResolvedMatch] = []
         fuzzy_uncertain: list[tuple[int, int, float]] = []
-        for left, right in pairs:
-            if (
-                await self._exact.compare(entities[left], entities[right])
-                is ComparisonVerdict.MATCH
-            ):
-                edges.append((left, right))
-                continue
-            evidence = await self._fuzzy.compare_with_evidence(
-                entities[left], entities[right]
-            )
-            if evidence.verdict is ComparisonVerdict.MATCH:
-                edges.append((left, right))
-                matches.append(
-                    _match_record(
-                        left,
-                        right,
-                        comparator="fuzzy_fast_path",
-                        score=evidence.score,
-                        reasoning=evidence.reasoning,
-                    )
+        with self._tracer.start_as_current_span(
+            "agrag.resolution.exact_fuzzy_pass",
+            attributes={"agrag.pair_count": len(pairs)},
+        ) as span:
+            for left, right in pairs:
+                if (
+                    await self._exact.compare(entities[left], entities[right])
+                    is ComparisonVerdict.MATCH
+                ):
+                    edges.append((left, right))
+                    continue
+                evidence = await self._fuzzy.compare_with_evidence(
+                    entities[left], entities[right]
                 )
-                continue
-            fuzzy_uncertain.append((left, right, evidence.score or 0.0))
+                if evidence.verdict is ComparisonVerdict.MATCH:
+                    edges.append((left, right))
+                    matches.append(
+                        _match_record(
+                            left,
+                            right,
+                            comparator="fuzzy_fast_path",
+                            score=evidence.score,
+                            reasoning=evidence.reasoning,
+                        )
+                    )
+                    continue
+                fuzzy_uncertain.append((left, right, evidence.score or 0.0))
+            span.set_attribute("agrag.exact_match_count", len(edges))
+            span.set_attribute("agrag.fuzzy_fast_path_count", len(matches))
+            span.set_attribute("agrag.fuzzy_uncertain_count", len(fuzzy_uncertain))
 
         ambiguous, scored = await self._embedding_tier(
             fuzzy_uncertain, entities, edges, matches
@@ -664,38 +689,54 @@ class Resolver:
         """
         ambiguous: dict[str, list[tuple[int, int, float]]] = {}
         scored: dict[str, dict[tuple[int, int], float]] = {}
-        if not fuzzy_uncertain:
-            return ambiguous, scored
-        if self.embedder is None:
-            for left, right, fuzzy_score in fuzzy_uncertain:
-                ambiguous.setdefault(entities[left].label, []).append(
-                    (left, right, fuzzy_score)
+        with self._tracer.start_as_current_span(
+            "agrag.resolution.embedding_tier",
+            attributes={"agrag.fuzzy_uncertain_count": len(fuzzy_uncertain)},
+        ) as span:
+            if not fuzzy_uncertain:
+                return ambiguous, scored
+            if self.embedder is None:
+                for left, right, fuzzy_score in fuzzy_uncertain:
+                    ambiguous.setdefault(entities[left].label, []).append(
+                        (left, right, fuzzy_score)
+                    )
+                span.set_attribute(
+                    "agrag.ambiguous_count",
+                    sum(len(v) for v in ambiguous.values()),
                 )
-            return ambiguous, scored
-        texts = list(
-            dict.fromkeys(
-                entities[index].text
-                for pair in fuzzy_uncertain
-                for index in (pair[0], pair[1])
-            )
-        )
-        vectors = dict(zip(texts, await self.embedder.embed(texts), strict=True))
-        for left, right, _ in fuzzy_uncertain:
-            similarity = _cosine_similarity(
-                vectors[entities[left].text], vectors[entities[right].text]
-            )
-            label = entities[left].label
-            scored.setdefault(label, {})[(min(left, right), max(left, right))] = (
-                similarity
-            )
-            if similarity >= self.hard_merge_threshold:
-                edges.append((left, right))
-                matches.append(
-                    _match_record(left, right, comparator="embedding", score=similarity)
+                return ambiguous, scored
+            texts = list(
+                dict.fromkeys(
+                    entities[index].text
+                    for pair in fuzzy_uncertain
+                    for index in (pair[0], pair[1])
                 )
-            elif similarity >= self.discard_threshold:
-                ambiguous.setdefault(label, []).append((left, right, similarity))
-        return ambiguous, scored
+            )
+            vectors = dict(zip(texts, await self.embedder.embed(texts), strict=True))
+            hard_merges = 0
+            for left, right, _ in fuzzy_uncertain:
+                similarity = _cosine_similarity(
+                    vectors[entities[left].text], vectors[entities[right].text]
+                )
+                label = entities[left].label
+                scored.setdefault(label, {})[(min(left, right), max(left, right))] = (
+                    similarity
+                )
+                if similarity >= self.hard_merge_threshold:
+                    edges.append((left, right))
+                    matches.append(
+                        _match_record(
+                            left, right, comparator="embedding", score=similarity
+                        )
+                    )
+                    hard_merges += 1
+                elif similarity >= self.discard_threshold:
+                    ambiguous.setdefault(label, []).append((left, right, similarity))
+            span.set_attribute("agrag.hard_merge_count", hard_merges)
+            span.set_attribute(
+                "agrag.ambiguous_count", sum(len(v) for v in ambiguous.values())
+            )
+            return ambiguous, scored
 
     def _precluster_tier(
         self,
@@ -719,51 +760,61 @@ class Resolver:
         if self.embedder is None:
             return [pair for pairs in ambiguous.values() for pair in pairs]
         boundary: list[tuple[int, int, float]] = []
-        for label, similarities_by_pair in scored.items():
-            position_of: dict[int, int] = {}
-            members: list[int] = []
-            for left, right in similarities_by_pair:
-                for index in (left, right):
-                    if index not in position_of:
-                        position_of[index] = len(members)
-                        members.append(index)
-            similarities = {
-                (position_of[left], position_of[right]): similarity
-                for (left, right), similarity in similarities_by_pair.items()
-            }
-            ids = [uuid4() for _ in members]
-            member_of = dict(zip(ids, members, strict=True))
-            ambiguous_keys = {
-                (min(left, right), max(left, right))
-                for left, right, _ in ambiguous.get(label, [])
-            }
-            auto_merged: set[tuple[int, int]] = set()
-            for cluster in precluster_ambiguous(
-                ids,
-                similarities,
-                hard_merge_threshold=self.hard_merge_threshold,
-            ):
-                ordered = sorted(member_of[member_id] for member_id in cluster)
-                for first in range(len(ordered)):
-                    for second in range(first + 1, len(ordered)):
-                        left, right = ordered[first], ordered[second]
-                        pair = (min(left, right), max(left, right))
-                        if pair in auto_merged or pair not in ambiguous_keys:
-                            continue
-                        auto_merged.add(pair)
-                        edges.append(pair)
-                        matches.append(
-                            _match_record(
-                                pair[0],
-                                pair[1],
-                                comparator="embedding",
-                                score=similarities_by_pair[pair],
+        with self._tracer.start_as_current_span(
+            "agrag.resolution.precluster_tier",
+            attributes={
+                "agrag.boundary_pairs_before": sum(len(v) for v in ambiguous.values())
+            },
+        ) as span:
+            auto_merged_total = 0
+            for label, similarities_by_pair in scored.items():
+                position_of: dict[int, int] = {}
+                members: list[int] = []
+                for left, right in similarities_by_pair:
+                    for index in (left, right):
+                        if index not in position_of:
+                            position_of[index] = len(members)
+                            members.append(index)
+                similarities = {
+                    (position_of[left], position_of[right]): similarity
+                    for (left, right), similarity in similarities_by_pair.items()
+                }
+                ids = [uuid4() for _ in members]
+                member_of = dict(zip(ids, members, strict=True))
+                ambiguous_keys = {
+                    (min(left, right), max(left, right))
+                    for left, right, _ in ambiguous.get(label, [])
+                }
+                auto_merged: set[tuple[int, int]] = set()
+                for cluster in precluster_ambiguous(
+                    ids,
+                    similarities,
+                    hard_merge_threshold=self.hard_merge_threshold,
+                ):
+                    ordered = sorted(member_of[member_id] for member_id in cluster)
+                    for first in range(len(ordered)):
+                        for second in range(first + 1, len(ordered)):
+                            left, right = ordered[first], ordered[second]
+                            pair = (min(left, right), max(left, right))
+                            if pair in auto_merged or pair not in ambiguous_keys:
+                                continue
+                            auto_merged.add(pair)
+                            edges.append(pair)
+                            matches.append(
+                                _match_record(
+                                    pair[0],
+                                    pair[1],
+                                    comparator="embedding",
+                                    score=similarities_by_pair[pair],
+                                )
                             )
-                        )
-            for left, right, similarity in ambiguous.get(label, []):
-                if (min(left, right), max(left, right)) not in auto_merged:
-                    boundary.append((left, right, similarity))
-        return boundary
+                auto_merged_total += len(auto_merged)
+                for left, right, similarity in ambiguous.get(label, []):
+                    if (min(left, right), max(left, right)) not in auto_merged:
+                        boundary.append((left, right, similarity))
+            span.set_attribute("agrag.auto_merged_count", auto_merged_total)
+            span.set_attribute("agrag.boundary_pairs_after", len(boundary))
+            return boundary
 
     async def _llm_tier(
         self,
@@ -783,47 +834,60 @@ class Resolver:
         """
         if not boundary or self._llm is None:
             return 0, 0, 0
-        by_label: dict[str, list[tuple[int, int, float]]] = {}
-        for left, right, similarity in boundary:
-            by_label.setdefault(entities[left].label, []).append(
-                (left, right, similarity)
-            )
-        selected: list[tuple[int, int]] = []
-        cap_truncated_pairs = 0
-        for candidates in by_label.values():
-            chosen = select_llm_pairs(candidates, max_pairs=self.max_llm_pairs)
-            cap_truncated_pairs += len(candidates) - len(chosen)
-            selected.extend(chosen)
-        failed_before = self._llm.failed_requests
-        ambiguous_count = 0
-        for start in range(0, len(selected), self.llm_batch_size):
-            selected_chunk = selected[start : start + self.llm_batch_size]
-            chunk = [
-                (left, right, entities[left], entities[right])
-                for left, right in selected_chunk
-            ]
-            chunk_similarities = {
-                (left, right): similarity_by_pair.get((left, right), similarity)
-                for left, right, similarity in boundary
-                if (left, right) in selected_chunk
-            }
-            results, chunk_uncertain = await self._llm.compare_batch_detailed(
-                chunk,
-                similarities=chunk_similarities,
-                neighbors_by_index=neighbors_by_index,
-            )
-            ambiguous_count += chunk_uncertain
-            for (left, right), comparison in results.items():
-                if comparison.verdict is ComparisonVerdict.MATCH:
-                    edges.append((left, right))
-                    matches.append(
-                        _match_record(
-                            left,
-                            right,
-                            comparator="llm",
-                            score=comparison.score,
-                            reasoning=comparison.reasoning,
-                        )
+        with self._tracer.start_as_current_span(
+            "agrag.resolution.llm_tier",
+            attributes={"agrag.boundary_pair_count": len(boundary)},
+        ) as span:
+            by_label: dict[str, list[tuple[int, int, float]]] = {}
+            for left, right, similarity in boundary:
+                by_label.setdefault(entities[left].label, []).append(
+                    (left, right, similarity)
+                )
+            selected: list[tuple[int, int]] = []
+            cap_truncated_pairs = 0
+            for candidates in by_label.values():
+                chosen = select_llm_pairs(candidates, max_pairs=self.max_llm_pairs)
+                cap_truncated_pairs += len(candidates) - len(chosen)
+                selected.extend(chosen)
+            span.set_attribute("agrag.selected_pair_count", len(selected))
+            span.set_attribute("agrag.cap_truncated_pairs", cap_truncated_pairs)
+            failed_before = self._llm.failed_requests
+            ambiguous_count = 0
+            for start in range(0, len(selected), self.llm_batch_size):
+                selected_chunk = selected[start : start + self.llm_batch_size]
+                with self._tracer.start_as_current_span(
+                    "agrag.resolution.llm_batch",
+                    attributes={"agrag.batch_size": len(selected_chunk)},
+                ) as batch_span:
+                    chunk = [
+                        (left, right, entities[left], entities[right])
+                        for left, right in selected_chunk
+                    ]
+                    chunk_similarities = {
+                        (left, right): similarity_by_pair.get((left, right), similarity)
+                        for left, right, similarity in boundary
+                        if (left, right) in selected_chunk
+                    }
+                    results, chunk_uncertain = await self._llm.compare_batch_detailed(
+                        chunk,
+                        similarities=chunk_similarities,
+                        neighbors_by_index=neighbors_by_index,
                     )
-        failed_llm_requests = self._llm.failed_requests - failed_before
+                    batch_span.set_attribute("agrag.uncertain_count", chunk_uncertain)
+                    ambiguous_count += chunk_uncertain
+                    for (left, right), comparison in results.items():
+                        if comparison.verdict is ComparisonVerdict.MATCH:
+                            edges.append((left, right))
+                            matches.append(
+                                _match_record(
+                                    left,
+                                    right,
+                                    comparator="llm",
+                                    score=comparison.score,
+                                    reasoning=comparison.reasoning,
+                                )
+                            )
+            failed_llm_requests = self._llm.failed_requests - failed_before
+            span.set_attribute("agrag.ambiguous_count", ambiguous_count)
+            span.set_attribute("agrag.failed_llm_requests", failed_llm_requests)
         return ambiguous_count, failed_llm_requests, cap_truncated_pairs

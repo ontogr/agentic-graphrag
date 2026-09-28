@@ -20,6 +20,7 @@ from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.text import normalize_text
+from agrag.observability import record_stage_failure
 
 
 if TYPE_CHECKING:
@@ -234,10 +235,13 @@ async def resolve_description(
         return result, True, None
     except Exception as exc:  # noqa: BLE001
         fallback = " | ".join(str(v) for v in distinct)
+        trace_id, span_id = record_stage_failure(exc)
         failure = StageFailure(
             item_id="description",
             error_type=type(exc).__name__,
             error_message=str(exc),
+            trace_id=trace_id,
+            span_id=span_id,
         )
         return fallback, True, failure
 

@@ -9,6 +9,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from agrag.common.data_models.stage_failure import StageFailure
+
 
 if TYPE_CHECKING:
     from agrag.chunking.text import Chunk
@@ -156,7 +158,7 @@ class LoadStats:
         bytes_read: The number of bytes read so far.
         skipped: The number of sources skipped so far.
         quarantined: The number of sources quarantined so far.
-        quarantined_items: The uri and reason for each quarantined source so far.
+        quarantined_items: One StageFailure per quarantined source so far.
     """
 
     documents: int = 0
@@ -164,7 +166,7 @@ class LoadStats:
     bytes_read: int = 0
     skipped: int = 0
     quarantined: int = 0
-    quarantined_items: list[tuple[str, str]] = field(default_factory=list)
+    quarantined_items: list[StageFailure] = field(default_factory=list)
 
 
 @dataclass(slots=True)

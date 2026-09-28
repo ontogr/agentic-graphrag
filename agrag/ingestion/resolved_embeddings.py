@@ -18,6 +18,7 @@ from agrag.cypher.resolution_write import (
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.observability import record_stage_failure
 from agrag.vectordb.base import VectorStore
 
 
@@ -160,11 +161,14 @@ async def embed_resolved_entities(
                 )
         if error_policy is ErrorPolicy.RAISE:
             raise
+        trace_id, span_id = record_stage_failure(exc)
         return [
             StageFailure(
                 item_id="resolved_entity_embeddings",
                 error_type=type(exc).__name__,
                 error_message=str(exc),
+                trace_id=trace_id,
+                span_id=span_id,
             )
         ]
     return []
@@ -238,15 +242,18 @@ async def _synchronize_resolved_entity_vectors(
             )
         except Exception as exc:  # noqa: BLE001
             uncleared_stale_ids = set(assumed_current)
+            if error_policy is ErrorPolicy.RAISE:
+                raise
+            trace_id, span_id = record_stage_failure(exc)
             failures.append(
                 StageFailure(
                     item_id="resolved_entity_vector_store",
                     error_type=type(exc).__name__,
                     error_message=f"{exc} ids={list(assumed_current)}",
+                    trace_id=trace_id,
+                    span_id=span_id,
                 )
             )
-            if error_policy is ErrorPolicy.RAISE:
-                raise
     if pending_vector_store is not None and pending:
         failures.extend(
             await _delete_pending_vectors(
@@ -327,15 +334,18 @@ async def _delete_pending_vectors(
             await _enqueue_vector_deletions(
                 graph_store, ids, collection=collection, error=str(exc)
             )
+            if error_policy is ErrorPolicy.RAISE:
+                raise
+            trace_id, span_id = record_stage_failure(exc)
             failures.append(
                 StageFailure(
                     item_id="resolved_entity_vector_store",
                     error_type=type(exc).__name__,
                     error_message=f"{exc} ids={ids}",
+                    trace_id=trace_id,
+                    span_id=span_id,
                 )
             )
-            if error_policy is ErrorPolicy.RAISE:
-                raise
         else:
             await _clear_vector_deletions(
                 graph_store, [str(entity_id) for entity_id in ids]

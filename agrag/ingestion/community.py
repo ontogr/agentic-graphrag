@@ -8,6 +8,8 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid4
 
+from opentelemetry.trace import Tracer
+
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.stage_failure import StageFailure
@@ -23,6 +25,7 @@ from agrag.cypher.relations import (
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.observability import get_tracer, record_stage_failure
 
 
 if TYPE_CHECKING:
@@ -343,6 +346,7 @@ async def generate_community_reports(  # noqa: PLR0915
     max_relations_per_prompt: int = _DEFAULT_MAX_RELATIONS_PER_PROMPT,
     max_concurrency: int = 4,
     error_policy: ErrorPolicy = ErrorPolicy.SKIP,
+    tracer: Tracer | None = None,
 ) -> list[StageFailure]:
     """Generate a report for each community, in place.
 
@@ -400,10 +404,12 @@ async def generate_community_reports(  # noqa: PLR0915
         error_policy: RAISE propagates a batch call failure or a missing
             ``llm`` extra; anything else records it or falls back and
             continues.
+        tracer: Opens one span per batch.
 
     Returns:
         One StageFailure per community whose batch call failed.
     """
+    resolved_tracer = get_tracer(tracer)
     require_positive_batch_size(batch_size)
     require_positive_max_concurrency(max_concurrency)
 
@@ -465,62 +471,70 @@ async def generate_community_reports(  # noqa: PLR0915
 
     async def _batch(batch: list[Community]) -> None:
         async with sem:
-            inputs = [
-                CommunityInput(
-                    entity_summaries=[
-                        entities_by_id[m].embedding_text
-                        for m in c.member_ids[:max_members_per_prompt]
-                        if m in entities_by_id
-                    ],
-                    relation_summaries=relation_context[c.id],
-                )
-                for c in batch
-            ]
-            try:
-                summarize = baml_client.SummarizeCommunities
-                parameters = inspect.signature(summarize).parameters
-                supports_options = "baml_options" in parameters or any(
-                    parameter.kind is inspect.Parameter.VAR_KEYWORD
-                    for parameter in parameters.values()
-                )
-                if supports_options:
-                    reports = await call_with_retry(
-                        lambda: summarize(
-                            communities=inputs, baml_options=baml_options
-                        ),
-                        retry,
+            with resolved_tracer.start_as_current_span(
+                "agrag.community.report_batch",
+                attributes={"agrag.batch_size": len(batch)},
+            ):
+                inputs = [
+                    CommunityInput(
+                        entity_summaries=[
+                            entities_by_id[m].embedding_text
+                            for m in c.member_ids[:max_members_per_prompt]
+                            if m in entities_by_id
+                        ],
+                        relation_summaries=relation_context[c.id],
                     )
-                else:
-                    summarize_without_options = cast(
-                        "Callable[..., Awaitable[list[CommunityReport]]]", summarize
+                    for c in batch
+                ]
+                try:
+                    summarize = baml_client.SummarizeCommunities
+                    parameters = inspect.signature(summarize).parameters
+                    supports_options = "baml_options" in parameters or any(
+                        parameter.kind is inspect.Parameter.VAR_KEYWORD
+                        for parameter in parameters.values()
                     )
-                    reports = await call_with_retry(
-                        lambda: summarize_without_options(communities=inputs), retry
-                    )
-            except Exception as exc:  # noqa: BLE001
-                if error_policy is ErrorPolicy.RAISE:
-                    raise
-                for community in batch:
-                    failures.append(
-                        StageFailure(
-                            item_id=str(community.id),
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
+                    if supports_options:
+                        reports = await call_with_retry(
+                            lambda: summarize(
+                                communities=inputs, baml_options=baml_options
+                            ),
+                            retry,
                         )
-                    )
-                    _apply_heuristic_report(community, entities_by_id)
-            else:
-                for community, report in zip(batch, reports, strict=False):
-                    community.title = report.title
-                    community.summary = report.summary
-                    # Field(ge=0.0, le=10.0) only validates at construction, not
-                    # on this plain attribute assignment, so an out-of-range
-                    # LLM rating must be clamped explicitly here.
-                    community.rating = max(0.0, min(10.0, report.rating))
-                    community.rating_explanation = report.rating_explanation
-                    community.findings = report.findings
-                for community in batch[len(reports) :]:
-                    _apply_heuristic_report(community, entities_by_id)
+                    else:
+                        summarize_without_options = cast(
+                            "Callable[..., Awaitable[list[CommunityReport]]]",
+                            summarize,
+                        )
+                        reports = await call_with_retry(
+                            lambda: summarize_without_options(communities=inputs), retry
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    if error_policy is ErrorPolicy.RAISE:
+                        raise
+                    trace_id, span_id = record_stage_failure(exc)
+                    for community in batch:
+                        failures.append(
+                            StageFailure(
+                                item_id=str(community.id),
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                                trace_id=trace_id,
+                                span_id=span_id,
+                            )
+                        )
+                        _apply_heuristic_report(community, entities_by_id)
+                else:
+                    for community, report in zip(batch, reports, strict=False):
+                        community.title = report.title
+                        community.summary = report.summary
+                        # Field(ge=0.0, le=10.0) only validates at construction, not
+                        # on this plain attribute assignment, so an out-of-range
+                        # LLM rating must be clamped explicitly here.
+                        community.rating = max(0.0, min(10.0, report.rating))
+                        community.rating_explanation = report.rating_explanation
+                        community.findings = report.findings
+                    for community in batch[len(reports) :]:
+                        _apply_heuristic_report(community, entities_by_id)
 
     batches = [
         llm_candidates[i : i + batch_size]
@@ -540,6 +554,7 @@ async def embed_communities(
     embedder: Embedder,
     batch_size: int = _DEFAULT_EMBED_BATCH_SIZE,
     max_concurrency: int = 4,
+    tracer: Tracer | None = None,
 ) -> list[StageFailure]:
     """Compute each community's embedding from its report text, in place.
 
@@ -564,10 +579,12 @@ async def embed_communities(
         embedder: Computes one vector per community's embedding_text.
         batch_size: Communities embedded per embed() call.
         max_concurrency: Max concurrent embed calls.
+        tracer: Opens one span per batch.
 
     Returns:
         One StageFailure per community whose batch embed() call failed.
     """
+    resolved_tracer = get_tracer(tracer)
     require_positive_batch_size(batch_size)
     require_positive_max_concurrency(max_concurrency)
     if not communities:
@@ -577,20 +594,27 @@ async def embed_communities(
 
     async def _batch(batch: list[Community]) -> None:
         async with sem:
-            try:
-                vectors = await embedder.embed([c.embedding_text for c in batch])
-            except Exception as exc:  # noqa: BLE001
-                for community in batch:
-                    failures.append(
-                        StageFailure(
-                            item_id=str(community.id),
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
+            with resolved_tracer.start_as_current_span(
+                "agrag.community.embed_batch",
+                attributes={"agrag.batch_size": len(batch)},
+            ):
+                try:
+                    vectors = await embedder.embed([c.embedding_text for c in batch])
+                except Exception as exc:  # noqa: BLE001
+                    trace_id, span_id = record_stage_failure(exc)
+                    for community in batch:
+                        failures.append(
+                            StageFailure(
+                                item_id=str(community.id),
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                                trace_id=trace_id,
+                                span_id=span_id,
+                            )
                         )
-                    )
-                return
-            for community, vector in zip(batch, vectors, strict=True):
-                community.embedding = vector
+                    return
+                for community, vector in zip(batch, vectors, strict=True):
+                    community.embedding = vector
 
     batches = [
         communities[i : i + batch_size] for i in range(0, len(communities), batch_size)

@@ -94,7 +94,7 @@ from agrag.loaders.corpus._walk import _CorpusWalk, _InMemoryWalk
 from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions
 from agrag.loaders.docling.chunking import chunk_docling_document
-from agrag.observability import get_tracer
+from agrag.observability import get_tracer, record_stage_failure
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 
@@ -523,114 +523,119 @@ class Graph:
                 setup, or vector-index provisioning raises. graph_store is
                 closed first, so a failed open() never leaks a connection.
         """
-        try:
-            await graph_store.connect()
-            entity_labels = [entity_type.label for entity_type in schema.entities]
-            relation_types = [relation_type.label for relation_type in schema.relations]
-            await graph_store.register_labels(
-                [
-                    *entity_labels,
-                    CHUNK_LABEL,
-                    COMMUNITY_LABEL,
-                    DOCUMENT_LABEL,
-                    RESOLVED_ENTITY_LABEL,
+        resolved_tracer = get_tracer(tracer)
+        with resolved_tracer.start_as_current_span("agrag.ingestion.open"):
+            try:
+                await graph_store.connect()
+                entity_labels = [entity_type.label for entity_type in schema.entities]
+                relation_types = [
+                    relation_type.label for relation_type in schema.relations
                 ]
-            )
-            await graph_store.register_relation_types(
-                [*relation_types, *SYSTEM_RELATION_TYPES]
-            )
-            await graph_store.setup_constraints()
-            await graph_store.setup_indexes()
-            dimensions = await embedder.dimensions()
-            distance = embedder.distance
-            for label in entity_labels:
+                await graph_store.register_labels(
+                    [
+                        *entity_labels,
+                        CHUNK_LABEL,
+                        COMMUNITY_LABEL,
+                        DOCUMENT_LABEL,
+                        RESOLVED_ENTITY_LABEL,
+                    ]
+                )
+                await graph_store.register_relation_types(
+                    [*relation_types, *SYSTEM_RELATION_TYPES]
+                )
+                await graph_store.setup_constraints()
+                await graph_store.setup_indexes()
+                dimensions = await embedder.dimensions()
+                distance = embedder.distance
+                for label in entity_labels:
+                    await graph_store.ensure_vector_index(
+                        label=label,
+                        vector_property="embedding",
+                        dimensions=dimensions,
+                        distance=distance,
+                    )
                 await graph_store.ensure_vector_index(
-                    label=label,
+                    label=CHUNK_LABEL,
                     vector_property="embedding",
                     dimensions=dimensions,
                     distance=distance,
                 )
-            await graph_store.ensure_vector_index(
-                label=CHUNK_LABEL,
-                vector_property="embedding",
-                dimensions=dimensions,
-                distance=distance,
-            )
-            await graph_store.ensure_vector_index(
-                label=COMMUNITY_LABEL,
-                vector_property="embedding",
-                dimensions=dimensions,
-                distance=distance,
-            )
-            await graph_store.ensure_vector_index(
-                label=RESOLVED_ENTITY_LABEL,
-                vector_property="embedding",
-                dimensions=dimensions,
-                distance=distance,
-            )
-            recovery_collections: tuple[str, ...] = ()
-            if vector_store is not None:
-                settings = retrieval_settings or RetrievalSettings()
-                recovery_collections = (
-                    settings.entity_collection,
-                    settings.chunk_collection,
-                    settings.resolved_entity_collection,
+                await graph_store.ensure_vector_index(
+                    label=COMMUNITY_LABEL,
+                    vector_property="embedding",
+                    dimensions=dimensions,
+                    distance=distance,
                 )
-                await vector_store.initialize()
-                # Wait for every task even after a failure so none still uses
-                # the store when the except block below closes it.
-                outcomes = await asyncio.gather(
-                    *(
-                        vector_store.ensure_collection(
-                            collection,
-                            dimensions=dimensions,
-                            distance=distance,
-                            hybrid=True,
-                        )
-                        for collection in (
-                            settings.entity_collection,
-                            settings.resolved_entity_collection,
-                            settings.chunk_collection,
-                            settings.community_collection,
-                        )
-                    ),
-                    return_exceptions=True,
+                await graph_store.ensure_vector_index(
+                    label=RESOLVED_ENTITY_LABEL,
+                    vector_property="embedding",
+                    dimensions=dimensions,
+                    distance=distance,
                 )
-                for outcome in outcomes:
-                    if isinstance(outcome, BaseException):
-                        raise outcome
-            graph = cls(
-                schema=schema,
-                graph_store=graph_store,
-                embedder=embedder,
-                extractor=extractor,
-                tracer=tracer,
-                vector_store=vector_store,
-                retrieval_settings=retrieval_settings,
-                cutover_settings=cutover_settings,
-            )
-            # Crash recovery, last: every index and collection the
-            # recovery paths rely on now exists. A pending job (its worker
-            # died pre-commit) rolls back; a committed or cleaning job
-            # rolls forward, rerunning the cleanup phase this graph's own
-            # pruning implements. A recovery failure is swallowed: opening
-            # the graph must not break because a leftover job could not be
-            # finished, and the pending filters keep any tagged writes
-            # invisible to retrieval until a later open succeeds.
-            with contextlib.suppress(Exception):
-                await resume_incomplete_jobs(
-                    graph_store,
+                recovery_collections: tuple[str, ...] = ()
+                if vector_store is not None:
+                    settings = retrieval_settings or RetrievalSettings()
+                    recovery_collections = (
+                        settings.entity_collection,
+                        settings.chunk_collection,
+                        settings.resolved_entity_collection,
+                    )
+                    await vector_store.initialize()
+                    # Wait for every task even after a failure so none still uses
+                    # the store when the except block below closes it.
+                    outcomes = await asyncio.gather(
+                        *(
+                            vector_store.ensure_collection(
+                                collection,
+                                dimensions=dimensions,
+                                distance=distance,
+                                hybrid=True,
+                            )
+                            for collection in (
+                                settings.entity_collection,
+                                settings.resolved_entity_collection,
+                                settings.chunk_collection,
+                                settings.community_collection,
+                            )
+                        ),
+                        return_exceptions=True,
+                    )
+                    for outcome in outcomes:
+                        if isinstance(outcome, BaseException):
+                            raise outcome
+                graph = cls(
+                    schema=schema,
+                    graph_store=graph_store,
+                    embedder=embedder,
+                    extractor=extractor,
+                    tracer=tracer,
                     vector_store=vector_store,
-                    vector_collections=recovery_collections,
-                    roll_forward=graph._prune_document_entities,
-                    lease_ttl_seconds=graph._cutover_settings.lease_ttl_seconds,
+                    retrieval_settings=retrieval_settings,
+                    cutover_settings=cutover_settings,
                 )
-        except Exception:
-            await graph_store.close()
-            if vector_store is not None:
+                # Crash recovery, last: every index and collection the
+                # recovery paths rely on now exists. A pending job (its worker
+                # died pre-commit) rolls back; a committed or cleaning job
+                # rolls forward, rerunning the cleanup phase this graph's own
+                # pruning implements. A recovery failure is swallowed: opening
+                # the graph must not break because a leftover job could not be
+                # finished, and the pending filters keep any tagged writes
+                # invisible to retrieval until a later open succeeds.
                 with contextlib.suppress(Exception):
-                    await vector_store.close()
-            raise
+                    await resume_incomplete_jobs(
+                        graph_store,
+                        vector_store=vector_store,
+                        vector_collections=recovery_collections,
+                        roll_forward=graph._prune_document_entities,
+                        lease_ttl_seconds=graph._cutover_settings.lease_ttl_seconds,
+                        tracer=resolved_tracer,
+                    )
+            except Exception:
+                await graph_store.close()
+                if vector_store is not None:
+                    with contextlib.suppress(Exception):
+                        await vector_store.close()
+                raise
         return graph
 
     async def add(  # noqa: PLR0912,PLR0915,PLR0913
@@ -683,272 +688,271 @@ class Graph:
             ValueError: The input contains multiple documents with the same
                 ``document_key``.
         """
-        given = sum(x is not None for x in (source, text, documents))
-        if given != 1:
-            raise ValueError(
-                f"Provide exactly one of 'source', 'text', or 'documents'; got {given}."
-            )
-        if loader is not None and source is None:
-            raise ValueError(
-                "A loader override requires 'source'; it has no effect on 'text' or "
-                "'documents'."
-            )
+        with self._tracer.start_as_current_span("agrag.ingestion.add"):
+            given = sum(x is not None for x in (source, text, documents))
+            if given != 1:
+                raise ValueError(
+                    "Provide exactly one of 'source', 'text', or 'documents'; "
+                    f"got {given}."
+                )
+            if loader is not None and source is None:
+                raise ValueError(
+                    "A loader override requires 'source'; it has no effect on "
+                    "'text' or 'documents'."
+                )
 
-        chunks: list[Chunk] = []
-        documents_seen: list[Document] = []
-        document_keys_seen: set[str] = set()
-        entities: list[ExtractedEntity] = []
-        relations: list[ExtractedRelation] = []
-        extraction_failures: list[StageFailure] = []
+            chunks: list[Chunk] = []
+            documents_seen: list[Document] = []
+            document_keys_seen: set[str] = set()
+            entities: list[ExtractedEntity] = []
+            relations: list[ExtractedRelation] = []
+            extraction_failures: list[StageFailure] = []
 
-        def _record_document_keys(batch: Sequence[Document]) -> None:
-            for document in batch:
-                document_key = document.resolved_document_key
-                if document_key in document_keys_seen:
-                    raise ValueError(
-                        "Each add call requires distinct document keys; "
-                        f"duplicate: {document_key!r}."
+            def _record_document_keys(batch: Sequence[Document]) -> None:
+                for document in batch:
+                    document_key = document.resolved_document_key
+                    if document_key in document_keys_seen:
+                        raise ValueError(
+                            "Each add call requires distinct document keys; "
+                            f"duplicate: {document_key!r}."
+                        )
+                    document_keys_seen.add(document_key)
+
+            # For ingestion stats accumulation
+            final_stats = LoadStats()
+
+            # For on_progress partial result helper
+            def _build_partial_add_result() -> AddResult:
+                ingest = IngestStats(
+                    documents=final_stats.documents,
+                    sources=final_stats.sources,
+                    skipped=final_stats.skipped,
+                    quarantined=final_stats.quarantined,
+                    quarantined_items=list(final_stats.quarantined_items),
+                )
+                extraction_failures_capped = cap_failures(list(extraction_failures))
+                extraction = ExtractionStats(
+                    chunks_processed=len(chunks),
+                    entities_extracted=len(entities),
+                    relations_extracted=len(relations),
+                    failures=extraction_failures_capped.items,
+                    failures_total=extraction_failures_capped.total,
+                    failures_truncated=extraction_failures_capped.truncated,
+                )
+                return AddResult(
+                    ingestion=ingest,
+                    extraction=extraction,
+                    resolution=ResolutionStats(),
+                    merge=MergeStats(),
+                    storage=StorageStats(),
+                    chunks=list(chunks) if return_chunks else [],
+                )
+
+            # Stream ingestion + extraction per walk-batch, collecting all mentions
+            if documents is not None:
+                # Single synthetic batch from provided documents
+                docs_list = list(documents)
+                _record_document_keys(docs_list)
+                final_stats.documents = len(docs_list)
+                final_stats.sources = 0
+                # Chunk all at once (still via thread)
+                chunk_batch = await asyncio.to_thread(self._chunk_documents, docs_list)
+                chunks.extend(chunk_batch)
+                documents_seen.extend(docs_list)
+                batch_entities, batch_relations, batch_failures = await extract_chunks(
+                    chunk_batch,
+                    start_index=len(entities),
+                    extractor=self._extractor,
+                    schema=self._schema,
+                    error_policy=error_policy,
+                    tracer=self._tracer,
+                )
+                entities.extend(batch_entities)
+                relations.extend(batch_relations)
+                extraction_failures.extend(batch_failures)
+                # Fire on_progress once for the synthetic batch (partial)
+                if on_progress is not None:
+                    with contextlib.suppress(Exception):
+                        on_progress(_build_partial_add_result())
+            elif text is not None:
+                walk = _InMemoryWalk(text, opts=ReadOptions())
+                batches = walk.iter_batches()
+                async for batch, _cursor, stats in batches:
+                    _record_document_keys(batch)
+                    # Stats is LoadStats
+                    final_stats.documents = stats.documents
+                    final_stats.sources = stats.sources
+                    final_stats.skipped = stats.skipped
+                    final_stats.quarantined = stats.quarantined
+                    final_stats.quarantined_items = list(stats.quarantined_items)
+                    # Chunk this batch
+                    chunk_batch = await asyncio.to_thread(self._chunk_documents, batch)
+                    chunks.extend(chunk_batch)
+                    documents_seen.extend(batch)
+                    (
+                        batch_entities,
+                        batch_relations,
+                        batch_failures,
+                    ) = await extract_chunks(
+                        chunk_batch,
+                        start_index=len(entities),
+                        extractor=self._extractor,
+                        schema=self._schema,
+                        error_policy=error_policy,
                     )
-                document_keys_seen.add(document_key)
+                    entities.extend(batch_entities)
+                    relations.extend(batch_relations)
+                    extraction_failures.extend(batch_failures)
+                    if on_progress is not None:
+                        with contextlib.suppress(Exception):
+                            on_progress(_build_partial_add_result())
+            else:
+                assert source is not None
+                paths, single_file = _resolve_paths(source)
+                if loader is not None and not single_file:
+                    raise ValueError(
+                        "A loader override requires a single-file source, not a "
+                        "directory, glob, or list of sources."
+                    )
+                walk = _CorpusWalk(
+                    paths,
+                    registry=self._registry,
+                    opts=ReadOptions(),
+                    error_policy=error_policy,
+                    loader=loader,
+                    tracer=self._tracer,
+                )
+                batches = walk.iter_batches()
+                async for batch, _cursor, stats in batches:
+                    _record_document_keys(batch)
+                    final_stats.documents = stats.documents
+                    final_stats.sources = stats.sources
+                    final_stats.skipped = stats.skipped
+                    final_stats.quarantined = stats.quarantined
+                    final_stats.quarantined_items = list(stats.quarantined_items)
+                    chunk_batch = await asyncio.to_thread(self._chunk_documents, batch)
+                    chunks.extend(chunk_batch)
+                    documents_seen.extend(batch)
+                    (
+                        batch_entities,
+                        batch_relations,
+                        batch_failures,
+                    ) = await extract_chunks(
+                        chunk_batch,
+                        start_index=len(entities),
+                        extractor=self._extractor,
+                        schema=self._schema,
+                        error_policy=error_policy,
+                    )
+                    entities.extend(batch_entities)
+                    relations.extend(batch_relations)
+                    extraction_failures.extend(batch_failures)
+                    if on_progress is not None:
+                        with contextlib.suppress(Exception):
+                            on_progress(_build_partial_add_result())
 
-        # For ingestion stats accumulation
-        final_stats = LoadStats()
-
-        # For on_progress partial result helper
-        def _build_partial_add_result() -> AddResult:
-            ingest = IngestStats(
+            # Assemble the ingestion summary from this call's own walk, then run
+            # each document's slice as its own Cutover Job through the shared
+            # pipeline core. A job holds only its own document's lease and
+            # commits only its own slice; a lease failure aborts the documents
+            # still queued while documents that already committed stay
+            # committed.
+            ingestion = IngestStats(
                 documents=final_stats.documents,
                 sources=final_stats.sources,
                 skipped=final_stats.skipped,
                 quarantined=final_stats.quarantined,
-                quarantined_items=[
-                    StageFailure(
-                        item_id=str(uri),
-                        error_type="Quarantined",
-                        error_message=reason,
-                    )
-                    for uri, reason in final_stats.quarantined_items
-                ],
+                quarantined_items=list(final_stats.quarantined_items),
             )
-            extraction_failures_capped = cap_failures(list(extraction_failures))
-            extraction = ExtractionStats(
-                chunks_processed=len(chunks),
-                entities_extracted=len(entities),
-                relations_extracted=len(relations),
-                failures=extraction_failures_capped.items,
-                failures_total=extraction_failures_capped.total,
-                failures_truncated=extraction_failures_capped.truncated,
+            vector_collections = (
+                self._retrieval_settings.entity_collection,
+                self._retrieval_settings.chunk_collection,
+                self._retrieval_settings.resolved_entity_collection,
             )
-            return AddResult(
-                ingestion=ingest,
-                extraction=extraction,
-                resolution=ResolutionStats(),
-                merge=MergeStats(),
-                storage=StorageStats(),
-                chunks=list(chunks) if return_chunks else [],
-            )
+            partials: list[AddResult] = []
+            for (
+                document_key,
+                doc_chunks,
+                doc_documents,
+                doc_entities,
+                doc_relations,
+                doc_failures,
+            ) in _group_by_document(
+                chunks, documents_seen, entities, relations, extraction_failures
+            ):
+                components: list[MatchComponent] = []
 
-        # Stream ingestion + extraction per walk-batch, collecting all mentions
-        if documents is not None:
-            # Single synthetic batch from provided documents
-            docs_list = list(documents)
-            _record_document_keys(docs_list)
-            final_stats.documents = len(docs_list)
-            final_stats.sources = 0
-            # Chunk all at once (still via thread)
-            chunk_batch = await asyncio.to_thread(self._chunk_documents, docs_list)
-            chunks.extend(chunk_batch)
-            documents_seen.extend(docs_list)
-            batch_entities, batch_relations, batch_failures = await extract_chunks(
-                chunk_batch,
-                start_index=len(entities),
-                extractor=self._extractor,
-                schema=self._schema,
-                error_policy=error_policy,
-            )
-            entities.extend(batch_entities)
-            relations.extend(batch_relations)
-            extraction_failures.extend(batch_failures)
-            # Fire on_progress once for the synthetic batch (partial)
+                async def _pending(
+                    job_id: UUID,
+                    _components: list[MatchComponent] = components,
+                    _slice: tuple[
+                        list[Chunk],
+                        list[Document],
+                        list[ExtractedEntity],
+                        list[ExtractedRelation],
+                        list[StageFailure],
+                    ] = (
+                        doc_chunks,
+                        doc_documents,
+                        doc_entities,
+                        doc_relations,
+                        doc_failures,
+                    ),
+                ) -> AddResult:
+                    (
+                        slice_chunks,
+                        slice_documents,
+                        slice_entities,
+                        slice_relations,
+                        slice_failures,
+                    ) = _slice
+                    return await ingest_chunks(
+                        slice_chunks,
+                        slice_documents,
+                        slice_entities,
+                        slice_relations,
+                        slice_failures,
+                        graph_store=self._graph_store,
+                        embedder=self._embedder,
+                        vector_store=self._vector_store,
+                        graph_schema=self._schema,
+                        retrieval_settings=self._retrieval_settings,
+                        error_policy=error_policy,
+                        ingestion=IngestStats(documents=1),
+                        return_chunks=return_chunks,
+                        job_id=job_id,
+                        materialized_components=_components,
+                        tracer=self._tracer,
+                    )
+
+                async def _cleanup(
+                    _components: list[MatchComponent] = components,
+                ) -> list[StageFailure]:
+                    _, cleanup_failures = await self._materialize_components(
+                        _components, error_policy=error_policy
+                    )
+                    return cleanup_failures
+
+                partial, cleanup_failures, _ = await run_cutover_job(
+                    verb="add",
+                    document_key=document_key,
+                    affected_entity_ids=[],
+                    graph_store=self._graph_store,
+                    vector_store=self._vector_store,
+                    vector_collections=vector_collections,
+                    settings=self._cutover_settings,
+                    pending_write=_pending,
+                    cleanup=_cleanup,
+                    tracer=self._tracer,
+                )
+                partials.append(_with_cleanup_failures(partial, cleanup_failures))
+            result = _merge_add_results(partials, ingestion=ingestion)
+
             if on_progress is not None:
                 with contextlib.suppress(Exception):
-                    on_progress(_build_partial_add_result())
-        elif text is not None:
-            walk = _InMemoryWalk(text, opts=ReadOptions())
-            batches = walk.iter_batches()
-            async for batch, _cursor, stats in batches:
-                _record_document_keys(batch)
-                # Stats is LoadStats
-                final_stats.documents = stats.documents
-                final_stats.sources = stats.sources
-                final_stats.skipped = stats.skipped
-                final_stats.quarantined = stats.quarantined
-                final_stats.quarantined_items = list(stats.quarantined_items)
-                # Chunk this batch
-                chunk_batch = await asyncio.to_thread(self._chunk_documents, batch)
-                chunks.extend(chunk_batch)
-                documents_seen.extend(batch)
-                batch_entities, batch_relations, batch_failures = await extract_chunks(
-                    chunk_batch,
-                    start_index=len(entities),
-                    extractor=self._extractor,
-                    schema=self._schema,
-                    error_policy=error_policy,
-                )
-                entities.extend(batch_entities)
-                relations.extend(batch_relations)
-                extraction_failures.extend(batch_failures)
-                if on_progress is not None:
-                    with contextlib.suppress(Exception):
-                        on_progress(_build_partial_add_result())
-        else:
-            assert source is not None
-            paths, single_file = _resolve_paths(source)
-            if loader is not None and not single_file:
-                raise ValueError(
-                    "A loader override requires a single-file source, not a directory, "
-                    "glob, or list of sources."
-                )
-            walk = _CorpusWalk(
-                paths,
-                registry=self._registry,
-                opts=ReadOptions(),
-                error_policy=error_policy,
-                loader=loader,
-                tracer=self._tracer,
-            )
-            batches = walk.iter_batches()
-            async for batch, _cursor, stats in batches:
-                _record_document_keys(batch)
-                final_stats.documents = stats.documents
-                final_stats.sources = stats.sources
-                final_stats.skipped = stats.skipped
-                final_stats.quarantined = stats.quarantined
-                final_stats.quarantined_items = list(stats.quarantined_items)
-                chunk_batch = await asyncio.to_thread(self._chunk_documents, batch)
-                chunks.extend(chunk_batch)
-                documents_seen.extend(batch)
-                batch_entities, batch_relations, batch_failures = await extract_chunks(
-                    chunk_batch,
-                    start_index=len(entities),
-                    extractor=self._extractor,
-                    schema=self._schema,
-                    error_policy=error_policy,
-                )
-                entities.extend(batch_entities)
-                relations.extend(batch_relations)
-                extraction_failures.extend(batch_failures)
-                if on_progress is not None:
-                    with contextlib.suppress(Exception):
-                        on_progress(_build_partial_add_result())
+                    on_progress(result)
 
-        # Assemble the ingestion summary from this call's own walk, then run
-        # each document's slice as its own Cutover Job through the shared
-        # pipeline core. A job holds only its own document's lease and
-        # commits only its own slice; a lease failure aborts the documents
-        # still queued while documents that already committed stay
-        # committed.
-        ingestion = IngestStats(
-            documents=final_stats.documents,
-            sources=final_stats.sources,
-            skipped=final_stats.skipped,
-            quarantined=final_stats.quarantined,
-            quarantined_items=[
-                StageFailure(
-                    item_id=str(uri),
-                    error_type="Quarantined",
-                    error_message=reason,
-                )
-                for uri, reason in final_stats.quarantined_items
-            ],
-        )
-        vector_collections = (
-            self._retrieval_settings.entity_collection,
-            self._retrieval_settings.chunk_collection,
-            self._retrieval_settings.resolved_entity_collection,
-        )
-        partials: list[AddResult] = []
-        for (
-            document_key,
-            doc_chunks,
-            doc_documents,
-            doc_entities,
-            doc_relations,
-            doc_failures,
-        ) in _group_by_document(
-            chunks, documents_seen, entities, relations, extraction_failures
-        ):
-            components: list[MatchComponent] = []
-
-            async def _pending(
-                job_id: UUID,
-                _components: list[MatchComponent] = components,
-                _slice: tuple[
-                    list[Chunk],
-                    list[Document],
-                    list[ExtractedEntity],
-                    list[ExtractedRelation],
-                    list[StageFailure],
-                ] = (
-                    doc_chunks,
-                    doc_documents,
-                    doc_entities,
-                    doc_relations,
-                    doc_failures,
-                ),
-            ) -> AddResult:
-                (
-                    slice_chunks,
-                    slice_documents,
-                    slice_entities,
-                    slice_relations,
-                    slice_failures,
-                ) = _slice
-                return await ingest_chunks(
-                    slice_chunks,
-                    slice_documents,
-                    slice_entities,
-                    slice_relations,
-                    slice_failures,
-                    graph_store=self._graph_store,
-                    embedder=self._embedder,
-                    vector_store=self._vector_store,
-                    graph_schema=self._schema,
-                    retrieval_settings=self._retrieval_settings,
-                    error_policy=error_policy,
-                    ingestion=IngestStats(documents=1),
-                    return_chunks=return_chunks,
-                    job_id=job_id,
-                    materialized_components=_components,
-                )
-
-            async def _cleanup(
-                _components: list[MatchComponent] = components,
-            ) -> list[StageFailure]:
-                _, cleanup_failures = await self._materialize_components(
-                    _components, error_policy=error_policy
-                )
-                return cleanup_failures
-
-            partial, cleanup_failures, _ = await run_cutover_job(
-                verb="add",
-                document_key=document_key,
-                affected_entity_ids=[],
-                graph_store=self._graph_store,
-                vector_store=self._vector_store,
-                vector_collections=vector_collections,
-                settings=self._cutover_settings,
-                pending_write=_pending,
-                cleanup=_cleanup,
-            )
-            partials.append(_with_cleanup_failures(partial, cleanup_failures))
-        result = _merge_add_results(partials, ingestion=ingestion)
-
-        if on_progress is not None:
-            with contextlib.suppress(Exception):
-                on_progress(result)
-
-        return result
+            return result
 
     async def update(
         self,
@@ -998,125 +1002,134 @@ class Graph:
             ``Graph.add()``; both callers observe the same pipeline behavior
             for the same input.
         """
-        if (text is None) == (source is None):
-            raise ValueError("Provide exactly one of 'text' or 'source'.")
+        with self._tracer.start_as_current_span("agrag.ingestion.update"):
+            if (text is None) == (source is None):
+                raise ValueError("Provide exactly one of 'text' or 'source'.")
 
-        if text is not None:
-            normalized = unicodedata.normalize("NFKC", text)
-            content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-            document = Document(
-                text=normalized,
-                title="inline",
-                uri=document_key,
-                document_key=document_key,
-                source_format=SourceFormat.TXT,
-                family=DocumentFamily.PROSE,
-                content_hash=content_hash,
-                loader_name="inline",
-                encoding="utf-8",
-                char_count=len(normalized),
-                line_count=normalized.count("\n") + 1,
-            )
-        else:
-            assert source is not None
-            paths, single_file = _resolve_paths(source)
-            if loader is not None and not single_file:
-                raise ValueError(
-                    "A loader override requires a single-file source, not a directory, "
-                    "glob, or list of sources."
+            if text is not None:
+                normalized = unicodedata.normalize("NFKC", text)
+                content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+                document = Document(
+                    text=normalized,
+                    title="inline",
+                    uri=document_key,
+                    document_key=document_key,
+                    source_format=SourceFormat.TXT,
+                    family=DocumentFamily.PROSE,
+                    content_hash=content_hash,
+                    loader_name="inline",
+                    encoding="utf-8",
+                    char_count=len(normalized),
+                    line_count=normalized.count("\n") + 1,
                 )
-            walk = _CorpusWalk(
-                paths,
-                registry=self._registry,
-                opts=ReadOptions(),
+            else:
+                assert source is not None
+                paths, single_file = _resolve_paths(source)
+                if loader is not None and not single_file:
+                    raise ValueError(
+                        "A loader override requires a single-file source, not a "
+                        "directory, glob, or list of sources."
+                    )
+                walk = _CorpusWalk(
+                    paths,
+                    registry=self._registry,
+                    opts=ReadOptions(),
+                    error_policy=error_policy,
+                    loader=loader,
+                    tracer=self._tracer,
+                )
+                documents_from_source: list[Document] = []
+                async for batch, _cursor, _stats in walk.iter_batches():
+                    documents_from_source.extend(batch)
+                if len(documents_from_source) != 1:
+                    raise ValueError("The source must produce exactly one document.")
+                document = documents_from_source[0].model_copy(
+                    update={"document_key": document_key}
+                )
+
+            found = await find_document(self._graph_store, document_key=document_key)
+            if (
+                found is not None
+                and found.current_content_hash == document.content_hash
+            ):
+                return UpdateResult(
+                    document_key=document_key,
+                    no_op=True,
+                    previous_content_hash=found.current_content_hash,
+                    new_content_hash=document.content_hash,
+                )
+
+            candidates: list[UUID] = []
+            if found is not None:
+                candidates = await self._document_entity_candidates(
+                    found.document_node_id
+                )
+            chunks = await asyncio.to_thread(self._chunk_documents, [document])
+            entities, relations, extraction_failures = await extract_chunks(
+                chunks,
+                start_index=0,
+                extractor=self._extractor,
+                schema=self._schema,
                 error_policy=error_policy,
-                loader=loader,
                 tracer=self._tracer,
             )
-            documents_from_source: list[Document] = []
-            async for batch, _cursor, _stats in walk.iter_batches():
-                documents_from_source.extend(batch)
-            if len(documents_from_source) != 1:
-                raise ValueError("The source must produce exactly one document.")
-            document = documents_from_source[0].model_copy(
-                update={"document_key": document_key}
-            )
 
-        found = await find_document(self._graph_store, document_key=document_key)
-        if found is not None and found.current_content_hash == document.content_hash:
+            components: list[MatchComponent] = []
+
+            async def _pending(job_id: UUID) -> AddResult:
+                return await ingest_chunks(
+                    chunks,
+                    [document],
+                    entities,
+                    relations,
+                    extraction_failures,
+                    graph_store=self._graph_store,
+                    embedder=self._embedder,
+                    vector_store=self._vector_store,
+                    graph_schema=self._schema,
+                    retrieval_settings=self._retrieval_settings,
+                    error_policy=error_policy,
+                    ingestion=IngestStats(documents=1),
+                    return_chunks=False,
+                    job_id=job_id,
+                    materialized_components=components,
+                    tracer=self._tracer,
+                )
+
+            async def _cleanup() -> list[StageFailure]:
+                _, cleanup_failures = await self._materialize_components(
+                    components, error_policy=error_policy
+                )
+                await self._prune_document_entities(candidates)
+                return cleanup_failures
+
+            add_result, cleanup_failures, chunks_closed = await run_cutover_job(
+                verb="update",
+                document_key=document_key,
+                affected_entity_ids=candidates,
+                graph_store=self._graph_store,
+                vector_store=self._vector_store,
+                vector_collections=(
+                    self._retrieval_settings.entity_collection,
+                    self._retrieval_settings.chunk_collection,
+                    self._retrieval_settings.resolved_entity_collection,
+                ),
+                settings=self._cutover_settings,
+                pending_write=_pending,
+                cleanup=_cleanup,
+                close_document_node_id=(
+                    found.document_node_id if found is not None else None
+                ),
+                tracer=self._tracer,
+            )
             return UpdateResult(
                 document_key=document_key,
-                no_op=True,
-                previous_content_hash=found.current_content_hash,
+                no_op=False,
+                previous_content_hash=(found.current_content_hash if found else None),
                 new_content_hash=document.content_hash,
+                chunks_closed=chunks_closed,
+                add_result=_with_cleanup_failures(add_result, cleanup_failures),
             )
-
-        candidates: list[UUID] = []
-        if found is not None:
-            candidates = await self._document_entity_candidates(found.document_node_id)
-        chunks = await asyncio.to_thread(self._chunk_documents, [document])
-        entities, relations, extraction_failures = await extract_chunks(
-            chunks,
-            start_index=0,
-            extractor=self._extractor,
-            schema=self._schema,
-            error_policy=error_policy,
-        )
-
-        components: list[MatchComponent] = []
-
-        async def _pending(job_id: UUID) -> AddResult:
-            return await ingest_chunks(
-                chunks,
-                [document],
-                entities,
-                relations,
-                extraction_failures,
-                graph_store=self._graph_store,
-                embedder=self._embedder,
-                vector_store=self._vector_store,
-                graph_schema=self._schema,
-                retrieval_settings=self._retrieval_settings,
-                error_policy=error_policy,
-                ingestion=IngestStats(documents=1),
-                return_chunks=False,
-                job_id=job_id,
-                materialized_components=components,
-            )
-
-        async def _cleanup() -> list[StageFailure]:
-            _, cleanup_failures = await self._materialize_components(
-                components, error_policy=error_policy
-            )
-            await self._prune_document_entities(candidates)
-            return cleanup_failures
-
-        add_result, cleanup_failures, chunks_closed = await run_cutover_job(
-            verb="update",
-            document_key=document_key,
-            affected_entity_ids=candidates,
-            graph_store=self._graph_store,
-            vector_store=self._vector_store,
-            vector_collections=(
-                self._retrieval_settings.entity_collection,
-                self._retrieval_settings.chunk_collection,
-                self._retrieval_settings.resolved_entity_collection,
-            ),
-            settings=self._cutover_settings,
-            pending_write=_pending,
-            cleanup=_cleanup,
-            close_document_node_id=(
-                found.document_node_id if found is not None else None
-            ),
-        )
-        return UpdateResult(
-            document_key=document_key,
-            no_op=False,
-            previous_content_hash=(found.current_content_hash if found else None),
-            new_content_hash=document.content_hash,
-            chunks_closed=chunks_closed,
-            add_result=_with_cleanup_failures(add_result, cleanup_failures),
-        )
 
     async def delete_document(self, document_key: str) -> UpdateResult:
         """Soft-delete a document by closing its current PART_OF edges.
@@ -1143,36 +1156,38 @@ class Graph:
             call into the same shared document-lifecycle helpers. See
             ``Graph.add()`` for the shared ingestion behavior.
         """
-        found = await find_document(self._graph_store, document_key=document_key)
-        if found is None:
-            return UpdateResult(document_key=document_key, no_op=True)
-        candidates = await self._document_entity_candidates(found.document_node_id)
+        with self._tracer.start_as_current_span("agrag.ingestion.delete_document"):
+            found = await find_document(self._graph_store, document_key=document_key)
+            if found is None:
+                return UpdateResult(document_key=document_key, no_op=True)
+            candidates = await self._document_entity_candidates(found.document_node_id)
 
-        async def _cleanup() -> None:
-            await self._prune_document_entities(candidates)
+            async def _cleanup() -> None:
+                await self._prune_document_entities(candidates)
 
-        _, _, chunks_closed = await run_cutover_job(
-            verb="delete_document",
-            document_key=document_key,
-            affected_entity_ids=candidates,
-            graph_store=self._graph_store,
-            vector_store=self._vector_store,
-            vector_collections=(
-                self._retrieval_settings.entity_collection,
-                self._retrieval_settings.chunk_collection,
-                self._retrieval_settings.resolved_entity_collection,
-            ),
-            settings=self._cutover_settings,
-            pending_write=_no_pending_write,
-            cleanup=_cleanup,
-            close_document_node_id=found.document_node_id,
-        )
-        return UpdateResult(
-            document_key=document_key,
-            no_op=False,
-            previous_content_hash=found.current_content_hash,
-            chunks_closed=chunks_closed,
-        )
+            _, _, chunks_closed = await run_cutover_job(
+                verb="delete_document",
+                document_key=document_key,
+                affected_entity_ids=candidates,
+                graph_store=self._graph_store,
+                vector_store=self._vector_store,
+                vector_collections=(
+                    self._retrieval_settings.entity_collection,
+                    self._retrieval_settings.chunk_collection,
+                    self._retrieval_settings.resolved_entity_collection,
+                ),
+                settings=self._cutover_settings,
+                pending_write=_no_pending_write,
+                cleanup=_cleanup,
+                close_document_node_id=found.document_node_id,
+                tracer=self._tracer,
+            )
+            return UpdateResult(
+                document_key=document_key,
+                no_op=False,
+                previous_content_hash=found.current_content_hash,
+                chunks_closed=chunks_closed,
+            )
 
     async def _document_entity_candidates(self, document_node_id: UUID) -> list[UUID]:
         """Return live entity ids mentioned by a document's open chunks.
@@ -1221,42 +1236,53 @@ class Graph:
         Returns:
             The materialized resolved entities and the recorded failures.
         """
-        failures: list[StageFailure] = []
-        materialized: list[ResolvedEntity] = []
-        replaced_ids: list[UUID] = []
-        for decisions, members in components:
-            try:
-                materialization = await write_matches_and_materialize(
-                    decisions,
+        with self._tracer.start_as_current_span(
+            "agrag.merge.materialize_components",
+            attributes={"agrag.component_count": len(components)},
+        ):
+            failures: list[StageFailure] = []
+            materialized: list[ResolvedEntity] = []
+            replaced_ids: list[UUID] = []
+            for decisions, members in components:
+                with self._tracer.start_as_current_span(
+                    "agrag.merge.materialize_component",
+                    attributes={"agrag.member_count": len(members)},
+                ):
+                    try:
+                        materialization = await write_matches_and_materialize(
+                            decisions,
+                            graph_store=self._graph_store,
+                            schema=self._schema,
+                            members=members,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        if error_policy is ErrorPolicy.RAISE:
+                            raise
+                        trace_id, span_id = record_stage_failure(exc)
+                        failures.append(
+                            StageFailure(
+                                item_id=",".join(str(member.id) for member in members),
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                                trace_id=trace_id,
+                                span_id=span_id,
+                            )
+                        )
+                        continue
+                materialized.append(materialization.resolved_entity)
+                replaced_ids.extend(materialization.removed_entity_ids)
+            failures.extend(
+                await _synchronize_resolved_entity_vectors(
+                    materialized,
+                    replaced_ids,
+                    embedder=self._embedder,
                     graph_store=self._graph_store,
-                    schema=self._schema,
-                    members=members,
+                    vector_store=self._vector_store,
+                    vector_collection=self._retrieval_settings.resolved_entity_collection,
+                    error_policy=error_policy,
                 )
-            except Exception as exc:  # noqa: BLE001
-                if error_policy is ErrorPolicy.RAISE:
-                    raise
-                failures.append(
-                    StageFailure(
-                        item_id=",".join(str(member.id) for member in members),
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
-                    )
-                )
-                continue
-            materialized.append(materialization.resolved_entity)
-            replaced_ids.extend(materialization.removed_entity_ids)
-        failures.extend(
-            await _synchronize_resolved_entity_vectors(
-                materialized,
-                replaced_ids,
-                embedder=self._embedder,
-                graph_store=self._graph_store,
-                vector_store=self._vector_store,
-                vector_collection=self._retrieval_settings.resolved_entity_collection,
-                error_policy=error_policy,
             )
-        )
-        return materialized, failures
+            return materialized, failures
 
     async def _prune_document_entities(self, candidates: list[UUID]) -> None:
         """Prune orphaned candidates and drop their stale vectors.
@@ -1416,19 +1442,23 @@ class Graph:
 
     async def deactivate_match(self, match_id: UUID) -> list[ResolvedEntity]:
         """Deactivate a semantic match and synchronize replacement retrieval vectors."""
-        result = await deactivate_match_and_rematerialize(
-            match_id, graph_store=self._graph_store, schema=self._schema
-        )
-        await _synchronize_resolved_entity_vectors(
-            result.resolved_entities,
-            result.removed_entity_ids,
-            embedder=self._embedder,
-            graph_store=self._graph_store,
-            vector_store=self._vector_store,
-            vector_collection=self._retrieval_settings.resolved_entity_collection,
-            error_policy=ErrorPolicy.RAISE,
-        )
-        return result.resolved_entities
+        with self._tracer.start_as_current_span(
+            "agrag.ingestion.deactivate_match",
+            attributes={"agrag.match_id": str(match_id)},
+        ):
+            result = await deactivate_match_and_rematerialize(
+                match_id, graph_store=self._graph_store, schema=self._schema
+            )
+            await _synchronize_resolved_entity_vectors(
+                result.resolved_entities,
+                result.removed_entity_ids,
+                embedder=self._embedder,
+                graph_store=self._graph_store,
+                vector_store=self._vector_store,
+                vector_collection=self._retrieval_settings.resolved_entity_collection,
+                error_policy=ErrorPolicy.RAISE,
+            )
+            return result.resolved_entities
 
     async def consolidate(self, *, apply: bool = False) -> ConsolidationReport:
         """Run non-destructive resolution against every persisted raw entity.
@@ -1454,92 +1484,100 @@ class Graph:
             A report of every confirmed non-exact match, applied or not,
             plus the count of uncertain LLM verdicts.
         """
-        would_match: list[MatchDecision] = []
-        ambiguous_count = 0
-        entities_by_id: dict[UUID, Entity] = {}
-        # For each label, fetch all entities, then pairwise compare via Resolver
-        for entity_type in self._schema.entities:
-            label = entity_type.label
-            all_entities = await self._all_entities_by_label(label)
-            if len(all_entities) < 2:
-                continue
-            synthetic_mentions, dummy_chunks_by_id = _synthesize_consolidation_mentions(
-                all_entities
-            )
-
-            candidate_source = GraphCandidateSource(
-                graph_store=self._graph_store,
-                embedder=self._embedder,
-                vector_store=self._vector_store,
-                vector_collection=self._retrieval_settings.entity_collection,
-                entity_labels=[entity.label for entity in self._schema.entities],
-            )
-            persisted_neighbors = await fetch_persisted_neighbors(
-                [entity.id for entity in all_entities],
-                graph_store=self._graph_store,
-                exclude_relation_types=SYSTEM_RELATION_TYPES,
-            )
-            neighbors_by_index = {
-                index: persisted_neighbors.get(entity.id, [])
-                for index, entity in enumerate(all_entities)
-            }
-            candidate_indices, similarity_by_pair = await persisted_candidate_indices(
-                synthetic_mentions,
-                all_entities,
-                source=candidate_source,
-            )
-            resolver = Resolver(
-                comparators=[
-                    ExactMatch(),
-                    FuzzyMatch(),
-                    LLMVerify(chunks_by_id=dummy_chunks_by_id),
-                ],
-                candidate_source=PersistedCandidateSource(candidate_indices),
-                embedder=self._embedder,
-            )
-            resolution_result = await resolver.resolve(
-                synthetic_mentions,
-                neighbors_by_index=neighbors_by_index,
-                similarity_by_pair=similarity_by_pair,
-            )
-            ambiguous_count += resolution_result.ambiguous_count
-            entities_by_id.update({entity.id: entity for entity in all_entities})
-            for match in resolution_result.matches:
-                would_match.append(
-                    MatchDecision(
-                        entity_a_id=all_entities[match.left_index].id,
-                        entity_b_id=all_entities[match.right_index].id,
-                        comparator=match.comparator,
-                        score=match.score,
-                        reasoning=match.reasoning,
-                        decided_at=match.decided_at,
-                    )
+        with self._tracer.start_as_current_span("agrag.ingestion.consolidate"):
+            would_match: list[MatchDecision] = []
+            ambiguous_count = 0
+            entities_by_id: dict[UUID, Entity] = {}
+            # For each label, fetch all entities, then pairwise compare via Resolver
+            for entity_type in self._schema.entities:
+                label = entity_type.label
+                all_entities = await self._all_entities_by_label(label)
+                if len(all_entities) < 2:
+                    continue
+                synthetic_mentions, dummy_chunks_by_id = (
+                    _synthesize_consolidation_mentions(all_entities)
                 )
 
-        consolidation_failures: list[StageFailure] = []
-        materialized_entities: list[ResolvedEntity] = []
-        if apply:
-            components: list[MatchComponent] = []
-            for decisions in match_decision_components(would_match):
-                member_ids = {decision.entity_a_id for decision in decisions} | {
-                    decision.entity_b_id for decision in decisions
+                candidate_source = GraphCandidateSource(
+                    graph_store=self._graph_store,
+                    embedder=self._embedder,
+                    vector_store=self._vector_store,
+                    vector_collection=self._retrieval_settings.entity_collection,
+                    entity_labels=[entity.label for entity in self._schema.entities],
+                )
+                persisted_neighbors = await fetch_persisted_neighbors(
+                    [entity.id for entity in all_entities],
+                    graph_store=self._graph_store,
+                    exclude_relation_types=SYSTEM_RELATION_TYPES,
+                )
+                neighbors_by_index = {
+                    index: persisted_neighbors.get(entity.id, [])
+                    for index, entity in enumerate(all_entities)
                 }
-                components.append(
-                    (decisions, [entities_by_id[member_id] for member_id in member_ids])
+                (
+                    candidate_indices,
+                    similarity_by_pair,
+                ) = await persisted_candidate_indices(
+                    synthetic_mentions,
+                    all_entities,
+                    source=candidate_source,
                 )
-            (
-                materialized_entities,
-                consolidation_failures,
-            ) = await self._materialize_components(
-                components, error_policy=ErrorPolicy.SKIP
-            )
+                resolver = Resolver(
+                    comparators=[
+                        ExactMatch(),
+                        FuzzyMatch(),
+                        LLMVerify(chunks_by_id=dummy_chunks_by_id),
+                    ],
+                    candidate_source=PersistedCandidateSource(candidate_indices),
+                    embedder=self._embedder,
+                    tracer=self._tracer,
+                )
+                resolution_result = await resolver.resolve(
+                    synthetic_mentions,
+                    neighbors_by_index=neighbors_by_index,
+                    similarity_by_pair=similarity_by_pair,
+                )
+                ambiguous_count += resolution_result.ambiguous_count
+                entities_by_id.update({entity.id: entity for entity in all_entities})
+                for match in resolution_result.matches:
+                    would_match.append(
+                        MatchDecision(
+                            entity_a_id=all_entities[match.left_index].id,
+                            entity_b_id=all_entities[match.right_index].id,
+                            comparator=match.comparator,
+                            score=match.score,
+                            reasoning=match.reasoning,
+                            decided_at=match.decided_at,
+                        )
+                    )
 
-        return ConsolidationReport(
-            would_match=would_match,
-            applied=apply and bool(materialized_entities),
-            failures=consolidation_failures,
-            ambiguous_count=ambiguous_count,
-        )
+            consolidation_failures: list[StageFailure] = []
+            materialized_entities: list[ResolvedEntity] = []
+            if apply:
+                components: list[MatchComponent] = []
+                for decisions in match_decision_components(would_match):
+                    member_ids = {decision.entity_a_id for decision in decisions} | {
+                        decision.entity_b_id for decision in decisions
+                    }
+                    components.append(
+                        (
+                            decisions,
+                            [entities_by_id[member_id] for member_id in member_ids],
+                        )
+                    )
+                (
+                    materialized_entities,
+                    consolidation_failures,
+                ) = await self._materialize_components(
+                    components, error_policy=ErrorPolicy.SKIP
+                )
+
+            return ConsolidationReport(
+                would_match=would_match,
+                applied=apply and bool(materialized_entities),
+                failures=consolidation_failures,
+                ambiguous_count=ambiguous_count,
+            )
 
     async def reevaluate(self, entity_ids: list[UUID]) -> ReevaluationReport:
         """Reevaluate matches among the given entities, adding and removing edges.
@@ -1566,122 +1604,139 @@ class Graph:
         Raises:
             ValueError: An id has no live persisted entity.
         """
-        unique_ids = list(dict.fromkeys(entity_ids))
-        if not unique_ids:
-            return ReevaluationReport()
-        entities_by_id = {
-            entity.id: entity
-            for entity in await self._hydrate_input_entities(unique_ids)
-        }
-        entities = [entities_by_id[e] for e in unique_ids]
-        mentions, dummy_chunks = _synthesize_consolidation_mentions(entities)
-        candidates_by_index = {
-            index: [
-                other
-                for other, peer in enumerate(mentions)
-                if other != index and peer.label == mention.label
-            ]
-            for index, mention in enumerate(mentions)
-        }
-        resolver = Resolver(
-            comparators=[
-                ExactMatch(),
-                FuzzyMatch(),
-                LLMVerify(chunks_by_id=dummy_chunks),
-            ],
-            candidate_source=PersistedCandidateSource(
-                {index: peers for index, peers in candidates_by_index.items() if peers}
-            ),
-            embedder=self._embedder,
-        )
-        resolution = await resolver.resolve(mentions)
-        confirmed = {
-            frozenset((unique_ids[m.left_index], unique_ids[m.right_index])): m
-            for m in resolution.matches
-        }
-        exact_pairs = {
-            frozenset((unique_ids[left], unique_ids[right]))
-            for left in range(len(mentions))
-            for right in range(left + 1, len(mentions))
-            if normalize_text(mentions[left].text)
-            == normalize_text(mentions[right].text)
-        }
-        edge_rows = await self._graph_store.execute_read(
-            fetch_active_matches_among_ids_query(),
-            {"ids": [str(e) for e in unique_ids], "job_id": None},
-        )
-        active: dict[frozenset[UUID], UUID] = {}
-        for row in edge_rows:
-            if not isinstance(row, dict):
-                continue
-            try:
-                pair = frozenset((UUID(str(row["a_id"])), UUID(str(row["b_id"]))))
-                match_id = UUID(str(row["match_id"]))
-            except (KeyError, TypeError, ValueError):
-                continue
-            if len(pair) == 2:
-                active.setdefault(pair, match_id)
-        decisions = sorted(
-            (
-                MatchDecision(
-                    entity_a_id=first,
-                    entity_b_id=second,
-                    comparator=match.comparator,
-                    score=match.score,
-                    reasoning=match.reasoning,
-                    decided_at=match.decided_at,
-                )
-                for pair, match in confirmed.items()
-                if pair not in active
-                for first, second in (sorted(pair, key=str),)
-            ),
-            key=lambda d: str(matches_id(d.entity_a_id, d.entity_b_id)),
-        )
-        materialized: list[ResolvedEntity] = []
-        replaced: list[UUID] = []
-        matches_added: list[MatchDecision] = []
-        for component in match_decision_components(decisions):
-            member_ids = {d.entity_a_id for d in component} | {
-                d.entity_b_id for d in component
+        with self._tracer.start_as_current_span(
+            "agrag.ingestion.reevaluate",
+            attributes={"agrag.entity_count": len(entity_ids)},
+        ):
+            unique_ids = list(dict.fromkeys(entity_ids))
+            if not unique_ids:
+                return ReevaluationReport()
+            entities_by_id = {
+                entity.id: entity
+                for entity in await self._hydrate_input_entities(unique_ids)
             }
-            materialization = await write_matches_and_materialize(
-                component,
+            entities = [entities_by_id[e] for e in unique_ids]
+            mentions, dummy_chunks = _synthesize_consolidation_mentions(entities)
+            candidates_by_index = {
+                index: [
+                    other
+                    for other, peer in enumerate(mentions)
+                    if other != index and peer.label == mention.label
+                ]
+                for index, mention in enumerate(mentions)
+            }
+            resolver = Resolver(
+                comparators=[
+                    ExactMatch(),
+                    FuzzyMatch(),
+                    LLMVerify(chunks_by_id=dummy_chunks),
+                ],
+                candidate_source=PersistedCandidateSource(
+                    {
+                        index: peers
+                        for index, peers in candidates_by_index.items()
+                        if peers
+                    }
+                ),
+                embedder=self._embedder,
+                tracer=self._tracer,
+            )
+            resolution = await resolver.resolve(mentions)
+            confirmed = {
+                frozenset((unique_ids[m.left_index], unique_ids[m.right_index])): m
+                for m in resolution.matches
+            }
+            exact_pairs = {
+                frozenset((unique_ids[left], unique_ids[right]))
+                for left in range(len(mentions))
+                for right in range(left + 1, len(mentions))
+                if normalize_text(mentions[left].text)
+                == normalize_text(mentions[right].text)
+            }
+            edge_rows = await self._graph_store.execute_read(
+                fetch_active_matches_among_ids_query(),
+                {"ids": [str(e) for e in unique_ids], "job_id": None},
+            )
+            active: dict[frozenset[UUID], UUID] = {}
+            for row in edge_rows:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    pair = frozenset((UUID(str(row["a_id"])), UUID(str(row["b_id"]))))
+                    match_id = UUID(str(row["match_id"]))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if len(pair) == 2:
+                    active.setdefault(pair, match_id)
+            decisions = sorted(
+                (
+                    MatchDecision(
+                        entity_a_id=first,
+                        entity_b_id=second,
+                        comparator=match.comparator,
+                        score=match.score,
+                        reasoning=match.reasoning,
+                        decided_at=match.decided_at,
+                    )
+                    for pair, match in confirmed.items()
+                    if pair not in active
+                    for first, second in (sorted(pair, key=str),)
+                ),
+                key=lambda d: str(matches_id(d.entity_a_id, d.entity_b_id)),
+            )
+            materialized: list[ResolvedEntity] = []
+            replaced: list[UUID] = []
+            matches_added: list[MatchDecision] = []
+            for component in match_decision_components(decisions):
+                member_ids = {d.entity_a_id for d in component} | {
+                    d.entity_b_id for d in component
+                }
+                with self._tracer.start_as_current_span(
+                    "agrag.merge.materialize_component",
+                    attributes={"agrag.member_count": len(member_ids)},
+                ):
+                    materialization = await write_matches_and_materialize(
+                        component,
+                        graph_store=self._graph_store,
+                        schema=self._schema,
+                        members=[entities_by_id[m] for m in member_ids],
+                    )
+                materialized.append(materialization.resolved_entity)
+                replaced.extend(materialization.removed_entity_ids)
+                matches_added.extend(component)
+            matches_removed: list[UUID] = []
+            removed_pairs: set[frozenset[UUID]] = set()
+            for pair, match_id in sorted(active.items(), key=lambda item: str(item[1])):
+                if pair in confirmed or pair in exact_pairs:
+                    continue
+                with self._tracer.start_as_current_span(
+                    "agrag.merge.deactivate_component",
+                    attributes={"agrag.match_id": str(match_id)},
+                ):
+                    deactivation = await deactivate_match_and_rematerialize(
+                        match_id, graph_store=self._graph_store, schema=self._schema
+                    )
+                materialized.extend(deactivation.resolved_entities)
+                replaced.extend(deactivation.removed_entity_ids)
+                matches_removed.append(match_id)
+                removed_pairs.add(pair)
+            await _synchronize_resolved_entity_vectors(
+                materialized,
+                list(dict.fromkeys(replaced)),
+                embedder=self._embedder,
                 graph_store=self._graph_store,
-                schema=self._schema,
-                members=[entities_by_id[m] for m in member_ids],
+                vector_store=self._vector_store,
+                vector_collection=self._retrieval_settings.resolved_entity_collection,
+                error_policy=ErrorPolicy.SKIP,
             )
-            materialized.append(materialization.resolved_entity)
-            replaced.extend(materialization.removed_entity_ids)
-            matches_added.extend(component)
-        matches_removed: list[UUID] = []
-        removed_pairs: set[frozenset[UUID]] = set()
-        for pair, match_id in sorted(active.items(), key=lambda item: str(item[1])):
-            if pair in confirmed or pair in exact_pairs:
-                continue
-            deactivation = await deactivate_match_and_rematerialize(
-                match_id, graph_store=self._graph_store, schema=self._schema
+            touched = {e for d in matches_added for e in (d.entity_a_id, d.entity_b_id)}
+            touched |= {e for pair in removed_pairs for e in pair}
+            return ReevaluationReport(
+                entities_reevaluated=unique_ids,
+                matches_added=matches_added,
+                matches_removed=matches_removed,
+                unchanged_count=sum(1 for e in unique_ids if e not in touched),
             )
-            materialized.extend(deactivation.resolved_entities)
-            replaced.extend(deactivation.removed_entity_ids)
-            matches_removed.append(match_id)
-            removed_pairs.add(pair)
-        await _synchronize_resolved_entity_vectors(
-            materialized,
-            list(dict.fromkeys(replaced)),
-            embedder=self._embedder,
-            graph_store=self._graph_store,
-            vector_store=self._vector_store,
-            vector_collection=self._retrieval_settings.resolved_entity_collection,
-            error_policy=ErrorPolicy.SKIP,
-        )
-        touched = {e for d in matches_added for e in (d.entity_a_id, d.entity_b_id)}
-        touched |= {e for pair in removed_pairs for e in pair}
-        return ReevaluationReport(
-            entities_reevaluated=unique_ids,
-            matches_added=matches_added,
-            matches_removed=matches_removed,
-            unchanged_count=sum(1 for e in unique_ids if e not in touched),
-        )
 
     async def _delete_stale_community_vectors(self) -> None:
         """Remove every community vector from the VectorStore, then return.
@@ -1753,165 +1808,183 @@ class Graph:
             agrag.ingestion.community.CommunityDetectionMissingExtraError:
                 graspologic-native is not installed.
         """
-        from agrag.common.data_models.community import (  # noqa: PLC0415
-            COMMUNITY_LABEL,
-            MEMBER_OF_RELATION,
-        )
-        from agrag.cypher.entities import hydrate_entities_by_id_query  # noqa: PLC0415
-        from agrag.ingestion.community import (  # noqa: PLC0415
-            compute_communities,
-            delete_all_communities,
-            embed_communities,
-            fetch_relation_edges,
-            generate_community_reports,
-            required_member_ids,
-        )
+        with self._tracer.start_as_current_span("agrag.ingestion.detect_communities"):
+            from agrag.common.data_models.community import (  # noqa: PLC0415
+                COMMUNITY_LABEL,
+                MEMBER_OF_RELATION,
+            )
+            from agrag.cypher.entities import (  # noqa: PLC0415
+                hydrate_entities_by_id_query,
+            )
+            from agrag.ingestion.community import (  # noqa: PLC0415
+                compute_communities,
+                delete_all_communities,
+                embed_communities,
+                fetch_relation_edges,
+                generate_community_reports,
+                required_member_ids,
+            )
 
-        edges = await fetch_relation_edges(self._graph_store)
-        if not edges:
+            edges = await fetch_relation_edges(self._graph_store)
+            if not edges:
+                if apply:
+                    async with self._graph_store.transaction() as tx:
+                        await delete_all_communities(tx)
+                    if self._vector_store is not None:
+                        try:
+                            await self._delete_stale_community_vectors()
+                        except Exception as exc:  # noqa: BLE001
+                            trace_id, span_id = record_stage_failure(exc)
+                            return CommunityDetectionReport(
+                                communities=[],
+                                applied=True,
+                                failures=[
+                                    StageFailure(
+                                        item_id="community_vector_store",
+                                        error_type=type(exc).__name__,
+                                        error_message=str(exc),
+                                        trace_id=trace_id,
+                                        span_id=span_id,
+                                    )
+                                ],
+                            )
+                    return CommunityDetectionReport(
+                        communities=[], applied=True, failures=[]
+                    )
+                return CommunityDetectionReport(
+                    communities=[], applied=False, failures=[]
+                )
+
+            communities = await asyncio.to_thread(
+                compute_communities,
+                edges,
+                max_cluster_size=max_cluster_size,
+                resolution=resolution,
+                seed=seed,
+            )
+
+            report_failures: list[StageFailure] = []
             if apply:
-                async with self._graph_store.transaction() as tx:
-                    await delete_all_communities(tx)
-                if self._vector_store is not None:
-                    try:
-                        await self._delete_stale_community_vectors()
-                    except Exception as exc:  # noqa: BLE001
-                        return CommunityDetectionReport(
-                            communities=[],
-                            applied=True,
-                            failures=[
+                if not communities:
+                    async with self._graph_store.transaction() as tx:
+                        await delete_all_communities(tx)
+                    if self._vector_store is not None:
+                        try:
+                            await self._delete_stale_community_vectors()
+                        except Exception as exc:  # noqa: BLE001
+                            trace_id, span_id = record_stage_failure(exc)
+                            report_failures.append(
                                 StageFailure(
                                     item_id="community_vector_store",
                                     error_type=type(exc).__name__,
                                     error_message=str(exc),
+                                    trace_id=trace_id,
+                                    span_id=span_id,
                                 )
-                            ],
-                        )
-                return CommunityDetectionReport(
-                    communities=[], applied=True, failures=[]
+                            )
+                    return CommunityDetectionReport(
+                        communities=[], applied=True, failures=report_failures
+                    )
+                needed_ids = required_member_ids(communities)
+                entities_by_id: dict[UUID, Entity] = {}
+                ids = list(needed_ids)
+                HYDRATE_BATCH = 1000  # noqa: N806
+                for i in range(0, len(ids), HYDRATE_BATCH):
+                    chunk_ids = ids[i : i + HYDRATE_BATCH]
+                    rows = await self._graph_store.execute_read(
+                        hydrate_entities_by_id_query(),
+                        {"ids": [str(x) for x in chunk_ids], "job_id": None},
+                    )
+                    entities_by_id.update(
+                        {
+                            ent.id: ent
+                            for row in rows
+                            if (
+                                ent := _parse_entity_node(row.get("n", row))  # type: ignore[arg-type]
+                            )
+                            is not None
+                        }
+                    )
+                report_failures = await generate_community_reports(
+                    communities,
+                    entities_by_id,
+                    edges=edges,
+                    error_policy=ErrorPolicy.SKIP,
+                    tracer=self._tracer,
                 )
-            return CommunityDetectionReport(communities=[], applied=False, failures=[])
+                report_failures += await embed_communities(
+                    communities, embedder=self._embedder, tracer=self._tracer
+                )
 
-        communities = await asyncio.to_thread(
-            compute_communities,
-            edges,
-            max_cluster_size=max_cluster_size,
-            resolution=resolution,
-            seed=seed,
-        )
-
-        report_failures: list[StageFailure] = []
-        if apply:
-            if not communities:
                 async with self._graph_store.transaction() as tx:
                     await delete_all_communities(tx)
+                    for i in range(0, len(communities), 5000):
+                        batch = communities[i : i + 5000]
+                        await tx.upsert_nodes(
+                            COMMUNITY_LABEL,
+                            [c.to_node_record() for c in batch],
+                        )
+                    buf: list[Any] = []
+                    for community in communities:
+                        for member_id in community.member_ids:
+                            buf.append(
+                                Relation(
+                                    id=uuid4(),
+                                    type=MEMBER_OF_RELATION,
+                                    source_id=member_id,
+                                    target_id=community.id,
+                                ).to_relation_record()
+                            )
+                            if len(buf) >= 5000:
+                                await tx.upsert_relations(buf)
+                                buf = []
+                    if buf:
+                        await tx.upsert_relations(buf)
+
                 if self._vector_store is not None:
                     try:
                         await self._delete_stale_community_vectors()
                     except Exception as exc:  # noqa: BLE001
+                        trace_id, span_id = record_stage_failure(exc)
                         report_failures.append(
                             StageFailure(
                                 item_id="community_vector_store",
                                 error_type=type(exc).__name__,
                                 error_message=str(exc),
+                                trace_id=trace_id,
+                                span_id=span_id,
                             )
                         )
-                return CommunityDetectionReport(
-                    communities=[], applied=True, failures=report_failures
-                )
-            needed_ids = required_member_ids(communities)
-            entities_by_id: dict[UUID, Entity] = {}
-            ids = list(needed_ids)
-            HYDRATE_BATCH = 1000  # noqa: N806
-            for i in range(0, len(ids), HYDRATE_BATCH):
-                chunk_ids = ids[i : i + HYDRATE_BATCH]
-                rows = await self._graph_store.execute_read(
-                    hydrate_entities_by_id_query(),
-                    {"ids": [str(x) for x in chunk_ids], "job_id": None},
-                )
-                entities_by_id.update(
-                    {
-                        ent.id: ent
-                        for row in rows
-                        if (
-                            ent := _parse_entity_node(row.get("n", row))  # type: ignore[arg-type]
+                    try:
+                        await _upsert_vectors(
+                            self._vector_store,
+                            self._retrieval_settings.community_collection,
+                            [
+                                _vector_record(
+                                    c.id,
+                                    c.embedding or [],
+                                    label=COMMUNITY_LABEL,
+                                    text=c.embedding_text,
+                                    properties=c.metadata,
+                                )
+                                for c in communities
+                                if c.embedding is not None
+                            ],
                         )
-                        is not None
-                    }
-                )
-            report_failures = await generate_community_reports(
-                communities,
-                entities_by_id,
-                edges=edges,
-                error_policy=ErrorPolicy.SKIP,
-            )
-            report_failures += await embed_communities(
-                communities, embedder=self._embedder
-            )
-
-            async with self._graph_store.transaction() as tx:
-                await delete_all_communities(tx)
-                for i in range(0, len(communities), 5000):
-                    batch = communities[i : i + 5000]
-                    await tx.upsert_nodes(
-                        COMMUNITY_LABEL,
-                        [c.to_node_record() for c in batch],
-                    )
-                buf: list[Any] = []
-                for community in communities:
-                    for member_id in community.member_ids:
-                        buf.append(
-                            Relation(
-                                id=uuid4(),
-                                type=MEMBER_OF_RELATION,
-                                source_id=member_id,
-                                target_id=community.id,
-                            ).to_relation_record()
-                        )
-                        if len(buf) >= 5000:
-                            await tx.upsert_relations(buf)
-                            buf = []
-                if buf:
-                    await tx.upsert_relations(buf)
-
-            if self._vector_store is not None:
-                try:
-                    await self._delete_stale_community_vectors()
-                except Exception as exc:  # noqa: BLE001
-                    report_failures.append(
-                        StageFailure(
-                            item_id="community_vector_store",
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
-                        )
-                    )
-                try:
-                    await _upsert_vectors(
-                        self._vector_store,
-                        self._retrieval_settings.community_collection,
-                        [
-                            _vector_record(
-                                c.id,
-                                c.embedding or [],
-                                label=COMMUNITY_LABEL,
-                                text=c.embedding_text,
-                                properties=c.metadata,
+                    except Exception as exc:  # noqa: BLE001
+                        trace_id, span_id = record_stage_failure(exc)
+                        report_failures.append(
+                            StageFailure(
+                                item_id="community_vector_store",
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                                trace_id=trace_id,
+                                span_id=span_id,
                             )
-                            for c in communities
-                            if c.embedding is not None
-                        ],
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    report_failures.append(
-                        StageFailure(
-                            item_id="community_vector_store",
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
                         )
-                    )
 
-        return CommunityDetectionReport(
-            communities=communities,
-            applied=apply and bool(communities),
-            failures=report_failures,
-        )
+            return CommunityDetectionReport(
+                communities=communities,
+                applied=apply and bool(communities),
+                failures=report_failures,
+            )
