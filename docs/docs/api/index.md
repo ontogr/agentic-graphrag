@@ -16937,10 +16937,7 @@ Return a usable tracer.
 
 **Returns:**
 
-- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – The supplied tracer, or an `opentelemetry.trace.NoOpTracer` when the
-- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – caller passed `None`. Never reaches a global `TracerProvider`, so a
-- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – host application's own global SDK configuration never causes agrag to
-- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – emit spans a caller did not explicitly ask for.
+- <code>[Tracer](#opentelemetry.trace.Tracer)</code> – agrag uses the supplied tracer or a no-op for `None` and skips global tracing.
 
 ### `agrag.retrieval`
 

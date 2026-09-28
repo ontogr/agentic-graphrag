@@ -33,7 +33,7 @@ from agrag.ingestion.graph import Graph
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 
 
-class MockEmbedder(Embedder):
+class _MockEmbedder(Embedder):
     """Embedder that returns a fixed vector."""
 
     model = "fake"
@@ -47,7 +47,7 @@ class MockEmbedder(Embedder):
         return [[1.0, 2.0, 3.0] for _ in texts]
 
 
-class MockExtractor(Extractor):
+class _MockExtractor(Extractor):
     """Extractor that returns a canned result and records calls."""
 
     def __init__(self, result: ExtractionResult | None = None) -> None:
@@ -109,8 +109,8 @@ class TestLoadSpanTracing:
         graph = await Graph.open(
             schema=GENERIC,
             graph_store=store,
-            embedder=MockEmbedder(),
-            extractor=MockExtractor(),
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
             tracer=provider.get_tracer("agrag-test"),
         )
         try:

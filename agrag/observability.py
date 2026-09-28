@@ -18,10 +18,7 @@ def get_tracer(tracer: Tracer | None) -> Tracer:
         tracer: A caller-supplied tracer, or ``None`` for an explicit no-op tracer.
 
     Returns:
-        The supplied tracer, or an ``opentelemetry.trace.NoOpTracer`` when the
-        caller passed ``None``. Never reaches a global ``TracerProvider``, so a
-        host application's own global SDK configuration never causes agrag to
-        emit spans a caller did not explicitly ask for.
+        agrag uses the supplied tracer or a no-op for ``None`` and skips global tracing.
     """
     if tracer is None:
         return trace.NoOpTracer()
