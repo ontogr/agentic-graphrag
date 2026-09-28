@@ -799,6 +799,7 @@ class Graph:
                         extractor=self._extractor,
                         schema=self._schema,
                         error_policy=error_policy,
+                        tracer=self._tracer,
                     )
                     entities.extend(batch_entities)
                     relations.extend(batch_relations)
@@ -843,6 +844,7 @@ class Graph:
                         extractor=self._extractor,
                         schema=self._schema,
                         error_policy=error_policy,
+                        tracer=self._tracer,
                     )
                     entities.extend(batch_entities)
                     relations.extend(batch_relations)
