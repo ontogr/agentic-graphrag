@@ -582,10 +582,12 @@ class BAMLExtractor(Extractor):
         # call_with_retry recognizes as permanently unretryable (an invalid
         # argument or a non-429 4xx); narrow further if that proves noisy.
         raw = await call_with_retry(
-            lambda: client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
-                chunk.text, call_options
+            lambda options: client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
+                chunk.text, options
             ),
             retry,
+            options=call_options,
+            function="ExtractEntitiesAndRelations",
         )
         return _normalize_extraction_result(self._to_result(raw, chunk, schema), schema)
 

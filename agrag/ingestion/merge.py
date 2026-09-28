@@ -227,10 +227,13 @@ async def resolve_description(
 
         descriptions = [str(candidate) for candidate in distinct]
         result = await call_with_retry(
-            lambda: active_client.SummarizeDescriptions(
-                descriptions=descriptions, baml_options=baml_options
+            lambda options: active_client.SummarizeDescriptions(
+                descriptions=descriptions,
+                baml_options=cast("BamlCallOptions", options),
             ),
             retry,  # type: ignore[misc]
+            options=baml_options,
+            function="SummarizeDescriptions",
         )
         return result, True, None
     except Exception as exc:  # noqa: BLE001

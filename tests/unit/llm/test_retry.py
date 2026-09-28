@@ -36,7 +36,7 @@ class TestCallWithRetry:
         """A call that succeeds immediately runs exactly once."""
         calls = 0
 
-        async def call() -> str:
+        async def call(options) -> str:
             nonlocal calls
             calls += 1
             return "ok"
@@ -56,7 +56,7 @@ class TestCallWithRetry:
 
         calls = 0
 
-        async def call() -> str:
+        async def call(options) -> str:
             nonlocal calls
             calls += 1
             if calls < 3:
@@ -81,7 +81,7 @@ class TestCallWithRetry:
 
         monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
 
-        async def call() -> str:
+        async def call(options) -> str:
             raise RuntimeError("still failing")
 
         with pytest.raises(RuntimeError, match="still failing"):
@@ -91,7 +91,7 @@ class TestCallWithRetry:
         """max_retries=0 means one attempt, no sleep, immediate failure."""
         calls = 0
 
-        async def call() -> str:
+        async def call(options) -> str:
             nonlocal calls
             calls += 1
             raise RuntimeError("boom")
@@ -111,7 +111,7 @@ class TestCallWithRetry:
 
         calls = 0
 
-        async def call() -> str:
+        async def call(options) -> str:
             nonlocal calls
             calls += 1
             if calls <= 3:
@@ -134,7 +134,7 @@ class TestPermanentBamlFailures:
 
         calls = 0
 
-        async def call() -> str:
+        async def call(options) -> str:
             nonlocal calls
             calls += 1
             raise BamlInvalidArgumentError("bad argument")
@@ -149,7 +149,7 @@ class TestPermanentBamlFailures:
 
         calls = 0
 
-        async def call() -> str:
+        async def call(options) -> str:
             nonlocal calls
             calls += 1
             raise BamlClientHttpError("client", "unauthorized", 401, "detail")
@@ -169,7 +169,7 @@ class TestPermanentBamlFailures:
 
         calls = 0
 
-        async def call() -> str:
+        async def call(options) -> str:
             nonlocal calls
             calls += 1
             if calls < 2:
@@ -191,7 +191,7 @@ class TestPermanentBamlFailures:
 
         calls = 0
 
-        async def call() -> str:
+        async def call(options) -> str:
             nonlocal calls
             calls += 1
             if calls < 2:

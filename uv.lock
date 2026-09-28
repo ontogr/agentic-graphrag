@@ -59,6 +59,7 @@ dependencies = [
     { name = "charset-normalizer" },
     { name = "chonkie" },
     { name = "markdown-it-py" },
+    { name = "openinference-semantic-conventions" },
     { name = "opentelemetry-api" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -109,7 +110,6 @@ neo4j = [
 ]
 observability = [
     { name = "openinference-instrumentation-langchain" },
-    { name = "openinference-semantic-conventions" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-instrumentation-asyncio" },
     { name = "opentelemetry-sdk" },
@@ -163,7 +163,7 @@ requires-dist = [
     { name = "neo4j", marker = "extra == 'neo4j'", specifier = ">=5.0" },
     { name = "openinference-instrumentation-langchain", marker = "extra == 'eval'", specifier = ">=0.1.76,<0.2" },
     { name = "openinference-instrumentation-langchain", marker = "extra == 'observability'", specifier = ">=0.1.76,<0.2" },
-    { name = "openinference-semantic-conventions", marker = "extra == 'observability'" },
+    { name = "openinference-semantic-conventions" },
     { name = "opentelemetry-api", specifier = ">=1.20" },
     { name = "opentelemetry-exporter-otlp", marker = "extra == 'observability'", specifier = ">=1.20" },
     { name = "opentelemetry-instrumentation-asyncio", marker = "extra == 'observability'" },

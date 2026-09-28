@@ -29,6 +29,7 @@ dependencies = [
   "python-dotenv>=1.0",
   "chonkie>=1.7",            # bare install, no chonkie extras
   "opentelemetry-api>=1.20", # API only; the SDK stays optional
+  "openinference-semantic-conventions",
   "charset-normalizer>=3.4",
   "markdown-it-py>=3.0",
   "selectolax>=0.3.21",
@@ -47,7 +48,6 @@ observability = [
   "opentelemetry-sdk>=1.20",
   "opentelemetry-exporter-otlp>=1.20",
   "opentelemetry-instrumentation-asyncio",
-  "openinference-semantic-conventions",
   "openinference-instrumentation-langchain>=0.1.76,<0.2",
 ]
 llm = [

@@ -344,10 +344,12 @@ class LLMVerify(Comparator):
                 )
             ]
             results = await call_with_retry(
-                lambda: client.VerifyEntityMatches(  # ty: ignore[unresolved-attribute]
-                    inputs, baml_options
+                lambda options: client.VerifyEntityMatches(  # ty: ignore[unresolved-attribute]
+                    inputs, options
                 ),
                 retry,
+                options=baml_options,
+                function="VerifyEntityMatches",
             )
         except ExtractorMissingExtraError:
             raise
