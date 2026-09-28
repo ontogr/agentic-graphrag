@@ -23,7 +23,7 @@ from agrag.loaders.corpus.types import (
     ReadOptions,
     SourceRef,
 )
-from agrag.observability import traced
+from agrag.observability import get_tracer
 
 
 def _source_ref_for(path: Path) -> SourceRef:
@@ -73,7 +73,7 @@ class _CorpusWalk:
         self._batch_size = batch_size
         self._tracer = tracer
 
-    async def iter_batches(
+    async def iter_batches(  # noqa: PLR0912,PLR0915
         self, *, start: LoaderCursor | None = None
     ) -> AsyncIterator[tuple[list[Document], LoaderCursor, LoadStats]]:
         """Yield (documents, cursor, stats) batches in deterministic order.
@@ -129,14 +129,49 @@ class _CorpusWalk:
             source_cursor = cursor
             try:
                 with self._open(path) as stream:
-                    for doc in traced(self._tracer)(loader.load)(
-                        source, stream, self._opts, start_at=resume_index
-                    ):
+                    # Calling the loader does no real work before the first
+                    # item is requested: every current loader only yields
+                    # documents once iterated. The iter call below is
+                    # defensive for a loader that returns something already
+                    # iterator-shaped.
+                    loader_iter = iter(
+                        loader.load(source, stream, self._opts, start_at=resume_index)
+                    )
+                    tracer = get_tracer(self._tracer)
+                    while True:
+                        with tracer.start_as_current_span(
+                            "agrag.ingestion.load_document",
+                            attributes={
+                                "agrag.source_uri": uri,
+                                "agrag.loader_name": type(loader).__name__,
+                            },
+                        ) as span:
+                            # None, not a sentinel object(), so `doc` stays
+                            # typed as Document | None and `if doc is None:`
+                            # narrows cleanly -- Iterator[Document] never
+                            # yields None itself.
+                            doc = next(loader_iter, None)
+                            record_index = None
+                            if doc is None:
+                                span.set_attribute("agrag.loader_exhausted", True)
+                            else:
+                                attributes: dict[str, str | int] = {
+                                    "agrag.document_key": doc.resolved_document_key
+                                }
+                                if loader.family == DocumentFamily.RECORD:
+                                    resume_position += 1
+                                    record_index = resume_position
+                                    # This is the LoaderCursor resume value
+                                    # (1-based count of records consumed so far
+                                    # for this source), not the document's own
+                                    # 0-based position -- named for what it
+                                    # actually is to avoid implying a 0-based
+                                    # index.
+                                    attributes["agrag.resume_cursor"] = record_index
+                                span.set_attributes(attributes)
+                        if doc is None:
+                            break
                         source_batch.append(doc)
-                        record_index = None
-                        if loader.family == DocumentFamily.RECORD:
-                            resume_position += 1
-                            record_index = resume_position
                         source_cursor = LoaderCursor(uri=uri, record_index=record_index)
                         if len(batch) + len(source_batch) >= self._batch_size:
                             # Only count documents once they are actually

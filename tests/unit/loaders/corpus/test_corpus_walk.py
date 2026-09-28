@@ -10,10 +10,18 @@ yielded documents or double-counting stats.
 """
 
 from collections.abc import Iterator
+from contextlib import aclosing
 from pathlib import Path
 from typing import BinaryIO
 
 import pytest
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import StatusCode
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.loaders.corpus import registry
@@ -281,3 +289,240 @@ class TestInMemoryWalk:
         assert len(batches) == 1
         assert batches[0][0].text == "hello world"
         assert batches[0][0].uri.startswith("inline://")
+
+
+class _FiveDocumentLoader(Loader):
+    """A stub record loader yielding five in-memory documents."""
+
+    extensions = frozenset({".txt"})
+    family = DocumentFamily.RECORD
+
+    def load(
+        self,
+        source: SourceRef,
+        stream: BinaryIO,
+        opts: ReadOptions,
+        *,
+        start_at: int = 0,
+    ) -> Iterator[Document]:
+        """Yield five record documents from ``start_at`` onward."""
+        for index in range(start_at, 5):
+            yield Document(
+                text=f"row {index}",
+                title=str(index),
+                uri=source.uri,
+                source_format=SourceFormat.TXT,
+                family=DocumentFamily.RECORD,
+                content_hash=f"five-{index}",
+                loader_name="five",
+                char_count=5,
+                record_index=index,
+            )
+
+
+def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
+    """Return a provider wired to an in-memory exporter."""
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider, exporter
+
+
+class TestCorpusWalkTracing:
+    """Load spans close per document and never leak across a yield."""
+
+    async def test_five_documents_produce_six_spans_with_attributes(
+        self, tmp_path: Path
+    ) -> None:
+        """Five documents emit five spans plus one exhausted span."""
+        path = tmp_path / "five.txt"
+        path.write_text("x")
+        provider, exporter = _tracing_provider()
+        walk = _CorpusWalk(
+            [path],
+            registry=registry,
+            opts=ReadOptions(),
+            loader=_FiveDocumentLoader(),
+            batch_size=2,
+            tracer=provider.get_tracer("test"),
+        )
+        docs: list[Document] = []
+        async for batch, _cursor, _stats in walk.iter_batches():
+            docs.extend(batch)
+        assert len(docs) == 5
+
+        spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.ingestion.load_document"
+        ]
+        assert len(spans) == 6
+        document_spans = [
+            span
+            for span in spans
+            if span.attributes
+            and span.attributes.get("agrag.loader_exhausted") is not True
+        ]
+        exhausted = [
+            span
+            for span in spans
+            if span.attributes and span.attributes.get("agrag.loader_exhausted") is True
+        ]
+        assert len(document_spans) == 5
+        assert len(exhausted) == 1
+        for span, document in zip(document_spans, docs, strict=True):
+            assert span.attributes is not None
+            assert span.attributes["agrag.source_uri"] == str(path.resolve())
+            assert span.attributes["agrag.loader_name"] == "_FiveDocumentLoader"
+            assert (
+                span.attributes["agrag.document_key"] == document.resolved_document_key
+            )
+        assert [
+            (span.attributes or {})["agrag.resume_cursor"] for span in document_spans
+        ] == [
+            1,
+            2,
+            3,
+            4,
+            5,
+        ]
+
+    async def test_resume_offsets_the_resume_cursor(self, tmp_path: Path) -> None:
+        """Resuming at record 2 makes the first span carry cursor 3."""
+        path = tmp_path / "five.txt"
+        path.write_text("x")
+        provider, exporter = _tracing_provider()
+        start = LoaderCursor(uri=str(path.resolve()), record_index=2)
+        walk = _CorpusWalk(
+            [path],
+            registry=registry,
+            opts=ReadOptions(),
+            loader=_FiveDocumentLoader(),
+            batch_size=2,
+            tracer=provider.get_tracer("test"),
+        )
+        docs: list[Document] = []
+        async for batch, _cursor, _stats in walk.iter_batches(start=start):
+            docs.extend(batch)
+        assert len(docs) == 3
+        spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.ingestion.load_document"
+        ]
+        document_spans = [
+            span
+            for span in spans
+            if not (span.attributes or {}).get("agrag.loader_exhausted")
+        ]
+        assert document_spans[0].attributes is not None
+        assert document_spans[0].attributes["agrag.resume_cursor"] == 3
+
+    async def test_no_span_is_current_after_a_batch_yield(self, tmp_path: Path) -> None:
+        """The loader span never stays current across iter_batches' yield."""
+        path = tmp_path / "five.txt"
+        path.write_text("x")
+        provider, _exporter = _tracing_provider()
+        walk = _CorpusWalk(
+            [path],
+            registry=registry,
+            opts=ReadOptions(),
+            loader=_FiveDocumentLoader(),
+            batch_size=2,
+            tracer=provider.get_tracer("test"),
+        )
+        seen_batches = 0
+        async for _batch, _cursor, _stats in walk.iter_batches():
+            assert trace.get_current_span() is trace.INVALID_SPAN
+            seen_batches += 1
+        assert seen_batches > 1
+
+    async def test_single_prose_document_produces_two_spans(
+        self, tmp_path: Path
+    ) -> None:
+        """One prose document emits one span plus one exhausted span."""
+        path = tmp_path / "sample.txt"
+        path.write_text("hello")
+        provider, exporter = _tracing_provider()
+        walk = _CorpusWalk(
+            [path],
+            registry=registry,
+            opts=ReadOptions(),
+            batch_size=2,
+            tracer=provider.get_tracer("test"),
+        )
+        docs: list[Document] = []
+        async for batch, _cursor, _stats in walk.iter_batches():
+            assert trace.get_current_span() is trace.INVALID_SPAN
+            docs.extend(batch)
+        assert len(docs) == 1
+        spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.ingestion.load_document"
+        ]
+        assert len(spans) == 2
+        assert (
+            sum(
+                1
+                for span in spans
+                if (span.attributes or {}).get("agrag.loader_exhausted") is True
+            )
+            == 1
+        )
+
+    async def test_loader_error_records_on_span_without_exhausted(
+        self, tmp_path: Path
+    ) -> None:
+        """A mid-source failure errors its span and emits no exhausted span."""
+        path = tmp_path / "bad.txt"
+        path.write_text("x")
+        provider, exporter = _tracing_provider()
+        walk = _CorpusWalk(
+            [path],
+            registry=registry,
+            opts=ReadOptions(),
+            error_policy=ErrorPolicy.SKIP,
+            loader=_PartiallyRaisingLoader(),
+            tracer=provider.get_tracer("test"),
+        )
+        docs: list[Document] = []
+        final_stats = None
+        async for batch, _cursor, stats in walk.iter_batches():
+            docs.extend(batch)
+            final_stats = stats
+        assert docs == []
+        assert final_stats is not None
+        assert final_stats.skipped == 1
+        spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.ingestion.load_document"
+        ]
+        assert spans
+        assert not any(
+            (span.attributes or {}).get("agrag.loader_exhausted") is True
+            for span in spans
+        )
+        assert any(span.status.status_code == StatusCode.ERROR for span in spans)
+
+    async def test_early_close_leaves_no_error_span(self, tmp_path: Path) -> None:
+        """Closing the walk early ends cleanly with no spurious error."""
+        path = tmp_path / "five.txt"
+        path.write_text("x")
+        provider, exporter = _tracing_provider()
+        walk = _CorpusWalk(
+            [path],
+            registry=registry,
+            opts=ReadOptions(),
+            loader=_FiveDocumentLoader(),
+            batch_size=2,
+            tracer=provider.get_tracer("test"),
+        )
+        async with aclosing(walk.iter_batches()) as batches:
+            async for _batch, _cursor, _stats in batches:
+                break
+        assert not any(
+            span.status.status_code == StatusCode.ERROR
+            for span in exporter.get_finished_spans()
+        )

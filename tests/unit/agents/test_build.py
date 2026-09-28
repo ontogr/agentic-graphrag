@@ -120,7 +120,9 @@ class TestBuildAgent:
         await agent.ainvoke({"messages": [{"role": "user", "content": "q"}]})
 
         run_span = next(
-            span for span in exporter.get_finished_spans() if span.name == "agent.run"
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.agents.run"
         )
         assert span_ids == {
             "search": [run_span.context.span_id],
