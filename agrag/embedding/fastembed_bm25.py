@@ -4,8 +4,11 @@ import asyncio
 from collections.abc import Sequence
 from typing import Any
 
+from opentelemetry.trace import SpanKind, Tracer
+
 from agrag.embedding.errors import EmbeddingMissingExtraError
 from agrag.embedding.sparse_base import SparseEmbedder, SparseVector
+from agrag.observability import get_tracer
 
 
 DEFAULT_BM25_MODEL = "Qdrant/bm25"
@@ -21,15 +24,19 @@ class FastEmbedBM25Embedder(SparseEmbedder):
     ``EmbeddingMissingExtraError`` rather than ``ImportError``.
     """
 
-    def __init__(self, *, model: str | None = None) -> None:
+    def __init__(
+        self, *, model: str | None = None, tracer: Tracer | None = None
+    ) -> None:
         """Build the embedder.
 
         Args:
             model: The FastEmbed BM25 model name. Defaults to FastEmbed's
                 built-in BM25 model.
+            tracer: Opens every span this embedder's methods produce.
         """
         self._model_name = model
         self._model: Any = None
+        self._tracer = get_tracer(tracer)
         self._model_lock = asyncio.Lock()
 
     @property
@@ -75,7 +82,12 @@ class FastEmbedBM25Embedder(SparseEmbedder):
             return self._model
         async with self._model_lock:
             if self._model is None:
-                self._model = await asyncio.to_thread(self._build_model)
+                with self._tracer.start_as_current_span(
+                    "agrag.embedding.model_load",
+                    kind=SpanKind.INTERNAL,
+                    attributes={"agrag.model": self.model},
+                ):
+                    self._model = await asyncio.to_thread(self._build_model)
         return self._model
 
     async def embed(self, texts: Sequence[str]) -> list[SparseVector]:
@@ -95,7 +107,12 @@ class FastEmbedBM25Embedder(SparseEmbedder):
         def _encode() -> list[Any]:
             return list(model.embed(list(texts)))
 
-        raw = await asyncio.to_thread(_encode)
+        with self._tracer.start_as_current_span(
+            "agrag.embedding.encode",
+            kind=SpanKind.INTERNAL,
+            attributes={"agrag.text_count": len(texts)},
+        ):
+            raw = await asyncio.to_thread(_encode)
         return self._to_sparse_vectors(raw)
 
     async def query_embed(self, texts: Sequence[str]) -> list[SparseVector]:
@@ -118,7 +135,12 @@ class FastEmbedBM25Embedder(SparseEmbedder):
         def _encode() -> list[Any]:
             return list(model.query_embed(list(texts)))
 
-        raw = await asyncio.to_thread(_encode)
+        with self._tracer.start_as_current_span(
+            "agrag.embedding.query_embed",
+            kind=SpanKind.INTERNAL,
+            attributes={"agrag.text_count": len(texts)},
+        ):
+            raw = await asyncio.to_thread(_encode)
         return self._to_sparse_vectors(raw)
 
     @staticmethod
