@@ -164,9 +164,9 @@ class _CorpusWalk:
                             if doc is None:
                                 span.set_attribute("agrag.loader_exhausted", True)
                             else:
-                                span.set_attribute(
-                                    "agrag.document_key", doc.resolved_document_key
-                                )
+                                attributes: dict[str, str | int] = {
+                                    "agrag.document_key": doc.resolved_document_key
+                                }
                                 if loader.family == DocumentFamily.RECORD:
                                     resume_position += 1
                                     record_index = resume_position
@@ -176,9 +176,8 @@ class _CorpusWalk:
                                     # 0-based position -- named for what it
                                     # actually is to avoid implying a 0-based
                                     # index.
-                                    span.set_attribute(
-                                        "agrag.resume_cursor", record_index
-                                    )
+                                    attributes["agrag.resume_cursor"] = record_index
+                                span.set_attributes(attributes)
                         if doc is None:
                             break
                         source_batch.append(doc)
