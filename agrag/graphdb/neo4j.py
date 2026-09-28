@@ -3,6 +3,7 @@
 import array
 import asyncio
 import contextlib
+import json
 import numbers
 from collections import defaultdict
 from collections.abc import AsyncIterator, Mapping, Sequence
@@ -83,13 +84,13 @@ def _is_number(value: Any) -> bool:
 def _is_vector_value(value: Any) -> bool:
     """Return whether ``value`` is an embedding vector.
 
-    A vector is a non-empty list, tuple, or array whose items are all
+    A vector is a non-empty list, tuple, set, or array whose items are all
     numbers, or a numeric numpy-style array. Vectors are excluded from
     span attributes; only the remaining parameter values are recorded.
     """
     if isinstance(value, array.array):
         return len(value) > 0 and all(_is_number(item) for item in value)
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, (list, tuple, set)):
         return len(value) > 0 and all(_is_number(item) for item in value)
     dtype = getattr(value, "dtype", None)
     if (
@@ -106,8 +107,8 @@ def _strip_vector_fields(value: Any) -> Any:
     """Return ``value`` with vector-valued fields removed.
 
     Vector-valued mapping fields are dropped and vector items are
-    dropped from sequences; the rest is kept as is, recursing into
-    nested mappings and sequences.
+    dropped from sequences and sets; the rest is kept as is, recursing
+    into nested mappings and sequences.
     """
     if isinstance(value, Mapping):
         return {
@@ -123,7 +124,31 @@ def _strip_vector_fields(value: Any) -> Any:
         return tuple(
             _strip_vector_fields(item) for item in value if not _is_vector_value(item)
         )
+    if isinstance(value, (set, frozenset)):
+        return {
+            _strip_vector_fields(item) for item in value if not _is_vector_value(item)
+        }
+    if isinstance(value, array.array):
+        return list(value)
     return value
+
+
+def _serialize_param_value(value: Any) -> str:
+    """Serialize a stripped parameter value to a span attribute string.
+
+    Scalars use ``str()``; dicts, lists, tuples, and sets use
+    ``json.dumps`` (``default=str`` so UUIDs and other non-JSON scalars
+    still serialize), with ``str()`` as the fallback for anything
+    ``json.dumps`` rejects.
+    """
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        try:
+            if isinstance(value, (set, frozenset)):
+                return json.dumps(sorted(value, key=repr), default=str)
+            return json.dumps(value, default=str)
+        except (TypeError, ValueError):
+            return str(value)
+    return str(value)
 
 
 def _query_parameter_attributes(
@@ -132,7 +157,8 @@ def _query_parameter_attributes(
     """Build ``db.query.parameter.<key>`` span attributes.
 
     Skips vector-valued parameters and strips vector-valued fields
-    from nested dictionaries before serializing each value to a string.
+    from nested dictionaries (including nested record dicts) before
+    serializing each value to a string.
     """
     if not parameters:
         return {}
@@ -140,7 +166,7 @@ def _query_parameter_attributes(
     for key, value in parameters.items():
         if _is_vector_value(value):
             continue
-        attributes[f"{DB_QUERY_PARAMETER_PREFIX}{key}"] = str(
+        attributes[f"{DB_QUERY_PARAMETER_PREFIX}{key}"] = _serialize_param_value(
             _strip_vector_fields(value)
         )
     return attributes
