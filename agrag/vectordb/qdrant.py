@@ -5,6 +5,8 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
+from opentelemetry.trace import SpanKind, Tracer
+
 from agrag.common.data_models.vector_record import (
     PENDING_VECTOR_FLAG,
     Distance,
@@ -18,6 +20,7 @@ from agrag.common.validation import (
 )
 from agrag.embedding.fastembed_bm25 import FastEmbedBM25Embedder
 from agrag.embedding.sparse_base import SparseEmbedder
+from agrag.observability import DB_COLLECTION_NAME, DB_SYSTEM_NAME, get_tracer
 from agrag.vectordb.base import VectorStore
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
@@ -79,6 +82,7 @@ class QdrantVectorStore(VectorStore):
         sparse_embedder: SparseEmbedder | None = None,
         client: Any | None = None,
         models: Any | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Build the store.
 
@@ -93,11 +97,13 @@ class QdrantVectorStore(VectorStore):
             models: The ``qdrant_client.models`` module, for tests. Pair with
                 ``client`` so filter/payload helpers work without needing the
                 real ``qdrant_client`` package installed at all.
+            tracer: Opens this store's spans.
         """
         self._settings = settings or QdrantSettings()
         self._sparse_embedder = sparse_embedder
         self._client: Any = client
         self._models: Any = models
+        self._tracer = get_tracer(tracer)
         self._client_lock = asyncio.Lock()
         self._hybrid_collections: set[str] = set()
         self._checked_collections: set[str] = set()
@@ -121,22 +127,25 @@ class QdrantVectorStore(VectorStore):
         async with self._client_lock:
             if self._client is not None and self._models is not None:
                 return self._client
-            if self._models is None:
-                try:
-                    # Lazy import: a clean install must raise
-                    # VectorStoreMissingExtraError, not ImportError, when
-                    # qdrant-client is absent.
-                    from qdrant_client import models  # noqa: PLC0415
-                except ImportError as exc:
-                    raise VectorStoreMissingExtraError("qdrant") from exc
-                self._models = models
-            if self._client is None:
-                from qdrant_client import AsyncQdrantClient  # noqa: PLC0415
+            with self._tracer.start_as_current_span(
+                "agrag.vectordb.build_client", kind=SpanKind.INTERNAL
+            ):
+                if self._models is None:
+                    try:
+                        # Lazy import: a clean install must raise
+                        # VectorStoreMissingExtraError, not ImportError, when
+                        # qdrant-client is absent.
+                        from qdrant_client import models  # noqa: PLC0415
+                    except ImportError as exc:
+                        raise VectorStoreMissingExtraError("qdrant") from exc
+                    self._models = models
+                if self._client is None:
+                    from qdrant_client import AsyncQdrantClient  # noqa: PLC0415
 
-                self._client = AsyncQdrantClient(
-                    url=self._settings.url,
-                    api_key=self._settings.api_key or None,
-                )
+                    self._client = AsyncQdrantClient(
+                        url=self._settings.url,
+                        api_key=self._settings.api_key or None,
+                    )
         return self._client
 
     def _ensure_sparse_embedder(self) -> SparseEmbedder:
@@ -146,7 +155,7 @@ class QdrantVectorStore(VectorStore):
             The sparse embedder hybrid search uses.
         """
         if self._sparse_embedder is None:
-            self._sparse_embedder = FastEmbedBM25Embedder()
+            self._sparse_embedder = FastEmbedBM25Embedder(tracer=self._tracer)
         return self._sparse_embedder
 
     def _qdrant_distance(self, distance: Distance) -> Any:
@@ -466,28 +475,46 @@ class QdrantVectorStore(VectorStore):
         """
         require_positive_batch_size(batch_size)
         client = await self._ensure_client()
-        sparse_vectors: list[Any] | None = None
-        if await self._is_hybrid(client, collection):
-            texts = [
-                str(record.payload.get(_TEXT_PAYLOAD_FIELD, "")) for record in records
-            ]
-            sparse_vectors = await self._ensure_sparse_embedder().embed(texts)
-        for start in range(0, len(records), batch_size):
-            batch = records[start : start + batch_size]
-            batch_sparse = (
-                sparse_vectors[start : start + batch_size]
-                if sparse_vectors is not None
-                else [None] * len(batch)
-            )
-            points = [
-                self._models.PointStruct(
-                    id=str(record.id),
-                    vector=self._point_vector(record, sparse),
-                    payload=record.payload,
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.upsert",
+            kind=SpanKind.INTERNAL,
+            attributes={
+                DB_COLLECTION_NAME: collection,
+                "agrag.record_count": len(records),
+            },
+        ):
+            sparse_vectors: list[Any] | None = None
+            if await self._is_hybrid(client, collection):
+                texts = [
+                    str(record.payload.get(_TEXT_PAYLOAD_FIELD, ""))
+                    for record in records
+                ]
+                sparse_vectors = await self._ensure_sparse_embedder().embed(texts)
+            for start in range(0, len(records), batch_size):
+                batch = records[start : start + batch_size]
+                batch_sparse = (
+                    sparse_vectors[start : start + batch_size]
+                    if sparse_vectors is not None
+                    else [None] * len(batch)
                 )
-                for record, sparse in zip(batch, batch_sparse, strict=True)
-            ]
-            await client.upsert(collection_name=collection, points=points)
+                points = [
+                    self._models.PointStruct(
+                        id=str(record.id),
+                        vector=self._point_vector(record, sparse),
+                        payload=record.payload,
+                    )
+                    for record, sparse in zip(batch, batch_sparse, strict=True)
+                ]
+                with self._tracer.start_as_current_span(
+                    "agrag.vectordb.upsert_batch",
+                    kind=SpanKind.CLIENT,
+                    attributes={
+                        DB_SYSTEM_NAME: "qdrant",
+                        DB_COLLECTION_NAME: collection,
+                        "agrag.batch_size": len(batch),
+                    },
+                ):
+                    await client.upsert(collection_name=collection, points=points)
 
     def _point_vector(self, record: VectorRecord, sparse: Any) -> Any:
         """Build a PointStruct's vector value, attaching a sparse vector if given.
@@ -536,13 +563,22 @@ class QdrantVectorStore(VectorStore):
         """
         require_valid_search_limit(limit)
         client = await self._ensure_client()
-        response = await client.query_points(
-            collection_name=collection,
-            query=list(query_vector),
-            limit=limit,
-            query_filter=self._compile_filter(filters),
-            with_payload=True,
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.search",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "qdrant",
+                DB_COLLECTION_NAME: collection,
+                "agrag.limit": limit,
+            },
+        ):
+            response = await client.query_points(
+                collection_name=collection,
+                query=list(query_vector),
+                limit=limit,
+                query_filter=self._compile_filter(filters),
+                with_payload=True,
+            )
         distance = await self._distance_for(client, collection)
         invert = distance == self._models.Distance.EUCLID
         return [self._to_hit(point, invert_score=invert) for point in response.points]
@@ -586,29 +622,60 @@ class QdrantVectorStore(VectorStore):
         require_valid_search_limit(limit)
         require_valid_alpha(alpha)
         client = await self._ensure_client()
-        sparse = await self._ensure_sparse_embedder().query_embed([query_text])
-        sparse_vector = sparse[0]
-        query_filter = self._compile_filter(filters)
-        pool_limit = max(limit * _HYBRID_POOL_MULTIPLIER, limit)
-        dense_response, sparse_response = await asyncio.gather(
-            client.query_points(
-                collection_name=collection,
-                query=list(query_vector),
-                limit=pool_limit,
-                query_filter=query_filter,
-                with_payload=True,
-            ),
-            client.query_points(
-                collection_name=collection,
-                query=self._models.SparseVector(
-                    indices=sparse_vector.indices, values=sparse_vector.values
-                ),
-                using=_SPARSE_VECTOR_NAME,
-                limit=pool_limit,
-                query_filter=query_filter,
-                with_payload=True,
-            ),
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.hybrid_search",
+            kind=SpanKind.INTERNAL,
+            attributes={
+                DB_COLLECTION_NAME: collection,
+                "agrag.limit": limit,
+                "agrag.alpha": alpha,
+            },
+        ):
+            sparse = await self._ensure_sparse_embedder().query_embed([query_text])
+            sparse_vector = sparse[0]
+            query_filter = self._compile_filter(filters)
+            pool_limit = max(limit * _HYBRID_POOL_MULTIPLIER, limit)
+
+            async def _dense() -> Any:
+                with self._tracer.start_as_current_span(
+                    "agrag.vectordb.query_points",
+                    kind=SpanKind.CLIENT,
+                    attributes={
+                        DB_SYSTEM_NAME: "qdrant",
+                        DB_COLLECTION_NAME: collection,
+                        "agrag.query_arm": "dense",
+                    },
+                ):
+                    return await client.query_points(
+                        collection_name=collection,
+                        query=list(query_vector),
+                        limit=pool_limit,
+                        query_filter=query_filter,
+                        with_payload=True,
+                    )
+
+            async def _sparse() -> Any:
+                with self._tracer.start_as_current_span(
+                    "agrag.vectordb.query_points",
+                    kind=SpanKind.CLIENT,
+                    attributes={
+                        DB_SYSTEM_NAME: "qdrant",
+                        DB_COLLECTION_NAME: collection,
+                        "agrag.query_arm": "sparse",
+                    },
+                ):
+                    return await client.query_points(
+                        collection_name=collection,
+                        query=self._models.SparseVector(
+                            indices=sparse_vector.indices, values=sparse_vector.values
+                        ),
+                        using=_SPARSE_VECTOR_NAME,
+                        limit=pool_limit,
+                        query_filter=query_filter,
+                        with_payload=True,
+                    )
+
+            dense_response, sparse_response = await asyncio.gather(_dense(), _sparse())
         distance = await self._distance_for(client, collection)
         invert = distance == self._models.Distance.EUCLID
         dense_hits = [

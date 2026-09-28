@@ -9,6 +9,9 @@ a matching entry in ``_VECTOR_STORE_FACTORIES``.
 import typing
 from typing import get_args, get_origin
 
+import pytest
+from opentelemetry import trace
+
 from agrag.vectordb import _VECTOR_STORE_FACTORIES, build_vector_store
 from agrag.vectordb.qdrant import QdrantVectorStore
 from agrag.vectordb.settings import QdrantSettings
@@ -21,6 +24,12 @@ class TestBuildVectorStore:
         """An existing VectorStore is returned unchanged."""
         store = QdrantVectorStore(settings=QdrantSettings())
         assert build_vector_store(store) is store
+
+    def test_tracer_with_instance_raises(self) -> None:
+        """Passing tracer with an already-built store raises ValueError."""
+        store = QdrantVectorStore(settings=QdrantSettings())
+        with pytest.raises(ValueError, match="tracer has no effect"):
+            build_vector_store(store, tracer=trace.get_tracer("test"))
 
 
 class TestBackendTable:

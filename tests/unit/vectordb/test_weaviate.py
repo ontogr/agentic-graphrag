@@ -7,6 +7,12 @@ from uuid import UUID, uuid4
 
 import pytest
 import weaviate
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import StatusCode
 from weaviate.classes.config import VectorDistances
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
@@ -482,3 +488,30 @@ class TestMissingExtra:
         ):
             await store.initialize()
         assert exc_info.value.extra == "weaviate"
+
+
+def _provider() -> tuple[TracerProvider, InMemorySpanExporter]:
+    """Return a provider wired to an in-memory exporter."""
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider, exporter
+
+
+class TestTracingDisabled:
+    """A store built without a tracer never marks a host span."""
+
+    async def test_tracer_none_leaves_host_span_unset(self, client) -> None:
+        """The host span stays UNSET with no events under tracer=None."""
+        provider, exporter = _provider()
+        host_tracer = provider.get_tracer("host")
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(), client=client, tracer=None
+        )
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "a"})
+        with host_tracer.start_as_current_span("host.request"):
+            await store.upsert("c", [record])
+        (host_span,) = exporter.get_finished_spans()
+        assert host_span.name == "host.request"
+        assert host_span.status.status_code is StatusCode.UNSET
+        assert list(host_span.events) == []

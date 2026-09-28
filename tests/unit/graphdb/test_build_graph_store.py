@@ -9,6 +9,9 @@ and a reflection check that every ``Literal`` backend name in
 import typing
 from typing import get_args, get_origin
 
+import pytest
+from opentelemetry import trace
+
 from agrag.graphdb import _GRAPH_STORE_FACTORIES, build_graph_store
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
@@ -21,6 +24,12 @@ class TestBuildGraphStore:
         """An existing GraphStore is returned unchanged."""
         store = Neo4jGraphStore(settings=Neo4jSettings())
         assert build_graph_store(store) is store
+
+    def test_tracer_with_instance_raises(self) -> None:
+        """Passing tracer with an already-built store raises ValueError."""
+        store = Neo4jGraphStore(settings=Neo4jSettings())
+        with pytest.raises(ValueError, match="tracer has no effect"):
+            build_graph_store(store, tracer=trace.get_tracer("test"))
 
 
 class TestBackendTable:

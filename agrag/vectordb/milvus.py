@@ -8,6 +8,8 @@ from collections.abc import Sequence
 from typing import Any, ClassVar
 from uuid import UUID
 
+from opentelemetry.trace import SpanKind, Tracer
+
 from agrag.common.data_models.vector_record import (
     PENDING_VECTOR_FLAG,
     Distance,
@@ -19,6 +21,7 @@ from agrag.common.validation import (
     require_valid_alpha,
     require_valid_search_limit,
 )
+from agrag.observability import DB_COLLECTION_NAME, DB_SYSTEM_NAME, get_tracer
 from agrag.vectordb.base import VectorStore
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
@@ -169,6 +172,7 @@ class MilvusVectorStore(VectorStore):
         *,
         settings: MilvusSettings | None = None,
         client: Any | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Build the store.
 
@@ -178,9 +182,11 @@ class MilvusVectorStore(VectorStore):
             client: A pre-built ``AsyncMilvusClient``, for tests. When set,
                 ``__init__`` imports nothing and the store calls this object
                 directly instead of building one.
+            tracer: Opens this store's spans.
         """
         self._settings = settings or MilvusSettings()
         self._client: Any = client
+        self._tracer = get_tracer(tracer)
         self._client_lock = asyncio.Lock()
         self._collection_metrics: dict[str, str] = {}
 
@@ -208,19 +214,22 @@ class MilvusVectorStore(VectorStore):
         async with self._client_lock:
             if self._client is not None:
                 return self._client
-            try:
-                # Lazy import: a clean install must raise
-                # VectorStoreMissingExtraError, not ImportError, when
-                # pymilvus is absent.
-                from pymilvus import AsyncMilvusClient  # noqa: PLC0415
-            except ImportError as exc:
-                raise VectorStoreMissingExtraError("milvus") from exc
-            if self._settings.token:
-                self._client = AsyncMilvusClient(
-                    uri=self._settings.uri, token=self._settings.token
-                )
-            else:
-                self._client = AsyncMilvusClient(uri=self._settings.uri)
+            with self._tracer.start_as_current_span(
+                "agrag.vectordb.build_client", kind=SpanKind.INTERNAL
+            ):
+                try:
+                    # Lazy import: a clean install must raise
+                    # VectorStoreMissingExtraError, not ImportError, when
+                    # pymilvus is absent.
+                    from pymilvus import AsyncMilvusClient  # noqa: PLC0415
+                except ImportError as exc:
+                    raise VectorStoreMissingExtraError("milvus") from exc
+                if self._settings.token:
+                    self._client = AsyncMilvusClient(
+                        uri=self._settings.uri, token=self._settings.token
+                    )
+                else:
+                    self._client = AsyncMilvusClient(uri=self._settings.uri)
         return self._client
 
     def _milvus_metric(self, distance: Distance) -> str:
@@ -609,21 +618,38 @@ class MilvusVectorStore(VectorStore):
         """
         require_positive_batch_size(batch_size)
         client = await self._ensure_client()
-        for start in range(0, len(records), batch_size):
-            batch = records[start : start + batch_size]
-            data = [
-                {
-                    "id": str(record.id),
-                    _VECTOR_FIELD: record.vector,
-                    _TEXT_FIELD: record.payload.get(_TEXT_FIELD, ""),
-                    _PAYLOAD_FIELD: _normalize_payload(record.payload),
-                    _PENDING_FIELD: bool(
-                        record.payload.get(PENDING_VECTOR_FLAG, False)
-                    ),
-                }
-                for record in batch
-            ]
-            await client.upsert(collection_name=collection, data=data)
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.upsert",
+            kind=SpanKind.INTERNAL,
+            attributes={
+                DB_COLLECTION_NAME: collection,
+                "agrag.record_count": len(records),
+            },
+        ):
+            for start in range(0, len(records), batch_size):
+                batch = records[start : start + batch_size]
+                data = [
+                    {
+                        "id": str(record.id),
+                        _VECTOR_FIELD: record.vector,
+                        _TEXT_FIELD: record.payload.get(_TEXT_FIELD, ""),
+                        _PAYLOAD_FIELD: _normalize_payload(record.payload),
+                        _PENDING_FIELD: bool(
+                            record.payload.get(PENDING_VECTOR_FLAG, False)
+                        ),
+                    }
+                    for record in batch
+                ]
+                with self._tracer.start_as_current_span(
+                    "agrag.vectordb.upsert_batch",
+                    kind=SpanKind.CLIENT,
+                    attributes={
+                        DB_SYSTEM_NAME: "milvus",
+                        DB_COLLECTION_NAME: collection,
+                        "agrag.batch_size": len(batch),
+                    },
+                ):
+                    await client.upsert(collection_name=collection, data=data)
 
     async def search(
         self,
@@ -650,15 +676,24 @@ class MilvusVectorStore(VectorStore):
         """
         require_valid_search_limit(limit)
         client = await self._ensure_client()
-        response = await client.search(
-            collection_name=collection,
-            data=[list(query_vector)],
-            anns_field=_VECTOR_FIELD,
-            limit=limit,
-            filter=self._compile_filter(filters),
-            output_fields=["id", _PAYLOAD_FIELD],
-            consistency_level=_READ_CONSISTENCY,
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.search",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "milvus",
+                DB_COLLECTION_NAME: collection,
+                "agrag.limit": limit,
+            },
+        ):
+            response = await client.search(
+                collection_name=collection,
+                data=[list(query_vector)],
+                anns_field=_VECTOR_FIELD,
+                limit=limit,
+                filter=self._compile_filter(filters),
+                output_fields=["id", _PAYLOAD_FIELD],
+                consistency_level=_READ_CONSISTENCY,
+            )
         invert = await self._metric_for(client, collection) == "L2"
         return [self._to_hit(row, invert_score=invert) for row in response[0]]
 
@@ -716,14 +751,24 @@ class MilvusVectorStore(VectorStore):
             limit=limit,
             filter=expr or None,
         )
-        response = await client.hybrid_search(
-            collection_name=collection,
-            reqs=[dense_req, sparse_req],
-            ranker=WeightedRanker(alpha, 1 - alpha),
-            limit=limit,
-            output_fields=["id", _PAYLOAD_FIELD],
-            consistency_level=_READ_CONSISTENCY,
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.hybrid_search",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "milvus",
+                DB_COLLECTION_NAME: collection,
+                "agrag.limit": limit,
+                "agrag.alpha": alpha,
+            },
+        ):
+            response = await client.hybrid_search(
+                collection_name=collection,
+                reqs=[dense_req, sparse_req],
+                ranker=WeightedRanker(alpha, 1 - alpha),
+                limit=limit,
+                output_fields=["id", _PAYLOAD_FIELD],
+                consistency_level=_READ_CONSISTENCY,
+            )
         return [self._to_hit(row) for row in response[0]]
 
     async def scroll(
