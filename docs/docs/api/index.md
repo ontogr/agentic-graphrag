@@ -1668,6 +1668,7 @@ Shared data models used by agrag components.
 - [**relation**](#agrag.common.data_models.relation) – The canonical, deduped graph relationship that merge mechanics produces.
 - [**resolved_entity**](#agrag.common.data_models.resolved_entity) – Materialized identity clusters for non-destructive entity resolution.
 - [**search_result**](#agrag.common.data_models.search_result) – One retrieved item, tagged with source and relevance score.
+- [**stage_failure**](#agrag.common.data_models.stage_failure) – Per-stage failure record and its per-call cap.
 - [**vector_record**](#agrag.common.data_models.vector_record) – Vector storage record shapes shared by VectorStore and GraphStore.
 
 ##### `agrag.common.data_models.chunk`
@@ -3756,6 +3757,133 @@ method: str
 
 ```python
 score: float
+```
+
+##### `agrag.common.data_models.stage_failure`
+
+Per-stage failure record and its per-call cap.
+
+**Classes:**
+
+- [**CappedFailures**](#agrag.common.data_models.stage_failure.CappedFailures) – A capped failure list plus the true count it was built from.
+- [**StageFailure**](#agrag.common.data_models.stage_failure.StageFailure) – One item's failure within a pipeline stage.
+
+**Functions:**
+
+- [**cap_failures**](#agrag.common.data_models.stage_failure.cap_failures) – Return failures capped per stage, with the untruncated true count.
+
+**Attributes:**
+
+- [**MAX_FAILURES_PER_STAGE**](#agrag.common.data_models.stage_failure.MAX_FAILURES_PER_STAGE) –
+- [**logger**](#agrag.common.data_models.stage_failure.logger) –
+
+###### `agrag.common.data_models.stage_failure.CappedFailures`
+
+Bases: <code>[NamedTuple](#typing.NamedTuple)</code>
+
+A capped failure list plus the true count it was built from.
+
+**Attributes:**
+
+- [**items**](#agrag.common.data_models.stage_failure.CappedFailures.items) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – The failure records, truncated to the per-stage cap.
+- [**total**](#agrag.common.data_models.stage_failure.CappedFailures.total) (<code>[int](#int)</code>) – How many failures the stage actually recorded, before any
+  truncation.
+- [**truncated**](#agrag.common.data_models.stage_failure.CappedFailures.truncated) (<code>[bool](#bool)</code>) – Whether `items` was cut to the per-stage cap.
+
+####### `agrag.common.data_models.stage_failure.CappedFailures.items`
+
+```python
+items: list[StageFailure]
+```
+
+####### `agrag.common.data_models.stage_failure.CappedFailures.total`
+
+```python
+total: int
+```
+
+####### `agrag.common.data_models.stage_failure.CappedFailures.truncated`
+
+```python
+truncated: bool
+```
+
+###### `agrag.common.data_models.stage_failure.MAX_FAILURES_PER_STAGE`
+
+```python
+MAX_FAILURES_PER_STAGE = 200
+```
+
+###### `agrag.common.data_models.stage_failure.StageFailure`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One item's failure within a pipeline stage.
+
+**Attributes:**
+
+- [**item_id**](#agrag.common.data_models.stage_failure.StageFailure.item_id) (<code>[str](#str)</code>) – The chunk id, mention id, or batch id — whichever unit
+  the stage failed on.
+- [**error_type**](#agrag.common.data_models.stage_failure.StageFailure.error_type) (<code>[str](#str)</code>) – The exception's class name.
+- [**error_message**](#agrag.common.data_models.stage_failure.StageFailure.error_message) (<code>[str](#str)</code>) – The exception's message.
+- [**trace_id**](#agrag.common.data_models.stage_failure.StageFailure.trace_id) (<code>[str](#str) | None</code>) – The OTel trace id correlating to the full span detail,
+  when tracing is configured.
+- [**span_id**](#agrag.common.data_models.stage_failure.StageFailure.span_id) (<code>[str](#str) | None</code>) – The OTel span id within that trace.
+
+####### `agrag.common.data_models.stage_failure.StageFailure.error_message`
+
+```python
+error_message: str
+```
+
+####### `agrag.common.data_models.stage_failure.StageFailure.error_type`
+
+```python
+error_type: str
+```
+
+####### `agrag.common.data_models.stage_failure.StageFailure.item_id`
+
+```python
+item_id: str
+```
+
+####### `agrag.common.data_models.stage_failure.StageFailure.span_id`
+
+```python
+span_id: str | None = None
+```
+
+####### `agrag.common.data_models.stage_failure.StageFailure.trace_id`
+
+```python
+trace_id: str | None = None
+```
+
+###### `agrag.common.data_models.stage_failure.cap_failures`
+
+```python
+cap_failures(failures:list[StageFailure]) -> CappedFailures
+```
+
+Return failures capped per stage, with the untruncated true count.
+
+Logs a warning when truncation occurs, since the capped list alone no
+longer reflects how many items actually failed.
+
+**Parameters:**
+
+- **failures** (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Every failure the stage recorded.
+
+**Returns:**
+
+- <code>[CappedFailures](#agrag.common.data_models.stage_failure.CappedFailures)</code> – The capped list, the true failure count, and whether the list was
+- <code>[CappedFailures](#agrag.common.data_models.stage_failure.CappedFailures)</code> – truncated.
+
+###### `agrag.common.data_models.stage_failure.logger`
+
+```python
+logger = logging.getLogger(__name__)
 ```
 
 ##### `agrag.common.data_models.vector_record`
@@ -11897,7 +12025,7 @@ is None, rather than being dropped from the graph.
 
 **Returns:**
 
-- <code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code> – One StageFailure per community whose batch embed() call failed.
+- <code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code> – One StageFailure per community whose batch embed() call failed.
 
 ##### `agrag.ingestion.community.fetch_relation_edges`
 
@@ -11994,7 +12122,7 @@ rather than discarding the reports that did come back.
 
 **Returns:**
 
-- <code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code> – One StageFailure per community whose batch call failed.
+- <code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code> – One StageFailure per community whose batch call failed.
 
 ##### `agrag.ingestion.community.logger`
 
@@ -13469,7 +13597,7 @@ Report from Graph.detect_communities().
 
 - [**communities**](#agrag.ingestion.reports.CommunityDetectionReport.communities) (<code>[list](#list)\[[Community](#agrag.common.data_models.community.Community)\]</code>) – The communities this call found, whether applied or not.
 - [**applied**](#agrag.ingestion.reports.CommunityDetectionReport.applied) (<code>[bool](#bool)</code>) – Whether the communities were written.
-- [**failures**](#agrag.ingestion.reports.CommunityDetectionReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures generating an applied community's LLM report or
+- [**failures**](#agrag.ingestion.reports.CommunityDetectionReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Failures generating an applied community's LLM report or
   embedding its report text. A failed community still gets
   written, with a heuristic report or a missing embedding in
   place of the failed step. Always empty when apply is False.
@@ -13502,7 +13630,7 @@ Report from Graph.consolidate().
 
 - [**would_match**](#agrag.ingestion.reports.ConsolidationReport.would_match) (<code>[list](#list)\[[MatchDecision](#agrag.ingestion.materialize.MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
 - [**applied**](#agrag.ingestion.reports.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the matches were materialized.
-- [**failures**](#agrag.ingestion.reports.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
+- [**failures**](#agrag.ingestion.reports.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
   Always empty when apply is False.
 - [**ambiguous_count**](#agrag.ingestion.reports.ConsolidationReport.ambiguous_count) (<code>[int](#int)</code>) – LLM verdicts that came back uncertain. These
   pairs never merge.
@@ -13743,7 +13871,7 @@ Report from Graph.detect_communities().
 
 - [**communities**](#agrag.ingestion.reports.community_detection_report.CommunityDetectionReport.communities) (<code>[list](#list)\[[Community](#agrag.common.data_models.community.Community)\]</code>) – The communities this call found, whether applied or not.
 - [**applied**](#agrag.ingestion.reports.community_detection_report.CommunityDetectionReport.applied) (<code>[bool](#bool)</code>) – Whether the communities were written.
-- [**failures**](#agrag.ingestion.reports.community_detection_report.CommunityDetectionReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures generating an applied community's LLM report or
+- [**failures**](#agrag.ingestion.reports.community_detection_report.CommunityDetectionReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Failures generating an applied community's LLM report or
   embedding its report text. A failed community still gets
   written, with a heuristic report or a missing embedding in
   place of the failed step. Always empty when apply is False.
@@ -13784,7 +13912,7 @@ Report from Graph.consolidate().
 
 - [**would_match**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.would_match) (<code>[list](#list)\[[MatchDecision](#agrag.ingestion.materialize.MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
 - [**applied**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the matches were materialized.
-- [**failures**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
+- [**failures**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
   Always empty when apply is False.
 - [**ambiguous_count**](#agrag.ingestion.reports.consolidation_report.ConsolidationReport.ambiguous_count) (<code>[int](#int)</code>) – LLM verdicts that came back uncertain. These
   pairs never merge.
@@ -16128,7 +16256,10 @@ model_config = SettingsConfigDict(env_prefix='CUTOVER_JOB_', env_file='.env', ex
 Per-stage observability types for the ingestion pipeline.
 
 One class per module under this package; this init re-exports them so
-`from agrag.ingestion.stats import StageFailure` keeps working.
+`from agrag.ingestion.stats import ExtractionStats` keeps working.
+`StageFailure`/`CappedFailures`/`cap_failures`/`MAX_FAILURES_PER_STAGE`
+live in `agrag.common.data_models.stage_failure` -- a shared model used
+outside the ingestion pipeline too -- and are not re-exported here.
 
 **Modules:**
 
@@ -16136,57 +16267,15 @@ One class per module under this package; this init re-exports them so
 - [**ingest**](#agrag.ingestion.stats.ingest) – Ingestion-stage stats.
 - [**merge**](#agrag.ingestion.stats.merge) – Merge-stage stats.
 - [**resolution**](#agrag.ingestion.stats.resolution) – Resolution-stage stats.
-- [**stage_failure**](#agrag.ingestion.stats.stage_failure) – Per-stage failure record and its per-call cap.
 - [**storage**](#agrag.ingestion.stats.storage) – Storage-write-stage stats.
 
 **Classes:**
 
-- [**CappedFailures**](#agrag.ingestion.stats.CappedFailures) – A capped failure list plus the true count it was built from.
 - [**ExtractionStats**](#agrag.ingestion.stats.ExtractionStats) – Extraction-stage results.
 - [**IngestStats**](#agrag.ingestion.stats.IngestStats) – Ingestion-stage results.
 - [**MergeStats**](#agrag.ingestion.stats.MergeStats) – Merge-stage results.
 - [**ResolutionStats**](#agrag.ingestion.stats.ResolutionStats) – Resolution-stage results.
-- [**StageFailure**](#agrag.ingestion.stats.StageFailure) – One item's failure within a pipeline stage.
 - [**StorageStats**](#agrag.ingestion.stats.StorageStats) – Storage-write-stage results.
-
-**Functions:**
-
-- [**cap_failures**](#agrag.ingestion.stats.cap_failures) – Return failures capped per stage, with the untruncated true count.
-
-**Attributes:**
-
-- [**MAX_FAILURES_PER_STAGE**](#agrag.ingestion.stats.MAX_FAILURES_PER_STAGE) –
-
-##### `agrag.ingestion.stats.CappedFailures`
-
-Bases: <code>[NamedTuple](#typing.NamedTuple)</code>
-
-A capped failure list plus the true count it was built from.
-
-**Attributes:**
-
-- [**items**](#agrag.ingestion.stats.CappedFailures.items) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – The failure records, truncated to the per-stage cap.
-- [**total**](#agrag.ingestion.stats.CappedFailures.total) (<code>[int](#int)</code>) – How many failures the stage actually recorded, before any
-  truncation.
-- [**truncated**](#agrag.ingestion.stats.CappedFailures.truncated) (<code>[bool](#bool)</code>) – Whether `items` was cut to the per-stage cap.
-
-###### `agrag.ingestion.stats.CappedFailures.items`
-
-```python
-items: list[StageFailure]
-```
-
-###### `agrag.ingestion.stats.CappedFailures.total`
-
-```python
-total: int
-```
-
-###### `agrag.ingestion.stats.CappedFailures.truncated`
-
-```python
-truncated: bool
-```
 
 ##### `agrag.ingestion.stats.ExtractionStats`
 
@@ -16199,7 +16288,7 @@ Extraction-stage results.
 - [**chunks_processed**](#agrag.ingestion.stats.ExtractionStats.chunks_processed) (<code>[int](#int)</code>) – Chunks the stage ran the extractor on.
 - [**entities_extracted**](#agrag.ingestion.stats.ExtractionStats.entities_extracted) (<code>[int](#int)</code>) – Entities the extractor returned.
 - [**relations_extracted**](#agrag.ingestion.stats.ExtractionStats.relations_extracted) (<code>[int](#int)</code>) – Relations the extractor returned.
-- [**failures**](#agrag.ingestion.stats.ExtractionStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Per-item failures, capped per call.
+- [**failures**](#agrag.ingestion.stats.ExtractionStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Per-item failures, capped per call.
 - [**failures_total**](#agrag.ingestion.stats.ExtractionStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
 - [**failures_truncated**](#agrag.ingestion.stats.ExtractionStats.failures_truncated) (<code>[bool](#bool)</code>) – Whether `failures` was cut to the cap.
 
@@ -16249,7 +16338,7 @@ Ingestion-stage results.
 
 - [**documents**](#agrag.ingestion.stats.IngestStats.documents) (<code>[int](#int)</code>) –
 - [**quarantined**](#agrag.ingestion.stats.IngestStats.quarantined) (<code>[int](#int)</code>) –
-- [**quarantined_items**](#agrag.ingestion.stats.IngestStats.quarantined_items) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) –
+- [**quarantined_items**](#agrag.ingestion.stats.IngestStats.quarantined_items) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) –
 - [**skipped**](#agrag.ingestion.stats.IngestStats.skipped) (<code>[int](#int)</code>) –
 - [**sources**](#agrag.ingestion.stats.IngestStats.sources) (<code>[int](#int)</code>) –
 
@@ -16283,12 +16372,6 @@ skipped: int = 0
 sources: int = 0
 ```
 
-##### `agrag.ingestion.stats.MAX_FAILURES_PER_STAGE`
-
-```python
-MAX_FAILURES_PER_STAGE = 200
-```
-
 ##### `agrag.ingestion.stats.MergeStats`
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
@@ -16303,7 +16386,7 @@ Merge-stage results.
 - [**nodes_merged**](#agrag.ingestion.stats.MergeStats.nodes_merged) (<code>[int](#int)</code>) – Entities tombstoned into a survivor this call.
 - [**conflicts_resolved**](#agrag.ingestion.stats.MergeStats.conflicts_resolved) (<code>[int](#int)</code>) – Total property/description conflicts resolved
   across every merge this call performed.
-- [**failures**](#agrag.ingestion.stats.MergeStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Includes an LLM failure during description
+- [**failures**](#agrag.ingestion.stats.MergeStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Includes an LLM failure during description
   summarization. The merge still falls back to concatenation and
   completes, but the failure is recorded here.
 - [**failures_total**](#agrag.ingestion.stats.MergeStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
@@ -16384,52 +16467,6 @@ exact_match_hits: int = 0
 in_batch_groups: int = 0
 ```
 
-##### `agrag.ingestion.stats.StageFailure`
-
-Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
-
-One item's failure within a pipeline stage.
-
-**Attributes:**
-
-- [**item_id**](#agrag.ingestion.stats.StageFailure.item_id) (<code>[str](#str)</code>) – The chunk id, mention id, or batch id — whichever unit
-  the stage failed on.
-- [**error_type**](#agrag.ingestion.stats.StageFailure.error_type) (<code>[str](#str)</code>) – The exception's class name.
-- [**error_message**](#agrag.ingestion.stats.StageFailure.error_message) (<code>[str](#str)</code>) – The exception's message.
-- [**trace_id**](#agrag.ingestion.stats.StageFailure.trace_id) (<code>[str](#str) | None</code>) – The OTel trace id correlating to the full span detail,
-  when tracing is configured.
-- [**span_id**](#agrag.ingestion.stats.StageFailure.span_id) (<code>[str](#str) | None</code>) – The OTel span id within that trace.
-
-###### `agrag.ingestion.stats.StageFailure.error_message`
-
-```python
-error_message: str
-```
-
-###### `agrag.ingestion.stats.StageFailure.error_type`
-
-```python
-error_type: str
-```
-
-###### `agrag.ingestion.stats.StageFailure.item_id`
-
-```python
-item_id: str
-```
-
-###### `agrag.ingestion.stats.StageFailure.span_id`
-
-```python
-span_id: str | None = None
-```
-
-###### `agrag.ingestion.stats.StageFailure.trace_id`
-
-```python
-trace_id: str | None = None
-```
-
 ##### `agrag.ingestion.stats.StorageStats`
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
@@ -16444,7 +16481,7 @@ Storage-write-stage results.
   point.
 - [**relationships_written**](#agrag.ingestion.stats.StorageStats.relationships_written) (<code>[int](#int)</code>) – Domain Relation and MENTIONED_IN edges
   together, for the same reason.
-- [**failures**](#agrag.ingestion.stats.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Isolated graph-write failures are reported per record and
+- [**failures**](#agrag.ingestion.stats.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Isolated graph-write failures are reported per record and
   capped per call. Conversion, embedding, vector-store, and other
   non-isolatable graph failures can use one stage-level failure.
   The counts include only records that landed.
@@ -16481,26 +16518,6 @@ nodes_written: int = 0
 relationships_written: int = 0
 ```
 
-##### `agrag.ingestion.stats.cap_failures`
-
-```python
-cap_failures(failures:list[StageFailure]) -> CappedFailures
-```
-
-Return failures capped per stage, with the untruncated true count.
-
-Logs a warning when truncation occurs, since the capped list alone no
-longer reflects how many items actually failed.
-
-**Parameters:**
-
-- **failures** (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Every failure the stage recorded.
-
-**Returns:**
-
-- <code>[CappedFailures](#agrag.ingestion.stats.stage_failure.CappedFailures)</code> – The capped list, the true failure count, and whether the list was
-- <code>[CappedFailures](#agrag.ingestion.stats.stage_failure.CappedFailures)</code> – truncated.
-
 ##### `agrag.ingestion.stats.extraction`
 
 Extraction-stage stats.
@@ -16520,7 +16537,7 @@ Extraction-stage results.
 - [**chunks_processed**](#agrag.ingestion.stats.extraction.ExtractionStats.chunks_processed) (<code>[int](#int)</code>) – Chunks the stage ran the extractor on.
 - [**entities_extracted**](#agrag.ingestion.stats.extraction.ExtractionStats.entities_extracted) (<code>[int](#int)</code>) – Entities the extractor returned.
 - [**relations_extracted**](#agrag.ingestion.stats.extraction.ExtractionStats.relations_extracted) (<code>[int](#int)</code>) – Relations the extractor returned.
-- [**failures**](#agrag.ingestion.stats.extraction.ExtractionStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Per-item failures, capped per call.
+- [**failures**](#agrag.ingestion.stats.extraction.ExtractionStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Per-item failures, capped per call.
 - [**failures_total**](#agrag.ingestion.stats.extraction.ExtractionStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
 - [**failures_truncated**](#agrag.ingestion.stats.extraction.ExtractionStats.failures_truncated) (<code>[bool](#bool)</code>) – Whether `failures` was cut to the cap.
 
@@ -16578,7 +16595,7 @@ Ingestion-stage results.
 
 - [**documents**](#agrag.ingestion.stats.ingest.IngestStats.documents) (<code>[int](#int)</code>) –
 - [**quarantined**](#agrag.ingestion.stats.ingest.IngestStats.quarantined) (<code>[int](#int)</code>) –
-- [**quarantined_items**](#agrag.ingestion.stats.ingest.IngestStats.quarantined_items) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) –
+- [**quarantined_items**](#agrag.ingestion.stats.ingest.IngestStats.quarantined_items) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) –
 - [**skipped**](#agrag.ingestion.stats.ingest.IngestStats.skipped) (<code>[int](#int)</code>) –
 - [**sources**](#agrag.ingestion.stats.ingest.IngestStats.sources) (<code>[int](#int)</code>) –
 
@@ -16634,7 +16651,7 @@ Merge-stage results.
 - [**nodes_merged**](#agrag.ingestion.stats.merge.MergeStats.nodes_merged) (<code>[int](#int)</code>) – Entities tombstoned into a survivor this call.
 - [**conflicts_resolved**](#agrag.ingestion.stats.merge.MergeStats.conflicts_resolved) (<code>[int](#int)</code>) – Total property/description conflicts resolved
   across every merge this call performed.
-- [**failures**](#agrag.ingestion.stats.merge.MergeStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Includes an LLM failure during description
+- [**failures**](#agrag.ingestion.stats.merge.MergeStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Includes an LLM failure during description
   summarization. The merge still falls back to concatenation and
   completes, but the failure is recorded here.
 - [**failures_total**](#agrag.ingestion.stats.merge.MergeStats.failures_total) (<code>[int](#int)</code>) – Failures recorded before capping.
@@ -16723,133 +16740,6 @@ exact_match_hits: int = 0
 in_batch_groups: int = 0
 ```
 
-##### `agrag.ingestion.stats.stage_failure`
-
-Per-stage failure record and its per-call cap.
-
-**Classes:**
-
-- [**CappedFailures**](#agrag.ingestion.stats.stage_failure.CappedFailures) – A capped failure list plus the true count it was built from.
-- [**StageFailure**](#agrag.ingestion.stats.stage_failure.StageFailure) – One item's failure within a pipeline stage.
-
-**Functions:**
-
-- [**cap_failures**](#agrag.ingestion.stats.stage_failure.cap_failures) – Return failures capped per stage, with the untruncated true count.
-
-**Attributes:**
-
-- [**MAX_FAILURES_PER_STAGE**](#agrag.ingestion.stats.stage_failure.MAX_FAILURES_PER_STAGE) –
-- [**logger**](#agrag.ingestion.stats.stage_failure.logger) –
-
-###### `agrag.ingestion.stats.stage_failure.CappedFailures`
-
-Bases: <code>[NamedTuple](#typing.NamedTuple)</code>
-
-A capped failure list plus the true count it was built from.
-
-**Attributes:**
-
-- [**items**](#agrag.ingestion.stats.stage_failure.CappedFailures.items) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – The failure records, truncated to the per-stage cap.
-- [**total**](#agrag.ingestion.stats.stage_failure.CappedFailures.total) (<code>[int](#int)</code>) – How many failures the stage actually recorded, before any
-  truncation.
-- [**truncated**](#agrag.ingestion.stats.stage_failure.CappedFailures.truncated) (<code>[bool](#bool)</code>) – Whether `items` was cut to the per-stage cap.
-
-####### `agrag.ingestion.stats.stage_failure.CappedFailures.items`
-
-```python
-items: list[StageFailure]
-```
-
-####### `agrag.ingestion.stats.stage_failure.CappedFailures.total`
-
-```python
-total: int
-```
-
-####### `agrag.ingestion.stats.stage_failure.CappedFailures.truncated`
-
-```python
-truncated: bool
-```
-
-###### `agrag.ingestion.stats.stage_failure.MAX_FAILURES_PER_STAGE`
-
-```python
-MAX_FAILURES_PER_STAGE = 200
-```
-
-###### `agrag.ingestion.stats.stage_failure.StageFailure`
-
-Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
-
-One item's failure within a pipeline stage.
-
-**Attributes:**
-
-- [**item_id**](#agrag.ingestion.stats.stage_failure.StageFailure.item_id) (<code>[str](#str)</code>) – The chunk id, mention id, or batch id — whichever unit
-  the stage failed on.
-- [**error_type**](#agrag.ingestion.stats.stage_failure.StageFailure.error_type) (<code>[str](#str)</code>) – The exception's class name.
-- [**error_message**](#agrag.ingestion.stats.stage_failure.StageFailure.error_message) (<code>[str](#str)</code>) – The exception's message.
-- [**trace_id**](#agrag.ingestion.stats.stage_failure.StageFailure.trace_id) (<code>[str](#str) | None</code>) – The OTel trace id correlating to the full span detail,
-  when tracing is configured.
-- [**span_id**](#agrag.ingestion.stats.stage_failure.StageFailure.span_id) (<code>[str](#str) | None</code>) – The OTel span id within that trace.
-
-####### `agrag.ingestion.stats.stage_failure.StageFailure.error_message`
-
-```python
-error_message: str
-```
-
-####### `agrag.ingestion.stats.stage_failure.StageFailure.error_type`
-
-```python
-error_type: str
-```
-
-####### `agrag.ingestion.stats.stage_failure.StageFailure.item_id`
-
-```python
-item_id: str
-```
-
-####### `agrag.ingestion.stats.stage_failure.StageFailure.span_id`
-
-```python
-span_id: str | None = None
-```
-
-####### `agrag.ingestion.stats.stage_failure.StageFailure.trace_id`
-
-```python
-trace_id: str | None = None
-```
-
-###### `agrag.ingestion.stats.stage_failure.cap_failures`
-
-```python
-cap_failures(failures:list[StageFailure]) -> CappedFailures
-```
-
-Return failures capped per stage, with the untruncated true count.
-
-Logs a warning when truncation occurs, since the capped list alone no
-longer reflects how many items actually failed.
-
-**Parameters:**
-
-- **failures** (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Every failure the stage recorded.
-
-**Returns:**
-
-- <code>[CappedFailures](#agrag.ingestion.stats.stage_failure.CappedFailures)</code> – The capped list, the true failure count, and whether the list was
-- <code>[CappedFailures](#agrag.ingestion.stats.stage_failure.CappedFailures)</code> – truncated.
-
-###### `agrag.ingestion.stats.stage_failure.logger`
-
-```python
-logger = logging.getLogger(__name__)
-```
-
 ##### `agrag.ingestion.stats.storage`
 
 Storage-write-stage stats.
@@ -16872,7 +16762,7 @@ Storage-write-stage results.
   point.
 - [**relationships_written**](#agrag.ingestion.stats.storage.StorageStats.relationships_written) (<code>[int](#int)</code>) – Domain Relation and MENTIONED_IN edges
   together, for the same reason.
-- [**failures**](#agrag.ingestion.stats.storage.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.ingestion.stats.stage_failure.StageFailure)\]</code>) – Isolated graph-write failures are reported per record and
+- [**failures**](#agrag.ingestion.stats.storage.StorageStats.failures) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Isolated graph-write failures are reported per record and
   capped per call. Conversion, embedding, vector-store, and other
   non-isolatable graph failures can use one stage-level failure.
   The counts include only records that landed.

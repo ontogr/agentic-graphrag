@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from agrag.ingestion.stats.stage_failure import StageFailure
+from agrag.common.data_models.stage_failure import StageFailure
 
 
 class ExtractionStats(BaseModel):

@@ -31,6 +31,7 @@ from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
     ResolvedEntity,
 )
+from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
     fetch_all_by_label_query,
@@ -86,9 +87,7 @@ from agrag.ingestion.stats import (
     IngestStats,
     MergeStats,
     ResolutionStats,
-    StageFailure,
     StorageStats,
-    cap_failures,
 )
 from agrag.loaders.corpus import registry as _corpus_registry
 from agrag.loaders.corpus._walk import _CorpusWalk, _InMemoryWalk
