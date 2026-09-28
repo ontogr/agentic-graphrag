@@ -19,6 +19,11 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
 import agrag.ingestion._cutover as cutover_module
 import agrag.ingestion.graph as graph_module
@@ -731,3 +736,110 @@ class TestGraphVectorStore:
         assert entity_failures[0].item_id == "entity_vector_store"
         chunk_store.delete.assert_not_awaited()
         entity_store.delete.assert_not_awaited()
+
+
+class TestChunkDocumentSpans:
+    """Chunker spans carry document identity and output counts."""
+
+    def _document(self, key: str = "memory://doc") -> Document:
+        """Return a prose document with enough text to chunk."""
+        text = "chunk me please. " * 40
+        return Document(
+            text=text,
+            title="t",
+            uri=key,
+            document_key=key,
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash=key,
+            loader_name="text",
+            char_count=len(text),
+            line_count=1,
+        )
+
+    def test_chunk_document_span_carries_attributes(self) -> None:
+        """The chunk span records the document key and chunk count."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        graph = Graph(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+            tracer=provider.get_tracer("test"),
+        )
+        document = self._document()
+        chunks = graph._chunk_documents([document])
+        assert chunks
+        spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.ingestion.chunk_document"
+        ]
+        assert len(spans) == 1
+        assert spans[0].attributes is not None
+        assert (
+            spans[0].attributes["agrag.document_key"] == document.resolved_document_key
+        )
+        assert spans[0].attributes["agrag.chunks_produced"] == len(chunks)
+
+    def test_chunk_docling_document_span_carries_attributes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The docling chunk span records the document key and chunk count."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        graph = Graph(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+            tracer=provider.get_tracer("test"),
+        )
+
+        def fake_chunk_docling_document(
+            docling_doc: object, document_id, *, version_id=None
+        ) -> list[Chunk]:
+            del docling_doc, document_id, version_id
+            provenance = PageProvenance(page_spans=[])
+            return [
+                Chunk(
+                    id=uuid4(),
+                    document_id=uuid4(),
+                    text="chunk",
+                    provenance=provenance,
+                )
+            ]
+
+        monkeypatch.setattr(
+            "agrag.ingestion.graph.chunk_docling_document", fake_chunk_docling_document
+        )
+        text = "docling doc"
+        document = Document(
+            text=text,
+            title="t",
+            uri="memory://docling",
+            document_key="memory://docling",
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash="docling",
+            loader_name="docling",
+            char_count=len(text),
+            line_count=1,
+            metadata={"_docling_document": object()},
+        )
+        chunks = graph._chunk_documents([document])
+        assert chunks
+        spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.ingestion.chunk_docling_document"
+        ]
+        assert len(spans) == 1
+        assert spans[0].attributes is not None
+        assert (
+            spans[0].attributes["agrag.document_key"] == document.resolved_document_key
+        )
+        assert spans[0].attributes["agrag.chunks_produced"] == len(chunks)
