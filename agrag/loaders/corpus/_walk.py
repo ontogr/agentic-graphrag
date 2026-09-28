@@ -13,6 +13,7 @@ from typing import BinaryIO
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.errors import IngestionError, UnsupportedFormatError
 from agrag.loaders.corpus.registry import LoaderRegistry
@@ -23,7 +24,7 @@ from agrag.loaders.corpus.types import (
     ReadOptions,
     SourceRef,
 )
-from agrag.observability import get_tracer
+from agrag.observability import get_tracer, stage_failure_context
 
 
 def _source_ref_for(path: Path) -> SourceRef:
@@ -127,6 +128,8 @@ class _CorpusWalk:
             source_bytes = path.stat().st_size
             resume_position = resume_index
             source_cursor = cursor
+            failed_trace_id: str | None = None
+            failed_span_id: str | None = None
             try:
                 with self._open(path) as stream:
                     # Calling the loader does no real work before the first
@@ -150,7 +153,13 @@ class _CorpusWalk:
                             # typed as Document | None and `if doc is None:`
                             # narrows cleanly -- Iterator[Document] never
                             # yields None itself.
-                            doc = next(loader_iter, None)
+                            try:
+                                doc = next(loader_iter, None)
+                            except IngestionError:
+                                failed_trace_id, failed_span_id = (
+                                    stage_failure_context()
+                                )
+                                raise
                             record_index = None
                             if doc is None:
                                 span.set_attribute("agrag.loader_exhausted", True)
@@ -187,7 +196,9 @@ class _CorpusWalk:
                             yield batch, cursor, stats
                             batch = []
             except IngestionError as exc:
-                self._handle_error(uri, exc, stats)
+                self._handle_error(
+                    uri, exc, stats, trace_id=failed_trace_id, span_id=failed_span_id
+                )
                 continue
 
             stats.documents += len(source_batch)
@@ -210,13 +221,28 @@ class _CorpusWalk:
         """
         return path.open("rb")
 
-    def _handle_error(self, uri: str, exc: IngestionError, stats: LoadStats) -> None:
+    def _handle_error(
+        self,
+        uri: str,
+        exc: IngestionError,
+        stats: LoadStats,
+        *,
+        trace_id: str | None = None,
+        span_id: str | None = None,
+    ) -> None:
         """Apply the error policy to one source failure.
 
         Args:
             uri: The failing source.
             exc: The loader lookup or load error.
             stats: The running stats to update in place.
+            trace_id: The failing span's trace id, when the caller already
+                captured one from the ``load_document`` span before it closed.
+                ``None`` when no such span was open for this source -- an
+                ``UnsupportedFormatError`` from the registry lookup, before
+                ``self._open(path)`` runs. This method never reads the current
+                span itself; the caller always decides what to pass.
+            span_id: The failing span's id, paired with ``trace_id``.
 
         Raises:
             IngestionError: The error policy is RAISE.
@@ -226,7 +252,15 @@ class _CorpusWalk:
         reason = str(exc)
         if self._error_policy == ErrorPolicy.QUARANTINE:
             stats.quarantined += 1
-            stats.quarantined_items.append((uri, reason))
+            stats.quarantined_items.append(
+                StageFailure(
+                    item_id=uri,
+                    error_type="Quarantined",
+                    error_message=reason,
+                    trace_id=trace_id,
+                    span_id=span_id,
+                )
+            )
         else:
             stats.skipped += 1
 

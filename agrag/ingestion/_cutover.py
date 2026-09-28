@@ -11,6 +11,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal, TypeVar
 from uuid import UUID, uuid4
 
+from opentelemetry.trace import Tracer
+
 from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.vector_record import (
     PENDING_VECTOR_FLAG,
@@ -29,6 +31,7 @@ from agrag.cypher.cutover_job_write import (
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._document_lifecycle import close_open_part_of_edges
 from agrag.ingestion.settings import CutoverJobSettings
+from agrag.observability import get_tracer
 from agrag.vectordb.base import VectorStore
 
 
@@ -291,6 +294,7 @@ async def run_cutover_job(
     pending_write: Callable[[UUID], Awaitable[T]],
     cleanup: Callable[[], Awaitable[S]],
     close_document_node_id: UUID | None = None,
+    tracer: Tracer | None = None,
 ) -> tuple[T, S, int]:
     """Run one crash-safe graph-mutating call end to end.
 
@@ -321,6 +325,9 @@ async def run_cutover_job(
         close_document_node_id: The persisted Document node whose open
             PART_OF edges close atomically with the commit. None closes
             nothing, for add.
+        tracer: Opens this job's span. The caller's own root span (Graph.add/
+            update/delete_document) must already be current when this is
+            called, or this job's span has no parent.
 
     Returns:
         The pending-write result, the cleanup result, and the number of
@@ -333,57 +340,63 @@ async def run_cutover_job(
             raised, after rolling back (pre-commit) or leaving the job for
             resume (post-commit).
     """
-    job_id, token = await _acquire_lease(
-        document_key=document_key,
-        verb=verb,
-        affected_entity_ids=affected_entity_ids,
-        graph_store=graph_store,
-        settings=settings,
-    )
-    stop_renewal = asyncio.Event()
-    renewal_stopped = asyncio.Event()
-    renewal = asyncio.create_task(
-        _renew_periodically(
+    resolved_tracer = get_tracer(tracer)
+    with resolved_tracer.start_as_current_span(
+        "agrag.ingestion.cutover_job",
+        attributes={"agrag.verb": verb, "agrag.document_key": document_key},
+    ) as span:
+        job_id, token = await _acquire_lease(
+            document_key=document_key,
+            verb=verb,
+            affected_entity_ids=affected_entity_ids,
             graph_store=graph_store,
-            job_id=job_id,
-            token=token,
-            ttl_seconds=settings.lease_ttl_seconds,
-            stop_event=stop_renewal,
-            stopped_event=renewal_stopped,
+            settings=settings,
         )
-    )
-    leased = asyncio.create_task(
-        _run_leased(
-            job_id=job_id,
-            token=token,
-            graph_store=graph_store,
-            vector_store=vector_store,
-            vector_collections=vector_collections,
-            pending_write=pending_write,
-            cleanup=cleanup,
-            close_document_node_id=close_document_node_id,
-            stop_renewal=stop_renewal,
-            renewal_stopped=renewal_stopped,
+        span.set_attribute("agrag.job_id", str(job_id))
+        stop_renewal = asyncio.Event()
+        renewal_stopped = asyncio.Event()
+        renewal = asyncio.create_task(
+            _renew_periodically(
+                graph_store=graph_store,
+                job_id=job_id,
+                token=token,
+                ttl_seconds=settings.lease_ttl_seconds,
+                stop_event=stop_renewal,
+                stopped_event=renewal_stopped,
+            )
         )
-    )
-    try:
-        done, _ = await asyncio.wait(
-            (leased, renewal), return_when=asyncio.FIRST_COMPLETED
+        leased = asyncio.create_task(
+            _run_leased(
+                job_id=job_id,
+                token=token,
+                graph_store=graph_store,
+                vector_store=vector_store,
+                vector_collections=vector_collections,
+                pending_write=pending_write,
+                cleanup=cleanup,
+                close_document_node_id=close_document_node_id,
+                stop_renewal=stop_renewal,
+                renewal_stopped=renewal_stopped,
+            )
         )
-        if leased in done:
-            return await leased
-        if stop_renewal.is_set():
-            return await leased
-        leased.cancel()
-        await asyncio.gather(leased, return_exceptions=True)
-        await renewal
-        raise RuntimeError("Lease renewal stopped unexpectedly.")
-    finally:
-        if not leased.done():
+        try:
+            done, _ = await asyncio.wait(
+                (leased, renewal), return_when=asyncio.FIRST_COMPLETED
+            )
+            if leased in done:
+                return await leased
+            if stop_renewal.is_set():
+                return await leased
             leased.cancel()
-        if not renewal.done():
-            renewal.cancel()
-        await asyncio.gather(leased, renewal, return_exceptions=True)
+            await asyncio.gather(leased, return_exceptions=True)
+            await renewal
+            raise RuntimeError("Lease renewal stopped unexpectedly.")
+        finally:
+            if not leased.done():
+                leased.cancel()
+            if not renewal.done():
+                renewal.cancel()
+            await asyncio.gather(leased, renewal, return_exceptions=True)
 
 
 async def _run_leased(

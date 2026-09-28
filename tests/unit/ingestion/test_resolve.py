@@ -23,6 +23,11 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
@@ -1017,3 +1022,51 @@ class TestZoneRouting:
                 candidate_source=_candidate_source(),
                 llm_batch_size=10,
             )
+
+
+class TestResolverLlmBatchSpans:
+    """The LLM tier opens one span per outer batch, not per pair."""
+
+    async def test_llm_batch_span_count_matches_outer_batching(self) -> None:
+        """Ten boundary pairs with batch size two emit five batch spans."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        chunk = _chunk()
+
+        class UncertainClient:
+            """Return an uncertain verdict for every requested pair."""
+
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                return [
+                    {"pair_id": pair["pair_id"], "verdict": "uncertain"}
+                    for pair in pairs
+                ]
+
+        entities = [
+            _entity(name, chunk_id=chunk.id)
+            for name in ("Ada", "Charles", "Grace", "Alan", "Katherine")
+        ]
+        resolver = Resolver(
+            comparators=[
+                ExactMatch(),
+                FuzzyMatch(match_above=1.0),
+                LLMVerify(chunks_by_id={chunk.id: chunk}, client=UncertainClient()),
+            ],
+            candidate_source=_candidate_source(),
+            llm_batch_size=2,
+            tracer=provider.get_tracer("test"),
+        )
+
+        result = await resolver.resolve(entities)
+
+        assert result.ambiguous_count == 10
+        batch_spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.resolution.llm_batch"
+        ]
+        assert len(batch_spans) == 5
+        assert sorted(
+            (span.attributes or {})["agrag.batch_size"] for span in batch_spans
+        ) == [2, 2, 2, 2, 2]

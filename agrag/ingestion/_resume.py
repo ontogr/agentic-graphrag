@@ -19,6 +19,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+from opentelemetry.trace import Tracer
+
 from agrag.common.data_models.cutover_job import CutoverJobStatus
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.cypher.cutover_job_write import (
@@ -34,6 +36,7 @@ from agrag.ingestion._cutover import (
     delete_pending_vectors,
 )
 from agrag.ingestion.settings import CutoverJobSettings
+from agrag.observability import get_tracer, record_swallowed_exception
 
 
 async def resume_incomplete_jobs(
@@ -43,6 +46,7 @@ async def resume_incomplete_jobs(
     vector_collections: Sequence[str] = (),
     roll_forward: Callable[[list[UUID]], Awaitable[None]] | None = None,
     lease_ttl_seconds: int = CutoverJobSettings().lease_ttl_seconds,
+    tracer: Tracer | None = None,
 ) -> list[str]:
     """Recover every incomplete Cutover Job found in the graph.
 
@@ -57,6 +61,7 @@ async def resume_incomplete_jobs(
             affected-entity snapshot. None rolls forward without pruning,
             which leaves the snapshot on the job node for a later caller.
         lease_ttl_seconds: Lease duration for a resume claimant.
+        tracer: Opens this pass's span.
 
     Returns:
         The recovered job ids, in the order handled. Each was either
@@ -65,47 +70,53 @@ async def resume_incomplete_jobs(
         live lease still holds it, or claimed by a concurrent open, is not
         reported.
     """
-    try:
-        job_rows = await graph_store.execute_read(find_incomplete_jobs_query())
-    except Exception:  # noqa: BLE001
-        # A graph that predates this feature, or a store whose read
-        # failed, must not break opening the graph.
-        return []
-    handled: list[str] = []
-    for row in job_rows:
-        if not isinstance(row, dict) or row.get("id") is None:
-            continue
-        job_id = str(row["id"])
-        status = str(row.get("status") or "")
-        if status == CutoverJobStatus.PENDING:
+    resolved_tracer = get_tracer(tracer)
+    with resolved_tracer.start_as_current_span(
+        "agrag.ingestion.resume_incomplete_jobs"
+    ) as span:
+        try:
+            job_rows = await graph_store.execute_read(find_incomplete_jobs_query())
+        except Exception as exc:  # noqa: BLE001
+            # A graph that predates this feature, or a store whose read
+            # failed, must not break opening the graph.
+            record_swallowed_exception(exc)
+            return []
+        handled: list[str] = []
+        for row in job_rows:
+            if not isinstance(row, dict) or row.get("id") is None:
+                continue
+            job_id = str(row["id"])
+            status = str(row.get("status") or "")
+            if status == CutoverJobStatus.PENDING:
+                if row.get("lease_token") is None:
+                    continue
+                if await _roll_back(
+                    graph_store,
+                    job_id=job_id,
+                    vector_store=vector_store,
+                    vector_collections=vector_collections,
+                    expected_lease_token=str(row["lease_token"]),
+                    lease_ttl_seconds=lease_ttl_seconds,
+                ):
+                    handled.append(job_id)
+                continue
             if row.get("lease_token") is None:
                 continue
-            if await _roll_back(
+            if not row.get("lease_expired"):
+                continue
+            if await _roll_forward(
                 graph_store,
                 job_id=job_id,
+                affected_entity_ids=_affected_entity_ids(row),
                 vector_store=vector_store,
                 vector_collections=vector_collections,
-                expected_lease_token=str(row["lease_token"]),
+                prune=roll_forward,
+                lease_token=str(row["lease_token"]),
                 lease_ttl_seconds=lease_ttl_seconds,
             ):
                 handled.append(job_id)
-            continue
-        if row.get("lease_token") is None:
-            continue
-        if not row.get("lease_expired"):
-            continue
-        if await _roll_forward(
-            graph_store,
-            job_id=job_id,
-            affected_entity_ids=_affected_entity_ids(row),
-            vector_store=vector_store,
-            vector_collections=vector_collections,
-            prune=roll_forward,
-            lease_token=str(row["lease_token"]),
-            lease_ttl_seconds=lease_ttl_seconds,
-        ):
-            handled.append(job_id)
-    return handled
+        span.set_attribute("agrag.jobs_handled", len(handled))
+        return handled
 
 
 def _affected_entity_ids(row: dict[str, Any]) -> list[UUID]:
@@ -161,7 +172,8 @@ async def _roll_back(
                 ).isoformat(),
             },
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        record_swallowed_exception(exc)
         return False
     if not claimed:
         return False
@@ -175,7 +187,8 @@ async def _roll_back(
             rollback_claimed_job_query(),
             {"job_id": job_id, "lease_token": token},
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        record_swallowed_exception(exc)
         return False
     return bool(rolled_back)
 
@@ -217,7 +230,8 @@ async def _roll_forward(
                 "lease_expires_at": expires_at.isoformat(),
             },
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        record_swallowed_exception(exc)
         return False
     if not claimed:
         return False
@@ -289,7 +303,8 @@ async def _finish_roll_forward(
     if prune is not None and affected_entity_ids:
         try:
             await prune(affected_entity_ids)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            record_swallowed_exception(exc)
             return False
     try:
         await clear_pending_vectors(
@@ -297,7 +312,8 @@ async def _finish_roll_forward(
             collections=vector_collections,
             job_id=job_uuid,
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        record_swallowed_exception(exc)
         return False
     stop_renewal.set()
     await renewal_stopped.wait()
@@ -305,6 +321,7 @@ async def _finish_roll_forward(
         finished = await graph_store.execute_write(
             finish_cleaning_query(), {"job_id": job_id, "lease_token": lease_token}
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        record_swallowed_exception(exc)
         return False
     return bool(finished)

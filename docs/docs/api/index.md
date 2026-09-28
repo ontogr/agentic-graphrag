@@ -11995,7 +11995,7 @@ batch_size rows deleted.
 ##### `agrag.ingestion.community.embed_communities`
 
 ```python
-embed_communities(communities:list[Community], *, embedder:Embedder, batch_size:int = _DEFAULT_EMBED_BATCH_SIZE, max_concurrency:int = 4) -> list[StageFailure]
+embed_communities(communities:list[Community], *, embedder:Embedder, batch_size:int = _DEFAULT_EMBED_BATCH_SIZE, max_concurrency:int = 4, tracer:Tracer | None = None) -> list[StageFailure]
 ```
 
 Compute each community's embedding from its report text, in place.
@@ -12022,6 +12022,7 @@ is None, rather than being dropped from the graph.
 - **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Computes one vector per community's embedding_text.
 - **batch_size** (<code>[int](#int)</code>) – Communities embedded per embed() call.
 - **max_concurrency** (<code>[int](#int)</code>) – Max concurrent embed calls.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens one span per batch.
 
 **Returns:**
 
@@ -12059,7 +12060,7 @@ it.
 ##### `agrag.ingestion.community.generate_community_reports`
 
 ```python
-generate_community_reports(communities:list[Community], entities_by_id:dict[UUID, Entity], *, edges:list[WeightedEdge] | None = None, min_importance_for_llm_report:float = _DEFAULT_MIN_IMPORTANCE_FOR_LLM_REPORT, batch_size:int = _DEFAULT_REPORT_BATCH_SIZE, max_members_per_prompt:int = _DEFAULT_MAX_MEMBERS_PER_PROMPT, max_relations_per_prompt:int = _DEFAULT_MAX_RELATIONS_PER_PROMPT, max_concurrency:int = 4, error_policy:ErrorPolicy = ErrorPolicy.SKIP) -> list[StageFailure]
+generate_community_reports(communities:list[Community], entities_by_id:dict[UUID, Entity], *, edges:list[WeightedEdge] | None = None, min_importance_for_llm_report:float = _DEFAULT_MIN_IMPORTANCE_FOR_LLM_REPORT, batch_size:int = _DEFAULT_REPORT_BATCH_SIZE, max_members_per_prompt:int = _DEFAULT_MAX_MEMBERS_PER_PROMPT, max_relations_per_prompt:int = _DEFAULT_MAX_RELATIONS_PER_PROMPT, max_concurrency:int = 4, error_policy:ErrorPolicy = ErrorPolicy.SKIP, tracer:Tracer | None = None) -> list[StageFailure]
 ```
 
 Generate a report for each community, in place.
@@ -12119,6 +12120,7 @@ rather than discarding the reports that did come back.
 - **error_policy** (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – RAISE propagates a batch call failure or a missing
   `llm` extra; anything else records it or falls back and
   continues.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens one span per batch.
 
 **Returns:**
 
@@ -14655,7 +14657,7 @@ score: float | None = None
 ##### `agrag.ingestion.resolve.Resolver`
 
 ```python
-Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource, embedder:Embedder | None = None, hard_merge_threshold:float = HARD_MERGE_THRESHOLD, discard_threshold:float = DISCARD_THRESHOLD, max_llm_pairs:int = MAX_LLM_PAIRS, llm_batch_size:int = 10) -> None
+Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource, embedder:Embedder | None = None, hard_merge_threshold:float = HARD_MERGE_THRESHOLD, discard_threshold:float = DISCARD_THRESHOLD, max_llm_pairs:int = MAX_LLM_PAIRS, llm_batch_size:int = 10, tracer:Tracer | None = None) -> None
 ```
 
 Routes blocked candidate pairs through exact, fuzzy, embedding, and LLM zones.
@@ -14699,6 +14701,7 @@ merge without spending LLM calls.
   label.
 - **llm_batch_size** (<code>[int](#int)</code>) – Pairs per LLM request. Must fit the
   LLMVerify comparator's max_pairs_per_batch.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens this resolver's spans.
 
 **Raises:**
 
@@ -15953,7 +15956,7 @@ score: float | None = None
 ###### `agrag.ingestion.resolve.resolver.Resolver`
 
 ```python
-Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource, embedder:Embedder | None = None, hard_merge_threshold:float = HARD_MERGE_THRESHOLD, discard_threshold:float = DISCARD_THRESHOLD, max_llm_pairs:int = MAX_LLM_PAIRS, llm_batch_size:int = 10) -> None
+Resolver(*, comparators:list[Comparator], candidate_source:CandidateSource, embedder:Embedder | None = None, hard_merge_threshold:float = HARD_MERGE_THRESHOLD, discard_threshold:float = DISCARD_THRESHOLD, max_llm_pairs:int = MAX_LLM_PAIRS, llm_batch_size:int = 10, tracer:Tracer | None = None) -> None
 ```
 
 Routes blocked candidate pairs through exact, fuzzy, embedding, and LLM zones.
@@ -15997,6 +16000,7 @@ merge without spending LLM calls.
   label.
 - **llm_batch_size** (<code>[int](#int)</code>) – Pairs per LLM request. Must fit the
   LLMVerify comparator's max_pairs_per_batch.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens this resolver's spans.
 
 **Raises:**
 
@@ -16812,6 +16816,9 @@ reaching the global `TracerProvider`.
 **Functions:**
 
 - [**get_tracer**](#agrag.observability.get_tracer) – Return a usable tracer.
+- [**record_stage_failure**](#agrag.observability.record_stage_failure) – Record `exc` as an error on the current span, then return its ids.
+- [**record_swallowed_exception**](#agrag.observability.record_swallowed_exception) – Record `exc` on the current span without marking it errored.
+- [**stage_failure_context**](#agrag.observability.stage_failure_context) – Return the current span's trace and span id as hex, or (None, None).
 
 #### `agrag.observability.get_tracer`
 
@@ -16828,6 +16835,67 @@ Return a usable tracer.
 **Returns:**
 
 - <code>[Tracer](#opentelemetry.trace.Tracer)</code> – agrag uses the supplied tracer or a no-op for `None` and skips global tracing.
+
+#### `agrag.observability.record_stage_failure`
+
+```python
+record_stage_failure(exc:Exception) -> tuple[str | None, str | None]
+```
+
+Record `exc` as an error on the current span, then return its ids.
+
+Call this from inside the `except` block that constructs the
+`StageFailure` this exception maps to, and only from code running
+under a span `agrag` itself opened (any span this plan or a later one
+opens, real or no-op) -- never from a point where the only ambient span
+is one a host application opened itself, which this would incorrectly
+mark as errored. Every call site this plan adds sits inside at least
+one `agrag`-opened root span, so this invariant always holds; a future
+caller adding a new StageFailure site outside any `agrag` span would
+need its own span first, not a bare call to this function.
+
+The current span must still be open (not yet exited its `with` block)
+at the point this runs -- a span that already closed before the
+`except` ran is not the current span here, and the ids returned
+would correlate to whatever the caller's own ambient span is instead.
+
+**Returns:**
+
+- <code>[str](#str) | None</code> – The current span's `(trace_id, span_id)` as hex strings, for
+- <code>[str](#str) | None</code> – `StageFailure.trace_id`/`.span_id`, or `(None, None)` when
+- <code>[tuple](#tuple)\[[str](#str) | None, [str](#str) | None\]</code> – `stage_failure_context` would also return that.
+
+#### `agrag.observability.record_swallowed_exception`
+
+```python
+record_swallowed_exception(exc:Exception) -> None
+```
+
+Record `exc` on the current span without marking it errored.
+
+For a path that intentionally continues after `exc` without failing
+the caller (a best-effort fallback, background recovery): the trace
+shows the exception happened, but the span's own status is left alone,
+since the caller's behavior did not change because of it. Same
+ambient-span invariant as `record_stage_failure` above.
+
+#### `agrag.observability.stage_failure_context`
+
+```python
+stage_failure_context() -> tuple[str | None, str | None]
+```
+
+Return the current span's trace and span id as hex, or (None, None).
+
+Reads whatever span is ambiently current. Returns `(None, None)` when
+that span is not being recorded -- true when no span is open, when the
+current span came from `get_tracer(None)`'s no-op tracer (even one
+wrapping a real ambient context for correct propagation -- see the
+module-level note above), and when a real tracer's sampler dropped the
+span. Uses `is_recording()`, not the span context's `is_valid`: a
+no-op tracer's span can carry a *valid* context (a real host trace id it
+is merely propagating, not recording into) without this function ever
+exposing that id.
 
 ### `agrag.retrieval`
 
