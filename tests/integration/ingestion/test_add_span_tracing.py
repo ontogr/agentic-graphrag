@@ -36,7 +36,7 @@ from agrag.loaders.corpus.types import ErrorPolicy
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 
 
-class MockEmbedder(Embedder):
+class _MockEmbedder(Embedder):
     """Embedder that returns a fixed vector."""
 
     model = "fake"
@@ -50,23 +50,25 @@ class MockEmbedder(Embedder):
         return [[1.0, 2.0, 3.0] for _ in texts]
 
 
-class MarkerExtractor(Extractor):
+class _MarkerExtractor(Extractor):
     """Extractor keyed off a marker substring in the chunk text.
 
     A chunk carrying ``MERIDIAN_MARKER`` yields two verbatim mentions and
     one trailing-"s" variant; a chunk carrying ``FAILURE_MARKER`` raises.
+    Mention names carry the run suffix so reruns never share entities.
     """
+
+    def __init__(self, suffix: str) -> None:
+        """Remember the suffix isolating this run's mentions."""
+        self._suffix = suffix
 
     async def extract(self, chunk: ChunkModel, schema: GraphSchema) -> ExtractionResult:
         """Return canned mentions or raise, by marker."""
         if "FAILURE_MARKER" in chunk.text:
             raise RuntimeError("fake extraction boom")
         if "MERIDIAN_MARKER" in chunk.text:
-            names = [
-                "Meridian Health Group",
-                "Meridian Health Group",
-                "Meridian Health Groups",
-            ]
+            base = f"Meridian Health Group {self._suffix}"
+            names = [base, base, f"{base}s"]
             return ExtractionResult(
                 entities=[
                     ExtractedEntity(
@@ -100,8 +102,8 @@ def _write_fixtures(directory: Path) -> tuple[str, str]:
     return str(meridian.resolve()), str(failure.resolve())
 
 
-async def _cleanup(store: Any, uris: Sequence[str]) -> None:
-    """Delete everything the fixture run wrote, by document uri and name."""
+async def _cleanup(store: Any, uris: Sequence[str], suffix: str) -> None:
+    """Delete only this run's nodes: its documents plus suffixed names."""
     await store.execute_write(
         "MATCH (d:Document) WHERE d.uri IN $uris "
         "OPTIONAL MATCH (d)-[:PART_OF]->(c:Chunk) "
@@ -109,16 +111,16 @@ async def _cleanup(store: Any, uris: Sequence[str]) -> None:
         {"uris": list(uris)},
     )
     await store.execute_write(
-        "MATCH (e:Organization) WHERE e.name CONTAINS 'Meridian Health' "
-        "DETACH DELETE e",
+        "MATCH (e:Organization) WHERE e.name CONTAINS $suffix DETACH DELETE e",
+        {"suffix": suffix},
     )
     await store.execute_write(
-        "MATCH (r:ResolvedEntity) WHERE r.name CONTAINS 'Meridian Health' "
-        "DETACH DELETE r",
+        "MATCH (r:ResolvedEntity) WHERE r.name CONTAINS $suffix DETACH DELETE r",
+        {"suffix": suffix},
     )
     await store.execute_write(
-        "MATCH (a:_AgragMergeAlias) WHERE a.merge_key CONTAINS 'meridian health' "
-        "DETACH DELETE a",
+        "MATCH (a:_AgragMergeAlias) WHERE a.merge_key CONTAINS $key DETACH DELETE a",
+        {"key": suffix.lower()},
     )
 
 
@@ -158,7 +160,8 @@ class TestAddSpanTracing:
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
-        run = tmp_path / f"add-span-{uuid4().hex}"
+        suffix = uuid4().hex[:8]
+        run = tmp_path / f"add-span-{suffix}"
         run.mkdir()
         uris = _write_fixtures(run)
 
@@ -167,8 +170,8 @@ class TestAddSpanTracing:
         graph = await Graph.open(
             schema=GENERIC,
             graph_store=store,
-            embedder=MockEmbedder(),
-            extractor=MarkerExtractor(),
+            embedder=_MockEmbedder(),
+            extractor=_MarkerExtractor(suffix),
             tracer=provider.get_tracer("agrag-test"),
         )
         try:
@@ -223,14 +226,15 @@ class TestAddSpanTracing:
 
             _write_span_tree(_span_tree_path(), spans)
         finally:
-            await _cleanup(store, uris)
+            await _cleanup(store, uris, suffix)
             await store.close()
 
     async def test_add_without_tracer_leaves_failure_ids_empty(
         self, tmp_path: Path
     ) -> None:
         """A tracer=None run records no ids on its extraction failure."""
-        run = tmp_path / f"add-untraced-{uuid4().hex}"
+        suffix = uuid4().hex[:8]
+        run = tmp_path / f"add-untraced-{suffix}"
         run.mkdir()
         uris = _write_fixtures(run)
 
@@ -239,13 +243,13 @@ class TestAddSpanTracing:
         graph = await Graph.open(
             schema=GENERIC,
             graph_store=store,
-            embedder=MockEmbedder(),
-            extractor=MarkerExtractor(),
+            embedder=_MockEmbedder(),
+            extractor=_MarkerExtractor(suffix),
         )
         try:
             result = await graph.add(source=run, error_policy=ErrorPolicy.SKIP)
             (failure,) = result.extraction.failures
             assert failure.trace_id is None
         finally:
-            await _cleanup(store, uris)
+            await _cleanup(store, uris, suffix)
             await store.close()
