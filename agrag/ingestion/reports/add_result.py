@@ -5,12 +5,12 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.ingestion.stats import (
     ExtractionStats,
     IngestStats,
     MergeStats,
     ResolutionStats,
-    StageFailure,
     StorageStats,
 )
 

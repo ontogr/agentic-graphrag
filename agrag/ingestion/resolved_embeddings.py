@@ -6,6 +6,7 @@ from uuid import UUID
 
 from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.resolved_entity import ResolvedEntity
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.data_models.vector_record import PENDING_VECTOR_FLAG, VectorRecord
 from agrag.cypher.entities import clear_property_query, set_embedding_query
 from agrag.cypher.resolution_write import (
@@ -16,7 +17,6 @@ from agrag.cypher.resolution_write import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion.stats import StageFailure
 from agrag.loaders.corpus.types import ErrorPolicy
 from agrag.vectordb.base import VectorStore
 

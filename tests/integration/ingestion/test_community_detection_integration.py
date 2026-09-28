@@ -20,6 +20,7 @@ from agrag.common.data_models.community import COMMUNITY_LABEL, Community
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.common.data_models.relation import Relation
+from agrag.common.data_models.stage_failure import StageFailure  # noqa: F401
 from agrag.cypher.entities import hydrate_entities_by_id_query, validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
@@ -35,7 +36,6 @@ from agrag.ingestion.community import (
 from agrag.ingestion.extract import ExtractionResult, Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.reports import CommunityDetectionReport
-from agrag.ingestion.stats import StageFailure  # noqa: F401
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None

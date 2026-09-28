@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from agrag.common.data_models.community import Community
-from agrag.ingestion.stats import StageFailure
+from agrag.common.data_models.stage_failure import StageFailure
 
 
 class CommunityDetectionReport(BaseModel):
