@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.validation import (
     require_positive_batch_size,
     require_positive_max_concurrency,
@@ -21,7 +22,6 @@ from agrag.cypher.relations import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
-from agrag.ingestion.stats import StageFailure
 from agrag.loaders.corpus.types import ErrorPolicy
 
 

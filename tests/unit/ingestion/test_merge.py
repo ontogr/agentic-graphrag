@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.graphdb.errors import GraphStoreAliasConflictError
 from agrag.ingestion.merge import (
     MergePlan,
@@ -39,7 +40,6 @@ from agrag.ingestion.merge import (
     resolve_description,
     select_canonical,
 )
-from agrag.ingestion.stats import StageFailure
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
 
 

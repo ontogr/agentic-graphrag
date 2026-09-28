@@ -4,9 +4,9 @@ import logging
 
 import pytest
 
-from agrag.ingestion.stats import StageFailure
-from agrag.ingestion.stats.stage_failure import (
+from agrag.common.data_models.stage_failure import (
     MAX_FAILURES_PER_STAGE,
+    StageFailure,
     cap_failures,
 )
 

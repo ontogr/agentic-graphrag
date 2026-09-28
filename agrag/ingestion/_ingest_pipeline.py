@@ -29,6 +29,7 @@ from agrag.common.data_models.graph_record import (
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
+from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.data_models.vector_record import PENDING_VECTOR_FLAG, VectorRecord
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
@@ -80,9 +81,7 @@ from agrag.ingestion.stats import (
     IngestStats,
     MergeStats,
     ResolutionStats,
-    StageFailure,
     StorageStats,
-    cap_failures,
 )
 from agrag.loaders.corpus.types import ErrorPolicy
 from agrag.retrieval.settings import RetrievalSettings

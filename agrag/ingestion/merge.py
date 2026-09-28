@@ -18,8 +18,8 @@ from pydantic import BaseModel
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.text import normalize_text
-from agrag.ingestion.stats import StageFailure
 
 
 if TYPE_CHECKING:
