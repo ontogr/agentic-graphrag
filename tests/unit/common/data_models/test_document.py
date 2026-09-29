@@ -80,16 +80,23 @@ class TestTurns:
 
     _TEXT = "[user] hello\n\n[assistant] hi there"
 
-    def _with_turns(self, turns: list[TurnRef]) -> Document:
+    def _with_turns(
+        self,
+        turns: list[TurnRef],
+        *,
+        text: str | None = None,
+        char_count: int | None = None,
+    ) -> Document:
+        text = self._TEXT if text is None else text
         return Document(
-            text=self._TEXT,
+            text=text,
             title="t",
             uri="u",
             source_format=SourceFormat.JSONL,
             family=DocumentFamily.PROSE,
             content_hash="h",
             loader_name="chat",
-            char_count=len(self._TEXT),
+            char_count=len(text) if char_count is None else char_count,
             turns=turns,
         )
 
@@ -105,6 +112,13 @@ class TestTurns:
     def test_defaults_to_no_turns(self) -> None:
         """A document without chat structure has no turns."""
         assert self._with_turns([]).turns == []
+
+    def test_rejects_turns_when_text_is_not_stored(self) -> None:
+        """Turn spans require the document text that they index."""
+        turns = [TurnRef(role="user", char_start=0, char_end=12)]
+
+        with pytest.raises(ValueError, match="text"):
+            self._with_turns(turns, text="", char_count=len(self._TEXT))
 
     @pytest.mark.parametrize(
         ("spans", "message"),

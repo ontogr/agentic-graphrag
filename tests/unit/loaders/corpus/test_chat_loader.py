@@ -74,6 +74,13 @@ class TestChatLoader:
 
         assert doc.text == "[user] fix"
 
+    def test_normalizes_escaped_message_fields_after_parsing(self) -> None:
+        """Message fields use the configured BOM, newline and Unicode normalization."""
+        (doc,) = _load(_jsonl({"role": "\ufeffuſer", "content": "\ufeffﬁrst\r\nline"}))
+
+        assert doc.text == "[user] first\nline"
+        assert doc.turns[0].role == "user"
+
     def test_keeps_non_ascii_roles_and_content(self) -> None:
         """Unicode survives and spans index characters, not bytes."""
         (doc,) = _load(_jsonl({"role": "usuário", "content": "日本語"}))

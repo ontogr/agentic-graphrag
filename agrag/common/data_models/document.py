@@ -165,7 +165,7 @@ class Document(DataPoint):
     @model_validator(mode="after")
     def _check_turns(self) -> "Document":
         """Require turn spans in order, without overlap, inside the text."""
-        limit = max(len(self.text), self.char_count)
+        limit = len(self.text)
         previous_end = 0
         for turn in self.turns:
             if not 0 <= turn.char_start < turn.char_end <= limit:

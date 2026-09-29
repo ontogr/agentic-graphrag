@@ -20,6 +20,18 @@ from agrag.loaders.corpus.types import ReadOptions, SourceRef
 _TURN_SEPARATOR = "\n\n"
 
 
+def _normalize_field(text: str, opts: ReadOptions) -> str:
+    """Apply the configured text normalization to one parsed message field."""
+    normalization = opts.normalization
+    if normalization.bom == "strip":
+        text = text.removeprefix("\ufeff")
+    if normalization.newline == "lf":
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if normalization.unicode_form != "none":
+        text = unicodedata.normalize(normalization.unicode_form, text)
+    return text
+
+
 def _messages(text: str, source: SourceRef) -> list[dict[str, Any]]:
     """Parse the messages of a JSON array or of JSON Lines text."""
     if source.extension == ".json":
@@ -97,12 +109,12 @@ class ChatLoader(ProseLoader):
         position = 0
         for index, message in enumerate(messages):
             role, content, turn_id = self._fields(message, index, source)
-            # JSON escapes such as \\ufb01 reach the text only after parsing, so the
-            # Unicode form of the decode step has not seen them yet.
-            form = opts.normalization.unicode_form
-            if form != "none":
-                role = unicodedata.normalize(form, role)
-                content = unicodedata.normalize(form, content)
+            role = _normalize_field(role, opts)
+            content = _normalize_field(content, opts)
+            if not role:
+                raise MalformedRecordError(
+                    f"Message {index} of {source.uri} needs a non-empty string role"
+                )
             if turn_id is not None:
                 if turn_id in seen_ids:
                     raise MalformedRecordError(
