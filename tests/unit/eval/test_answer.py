@@ -16,6 +16,8 @@ from pydantic import BaseModel
 
 from agrag.agents.ledger import Ledger
 from agrag.agents.result import AgentRunResult
+from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
@@ -150,6 +152,40 @@ class TestAnswerCase:
                 "V1": "[V1] Value: 94",
             }
         }
+
+
+class TestAnswerCaseParentChild:
+    """A child hit gives the judge the parent text, keyed by the child."""
+
+    def test_retrieval_context_holds_the_parent_text(self) -> None:
+        """The evidence the judge sees is what the agent saw: the parent passage."""
+        parent = Chunk(
+            document_id=uuid4(),
+            text="The whole parent passage with the figure 42.",
+            provenance=TextProvenance(char_start=0, char_end=44),
+            level=1,
+        )
+        child = Chunk(
+            id=uuid4(),
+            document_id=parent.document_id,
+            text="the figure",
+            provenance=TextProvenance(char_start=25, char_end=35),
+            parent_id=parent.id,
+        )
+        ledger = Ledger()
+        ledger.render(
+            SearchResult(item=child, score=1.0, method="chunk", parent=parent)
+        )
+        run: AgentRunResult = {
+            "messages": [{"role": "assistant", "content": "It is 42 [C1]."}],
+            "ledger": ledger,
+        }
+
+        case = answer_case("q", run, "42")
+
+        assert case.retrieval_context == [
+            "[C1] Chunk: The whole parent passage with the figure 42."
+        ]
 
 
 class TestCitationAccuracyMetric:

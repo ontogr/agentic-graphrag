@@ -4,6 +4,8 @@ A stub chunker returns whatever chunks a test hands it, so each way a strategy c
 break the contract is checked against ``chunk()`` without a real splitter.
 """
 
+from uuid import uuid4
+
 import pytest
 
 from agrag.chunking import Chunker, ChunkingError, RecursiveChunker, TokenChunker
@@ -113,6 +115,40 @@ class TestChunk:
         chunks = _run(document, [_chunk(document, 0, 8), _chunk(document, 4, 11, 1)])
 
         assert [c.text for c in chunks] == ["hello wo", "o world"]
+
+
+class TestLevels:
+    """chunk() checks indexes per level and that children lie inside parents."""
+
+    def _pair(self, document: Document, child_span: tuple[int, int]) -> list[Chunk]:
+        parent = _chunk(document, 0, 5).model_copy(update={"level": 1})
+        child = _chunk(document, *child_span).model_copy(
+            update={"parent_id": parent.id}
+        )
+        return [parent, child]
+
+    def test_accepts_indexes_that_restart_for_each_level(self) -> None:
+        """A parent 0 and a child 0 are both valid."""
+        document = make_document("hello world")
+
+        chunks = _run(document, self._pair(document, (0, 3)))
+
+        assert [(c.level, c.index) for c in chunks] == [(1, 0), (0, 0)]
+
+    def test_rejects_a_child_outside_its_parent(self) -> None:
+        """A child span that leaves the parent span breaks the contract."""
+        document = make_document("hello world")
+
+        with pytest.raises(ChunkingError, match="outside its parent"):
+            _run(document, self._pair(document, (6, 11)))
+
+    def test_rejects_a_child_whose_parent_is_missing(self) -> None:
+        """A parent id that names no chunk breaks the contract."""
+        document = make_document("hello world")
+        child = _chunk(document, 0, 3).model_copy(update={"parent_id": uuid4()})
+
+        with pytest.raises(ChunkingError, match="parent"):
+            _run(document, [child])
 
 
 class TestFingerprint:

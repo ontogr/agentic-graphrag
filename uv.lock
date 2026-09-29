@@ -76,6 +76,15 @@ agents = [
     { name = "langchain-openai" },
     { name = "langgraph" },
 ]
+chunk-code = [
+    { name = "chonkie", extra = ["code"] },
+]
+chunk-neural = [
+    { name = "chonkie", extra = ["neural"] },
+]
+chunk-semantic = [
+    { name = "chonkie", extra = ["semantic"] },
+]
 community = [
     { name = "graspologic-native" },
 ]
@@ -149,6 +158,9 @@ requires-dist = [
     { name = "baml-py", marker = "extra == 'llm'", specifier = ">=0.226.1,<0.227" },
     { name = "charset-normalizer", specifier = ">=3.4" },
     { name = "chonkie", specifier = ">=1.7" },
+    { name = "chonkie", extras = ["code"], marker = "extra == 'chunk-code'", specifier = ">=1.7" },
+    { name = "chonkie", extras = ["neural"], marker = "extra == 'chunk-neural'", specifier = ">=1.7" },
+    { name = "chonkie", extras = ["semantic"], marker = "extra == 'chunk-semantic'", specifier = ">=1.7" },
     { name = "deepagents", marker = "extra == 'agents'", specifier = ">=0.7.15" },
     { name = "deepeval", marker = "extra == 'eval'", specifier = ">=4.2.6" },
     { name = "docling", marker = "extra == 'docling'", specifier = ">=2.0" },
@@ -183,7 +195,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'extract'", specifier = "<4.56" },
     { name = "weaviate-client", marker = "extra == 'weaviate'", specifier = ">=4.9" },
 ]
-provides-extras = ["docling", "embed-local", "qdrant", "weaviate", "milvus", "neo4j", "observability", "llm", "extract", "agents", "eval", "community"]
+provides-extras = ["docling", "embed-local", "qdrant", "weaviate", "milvus", "neo4j", "observability", "llm", "extract", "agents", "eval", "community", "chunk-semantic", "chunk-neural", "chunk-code"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -797,6 +809,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c4/67/e6ceace2b2066cc38206c81e9105735975d7a58d89c9e7a871fe9acef63d/chonkie-1.7.0.tar.gz", hash = "sha256:4352aa214b66376c32523e524b94b7f1456a5e7611c48037dadb45e46f436b18", size = 190834, upload-time = "2026-07-07T10:06:02.475Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/04/c0/b5f91fb340d354a8c20e2f65d08b9dab357360da78d230e96c6d79b36a2e/chonkie-1.7.0-py3-none-any.whl", hash = "sha256:98822ca80fbf3c0775f59329a4f6b6bfedb34edff004b5e04e53c3281369b921", size = 233764, upload-time = "2026-07-07T10:06:00.824Z" },
+]
+
+[package.optional-dependencies]
+code = [
+    { name = "tree-sitter-language-pack" },
+]
+neural = [
+    { name = "torch" },
+    { name = "transformers" },
+]
+semantic = [
+    { name = "model2vec" },
+    { name = "tokenizers" },
 ]
 
 [[package]]
@@ -2782,6 +2807,24 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f5/be/57df5ff90b968bcce8d173df2a69f668702d0940f0d66696f259f904a373/mmh3-5.3.0-cp315-cp315t-win32.whl", hash = "sha256:9e03132ea81849b5732122d3d2f39e46a327a461eb3d678f1e74747c9b7ef154", size = 41667, upload-time = "2026-08-26T04:58:16.579Z" },
     { url = "https://files.pythonhosted.org/packages/03/73/5f5d7a5c0bad6ae5568e3232d8b7bcee9639da0de45f8e664342f22bf682/mmh3-5.3.0-cp315-cp315t-win_amd64.whl", hash = "sha256:1617be1ce93f97513bbf23cafa28a6ab1d20b0928de760054a4c603a89bdab7c", size = 43152, upload-time = "2026-08-26T04:58:17.706Z" },
     { url = "https://files.pythonhosted.org/packages/a2/0a/033fef3d7a486aa369ec11cdf0455bbae6640df13491f6e7d35fd90aa000/mmh3-5.3.0-cp315-cp315t-win_arm64.whl", hash = "sha256:a8389010a2721e568fbe40ba94e7d8f931beabd59b95af2b2ab8238fd40a6b3e", size = 40275, upload-time = "2026-08-26T04:58:18.883Z" },
+]
+
+[[package]]
+name = "model2vec"
+version = "0.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jinja2" },
+    { name = "joblib" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "safetensors" },
+    { name = "tokenizers" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fd/e5/118c4a8af078ff97d9228718fbcd7d4f7e9cae93c3af59652d6f3407010a/model2vec-0.9.0.tar.gz", hash = "sha256:f50229cea128c9db5cfa7b2173478294be3c84e5d3d7fb8487ebd7af285383ab", size = 4590528, upload-time = "2026-08-12T14:24:38.524Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/af/ea/80246465cafa36a6c8c8ac767778423940e5b826fa57c10ebd957b570c1c/model2vec-0.9.0-py3-none-any.whl", hash = "sha256:8bcf3258d5668678739c13226a562d39eeaeb8fcac9b142bc4aceef8800d5b9d", size = 59865, upload-time = "2026-08-12T14:24:36.626Z" },
 ]
 
 [[package]]
@@ -6313,6 +6356,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ee/89/9b773dee0f8961d1bb8d7baf0a204ab587618df19897c1ef260916f318ec/tree_sitter_javascript-0.25.0-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:1b852d3aee8a36186dbcc32c798b11b4869f9b5041743b63b65c2ef793db7a54", size = 98377, upload-time = "2025-09-01T07:13:41.838Z" },
     { url = "https://files.pythonhosted.org/packages/3b/dc/d90cb1790f8cec9b4878d278ad9faf7c8f893189ce0f855304fd704fc274/tree_sitter_javascript-0.25.0-cp310-abi3-win_amd64.whl", hash = "sha256:e5ed840f5bd4a3f0272e441d19429b26eedc257abe5574c8546da6b556865e3c", size = 62975, upload-time = "2025-09-01T07:13:42.828Z" },
     { url = "https://files.pythonhosted.org/packages/2e/1f/f9eba1038b7d4394410f3c0a6ec2122b590cd7acb03f196e52fa57ebbe72/tree_sitter_javascript-0.25.0-cp310-abi3-win_arm64.whl", hash = "sha256:622a69d677aa7f6ee2931d8c77c981a33f0ebb6d275aa9d43d3397c879a9bb0b", size = 61668, upload-time = "2025-09-01T07:13:43.803Z" },
+]
+
+[[package]]
+name = "tree-sitter-language-pack"
+version = "1.20.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tree-sitter" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f0/22/f2ab4c0c1a315fe87d93794037e3804bf8094191deba600c73a2c54d68ef/tree_sitter_language_pack-1.20.0.tar.gz", hash = "sha256:6f10672b06a48ce783c8000f465f0d271877372582407f93c05e0997800049f8", size = 89170, upload-time = "2026-09-14T22:24:58.904Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/12/07/0976aab467781eb1f33d39433dfea75eb2ffd2e9e549511971725e057eda/tree_sitter_language_pack-1.20.0-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:b8fdcda83f48ee05b7a55119cf8417a4bd91ac75205d0294aa06dd5d39f59e13", size = 2294541, upload-time = "2026-09-14T22:24:50.28Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/a7/7efe38f71d6487a533c45090e8df684d98f9ce817f86506bdc6a412fcafe/tree_sitter_language_pack-1.20.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:4f0b0155046d9027c2ca86a2e67b0f74040bd7520eaaa640b94becb8df042f72", size = 2183462, upload-time = "2026-09-14T22:24:51.74Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/91/b89308f744e35d414a02efe2d122d051b74e275edb852fdcdd58238f1ab3/tree_sitter_language_pack-1.20.0-cp310-abi3-manylinux_2_34_aarch64.whl", hash = "sha256:355c35042989ec176dc9ded7082d3357b668429ea873ff76f2b9a6a7d753731b", size = 2339010, upload-time = "2026-09-14T22:24:53.16Z" },
+    { url = "https://files.pythonhosted.org/packages/89/72/02da1179165c74930c489565d00388201c9d26533fdd3b61a5eae4cc347e/tree_sitter_language_pack-1.20.0-cp310-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:e53fa9e1b281c21f1d885ae6a30828c2af2b0c43f221b7bc3c381fbdec4b1409", size = 2456922, upload-time = "2026-09-14T22:24:54.302Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/46/7c6da7dbf4aaa7a4916d4fc13ca34eaabc4bcd514dec04ad93712ed36d03/tree_sitter_language_pack-1.20.0-cp310-abi3-win_amd64.whl", hash = "sha256:e4481ceb2ebb2e6a67531118c17bc3b36e8402ce9c4d227d89b4b17422a7fa78", size = 2238521, upload-time = "2026-09-14T22:24:55.875Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/b6/06598eb0151d2094a87593b5d17851e27229e772f640c02e7a6aa779cc6f/tree_sitter_language_pack-1.20.0-cp310-abi3-win_arm64.whl", hash = "sha256:37c8e17441041f345a21494687b909c01f9a67d78c0737e3e3d81c2a47840ebe", size = 2140157, upload-time = "2026-09-14T22:24:57.714Z" },
 ]
 
 [[package]]

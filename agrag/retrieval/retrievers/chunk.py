@@ -66,7 +66,8 @@ class ChunkRetriever(Retriever):
                 Zero or negative returns no results without searching.
 
         Returns:
-            Ranked SearchResults with hydrated Chunk items.
+            Ranked SearchResults with hydrated Chunk items. A child chunk result
+            carries its parent chunk in ``SearchResult.parent``.
         """
         effective_limit = limit if limit is not None else self._settings.chunk_top_k
         if effective_limit <= 0:
@@ -100,17 +101,47 @@ class ChunkRetriever(Retriever):
                     by_id[str(chunk.id)] = chunk
             except Exception:
                 continue
+        parents = await self._hydrate_parents(list(by_id.values()))
         results: list[SearchResult] = []
         for hit in hits:
             try:
                 chunk = by_id.get(str(hit.id))
                 if chunk is not None:
+                    parent = parents.get(str(chunk.parent_id))
                     results.append(
-                        SearchResult(item=chunk, score=hit.score, method=self.name)
+                        SearchResult(
+                            item=chunk,
+                            score=hit.score,
+                            method=self.name,
+                            parent=parent,
+                        )
                     )
             except Exception:
                 continue
         return results
+
+    async def _hydrate_parents(self, chunks: list[Chunk]) -> dict[str, Chunk]:
+        """Load the distinct parents of child chunks with one query.
+
+        A parent that is missing or closed is left out, and a failed query gives no
+        parents, so the child results still return.
+        """
+        parent_ids = sorted({str(c.parent_id) for c in chunks if c.parent_id})
+        if not parent_ids:
+            return {}
+        try:
+            rows = await self._graph_store.execute_read(
+                hydrate_chunks_by_id_query(), {"ids": parent_ids, "job_id": None}
+            )
+        except Exception:
+            return {}
+        parents: dict[str, Chunk] = {}
+        for row in rows:
+            node = row.get("n") if isinstance(row, dict) and "n" in row else row
+            parent = self._parse_chunk_node(node)
+            if parent is not None:
+                parents[str(parent.id)] = parent
+        return parents
 
     @staticmethod
     def _parse_chunk_node(node: object) -> Chunk | None:
@@ -168,6 +199,10 @@ class ChunkRetriever(Retriever):
                 content_kind=props.get("content_kind", "text"),
                 chunker=props.get("chunker"),
                 chunker_hash=props.get("chunker_hash"),
+                level=props.get("level", 0),
+                parent_id=UUID(str(props["parent_id"]))
+                if props.get("parent_id")
+                else None,
             )
             if embedding is not None:
                 chunk.embedding = list(embedding)

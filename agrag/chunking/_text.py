@@ -2,7 +2,8 @@
 
 import bisect
 from array import array
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
+from uuid import UUID
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, HeadingRef
@@ -62,7 +63,11 @@ def _heading_path_for(char_start: int, outline: list[HeadingRef]) -> list[str]:
 
 
 def build_text_chunks(
-    document: Document, spans: Iterable[tuple[int, int]]
+    document: Document,
+    spans: Iterable[tuple[int, int]],
+    *,
+    level: int = 0,
+    parent_ids: Sequence[UUID | None] | None = None,
 ) -> list[Chunk]:
     """Build text chunks from character spans of a document.
 
@@ -74,6 +79,9 @@ def build_text_chunks(
         document: The document the spans index. This function reads its ``text``,
             ``heading_outline`` and identity fields.
         spans: Half-open character spans, in chunk order.
+        level: The level to set on every chunk. A parent chunk has level 1.
+        parent_ids: The parent chunk id of each span, in the order of ``spans``.
+            ``None`` sets no parent on any chunk.
 
     Returns:
         The chunks, in the order of the spans.
@@ -83,6 +91,7 @@ def build_text_chunks(
     line_starts = _line_start_offsets(document.text)
     chunks: list[Chunk] = []
     for index, (char_start, char_end) in enumerate(spans):
+        parent_id = parent_ids[index] if parent_ids is not None else None
         provenance = TextProvenance(
             char_start=char_start,
             char_end=char_end,
@@ -96,11 +105,14 @@ def build_text_chunks(
                     version_id=version_id,
                     provenance=provenance,
                     index=index,
+                    level=level,
                 ),
                 document_id=document_id,
                 index=index,
                 text=document.text[char_start:char_end],
                 provenance=provenance,
+                level=level,
+                parent_id=parent_id,
                 heading_path=_heading_path_for(char_start, document.heading_outline),
                 content_kind="text",
             )

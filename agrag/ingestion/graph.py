@@ -447,6 +447,7 @@ class Graph:
         retrieval_settings: RetrievalSettings | None = None,
         cutover_settings: CutoverJobSettings | None = None,
         chunking: Chunking = DEFAULT_CHUNKING,
+        embed_heading_path: bool = True,
     ) -> None:
         """Create a graph bound to a schema, store, embedder, and extractor.
 
@@ -473,6 +474,10 @@ class Graph:
                 CutoverJobSettings defaults.
             chunking: The rules that pick a chunker for each document. The
                 default is ``DEFAULT_CHUNKING``.
+            embed_heading_path: Whether chunk embeddings include the chunk's
+                heading path above its text. The stored text does not change.
+                Existing embeddings stay until a document is re-chunked with
+                ``update()``.
         """
         self._schema = schema
         self._graph_store = graph_store
@@ -481,6 +486,7 @@ class Graph:
         self._tracer = get_tracer(tracer)
         self._registry = _corpus_registry
         self._chunking = chunking
+        self._embed_heading_path = embed_heading_path
         self._vector_store = vector_store
         self._retrieval_settings = retrieval_settings or RetrievalSettings()
         self._cutover_settings = cutover_settings or CutoverJobSettings()
@@ -498,6 +504,7 @@ class Graph:
         retrieval_settings: RetrievalSettings | None = None,
         cutover_settings: CutoverJobSettings | None = None,
         chunking: Chunking = DEFAULT_CHUNKING,
+        embed_heading_path: bool = True,
     ) -> "Graph":
         """Open a graph, connecting and fully provisioning graph_store.
 
@@ -529,6 +536,8 @@ class Graph:
                 CutoverJobSettings defaults.
             chunking: The rules that pick a chunker for each document; see
                 __init__.
+            embed_heading_path: Whether chunk embeddings include the heading path;
+                see __init__.
 
         Returns:
             A graph connected to graph_store and ready to accept add() calls.
@@ -628,6 +637,7 @@ class Graph:
                     retrieval_settings=retrieval_settings,
                     cutover_settings=cutover_settings,
                     chunking=chunking,
+                    embed_heading_path=embed_heading_path,
                 )
                 # Crash recovery, last: every index and collection the
                 # recovery paths rely on now exists. A pending job (its worker
@@ -758,7 +768,7 @@ class Graph:
                 )
                 extraction_failures_capped = cap_failures(list(extraction_failures))
                 extraction = ExtractionStats(
-                    chunks_processed=len(chunks),
+                    chunks_processed=sum(c.parent_id is None for c in chunks),
                     entities_extracted=len(entities),
                     relations_extracted=len(relations),
                     failures=extraction_failures_capped.items,
@@ -961,6 +971,7 @@ class Graph:
                         job_id=job_id,
                         materialized_components=_components,
                         tracer=self._tracer,
+                        embed_heading_path=self._embed_heading_path,
                     )
 
                 async def _cleanup(
@@ -1149,6 +1160,7 @@ class Graph:
                     job_id=job_id,
                     materialized_components=components,
                     tracer=self._tracer,
+                    embed_heading_path=self._embed_heading_path,
                 )
 
             async def _cleanup() -> list[StageFailure]:

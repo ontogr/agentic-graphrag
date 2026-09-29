@@ -45,6 +45,16 @@ asyncio.run(main())
 pip install "agentic-graphrag[llm]"
 ```
 
+## Give the model the section heading
+
+When a chunk has a heading path, `BAMLExtractor` sends it as a separate `section` line above the text block, for example `Guide > Setup`. The prompt says that the line is context only. Character offsets still index the chunk text, because the heading is not part of it. Set `include_heading_path=False` to turn this off:
+
+```python
+extractor = BAMLExtractor(settings=settings, include_heading_path=False)
+```
+
+Only `BAMLExtractor` uses the heading path. The local and escalating extractors read the chunk text only. See [Configure chunking](./configure-chunking.mdx) for the embedding side of this setting.
+
 ## Run locally first, escalating to an LLM
 
 ```python
