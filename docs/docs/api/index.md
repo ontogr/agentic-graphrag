@@ -1227,6 +1227,7 @@ calls appear in the same trace.
 
 - [**require_tracing**](#agrag.agents.tracing.require_tracing) – Raise a typed error when tracing dependencies are unavailable.
 - [**run_callbacks**](#agrag.agents.tracing.run_callbacks) – Return the callbacks for one agent run.
+- [**tool_span_context**](#agrag.agents.tracing.tool_span_context) – Return a context in which the running tool's OpenInference span is current.
 
 ##### `agrag.agents.tracing.require_tracing`
 
@@ -1261,6 +1262,34 @@ Spans carry the question, tool inputs, and evidence text.
 **Returns:**
 
 - <code>[list](#list)\[[Any](#typing.Any)\]</code> – A one-item callback list, or an empty list when `tracer` is `None`.
+
+##### `agrag.agents.tracing.tool_span_context`
+
+```python
+tool_span_context(callbacks:Any) -> AbstractContextManager[Any]
+```
+
+Return a context in which the running tool's OpenInference span is current.
+
+The OpenInference callback never makes its spans current, so a span that
+`agrag` opens inside a tool would otherwise be a sibling of the tool's
+span, not its child. A tool declares `callbacks: Any = None`; LangChain
+then passes a child callback manager whose `parent_run_id` is the tool's
+run and whose handlers include the callback. The context makes the tool's
+span current for the tool's body and restores the caller's context on
+exit. It leaves the tool span's status and events to the callback, so a
+raising tool records its exception once.
+
+**Parameters:**
+
+- **callbacks** (<code>[Any](#typing.Any)</code>) – The `callbacks` argument LangChain injected, or `None`
+  when the caller passed none.
+
+**Returns:**
+
+- <code>[AbstractContextManager](#contextlib.AbstractContextManager)\[[Any](#typing.Any)\]</code> – A context making the tool's `TOOL` span current, or a no-op context
+- <code>[AbstractContextManager](#contextlib.AbstractContextManager)\[[Any](#typing.Any)\]</code> – when there is no OpenInference handler, which is the case whenever
+- <code>[AbstractContextManager](#contextlib.AbstractContextManager)\[[Any](#typing.Any)\]</code> – `build_agent` was given no tracer.
 
 #### `agrag.agents.verification`
 
@@ -17006,6 +17035,7 @@ Retrieval package: search engine, fusion, reranking, and retrievers.
 - [**retrievers**](#agrag.retrieval.retrievers) – Retriever implementations for entity, chunk, BFS, and text2cypher search.
 - [**search_engine**](#agrag.retrieval.search_engine) – Retrieval's public entry point, independent of Graph.
 - [**settings**](#agrag.retrieval.settings) – Env-backed configuration for retrieval methods and fusion.
+- [**tracing**](#agrag.retrieval.tracing) – Span helpers shared by the retrieval spans.
 
 #### `agrag.retrieval.community_context`
 
@@ -18648,6 +18678,109 @@ traversal_depth: int = 2
 ```python
 traversal_limit: int = 50
 ```
+
+#### `agrag.retrieval.tracing`
+
+Span helpers shared by the retrieval spans.
+
+Every retrieval span that returns a list records the results the same way, so a
+trace answers "what came back" without a second lookup.
+
+**Functions:**
+
+- [**filters_json**](#agrag.retrieval.tracing.filters_json) – Return the scope as JSON, an empty scope when `filters` is None.
+- [**record_results**](#agrag.retrieval.tracing.record_results) – Write the results onto `span`.
+- [**result_text**](#agrag.retrieval.tracing.result_text) – Return the text a result stands for.
+- [**retrieval_span**](#agrag.retrieval.tracing.retrieval_span) – Open a `RETRIEVER` span that records the query and the scope.
+
+**Attributes:**
+
+- [**MAX_DOCUMENT_ATTRIBUTES**](#agrag.retrieval.tracing.MAX_DOCUMENT_ATTRIBUTES) –
+
+##### `agrag.retrieval.tracing.MAX_DOCUMENT_ATTRIBUTES`
+
+```python
+MAX_DOCUMENT_ATTRIBUTES = 20
+```
+
+##### `agrag.retrieval.tracing.filters_json`
+
+```python
+filters_json(filters:SearchFilters | None) -> str
+```
+
+Return the scope as JSON, an empty scope when `filters` is None.
+
+**Parameters:**
+
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – The scope a search or retriever ran with, or None.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The scope as JSON, never None, so a span always records it.
+
+##### `agrag.retrieval.tracing.record_results`
+
+```python
+record_results(span:Span, results:Sequence[SearchResult]) -> None
+```
+
+Write the results onto `span`.
+
+Full lists go in array attributes, one attribute per array, so the SDK's
+per-span attribute limit does not cut a long list. The first
+`MAX_DOCUMENT_ATTRIBUTES` results also use the OpenInference
+`retrieval.documents.N.*` names, which viewers draw as a retrieval panel.
+
+**Parameters:**
+
+- **span** (<code>[Span](#opentelemetry.trace.Span)</code>) – The span that returned `results`. No-op when it is not
+  recording.
+- **results** (<code>[Sequence](#collections.abc.Sequence)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code>) – The results the span's wrapped call returned, in order.
+
+##### `agrag.retrieval.tracing.result_text`
+
+```python
+result_text(result:SearchResult) -> str
+```
+
+Return the text a result stands for.
+
+Entities, resolved entities and communities give their embedding text,
+chunks their text, relations `TYPE(source_id, target_id)`, and scalar
+query rows JSON.
+
+**Parameters:**
+
+- **result** (<code>[SearchResult](#agrag.common.data_models.search_result.SearchResult)</code>) – The result to render.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The text the result's item stands for.
+
+##### `agrag.retrieval.tracing.retrieval_span`
+
+```python
+retrieval_span(tracer:Tracer | None, name:str, *, query:str, filters:SearchFilters | None, attributes:dict[str, str | int | float | bool] | None = None) -> Iterator[Span]
+```
+
+Open a `RETRIEVER` span that records the query and the scope.
+
+Use it for retriever spans and for root spans that return
+`SearchResult`s. The caller calls `record_results` on the yielded span
+before it exits.
+
+**Parameters:**
+
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – The caller's tracer, or None for a no-op tracer.
+- **name** (<code>[str](#str)</code>) – The span name, in the `agrag.retrieval.*` namespace.
+- **query** (<code>[str](#str)</code>) – The natural-language query, or the seed's text.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – The scope the wrapped call runs under, always recorded.
+- **attributes** (<code>[dict](#dict)\[[str](#str), [str](#str) | [int](#int) | [float](#float) | [bool](#bool)\] | None</code>) – Extra cheap attributes known before the call starts.
+
+**Yields:**
+
+- <code>[Span](#opentelemetry.trace.Span)</code> – The open span, for `record_results` and any later attributes.
 
 ### `agrag.vectordb`
 
