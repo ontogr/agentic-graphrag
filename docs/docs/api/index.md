@@ -18774,6 +18774,9 @@ The chunker that one document got, and what it produced.
 - [**strategy**](#agrag.ingestion.stats.ChunkingMatch.strategy) (<code>[str](#str)</code>) – The strategy name of the chunker.
 - [**chunker_hash**](#agrag.ingestion.stats.ChunkingMatch.chunker_hash) (<code>[str](#str)</code>) – The fingerprint of the chunker settings.
 - [**chunks**](#agrag.ingestion.stats.ChunkingMatch.chunks) (<code>[int](#int)</code>) – The number of chunks the chunker produced.
+- [**chunks_by_chunker**](#agrag.ingestion.stats.ChunkingMatch.chunks_by_chunker) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – Chunk counts per chunker name. A strategy that hands a
+  part to a fallback names those chunks `<strategy>:<fallback>`, so this
+  can hold more than one name. Empty means every chunk has `strategy`.
 
 ###### `agrag.ingestion.stats.ChunkingMatch.chunker_hash`
 
@@ -18785,6 +18788,12 @@ chunker_hash: str
 
 ```python
 chunks: int
+```
+
+###### `agrag.ingestion.stats.ChunkingMatch.chunks_by_chunker`
+
+```python
+chunks_by_chunker: dict[str, int] = Field(default_factory=dict)
 ```
 
 ###### `agrag.ingestion.stats.ChunkingMatch.document_key`
@@ -18813,7 +18822,8 @@ Chunking-stage results.
 
 **Attributes:**
 
-- [**chunks_by_strategy**](#agrag.ingestion.stats.ChunkingStats.chunks_by_strategy) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – Chunk counts per strategy name.
+- [**chunks_by_strategy**](#agrag.ingestion.stats.ChunkingStats.chunks_by_strategy) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – Chunk counts per chunker name, so chunks that a fallback
+  made are counted under `<strategy>:<fallback>`.
 - [**documents_by_rule**](#agrag.ingestion.stats.ChunkingStats.documents_by_rule) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – Document counts per rule, keyed `"rule 0"`,
   `"rule 1"` and so on, and `"fallback"`.
 - [**matches**](#agrag.ingestion.stats.ChunkingStats.matches) (<code>[list](#list)\[[ChunkingMatch](#agrag.ingestion.stats.chunking.ChunkingMatch)\]</code>) – One entry per chunked document, capped at 1000.
@@ -19137,6 +19147,9 @@ The chunker that one document got, and what it produced.
 - [**strategy**](#agrag.ingestion.stats.chunking.ChunkingMatch.strategy) (<code>[str](#str)</code>) – The strategy name of the chunker.
 - [**chunker_hash**](#agrag.ingestion.stats.chunking.ChunkingMatch.chunker_hash) (<code>[str](#str)</code>) – The fingerprint of the chunker settings.
 - [**chunks**](#agrag.ingestion.stats.chunking.ChunkingMatch.chunks) (<code>[int](#int)</code>) – The number of chunks the chunker produced.
+- [**chunks_by_chunker**](#agrag.ingestion.stats.chunking.ChunkingMatch.chunks_by_chunker) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – Chunk counts per chunker name. A strategy that hands a
+  part to a fallback names those chunks `<strategy>:<fallback>`, so this
+  can hold more than one name. Empty means every chunk has `strategy`.
 
 ####### `agrag.ingestion.stats.chunking.ChunkingMatch.chunker_hash`
 
@@ -19148,6 +19161,12 @@ chunker_hash: str
 
 ```python
 chunks: int
+```
+
+####### `agrag.ingestion.stats.chunking.ChunkingMatch.chunks_by_chunker`
+
+```python
+chunks_by_chunker: dict[str, int] = Field(default_factory=dict)
 ```
 
 ####### `agrag.ingestion.stats.chunking.ChunkingMatch.document_key`
@@ -19176,7 +19195,8 @@ Chunking-stage results.
 
 **Attributes:**
 
-- [**chunks_by_strategy**](#agrag.ingestion.stats.chunking.ChunkingStats.chunks_by_strategy) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – Chunk counts per strategy name.
+- [**chunks_by_strategy**](#agrag.ingestion.stats.chunking.ChunkingStats.chunks_by_strategy) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – Chunk counts per chunker name, so chunks that a fallback
+  made are counted under `<strategy>:<fallback>`.
 - [**documents_by_rule**](#agrag.ingestion.stats.chunking.ChunkingStats.documents_by_rule) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – Document counts per rule, keyed `"rule 0"`,
   `"rule 1"` and so on, and `"fallback"`.
 - [**matches**](#agrag.ingestion.stats.chunking.ChunkingStats.matches) (<code>[list](#list)\[[ChunkingMatch](#agrag.ingestion.stats.chunking.ChunkingMatch)\]</code>) – One entry per chunked document, capped at 1000.

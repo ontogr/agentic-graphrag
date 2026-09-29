@@ -1405,6 +1405,10 @@ class Graph:
                 document_chunks = chunker.chunk(document)
                 span.set_attribute("agrag.chunks_produced", len(document_chunks))
             chunks.extend(document_chunks)
+            by_chunker: dict[str, int] = {}
+            for chunk in document_chunks:
+                name = chunk.chunker or chunker.strategy
+                by_chunker[name] = by_chunker.get(name, 0) + 1
             matches.append(
                 ChunkingMatch(
                     document_key=document.resolved_document_key,
@@ -1412,6 +1416,7 @@ class Graph:
                     strategy=chunker.strategy,
                     chunker_hash=chunker.fingerprint(),
                     chunks=len(document_chunks),
+                    chunks_by_chunker=by_chunker,
                 )
             )
         return chunks, matches
