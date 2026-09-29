@@ -21868,7 +21868,7 @@ Chunk retriever: dense vector search over chunks.
 ###### `agrag.retrieval.retrievers.chunk.ChunkRetriever`
 
 ```python
-ChunkRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None) -> None
+ChunkRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
@@ -21897,6 +21897,7 @@ VectorStore path searches `chunk_collection`.
 - **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional VectorStore for hybrid search.
 - **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
   environment.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Optional tracer for retrieval spans.
 
 ####### `agrag.retrieval.retrievers.chunk.ChunkRetriever.name`
 

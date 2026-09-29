@@ -11,6 +11,13 @@ import json
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import StatusCode
+
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.retrieval.retrievers.chunk import ChunkRetriever
@@ -318,3 +325,39 @@ class TestParentAttachment:
 
         assert [r.item.text for r in results] == ["kept"]
         assert results[0].parent is None
+
+
+class TestParentHydrationTracing:
+    """Parent hydration records an observable best-effort fallback."""
+
+    async def test_parent_query_failure_records_unset_hydration_span(self) -> None:
+        """A failed parent read records its exception while returning the child."""
+        provider = TracerProvider()
+        exporter = InMemorySpanExporter()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer("test")
+        child, document_id, parent_id = uuid4(), uuid4(), uuid4()
+        child_node = _node(child, document_id, "kept", parent_id=parent_id)
+        store = AsyncMock()
+        store.execute_read.side_effect = [[child_node], RuntimeError("down")]
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search", new_callable=AsyncMock
+        ) as search:
+            search.return_value = [VectorHit(id=child, score=0.9, payload={})]
+            with tracer.start_as_current_span("test.retrieve") as parent_span:
+                results = await ChunkRetriever(
+                    graph_store=store, embedder=MockEmbedder(), tracer=tracer
+                ).retrieve("q")
+
+        assert [result.item.text for result in results] == ["kept"]
+        (span,) = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.retrieval.hydrate_parents"
+        ]
+        assert span.parent is not None
+        assert span.parent.span_id == parent_span.get_span_context().span_id
+        assert span.status.status_code is StatusCode.UNSET
+        assert (span.attributes or {})["agrag.parent_count"] == 1
+        assert len(list(span.events)) == 1

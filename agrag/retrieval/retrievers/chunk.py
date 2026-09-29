@@ -3,11 +3,14 @@
 from collections.abc import Mapping
 from typing import Any, cast
 
+from opentelemetry.trace import SpanKind, Tracer
+
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.entities import hydrate_chunks_by_id_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.observability import get_tracer, record_swallowed_exception
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.retrievers.base import Retriever
@@ -34,6 +37,7 @@ class ChunkRetriever(Retriever):
         embedder: Embedder,
         vector_store: VectorStore | None = None,
         settings: RetrievalSettings | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Construct a ChunkRetriever.
 
@@ -44,11 +48,13 @@ class ChunkRetriever(Retriever):
             vector_store: Optional VectorStore for hybrid search.
             settings: Retrieval configuration; defaults from
                 environment.
+            tracer: Optional tracer for retrieval spans.
         """
         self._graph_store = graph_store
         self._embedder = embedder
         self._vector_store = vector_store
         self._settings = settings or RetrievalSettings()
+        self._tracer = get_tracer(tracer)
 
     async def retrieve(
         self,
@@ -129,12 +135,18 @@ class ChunkRetriever(Retriever):
         parent_ids = sorted({str(c.parent_id) for c in chunks if c.parent_id})
         if not parent_ids:
             return {}
-        try:
-            rows = await self._graph_store.execute_read(
-                hydrate_chunks_by_id_query(), {"ids": parent_ids, "job_id": None}
-            )
-        except Exception:
-            return {}
+        with self._tracer.start_as_current_span(
+            "agrag.retrieval.hydrate_parents",
+            kind=SpanKind.INTERNAL,
+            attributes={"agrag.parent_count": len(parent_ids)},
+        ):
+            try:
+                rows = await self._graph_store.execute_read(
+                    hydrate_chunks_by_id_query(), {"ids": parent_ids, "job_id": None}
+                )
+            except Exception as exc:
+                record_swallowed_exception(exc)
+                return {}
         parents: dict[str, Chunk] = {}
         for row in rows:
             node = row.get("n") if isinstance(row, dict) and "n" in row else row
