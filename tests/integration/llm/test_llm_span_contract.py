@@ -229,6 +229,7 @@ class TestExtraction:
         assert (call.attributes or {})["agrag.llm.function"] == (
             "ExtractEntitiesAndRelations"
         )
+        write_span_tree(span_tree_path("extraction.json"), spans)
 
 
 class TestResolution:
@@ -426,6 +427,60 @@ class TestCrossPathValueAgreement:
         for key in (
             "llm.provider",
             "llm.model_name",
+            "llm.token_count.prompt",
+            "llm.token_count.completion",
+            "llm.token_count.total",
+        ):
+            assert agent[key] == baml[key], key
+
+    async def test_both_paths_agree_against_a_real_endpoint(
+        self, capture: tuple[Any, InMemorySpanExporter]
+    ) -> None:
+        """The same canary against the configured endpoint, or skip.
+
+        The local server proves the names agree. This variant proves the values
+        agree for a real provider, which is the only place a token-count
+        convention could differ from the fake endpoint's.
+        """
+        import os  # noqa: PLC0415
+
+        from langchain_openai import ChatOpenAI  # noqa: PLC0415
+
+        from agrag.agents.tracing import run_callbacks  # noqa: PLC0415
+
+        base_url = os.environ.get("LLM_BASE_URL")
+        api_key = os.environ.get("LLM_API_KEY")
+        model = os.environ.get("LLM_MODEL_ID")
+        if not base_url or not api_key or not model:
+            pytest.skip("LLM endpoint not configured")
+
+        tracer, exporter = capture
+        await BAMLExtractor(
+            settings=ExtractionLLMSettings.from_openai_compatible_env(), tracer=tracer
+        ).extract(_chunk("Meridian Health Group opened a clinic."), GENERIC)
+        baml = dict(
+            _one(exporter.get_finished_spans(), "agrag.llm.request").attributes or {}
+        )  # type: ignore[arg-type]
+
+        agent_exporter = InMemorySpanExporter()
+        agent_provider = TracerProvider()
+        agent_provider.add_span_processor(SimpleSpanProcessor(agent_exporter))
+        await ChatOpenAI(
+            model=model, api_key=api_key, base_url=base_url, max_retries=0
+        ).ainvoke(
+            "hello", config={"callbacks": run_callbacks(agent_provider.get_tracer("t"))}
+        )
+        agent_llm = [
+            span
+            for span in agent_exporter.get_finished_spans()
+            if (span.attributes or {}).get("openinference.span.kind") == "LLM"
+        ]
+        assert len(agent_llm) == 1
+        agent = dict(agent_llm[0].attributes or {})
+
+        assert agent["llm.provider"] == baml["llm.provider"]
+        assert agent["llm.model_name"] == baml["llm.model_name"]
+        for key in (
             "llm.token_count.prompt",
             "llm.token_count.completion",
             "llm.token_count.total",

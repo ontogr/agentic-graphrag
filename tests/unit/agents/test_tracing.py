@@ -196,7 +196,7 @@ class TestPrivacySwitchIsGone:
         from langchain_openai import ChatOpenAI  # noqa: PLC0415
 
         def reply(request: httpx.Request) -> httpx.Response:
-            """Answer any chat completion with plain text."""
+            """Answer any chat completion with plain text and a usage block."""
             return httpx.Response(
                 200,
                 json={
@@ -211,6 +211,11 @@ class TestPrivacySwitchIsGone:
                             "finish_reason": "stop",
                         }
                     ],
+                    "usage": {
+                        "prompt_tokens": 11,
+                        "completion_tokens": 7,
+                        "total_tokens": 18,
+                    },
                 },
             )
 
@@ -262,6 +267,33 @@ class TestPrivacySwitchIsGone:
         content = str(attributes["llm.input_messages.0.message.content"])
         assert content != "__REDACTED__"
         assert "secret question" in content
+
+    async def test_the_llm_span_carries_the_shared_attribute_names(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The agent path uses the same names the BAML path records.
+
+        The cross-path canary in ``tests/integration/llm`` compares the two
+        against a live server. This pins the names on the agent side alone, so
+        a rename in either place fails a unit test.
+        """
+        attributes = await self._llm_span(monkeypatch)
+
+        for name in (
+            "openinference.span.kind",
+            "llm.provider",
+            "llm.model_name",
+            "llm.token_count.prompt",
+            "llm.token_count.completion",
+            "llm.token_count.total",
+        ):
+            assert name in attributes, name
+        assert attributes["openinference.span.kind"] == "LLM"
+        assert attributes["llm.provider"] == "openai"
+        assert attributes["llm.model_name"] == "fake"
+        assert attributes["llm.token_count.prompt"] == 11
+        assert attributes["llm.token_count.completion"] == 7
+        assert attributes["llm.token_count.total"] == 18
 
     async def test_hide_variables_do_not_redact_output_messages(
         self, monkeypatch: pytest.MonkeyPatch

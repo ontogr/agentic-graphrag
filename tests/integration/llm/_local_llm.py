@@ -21,14 +21,23 @@ SECRET = "sk-span-contract-sentinel-key"
 PROMPT_TOKENS = 11
 COMPLETION_TOKENS = 7
 
+# How many requests the "flaky" mode fails before it serves, so a test can
+# drive a real BAML retry over real HTTP.
+_FLAKY_FAILURES = 2
+
 
 def _reply_for(mode: str) -> str:
-    """Return reply text that satisfies the BAML function for that mode."""
+    """Return reply text that satisfies the BAML function for that mode.
+
+    ``flaky`` fails before it serves, and serves the ``extract`` reply when it
+    does, so a retry test drives the extraction function.
+    """
     return {
         "html": "<html>Bad Gateway</html>",
         "extract": "[]",
         "verify": "[]",
         "cypher": "MATCH (n) RETURN n",
+        "flaky": "[]",
     }.get(mode, "merged description")
 
 
@@ -46,8 +55,14 @@ class _Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("content-length", 0))
         body = json.loads(self.rfile.read(length) or b"{}")
         self.server.received.append(body)  # type: ignore[attr-defined]
+        attempts = len(self.server.received)  # type: ignore[attr-defined]
         if mode == "500":
             payload = json.dumps({"error": {"message": "boom"}}).encode()
+            self.send_response(500)
+        elif mode == "flaky" and attempts <= _FLAKY_FAILURES:
+            # Fail the first requests of this server, then serve, so a test can
+            # drive a real retry through BAML over real HTTP.
+            payload = json.dumps({"error": {"message": "try again"}}).encode()
             self.send_response(500)
         else:
             reply: dict[str, Any] = {

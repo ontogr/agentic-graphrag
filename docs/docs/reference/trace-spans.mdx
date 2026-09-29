@@ -63,6 +63,8 @@ Two of these are conditional, and that is deliberate:
 
 `agrag.resolution.llm_verify` never carries an `ERROR` status. A failed LLM
 call resolves to `NO_MATCH`, not an error, so the span stays `UNSET` and sets
+`agrag.request_failed` instead.
+
 ## The `agrag.llm.request` span
 
 This is the only span a BAML path tags with the OpenInference LLM kind.
@@ -128,10 +130,9 @@ counts twice.
 
 Nothing withholds text. `agrag.llm.request` records the full request and
 response bodies, and the agent and judge spans record the question, tool inputs
-and evidence text. There is no redaction switch:
-`OPENINFERENCE_HIDE_INPUTS` and `OPENINFERENCE_HIDE_OUTPUTS` no longer change
-any span. To record less, scrub attributes in a `SpanProcessor` you configure,
-or run without a tracer.
+and evidence text. The OpenInference redaction environment variables no longer
+change any span, on any path. To record less, scrub attributes in a
+`SpanProcessor` you configure, or run without a tracer.
 
 Two things are never recorded on any span: the request headers, which carry the
 provider key, and the request URL.
@@ -154,4 +155,3 @@ provider key, and the request URL.
 - **BAML's error text includes the request URL.** It reaches `output.value`,
   exception events and `StageFailure.error_message`. Never put a provider key
   in a `base_url` query string.
-`agrag.request_failed` instead.

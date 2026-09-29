@@ -156,35 +156,54 @@ class TestThreadWithCopiedContext:
 class TestRetries:
     """Each attempt gets its own span under one call span."""
 
-    async def test_three_attempts_open_three_attempt_spans(self) -> None:
-        """Two failures then a success give three attempts under one call."""
-        from agrag.llm.retry import call_with_retry  # noqa: PLC0415
+    async def test_three_attempts_open_three_attempt_spans(
+        self, local: LocalLLM
+    ) -> None:
+        """Two real HTTP failures then a success, through BAML's own retry.
 
+        The server fails the first two requests, so this drives the actual
+        ``call_with_retry`` path: three attempts under one call span, and one
+        request span per attempt, the first two carrying the error status.
+        """
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
         tracer = provider.get_tracer("test")
-        attempts = 0
+        settings = ExtractionLLMSettings(
+            clients=[
+                LLMClientConfig(
+                    name="primary",
+                    provider="openai-generic",
+                    model="requested-model",
+                    api_key="sk-nesting-test-key",
+                    base_url=local.url("flaky"),
+                )
+            ],
+            retry=RetryConfig(max_retries=2, delay_ms=1),
+        )
 
-        async def call(options: dict[str, Any]) -> str:
-            """Fail twice, then succeed."""
-            nonlocal attempts
-            attempts += 1
-            if attempts < 3:
-                raise RuntimeError("transient")
-            return "ok"
-
-        await call_with_retry(
-            call,
-            RetryConfig(max_retries=2, delay_ms=1),
-            tracer=tracer,
-            function="ExtractEntitiesAndRelations",
+        await BAMLExtractor(settings=settings, tracer=tracer).extract(
+            _chunk("Ada Lovelace founded a clinic."), GENERIC
         )
 
         spans = exporter.get_finished_spans()
-        assert len(_attempts(spans)) == 3
+        attempts = _attempts(spans)
+        requests = _requests(spans)
+        assert len(attempts) == 3
+        assert len(requests) == 3
         call_span = next(span for span in spans if span.name == "agrag.llm.call")
         assert (call_span.attributes or {})["agrag.llm.attempt_count"] == 3
+        for attempt in attempts:
+            assert attempt.parent is not None
+            assert attempt.parent.span_id == call_span.context.span_id
+        for request in requests:
+            assert request.parent is not None
+            assert request.parent.span_id in {a.context.span_id for a in attempts}
+        for request in requests[:2]:
+            assert request.status.status_code.name == "ERROR"
+            assert (request.attributes or {})["http.response.status_code"] == 500
+        assert requests[2].status.status_code.name == "UNSET"
+        write_span_tree(span_tree_path("nesting_retries.json"), spans)
 
 
 class TestFallback:
