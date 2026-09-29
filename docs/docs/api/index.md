@@ -1358,10 +1358,12 @@ for each document, and `DEFAULT_CHUNKING` is the preset that `Graph` uses.
 
 - [**base**](#agrag.chunking.base) – The Chunker contract: how a Document becomes Chunks, and how that is recorded.
 - [**docling**](#agrag.chunking.docling) – Docling-native chunking.
+- [**heading**](#agrag.chunking.heading) – The heading-aware strategy: sections packed to a token budget.
 - [**recursive**](#agrag.chunking.recursive) – The recursive strategy: split on the coarsest delimiter that fits the budget.
 - [**rules**](#agrag.chunking.rules) – Chunking rules: which chunker a document gets, as data.
 - [**sentence**](#agrag.chunking.sentence) – The sentence strategy: whole sentences packed up to a token budget.
 - [**token**](#agrag.chunking.token) – The token strategy: fixed-size windows of tokens, with optional overlap.
+- [**turns**](#agrag.chunking.turns) – The turn-window strategy: whole chat turns packed to a token budget.
 
 **Classes:**
 
@@ -1370,11 +1372,13 @@ for each document, and `DEFAULT_CHUNKING` is the preset that `Graph` uses.
 - [**ChunkingError**](#agrag.chunking.ChunkingError) – A chunker broke the chunk contract or could not chunk a document.
 - [**ChunkingRule**](#agrag.chunking.ChunkingRule) – A match and the chunker for the documents it matches.
 - [**DoclingChunker**](#agrag.chunking.DoclingChunker) – Splits a parsed docling document with docling's hybrid chunker.
+- [**HeadingChunker**](#agrag.chunking.HeadingChunker) – Cuts a document into sections at its headings and packs them to a budget.
 - [**RecursiveChunker**](#agrag.chunking.RecursiveChunker) – Splits on paragraph, sentence and word boundaries, coarsest first.
 - [**RuleMatch**](#agrag.chunking.RuleMatch) – The documents a rule applies to.
 - [**SentenceChunker**](#agrag.chunking.SentenceChunker) – Packs whole sentences into chunks of at most `chunk_size` tokens.
 - [**SplitLevel**](#agrag.chunking.SplitLevel) – One level of recursive split rules.
 - [**TokenChunker**](#agrag.chunking.TokenChunker) – Cuts the text into windows of `chunk_size` tokens.
+- [**TurnWindowChunker**](#agrag.chunking.TurnWindowChunker) – Packs whole chat turns into windows of at most `chunk_size` tokens.
 
 **Attributes:**
 
@@ -1720,6 +1724,138 @@ table_format: Literal['triplet', 'markdown'] = 'triplet'
 ```
 
 ##### `agrag.chunking.DoclingChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
+```
+
+#### `agrag.chunking.HeadingChunker`
+
+Bases: <code>[Chunker](#agrag.chunking.base.Chunker)</code>
+
+Cuts a document into sections at its headings and packs them to a budget.
+
+The chunker reads `Document.heading_outline`. A heading of `split_level` or
+higher (a level number at or below `split_level`) starts a new section, and no
+chunk holds such a heading except at its start. A section within `chunk_size`
+tokens is one chunk. A larger section is cut at its deeper headings and the
+parts are packed to the budget. A part that is still too large goes to
+`fallback`, and its chunks have the chunker name `heading:<fallback strategy>`. A document with no headings goes to `fallback` as a whole and its
+chunks have the same name. Only the plain text loaders for Markdown and AsciiDoc
+fill the outline.
+
+**Attributes:**
+
+- [**chunk_size**](#agrag.chunking.HeadingChunker.chunk_size) (<code>[int](#int)</code>) – The most tokens in a chunk, counted with `tokenizer`. Tokens
+  are counted for each part alone, so a packed chunk can be a few tokens
+  over.
+- [**split_level**](#agrag.chunking.HeadingChunker.split_level) (<code>[int](#int)</code>) – The deepest heading level that starts a new section, from 1 to 6.
+- [**tokenizer**](#agrag.chunking.HeadingChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
+- [**fallback**](#agrag.chunking.HeadingChunker.fallback) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[SpanChunker](#agrag.chunking.base.SpanChunker)\]</code>) – The chunker for a part above the budget and for a document without
+  headings.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.HeadingChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.HeadingChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.HeadingChunker.model_copy) – Copy the chunker, validating any changed setting.
+- [**model_post_init**](#agrag.chunking.HeadingChunker.model_post_init) – Load the tokenizer once, so a bad name fails at construction.
+- [**settings**](#agrag.chunking.HeadingChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+
+##### `agrag.chunking.HeadingChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+##### `agrag.chunking.HeadingChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+##### `agrag.chunking.HeadingChunker.fallback`
+
+```python
+fallback: SerializeAsAny[SpanChunker] = Field(default_factory=RecursiveChunker)
+```
+
+##### `agrag.chunking.HeadingChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+##### `agrag.chunking.HeadingChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.HeadingChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
+##### `agrag.chunking.HeadingChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Load the tokenizer once, so a bad name fails at construction.
+
+##### `agrag.chunking.HeadingChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+##### `agrag.chunking.HeadingChunker.split_level`
+
+```python
+split_level: int = Field(default=2, ge=1, le=6)
+```
+
+##### `agrag.chunking.HeadingChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"heading"`.
+
+##### `agrag.chunking.HeadingChunker.tokenizer`
 
 ```python
 tokenizer: str = DEFAULT_TOKENIZER
@@ -2250,6 +2386,138 @@ The strategy name, `"token"`.
 tokenizer: str = DEFAULT_TOKENIZER
 ```
 
+#### `agrag.chunking.TurnWindowChunker`
+
+Bases: <code>[Chunker](#agrag.chunking.base.Chunker)</code>
+
+Packs whole chat turns into windows of at most `chunk_size` tokens.
+
+The chunker reads `Document.turns`. A window holds one or more whole turns, and
+a chunk boundary never falls inside a turn. Tokens are counted for each turn
+alone, so the separators between turns are not part of the count. Text before
+the first turn joins the first window, and text after a turn joins the window
+that holds that turn.
+
+A turn above the budget is split by `fallback`, and its chunks have the
+chunker name `turn-window:<fallback strategy>`. A document without turns is
+split by `fallback` as a whole and its chunks have the same name.
+
+**Attributes:**
+
+- [**chunk_size**](#agrag.chunking.TurnWindowChunker.chunk_size) (<code>[int](#int)</code>) – The most tokens in a window, counted with `tokenizer`.
+- [**turn_overlap**](#agrag.chunking.TurnWindowChunker.turn_overlap) (<code>[int](#int)</code>) – The number of turns that a window repeats from the window
+  before it. A window always moves on by at least one turn.
+- [**tokenizer**](#agrag.chunking.TurnWindowChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
+- [**fallback**](#agrag.chunking.TurnWindowChunker.fallback) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[SpanChunker](#agrag.chunking.base.SpanChunker)\]</code>) – The chunker for a turn above the budget and for a document without
+  turns.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.TurnWindowChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.TurnWindowChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.TurnWindowChunker.model_copy) – Copy the chunker, validating any changed setting.
+- [**model_post_init**](#agrag.chunking.TurnWindowChunker.model_post_init) – Load the tokenizer once, so a bad name fails at construction.
+- [**settings**](#agrag.chunking.TurnWindowChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+
+##### `agrag.chunking.TurnWindowChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+##### `agrag.chunking.TurnWindowChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+##### `agrag.chunking.TurnWindowChunker.fallback`
+
+```python
+fallback: SerializeAsAny[SpanChunker] = Field(default_factory=RecursiveChunker)
+```
+
+##### `agrag.chunking.TurnWindowChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+##### `agrag.chunking.TurnWindowChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.TurnWindowChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
+##### `agrag.chunking.TurnWindowChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Load the tokenizer once, so a bad name fails at construction.
+
+##### `agrag.chunking.TurnWindowChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+##### `agrag.chunking.TurnWindowChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"turn-window"`.
+
+##### `agrag.chunking.TurnWindowChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
+```
+
+##### `agrag.chunking.TurnWindowChunker.turn_overlap`
+
+```python
+turn_overlap: int = Field(default=0, ge=0)
+```
+
 #### `agrag.chunking.base`
 
 The Chunker contract: how a Document becomes Chunks, and how that is recorded.
@@ -2663,6 +2931,146 @@ table_format: Literal['triplet', 'markdown'] = 'triplet'
 ```
 
 ###### `agrag.chunking.docling.DoclingChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
+```
+
+#### `agrag.chunking.heading`
+
+The heading-aware strategy: sections packed to a token budget.
+
+**Classes:**
+
+- [**HeadingChunker**](#agrag.chunking.heading.HeadingChunker) – Cuts a document into sections at its headings and packs them to a budget.
+
+##### `agrag.chunking.heading.HeadingChunker`
+
+Bases: <code>[Chunker](#agrag.chunking.base.Chunker)</code>
+
+Cuts a document into sections at its headings and packs them to a budget.
+
+The chunker reads `Document.heading_outline`. A heading of `split_level` or
+higher (a level number at or below `split_level`) starts a new section, and no
+chunk holds such a heading except at its start. A section within `chunk_size`
+tokens is one chunk. A larger section is cut at its deeper headings and the
+parts are packed to the budget. A part that is still too large goes to
+`fallback`, and its chunks have the chunker name `heading:<fallback strategy>`. A document with no headings goes to `fallback` as a whole and its
+chunks have the same name. Only the plain text loaders for Markdown and AsciiDoc
+fill the outline.
+
+**Attributes:**
+
+- [**chunk_size**](#agrag.chunking.heading.HeadingChunker.chunk_size) (<code>[int](#int)</code>) – The most tokens in a chunk, counted with `tokenizer`. Tokens
+  are counted for each part alone, so a packed chunk can be a few tokens
+  over.
+- [**split_level**](#agrag.chunking.heading.HeadingChunker.split_level) (<code>[int](#int)</code>) – The deepest heading level that starts a new section, from 1 to 6.
+- [**tokenizer**](#agrag.chunking.heading.HeadingChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
+- [**fallback**](#agrag.chunking.heading.HeadingChunker.fallback) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[SpanChunker](#agrag.chunking.base.SpanChunker)\]</code>) – The chunker for a part above the budget and for a document without
+  headings.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.heading.HeadingChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.heading.HeadingChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.heading.HeadingChunker.model_copy) – Copy the chunker, validating any changed setting.
+- [**model_post_init**](#agrag.chunking.heading.HeadingChunker.model_post_init) – Load the tokenizer once, so a bad name fails at construction.
+- [**settings**](#agrag.chunking.heading.HeadingChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+
+###### `agrag.chunking.heading.HeadingChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+###### `agrag.chunking.heading.HeadingChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+###### `agrag.chunking.heading.HeadingChunker.fallback`
+
+```python
+fallback: SerializeAsAny[SpanChunker] = Field(default_factory=RecursiveChunker)
+```
+
+###### `agrag.chunking.heading.HeadingChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+###### `agrag.chunking.heading.HeadingChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.heading.HeadingChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
+###### `agrag.chunking.heading.HeadingChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Load the tokenizer once, so a bad name fails at construction.
+
+###### `agrag.chunking.heading.HeadingChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+###### `agrag.chunking.heading.HeadingChunker.split_level`
+
+```python
+split_level: int = Field(default=2, ge=1, le=6)
+```
+
+###### `agrag.chunking.heading.HeadingChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"heading"`.
+
+###### `agrag.chunking.heading.HeadingChunker.tokenizer`
 
 ```python
 tokenizer: str = DEFAULT_TOKENIZER
@@ -3327,6 +3735,146 @@ The strategy name, `"token"`.
 
 ```python
 tokenizer: str = DEFAULT_TOKENIZER
+```
+
+#### `agrag.chunking.turns`
+
+The turn-window strategy: whole chat turns packed to a token budget.
+
+**Classes:**
+
+- [**TurnWindowChunker**](#agrag.chunking.turns.TurnWindowChunker) – Packs whole chat turns into windows of at most `chunk_size` tokens.
+
+##### `agrag.chunking.turns.TurnWindowChunker`
+
+Bases: <code>[Chunker](#agrag.chunking.base.Chunker)</code>
+
+Packs whole chat turns into windows of at most `chunk_size` tokens.
+
+The chunker reads `Document.turns`. A window holds one or more whole turns, and
+a chunk boundary never falls inside a turn. Tokens are counted for each turn
+alone, so the separators between turns are not part of the count. Text before
+the first turn joins the first window, and text after a turn joins the window
+that holds that turn.
+
+A turn above the budget is split by `fallback`, and its chunks have the
+chunker name `turn-window:<fallback strategy>`. A document without turns is
+split by `fallback` as a whole and its chunks have the same name.
+
+**Attributes:**
+
+- [**chunk_size**](#agrag.chunking.turns.TurnWindowChunker.chunk_size) (<code>[int](#int)</code>) – The most tokens in a window, counted with `tokenizer`.
+- [**turn_overlap**](#agrag.chunking.turns.TurnWindowChunker.turn_overlap) (<code>[int](#int)</code>) – The number of turns that a window repeats from the window
+  before it. A window always moves on by at least one turn.
+- [**tokenizer**](#agrag.chunking.turns.TurnWindowChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
+- [**fallback**](#agrag.chunking.turns.TurnWindowChunker.fallback) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[SpanChunker](#agrag.chunking.base.SpanChunker)\]</code>) – The chunker for a turn above the budget and for a document without
+  turns.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.turns.TurnWindowChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.turns.TurnWindowChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.turns.TurnWindowChunker.model_copy) – Copy the chunker, validating any changed setting.
+- [**model_post_init**](#agrag.chunking.turns.TurnWindowChunker.model_post_init) – Load the tokenizer once, so a bad name fails at construction.
+- [**settings**](#agrag.chunking.turns.TurnWindowChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+
+###### `agrag.chunking.turns.TurnWindowChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+###### `agrag.chunking.turns.TurnWindowChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+###### `agrag.chunking.turns.TurnWindowChunker.fallback`
+
+```python
+fallback: SerializeAsAny[SpanChunker] = Field(default_factory=RecursiveChunker)
+```
+
+###### `agrag.chunking.turns.TurnWindowChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+###### `agrag.chunking.turns.TurnWindowChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.turns.TurnWindowChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
+###### `agrag.chunking.turns.TurnWindowChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Load the tokenizer once, so a bad name fails at construction.
+
+###### `agrag.chunking.turns.TurnWindowChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+###### `agrag.chunking.turns.TurnWindowChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"turn-window"`.
+
+###### `agrag.chunking.turns.TurnWindowChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
+```
+
+###### `agrag.chunking.turns.TurnWindowChunker.turn_overlap`
+
+```python
+turn_overlap: int = Field(default=0, ge=0)
 ```
 
 ### `agrag.common`

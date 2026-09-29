@@ -2,7 +2,7 @@
 
 import bisect
 from array import array
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, HeadingRef
@@ -106,3 +106,42 @@ def build_text_chunks(
             )
         )
     return chunks
+
+
+def build_marked_chunks(
+    document: Document, pieces: Iterable[tuple[int, int, str | None]]
+) -> list[Chunk]:
+    """Build text chunks from spans that may name the chunker that made them.
+
+    Args:
+        document: The document the spans index.
+        pieces: ``(char_start, char_end, chunker)`` per chunk, in chunk order. A
+            chunker of ``None`` leaves ``Chunk.chunker`` for the caller to fill.
+
+    Returns:
+        The chunks, in the order of the pieces.
+    """
+    pieces = list(pieces)
+    chunks = build_text_chunks(document, [(start, end) for start, end, _ in pieces])
+    return [
+        chunk if name is None else chunk.model_copy(update={"chunker": name})
+        for chunk, (_, _, name) in zip(chunks, pieces, strict=True)
+    ]
+
+
+def shifted_spans(
+    spans_of: Callable[[str], list[tuple[int, int]]], text: str, start: int, end: int
+) -> list[tuple[int, int]]:
+    """Cut ``text[start:end]`` with ``spans_of`` and return spans in ``text`` offsets.
+
+    Args:
+        spans_of: A function from text to half-open spans, for example
+            ``SpanChunker.spans``.
+        text: The whole document text.
+        start: The start of the slice to cut.
+        end: The end of the slice to cut.
+
+    Returns:
+        The spans of the slice, shifted by ``start``.
+    """
+    return [(a + start, b + start) for a, b in spans_of(text[start:end])]
