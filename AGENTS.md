@@ -20,7 +20,7 @@ The repo is hosted at `ontogr/agentic-graphrag`.
 
 Project is pre-1.0 with no stability promise. Breaking changes are allowed
 and recommended if they produce better results. This section overrides any
-stability or compatibility rule in this file or in `.rules/`.
+stability or compatibility rule in this file or in a skill.
 
 Default to a hard cut. Do not add backward-compat aliases, deprecated shims,
 fallback parsing, migration bridges, or tests for the previous API unless the
@@ -30,31 +30,24 @@ current behavior, as if the old API never existed.
 Do not add backwards-compatibility shims, deprecation comments, or feature
 flags for changes that have not been released yet. Just edit the code.
 
-## How to use the detailed rule files
+## Skills
 
-Read the specific rule file before doing work in that category. Do not load all
-rules by default; use the smallest relevant set for the task.
+Task-specific rules live in project skills under `.claude/skills/`. Use the
+matching skill before you start that kind of work. An agent without skill
+support can open `.claude/skills/<name>/SKILL.md` directly.
 
-| When you are doing... | Read this first |
+| When you are doing... | Use |
 | --- | --- |
-| Understanding layout, data flow, settings, component map, or commands | @.claude/.rules/project-structure.md |
-| Writing, reviewing, or refactoring Python code | @.claude/.rules/python-architecture.md |
-| Adding or changing tests | @.claude/.rules/testing.md |
-| Adding or updating docstrings/comments | @.claude/.rules/docstring-format.md |
-| Writing docs pages or user-facing Markdown/MDX | @.claude/.rules/diataxis-docs.md |
-| Changing dependencies, Ruff, ty, pytest, CI, generated files, or security tooling | @.claude/.rules/tooling.md |
-| Fixing type-check failures from `ty` | @.claude/.rules/ty-typing.md |
-| Day-to-day implementation workflow, docs updates, verification, commits/PRs | @.claude/.rules/workflow.md |
-| Editing BAML source files or generated LLM client behavior | @.claude/.rules/BAML.md |
-| Running setup, contribution, PR, or broader project commands | @CONTRIBUTING.md |
+| Adding or changing tests | `writing-tests` |
+| Adding or updating docstrings or comments | `writing-docstrings` |
+| Writing docs pages or user-facing Markdown or MDX | `writing-diataxis-docs` |
+| Fixing type-check failures from `ty` | `fixing-ty-errors` |
+| Editing BAML source files or generated LLM client behavior | `editing-baml` |
 
-AGENTS.md is self-sufficient for the first turn: it carries the critical subset
-of every rule area below, so an agent that loads only this file can proceed. The
-`.rules/` files hold the authoritative, exhaustive version; load the one for your
-task before substantive work in that area. Where both state a rule they use the
-same wording and agree by construction. If they ever diverge, the rule file is
-authoritative, except the Pre-1.0 policy above, which overrides all rule files.
-More specific task instructions control implementation details.
+For setup, contribution, PR, or broader project commands, read @CONTRIBUTING.md.
+The Pre-1.0 policy above overrides every skill. Where this file and a skill
+overlap, the skill is authoritative. More specific task instructions control
+implementation details.
 
 ## Repository structure
 
@@ -70,9 +63,6 @@ tests/
 docs/                   # user-facing documentation
 thoughts/     # shared plans and research notes, do not edit unless asked
 ```
-
-For the full project map and component responsibilities, read
-@.claude/.rules/project-structure.md.
 
 ## Critical rules
 
@@ -112,7 +102,7 @@ make test-integration      # run integration tests requiring external services
 make lint-fmt              # format and auto-fix with Ruff
 make lint-check            # check formatting and lint, no modifications
 make lint-typing           # type check with ty
-make lint-all              # format + lint + type check + typos
+make lint-all              # format + lint + type check + typos; applies unsafe fixes
 make baml-gen              # regenerate BAML client from agrag/llm/baml_src/
 make docs-dev               # regenerate the API reference and run the docs dev server
 make docs-build             # regenerate the API reference and build the docs site
@@ -132,8 +122,6 @@ activate it and retry. If no environment exists, ask before installing or using
 alternate tooling.
 
 ## Coding standards
-
-Read @.claude/.rules/python-architecture.md before non-trivial Python changes.
 
 - Use DDD and Clean Architecture principles where the project already follows
   them.
@@ -164,6 +152,7 @@ Read @.claude/.rules/python-architecture.md before non-trivial Python changes.
   or local interface expects inheritance.
 - Use early returns to avoid deep nesting.
 - Keep public APIs minimal and well-defined; do not expose internals.
+- Prefix internal helpers with `_` when they carry no stability guarantee.
 - Define `__all__` only in package `__init__.py` files that intentionally
   re-export public symbols. Do not put `__all__` in implementation modules.
 - Do not access private members (`_`-prefixed attributes or methods) of other
@@ -214,8 +203,7 @@ Ask: would this break code that used the package last week?
 
 ## Adding project components
 
-Follow nearby components first, then read @.claude/.rules/project-structure.md
-for the full conventions.
+Follow nearby components first.
 
 ### Graph-construction and retrieval components
 
@@ -228,12 +216,12 @@ for the full conventions.
 - Edit BAML sources under `agrag/llm/baml_src/`.
 - Never manually edit `agrag/llm/baml_client/`.
 - After any `.baml` change, run `make baml-gen`.
-- Read @.claude/.rules/BAML.md before editing BAML syntax, tests, clients, or
+- Use the `editing-baml` skill before editing BAML syntax, tests, clients, or
   generated output configuration.
 
 ## Testing requirements
 
-Read @.claude/.rules/testing.md before adding or changing tests.
+Use the `writing-tests` skill before adding or changing tests.
 
 - Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work. At the end of E2E tests, produce a verifiable and repeatable artifact.
 - Never write unit tests after you write code (follow Test Driven Development). If you must test a system in isolation, first write down all the ways it could fail, then write the code.
@@ -285,7 +273,7 @@ Read @.claude/.rules/testing.md before adding or changing tests.
 
 ## Type checking
 
-This project uses `ty`. Read @.claude/.rules/ty-typing.md when fixing type
+This project uses `ty`. Use the `fixing-ty-errors` skill when fixing type
 errors.
 
 - Run focused checks with `uv run ty check <target>` while iterating.
@@ -310,7 +298,7 @@ errors.
 
 ## Docstrings and comments
 
-Read @.claude/.rules/docstring-format.md before adding or changing docstrings or
+Use the `writing-docstrings` skill before adding or changing docstrings or
 comments.
 
 - Use Google-style docstrings with triple double quotes.
@@ -336,8 +324,7 @@ comments.
 
 ## Documentation
 
-Read @.claude/.rules/diataxis-docs.md before writing user-facing docs. Read
-@.claude/.rules/workflow.md for when docs should be updated.
+Use the `writing-diataxis-docs` skill before writing user-facing docs.
 
 - Update relevant docs when code behavior changes.
 - User-facing documentation is a Docusaurus site at `docs/`, served at
@@ -365,13 +352,13 @@ Read @.claude/.rules/diataxis-docs.md before writing user-facing docs. Read
 
 ## Tooling, dependencies, generated files, and security
 
-Read @.claude/.rules/tooling.md before changing tooling or dependency metadata.
-
 - Use `uv` for package management, virtual environments, and lockfiles.
 - Keep dependency specs loose in `pyproject.toml`; rely on `uv.lock` for
   reproducibility.
 - Add upper bounds only for known-breaking dependencies.
 - Do not add dependencies unless strictly required; justify any new dependency.
+- Run `deptry` or an equivalent check before removing a dependency, and account
+  for dynamic imports and plugin entry points.
 - Use Ruff for linting and formatting. Line length is 88.
 - Do not change Ruff, typing, pytest, or CI configuration unless explicitly
   asked.
@@ -390,8 +377,6 @@ Generated/excluded paths:
   `make docs-api`.
 
 ## Workflow expectations
-
-Read @.claude/.rules/workflow.md for the detailed coding workflow.
 
 - If the request is ambiguous and multiple valid interpretations materially
   change the solution, ask one narrow clarifying question.
@@ -413,6 +398,11 @@ Read @.claude/.rules/workflow.md for the detailed coding workflow.
   Do not remove pre-existing dead code unless asked.
 - If you notice unrelated issues, mention them separately instead of fixing them
   opportunistically.
+- Prefer the non-mutating targets `make test`, `make lint-check`, and
+  `make lint-typing`. Run `make lint-all` only for an explicit autofix run.
+- Stop when the narrowest useful check passes, or report the concrete blocker.
+- When asked to document or explain the codebase, describe what exists. Do not
+  propose improvements unless asked.
 - Check `thoughts/shared/plans/` before starting non-trivial implementation work.
 - Define the narrowest useful verification check before running broad commands.
 
@@ -443,7 +433,7 @@ Use judgment based on scope, but default to these artifacts.
 
 ### Documentation-only changes
 
-- Follow Diátaxis guidance from @.claude/.rules/diataxis-docs.md.
+- Follow the `writing-diataxis-docs` skill.
 - Be concrete and concise. Include examples, command invocations, data formats,
   or short flows when they make behavior easier to understand.
 - Explain the why behind non-obvious design decisions and tradeoffs.

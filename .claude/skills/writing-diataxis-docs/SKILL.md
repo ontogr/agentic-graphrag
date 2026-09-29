@@ -1,7 +1,8 @@
 ---
-description: Write docs using Diátaxis: tutorials for learning, how-to guides for tasks, reference for facts, explanation for understanding
-globs: *.mdx
+name: writing-diataxis-docs
+description: Diataxis and ASD-STE100 rules for user-facing docs. Use when writing or editing pages under docs/ or other user-facing Markdown or MDX.
 ---
+
 # Diátaxis Documentation Framework
 
 ## What binds this repo
