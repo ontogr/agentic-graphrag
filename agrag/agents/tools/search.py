@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from agrag.agents.tracing import tool_span_context
 from agrag.retrieval.errors import ScopeDeniedError
 
 
@@ -170,11 +171,12 @@ def make_search_source_text_tool(
     from agrag.retrieval.recipes import CHUNK  # noqa: PLC0415
 
     @tool("search_source_text")
-    async def search_source_text(
+    async def search_source_text(  # noqa: D417
         query: str,
         *,
         limit: int = 10,
         document_ids: list[str] | None = None,
+        callbacks: Any = None,
     ) -> str:
         """Find passages of source text that mention the query's terms.
 
@@ -192,11 +194,12 @@ def make_search_source_text_tool(
         except ScopeDeniedError:
             return SCOPE_DENIED
 
-        results = await engine.search(
-            query,
-            _narrowed_recipe(CHUNK, limit=limit, min_score=None),
-            filters=effective,
-        )
+        with tool_span_context(callbacks):
+            results = await engine.search(
+                query,
+                _narrowed_recipe(CHUNK, limit=limit, min_score=None),
+                filters=effective,
+            )
         return render_results(ledger, results)
 
     return search_source_text
@@ -223,11 +226,12 @@ def make_look_up_entity_tool(
     from agrag.retrieval.recipes import ENTITY  # noqa: PLC0415
 
     @tool("look_up_entity")
-    async def look_up_entity(
+    async def look_up_entity(  # noqa: D417
         query: str,
         *,
         limit: int = 10,
         labels: list[str] | None = None,
+        callbacks: Any = None,
     ) -> str:
         """Find entities the graph holds that match a name or description.
 
@@ -246,11 +250,12 @@ def make_look_up_entity_tool(
         except ScopeDeniedError:
             return SCOPE_DENIED
 
-        results = await engine.search(
-            query,
-            _narrowed_recipe(ENTITY, limit=limit, min_score=None),
-            filters=effective,
-        )
+        with tool_span_context(callbacks):
+            results = await engine.search(
+                query,
+                _narrowed_recipe(ENTITY, limit=limit, min_score=None),
+                filters=effective,
+            )
         return render_results(ledger, results)
 
     return look_up_entity
@@ -277,12 +282,13 @@ def make_explore_related_tool(
     from agrag.retrieval.recipes import HYBRID  # noqa: PLC0415
 
     @tool("explore_related")
-    async def explore_related(
+    async def explore_related(  # noqa: D417
         query: str,
         *,
         limit: int = 10,
         labels: list[str] | None = None,
         document_ids: list[str] | None = None,
+        callbacks: Any = None,
     ) -> str:
         """Search entities and source text together for a topic.
 
@@ -303,11 +309,12 @@ def make_explore_related_tool(
         except ScopeDeniedError:
             return SCOPE_DENIED
 
-        results = await engine.search(
-            query,
-            _narrowed_recipe(HYBRID, limit=limit, min_score=None),
-            filters=effective,
-        )
+        with tool_span_context(callbacks):
+            results = await engine.search(
+                query,
+                _narrowed_recipe(HYBRID, limit=limit, min_score=None),
+                filters=effective,
+            )
         return render_results(ledger, results)
 
     return explore_related
@@ -334,11 +341,12 @@ def make_answer_from_graph_structure_tool(
     from agrag.retrieval.recipes import HYBRID_RERANKED  # noqa: PLC0415
 
     @tool("answer_from_graph_structure")
-    async def answer_from_graph_structure(
+    async def answer_from_graph_structure(  # noqa: D417
         query: str,
         *,
         limit: int = 10,
         min_score: float | None = None,
+        callbacks: Any = None,
     ) -> str:
         """Answer a question whose evidence is spread across many passages.
 
@@ -353,11 +361,12 @@ def make_answer_from_graph_structure_tool(
                 shorter, higher-precision list. Leave unset to keep the
                 configured default threshold.
         """
-        results = await engine.search(
-            query,
-            _narrowed_recipe(HYBRID_RERANKED, limit=limit, min_score=min_score),
-            filters=filters,
-        )
+        with tool_span_context(callbacks):
+            results = await engine.search(
+                query,
+                _narrowed_recipe(HYBRID_RERANKED, limit=limit, min_score=min_score),
+                filters=filters,
+            )
         return render_results(ledger, results)
 
     return answer_from_graph_structure
@@ -384,7 +393,9 @@ def make_answer_thematic_question_tool(
     from agrag.retrieval.recipes import THEMATIC  # noqa: PLC0415
 
     @tool("answer_thematic_question")
-    async def answer_thematic_question(query: str, *, limit: int = 5) -> str:
+    async def answer_thematic_question(  # noqa: D417
+        query: str, *, limit: int = 5, callbacks: Any = None
+    ) -> str:
         """Answer a broad, thematic question from community summaries.
 
         Communities are clusters of related entities with a written summary,
@@ -395,11 +406,12 @@ def make_answer_thematic_question_tool(
             query: The thematic question to answer.
             limit: Maximum community summaries to return.
         """
-        results = await engine.search(
-            query,
-            _narrowed_recipe(THEMATIC, limit=limit, min_score=None),
-            filters=filters,
-        )
+        with tool_span_context(callbacks):
+            results = await engine.search(
+                query,
+                _narrowed_recipe(THEMATIC, limit=limit, min_score=None),
+                filters=filters,
+            )
         return render_results(ledger, results)
 
     return answer_thematic_question
@@ -431,7 +443,9 @@ def make_query_graph_directly_tool(
         raise ValueError("query_graph_directly cannot run with scoped filters")
 
     @tool("query_graph_directly")
-    async def query_graph_directly(query: str) -> str:
+    async def query_graph_directly(  # noqa: D417
+        query: str, callbacks: Any = None
+    ) -> str:
         """Ask the graph a structural question in one generated query.
 
         Generates a read-only Cypher query from the graph's schema and
@@ -444,7 +458,8 @@ def make_query_graph_directly_tool(
         Args:
             query: The question to translate into one Cypher query.
         """
-        results = await engine.search(query, TEXT2CYPHER, filters=filters)
+        with tool_span_context(callbacks):
+            results = await engine.search(query, TEXT2CYPHER, filters=filters)
         return render_results(ledger, results)
 
     return query_graph_directly
