@@ -125,7 +125,12 @@ async def cross_encoder_rerank(
             if min_score is not None and score_val < min_score:
                 continue
             reranked.append(
-                SearchResult(item=result.item, score=score_val, method="cross_encoder")
+                SearchResult(
+                    item=result.item,
+                    score=score_val,
+                    method="cross_encoder",
+                    parent=result.parent,
+                )
             )
 
         reranked.sort(key=lambda r: r.score, reverse=True)

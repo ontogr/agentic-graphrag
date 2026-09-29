@@ -24,6 +24,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from opentelemetry.trace import StatusCode
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.loaders.corpus import registry
 from agrag.loaders.corpus._walk import _CorpusWalk, _InMemoryWalk
@@ -290,6 +291,24 @@ class TestInMemoryWalk:
         assert len(batches) == 1
         assert batches[0][0].text == "hello world"
         assert batches[0][0].uri.startswith("inline://")
+
+    async def test_inline_text_records_the_unicode_form_only(self) -> None:
+        """Inline text has no bytes to decode, so only the Unicode form applies."""
+        walk = _InMemoryWalk("\ufb01\r\n", opts=ReadOptions())
+        (document,) = [d async for batch, _c, _s in walk.iter_batches() for d in batch]
+
+        assert document.text == "fi\r\n"
+        assert document.normalization == Normalization(
+            bom="keep", newline="keep", unicode_form="NFKC"
+        )
+
+    async def test_inline_text_honors_a_none_unicode_form(self) -> None:
+        """The none form leaves the text as the caller gave it."""
+        opts = ReadOptions(normalization=Normalization(unicode_form="none"))
+        walk = _InMemoryWalk("\ufb01", opts=opts)
+        (document,) = [d async for batch, _c, _s in walk.iter_batches() for d in batch]
+
+        assert document.text == "\ufb01"
 
 
 class _FiveDocumentLoader(Loader):

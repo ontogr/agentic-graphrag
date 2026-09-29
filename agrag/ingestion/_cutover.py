@@ -257,6 +257,7 @@ async def _commit_pending_writes(
     token: UUID,
     graph_store: GraphStore,
     close_document_node_id: UUID | None,
+    keep_chunk_ids: Sequence[UUID],
 ) -> int:
     """Atomically expose pending graph writes and close superseded edges."""
     job_arg = str(job_id)
@@ -277,6 +278,7 @@ async def _commit_pending_writes(
                 txn,
                 document_node_id=close_document_node_id,
                 job_id=job_id,
+                keep_chunk_ids=keep_chunk_ids,
             )
         await txn.execute_write(clear_pending_tag_query(), {"job_id": job_arg})
     return chunks_closed
@@ -294,6 +296,7 @@ async def run_cutover_job(
     pending_write: Callable[[UUID], Awaitable[T]],
     cleanup: Callable[[], Awaitable[S]],
     close_document_node_id: UUID | None = None,
+    keep_chunk_ids: Sequence[UUID] = (),
     tracer: Tracer | None = None,
 ) -> tuple[T, S, int]:
     """Run one crash-safe graph-mutating call end to end.
@@ -325,6 +328,9 @@ async def run_cutover_job(
         close_document_node_id: The persisted Document node whose open
             PART_OF edges close atomically with the commit. None closes
             nothing, for add.
+        keep_chunk_ids: Chunks whose PART_OF edges stay open through that close.
+            An update passes the ids of the chunks it wrote, since a chunk can
+            keep its id when only the chunker changed.
         tracer: Opens this job's span. The caller's own root span (Graph.add/
             update/delete_document) must already be current when this is
             called, or this job's span has no parent.
@@ -375,6 +381,7 @@ async def run_cutover_job(
                 pending_write=pending_write,
                 cleanup=cleanup,
                 close_document_node_id=close_document_node_id,
+                keep_chunk_ids=keep_chunk_ids,
                 stop_renewal=stop_renewal,
                 renewal_stopped=renewal_stopped,
             )
@@ -409,6 +416,7 @@ async def _run_leased(
     pending_write: Callable[[UUID], Awaitable[T]],
     cleanup: Callable[[], Awaitable[S]],
     close_document_node_id: UUID | None,
+    keep_chunk_ids: Sequence[UUID],
     stop_renewal: asyncio.Event,
     renewal_stopped: asyncio.Event,
 ) -> tuple[T, S, int]:
@@ -429,6 +437,7 @@ async def _run_leased(
             token=token,
             graph_store=graph_store,
             close_document_node_id=close_document_node_id,
+            keep_chunk_ids=keep_chunk_ids,
         )
     )
     try:

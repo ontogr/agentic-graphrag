@@ -1,24 +1,38 @@
-"""Chunking helpers for the ingestion layer.
+"""Chunking: how a Document becomes Chunks.
 
-This module isolates the chonkie dependency to one import site, so the rest of the
-codebase (and tests) can build a chunker without importing chonkie directly.
+A ``Chunker`` splits one document. A ``Chunking`` holds the rules that pick a chunker
+for each document, and ``DEFAULT_CHUNKING`` is the preset that ``Graph`` uses.
 """
 
-from chonkie import RecursiveChunker
+from agrag.chunking.base import Chunker, ChunkerMissingExtraError, ChunkingError
+from agrag.chunking.docling import DoclingChunker
+from agrag.chunking.extras import CodeChunker, NeuralChunker, SemanticChunker
+from agrag.chunking.heading import HeadingChunker
+from agrag.chunking.parent_child import ParentChildChunker
+from agrag.chunking.recursive import RecursiveChunker, SplitLevel
+from agrag.chunking.rules import DEFAULT_CHUNKING, Chunking, ChunkingRule, RuleMatch
+from agrag.chunking.sentence import SentenceChunker
+from agrag.chunking.token import TokenChunker
+from agrag.chunking.turns import TurnWindowChunker
 
 
-def default_chunker(chunk_size: int = 1024) -> RecursiveChunker:
-    """Build the default text chunker.
-
-    Args:
-        chunk_size: The maximum number of characters per chunk.
-
-    Returns:
-        A character-based recursive chunker.
-    """
-    return RecursiveChunker(
-        chunk_size=chunk_size, tokenizer="character", min_characters_per_chunk=24
-    )
-
-
-__all__ = ["default_chunker", "RecursiveChunker"]
+__all__ = [
+    "DEFAULT_CHUNKING",
+    "Chunker",
+    "ChunkerMissingExtraError",
+    "Chunking",
+    "ChunkingError",
+    "ChunkingRule",
+    "CodeChunker",
+    "DoclingChunker",
+    "HeadingChunker",
+    "NeuralChunker",
+    "ParentChildChunker",
+    "RecursiveChunker",
+    "RuleMatch",
+    "SemanticChunker",
+    "SentenceChunker",
+    "SplitLevel",
+    "TokenChunker",
+    "TurnWindowChunker",
+]

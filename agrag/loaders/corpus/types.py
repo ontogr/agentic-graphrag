@@ -9,11 +9,12 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.stage_failure import StageFailure
 
 
 if TYPE_CHECKING:
-    from agrag.chunking.text import Chunk
+    from agrag.common.data_models.chunk import Chunk
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +43,7 @@ class DecodedText:
     """Output of the four-step decode pipeline.
 
     Attributes:
-        text: The decoded text, NFKC-normalized with LF line endings.
+        text: The decoded text, normalized as ``ReadOptions.normalization`` says.
         encoding: The encoding used to decode the bytes.
         had_bom: Whether the source started with a byte-order mark.
         content_hash: The sha256 hash of the normalized text.
@@ -114,6 +115,9 @@ class ReadOptions:
         csv_mode: The CSV reading mode.
         csv_delimiter: The column separator. ``None`` infers it from the extension.
         html_selector: The CSS selector for the main content of an HTML source.
+        normalization: How to normalize decoded text: byte-order mark, newline form
+            and Unicode form. The default removes the mark, uses LF and applies NFKC.
+            Chunk offsets index the normalized text.
     """
 
     encoding: str | None = None
@@ -130,6 +134,8 @@ class ReadOptions:
     csv_delimiter: str | None = None
 
     html_selector: str | None = None
+
+    normalization: Normalization = field(default_factory=Normalization)
 
 
 @dataclass(frozen=True, slots=True)

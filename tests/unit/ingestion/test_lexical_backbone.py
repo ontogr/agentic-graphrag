@@ -43,13 +43,18 @@ def _doc(
 
 
 def _chunk(
-    document_id: UUID, text: str = "hello", index: int = 0, start: int = 0
+    document_id: UUID,
+    text: str = "hello",
+    index: int = 0,
+    start: int = 0,
+    level: int = 0,
 ) -> Chunk:
     return Chunk(
         document_id=document_id,
         index=index,
         text=text,
         provenance=TextProvenance(char_start=start, char_end=start + len(text)),
+        level=level,
     )
 
 
@@ -138,6 +143,21 @@ class TestBuildNextChunkRecords:
         assert records[0].start_id == previous.id
         assert records[0].end_id == first.id
         assert records[0].id == next_chunk_id(previous.id, first.id)
+
+    def test_links_chunks_of_the_same_level_only(self) -> None:
+        """Parents link to parents and children to children, never across levels."""
+        document_id = uuid4()
+        parents = [_chunk(document_id, f"p{i}", index=i, level=1) for i in range(2)]
+        children = [_chunk(document_id, f"c{i}", index=i) for i in range(3)]
+
+        records = build_next_chunk_records([*parents, *children])
+
+        pairs = {(r.start_id, r.end_id) for r in records}
+        assert pairs == {
+            (parents[0].id, parents[1].id),
+            (children[0].id, children[1].id),
+            (children[1].id, children[2].id),
+        }
 
     def test_rejects_unresolved_chunk_ids(self) -> None:
         """An unresolved adjacent chunk cannot produce a deterministic edge."""

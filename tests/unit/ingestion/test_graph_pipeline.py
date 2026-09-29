@@ -2141,7 +2141,7 @@ class TestGraphAddPipeline:
         graph = await Graph.open(
             schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
         )
-        with mock.patch.object(graph, "_chunk_documents", return_value=[]):
+        with mock.patch.object(graph, "_chunk_documents", return_value=([], [])):
             result = await graph.add(text="hi", on_progress=lambda _: None)
             assert result.extraction.chunks_processed == 0
             assert result.storage.nodes_written == 0

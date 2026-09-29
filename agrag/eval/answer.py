@@ -5,8 +5,7 @@ build DeepEval metrics that run the judge once. ``CitationAccuracyMetric`` check
 each cited sentence against the evidence its citation keys point to.
 
 All metrics judge against the evidence text the agent saw, as ``Ledger.render``
-shows it. A chunk shows in full up to 2000 characters, so a claim that needs text past
-that point counts as unsupported.
+shows it. A chunk shows in full, whatever its size.
 """
 
 import asyncio

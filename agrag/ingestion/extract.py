@@ -556,6 +556,7 @@ class BAMLExtractor(Extractor):
         settings: "ExtractionLLMSettings | None" = None,
         client: object | None = None,
         tracer: Tracer | None = None,
+        include_heading_path: bool = True,
     ) -> None:
         """Create an extractor from settings or an already-built BAML client.
 
@@ -569,10 +570,14 @@ class BAMLExtractor(Extractor):
                 ``ExtractEntitiesAndRelations``. Tests inject a fake here.
             tracer: Opens ``agrag.extraction.baml`` and the nested
                 ``agrag.llm.call`` spans. ``None`` opens no recorded span.
+            include_heading_path: Whether to give the model the heading path of the
+                chunk as a separate ``section`` line above the text. Offsets still
+                index ``chunk.text``. Only this extractor uses heading context.
         """
         self.settings = settings
         self._client = client
         self._tracer = tracer
+        self._include_heading_path = include_heading_path
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
         """Extract with an LLM call through the configured ClientRegistry.
@@ -604,6 +609,8 @@ class BAMLExtractor(Extractor):
                 )
                 baml_options = {"client_registry": registry}
                 retry = settings.retry
+            section = chunk.section_label() if self._include_heading_path else None
+            span.set_attribute("agrag.extraction.heading_context", section is not None)
             type_builder = self._type_builder_for(schema)
             call_options: dict = {**baml_options}
             if type_builder is not None:
@@ -613,7 +620,7 @@ class BAMLExtractor(Extractor):
             # argument or a non-429 4xx); narrow further if that proves noisy.
             raw = await call_with_retry(
                 lambda options: client.ExtractEntitiesAndRelations(  # ty: ignore[unresolved-attribute]
-                    chunk.text, options
+                    chunk.text, section, options
                 ),
                 retry,
                 options=call_options,

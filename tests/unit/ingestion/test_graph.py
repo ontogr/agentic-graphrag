@@ -10,12 +10,14 @@ ensure_vector_index).
 """
 
 import hashlib
+import importlib
+import json
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any
 from unittest import mock
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -27,6 +29,14 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 
 import agrag.ingestion._cutover as cutover_module
 import agrag.ingestion.graph as graph_module
+from agrag.chunking import (
+    DEFAULT_CHUNKING,
+    Chunking,
+    ChunkingRule,
+    RecursiveChunker,
+    RuleMatch,
+    TokenChunker,
+)
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import (
     COMMUNITY_LABEL,
@@ -45,7 +55,7 @@ from agrag.common.data_models.graph_schema import (
     EntityType,
     GraphSchema,
 )
-from agrag.common.data_models.provenance import PageProvenance
+from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.resolved_entity import (
     MATCHES_RELATION,
     RESOLVED_AS_RELATION,
@@ -65,11 +75,30 @@ from agrag.ingestion.graph import SYSTEM_RELATION_TYPES
 from agrag.ingestion.resolve import ResolutionResult
 from agrag.loaders.corpus.errors import UnsupportedFormatError
 from agrag.loaders.corpus.readers.prose import TextLoader
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.corpus.types import ErrorPolicy, ReadOptions
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
 _FIXTURES = Path(__file__).parents[1] / "loaders" / "corpus" / "fixtures"
+
+
+class _DoclingItem:
+    """A docling chunk with a text and no headings or page items."""
+
+    class meta:  # noqa: N801
+        headings: list[str] = []
+        doc_items: list[object] = []
+
+    text = "chunk"
+
+
+def _chunk_docling(graph: Graph, document: Document) -> list[Chunk]:
+    """Chunk a docling document with docling's chunker replaced by one chunk."""
+    docling_chunking = importlib.import_module("docling.chunking")
+    with patch.object(docling_chunking, "HybridChunker") as hybrid:
+        hybrid.return_value.chunk.return_value = [_DoclingItem()]
+        chunks, _ = graph._chunk_documents([document])
+    return chunks
 
 
 class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
@@ -413,40 +442,13 @@ class TestGraphAdd:
         with pytest.raises(ValueError, match="distinct document keys"):
             await graph.add(documents=[first, second])
 
-    def test_docling_chunks_use_distinct_ids_for_each_content_version(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_docling_chunks_use_distinct_ids_for_each_content_version(self) -> None:
         """Same-index docling chunks retain their separate version histories."""
         graph = Graph(
             schema=GENERIC,
             graph_store=_MockGraphStore(),
             embedder=_MockEmbedder(),
             extractor=_MockExtractor(),
-        )
-        version_ids: list[object] = []
-
-        def fake_chunk_docling_document(
-            docling_doc: object, document_id, *, version_id=None
-        ) -> list[Chunk]:
-            del docling_doc
-            version_ids.append(version_id)
-            provenance = PageProvenance(page_spans=[])
-            return [
-                Chunk(
-                    id=Chunk.id_for(
-                        document_id=document_id,
-                        version_id=version_id,
-                        provenance=provenance,
-                        index=0,
-                    ),
-                    document_id=document_id,
-                    text="chunk",
-                    provenance=provenance,
-                )
-            ]
-
-        monkeypatch.setattr(
-            "agrag.ingestion.graph.chunk_docling_document", fake_chunk_docling_document
         )
         first = Document(
             text="first",
@@ -463,12 +465,11 @@ class TestGraphAdd:
         )
         second = first.model_copy(update={"content_hash": "second"})
 
-        first_chunk = graph._chunk_documents([first])[0]
-        second_chunk = graph._chunk_documents([second])[0]
+        first_chunk = _chunk_docling(graph, first)[0]
+        second_chunk = _chunk_docling(graph, second)[0]
 
         assert first_chunk.document_id == second_chunk.document_id
         assert first_chunk.id != second_chunk.id
-        assert version_ids[0] != version_ids[1]
 
     async def test_delete_missing_document_is_a_no_op(self) -> None:
         """Deleting an unknown document does not write graph state."""
@@ -738,6 +739,141 @@ class TestGraphVectorStore:
         entity_store.delete.assert_not_awaited()
 
 
+class TestGraphChunking:
+    """Graph chunks each document with the chunker its rules pick."""
+
+    _TEXT = "The quick brown fox jumps over the lazy dog. " * 20
+
+    async def _open(self, chunking: Chunking | None = None) -> Graph:
+        kwargs = {} if chunking is None else {"chunking": chunking}
+        return await Graph.open(
+            schema=GENERIC,
+            graph_store=_MockGraphStore(),
+            embedder=_MockEmbedder(),
+            extractor=_MockExtractor(),
+            **kwargs,
+        )
+
+    async def test_default_chunking_records_the_fallback_on_every_chunk(self) -> None:
+        """Without a chunking argument, chunks name the recursive fallback."""
+        graph = await self._open()
+
+        result = await graph.add(text=self._TEXT, return_chunks=True)
+
+        fallback = DEFAULT_CHUNKING.fallback
+        assert result.chunks
+        assert {c.chunker for c in result.chunks} == {"recursive"}
+        assert {c.chunker_hash for c in result.chunks} == {fallback.fingerprint()}
+        assert result.chunking.documents_by_rule == {"fallback": 1}
+        assert result.chunking.chunks_by_strategy == {"recursive": len(result.chunks)}
+
+    async def test_custom_rule_picks_the_chunker_for_matching_documents(self) -> None:
+        """A rule on the format sends Markdown to the token chunker only."""
+        chunking = Chunking(
+            rules=[
+                ChunkingRule(
+                    match=RuleMatch(source_formats=[SourceFormat.MARKDOWN]),
+                    chunker=TokenChunker(chunk_size=32, tokenizer="character"),
+                )
+            ],
+            fallback=RecursiveChunker(chunk_size=200, tokenizer="character"),
+        )
+        graph = await self._open(chunking)
+        assert graph.chunking is chunking
+
+        result = await graph.add(source=_FIXTURES, return_chunks=True)
+
+        by_uri = {Path(m.document_key).suffix: m for m in result.chunking.matches}
+        assert by_uri[".md"].strategy == "token"
+        assert by_uri[".md"].rule == 0
+        assert by_uri[".txt"].strategy == "recursive"
+        assert by_uri[".txt"].rule is None
+        assert result.chunking.matches_total == len(result.chunking.matches)
+        assert sum(result.chunking.chunks_by_strategy.values()) == len(result.chunks)
+
+    async def test_add_and_update_pass_read_options_to_the_loaders(self) -> None:
+        """A none Unicode form keeps a ligature in the chunk text on both paths."""
+        graph = await self._open()
+        options = ReadOptions(normalization=Normalization(unicode_form="none"))
+
+        added = await graph.add(
+            text="\ufb01 rst line", read_options=options, return_chunks=True
+        )
+        updated = await graph.update(
+            "memory://doc", text="\ufb01 rst line", read_options=options
+        )
+
+        assert added.chunks[0].text == "\ufb01 rst line"
+        assert (
+            updated.new_content_hash
+            == hashlib.sha256("\ufb01 rst line".encode()).hexdigest()
+        )
+
+    async def _update(
+        self, graph: Graph, stored_hash: str | None, *, has_chunk: bool = True
+    ) -> bool:
+        node_row = {
+            "id": str(uuid4()),
+            "current_content_hash": hashlib.sha256(self._TEXT.encode()).hexdigest(),
+        }
+        chunk_rows = [{"chunker_hash": stored_hash}] if has_chunk else []
+
+        async def _read(query: str, *args: object, **kwargs: object) -> list[dict]:
+            if "current_content_hash" in query:
+                return [node_row]
+            if "chunker_hash" in query:
+                return chunk_rows
+            return []
+
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            side_effect=_read
+        )
+        result = await graph.update("memory://doc", text=self._TEXT)
+        return result.no_op
+
+    async def test_update_is_a_no_op_when_content_and_chunker_are_unchanged(
+        self,
+    ) -> None:
+        """The stored fingerprint equals the chunker's, so nothing runs."""
+        graph = await self._open()
+        _, chunker = graph.chunking.select(
+            Document(
+                text="x",
+                title="t",
+                uri="memory://doc",
+                source_format=SourceFormat.TXT,
+                family=DocumentFamily.PROSE,
+                content_hash="h",
+                loader_name="inline",
+                char_count=1,
+            )
+        )
+
+        assert await self._update(graph, chunker.fingerprint()) is True
+
+    async def test_update_rechunks_when_only_the_chunker_changed(self) -> None:
+        """Same content with a different stored fingerprint runs the full update."""
+        graph = await self._open()
+
+        assert await self._update(graph, "0123456789abcdef") is False
+
+    async def test_update_treats_chunks_without_a_fingerprint_as_unchanged(
+        self,
+    ) -> None:
+        """A chunk from before chunkers were recorded does not force a re-chunk."""
+        graph = await self._open()
+
+        assert await self._update(graph, None) is True
+
+    async def test_update_without_current_chunks_is_a_no_op_on_same_content(
+        self,
+    ) -> None:
+        """A document with no readable chunk keeps the content-hash rule."""
+        graph = await self._open()
+
+        assert await self._update(graph, None, has_chunk=False) is True
+
+
 class TestChunkDocumentSpans:
     """Chunker spans carry document identity and output counts."""
 
@@ -770,8 +906,9 @@ class TestChunkDocumentSpans:
             tracer=provider.get_tracer("test"),
         )
         document = self._document()
-        chunks = graph._chunk_documents([document])
+        chunks, matches = graph._chunk_documents([document])
         assert chunks
+        assert [m.strategy for m in matches] == ["recursive"]
         spans = [
             span
             for span in exporter.get_finished_spans()
@@ -783,11 +920,14 @@ class TestChunkDocumentSpans:
             spans[0].attributes["agrag.document_key"] == document.resolved_document_key
         )
         assert spans[0].attributes["agrag.chunks_produced"] == len(chunks)
+        assert spans[0].attributes["agrag.chunker.strategy"] == "recursive"
+        assert spans[0].attributes["agrag.chunker.rule"] == "fallback"
+        assert spans[0].attributes["agrag.chunker.hash"] == chunks[0].chunker_hash
+        settings = json.loads(str(spans[0].attributes["agrag.chunker.settings"]))
+        assert settings["chunk_size"] == 1024
 
-    def test_chunk_docling_document_span_carries_attributes(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The docling chunk span records the document key and chunk count."""
+    def test_docling_document_span_names_the_docling_rule(self) -> None:
+        """A docling document is chunked under rule 0 with the docling strategy."""
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -799,23 +939,6 @@ class TestChunkDocumentSpans:
             tracer=provider.get_tracer("test"),
         )
 
-        def fake_chunk_docling_document(
-            docling_doc: object, document_id, *, version_id=None
-        ) -> list[Chunk]:
-            del docling_doc, document_id, version_id
-            provenance = PageProvenance(page_spans=[])
-            return [
-                Chunk(
-                    id=uuid4(),
-                    document_id=uuid4(),
-                    text="chunk",
-                    provenance=provenance,
-                )
-            ]
-
-        monkeypatch.setattr(
-            "agrag.ingestion.graph.chunk_docling_document", fake_chunk_docling_document
-        )
         text = "docling doc"
         document = Document(
             text=text,
@@ -830,12 +953,12 @@ class TestChunkDocumentSpans:
             line_count=1,
             metadata={"_docling_document": object()},
         )
-        chunks = graph._chunk_documents([document])
+        chunks = _chunk_docling(graph, document)
         assert chunks
         spans = [
             span
             for span in exporter.get_finished_spans()
-            if span.name == "agrag.ingestion.chunk_docling_document"
+            if span.name == "agrag.ingestion.chunk_document"
         ]
         assert len(spans) == 1
         assert spans[0].attributes is not None
@@ -843,3 +966,5 @@ class TestChunkDocumentSpans:
             spans[0].attributes["agrag.document_key"] == document.resolved_document_key
         )
         assert spans[0].attributes["agrag.chunks_produced"] == len(chunks)
+        assert spans[0].attributes["agrag.chunker.strategy"] == "docling"
+        assert spans[0].attributes["agrag.chunker.rule"] == "0"

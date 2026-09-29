@@ -9,6 +9,9 @@ byte sequences, including a regression for reading a detected match's text
 via ``str(match)`` rather than re-decoding its UTF-8 ``output()``.
 """
 
+import pytest
+
+from agrag.common.data_models.normalization import Normalization
 from agrag.loaders.corpus.decode import _had_bom, decode_text
 from agrag.loaders.corpus.errors import DecodeError
 from agrag.loaders.corpus.types import ReadOptions
@@ -116,3 +119,74 @@ class TestDecodeText:
         decoded = decode_text(b"irrelevant", ReadOptions())
         assert decoded.text == "café"
         assert decoded.encoding == "cp1252"
+
+
+class TestNormalizationSetting:
+    """ReadOptions.normalization controls what decode_text does to the text."""
+
+    @pytest.mark.parametrize("encoding", [None, "utf-8"], ids=["detected", "forced"])
+    def test_bom_keep_leaves_the_mark_at_index_zero(self, encoding: str | None) -> None:
+        """The mark stays under both detected and forced decoding."""
+        opts = ReadOptions(encoding=encoding, normalization=Normalization(bom="keep"))
+
+        decoded = decode_text(b"\xef\xbb\xbfhello world text", opts)
+
+        assert decoded.text[0] == "﻿"
+        assert decoded.text[1:] == "hello world text"
+
+    def test_bom_keep_adds_nothing_to_a_file_without_a_mark(self) -> None:
+        """A file with no mark does not gain one."""
+        opts = ReadOptions(normalization=Normalization(bom="keep"))
+
+        assert decode_text(b"hello world text", opts).text == "hello world text"
+
+    def test_newline_keep_leaves_crlf_and_cr(self) -> None:
+        """Line endings are not rewritten."""
+        opts = ReadOptions(normalization=Normalization(newline="keep"))
+
+        assert decode_text(b"a\r\nb\rc", opts).text == "a\r\nb\rc"
+
+    @pytest.mark.parametrize(
+        ("form", "expected"),
+        [
+            ("NFKC", "fi é"),
+            ("NFC", "ﬁ é"),
+            ("NFD", "ﬁ é"),
+            ("NFKD", "fi é"),
+            ("none", "ﬁ é"),
+        ],
+    )
+    def test_unicode_form_is_applied(self, form: str, expected: str) -> None:
+        """Each form rewrites a ligature and an accent as its rules say."""
+        raw = "ﬁ é".encode()
+        opts = ReadOptions(
+            encoding="utf-8", normalization=Normalization(unicode_form=form)
+        )
+
+        assert decode_text(raw, opts).text == expected
+
+    def test_content_hash_depends_on_the_setting(self) -> None:
+        """The hash covers the normalized text, so settings give different hashes."""
+        raw = "\ufb01".encode()
+
+        default = decode_text(raw, ReadOptions(encoding="utf-8"))
+        unnormalized = decode_text(
+            raw,
+            ReadOptions(
+                encoding="utf-8", normalization=Normalization(unicode_form="none")
+            ),
+        )
+
+        assert default.content_hash != unnormalized.content_hash
+
+    def test_raw_settings_keep_offsets_into_the_file(self) -> None:
+        """With none, keep and keep, text equals the decoded file byte for byte."""
+        source = "a\r\nb ﬁ é\r\n"
+        opts = ReadOptions(
+            encoding="utf-8",
+            normalization=Normalization(
+                bom="keep", newline="keep", unicode_form="none"
+            ),
+        )
+
+        assert decode_text(source.encode(), opts).text == source

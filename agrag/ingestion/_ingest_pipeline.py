@@ -115,7 +115,8 @@ async def extract_chunks(
     would.
 
     Args:
-        chunks: The chunks to extract from, in order.
+        chunks: The chunks to extract from, in order. A child chunk (one with a
+            ``parent_id``) is skipped, since its parent carries the same text.
         start_index: The running entity count before ``chunks``.
         extractor: Runs against each chunk.
         schema: The entity/relation types extraction is validated against.
@@ -133,6 +134,8 @@ async def extract_chunks(
     failures: list[StageFailure] = []
     resolved_tracer = get_tracer(tracer)
     for chunk in chunks:
+        if chunk.parent_id is not None:
+            continue
         offset = start_index + len(entities)
         # The relation-remapping loop below stays inside this same `with`
         # block, not just the extract() call -- a relation-index failure
@@ -208,6 +211,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     job_id: UUID | str | None = None,
     materialized_components: list[MatchComponent] | None = None,
     tracer: Tracer | None = None,
+    embed_heading_path: bool = True,
 ) -> AddResult:
     """Run resolution, merge, and storage for already-chunked input.
 
@@ -249,6 +253,8 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             it supersedes, so the caller materializes these again after
             the job commits to replace it.
         tracer: Opens this call's span and every phase span below it.
+        embed_heading_path: Whether chunk embeddings include the chunk's heading
+            path. The stored chunk text and vector payload text stay raw.
 
     Returns:
         The per-stage summary for this ingestion.
@@ -839,16 +845,24 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                 graph_store, chunk_ids, job_id=job_id
             )
         if embeddable_ids:
-            with resolved_tracer.start_as_current_span("agrag.storage.embed_chunks"):
+            with resolved_tracer.start_as_current_span(
+                "agrag.storage.embed_chunks",
+                attributes={"agrag.embedding.heading_context": embed_heading_path},
+            ):
                 storage_failures.extend(
                     await _embed_and_upsert_chunks(
-                        [chunk for chunk in chunks if chunk.id in embeddable_ids],
+                        [
+                            chunk
+                            for chunk in chunks
+                            if chunk.id in embeddable_ids and chunk.level == 0
+                        ],
                         embedder=embedder,
                         graph_store=graph_store,
                         error_policy=error_policy,
                         vector_store=vector_store,
                         vector_collection=retrieval_settings.chunk_collection,
                         pending_job_id=job_id,
+                        embed_heading_path=embed_heading_path,
                     )
                 )
 
@@ -937,7 +951,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     # Assemble final AddResult
     extraction_failures_capped = cap_failures(list(extraction_failures))
     extraction = ExtractionStats(
-        chunks_processed=len(chunks),
+        chunks_processed=sum(chunk.parent_id is None for chunk in chunks),
         entities_extracted=len(entities),
         relations_extracted=len(relations),
         failures=extraction_failures_capped.items,
@@ -1537,8 +1551,13 @@ async def _embed_and_upsert_chunks(
     vector_store: VectorStore | None = None,
     vector_collection: str = "",
     pending_job_id: UUID | str | None = None,
+    embed_heading_path: bool = False,
 ) -> list[StageFailure]:
     """Embed every chunk's text and write the vectors back onto their nodes.
+
+    With ``embed_heading_path``, the embedder gets each chunk's heading path above
+    its text. The stored text, the ``expected_text`` guard and the vector payload
+    text stay the raw chunk text.
 
     On failure, clears any embedding already written to the chunk nodes
     rather than leaving one computed for stale text in place: vector
@@ -1578,6 +1597,8 @@ async def _embed_and_upsert_chunks(
         pending_job_id: The in-flight job's id, mirrored into vector
             payloads until that job commits. None writes untagged
             payloads, for callers outside a job.
+        embed_heading_path: Whether the embedder gets each chunk's heading path
+            above its text.
 
     Returns:
         One StageFailure per chunk whose embed or write step raised.
@@ -1587,7 +1608,7 @@ async def _embed_and_upsert_chunks(
             error_policy is RAISE.
     """
     try:
-        texts = [ch.text for ch in chunks]
+        texts = [ch.contextual_text if embed_heading_path else ch.text for ch in chunks]
         vectors = await embedder.embed(texts)
         records = []
         for ch, vec in zip(chunks, vectors, strict=True):

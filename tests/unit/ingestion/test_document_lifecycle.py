@@ -32,3 +32,17 @@ async def test_close_open_part_of_edges_returns_zero_without_rows() -> None:
 
     assert await close_open_part_of_edges(store, document_node_id=uuid4()) == 0
     store.execute_write.assert_awaited_once()
+
+
+async def test_close_open_part_of_edges_passes_the_chunks_to_keep() -> None:
+    """Chunk ids to keep reach the close query as strings."""
+    store = AsyncMock()
+    store.execute_write.return_value = [{"closed": 2}]
+    kept = uuid4()
+
+    closed = await close_open_part_of_edges(
+        store, document_node_id=uuid4(), keep_chunk_ids=[kept]
+    )
+
+    assert closed == 2
+    assert store.execute_write.await_args.args[1]["keep_chunk_ids"] == [str(kept)]

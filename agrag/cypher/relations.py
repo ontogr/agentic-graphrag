@@ -25,16 +25,21 @@ def close_part_of_query() -> str:
     """Build Cypher that closes currently valid document-to-chunk edges.
 
     Only committed edges are closed. Pending edges belong to an in-flight
-    cutover and remain open until that job commits.
+    cutover and remain open until that job commits. An edge to a chunk in
+    ``$keep_chunk_ids`` stays open: a job that writes a chunk with the id of
+    a committed one reuses its edge without tagging it, and the edge must
+    outlive the close.
 
     Returns:
-        Parameterized Cypher expecting $document_node_id. Returns the
-        number of committed edges closed.
+        Parameterized Cypher expecting $document_node_id and $keep_chunk_ids
+        (a list of chunk id strings). Returns the number of committed edges
+        closed.
     """
     return (
         "MATCH (d:_AgragNode:Document {id: $document_node_id})"
-        "-[r:PART_OF]->() "
+        "-[r:PART_OF]->(c) "
         f"WHERE r.invalid_at IS NULL AND {pending_filter_clause('r')} "
+        "AND NOT c.id IN $keep_chunk_ids "
         "SET r.invalid_at = datetime() RETURN count(r) AS closed"
     )
 
