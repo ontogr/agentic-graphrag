@@ -85,14 +85,14 @@ def build_part_of_records(
 
 
 def build_next_chunk_records(chunks: list[Chunk]) -> list[RelationRecord]:
-    """Return edges joining adjacent chunks within each document.
+    """Return edges joining adjacent chunks of the same level within each document.
 
     Records carry no temporal fields: sequencing is version-independent,
     unlike ``PART_OF`` currency.
     """
-    by_document: dict[UUID, list[Chunk]] = {}
+    by_document: dict[tuple[UUID, int], list[Chunk]] = {}
     for chunk in chunks:
-        by_document.setdefault(chunk.document_id, []).append(chunk)
+        by_document.setdefault((chunk.document_id, chunk.level), []).append(chunk)
 
     records: list[RelationRecord] = []
     for document_chunks in by_document.values():

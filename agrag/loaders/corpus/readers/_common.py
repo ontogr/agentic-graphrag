@@ -74,6 +74,7 @@ def build_prose_document(
     opts: ReadOptions,
     title: str,
     heading_outline: list | None = None,
+    turns: list | None = None,
 ) -> Document:
     """Build a prose-family Document from final text.
 
@@ -89,6 +90,8 @@ def build_prose_document(
         opts: The read options, used for the ``store_text`` flag.
         title: The document title.
         heading_outline: The detected headings, when the loader tracks them.
+        turns: The chat turns, when the loader tracks them. Dropped when the read
+            options do not store text.
 
     Returns:
         The built Document.
@@ -106,6 +109,7 @@ def build_prose_document(
         char_count=len(text),
         line_count=text.count("\n") + 1,
         heading_outline=list(heading_outline or []),
+        turns=list(turns or []) if opts.store_text else [],
         normalization=opts.normalization,
     )
 

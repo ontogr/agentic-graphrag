@@ -17,6 +17,9 @@ class ChunkingMatch(BaseModel):
         strategy: The strategy name of the chunker.
         chunker_hash: The fingerprint of the chunker settings.
         chunks: The number of chunks the chunker produced.
+        chunks_by_chunker: Chunk counts per chunker name. A strategy that hands a
+            part to a fallback names those chunks ``<strategy>:<fallback>``, so this
+            can hold more than one name. Empty means every chunk has ``strategy``.
     """
 
     document_key: str
@@ -24,13 +27,15 @@ class ChunkingMatch(BaseModel):
     strategy: str
     chunker_hash: str
     chunks: int
+    chunks_by_chunker: dict[str, int] = Field(default_factory=dict)
 
 
 class ChunkingStats(BaseModel):
     """Chunking-stage results.
 
     Attributes:
-        chunks_by_strategy: Chunk counts per strategy name.
+        chunks_by_strategy: Chunk counts per chunker name, so chunks that a fallback
+            made are counted under ``<strategy>:<fallback>``.
         documents_by_rule: Document counts per rule, keyed ``"rule 0"``,
             ``"rule 1"`` and so on, and ``"fallback"``.
         matches: One entry per chunked document, capped at 1000.
@@ -57,9 +62,10 @@ class ChunkingStats(BaseModel):
         by_strategy: dict[str, int] = {}
         by_rule: dict[str, int] = {}
         for match in matches:
-            by_strategy[match.strategy] = (
-                by_strategy.get(match.strategy, 0) + match.chunks
-            )
+            for name, count in (
+                match.chunks_by_chunker or {match.strategy: match.chunks}
+            ).items():
+                by_strategy[name] = by_strategy.get(name, 0) + count
             rule = "fallback" if match.rule is None else f"rule {match.rule}"
             by_rule[rule] = by_rule.get(rule, 0) + 1
         return cls(

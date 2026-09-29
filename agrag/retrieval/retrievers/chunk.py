@@ -3,15 +3,19 @@
 from collections.abc import Mapping
 from typing import Any, cast
 
+from opentelemetry.trace import SpanKind, Tracer
+
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.entities import hydrate_chunks_by_id_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.observability import get_tracer, record_swallowed_exception
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
+from agrag.retrieval.tracing import record_chunks
 from agrag.vectordb.base import VectorStore
 
 
@@ -34,6 +38,7 @@ class ChunkRetriever(Retriever):
         embedder: Embedder,
         vector_store: VectorStore | None = None,
         settings: RetrievalSettings | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Construct a ChunkRetriever.
 
@@ -44,11 +49,13 @@ class ChunkRetriever(Retriever):
             vector_store: Optional VectorStore for hybrid search.
             settings: Retrieval configuration; defaults from
                 environment.
+            tracer: Optional tracer for retrieval spans.
         """
         self._graph_store = graph_store
         self._embedder = embedder
         self._vector_store = vector_store
         self._settings = settings or RetrievalSettings()
+        self._tracer = get_tracer(tracer)
 
     async def retrieve(
         self,
@@ -66,7 +73,8 @@ class ChunkRetriever(Retriever):
                 Zero or negative returns no results without searching.
 
         Returns:
-            Ranked SearchResults with hydrated Chunk items.
+            Ranked SearchResults with hydrated Chunk items. A child chunk result
+            carries its parent chunk in ``SearchResult.parent``.
         """
         effective_limit = limit if limit is not None else self._settings.chunk_top_k
         if effective_limit <= 0:
@@ -100,17 +108,56 @@ class ChunkRetriever(Retriever):
                     by_id[str(chunk.id)] = chunk
             except Exception:
                 continue
+        parents = await self._hydrate_parents(list(by_id.values()))
         results: list[SearchResult] = []
         for hit in hits:
             try:
                 chunk = by_id.get(str(hit.id))
                 if chunk is not None:
+                    parent = parents.get(str(chunk.parent_id))
+                    if chunk.parent_id is not None and parent is None:
+                        continue
                     results.append(
-                        SearchResult(item=chunk, score=hit.score, method=self.name)
+                        SearchResult(
+                            item=chunk,
+                            score=hit.score,
+                            method=self.name,
+                            parent=parent,
+                        )
                     )
             except Exception:
                 continue
         return results
+
+    async def _hydrate_parents(self, chunks: list[Chunk]) -> dict[str, Chunk]:
+        """Load the distinct parents of child chunks with one query.
+
+        A parent that is missing or closed is left out, so its child cannot become a
+        result. A failed query returns no parents.
+        """
+        parent_ids = sorted({str(c.parent_id) for c in chunks if c.parent_id})
+        if not parent_ids:
+            return {}
+        with self._tracer.start_as_current_span(
+            "agrag.retrieval.hydrate_parents",
+            kind=SpanKind.INTERNAL,
+            attributes={"agrag.parent_count": len(parent_ids)},
+        ) as span:
+            try:
+                rows = await self._graph_store.execute_read(
+                    hydrate_chunks_by_id_query(), {"ids": parent_ids, "job_id": None}
+                )
+            except Exception as exc:
+                record_swallowed_exception(exc)
+                return {}
+            parents: dict[str, Chunk] = {}
+            for row in rows:
+                node = row.get("n") if isinstance(row, dict) and "n" in row else row
+                parent = self._parse_chunk_node(node)
+                if parent is not None:
+                    parents[str(parent.id)] = parent
+            record_chunks(span, list(parents.values()))
+        return parents
 
     @staticmethod
     def _parse_chunk_node(node: object) -> Chunk | None:
@@ -168,6 +215,10 @@ class ChunkRetriever(Retriever):
                 content_kind=props.get("content_kind", "text"),
                 chunker=props.get("chunker"),
                 chunker_hash=props.get("chunker_hash"),
+                level=props.get("level", 0),
+                parent_id=UUID(str(props["parent_id"]))
+                if props.get("parent_id")
+                else None,
             )
             if embedding is not None:
                 chunk.embedding = list(embedding)

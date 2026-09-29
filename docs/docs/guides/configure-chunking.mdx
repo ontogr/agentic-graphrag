@@ -55,9 +55,97 @@ A rule matches on these keys. All keys are optional. A document must match every
 | `RecursiveChunker` | paragraph, sentence, then word boundaries | none |
 | `TokenChunker` | a fixed number of tokens | `chunk_overlap` |
 | `SentenceChunker` | sentence boundaries | `chunk_overlap` |
+| `HeadingChunker` | section boundaries from `Document.heading_outline` | none |
+| `TurnWindowChunker` | chat turn boundaries from `Document.turns` | `turn_overlap` (in turns) |
 | `DoclingChunker` | Docling document structure (PDF and Office files) | none |
 
 `SentenceChunker` never cuts inside a sentence, so one very long sentence makes a chunk larger than `chunk_size`.
+
+## Split Markdown by headings
+
+`HeadingChunker` starts a new chunk at every heading up to `split_level` (default 2). A section within `chunk_size` tokens is one chunk, and small sibling sections stay apart. A larger section is cut at its deeper headings, and the parts are packed to the budget. A part that is still too large goes to `fallback`, and those chunks have the chunker name `heading:recursive`.
+
+```python
+HeadingChunker(chunk_size=400, split_level=2, fallback=RecursiveChunker(chunk_size=400))
+```
+
+Only the Markdown and AsciiDoc loaders fill `heading_outline`. For a document with no outline, the chunker uses `fallback` for the whole text and names the chunks `heading:recursive`.
+
+## Split chat by turns
+
+`TurnWindowChunker` packs whole turns into windows of at most `chunk_size` tokens. A chunk boundary never falls inside a turn. `turn_overlap` repeats the last turns of a window at the start of the next one. Text before the first turn, such as a date line, stays in the first chunk. A turn above the budget goes to `fallback`, and those chunks have the chunker name `turn-window:recursive`.
+
+Tokens are counted for each turn alone, so the blank line between turns does not count.
+
+Turns come from `Document.turns`. The `ChatLoader` fills them. Route chat documents with a rule on the loader name:
+
+```python
+from agrag.chunking import ChunkingRule, RuleMatch, TurnWindowChunker
+from agrag.loaders.corpus import ChatLoader
+
+rule = ChunkingRule(
+    match=RuleMatch(loader_names=["chat"]),
+    chunker=TurnWindowChunker(chunk_size=300, turn_overlap=1),
+)
+result = await graph.add(source="session.jsonl", loader=ChatLoader())
+```
+
+`ChatLoader` is not registered for any extension, because `.jsonl` belongs to the record loader. You must pass `loader=ChatLoader()`, and the source must be one file. See [Ingest documents](./ingest-documents.mdx) for the file format.
+
+## Add the heading path to extraction and embedding
+
+A chunk from Markdown, AsciiDoc or a PDF has a `heading_path`, the headings above it. Two settings put it where it helps. Both are on by default.
+
+| Setting | Where | Effect |
+|---|---|---|
+| `BAMLExtractor(include_heading_path=True)` | extraction | Sends the path as a `section` line above the text. Offsets still index the chunk text. |
+| `Graph.open(..., embed_heading_path=True)` | embedding | Embeds the path and the text together. The stored chunk text and the vector payload text stay raw. |
+
+Chunks with no heading path are not changed. Query embeddings do not change. Existing chunk embeddings stay as they are until you re-chunk the document with `Graph.update` under a changed chunking. Only `BAMLExtractor` uses the path.
+
+## Use the optional chunkers
+
+Three chunkers need an extra package. You can build and print them without it, and `chunk()` raises `ChunkerMissingExtraError` when the package is missing.
+
+| Chunker | Extra | Install | Cuts |
+|---|---|---|---|
+| `SemanticChunker` | `chunk-semantic` | `uv pip install "agentic-graphrag[chunk-semantic]"` | where the meaning of neighbouring sentences changes |
+| `NeuralChunker` | `chunk-neural` | `uv pip install "agentic-graphrag[chunk-neural]"` | where a token classification model predicts a topic break |
+| `CodeChunker` | `chunk-code` | `uv pip install "agentic-graphrag[chunk-code]"` | along the syntax tree of source code |
+
+`SemanticChunker` and `NeuralChunker` download a model the first time you use them. `CodeChunker` converts the byte offsets of the parser to character offsets, so chunk text equals the source at its offsets for non-ASCII code too.
+
+## Search small chunks and read large ones
+
+`ParentChildChunker` cuts a document into large parent chunks, then cuts each parent into small child chunks. Extraction runs on the parents. Only the children are embedded and searched. A search hit is a child with its parent attached.
+
+```python
+from agrag.chunking import Chunking, ParentChildChunker, RecursiveChunker, SentenceChunker
+
+chunking = Chunking(
+    fallback=ParentChildChunker(
+        parent=RecursiveChunker(chunk_size=1024),
+        child=SentenceChunker(chunk_size=128),
+    )
+)
+```
+
+The trade-off: extraction makes fewer calls, because parents are large and few, and a small child matches a query more closely. The agent reads more text for each hit, because it sees the whole parent. Entities link to parents through `MENTIONED_IN`. `Chunk.level` is `1` for a parent and `0` for a child, `Chunk.parent_id` names the parent, and indexes count from 0 in each level. A child never crosses a parent boundary, even with overlap.
+
+## Tune the Docling chunker
+
+`DoclingChunker` splits PDF and Office documents along the structure that Docling found. Its settings:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `tokenizer` | `o200k_base` | Counts tokens the same way as the text strategies. A name with a slash is a Hugging Face model id, which needs the network the first time. |
+| `max_tokens` | `1024` | The most tokens in a chunk. Headings count against it. |
+| `merge_peers` | `True` | Merges small neighbours that share headings. |
+| `repeat_table_header` | `True` | Repeats the table header in each chunk of a split table. |
+| `omit_header_on_overflow` | `False` | Drops headings from a chunk when they do not fit. |
+| `table_format` | `"triplet"` | `"triplet"` writes `row, column = value` text. `"markdown"` writes a pipe table. |
+
+Each chunk has the headings above it in `heading_path`. The chunk text is the body without headings. A chunk that holds only table items has `content_kind="table_row"`. Chunk ids include the chunker hash, so new settings give new chunks and `Graph.update` closes the old ones.
 
 ## Set the size and the tokenizer
 

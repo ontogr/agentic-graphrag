@@ -28,7 +28,9 @@ class Ledger:
     assigned the first time this run encounters that item, by
     SearchResult.identity_key, and never reassigned within the run.
     The agent is shown rendered evidence carrying these keys, never
-    raw SearchResults.
+    raw SearchResults. A chunk result that has a parent shows the parent text under
+    the first child's key. Later children of that parent show their own text and
+    name the first key.
     """
 
     def __init__(self) -> None:
@@ -36,6 +38,7 @@ class Ledger:
         self._key_to_result: dict[str, SearchResult] = {}
         self._identity_to_key: dict[tuple[str, UUID], str] = {}
         self._counters: dict[str, int] = {}
+        self._shown_parents: dict[UUID | None, str] = {}
 
     def cite(self, result: SearchResult) -> str:
         """Return this result's citation key, assigning one if new.
@@ -75,7 +78,7 @@ class Ledger:
         if isinstance(item, (Entity, ResolvedEntity)):
             return f"[{key}] Entity: {item.name} ({item.label})"
         if isinstance(item, Chunk):
-            return f"[{key}] Chunk: {item.text}"
+            return self._render_chunk(key, item, result.parent)
         if isinstance(item, Relation):
             return f"[{key}] Relation: {item.type}({item.source_id}, {item.target_id})"
         if isinstance(item, Community):
@@ -83,6 +86,15 @@ class Ledger:
         if isinstance(item, QueryValue):
             return f"[{key}] Value: {item.value}"
         return f"[{key}] {type(item).__name__}"
+
+    def _render_chunk(self, key: str, chunk: Chunk, parent: Chunk | None) -> str:
+        """Render a chunk, showing its parent text under the first child's key."""
+        if parent is None:
+            return f"[{key}] Chunk: {chunk.text}"
+        first_key = self._shown_parents.setdefault(parent.id, key)
+        if first_key == key:
+            return f"[{key}] Chunk: {parent.text}"
+        return f"[{key}] Chunk (part of [{first_key}]): {chunk.text}"
 
     def resolve(self, key: str) -> SearchResult | None:
         """Return the SearchResult behind a citation key.
