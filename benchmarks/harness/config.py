@@ -39,7 +39,17 @@ class SpendCap:
     tokens: int
 
 
-COST_MODEL: CostModel | None = None
+# Measured on the Legal lite corpus (23 chunks) with the benchmark chunking: extraction
+# takes one call per chunk, and resolution, merge and community calls make up most of
+# the rest. Resolution cost can grow faster than the chunk count, so measure a larger
+# corpus before you trust a bound for one.
+COST_MODEL: CostModel | None = CostModel(
+    calls_per_chunk=7,
+    tokens_per_chunk=105_000,
+    agent_calls_per_question=20,
+    agent_tokens_per_question=100_000,
+    judge_tokens_per_call=2_000,
+)
 
 SPEND_CAPS: dict[tuple[str, str], SpendCap] = {}
 
