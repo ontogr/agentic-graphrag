@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.errors import GraphRecursionError
 
 from agrag.agents.ledger import Ledger
@@ -57,6 +57,10 @@ def _agent_returning(run):
     class Agent:
         async def ainvoke(self, payload):
             seen["payload"] = payload
+            # The real agent rewrites the list it gets, dicts to message objects.
+            payload["messages"][:] = [
+                HumanMessage(content=m["content"]) for m in payload["messages"]
+            ]
             if isinstance(run, Exception):
                 raise run
             return run
@@ -113,7 +117,11 @@ class TestAgragSystem:
         assert answer.non_chunk_citations == 1
         assert answer.cited_source_chunk_ids == [str(source)]
         assert uncited not in answer.text
-        assert seen["payload"]["messages"] == QUESTION.messages
+        assert [m.content for m in seen["payload"]["messages"]] == [
+            m["content"] for m in QUESTION.messages
+        ]
+        assert QUESTION.query == "second"
+        assert all(isinstance(m, dict) for m in QUESTION.messages)
 
     async def test_recursion_limit_and_empty_answer_are_agent_failures(
         self, monkeypatch

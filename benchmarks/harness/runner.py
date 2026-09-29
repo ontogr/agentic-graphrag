@@ -201,7 +201,7 @@ async def _retry(
             raise
         except Exception as error:
             if attempt == options.retries:
-                raise InfrastructureError(str(error)) from error
+                raise InfrastructureError(f"{type(error).__name__}: {error}") from error
             await ctx.env.sleep(options.backoff_s * 2**attempt)
     raise AssertionError("unreachable")
 

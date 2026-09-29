@@ -161,7 +161,11 @@ class AgragSystem:
             tracer=self._tracer,
         )
         try:
-            result = await agent.ainvoke({"messages": question.messages})
+            # LangGraph rewrites the list it gets in place, which would replace the
+            # question's own message dicts with message objects.
+            result = await agent.ainvoke(
+                {"messages": [dict(message) for message in question.messages]}
+            )
             text = final_answer(result)
         except (GraphRecursionError, ValueError) as error:
             raise AgentFailureError(str(error)) from error
