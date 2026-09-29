@@ -3,6 +3,8 @@
 A fake command runner records the commands, so no test starts Docker.
 """
 
+import pytest
+
 from benchmarks.harness import services
 from benchmarks.harness.services import COMPOSE_FILE, Services, neo4j_settings
 
@@ -41,20 +43,33 @@ class TestServices:
 
         assert calls[0][:4] == ["docker", "compose", "-f", str(COMPOSE_FILE)]
 
-    def test_connection_settings_use_the_loopback_address_and_the_service_port(self):
+    def test_connection_settings_use_the_loopback_address_and_the_service_port(
+        self, monkeypatch
+    ):
         """Connection settings use the loopback address and the service port."""
+        monkeypatch.setenv(services.PASSWORD_VARIABLE, "from-the-environment")
+
         settings = neo4j_settings("fake")
 
         assert settings.uri == f"bolt://127.0.0.1:{services.SERVICE_PORTS['fake']}"
-        assert settings.password.get_secret_value() == services.PASSWORD
+        assert settings.password.get_secret_value() == "from-the-environment"
+
+    def test_connection_settings_require_the_password_variable(self, monkeypatch):
+        """Connection settings require the password variable."""
+        monkeypatch.delenv(services.PASSWORD_VARIABLE, raising=False)
+
+        with pytest.raises(RuntimeError, match=services.PASSWORD_VARIABLE):
+            neo4j_settings("fake")
 
 
 class TestComposeFile:
     """The compose file agrees with the service table."""
 
-    def test_the_fake_service_port_and_the_password_match_the_compose_file(self):
-        """The fake service port and the password match the compose file."""
+    def test_the_fake_service_port_and_the_password_variable_match_the_compose_file(
+        self,
+    ):
+        """The fake service port and the password variable match the compose file."""
         text = COMPOSE_FILE.read_text()
 
-        assert f"neo4j/{services.PASSWORD}" in text
+        assert f"neo4j/${{{services.PASSWORD_VARIABLE}:?" in text
         assert f'"127.0.0.1:{services.SERVICE_PORTS["fake"]}:7687"' in text

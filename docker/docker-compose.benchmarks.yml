@@ -3,8 +3,9 @@
 #   docker compose -f docker/docker-compose.benchmarks.yml up -d --wait <service>
 #   docker compose -f docker/docker-compose.benchmarks.yml down -v <service>
 #
-# Each service binds its Bolt port to the loopback address only. The ports and the
-# password match benchmarks/harness/services.py. A domain adds its services here
+# Each service binds its Bolt port to the loopback address only. The ports match
+# benchmarks/harness/services.py. The password comes from BENCH_NEO4J_PASSWORD, which
+# must be set, at least 8 characters, when any compose command runs. A domain adds its services here
 # and to SERVICE_PORTS.
 #
 # | Service | Corpus                                       | Bolt port |
@@ -16,7 +17,7 @@ name: agrag-bench
 x-neo4j: &neo4j
   image: neo4j:5.26.0-community
   environment:
-    NEO4J_AUTH: neo4j/benchmark-local
+    NEO4J_AUTH: neo4j/${BENCH_NEO4J_PASSWORD:?set BENCH_NEO4J_PASSWORD}
   mem_limit: 4g
   healthcheck:
     test: ["CMD-SHELL", "wget -O /dev/null -q http://localhost:7474 || exit 1"]

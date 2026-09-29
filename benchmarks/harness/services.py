@@ -4,6 +4,7 @@ Neo4j Community holds one database per instance. The harness starts the service
 of the corpus it works on and stops it afterwards, so one instance runs at a time.
 """
 
+import os
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -16,7 +17,7 @@ from agrag.graphdb import Neo4jSettings
 COMPOSE_FILE = (
     Path(__file__).resolve().parents[2] / "docker" / ("docker-compose.benchmarks.yml")
 )
-PASSWORD = "benchmark-local"
+PASSWORD_VARIABLE = "BENCH_NEO4J_PASSWORD"
 
 # Bolt ports on the loopback address, one per compose service. A domain adds its
 # services here and in the compose file.
@@ -33,13 +34,20 @@ def run_command(command: Sequence[str]) -> None:
 def neo4j_settings(service: str) -> Neo4jSettings:
     """Return the connection settings of a service.
 
+    The password comes from ``BENCH_NEO4J_PASSWORD``, the same variable the compose
+    file gives to the Neo4j services.
+
     Raises:
         KeyError: The service is not in ``SERVICE_PORTS``.
+        RuntimeError: ``BENCH_NEO4J_PASSWORD`` is not set.
     """
+    password = os.environ.get(PASSWORD_VARIABLE)
+    if not password:
+        raise RuntimeError(f"set {PASSWORD_VARIABLE} to the Neo4j password")
     return Neo4jSettings(
         uri=f"bolt://127.0.0.1:{SERVICE_PORTS[service]}",
         username="neo4j",
-        password=SecretStr(PASSWORD),
+        password=SecretStr(password),
         database="neo4j",
     )
 

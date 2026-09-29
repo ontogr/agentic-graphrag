@@ -36,6 +36,8 @@ Run a benchmark on one dataset, read its record, and decide whether to commit it
 
 ## The Neo4j services
 
+Set `BENCH_NEO4J_PASSWORD` in the environment to a password of at least 8 characters. The harness gives it to the services and uses it to connect. Every compose command needs it, including `make bench-clean`. A volume keeps the password it was created with, so remove the volumes with `make bench-clean` before you change it.
+
 The file `docker/docker-compose.benchmarks.yml` defines one Neo4j service for each corpus. Each service binds its Bolt port to `127.0.0.1` and uses a named volume, `agrag-bench-<service>`. You do not start these services yourself. The harness starts the service of a corpus before ingest and stops it after the questions. A stopped service keeps its volume, and the volume is the ingest cache.
 
 ## Check the cost first
