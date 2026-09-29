@@ -4,9 +4,12 @@ import asyncio
 from collections.abc import Sequence
 from typing import Any, cast
 
+from opentelemetry.trace import SpanKind, Tracer
+
 from agrag.embedding.base import Embedder, EmbeddingCache, NullEmbeddingCache
 from agrag.embedding.errors import EmbeddingMissingExtraError
 from agrag.embedding.settings import EmbeddingSettings
+from agrag.observability import get_tracer
 
 
 class SentenceTransformerEmbedder(Embedder):
@@ -24,6 +27,7 @@ class SentenceTransformerEmbedder(Embedder):
         settings: EmbeddingSettings | None = None,
         cache: EmbeddingCache | None = None,
         model: object | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Build the embedder.
 
@@ -33,10 +37,12 @@ class SentenceTransformerEmbedder(Embedder):
             model: A pre-built sentence-transformers model, for tests. When set,
                 ``__init__`` imports nothing and ``embed`` calls this object
                 directly instead of building one.
+            tracer: Opens every span this embedder's methods produce.
         """
         self._settings = settings or EmbeddingSettings()
         self._cache = cache or NullEmbeddingCache()
         self._model = model
+        self._tracer = get_tracer(tracer)
         self._model_lock = asyncio.Lock()
 
     @property
@@ -116,7 +122,12 @@ class SentenceTransformerEmbedder(Embedder):
             return self._model
         async with self._model_lock:
             if self._model is None:
-                self._model = await asyncio.to_thread(self._build_model)
+                with self._tracer.start_as_current_span(
+                    "agrag.embedding.model_load",
+                    kind=SpanKind.INTERNAL,
+                    attributes={"agrag.model": self._settings.model},
+                ):
+                    self._model = await asyncio.to_thread(self._build_model)
         return self._model
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -136,12 +147,20 @@ class SentenceTransformerEmbedder(Embedder):
         misses = [i for i, v in enumerate(cached) if v is None]
         if misses:
             model = await self._ensure_model_async()
-            new_vectors = await asyncio.to_thread(
-                model.encode,
-                [texts[i] for i in misses],
-                batch_size=self._settings.batch_size,
-                normalize_embeddings=normalize,
-            )
+            with self._tracer.start_as_current_span(
+                "agrag.embedding.encode",
+                kind=SpanKind.INTERNAL,
+                attributes={
+                    "agrag.text_count": len(misses),
+                    "agrag.cache_hit_count": len(texts) - len(misses),
+                },
+            ):
+                new_vectors = await asyncio.to_thread(
+                    model.encode,
+                    [texts[i] for i in misses],
+                    batch_size=self._settings.batch_size,
+                    normalize_embeddings=normalize,
+                )
             for i, vector in zip(misses, new_vectors, strict=True):
                 vector_list = list(vector.tolist())
                 cached[i] = vector_list

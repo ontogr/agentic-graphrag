@@ -6084,7 +6084,7 @@ normalize: bool = True
 #### `agrag.embedding.FastEmbedBM25Embedder`
 
 ```python
-FastEmbedBM25Embedder(*, model:str | None = None) -> None
+FastEmbedBM25Embedder(*, model:str | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[SparseEmbedder](#agrag.embedding.sparse_base.SparseEmbedder)</code>
@@ -6110,6 +6110,7 @@ worker thread, keeping the event loop free. FastEmbed ships with the
 
 - **model** (<code>[str](#str) | None</code>) – The FastEmbed BM25 model name. Defaults to FastEmbed's
   built-in BM25 model.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens every span this embedder's methods produce.
 
 ##### `agrag.embedding.FastEmbedBM25Embedder.embed`
 
@@ -6163,7 +6164,7 @@ IDF weighting is applied separately by the sparse index's
 #### `agrag.embedding.SentenceTransformerEmbedder`
 
 ```python
-SentenceTransformerEmbedder(*, settings:EmbeddingSettings | None = None, cache:EmbeddingCache | None = None, model:object | None = None) -> None
+SentenceTransformerEmbedder(*, settings:EmbeddingSettings | None = None, cache:EmbeddingCache | None = None, model:object | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Embedder](#agrag.embedding.base.Embedder)</code>
@@ -6193,6 +6194,7 @@ stays free for other work while a large batch encodes.
 - **model** (<code>[object](#object) | None</code>) – A pre-built sentence-transformers model, for tests. When set,
   `__init__` imports nothing and `embed` calls this object
   directly instead of building one.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens every span this embedder's methods produce.
 
 ##### `agrag.embedding.SentenceTransformerEmbedder.dimensions`
 
@@ -6503,7 +6505,7 @@ Do nothing.
 #### `agrag.embedding.build_embedder`
 
 ```python
-build_embedder(value:str | Embedder) -> Embedder
+build_embedder(value:str | Embedder, *, tracer:Tracer | None = None) -> Embedder
 ```
 
 Build an embedder from a model name, or return an embedder unchanged.
@@ -6514,10 +6516,18 @@ Build an embedder from a model name, or return an embedder unchanged.
   `"ibm-granite/granite-embedding-small-english-r2"` (the default
   model), or an already-constructed `Embedder` for full control
   over device, batching, or caching.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Passed to the newly-built embedder. Not valid together with
+  an already-constructed `value` -- that instance's tracer, if
+  any, was already fixed at its own construction.
 
 **Returns:**
 
 - <code>[Embedder](#agrag.embedding.base.Embedder)</code> – A ready-to-use embedder.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `tracer` is given together with an already-constructed
+  `value`.
 
 #### `agrag.embedding.errors`
 
@@ -6603,7 +6613,7 @@ DEFAULT_BM25_MODEL = 'Qdrant/bm25'
 ##### `agrag.embedding.fastembed_bm25.FastEmbedBM25Embedder`
 
 ```python
-FastEmbedBM25Embedder(*, model:str | None = None) -> None
+FastEmbedBM25Embedder(*, model:str | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[SparseEmbedder](#agrag.embedding.sparse_base.SparseEmbedder)</code>
@@ -6629,6 +6639,7 @@ worker thread, keeping the event loop free. FastEmbed ships with the
 
 - **model** (<code>[str](#str) | None</code>) – The FastEmbed BM25 model name. Defaults to FastEmbed's
   built-in BM25 model.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens every span this embedder's methods produce.
 
 ###### `agrag.embedding.fastembed_bm25.FastEmbedBM25Embedder.embed`
 
@@ -6690,7 +6701,7 @@ Sentence-transformers embedder implementation.
 ##### `agrag.embedding.sentence_transformers.SentenceTransformerEmbedder`
 
 ```python
-SentenceTransformerEmbedder(*, settings:EmbeddingSettings | None = None, cache:EmbeddingCache | None = None, model:object | None = None) -> None
+SentenceTransformerEmbedder(*, settings:EmbeddingSettings | None = None, cache:EmbeddingCache | None = None, model:object | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Embedder](#agrag.embedding.base.Embedder)</code>
@@ -6720,6 +6731,7 @@ stays free for other work while a large batch encodes.
 - **model** (<code>[object](#object) | None</code>) – A pre-built sentence-transformers model, for tests. When set,
   `__init__` imports nothing and `embed` calls this object
   directly instead of building one.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens every span this embedder's methods produce.
 
 ###### `agrag.embedding.sentence_transformers.SentenceTransformerEmbedder.dimensions`
 
@@ -10331,7 +10343,7 @@ GraphStoreName = Literal['neo4j']
 #### `agrag.graphdb.Neo4jGraphStore`
 
 ```python
-Neo4jGraphStore(*, settings:Neo4jSettings | None = None, driver:AsyncDriver | None = None) -> None
+Neo4jGraphStore(*, settings:Neo4jSettings | None = None, driver:AsyncDriver | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>
@@ -10366,6 +10378,7 @@ driver's managed transactions with no added retry loop.
 - **driver** (<code>[AsyncDriver](#neo4j.AsyncDriver) | None</code>) – A pre-built `AsyncDriver`, for tests. When set,
   `__init__` imports nothing and the store calls this object
   directly instead of building one.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens every span this store's methods produce.
 
 ##### `agrag.graphdb.Neo4jGraphStore.close`
 
@@ -11001,7 +11014,7 @@ Write or merge relationships inside the surrounding transaction.
 #### `agrag.graphdb.build_graph_store`
 
 ```python
-build_graph_store(value:GraphStoreName | GraphStore) -> GraphStore
+build_graph_store(value:GraphStoreName | GraphStore, *, tracer:Tracer | None = None) -> GraphStore
 ```
 
 Build a graph store from a backend name, or return one unchanged.
@@ -11009,10 +11022,18 @@ Build a graph store from a backend name, or return one unchanged.
 **Parameters:**
 
 - **value** (<code>[GraphStoreName](#agrag.graphdb.GraphStoreName) | [GraphStore](#agrag.graphdb.base.GraphStore)</code>) – `"neo4j"`, or an already-constructed `GraphStore`.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Passed to the newly-built store. Not valid together with an
+  already-constructed `value` -- that instance's tracer, if any,
+  was already fixed at its own construction.
 
 **Returns:**
 
 - <code>[GraphStore](#agrag.graphdb.base.GraphStore)</code> – A ready-to-use graph store.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `tracer` is given together with an already-constructed
+  `value`.
 
 #### `agrag.graphdb.errors`
 
@@ -11118,7 +11139,7 @@ Neo4j graph-store backend.
 ##### `agrag.graphdb.neo4j.Neo4jGraphStore`
 
 ```python
-Neo4jGraphStore(*, settings:Neo4jSettings | None = None, driver:AsyncDriver | None = None) -> None
+Neo4jGraphStore(*, settings:Neo4jSettings | None = None, driver:AsyncDriver | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>
@@ -11153,6 +11174,7 @@ driver's managed transactions with no added retry loop.
 - **driver** (<code>[AsyncDriver](#neo4j.AsyncDriver) | None</code>) – A pre-built `AsyncDriver`, for tests. When set,
   `__init__` imports nothing and the store calls this object
   directly instead of building one.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens every span this store's methods produce.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.close`
 
@@ -16820,6 +16842,51 @@ reaching the global `TracerProvider`.
 - [**record_swallowed_exception**](#agrag.observability.record_swallowed_exception) – Record `exc` on the current span without marking it errored.
 - [**stage_failure_context**](#agrag.observability.stage_failure_context) – Return the current span's trace and span id as hex, or (None, None).
 
+**Attributes:**
+
+- [**DB_COLLECTION_NAME**](#agrag.observability.DB_COLLECTION_NAME) –
+- [**DB_NAMESPACE**](#agrag.observability.DB_NAMESPACE) –
+- [**DB_OPERATION_BATCH_SIZE**](#agrag.observability.DB_OPERATION_BATCH_SIZE) –
+- [**DB_QUERY_PARAMETER_PREFIX**](#agrag.observability.DB_QUERY_PARAMETER_PREFIX) –
+- [**DB_QUERY_TEXT**](#agrag.observability.DB_QUERY_TEXT) –
+- [**DB_SYSTEM_NAME**](#agrag.observability.DB_SYSTEM_NAME) –
+
+#### `agrag.observability.DB_COLLECTION_NAME`
+
+```python
+DB_COLLECTION_NAME = 'db.collection.name'
+```
+
+#### `agrag.observability.DB_NAMESPACE`
+
+```python
+DB_NAMESPACE = 'db.namespace'
+```
+
+#### `agrag.observability.DB_OPERATION_BATCH_SIZE`
+
+```python
+DB_OPERATION_BATCH_SIZE = 'db.operation.batch.size'
+```
+
+#### `agrag.observability.DB_QUERY_PARAMETER_PREFIX`
+
+```python
+DB_QUERY_PARAMETER_PREFIX = 'db.query.parameter.'
+```
+
+#### `agrag.observability.DB_QUERY_TEXT`
+
+```python
+DB_QUERY_TEXT = 'db.query.text'
+```
+
+#### `agrag.observability.DB_SYSTEM_NAME`
+
+```python
+DB_SYSTEM_NAME = 'db.system.name'
+```
+
 #### `agrag.observability.get_tracer`
 
 ```python
@@ -18664,7 +18731,7 @@ uri: str = 'http://localhost:19530'
 #### `agrag.vectordb.MilvusVectorStore`
 
 ```python
-MilvusVectorStore(*, settings:MilvusSettings | None = None, client:Any | None = None) -> None
+MilvusVectorStore(*, settings:MilvusSettings | None = None, client:Any | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[VectorStore](#agrag.vectordb.base.VectorStore)</code>
@@ -18699,6 +18766,7 @@ by a Milvus `Function` from the `text` field on write and at query time.
 - **client** (<code>[Any](#typing.Any) | None</code>) – A pre-built `AsyncMilvusClient`, for tests. When set,
   `__init__` imports nothing and the store calls this object
   directly instead of building one.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens this store's spans.
 
 ##### `agrag.vectordb.MilvusVectorStore.close`
 
@@ -18997,7 +19065,7 @@ url: str = 'http://localhost:6333'
 #### `agrag.vectordb.QdrantVectorStore`
 
 ```python
-QdrantVectorStore(*, settings:QdrantSettings | None = None, sparse_embedder:SparseEmbedder | None = None, client:Any | None = None, models:Any | None = None) -> None
+QdrantVectorStore(*, settings:QdrantSettings | None = None, sparse_embedder:SparseEmbedder | None = None, client:Any | None = None, models:Any | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[VectorStore](#agrag.vectordb.base.VectorStore)</code>
@@ -19037,6 +19105,7 @@ hybrid call first runs, not at construction.
 - **models** (<code>[Any](#typing.Any) | None</code>) – The `qdrant_client.models` module, for tests. Pair with
   `client` so filter/payload helpers work without needing the
   real `qdrant_client` package installed at all.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens this store's spans.
 
 ##### `agrag.vectordb.QdrantVectorStore.close`
 
@@ -19646,7 +19715,7 @@ url: str = 'http://localhost:8080'
 #### `agrag.vectordb.WeaviateVectorStore`
 
 ```python
-WeaviateVectorStore(*, settings:WeaviateSettings | None = None, client:Any | None = None) -> None
+WeaviateVectorStore(*, settings:WeaviateSettings | None = None, client:Any | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[VectorStore](#agrag.vectordb.base.VectorStore)</code>
@@ -19679,6 +19748,7 @@ hybrid search needs no client-side sparse embedder.
 - **client** (<code>[Any](#typing.Any) | None</code>) – A pre-built Weaviate async client, for tests. When set,
   `__init__` imports nothing and the store calls this object
   directly instead of building one.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens this store's spans.
 
 ##### `agrag.vectordb.WeaviateVectorStore.close`
 
@@ -20172,7 +20242,7 @@ Write or overwrite records in a collection.
 #### `agrag.vectordb.build_vector_store`
 
 ```python
-build_vector_store(value:VectorStoreName | VectorStore) -> VectorStore
+build_vector_store(value:VectorStoreName | VectorStore, *, tracer:Tracer | None = None) -> VectorStore
 ```
 
 Build a vector store from a backend name, or return one unchanged.
@@ -20181,10 +20251,18 @@ Build a vector store from a backend name, or return one unchanged.
 
 - **value** (<code>[VectorStoreName](#agrag.vectordb.VectorStoreName) | [VectorStore](#agrag.vectordb.base.VectorStore)</code>) – `"qdrant"` or `"weaviate"`, or an already-constructed
   `VectorStore` for full control over settings.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Passed to the newly-built store. Not valid together with an
+  already-constructed `value` -- that instance's tracer, if any,
+  was already fixed at its own construction.
 
 **Returns:**
 
 - <code>[VectorStore](#agrag.vectordb.base.VectorStore)</code> – A ready-to-use vector store.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – `tracer` is given together with an already-constructed
+  `value`.
 
 #### `agrag.vectordb.errors`
 
@@ -20270,7 +20348,7 @@ MAX_RESPONSE_LIMIT = 16384
 ##### `agrag.vectordb.milvus.MilvusVectorStore`
 
 ```python
-MilvusVectorStore(*, settings:MilvusSettings | None = None, client:Any | None = None) -> None
+MilvusVectorStore(*, settings:MilvusSettings | None = None, client:Any | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[VectorStore](#agrag.vectordb.base.VectorStore)</code>
@@ -20305,6 +20383,7 @@ by a Milvus `Function` from the `text` field on write and at query time.
 - **client** (<code>[Any](#typing.Any) | None</code>) – A pre-built `AsyncMilvusClient`, for tests. When set,
   `__init__` imports nothing and the store calls this object
   directly instead of building one.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens this store's spans.
 
 ###### `agrag.vectordb.milvus.MilvusVectorStore.close`
 
@@ -20565,7 +20644,7 @@ Qdrant vector-store backend.
 ##### `agrag.vectordb.qdrant.QdrantVectorStore`
 
 ```python
-QdrantVectorStore(*, settings:QdrantSettings | None = None, sparse_embedder:SparseEmbedder | None = None, client:Any | None = None, models:Any | None = None) -> None
+QdrantVectorStore(*, settings:QdrantSettings | None = None, sparse_embedder:SparseEmbedder | None = None, client:Any | None = None, models:Any | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[VectorStore](#agrag.vectordb.base.VectorStore)</code>
@@ -20605,6 +20684,7 @@ hybrid call first runs, not at construction.
 - **models** (<code>[Any](#typing.Any) | None</code>) – The `qdrant_client.models` module, for tests. Pair with
   `client` so filter/payload helpers work without needing the
   real `qdrant_client` package installed at all.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens this store's spans.
 
 ###### `agrag.vectordb.qdrant.QdrantVectorStore.close`
 
@@ -21029,7 +21109,7 @@ Weaviate vector-store backend.
 ##### `agrag.vectordb.weaviate.WeaviateVectorStore`
 
 ```python
-WeaviateVectorStore(*, settings:WeaviateSettings | None = None, client:Any | None = None) -> None
+WeaviateVectorStore(*, settings:WeaviateSettings | None = None, client:Any | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[VectorStore](#agrag.vectordb.base.VectorStore)</code>
@@ -21062,6 +21142,7 @@ hybrid search needs no client-side sparse embedder.
 - **client** (<code>[Any](#typing.Any) | None</code>) – A pre-built Weaviate async client, for tests. When set,
   `__init__` imports nothing and the store calls this object
   directly instead of building one.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens this store's spans.
 
 ###### `agrag.vectordb.weaviate.WeaviateVectorStore.close`
 

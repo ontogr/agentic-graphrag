@@ -7,6 +7,8 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
+from opentelemetry.trace import SpanKind, Tracer
+
 from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.vector_record import (
     PENDING_VECTOR_FLAG,
@@ -19,6 +21,7 @@ from agrag.common.validation import (
     require_valid_alpha,
     require_valid_search_limit,
 )
+from agrag.observability import DB_COLLECTION_NAME, DB_SYSTEM_NAME, get_tracer
 from agrag.vectordb.base import VectorStore
 from agrag.vectordb.errors import (
     CollectionDimensionMismatchError,
@@ -51,6 +54,7 @@ class WeaviateVectorStore(VectorStore):
         *,
         settings: WeaviateSettings | None = None,
         client: Any | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Build the store.
 
@@ -60,9 +64,11 @@ class WeaviateVectorStore(VectorStore):
             client: A pre-built Weaviate async client, for tests. When set,
                 ``__init__`` imports nothing and the store calls this object
                 directly instead of building one.
+            tracer: Opens this store's spans.
         """
         self._settings = settings or WeaviateSettings()
         self._client: Any = client
+        self._tracer = get_tracer(tracer)
         self._connect_lock = asyncio.Lock()
 
     async def _ensure_client(self) -> Any:
@@ -85,44 +91,49 @@ class WeaviateVectorStore(VectorStore):
         async with self._connect_lock:
             if self._client is not None:
                 return self._client
-            try:
-                # Lazy import: a clean install must raise
-                # VectorStoreMissingExtraError, not ImportError, when
-                # weaviate-client is absent.
-                import weaviate  # noqa: PLC0415
-                from weaviate.classes.init import Auth  # noqa: PLC0415
-            except ImportError as exc:
-                raise VectorStoreMissingExtraError("weaviate") from exc
-            auth = (
-                Auth.api_key(self._settings.api_key) if self._settings.api_key else None
-            )
-            if self._settings.mode == "cloud":
-                client = weaviate.use_async_with_weaviate_cloud(
-                    cluster_url=self._settings.url, auth_credentials=auth
+            with self._tracer.start_as_current_span(
+                "agrag.vectordb.build_client", kind=SpanKind.INTERNAL
+            ):
+                try:
+                    # Lazy import: a clean install must raise
+                    # VectorStoreMissingExtraError, not ImportError, when
+                    # weaviate-client is absent.
+                    import weaviate  # noqa: PLC0415
+                    from weaviate.classes.init import Auth  # noqa: PLC0415
+                except ImportError as exc:
+                    raise VectorStoreMissingExtraError("weaviate") from exc
+                auth = (
+                    Auth.api_key(self._settings.api_key)
+                    if self._settings.api_key
+                    else None
                 )
-            else:
-                parsed = urllib.parse.urlparse(self._settings.url)
-                client = weaviate.use_async_with_custom(
-                    http_host=parsed.hostname or "localhost",
-                    http_port=parsed.port or 8080,
-                    http_secure=parsed.scheme == "https",
-                    grpc_host=parsed.hostname or "localhost",
-                    grpc_port=self._settings.grpc_port,
-                    grpc_secure=parsed.scheme == "https",
-                    auth_credentials=auth,
-                )
-            # use_async_with_custom / use_async_with_weaviate_cloud build a
-            # disconnected client; we must connect it before any call, and
-            # only cache it in self._client once that succeeds. A failed
-            # connect must still close the client's HTTP/gRPC resources, or
-            # each retry leaks another pair of unclosed connections.
-            try:
-                await client.connect()
-            except Exception:
-                with contextlib.suppress(Exception):
-                    await client.close()
-                raise
-            self._client = client
+                if self._settings.mode == "cloud":
+                    client = weaviate.use_async_with_weaviate_cloud(
+                        cluster_url=self._settings.url, auth_credentials=auth
+                    )
+                else:
+                    parsed = urllib.parse.urlparse(self._settings.url)
+                    client = weaviate.use_async_with_custom(
+                        http_host=parsed.hostname or "localhost",
+                        http_port=parsed.port or 8080,
+                        http_secure=parsed.scheme == "https",
+                        grpc_host=parsed.hostname or "localhost",
+                        grpc_port=self._settings.grpc_port,
+                        grpc_secure=parsed.scheme == "https",
+                        auth_credentials=auth,
+                    )
+                # use_async_with_custom / use_async_with_weaviate_cloud build a
+                # disconnected client; we must connect it before any call, and
+                # only cache it in self._client once that succeeds. A failed
+                # connect must still close the client's HTTP/gRPC resources, or
+                # each retry leaks another pair of unclosed connections.
+                try:
+                    await client.connect()
+                except Exception:
+                    with contextlib.suppress(Exception):
+                        await client.close()
+                    raise
+                self._client = client
         return self._client
 
     def _weaviate_distance(self, distance: Distance) -> Any:
@@ -394,31 +405,49 @@ class WeaviateVectorStore(VectorStore):
         from weaviate.classes.data import DataObject  # noqa: PLC0415
 
         target = client.collections.get(collection)
-        for start in range(0, len(records), batch_size):
-            batch = records[start : start + batch_size]
-            objects = [
-                DataObject(
-                    properties={
-                        (
-                            _PENDING_PROPERTY if key == PENDING_VECTOR_FLAG else key
-                        ): value
-                        for key, value in record.payload.items()
-                    }
-                    | {
-                        _PENDING_PROPERTY: record.payload.get(
-                            PENDING_VECTOR_FLAG, False
-                        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.upsert",
+            kind=SpanKind.INTERNAL,
+            attributes={
+                DB_COLLECTION_NAME: collection,
+                "agrag.record_count": len(records),
+            },
+        ):
+            for start in range(0, len(records), batch_size):
+                batch = records[start : start + batch_size]
+                objects = [
+                    DataObject(
+                        properties={
+                            (
+                                _PENDING_PROPERTY if key == PENDING_VECTOR_FLAG else key
+                            ): value
+                            for key, value in record.payload.items()
+                        }
+                        | {
+                            _PENDING_PROPERTY: record.payload.get(
+                                PENDING_VECTOR_FLAG, False
+                            )
+                        },
+                        vector={_VECTOR_NAME: record.vector},
+                        uuid=str(record.id),
+                    )
+                    for record in batch
+                ]
+                with self._tracer.start_as_current_span(
+                    "agrag.vectordb.upsert_batch",
+                    kind=SpanKind.CLIENT,
+                    attributes={
+                        DB_SYSTEM_NAME: "weaviate",
+                        DB_COLLECTION_NAME: collection,
+                        "agrag.batch_size": len(batch),
                     },
-                    vector={_VECTOR_NAME: record.vector},
-                    uuid=str(record.id),
-                )
-                for record in batch
-            ]
-            result = await target.data.insert_many(objects)
-            if result.has_errors:
-                raise VectorStoreError(
-                    f"upsert failed for {len(result.errors)} record(s): {result.errors}"
-                )
+                ):
+                    result = await target.data.insert_many(objects)
+                if result.has_errors:
+                    raise VectorStoreError(
+                        f"upsert failed for {len(result.errors)} record(s): "
+                        f"{result.errors}"
+                    )
 
     async def search(
         self,
@@ -452,12 +481,21 @@ class WeaviateVectorStore(VectorStore):
         from weaviate.classes.query import MetadataQuery  # noqa: PLC0415
 
         target = client.collections.get(collection)
-        response = await target.query.near_vector(
-            near_vector=list(query_vector),
-            limit=limit,
-            filters=self._compile_filter(filters),
-            return_metadata=MetadataQuery(distance=True),
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.search",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "weaviate",
+                DB_COLLECTION_NAME: collection,
+                "agrag.limit": limit,
+            },
+        ):
+            response = await target.query.near_vector(
+                near_vector=list(query_vector),
+                limit=limit,
+                filters=self._compile_filter(filters),
+                return_metadata=MetadataQuery(distance=True),
+            )
         objects = response.objects if hasattr(response, "objects") else response
         config = await target.config.get()
         metric = config.vector_config[_VECTOR_NAME].vector_index_config.distance_metric
@@ -501,14 +539,24 @@ class WeaviateVectorStore(VectorStore):
         from weaviate.classes.query import MetadataQuery  # noqa: PLC0415
 
         target = client.collections.get(collection)
-        response = await target.query.hybrid(
-            query=query_text,
-            vector=list(query_vector),
-            alpha=alpha,
-            limit=limit,
-            filters=self._compile_filter(filters),
-            return_metadata=MetadataQuery(score=True),
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.hybrid_search",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "weaviate",
+                DB_COLLECTION_NAME: collection,
+                "agrag.limit": limit,
+                "agrag.alpha": alpha,
+            },
+        ):
+            response = await target.query.hybrid(
+                query=query_text,
+                vector=list(query_vector),
+                alpha=alpha,
+                limit=limit,
+                filters=self._compile_filter(filters),
+                return_metadata=MetadataQuery(score=True),
+            )
         objects = response.objects if hasattr(response, "objects") else response
         return [self._to_hit(obj) for obj in objects]
 
@@ -536,12 +584,21 @@ class WeaviateVectorStore(VectorStore):
         """
         client = await self._ensure_client()
         target = client.collections.get(collection)
-        response = await target.query.fetch_objects(
-            limit=limit,
-            after=page_offset,
-            filters=self._compile_filter(filters),
-            include_vector=with_vectors,
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.scroll",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "weaviate",
+                DB_COLLECTION_NAME: collection,
+                "agrag.limit": limit,
+            },
+        ):
+            response = await target.query.fetch_objects(
+                limit=limit,
+                after=page_offset,
+                filters=self._compile_filter(filters),
+                include_vector=with_vectors,
+            )
         objects = response.objects if hasattr(response, "objects") else response
         records = [self._to_record(obj) for obj in objects]
         has_more_page = bool(objects) and len(objects) == limit
@@ -565,9 +622,17 @@ class WeaviateVectorStore(VectorStore):
         target = client.collections.get(collection)
         records: list[VectorRecord] = []
         for item_id in ids:
-            obj = await target.query.fetch_object_by_id(
-                uuid=str(item_id), include_vector=True
-            )
+            with self._tracer.start_as_current_span(
+                "agrag.vectordb.retrieve",
+                kind=SpanKind.CLIENT,
+                attributes={
+                    DB_SYSTEM_NAME: "weaviate",
+                    DB_COLLECTION_NAME: collection,
+                },
+            ):
+                obj = await target.query.fetch_object_by_id(
+                    uuid=str(item_id), include_vector=True
+                )
             if obj is not None:
                 records.append(self._to_record(obj))
         return records
@@ -586,9 +651,17 @@ class WeaviateVectorStore(VectorStore):
         """
         client = await self._ensure_client()
         target = client.collections.get(collection)
-        result = await target.aggregate.over_all(
-            filters=self._compile_filter(filters), total_count=True
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.count",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "weaviate",
+                DB_COLLECTION_NAME: collection,
+            },
+        ):
+            result = await target.aggregate.over_all(
+                filters=self._compile_filter(filters), total_count=True
+            )
         return result.total_count
 
     async def delete(self, collection: str, ids: Sequence[UUID]) -> None:
@@ -601,7 +674,15 @@ class WeaviateVectorStore(VectorStore):
         client = await self._ensure_client()
         target = client.collections.get(collection)
         for item_id in ids:
-            await target.data.delete_by_id(uuid=str(item_id))
+            with self._tracer.start_as_current_span(
+                "agrag.vectordb.delete",
+                kind=SpanKind.CLIENT,
+                attributes={
+                    DB_SYSTEM_NAME: "weaviate",
+                    DB_COLLECTION_NAME: collection,
+                },
+            ):
+                await target.data.delete_by_id(uuid=str(item_id))
 
     async def close(self) -> None:
         """Release the backend connection."""

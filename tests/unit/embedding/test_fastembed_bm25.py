@@ -6,7 +6,10 @@ model methods (a query must not use document-side term weighting), that
 concurrent first-time embeds share one model build via
 ``mock.patch.object(..., autospec=True)`` and threading events rather than
 racing to build it twice, and that a missing ``fastembed`` module (simulated
-via ``sys.modules`` patching) raises EmbeddingMissingExtraError.
+via ``sys.modules`` patching) raises EmbeddingMissingExtraError. Tracing
+tests use a real SDK ``TracerProvider`` with an in-memory exporter:
+``tracer=None`` leaves a host span untouched, and concurrent first use
+exports exactly one ``agrag.embedding.model_load`` span.
 """
 
 import asyncio
@@ -15,6 +18,12 @@ import threading
 from unittest import mock
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import StatusCode
 
 from agrag.embedding.errors import EmbeddingMissingExtraError
 from agrag.embedding.fastembed_bm25 import DEFAULT_BM25_MODEL, FastEmbedBM25Embedder
@@ -40,6 +49,14 @@ class MockSparseModel:
         delegates to this method, not the document-side ``embed``.
         """
         return [type("SV", (), {"indices": [9], "values": [1.0]})() for _ in texts]
+
+
+def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
+    """Return a provider wired to an in-memory exporter."""
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider, exporter
 
 
 class TestFastEmbedBM25Embed:
@@ -121,3 +138,64 @@ class TestFastEmbedBM25MissingExtra:
         ):
             await embedder.embed(["x"])
         assert exc_info.value.extra == "qdrant"
+
+
+class TestFastEmbedBM25Tracing:
+    """Tracing spans real model work without touching a host span."""
+
+    async def test_tracer_none_leaves_host_span_untouched(self) -> None:
+        """Embed with tracer=None keeps the host span UNSET and event-free."""
+        host_provider, host_exporter = _tracing_provider()
+        host_tracer = host_provider.get_tracer("host")
+        with host_tracer.start_as_current_span("host.request"):
+            embedder = FastEmbedBM25Embedder(tracer=None)
+            embedder._model = MockSparseModel()
+            await embedder.embed(["a"])
+        (host_span,) = host_exporter.get_finished_spans()
+        assert host_span.name == "host.request"
+        assert host_span.status.status_code is StatusCode.UNSET
+        assert list(host_span.events) == []
+
+    async def test_concurrent_first_call_exports_single_model_load_span(
+        self,
+    ) -> None:
+        """Two concurrent first embeds share one model_load span.
+
+        Regression guard: a span opened before the lock (rather than inside
+        the double-checked ``if self._model is None`` body) would export
+        twice here, once per waiter.
+        """
+        provider, exporter = _tracing_provider()
+        build_calls = 0
+        entered = threading.Event()
+        release = threading.Event()
+
+        def slow_build(_self: FastEmbedBM25Embedder) -> MockSparseModel:
+            nonlocal build_calls
+            build_calls += 1
+            entered.set()
+            release.wait(timeout=5)
+            return MockSparseModel()
+
+        embedder = FastEmbedBM25Embedder(tracer=provider.get_tracer("test"))
+        with mock.patch.object(
+            FastEmbedBM25Embedder,
+            "_build_model",
+            autospec=True,
+            side_effect=slow_build,
+        ):
+            first = asyncio.create_task(embedder.embed(["a"]))
+            await asyncio.to_thread(entered.wait, 5)
+            second = asyncio.create_task(embedder.embed(["b"]))
+            await asyncio.sleep(0.05)
+            release.set()
+            await asyncio.gather(first, second)
+
+        assert build_calls == 1
+        spans = exporter.get_finished_spans()
+        model_loads = [s for s in spans if s.name == "agrag.embedding.model_load"]
+        assert len(model_loads) == 1
+        assert (model_loads[0].attributes or {}).get("agrag.model") == (embedder.model)
+        encodes = [s for s in spans if s.name == "agrag.embedding.encode"]
+        assert len(encodes) == 2
+        assert all((s.attributes or {}).get("agrag.text_count") == 1 for s in encodes)

@@ -10,7 +10,11 @@ extra installed raises EmbeddingMissingExtraError (simulated via
 share one model build rather than racing it (using ``threading.Event`` pairs
 and ``mock.patch.object(..., autospec=True)``), that a failed build can be
 retried, and cache read/write behavior including that embedders differing
-only in ``normalize`` do not share cache entries.
+only in ``normalize`` do not share cache entries. Tracing tests use a real
+SDK ``TracerProvider`` with an in-memory exporter: ``tracer=None`` leaves a
+host span untouched, concurrent first use exports exactly one
+``agrag.embedding.model_load`` span, and a full cache hit exports no
+``agrag.embedding.encode`` span.
 """
 
 import asyncio
@@ -20,6 +24,12 @@ from array import array
 from unittest import mock
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import StatusCode
 
 from agrag.embedding.base import EmbeddingCache
 from agrag.embedding.errors import EmbeddingMissingExtraError
@@ -84,6 +94,14 @@ class _RecordingCache(EmbeddingCache):
     ) -> None:
         """Store the vector."""
         self.store[(text, model, normalize)] = vector
+
+
+def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
+    """Return a provider wired to an in-memory exporter."""
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider, exporter
 
 
 class TestSentenceTransformerEmbedderConstruction:
@@ -273,3 +291,84 @@ class TestEmbedCaching:
         assert await normalized.embed_one("a") == [1.0, 1.0, 1.0, 1.0]
         assert await raw.embed_one("a") == [0.0, 0.0, 0.0, 0.0]
         assert model.encode_calls == [["a"], ["a"]]
+
+
+class TestSentenceTransformerTracing:
+    """Tracing spans real model work without touching a host span."""
+
+    async def test_tracer_none_leaves_host_span_untouched(self) -> None:
+        """Embed with tracer=None keeps the host span UNSET and event-free."""
+        host_provider, host_exporter = _tracing_provider()
+        host_tracer = host_provider.get_tracer("host")
+        with host_tracer.start_as_current_span("host.request"):
+            embedder = SentenceTransformerEmbedder(
+                model=MockSentenceTransformer(), tracer=None
+            )
+            await embedder.embed(["a"])
+        (host_span,) = host_exporter.get_finished_spans()
+        assert host_span.name == "host.request"
+        assert host_span.status.status_code is StatusCode.UNSET
+        assert list(host_span.events) == []
+
+    async def test_concurrent_first_call_exports_single_model_load_span(
+        self,
+    ) -> None:
+        """Two concurrent first embeds share one model_load span.
+
+        Regression guard: a span opened before the lock (rather than inside
+        the double-checked ``if self._model is None`` body) would export
+        twice here, once per waiter.
+        """
+        provider, exporter = _tracing_provider()
+        build_calls = 0
+        entered = threading.Event()
+        release = threading.Event()
+
+        def slow_build(_self: SentenceTransformerEmbedder) -> MockSentenceTransformer:
+            nonlocal build_calls
+            build_calls += 1
+            entered.set()
+            release.wait(timeout=5)
+            return MockSentenceTransformer()
+
+        embedder = SentenceTransformerEmbedder(tracer=provider.get_tracer("test"))
+        with mock.patch.object(
+            SentenceTransformerEmbedder,
+            "_build_model",
+            autospec=True,
+            side_effect=slow_build,
+        ):
+            first = asyncio.create_task(embedder.embed(["a"]))
+            await asyncio.to_thread(entered.wait, 5)
+            second = asyncio.create_task(embedder.embed(["b"]))
+            await asyncio.sleep(0.05)
+            release.set()
+            await asyncio.gather(first, second)
+
+        assert build_calls == 1
+        spans = exporter.get_finished_spans()
+        model_loads = [s for s in spans if s.name == "agrag.embedding.model_load"]
+        assert len(model_loads) == 1
+        assert (model_loads[0].attributes or {}).get("agrag.model") == (embedder.model)
+        encodes = [s for s in spans if s.name == "agrag.embedding.encode"]
+        assert len(encodes) == 2
+        assert all((s.attributes or {}).get("agrag.text_count") == 1 for s in encodes)
+
+    async def test_full_cache_hit_exports_no_encode_span(self) -> None:
+        """A fully cached embed re-encodes nothing and opens no span."""
+        provider, exporter = _tracing_provider()
+        model = MockSentenceTransformer()
+        cache = _RecordingCache()
+        embedder = SentenceTransformerEmbedder(
+            model=model, cache=cache, tracer=provider.get_tracer("test")
+        )
+        await embedder.embed(["a", "b"])
+        exporter.clear()
+        out = await embedder.embed(["a", "b"])
+        assert len(out) == 2
+        assert model.encode_calls == [["a", "b"]]
+        assert [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.embedding.encode"
+        ] == []

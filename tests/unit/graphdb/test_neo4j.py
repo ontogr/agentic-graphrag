@@ -9,6 +9,12 @@ from unittest import mock
 from uuid import uuid4
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import SpanKind, StatusCode
 
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
@@ -81,6 +87,14 @@ def _store() -> Neo4jGraphStore:
 
     store._driver.last_session.execute_write.side_effect = return_relation_ids
     return store
+
+
+def _provider() -> tuple[TracerProvider, InMemorySpanExporter]:
+    """Return a provider wired to an in-memory exporter."""
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider, exporter
 
 
 def _node_constraint_name(label: str) -> str:
@@ -525,3 +539,265 @@ class TestExecuteReadTimeout:
         session.execute_read = mock.AsyncMock(return_value=[{"n": 1}])
         rows = await store.execute_read("MATCH (n) RETURN n", timeout=7.5)
         assert rows == [{"n": 1}]
+
+
+class TestTracingDisabled:
+    """A store built without a tracer never marks a host span."""
+
+    async def test_tracer_none_leaves_host_span_unset(self) -> None:
+        """The host span stays UNSET with no events under tracer=None."""
+        provider, exporter = _provider()
+        host_tracer = provider.get_tracer("host")
+        store = Neo4jGraphStore(settings=Neo4jSettings(), driver=MockDriver())
+        store._driver.last_session.execute_read.return_value = []
+        with host_tracer.start_as_current_span("host.request"):
+            await store.execute_read("MATCH (n) RETURN n", {"name": "alice"})
+        (host_span,) = exporter.get_finished_spans()
+        assert host_span.name == "host.request"
+        assert host_span.status.status_code is StatusCode.UNSET
+        assert list(host_span.events) == []
+
+
+class TestExecuteSpans:
+    """Traced execute_read/write export CLIENT spans with query attributes."""
+
+    async def test_execute_read_span_kind_and_attributes(self) -> None:
+        """execute_read exports a CLIENT span with system/namespace/text."""
+        provider, exporter = _provider()
+        tracer = provider.get_tracer("test")
+        driver = MockDriver()
+        driver.last_session.execute_read.return_value = []
+        store = Neo4jGraphStore(settings=Neo4jSettings(), driver=driver, tracer=tracer)
+        await store.execute_read("MATCH (n) RETURN n", {"name": "alice"})
+        (span,) = exporter.get_finished_spans()
+        assert span.name == "agrag.graphdb.execute_read"
+        assert span.kind is SpanKind.CLIENT
+        assert (span.attributes or {})["db.system.name"] == "neo4j"
+        assert (span.attributes or {})["db.namespace"] == "neo4j"
+        assert (span.attributes or {})["db.query.text"] == "MATCH (n) RETURN n"
+        assert (span.attributes or {})["db.query.parameter.name"] == "alice"
+        assert span.status.status_code is StatusCode.UNSET
+
+    async def test_execute_write_error_marks_span_error(self) -> None:
+        """A failing execute_write marks its span ERROR with one event."""
+        provider, exporter = _provider()
+        tracer = provider.get_tracer("test")
+        driver = MockDriver()
+        driver.last_session.execute_write.side_effect = RuntimeError("down")
+        store = Neo4jGraphStore(settings=Neo4jSettings(), driver=driver, tracer=tracer)
+        with pytest.raises(RuntimeError, match="down"):
+            await store.execute_write("MERGE (n) RETURN n")
+        (span,) = exporter.get_finished_spans()
+        assert span.name == "agrag.graphdb.execute_write"
+        assert span.kind is SpanKind.CLIENT
+        assert span.status.status_code is StatusCode.ERROR
+        assert len(list(span.events)) == 1
+
+
+class TestUpsertTracing:
+    """Traced upsert_nodes exports INTERNAL span with written counts."""
+
+    async def test_upsert_nodes_span_kind_and_written(self) -> None:
+        """upsert_nodes exports INTERNAL with written/failures attributes."""
+        provider, exporter = _provider()
+        tracer = provider.get_tracer("test")
+        store = _store()
+        store._tracer = tracer
+        node = NodeRecord(id=uuid4(), labels=["Doc"], properties={"text": "a"})
+        outcome = await store.upsert_nodes("Doc", [node])
+        assert outcome.written == 1
+        spans = exporter.get_finished_spans()
+        (outer,) = [s for s in spans if s.name == "agrag.graphdb.upsert_nodes"]
+        assert outer.kind is SpanKind.INTERNAL
+        assert (outer.attributes or {})["agrag.written"] == 1
+        assert (outer.attributes or {})["agrag.failures_count"] == 0
+        assert outer.status.status_code is StatusCode.UNSET
+        assert [s for s in spans if s.name == "agrag.graphdb.execute_write"]
+
+    async def test_batch_size_reports_submitted_batch_not_configured_limit(
+        self,
+    ) -> None:
+        """A short write reports the batch it sent, not the configured limit."""
+        provider, exporter = _provider()
+        store = _store()
+        store._tracer = provider.get_tracer("test")
+        nodes = [
+            NodeRecord(id=uuid4(), labels=["Doc"], properties={"text": str(index)})
+            for index in range(3)
+        ]
+        await store.upsert_nodes("Doc", nodes, batch_size=256)
+        (outer,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.graphdb.upsert_nodes"
+        ]
+        assert (outer.attributes or {})["db.operation.batch.size"] == 3
+
+    async def test_batch_size_reports_full_batch_when_it_fills_the_limit(self) -> None:
+        """A write larger than the limit reports the limit it actually sent."""
+        provider, exporter = _provider()
+        store = _store()
+        store._tracer = provider.get_tracer("test")
+        nodes = [
+            NodeRecord(id=uuid4(), labels=["Doc"], properties={"text": str(index)})
+            for index in range(5)
+        ]
+        await store.upsert_nodes("Doc", nodes, batch_size=2)
+        (outer,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.graphdb.upsert_nodes"
+        ]
+        assert (outer.attributes or {})["db.operation.batch.size"] == 2
+
+    async def test_batch_size_omitted_for_a_single_record_write(self) -> None:
+        """One record is a single operation, not a batch, so it is not reported."""
+        provider, exporter = _provider()
+        store = _store()
+        store._tracer = provider.get_tracer("test")
+        node = NodeRecord(id=uuid4(), labels=["Doc"], properties={"text": "a"})
+        await store.upsert_nodes("Doc", [node])
+        (outer,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.graphdb.upsert_nodes"
+        ]
+        assert "db.operation.batch.size" not in (outer.attributes or {})
+
+    async def test_empty_write_reports_zero_batch_size(self) -> None:
+        """An empty write records 0, distinct from the absent one-record case."""
+        provider, exporter = _provider()
+        store = _store()
+        store._tracer = provider.get_tracer("test")
+        await store.upsert_nodes("Doc", [])
+        (outer,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.graphdb.upsert_nodes"
+        ]
+        assert (outer.attributes or {})["db.operation.batch.size"] == 0
+
+    async def test_transaction_wraps_transactional_execute_write(self) -> None:
+        """transaction() INTERNAL parents a transactional CLIENT write."""
+        provider, exporter = _provider()
+        tracer = provider.get_tracer("test")
+        store = _store()
+        store._tracer = tracer
+        transacted_id = uuid4()
+        async with store.transaction() as tx:
+            await tx.execute_write(
+                "MERGE (n:Doc {id: $id})", {"id": str(transacted_id)}
+            )
+        spans = exporter.get_finished_spans()
+        (txn,) = [s for s in spans if s.name == "agrag.graphdb.transaction"]
+        assert txn.kind is SpanKind.INTERNAL
+        assert txn.status.status_code is StatusCode.UNSET
+        writes = [s for s in spans if s.name == "agrag.graphdb.execute_write"]
+        transactional = [
+            s for s in writes if (s.attributes or {}).get("agrag.transactional") is True
+        ]
+        assert len(transactional) == 1
+        assert transactional[0].parent is not None
+        assert transactional[0].parent.span_id == txn.context.span_id
+        assert transactional[0].kind is SpanKind.CLIENT
+
+    async def test_concurrent_first_calls_export_single_build_span(self) -> None:
+        """Concurrent driver builds behind a present driver export nothing."""
+        provider, exporter = _provider()
+        tracer = provider.get_tracer("test")
+        store = _store()
+        store._tracer = tracer
+        first, second = await asyncio.gather(
+            store._ensure_driver(), store._ensure_driver()
+        )
+        assert first is second
+        assert [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.graphdb.build_driver"
+        ] == []
+
+
+class TestVectorSearchTracing:
+    """vector_search missing-index path records without erroring."""
+
+    async def test_missing_index_outer_unset_inner_error(self) -> None:
+        """The outer span stays UNSET while the failed read shows ERROR."""
+        provider, exporter = _provider()
+        tracer = provider.get_tracer("test")
+        store = Neo4jGraphStore(
+            settings=Neo4jSettings(), driver=MockDriver(), tracer=tracer
+        )
+        store._driver.last_session.execute_read.side_effect = RuntimeError(
+            "Failed to invoke procedure `db.index.vector.queryNodes`: "
+            "Caused by: java.lang.IllegalArgumentException: "
+            "There is no such vector schema index: idx_0_Bogus_1_embedding"
+        )
+        hits = await store.vector_search(
+            label="Bogus",
+            vector_property="embedding",
+            query_vector=[0.1, 0.2, 0.3, 0.4],
+            limit=5,
+        )
+        assert hits == []
+        spans = {span.name: span for span in exporter.get_finished_spans()}
+        outer = spans["agrag.graphdb.vector_search"]
+        outer_attributes = outer.attributes or {}
+        assert outer_attributes["agrag.index_missing"] is True
+        assert outer.status.status_code is StatusCode.UNSET
+        assert len(list(outer.events)) == 1
+        inner = spans["agrag.graphdb.execute_read"]
+        assert inner.status.status_code is StatusCode.ERROR
+        assert len(list(inner.events)) == 1
+
+
+class TestQueryParameterAttributes:
+    """Graph-query spans record parameters without vectors."""
+
+    async def test_scalar_recorded_and_vector_skipped(self) -> None:
+        """A string parameter appears while a vector one does not."""
+        provider, exporter = _provider()
+        tracer = provider.get_tracer("test")
+        store = Neo4jGraphStore(
+            settings=Neo4jSettings(), driver=MockDriver(), tracer=tracer
+        )
+        store._driver.last_session.execute_read.return_value = []
+        await store.execute_read(
+            "MATCH (n) WHERE n.name = $name RETURN n",
+            {"name": "alice", "embedding": [0.1, 0.2, 0.3]},
+        )
+        (span,) = exporter.get_finished_spans()
+        assert span.name == "agrag.graphdb.execute_read"
+        attributes = span.attributes or {}
+        assert attributes["db.system.name"] == "neo4j"
+        assert attributes["db.query.text"] == "MATCH (n) WHERE n.name = $name RETURN n"
+        assert attributes["db.query.parameter.name"] == "alice"
+        assert "db.query.parameter.embedding" not in attributes
+
+    async def test_nested_vector_in_rows_stripped(self) -> None:
+        """Vector fields inside UNWIND rows never reach span attributes."""
+        provider, exporter = _provider()
+        tracer = provider.get_tracer("test")
+        store = Neo4jGraphStore(
+            settings=Neo4jSettings(), driver=MockDriver(), tracer=tracer
+        )
+        store._driver.last_session.execute_write.return_value = []
+        await store.execute_write(
+            "UNWIND $rows AS row MERGE (n:Chunk {id: row.id})",
+            {
+                "rows": [
+                    {
+                        "id": "1",
+                        "properties": {
+                            "text": "hello",
+                            "embedding": [0.1, 0.2, 0.3],
+                        },
+                    }
+                ]
+            },
+        )
+        (span,) = exporter.get_finished_spans()
+        rows_attribute = str((span.attributes or {})["db.query.parameter.rows"])
+        assert "hello" in rows_attribute
+        assert "embedding" not in rows_attribute
+        assert "0.1" not in rows_attribute
