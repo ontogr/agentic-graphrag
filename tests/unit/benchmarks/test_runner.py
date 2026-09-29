@@ -356,7 +356,7 @@ class TestFullMode:
 
         def upload(path, *, repo, run_id):
             uploads.append((repo, run_id, path.exists()))
-            return upload_trace(path, repo=repo, run_id=run_id, api=FakeApi())
+            return upload_trace(path, repo=repo, run_id=run_id, api=_FakeApi())
 
         env, _ = make_environment(
             tmp_path, Behaviour(), trace_repo="me/traces", upload=upload
@@ -386,7 +386,7 @@ class TestFullMode:
         assert list((tmp_path / "reports").rglob("trace.jsonl.gz"))
 
 
-class FakeApi:
+class _FakeApi:
     """A stand-in for ``HfApi`` that records nothing and returns a revision."""
 
     def create_repo(self, *args, **kwargs) -> None:
