@@ -1,0 +1,374 @@
+[
+ {
+  "document": {
+   "text": "",
+   "title": "empty",
+   "uri": "golden/empty.txt",
+   "source_format": "txt",
+   "family": "prose",
+   "content_hash": "hash-empty",
+   "loader_name": "text",
+   "encoding": "utf-8",
+   "char_count": 0,
+   "line_count": 1,
+   "heading_outline": []
+  },
+  "chunks": []
+ },
+ {
+  "document": {
+   "text": "short text",
+   "title": "tiny",
+   "uri": "golden/tiny.txt",
+   "source_format": "txt",
+   "family": "prose",
+   "content_hash": "hash-tiny",
+   "loader_name": "text",
+   "encoding": "utf-8",
+   "char_count": 10,
+   "line_count": 1,
+   "heading_outline": []
+  },
+  "chunks": [
+   {
+    "id": "ac7ed078-8006-5bb9-b16d-b9590383033a",
+    "index": 0,
+    "text": "short text",
+    "provenance": {
+     "kind": "text",
+     "char_start": 0,
+     "char_end": 10,
+     "line_start": 1,
+     "line_end": 1
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   }
+  ]
+ },
+ {
+  "document": {
+   "text": "Paragraph 0. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 1. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 2. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 3. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 4. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 5. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 6. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 7. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 8. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 9. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 10. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 11. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. ",
+   "title": "prose",
+   "uri": "golden/prose.txt",
+   "source_format": "txt",
+   "family": "prose",
+   "content_hash": "hash-prose",
+   "loader_name": "text",
+   "encoding": "utf-8",
+   "char_count": 3420,
+   "line_count": 23,
+   "heading_outline": []
+  },
+  "chunks": [
+   {
+    "id": "1ffe2fd5-a0aa-5150-a36f-fc509a9329f0",
+    "index": 0,
+    "text": "Paragraph 0. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 1. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 2. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\n",
+    "provenance": {
+     "kind": "text",
+     "char_start": 0,
+     "char_end": 855,
+     "line_start": 1,
+     "line_end": 7
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   },
+   {
+    "id": "b3017a04-4654-5529-97c4-a7fd087b3741",
+    "index": 1,
+    "text": "Paragraph 3. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 4. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 5. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\n",
+    "provenance": {
+     "kind": "text",
+     "char_start": 855,
+     "char_end": 1710,
+     "line_start": 7,
+     "line_end": 13
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   },
+   {
+    "id": "a0b6473a-eb74-542a-94f3-fe99ef075af4",
+    "index": 2,
+    "text": "Paragraph 6. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 7. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 8. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\n",
+    "provenance": {
+     "kind": "text",
+     "char_start": 1710,
+     "char_end": 2565,
+     "line_start": 13,
+     "line_end": 19
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   },
+   {
+    "id": "71559626-a0b3-5783-8880-c4f1b8e9ada6",
+    "index": 3,
+    "text": "Paragraph 9. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 10. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. \n\nParagraph 11. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. ",
+    "provenance": {
+     "kind": "text",
+     "char_start": 2565,
+     "char_end": 3420,
+     "line_start": 19,
+     "line_end": 23
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   }
+  ]
+ },
+ {
+  "document": {
+   "text": "Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. ",
+   "title": "unicode",
+   "uri": "golden/unicode.txt",
+   "source_format": "txt",
+   "family": "prose",
+   "content_hash": "hash-unicode",
+   "loader_name": "text",
+   "encoding": "utf-8",
+   "char_count": 1800,
+   "line_count": 1,
+   "heading_outline": []
+  },
+  "chunks": [
+   {
+    "id": "1709d79c-b2ff-54b1-ade7-3d38993e887e",
+    "index": 0,
+    "text": "Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. ",
+    "provenance": {
+     "kind": "text",
+     "char_start": 0,
+     "char_end": 1020,
+     "line_start": 1,
+     "line_end": 1
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   },
+   {
+    "id": "f7259707-aa62-5b89-b9e2-edc1746dc469",
+    "index": 1,
+    "text": "Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. Emoji 😀🚀 mixed with CJK 日本語のテキスト and combining é ä marks. ",
+    "provenance": {
+     "kind": "text",
+     "char_start": 1020,
+     "char_end": 1800,
+     "line_start": 1,
+     "line_end": 1
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   }
+  ]
+ },
+ {
+  "document": {
+   "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "title": "longline",
+   "uri": "golden/longline.txt",
+   "source_format": "txt",
+   "family": "prose",
+   "content_hash": "hash-longline",
+   "loader_name": "text",
+   "encoding": "utf-8",
+   "char_count": 5000,
+   "line_count": 1,
+   "heading_outline": []
+  },
+  "chunks": [
+   {
+    "id": "af568067-e4e8-56e0-a3a1-3465b2404266",
+    "index": 0,
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "provenance": {
+     "kind": "text",
+     "char_start": 0,
+     "char_end": 1024,
+     "line_start": 1,
+     "line_end": 1
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   },
+   {
+    "id": "1736a5ed-dab0-550e-bc51-157475aa0e69",
+    "index": 1,
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "provenance": {
+     "kind": "text",
+     "char_start": 1024,
+     "char_end": 2048,
+     "line_start": 1,
+     "line_end": 1
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   },
+   {
+    "id": "8b0db613-eefd-5b7d-a999-0d1f469f08ed",
+    "index": 2,
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "provenance": {
+     "kind": "text",
+     "char_start": 2048,
+     "char_end": 3072,
+     "line_start": 1,
+     "line_end": 1
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   },
+   {
+    "id": "09b0dc50-a531-553d-bebf-59b897aeabad",
+    "index": 3,
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "provenance": {
+     "kind": "text",
+     "char_start": 3072,
+     "char_end": 4096,
+     "line_start": 1,
+     "line_end": 1
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   },
+   {
+    "id": "442f1658-d87d-5d19-aa51-71f52409cdd3",
+    "index": 4,
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "provenance": {
+     "kind": "text",
+     "char_start": 4096,
+     "char_end": 5000,
+     "line_start": 1,
+     "line_end": 1
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   }
+  ]
+ },
+ {
+  "document": {
+   "text": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+   "title": "newlines",
+   "uri": "golden/newlines.txt",
+   "source_format": "txt",
+   "family": "prose",
+   "content_hash": "hash-newlines",
+   "loader_name": "text",
+   "encoding": "utf-8",
+   "char_count": 300,
+   "line_count": 301,
+   "heading_outline": []
+  },
+  "chunks": [
+   {
+    "id": "8d7bbcad-b2b5-5c92-a408-f620dc361edf",
+    "index": 0,
+    "text": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+    "provenance": {
+     "kind": "text",
+     "char_start": 0,
+     "char_end": 300,
+     "line_start": 1,
+     "line_end": 301
+    },
+    "heading_path": [],
+    "content_kind": "text"
+   }
+  ]
+ },
+ {
+  "document": {
+   "text": "# Guide\n\nIntro text for the guide.\n\n## Setup\n\nInstall the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. \n\n### Details\n\nMore detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. \n\n## Usage\n\nRun the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. \n",
+   "title": "Guide",
+   "uri": "golden/guide.md",
+   "source_format": "markdown",
+   "family": "prose",
+   "content_hash": "b5136d2a5d4d5399f9bf0a1137b1e8f1ff755ebfc9ea2e96f1dbb0a7737c547c",
+   "loader_name": "markdown",
+   "encoding": "ascii",
+   "char_count": 2234,
+   "line_count": 16,
+   "heading_outline": [
+    {
+     "text": "Guide",
+     "level": 1,
+     "char_start": 0
+    },
+    {
+     "text": "Setup",
+     "level": 2,
+     "char_start": 36
+    },
+    {
+     "text": "Details",
+     "level": 3,
+     "char_start": 808
+    },
+    {
+     "text": "Usage",
+     "level": 2,
+     "char_start": 1543
+    }
+   ]
+  },
+  "chunks": [
+   {
+    "id": "784b1fc1-efa9-5281-95a5-2d62ef43c9bd",
+    "index": 0,
+    "text": "# Guide\n\nIntro text for the guide.\n\n## Setup\n\nInstall the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. Install the package and configure it. \n\n### Details\n\n",
+    "provenance": {
+     "kind": "text",
+     "char_start": 0,
+     "char_end": 821,
+     "line_start": 1,
+     "line_end": 11
+    },
+    "heading_path": [
+     "Guide"
+    ],
+    "content_kind": "text"
+   },
+   {
+    "id": "48c30f42-cf4e-522a-b5e4-b5e8e88ab5f0",
+    "index": 1,
+    "text": "More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. More detail here. \n\n## Usage\n\n",
+    "provenance": {
+     "kind": "text",
+     "char_start": 821,
+     "char_end": 1553,
+     "line_start": 11,
+     "line_end": 15
+    },
+    "heading_path": [
+     "Guide",
+     "Setup",
+     "Details"
+    ],
+    "content_kind": "text"
+   },
+   {
+    "id": "c6b43a4b-9d0f-5c77-899d-434aa5b6888f",
+    "index": 2,
+    "text": "Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. Run the command. \n",
+    "provenance": {
+     "kind": "text",
+     "char_start": 1553,
+     "char_end": 2234,
+     "line_start": 15,
+     "line_end": 16
+    },
+    "heading_path": [
+     "Guide",
+     "Usage"
+    ],
+    "content_kind": "text"
+   }
+  ]
+ }
+]
