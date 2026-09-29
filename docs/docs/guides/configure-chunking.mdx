@@ -5,7 +5,7 @@ title: Configure chunking
 
 # Configure chunking
 
-Choose how `agrag` splits each document into chunks, see which chunker made each chunk, and change the choice for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`.
+Choose how `agrag` splits each document into chunks, see which chunker made each chunk, and change the choice for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`. Snippets that use `await` run inside an `async def main()` body, as on that page. `Graph.open(...)` stands for the call that you make there, with the other arguments that your graph needs.
 
 ## Print the default rules
 
@@ -36,7 +36,7 @@ chunking = Chunking(
     ],
     fallback=RecursiveChunker(chunk_size=512),
 )
-graph = await Graph.open(chunking=chunking)
+graph = await Graph.open(..., chunking=chunking)
 ```
 
 A rule matches on these keys. All keys are optional. A document must match every key that you set. A list key matches if the document equals any item in the list.
@@ -80,11 +80,12 @@ print(result.chunking.documents_by_rule)    # {"rule 0": 3, "fallback": 5}
 
 ## Change the chunking of documents you added
 
-`Graph.add` on a document that the graph already holds keeps the existing chunks. To re-chunk, open the graph with the new `chunking` and call `Graph.update` with the same `document_key` and source.
+`Graph.add` does not close the old chunks of a document that the graph already holds, so do not call it again to re-chunk. Open the graph with the new `chunking` and call `Graph.update` with the `document_key` of the document. For a file source, `result.chunking.matches[i].document_key` gives the key.
 
 ```python
-graph = await Graph.open(chunking=new_chunking)
-result = await graph.update("./corpus/guide.md", source="./corpus/guide.md")
+graph = await Graph.open(..., chunking=new_chunking)
+key = result.chunking.matches[0].document_key
+result = await graph.update(key, source="./corpus/guide.md")
 print(result.no_op, result.chunks_closed)
 ```
 
