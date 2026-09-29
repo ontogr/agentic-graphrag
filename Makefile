@@ -69,7 +69,7 @@ test:
 # writes. The graph group runs second, so the scanning suite sees as few of
 # those writes as the run can arrange. End-to-end tests are a separate target.
 test-integration:
-	uv run pytest tests/integration/agents tests/integration/ingestion tests/integration/embedding tests/integration/vectordb tests/integration/loaders -v -n auto --dist loadscope \
+	uv run pytest tests/integration/agents tests/integration/ingestion tests/integration/embedding tests/integration/vectordb tests/integration/loaders tests/integration/llm -v -n auto --dist loadscope \
 		-o "addopts=--strict-markers --strict-config --disable-socket --allow-unix-socket -ra" \
 		$(COV_ARGS) --junitxml=pytest-integration-results-ingestion.xml
 	uv run pytest tests/integration/retrieval tests/integration/graphdb tests/integration/cypher -v -n auto --dist loadgroup \

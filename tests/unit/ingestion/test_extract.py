@@ -17,12 +17,20 @@ low yield or low mean confidence, and never merges results from both.
 """
 
 import asyncio
+import sys
 import threading
+import types
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import StatusCode
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
@@ -1611,3 +1619,209 @@ class TestEscalatingExtractor:
         result = await extractor.extract(chunk, GENERIC)
         # Only escalate's entities should be present
         assert all(e.text == "Y" for e in result.entities)
+
+
+def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
+    """Return a provider wired to an in-memory exporter."""
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider, exporter
+
+
+def _spans_by_name(exporter: InMemorySpanExporter) -> dict[str, list]:
+    """Group finished spans by name."""
+    grouped: dict[str, list] = {}
+    for span in exporter.get_finished_spans():
+        grouped.setdefault(span.name, []).append(span)
+    return grouped
+
+
+class TestExtractionSpans:
+    """Extraction domain spans carry ids, counts, and nest LLM call spans."""
+
+    async def test_baml_span_carries_counts_and_nests_llm_spans(self) -> None:
+        """A fake-client extraction emits baml, call, and attempt spans."""
+        provider, exporter = _tracing_provider()
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                return SimpleNamespace(entities=[], relations=[])
+
+        chunk = _chunk()
+        extractor = BAMLExtractor(
+            client=FakeClient(), tracer=provider.get_tracer("test")
+        )
+        await extractor.extract(chunk, GENERIC)
+
+        grouped = _spans_by_name(exporter)
+        assert set(grouped) == {
+            "agrag.extraction.baml",
+            "agrag.llm.call",
+            "agrag.llm.attempt",
+        }
+        (baml_span,) = grouped["agrag.extraction.baml"]
+        assert (baml_span.attributes or {})["agrag.chunk_id"] == str(chunk.id)
+        assert (baml_span.attributes or {})["agrag.entities_extracted"] == 0
+        assert (baml_span.attributes or {})["agrag.relations_extracted"] == 0
+        (call_span,) = grouped["agrag.llm.call"]
+        assert (call_span.attributes or {})["agrag.llm.function"] == (
+            "ExtractEntitiesAndRelations"
+        )
+
+    async def test_baml_with_tracer_none_leaves_host_span_clean(self) -> None:
+        """tracer=None records nothing on the surrounding host span."""
+        host_provider, host_exporter = _tracing_provider()
+        host_tracer = host_provider.get_tracer("host")
+
+        class FakeClient:
+            async def ExtractEntitiesAndRelations(self, *args):  # noqa: N802
+                return SimpleNamespace(entities=[], relations=[])
+
+        with host_tracer.start_as_current_span("host.request"):
+            await BAMLExtractor(client=FakeClient()).extract(_chunk(), GENERIC)
+
+        (host_span,) = host_exporter.get_finished_spans()
+        assert host_span.name == "host.request"
+        assert host_span.status.status_code is StatusCode.UNSET
+        assert list(host_span.events) == []
+
+    async def test_gliner_span_carries_counts_without_model_load(self) -> None:
+        """An injected model emits the gliner span but no model_load span."""
+
+        class FakeModel:
+            def create_schema(self) -> "FakeModel":
+                return self
+
+            def entities(self, descriptions: dict) -> "FakeModel":
+                return self
+
+            def relations(self, descriptions: dict) -> "FakeModel":
+                return self
+
+            def extract(
+                self, text: str, schema: object, include_spans: bool = False
+            ) -> dict:
+                return {
+                    "entities": {
+                        "Person": [{"text": "Ada", "start": 0, "end": 3}],
+                    },
+                    "relation_extraction": {},
+                }
+
+        provider, exporter = _tracing_provider()
+        chunk = _chunk()
+        extractor = GlinerExtractor(
+            model=FakeModel(), tracer=provider.get_tracer("test")
+        )
+        result = await extractor.extract(chunk, GENERIC)
+
+        assert len(result.entities) == 1
+        grouped = _spans_by_name(exporter)
+        assert set(grouped) == {"agrag.extraction.gliner"}
+        (gliner_span,) = grouped["agrag.extraction.gliner"]
+        assert (gliner_span.attributes or {})["agrag.chunk_id"] == str(chunk.id)
+        assert (gliner_span.attributes or {})["agrag.entities_extracted"] == 1
+        assert (gliner_span.attributes or {})["agrag.relations_extracted"] == 0
+
+    async def test_gliner_model_load_span_carries_model_name(self) -> None:
+        """Building the model emits one model_load span with the name."""
+
+        class FakeModel:
+            def create_schema(self) -> "FakeModel":
+                return self
+
+            def entities(self, descriptions: dict) -> "FakeModel":
+                return self
+
+            def relations(self, descriptions: dict) -> "FakeModel":
+                return self
+
+            def extract(
+                self, text: str, schema: object, include_spans: bool = False
+            ) -> dict:
+                return {"entities": {}, "relation_extraction": {}}
+
+        fake_module = types.ModuleType("gliner2")
+        fake_module.AutoExtractor = SimpleNamespace(
+            from_pretrained=lambda name: FakeModel()
+        )
+        provider, exporter = _tracing_provider()
+        extractor = GlinerExtractor(
+            model_name="fake-checkpoint", tracer=provider.get_tracer("test")
+        )
+        with patch.dict(sys.modules, {"gliner2": fake_module}):
+            await extractor.extract(_chunk(), GENERIC)
+
+        grouped = _spans_by_name(exporter)
+        (load_span,) = grouped["agrag.extraction.model_load"]
+        assert (load_span.attributes or {})["agrag.model"] == "fake-checkpoint"
+
+    async def test_escalating_span_marks_escalated_false(self) -> None:
+        """A confident primary result records escalated false."""
+        provider, exporter = _tracing_provider()
+
+        class Primary:
+            async def extract(self, chunk, schema):  # noqa: ANN001
+                return ExtractionResult(
+                    entities=[
+                        ExtractedEntity(
+                            chunk_id=chunk.id,
+                            label="Person",
+                            text="Ada",
+                            char_start=0,
+                            char_end=3,
+                            confidence=0.9,
+                        )
+                    ],
+                    relations=[],
+                    extractor_name="primary",
+                )
+
+        class EscalateTo:
+            async def extract(self, chunk, schema):  # noqa: ANN001
+                raise AssertionError("must not run without escalation")
+
+        chunk = _chunk("This is a chunk with enough words to pass the floor.")
+        extractor = EscalatingExtractor(
+            primary=Primary(),
+            escalate_to=EscalateTo(),
+            tracer=provider.get_tracer("test"),
+        )
+        result = await extractor.extract(chunk, GENERIC)
+
+        assert result.extractor_name == "primary"
+        grouped = _spans_by_name(exporter)
+        assert set(grouped) == {"agrag.extraction.escalating"}
+        (span,) = grouped["agrag.extraction.escalating"]
+        assert (span.attributes or {})["agrag.chunk_id"] == str(chunk.id)
+        assert (span.attributes or {})["agrag.escalated"] is False
+
+    async def test_escalating_span_marks_escalated_true(self) -> None:
+        """A weak primary result records escalated true."""
+        provider, exporter = _tracing_provider()
+
+        class Primary:
+            async def extract(self, chunk, schema):  # noqa: ANN001
+                return ExtractionResult(
+                    entities=[], relations=[], extractor_name="primary"
+                )
+
+        class EscalateTo:
+            async def extract(self, chunk, schema):  # noqa: ANN001
+                return ExtractionResult(
+                    entities=[], relations=[], extractor_name="escalate"
+                )
+
+        chunk = _chunk("This is a chunk with more than eight words in it.")
+        extractor = EscalatingExtractor(
+            primary=Primary(),
+            escalate_to=EscalateTo(),
+            tracer=provider.get_tracer("test"),
+        )
+        result = await extractor.extract(chunk, GENERIC)
+
+        assert result.extractor_name == "escalate"
+        grouped = _spans_by_name(exporter)
+        (span,) = grouped["agrag.extraction.escalating"]
+        assert (span.attributes or {})["agrag.escalated"] is True

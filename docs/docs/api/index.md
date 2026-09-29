@@ -115,9 +115,8 @@ so one question's retry budget does not spend another's.
   graph the engine does not search.
 - **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Receives OpenInference spans for every `ainvoke`,
   including the researcher and verifier subagents' tool and
-  model calls. None emits no spans. Spans carry the question
-  and the evidence text; set `OPENINFERENCE_HIDE_INPUTS` or
-  `OPENINFERENCE_HIDE_OUTPUTS` to hide them.
+  model calls. None emits no spans. Spans carry the question,
+  tool inputs, and evidence text.
 
 **Returns:**
 
@@ -1252,8 +1251,7 @@ run_callbacks(tracer:Tracer | None) -> list[Any]
 Return the callbacks for one agent run.
 
 The callback holds per-run state, so build a new one for every run.
-Spans carry the question and the evidence text by default. Set
-`OPENINFERENCE_HIDE_INPUTS` or `OPENINFERENCE_HIDE_OUTPUTS` to hide them.
+Spans carry the question, tool inputs, and evidence text.
 
 **Parameters:**
 
@@ -7028,7 +7026,7 @@ Needs the `eval` extra: `pip install 'agentic-graphrag[eval]'`.
 #### `agrag.eval.ChatModelJudge`
 
 ```python
-ChatModelJudge(chat_model:Any, name:str) -> None
+ChatModelJudge(chat_model:Any, name:str, *, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>
@@ -7058,7 +7056,7 @@ Run one judge call asynchronously. See `generate`.
 ##### `agrag.eval.ChatModelJudge.from_settings`
 
 ```python
-from_settings(settings:EvalJudgeSettings) -> ChatModelJudge
+from_settings(settings:EvalJudgeSettings, *, tracer:Tracer | None = None) -> ChatModelJudge
 ```
 
 Build a judge from settings.
@@ -7070,6 +7068,8 @@ parameter then needs `EVAL_JUDGE_TEMPERATURE` empty.
 **Parameters:**
 
 - **settings** (<code>[EvalJudgeSettings](#agrag.eval.settings.EvalJudgeSettings)</code>) – The judge client config and temperature.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Receives OpenInference spans for every judge call.
+  None emits no spans.
 
 ##### `agrag.eval.ChatModelJudge.generate`
 
@@ -8807,7 +8807,7 @@ A DeepEval judge model backed by an agrag chat model.
 ##### `agrag.eval.judge.ChatModelJudge`
 
 ```python
-ChatModelJudge(chat_model:Any, name:str) -> None
+ChatModelJudge(chat_model:Any, name:str, *, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[DeepEvalBaseLLM](#deepeval.models.DeepEvalBaseLLM)</code>
@@ -8837,7 +8837,7 @@ Run one judge call asynchronously. See `generate`.
 ###### `agrag.eval.judge.ChatModelJudge.from_settings`
 
 ```python
-from_settings(settings:EvalJudgeSettings) -> ChatModelJudge
+from_settings(settings:EvalJudgeSettings, *, tracer:Tracer | None = None) -> ChatModelJudge
 ```
 
 Build a judge from settings.
@@ -8849,6 +8849,8 @@ parameter then needs `EVAL_JUDGE_TEMPERATURE` empty.
 **Parameters:**
 
 - **settings** (<code>[EvalJudgeSettings](#agrag.eval.settings.EvalJudgeSettings)</code>) – The judge client config and temperature.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Receives OpenInference spans for every judge call.
+  None emits no spans.
 
 ###### `agrag.eval.judge.ChatModelJudge.generate`
 
@@ -8917,9 +8919,11 @@ read_trajectory(spans:Sequence[ReadableSpan]) -> Trajectory
 Read the tool and model steps from finished spans.
 
 Keeps `TOOL` and `LLM` spans, drops `CHAIN` spans, and orders steps
-by start time rather than export order. A step's `subagent` is the
-`subagent_type` of its nearest ancestor `task` span, or None for a
-planner step.
+by start time rather than export order. Skips spans `agrag` opens
+itself and spans nested under an `agrag.eval.judge` span, so judge
+calls and BAML request spans never read as planner steps. A step's
+`subagent` is the `subagent_type` of its nearest ancestor `task`
+span, or None for a planner step.
 
 **Parameters:**
 
@@ -9548,9 +9552,11 @@ read_trajectory(spans:Sequence[ReadableSpan]) -> Trajectory
 Read the tool and model steps from finished spans.
 
 Keeps `TOOL` and `LLM` spans, drops `CHAIN` spans, and orders steps
-by start time rather than export order. A step's `subagent` is the
-`subagent_type` of its nearest ancestor `task` span, or None for a
-planner step.
+by start time rather than export order. Skips spans `agrag` opens
+itself and spans nested under an `agrag.eval.judge` span, so judge
+calls and BAML request spans never read as planner steps. A step's
+`subagent` is the `subagent_type` of its nearest ancestor `task`
+span, or None for a planner step.
 
 **Parameters:**
 
@@ -12200,7 +12206,7 @@ The Extractor interface: reads one Chunk and produces an ExtractionResult.
 ##### `agrag.ingestion.extract.BAMLExtractor`
 
 ```python
-BAMLExtractor(*, settings:ExtractionLLMSettings | None = None, client:object | None = None) -> None
+BAMLExtractor(*, settings:ExtractionLLMSettings | None = None, client:object | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
@@ -12224,6 +12230,8 @@ Extracts with an LLM, via a BAML function and a runtime ClientRegistry.
   own retry behavior too.
 - **client** (<code>[object](#object) | None</code>) – An already-built BAML client object exposing
   `ExtractEntitiesAndRelations`. Tests inject a fake here.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens `agrag.extraction.baml` and the nested
+  `agrag.llm.call` spans. `None` opens no recorded span.
 
 ###### `agrag.ingestion.extract.BAMLExtractor.extract`
 
@@ -12248,7 +12256,7 @@ settings = settings
 ##### `agrag.ingestion.extract.EscalatingExtractor`
 
 ```python
-EscalatingExtractor(primary:Extractor, escalate_to:Extractor, *, min_confidence:float = 0.5, min_chunk_words:int = 8) -> None
+EscalatingExtractor(primary:Extractor, escalate_to:Extractor, *, min_confidence:float = 0.5, min_chunk_words:int = 8, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
@@ -12277,6 +12285,8 @@ Runs a cheap primary extractor first, escalating per chunk when it's weak.
   falls below this, among entities that report a confidence.
 - **min_chunk_words** (<code>[int](#int)</code>) – Below this word count, a zero-entity result from
   the primary is treated as plausibly correct, not a miss.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the `agrag.extraction.escalating` span. `None`
+  opens no recorded span.
 
 ###### `agrag.ingestion.extract.EscalatingExtractor.escalate_to`
 
@@ -12430,7 +12440,7 @@ extra = extra
 ##### `agrag.ingestion.extract.GlinerExtractor`
 
 ```python
-GlinerExtractor(*, model_name:str = 'fastino/gliner2.5-small-v1', model:object | None = None) -> None
+GlinerExtractor(*, model_name:str = 'fastino/gliner2.5-small-v1', model:object | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
@@ -12450,6 +12460,9 @@ Extracts locally with a GLiNER2.5 model. No network call.
 - **model_name** (<code>[str](#str)</code>) – The checkpoint to load if `model` is not given.
 - **model** (<code>[object](#object) | None</code>) – An already-built GLiNER2.5 model. Tests inject a fake here
   to avoid a real model download.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens `agrag.extraction.gliner` and
+  `agrag.extraction.model_load` spans. `None` opens no
+  recorded span.
 
 ###### `agrag.ingestion.extract.GlinerExtractor.extract`
 
@@ -13004,7 +13017,7 @@ removed_resolved_entity_ids: list[UUID]
 ##### `agrag.ingestion.materialize.compute_resolved_entity`
 
 ```python
-compute_resolved_entity(members:list[Entity], schema:GraphSchema) -> ResolvedEntity
+compute_resolved_entity(members:list[Entity], schema:GraphSchema, *, tracer:Tracer | None = None) -> ResolvedEntity
 ```
 
 Compute a resolved entity from its current member data only.
@@ -13012,7 +13025,7 @@ Compute a resolved entity from its current member data only.
 ##### `agrag.ingestion.materialize.deactivate_match_and_rematerialize`
 
 ```python
-deactivate_match_and_rematerialize(match_id:UUID, *, graph_store:GraphStore, schema:GraphSchema) -> DeactivationResult
+deactivate_match_and_rematerialize(match_id:UUID, *, graph_store:GraphStore, schema:GraphSchema, tracer:Tracer | None = None) -> DeactivationResult
 ```
 
 Deactivate a match and return its replacements and deleted derived IDs.
@@ -13044,7 +13057,7 @@ Return the order-independent deterministic id for an entity match.
 ##### `agrag.ingestion.materialize.prune_orphaned_entities`
 
 ```python
-prune_orphaned_entities(candidate_entity_ids:list[UUID], *, graph_store:GraphStore, schema:GraphSchema) -> PruningResult
+prune_orphaned_entities(candidate_entity_ids:list[UUID], *, graph_store:GraphStore, schema:GraphSchema, tracer:Tracer | None = None) -> PruningResult
 ```
 
 Delete candidates with no open-chunk evidence and rebuild clusters.
@@ -13063,7 +13076,7 @@ candidate id, never with a graph-wide scan.
 ##### `agrag.ingestion.materialize.write_matches_and_materialize`
 
 ```python
-write_matches_and_materialize(decisions:list[MatchDecision], *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity], pending_job_id:str | None = None) -> MaterializationResult
+write_matches_and_materialize(decisions:list[MatchDecision], *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity], pending_job_id:str | None = None, tracer:Tracer | None = None) -> MaterializationResult
 ```
 
 Persist matches and materialize their supplied connected component.
@@ -13080,6 +13093,7 @@ The resolved node is always recomputed from that current membership.
 - **pending_job_id** (<code>[str](#str) | None</code>) – The in-flight Cutover Job's id, tagging the match
   edges and materialized nodes until that job commits. None
   writes untagged, for callers outside a job.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Passed to description summarization.
 
 **Raises:**
 
@@ -13318,7 +13332,7 @@ instead.
 ##### `agrag.ingestion.merge.compute_merge`
 
 ```python
-compute_merge(*, existing_entities:list[Entity], mentions:list[ExtractedEntity], schema:GraphSchema, rules:PropertyRules | None = None, description_settings:Any | None = None, description_client:Any | None = None, job_id:UUID | str | None = None) -> tuple[MergePlan, list[Any]]
+compute_merge(*, existing_entities:list[Entity], mentions:list[ExtractedEntity], schema:GraphSchema, rules:PropertyRules | None = None, description_settings:Any | None = None, description_client:Any | None = None, job_id:UUID | str | None = None, tracer:Tracer | None = None) -> tuple[MergePlan, list[Any]]
 ```
 
 Compute how existing_entities and mentions combine into one Entity.
@@ -13342,6 +13356,7 @@ canonical survivor and marks the rest for tombstoning.
   derives its id from (job_id, merge_key) instead of uuid4, so
   replaying the job after a crash reproduces the same id. None
   keeps today's random-id behavior for callers outside a job.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Passed to description summarization.
 
 **Returns:**
 
@@ -13377,7 +13392,7 @@ found.
 ##### `agrag.ingestion.merge.merge_properties`
 
 ```python
-merge_properties(property_sources:list[dict[str, object]], rules:PropertyRules, *, description_settings:Any | None = None, description_client:Any | None = None) -> tuple[dict[str, object], list[ConflictRecord], list[Any]]
+merge_properties(property_sources:list[dict[str, object]], rules:PropertyRules, *, description_settings:Any | None = None, description_client:Any | None = None, tracer:Tracer | None = None) -> tuple[dict[str, object], list[ConflictRecord], list[Any]]
 ```
 
 Return field-resolved properties and records of every real conflict.
@@ -13388,6 +13403,7 @@ Return field-resolved properties and records of every real conflict.
 - **rules** (<code>[PropertyRules](#agrag.ingestion.merge.PropertyRules)</code>) – The per-property rule table.
 - **description_settings** (<code>[Any](#typing.Any) | None</code>) – LLM settings for description summarization.
 - **description_client** (<code>[Any](#typing.Any) | None</code>) – Injected LLM client for tests.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Passed to description summarization.
 
 **Returns:**
 
@@ -13455,7 +13471,7 @@ random ids. Mirrors `mentioned_in_id`.
 ##### `agrag.ingestion.merge.resolve_description`
 
 ```python
-resolve_description(candidates:list[object], *, settings:Any | None = None, client:Any | None = None) -> tuple[object, bool, Any | None]
+resolve_description(candidates:list[object], *, settings:Any | None = None, client:Any | None = None, tracer:Tracer | None = None) -> tuple[object, bool, Any | None]
 ```
 
 Resolve a description field, trying LLM summarization.
@@ -13468,6 +13484,8 @@ LLM summarization; on failure, fall back to concatenation.
 - **candidates** (<code>[list](#list)\[[object](#object)\]</code>) – Candidate values in encounter order.
 - **settings** (<code>[Any](#typing.Any) | None</code>) – LLM settings for summarization. None uses defaults.
 - **client** (<code>[Any](#typing.Any) | None</code>) – An already-built BAML client for tests.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the `agrag.merge.resolve_description` span and the
+  LLM call spans below it.
 
 **Returns:**
 
@@ -14393,7 +14411,7 @@ vector_store = vector_store
 ##### `agrag.ingestion.resolve.LLMVerify`
 
 ```python
-LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50) -> None
+LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
@@ -14432,6 +14450,8 @@ raised outright instead (see compare's Raises section).
   A large ambiguous population is split into requests of at most
   this size so one oversized request cannot exceed the model's
   context limit and silently fail every pair in the batch.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the `agrag.resolution.llm_verify` span and the
+  LLM call spans below it.
 
 ###### `agrag.ingestion.resolve.LLMVerify.chunks_by_id`
 
@@ -15311,7 +15331,7 @@ match_above = match_above
 ###### `agrag.ingestion.resolve.comparators.LLMVerify`
 
 ```python
-LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50) -> None
+LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
@@ -15350,6 +15370,8 @@ raised outright instead (see compare's Raises section).
   A large ambiguous population is split into requests of at most
   this size so one oversized request cannot exceed the model's
   context limit and silently fail every pair in the batch.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the `agrag.resolution.llm_verify` span and the
+  LLM call spans below it.
 
 ####### `agrag.ingestion.resolve.comparators.LLMVerify.chunks_by_id`
 
@@ -15724,7 +15746,7 @@ match_above = match_above
 ###### `agrag.ingestion.resolve.resolver.LLMVerify`
 
 ```python
-LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50) -> None
+LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Comparator](#agrag.ingestion.resolve.resolver.Comparator)</code>
@@ -15763,6 +15785,8 @@ raised outright instead (see compare's Raises section).
   A large ambiguous population is split into requests of at most
   this size so one oversized request cannot exceed the model's
   context limit and silently fail every pair in the batch.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the `agrag.resolution.llm_verify` span and the
+  LLM call spans below it.
 
 ####### `agrag.ingestion.resolve.resolver.LLMVerify.chunks_by_id`
 
@@ -18166,7 +18190,7 @@ Text2Cypher retriever: generate Cypher from natural language.
 ###### `agrag.retrieval.retrievers.text2cypher.Text2CypherRetriever`
 
 ```python
-Text2CypherRetriever(*, graph_store:GraphStore, schema:GraphSchema, settings:RetrievalSettings | None = None) -> None
+Text2CypherRetriever(*, graph_store:GraphStore, schema:GraphSchema, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
@@ -18201,6 +18225,7 @@ Scalar rows (for example counts or property values) become cited
   graph cannot answer is not generated.
 - **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
   environment.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the generation span and the BAML call spans.
 
 ####### `agrag.retrieval.retrievers.text2cypher.Text2CypherRetriever.name`
 

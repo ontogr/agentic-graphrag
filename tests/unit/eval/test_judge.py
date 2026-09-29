@@ -12,6 +12,11 @@ import httpx
 import pytest
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, SingleTurnParams
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 from pydantic import BaseModel
 
 from agrag.eval.judge import ChatModelJudge
@@ -206,3 +211,105 @@ class TestChatModelJudge:
 
         assert metric.score == pytest.approx(0.8)
         assert metric.reason
+
+
+def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
+    """Return a recording tracer and the exporter collecting its spans."""
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider, exporter
+
+
+class TestJudgeTracing:
+    """A traced judge emits a judge span with the model's LLM span beneath it."""
+
+    async def test_judge_span_names_the_model(self, endpoint: FakeEndpoint) -> None:
+        """Every judge call opens agrag.eval.judge with the model id."""
+        provider, exporter = _tracing_provider()
+        judge = ChatModelJudge(
+            _chat_model(endpoint), "fake-model", tracer=provider.get_tracer("t")
+        )
+
+        await judge.a_generate("hi")
+
+        judge_spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.eval.judge"
+        ]
+        assert len(judge_spans) == 1
+        attributes = dict(judge_spans[0].attributes or {})
+        assert attributes["agrag.eval.judge_model"] == "fake-model"
+
+    async def test_the_model_span_nests_under_the_judge_span(
+        self, endpoint: FakeEndpoint
+    ) -> None:
+        """The OpenInference LLM span is a child of the judge span."""
+        provider, exporter = _tracing_provider()
+        judge = ChatModelJudge(
+            _chat_model(endpoint), "fake-model", tracer=provider.get_tracer("t")
+        )
+
+        await judge.a_generate("hi")
+
+        judge_span = next(
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.eval.judge"
+        )
+        model_spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if (span.attributes or {}).get("openinference.span.kind") == "LLM"
+        ]
+        assert len(model_spans) == 1
+        assert model_spans[0].parent is not None
+        assert model_spans[0].parent.span_id == judge_span.context.span_id
+
+    async def test_the_judge_span_covers_the_structured_path(
+        self, endpoint: FakeEndpoint
+    ) -> None:
+        """The schema branch is traced too, not just the plain reply."""
+        provider, exporter = _tracing_provider()
+        judge = ChatModelJudge(
+            _chat_model(endpoint), "fake-model", tracer=provider.get_tracer("t")
+        )
+
+        await judge.a_generate("rate it", schema=Verdict)
+
+        assert [
+            span.name
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.eval.judge"
+        ] == ["agrag.eval.judge"]
+
+    async def test_a_traced_judge_joins_the_callers_trace(
+        self, endpoint: FakeEndpoint
+    ) -> None:
+        """Judge spans nest under the eval's own span rather than starting one."""
+        provider, exporter = _tracing_provider()
+        judge = ChatModelJudge(
+            _chat_model(endpoint), "fake-model", tracer=provider.get_tracer("t")
+        )
+
+        with provider.get_tracer("t").start_as_current_span("eval") as outer:
+            await judge.a_generate("hi")
+
+        judge_span = next(
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.eval.judge"
+        )
+        assert judge_span.parent is not None
+        assert judge_span.parent.span_id == outer.get_span_context().span_id
+        trace_ids = {span.context.trace_id for span in exporter.get_finished_spans()}
+        assert len(trace_ids) == 1
+
+    async def test_no_tracer_emits_nothing(self, endpoint: FakeEndpoint) -> None:
+        """A judge with no tracer records no spans and no error."""
+        provider, exporter = _tracing_provider()
+        judge = ChatModelJudge(_chat_model(endpoint), "fake-model")
+
+        assert await judge.a_generate("hi") == "plain reply"
+        assert list(exporter.get_finished_spans()) == []

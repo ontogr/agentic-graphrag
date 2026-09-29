@@ -11,15 +11,27 @@ resolve duplicate mentions into groups.
 
 ```python
 import asyncio
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import (
+    ConsoleSpanExporter,
+    SimpleSpanProcessor,
+)
+
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
+
+# One tracer for the whole application. Every component below that takes
+# `tracer=` writes into this trace. Leave it out and no span is recorded.
+provider = TracerProvider()
+provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+tracer = provider.get_tracer("my-app")
 
 
 async def main():
     # Point at your OpenAI-compatible endpoint via environment variables:
     #   LLM_BASE_URL, LLM_MODEL_ID, and optionally LLM_API_KEY
     settings = ExtractionLLMSettings.from_openai_compatible_env()
-    extractor = BAMLExtractor(settings=settings)
+    extractor = BAMLExtractor(settings=settings, tracer=tracer)
     result = await extractor.extract(chunk, GENERIC)
     print(result.entities)
 
@@ -37,6 +49,12 @@ pip install "agentic-graphrag[llm]"
 
 ```python
 import asyncio
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import (
+    ConsoleSpanExporter,
+    SimpleSpanProcessor,
+)
+
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.ingestion.extract import (
     BAMLExtractor,
@@ -45,12 +63,18 @@ from agrag.ingestion.extract import (
     GlinerExtractor,
 )
 
+# A second component of the same application writes into the same trace.
+provider = TracerProvider()
+provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+tracer = provider.get_tracer("my-app")
+
 
 async def main():
     settings = ExtractionLLMSettings.from_openai_compatible_env()
     extractor = EscalatingExtractor(
-        primary=GlinerExtractor(),
-        escalate_to=BAMLExtractor(settings=settings),
+        primary=GlinerExtractor(tracer=tracer),
+        escalate_to=BAMLExtractor(settings=settings, tracer=tracer),
+        tracer=tracer,
     )
     result = await extractor.extract(chunk, GENERIC)
     print(result.entities)

@@ -84,6 +84,21 @@ def _is_task(span: ReadableSpan) -> bool:
     return str(attributes.get("tool.name", span.name)) == "task"
 
 
+def _under_judge(span: ReadableSpan, by_id: dict[int, ReadableSpan]) -> bool:
+    """Tell a span nested in a judge call from an agent step."""
+    seen: set[int] = set()
+    parent = span.parent
+    while parent is not None and parent.span_id not in seen:
+        seen.add(parent.span_id)
+        holder = by_id.get(parent.span_id)
+        if holder is None:
+            return False
+        if holder.name == "agrag.eval.judge":
+            return True
+        parent = holder.parent
+    return False
+
+
 def _read_args(raw: Any) -> dict[str, Any]:
     """Parse ``input.value`` as JSON, keeping raw text when it is not JSON."""
     if raw is None:
@@ -178,9 +193,11 @@ def read_trajectory(spans: Sequence[ReadableSpan]) -> Trajectory:
     """Read the tool and model steps from finished spans.
 
     Keeps ``TOOL`` and ``LLM`` spans, drops ``CHAIN`` spans, and orders steps
-    by start time rather than export order. A step's ``subagent`` is the
-    ``subagent_type`` of its nearest ancestor ``task`` span, or None for a
-    planner step.
+    by start time rather than export order. Skips spans ``agrag`` opens
+    itself and spans nested under an ``agrag.eval.judge`` span, so judge
+    calls and BAML request spans never read as planner steps. A step's
+    ``subagent`` is the ``subagent_type`` of its nearest ancestor ``task``
+    span, or None for a planner step.
 
     Args:
         spans: The finished spans of one traced agent run.
@@ -192,7 +209,13 @@ def read_trajectory(spans: Sequence[ReadableSpan]) -> Trajectory:
     for span in spans:
         if span.context is not None:
             by_id[span.context.span_id] = span
-    kept = [span for span in spans if _kind(span) is not None]
+    kept = [
+        span
+        for span in spans
+        if _kind(span) is not None
+        and not span.name.startswith("agrag.")
+        and not _under_judge(span, by_id)
+    ]
     kept.sort(key=lambda span: (span.start_time or 0, span.end_time or 0, span.name))
     return Trajectory(steps=[_read_step(span, by_id) for span in kept])
 

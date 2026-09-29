@@ -495,10 +495,14 @@ async def generate_community_reports(  # noqa: PLR0915
                     )
                     if supports_options:
                         reports = await call_with_retry(
-                            lambda: summarize(
-                                communities=inputs, baml_options=baml_options
+                            lambda options: summarize(
+                                communities=inputs,
+                                baml_options=cast("BamlCallOptions", options),
                             ),
                             retry,
+                            options=baml_options,
+                            tracer=tracer,
+                            function="SummarizeCommunities",
                         )
                     else:
                         summarize_without_options = cast(
@@ -506,7 +510,12 @@ async def generate_community_reports(  # noqa: PLR0915
                             summarize,
                         )
                         reports = await call_with_retry(
-                            lambda: summarize_without_options(communities=inputs), retry
+                            lambda options: summarize_without_options(
+                                communities=inputs
+                            ),
+                            retry,
+                            tracer=tracer,
+                            function="SummarizeCommunities",
                         )
                 except Exception as exc:  # noqa: BLE001
                     if error_policy is ErrorPolicy.RAISE:

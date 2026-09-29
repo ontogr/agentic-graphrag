@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import datetime
 from uuid import NAMESPACE_OID, UUID, uuid5
 
+from opentelemetry.trace import Tracer
 from pydantic import BaseModel
 
 from agrag.common.data_models.entity import Entity
@@ -146,7 +147,10 @@ def matches_id(entity_a_id: UUID, entity_b_id: UUID) -> UUID:
 
 
 async def compute_resolved_entity(
-    members: list[Entity], schema: GraphSchema
+    members: list[Entity],
+    schema: GraphSchema,
+    *,
+    tracer: Tracer | None = None,
 ) -> ResolvedEntity:
     """Compute a resolved entity from its current member data only."""
     if len(members) < 2:
@@ -159,6 +163,7 @@ async def compute_resolved_entity(
         existing_entities=members,
         mentions=[],
         schema=schema,
+        tracer=tracer,
     )
     return ResolvedEntity(
         id=uuid5(
@@ -192,6 +197,7 @@ async def write_matches_and_materialize(
     schema: GraphSchema,
     members: list[Entity],
     pending_job_id: str | None = None,
+    tracer: Tracer | None = None,
 ) -> MaterializationResult:
     """Persist matches and materialize their supplied connected component.
 
@@ -206,6 +212,7 @@ async def write_matches_and_materialize(
         pending_job_id: The in-flight Cutover Job's id, tagging the match
             edges and materialized nodes until that job commits. None
             writes untagged, for callers outside a job.
+        tracer: Passed to description summarization.
 
     Raises:
         ValueError: No decisions are supplied, or a decision references a
@@ -267,7 +274,7 @@ async def write_matches_and_materialize(
                 members = sorted(
                     persisted_members.values(), key=lambda member: str(member.id)
                 )
-        resolved = await compute_resolved_entity(members, schema)
+        resolved = await compute_resolved_entity(members, schema, tracer=tracer)
         removed_rows = await transaction.execute_write(
             replace_component_materializations_query(),
             {
@@ -317,7 +324,11 @@ async def write_matches_and_materialize(
 
 
 async def deactivate_match_and_rematerialize(
-    match_id: UUID, *, graph_store: GraphStore, schema: GraphSchema
+    match_id: UUID,
+    *,
+    graph_store: GraphStore,
+    schema: GraphSchema,
+    tracer: Tracer | None = None,
 ) -> DeactivationResult:
     """Deactivate a match and return its replacements and deleted derived IDs."""
     from agrag.ingestion._ingest_pipeline import _parse_entity_node  # noqa: PLC0415
@@ -380,7 +391,7 @@ async def deactivate_match_and_rematerialize(
         ):
             if len(members) < 2:
                 continue
-            resolved = await compute_resolved_entity(members, schema)
+            resolved = await compute_resolved_entity(members, schema, tracer=tracer)
             _raise_for_write_failure(
                 await transaction.upsert_nodes(
                     RESOLVED_ENTITY_LABEL, [resolved.to_node_record()]
@@ -439,7 +450,11 @@ def _uuid_list(rows: object, key: str) -> list[UUID]:
 
 
 async def prune_orphaned_entities(
-    candidate_entity_ids: list[UUID], *, graph_store: GraphStore, schema: GraphSchema
+    candidate_entity_ids: list[UUID],
+    *,
+    graph_store: GraphStore,
+    schema: GraphSchema,
+    tracer: Tracer | None = None,
 ) -> PruningResult:
     """Delete candidates with no open-chunk evidence and rebuild clusters.
 
@@ -530,7 +545,7 @@ async def prune_orphaned_entities(
                 removed_resolved_entity_ids.extend(
                     _uuid_list(replacement_rows, "removed_resolved_entity_ids")
                 )
-                resolved = await compute_resolved_entity(members, schema)
+                resolved = await compute_resolved_entity(members, schema, tracer=tracer)
                 _raise_for_write_failure(
                     await transaction.upsert_nodes(
                         RESOLVED_ENTITY_LABEL, [resolved.to_node_record()]

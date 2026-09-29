@@ -1256,6 +1256,7 @@ class Graph:
                             graph_store=self._graph_store,
                             schema=self._schema,
                             members=members,
+                            tracer=self._tracer,
                         )
                     except Exception as exc:  # noqa: BLE001
                         if error_policy is ErrorPolicy.RAISE:
@@ -1299,7 +1300,10 @@ class Graph:
         if not candidates:
             return
         pruning = await prune_orphaned_entities(
-            candidates, graph_store=self._graph_store, schema=self._schema
+            candidates,
+            graph_store=self._graph_store,
+            schema=self._schema,
+            tracer=self._tracer,
         )
         with contextlib.suppress(Exception):
             await _delete_vectors(
@@ -1449,7 +1453,10 @@ class Graph:
             attributes={"agrag.match_id": str(match_id)},
         ):
             result = await deactivate_match_and_rematerialize(
-                match_id, graph_store=self._graph_store, schema=self._schema
+                match_id,
+                graph_store=self._graph_store,
+                schema=self._schema,
+                tracer=self._tracer,
             )
             await _synchronize_resolved_entity_vectors(
                 result.resolved_entities,
@@ -1528,7 +1535,7 @@ class Graph:
                     comparators=[
                         ExactMatch(),
                         FuzzyMatch(),
-                        LLMVerify(chunks_by_id=dummy_chunks_by_id),
+                        LLMVerify(chunks_by_id=dummy_chunks_by_id, tracer=self._tracer),
                     ],
                     candidate_source=PersistedCandidateSource(candidate_indices),
                     embedder=self._embedder,
@@ -1631,7 +1638,7 @@ class Graph:
                 comparators=[
                     ExactMatch(),
                     FuzzyMatch(),
-                    LLMVerify(chunks_by_id=dummy_chunks),
+                    LLMVerify(chunks_by_id=dummy_chunks, tracer=self._tracer),
                 ],
                 candidate_source=PersistedCandidateSource(
                     {
@@ -1702,6 +1709,7 @@ class Graph:
                         graph_store=self._graph_store,
                         schema=self._schema,
                         members=[entities_by_id[m] for m in member_ids],
+                        tracer=self._tracer,
                     )
                 materialized.append(materialization.resolved_entity)
                 replaced.extend(materialization.removed_entity_ids)
@@ -1716,7 +1724,10 @@ class Graph:
                     attributes={"agrag.match_id": str(match_id)},
                 ):
                     deactivation = await deactivate_match_and_rematerialize(
-                        match_id, graph_store=self._graph_store, schema=self._schema
+                        match_id,
+                        graph_store=self._graph_store,
+                        schema=self._schema,
+                        tracer=self._tracer,
                     )
                 materialized.extend(deactivation.resolved_entities)
                 replaced.extend(deactivation.removed_entity_ids)

@@ -65,9 +65,8 @@ def build_agent(
             graph the engine does not search.
         tracer: Receives OpenInference spans for every ``ainvoke``,
             including the researcher and verifier subagents' tool and
-            model calls. None emits no spans. Spans carry the question
-            and the evidence text; set ``OPENINFERENCE_HIDE_INPUTS`` or
-            ``OPENINFERENCE_HIDE_OUTPUTS`` to hide them.
+            model calls. None emits no spans. Spans carry the question,
+            tool inputs, and evidence text.
 
     Returns:
         An agent whose ``ainvoke`` returns an ``AgentRunResult``: the

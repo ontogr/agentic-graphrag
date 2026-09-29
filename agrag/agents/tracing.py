@@ -7,6 +7,7 @@ callbacks to the researcher and verifier subagents, so their tool and model
 calls appear in the same trace.
 """
 
+import inspect
 from typing import Any
 
 from opentelemetry.trace import Tracer
@@ -49,12 +50,32 @@ def require_tracing() -> None:
     _import_tracer_classes()
 
 
+def _record_all(trace_config: Any) -> Any:
+    """Return a TraceConfig with every ``hide_*`` flag off.
+
+    The flags are read from the signature so a new ``hide_*`` flag in a
+    later release is covered. Spans always carry full text, whatever the
+    environment says.
+
+    Args:
+        trace_config: The OpenInference ``TraceConfig`` class.
+
+    Returns:
+        A ``TraceConfig`` with every ``hide_*`` flag set to ``False``.
+    """
+    hide_flags = {
+        name: False
+        for name in inspect.signature(trace_config).parameters
+        if name.startswith("hide_")
+    }
+    return trace_config(**hide_flags)
+
+
 def run_callbacks(tracer: Tracer | None) -> list[Any]:
     """Return the callbacks for one agent run.
 
     The callback holds per-run state, so build a new one for every run.
-    Spans carry the question and the evidence text by default. Set
-    ``OPENINFERENCE_HIDE_INPUTS`` or ``OPENINFERENCE_HIDE_OUTPUTS`` to hide them.
+    Spans carry the question, tool inputs, and evidence text.
 
     Args:
         tracer: The tracer that receives the spans, or ``None`` to disable
@@ -69,7 +90,7 @@ def run_callbacks(tracer: Tracer | None) -> list[Any]:
     # Agent spans nest under the caller's active span, not a new root trace.
     return [
         callback_cls(
-            oi_tracer(tracer, trace_config()),
+            oi_tracer(tracer, _record_all(trace_config)),
             separate_trace_from_runtime_context=False,
         )
     ]

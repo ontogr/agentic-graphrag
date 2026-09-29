@@ -28,6 +28,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
+from opentelemetry.trace import StatusCode
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity
@@ -1070,3 +1071,81 @@ class TestResolverLlmBatchSpans:
         assert sorted(
             (span.attributes or {})["agrag.batch_size"] for span in batch_spans
         ) == [2, 2, 2, 2, 2]
+
+
+class TestLLMVerifySpans:
+    """LLMVerify opens one llm_verify span per chunk with result counts."""
+
+    def _tracer(self, exporter: InMemorySpanExporter):
+        """Build a tracer writing finished spans to exporter."""
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        return provider.get_tracer("test")
+
+    async def test_failing_client_marks_request_failed_without_error_status(
+        self,
+    ) -> None:
+        """A raising client maps to NO_MATCH with request_failed on an UNSET span."""
+
+        class RaisingClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                raise RuntimeError("LLM call failed")
+
+        exporter = InMemorySpanExporter()
+        chunk = _chunk("context text")
+        verifier = LLMVerify(
+            chunks_by_id={chunk.id: chunk},
+            client=RaisingClient(),
+            tracer=self._tracer(exporter),
+        )
+        a = _entity("Ada", chunk_id=chunk.id)
+        b = _entity("Charles", chunk_id=chunk.id)
+
+        verdict = await verifier.compare(a, b)
+
+        assert verdict is ComparisonVerdict.NO_MATCH
+        assert verifier.failed_requests == 1
+        (span,) = [
+            finished
+            for finished in exporter.get_finished_spans()
+            if finished.name == "agrag.resolution.llm_verify"
+        ]
+        assert (span.attributes or {})["agrag.pair_count"] == 1
+        assert (span.attributes or {})["agrag.request_failed"] is True
+        assert span.status.status_code is StatusCode.UNSET
+
+    async def test_success_records_match_counts(self) -> None:
+        """A match verdict records match, uncertain, and request_failed counts."""
+
+        class MatchClient:
+            async def VerifyEntityMatches(self, pairs, options):  # noqa: N802
+                return [
+                    {
+                        "pair_id": pairs[0]["pair_id"],
+                        "verdict": "match",
+                        "reasoning": "same",
+                    }
+                ]
+
+        exporter = InMemorySpanExporter()
+        chunk = _chunk("context text")
+        verifier = LLMVerify(
+            chunks_by_id={chunk.id: chunk},
+            client=MatchClient(),
+            tracer=self._tracer(exporter),
+        )
+        a = _entity("Ada", chunk_id=chunk.id)
+        b = _entity("Ada", chunk_id=chunk.id)
+
+        verdict = await verifier.compare(a, b)
+
+        assert verdict is ComparisonVerdict.MATCH
+        (span,) = [
+            finished
+            for finished in exporter.get_finished_spans()
+            if finished.name == "agrag.resolution.llm_verify"
+        ]
+        assert (span.attributes or {})["agrag.pair_count"] == 1
+        assert (span.attributes or {})["agrag.match_count"] == 1
+        assert (span.attributes or {})["agrag.uncertain_count"] == 0
+        assert (span.attributes or {})["agrag.request_failed"] is False
