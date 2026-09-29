@@ -26,6 +26,8 @@ class BenchSettings(BaseSettings):
     Attributes:
         neo4j_password: The password of the benchmark Neo4j services, empty when
             unset. Env: ``BENCH_NEO4J_PASSWORD``.
+        trace_repo: The Hugging Face dataset repo that receives the trace of a
+            full run, ``None`` when unset. Env: ``BENCH_TRACE_REPO``.
     """
 
     model_config = SettingsConfigDict(
@@ -33,6 +35,7 @@ class BenchSettings(BaseSettings):
     )
 
     neo4j_password: SecretStr = SecretStr("")
+    trace_repo: str | None = None
 
 
 # Bolt ports on the loopback address, one per compose service. A domain adds its

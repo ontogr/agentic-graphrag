@@ -2,7 +2,6 @@
 
 import argparse
 import asyncio
-import os
 import sys
 
 from benchmarks.datasets.base import DOMAINS
@@ -18,7 +17,7 @@ from benchmarks.harness.runner import (
     make_plan,
     run,
 )
-from benchmarks.harness.services import SERVICE_PORTS, Services
+from benchmarks.harness.services import SERVICE_PORTS, BenchSettings, Services
 from benchmarks.systems.agrag import AgragSettings, AgragSystem
 
 
@@ -69,7 +68,7 @@ def _environment() -> RunEnvironment:
         make_system=make_system,
         make_judge=settings.make_judge,
         confirm=_confirm,
-        trace_repo=os.environ.get("BENCH_TRACE_REPO"),
+        trace_repo=BenchSettings().trace_repo,
         cost=COST_MODEL,
         embedder_model=embedder,
     )

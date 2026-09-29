@@ -6,7 +6,12 @@ A fake command runner records the commands, so no test starts Docker.
 import pytest
 
 from benchmarks.harness import services
-from benchmarks.harness.services import COMPOSE_FILE, Services, neo4j_settings
+from benchmarks.harness.services import (
+    COMPOSE_FILE,
+    BenchSettings,
+    Services,
+    neo4j_settings,
+)
 
 
 def _services() -> tuple[Services, list[list[str]]]:
@@ -73,3 +78,19 @@ class TestComposeFile:
 
         assert f"neo4j/${{{services.PASSWORD_VARIABLE}:?" in text
         assert f'"127.0.0.1:{services.SERVICE_PORTS["fake"]}:7687"' in text
+
+
+class TestBenchSettings:
+    """Harness settings read from the ``BENCH_`` environment."""
+
+    def test_trace_repo_comes_from_the_environment(self, monkeypatch):
+        """The trace repo is read from ``BENCH_TRACE_REPO``."""
+        monkeypatch.setenv("BENCH_TRACE_REPO", "me/traces")
+
+        assert BenchSettings().trace_repo == "me/traces"
+
+    def test_trace_repo_is_none_when_unset(self, monkeypatch):
+        """An unset ``BENCH_TRACE_REPO`` leaves the trace repo empty."""
+        monkeypatch.delenv("BENCH_TRACE_REPO", raising=False)
+
+        assert BenchSettings(_env_file=None).trace_repo is None
