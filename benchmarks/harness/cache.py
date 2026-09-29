@@ -38,11 +38,13 @@ def cache_key(
     embedder_model: str,
     chunking_fingerprint: str,
     agrag_tree: str,
+    benchmarks_code_sha256: str,
+    uv_lock_sha256: str,
 ) -> str:
     """Return the ingest cache key of one corpus.
 
-    Any change to the corpus documents, schema, models, chunking or the ``agrag/``
-    tree changes the key.
+    Any change to the corpus documents, schema, models, chunking, the ``agrag/``
+    tree, the benchmark code or the dependency lock changes the key.
     """
     corpus = next(c for c in manifest.corpora if c.id == corpus_id)
     return canonical_sha256(
@@ -53,6 +55,8 @@ def cache_key(
             "embedder": embedder_model,
             "chunking": chunking_fingerprint,
             "agrag_tree": agrag_tree,
+            "benchmarks_code": benchmarks_code_sha256,
+            "uv_lock": uv_lock_sha256,
         }
     )
 

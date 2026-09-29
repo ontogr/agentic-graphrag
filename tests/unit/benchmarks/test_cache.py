@@ -17,6 +17,8 @@ def _key(**changes) -> str:
         "embedder_model": "e",
         "chunking_fingerprint": "f",
         "agrag_tree": "t",
+        "benchmarks_code_sha256": "b",
+        "uv_lock_sha256": "l",
     }
     return cache.cache_key(**{**values, **changes})
 
@@ -36,6 +38,8 @@ class TestCacheKey:
             {"embedder_model": "e2"},
             {"chunking_fingerprint": "f2"},
             {"agrag_tree": "t2"},
+            {"benchmarks_code_sha256": "b2"},
+            {"uv_lock_sha256": "l2"},
             {"corpus_id": "c2"},
         ],
     )

@@ -317,6 +317,8 @@ async def _execute(
             embedder_model=env.embedder_model,
             chunking_fingerprint=env.chunking.fingerprint(),
             agrag_tree=env.code.agrag_tree,
+            benchmarks_code_sha256=env.code.benchmarks_code_sha256,
+            uv_lock_sha256=env.code.uv_lock_sha256,
         )
         system, marker, hit, stats = await _ingest_corpus(
             corpus, documents[corpus.id], schema, key, ctx
