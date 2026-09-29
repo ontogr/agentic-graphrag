@@ -1,10 +1,8 @@
-"""Splits a text Document into Chunks with the chonkie chunker."""
+"""Shared helpers that build text Chunks from character spans."""
 
 import bisect
 from array import array
-from collections.abc import Iterator
-
-from chonkie import RecursiveChunker
+from collections.abc import Iterable
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, HeadingRef
@@ -63,28 +61,28 @@ def _heading_path_for(char_start: int, outline: list[HeadingRef]) -> list[str]:
     return [active[level] for level in sorted(active)]
 
 
-def chunk_document(document: Document, chunker: RecursiveChunker) -> list[Chunk]:
-    """Split a document's text into chunks.
+def build_text_chunks(
+    document: Document, spans: Iterable[tuple[int, int]]
+) -> list[Chunk]:
+    """Build text chunks from character spans of a document.
 
-    This function computes ``line_start`` and ``line_end`` from each chunk's character
-    span,
-    because the chunker does not report line numbers. It also sets ``heading_path`` from
-    the
-    document's heading outline.
+    The chunk text is the slice of ``document.text`` at each span. This function
+    computes ``line_start`` and ``line_end`` from the span and sets ``heading_path``
+    from the document's heading outline.
 
     Args:
-        document: The document to split. This function reads only its ``text`` and
-            ``heading_outline`` fields.
-        chunker: The chunker to run.
+        document: The document the spans index. This function reads its ``text``,
+            ``heading_outline`` and identity fields.
+        spans: Half-open character spans, in chunk order.
 
     Returns:
-        The chunks, in document order.
+        The chunks, in the order of the spans.
     """
-    chunks: list[Chunk] = []
+    document_id = Document.node_id_for(document_key=document.resolved_document_key)
+    version_id = Document.id_for(content_hash=document.content_hash)
     line_starts = _line_start_offsets(document.text)
-    for index, piece in enumerate(chunker.chunk(document.text)):
-        char_start = piece.start_index
-        char_end = piece.end_index
+    chunks: list[Chunk] = []
+    for index, (char_start, char_end) in enumerate(spans):
         provenance = TextProvenance(
             char_start=char_start,
             char_end=char_end,
@@ -94,37 +92,17 @@ def chunk_document(document: Document, chunker: RecursiveChunker) -> list[Chunk]
         chunks.append(
             Chunk(
                 id=Chunk.id_for(
-                    document_id=Document.node_id_for(
-                        document_key=document.resolved_document_key
-                    ),
-                    version_id=Document.id_for(content_hash=document.content_hash),
+                    document_id=document_id,
+                    version_id=version_id,
                     provenance=provenance,
                     index=index,
                 ),
-                document_id=Document.node_id_for(
-                    document_key=document.resolved_document_key
-                ),
+                document_id=document_id,
                 index=index,
-                text=piece.text,
+                text=document.text[char_start:char_end],
                 provenance=provenance,
                 heading_path=_heading_path_for(char_start, document.heading_outline),
                 content_kind="text",
             )
         )
     return chunks
-
-
-def iter_chunk_documents(
-    documents: Iterator[Document], chunker: RecursiveChunker
-) -> Iterator[Chunk]:
-    """Chunk a stream of documents into a flat stream of chunks.
-
-    Args:
-        documents: The documents to chunk, in order.
-        chunker: The chunker to run on each document.
-
-    Yields:
-        Each chunk, in document then chunk order.
-    """
-    for document in documents:
-        yield from chunk_document(document, chunker)

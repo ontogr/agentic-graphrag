@@ -13,7 +13,7 @@ from agrag.common.data_models.stage_failure import StageFailure
 
 
 if TYPE_CHECKING:
-    from agrag.chunking.text import Chunk
+    from agrag.common.data_models.chunk import Chunk
 
 
 @dataclass(frozen=True, slots=True)

@@ -50,15 +50,13 @@ class TestDoclingChunking:
 
     def test_chunks_have_page_provenance(self) -> None:
         """Chunks have page provenance."""
-        from agrag.loaders.docling.chunking import (  # noqa: PLC0415
-            chunk_docling_document,
-        )
+        from agrag.chunking import DoclingChunker  # noqa: PLC0415
         from agrag.loaders.docling.loader import DoclingLoader  # noqa: PLC0415
 
         pdf_bytes = _real_pdf_bytes()
         ref = SourceRef(uri="doc.pdf", extension=".pdf", byte_size=len(pdf_bytes))
         doc = _convert_or_skip(DoclingLoader(), ref, pdf_bytes)[0]
-        chunks = chunk_docling_document(doc.metadata["_docling_document"], doc.id)
+        chunks = DoclingChunker().chunk(doc)
         assert chunks
         assert all(chunk.provenance.page_spans for chunk in chunks)
 

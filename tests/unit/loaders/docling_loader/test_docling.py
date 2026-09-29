@@ -9,10 +9,10 @@ import importlib
 import importlib.util
 from io import BytesIO
 from unittest.mock import MagicMock, patch
-from uuid import uuid4
 
 import pytest
 
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.loaders.corpus.errors import DocumentConversionError, DocumentTooLargeError
 from agrag.loaders.corpus.types import ReadOptions, SourceRef
 
@@ -90,6 +90,21 @@ class TestDoclingLoader:
         mock_converter.assert_not_called()
 
 
+def _docling_document(parsed: object) -> Document:
+    """Return a document that carries a parsed docling document."""
+    return Document(
+        text="parsed",
+        title="t",
+        uri="memory://docling",
+        source_format=SourceFormat.PDF,
+        family=DocumentFamily.PROSE,
+        content_hash="h",
+        loader_name="docling",
+        char_count=6,
+        metadata={"_docling_document": parsed},
+    )
+
+
 @pytest.mark.skipif(docling_missing, reason="docling extra not installed")
 class TestDoclingChunking:
     """The chunker wraps docling chunks without real model-backed chunking."""
@@ -122,9 +137,7 @@ class TestDoclingChunking:
             text = "chunk one"
             meta = _Meta()
 
-        from agrag.loaders.docling.chunking import (  # noqa: PLC0415
-            chunk_docling_document,
-        )
+        from agrag.chunking import DoclingChunker  # noqa: PLC0415
 
         fake_doc = MagicMock()
 
@@ -132,7 +145,7 @@ class TestDoclingChunking:
 
         with patch.object(_docling_chunking, "HybridChunker") as mock_chunker:
             mock_chunker.return_value.chunk.return_value = [_Item()]
-            chunks = chunk_docling_document(fake_doc, uuid4())
+            chunks = DoclingChunker().chunk(_docling_document(fake_doc))
 
         assert len(chunks) == 1
         assert chunks[0].text == "chunk one"
@@ -177,9 +190,7 @@ class TestDoclingChunking:
             text = "chunk two"
             meta = _Meta()
 
-        from agrag.loaders.docling.chunking import (  # noqa: PLC0415
-            chunk_docling_document,
-        )
+        from agrag.chunking import DoclingChunker  # noqa: PLC0415
 
         fake_doc = MagicMock()
         fake_page = MagicMock()
@@ -190,7 +201,7 @@ class TestDoclingChunking:
 
         with patch.object(_docling_chunking, "HybridChunker") as mock_chunker:
             mock_chunker.return_value.chunk.return_value = [_Item()]
-            chunks = chunk_docling_document(fake_doc, uuid4())
+            chunks = DoclingChunker().chunk(_docling_document(fake_doc))
 
         span = chunks[0].provenance.page_spans[0]
         assert span.page_no == 2
@@ -229,9 +240,7 @@ class TestDoclingChunking:
             text = "chunk three"
             meta = _Meta()
 
-        from agrag.loaders.docling.chunking import (  # noqa: PLC0415
-            chunk_docling_document,
-        )
+        from agrag.chunking import DoclingChunker  # noqa: PLC0415
 
         fake_doc = MagicMock()
         fake_doc.pages = {}
@@ -240,7 +249,7 @@ class TestDoclingChunking:
 
         with patch.object(_docling_chunking, "HybridChunker") as mock_chunker:
             mock_chunker.return_value.chunk.return_value = [_Item()]
-            chunks = chunk_docling_document(fake_doc, uuid4())
+            chunks = DoclingChunker().chunk(_docling_document(fake_doc))
 
         assert len(chunks) == 1
         assert chunks[0].text == "chunk three"

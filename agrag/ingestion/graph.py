@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import glob
 import hashlib
+import json
 import unicodedata
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -13,8 +14,7 @@ from uuid import UUID, uuid4
 from opentelemetry.trace import Tracer
 
 import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
-from agrag.chunking import default_chunker
-from agrag.chunking.text import chunk_document
+from agrag.chunking import DEFAULT_CHUNKING, Chunking
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.community import COMMUNITY_LABEL, MEMBER_OF_RELATION
 from agrag.common.data_models.document import (
@@ -83,6 +83,8 @@ from agrag.ingestion.resolve import (
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.ingestion.stats import (
+    ChunkingMatch,
+    ChunkingStats,
     ExtractionStats,
     IngestStats,
     MergeStats,
@@ -93,7 +95,6 @@ from agrag.loaders.corpus import registry as _corpus_registry
 from agrag.loaders.corpus._walk import _CorpusWalk, _InMemoryWalk
 from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions
-from agrag.loaders.docling.chunking import chunk_docling_document
 from agrag.observability import get_tracer, record_stage_failure
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
@@ -313,7 +314,7 @@ def _group_by_document(
 
 
 def _merge_add_results(
-    results: list[AddResult], *, ingestion: IngestStats
+    results: list[AddResult], *, ingestion: IngestStats, chunking: ChunkingStats
 ) -> AddResult:
     """Combine per-document job results into one call-level summary.
 
@@ -321,12 +322,13 @@ def _merge_add_results(
     caller still gets a single AddResult shaped exactly like a one-job
     call's. Counters sum, failure lists concatenate re-capped against the
     per-stage cap with true totals preserved, and chunks concatenate in
-    job order. The call-level ingestion summary passed in replaces the
-    per-slice placeholders.
+    job order. The call-level ingestion and chunking summaries passed in replace
+    the per-slice placeholders.
 
     Args:
         results: One AddResult per document job, in job order.
         ingestion: The call-level ingestion summary from the walk.
+        chunking: The call-level chunking summary.
 
     Returns:
         The merged summary, or a zero-stage summary when no job ran.
@@ -342,6 +344,7 @@ def _merge_add_results(
     if not results:
         return AddResult(
             ingestion=ingestion,
+            chunking=chunking,
             extraction=ExtractionStats(),
             resolution=ResolutionStats(),
             merge=MergeStats(),
@@ -349,7 +352,9 @@ def _merge_add_results(
             chunks=[],
         )
     if len(results) == 1:
-        return results[0].model_copy(update={"ingestion": ingestion})
+        return results[0].model_copy(
+            update={"ingestion": ingestion, "chunking": chunking}
+        )
     extraction_items, extraction_total, extraction_truncated = _combine(
         [result.extraction.failures for result in results],
         [result.extraction.failures_total for result in results],
@@ -367,6 +372,7 @@ def _merge_add_results(
     )
     return AddResult(
         ingestion=ingestion,
+        chunking=chunking,
         extraction=ExtractionStats(
             chunks_processed=sum(
                 result.extraction.chunks_processed for result in results
@@ -437,6 +443,7 @@ class Graph:
         vector_store: VectorStore | None = None,
         retrieval_settings: RetrievalSettings | None = None,
         cutover_settings: CutoverJobSettings | None = None,
+        chunking: Chunking = DEFAULT_CHUNKING,
     ) -> None:
         """Create a graph bound to a schema, store, embedder, and extractor.
 
@@ -461,6 +468,8 @@ class Graph:
             cutover_settings: Lease configuration for the Cutover Jobs
                 add/update/delete_document run through. None uses
                 CutoverJobSettings defaults.
+            chunking: The rules that pick a chunker for each document. The
+                default is ``DEFAULT_CHUNKING``.
         """
         self._schema = schema
         self._graph_store = graph_store
@@ -468,7 +477,7 @@ class Graph:
         self._extractor = extractor
         self._tracer = get_tracer(tracer)
         self._registry = _corpus_registry
-        self._chunker = default_chunker()
+        self._chunking = chunking
         self._vector_store = vector_store
         self._retrieval_settings = retrieval_settings or RetrievalSettings()
         self._cutover_settings = cutover_settings or CutoverJobSettings()
@@ -485,6 +494,7 @@ class Graph:
         vector_store: VectorStore | None = None,
         retrieval_settings: RetrievalSettings | None = None,
         cutover_settings: CutoverJobSettings | None = None,
+        chunking: Chunking = DEFAULT_CHUNKING,
     ) -> "Graph":
         """Open a graph, connecting and fully provisioning graph_store.
 
@@ -514,6 +524,8 @@ class Graph:
             cutover_settings: Lease configuration for the Cutover Jobs
                 add/update/delete_document run through. None uses
                 CutoverJobSettings defaults.
+            chunking: The rules that pick a chunker for each document; see
+                __init__.
 
         Returns:
             A graph connected to graph_store and ready to accept add() calls.
@@ -612,6 +624,7 @@ class Graph:
                     vector_store=vector_store,
                     retrieval_settings=retrieval_settings,
                     cutover_settings=cutover_settings,
+                    chunking=chunking,
                 )
                 # Crash recovery, last: every index and collection the
                 # recovery paths rely on now exists. A pending job (its worker
@@ -637,6 +650,11 @@ class Graph:
                         await vector_store.close()
                 raise
         return graph
+
+    @property
+    def chunking(self) -> Chunking:
+        """The rules that pick a chunker for each document."""
+        return self._chunking
 
     async def add(  # noqa: PLR0912,PLR0915,PLR0913
         self,
@@ -702,6 +720,7 @@ class Graph:
                 )
 
             chunks: list[Chunk] = []
+            chunk_matches: list[ChunkingMatch] = []
             documents_seen: list[Document] = []
             document_keys_seen: set[str] = set()
             entities: list[ExtractedEntity] = []
@@ -741,6 +760,7 @@ class Graph:
                 )
                 return AddResult(
                     ingestion=ingest,
+                    chunking=ChunkingStats.from_matches(list(chunk_matches)),
                     extraction=extraction,
                     resolution=ResolutionStats(),
                     merge=MergeStats(),
@@ -756,8 +776,11 @@ class Graph:
                 final_stats.documents = len(docs_list)
                 final_stats.sources = 0
                 # Chunk all at once (still via thread)
-                chunk_batch = await asyncio.to_thread(self._chunk_documents, docs_list)
+                chunk_batch, batch_matches = await asyncio.to_thread(
+                    self._chunk_documents, docs_list
+                )
                 chunks.extend(chunk_batch)
+                chunk_matches.extend(batch_matches)
                 documents_seen.extend(docs_list)
                 batch_entities, batch_relations, batch_failures = await extract_chunks(
                     chunk_batch,
@@ -786,8 +809,11 @@ class Graph:
                     final_stats.quarantined = stats.quarantined
                     final_stats.quarantined_items = list(stats.quarantined_items)
                     # Chunk this batch
-                    chunk_batch = await asyncio.to_thread(self._chunk_documents, batch)
+                    chunk_batch, batch_matches = await asyncio.to_thread(
+                        self._chunk_documents, batch
+                    )
                     chunks.extend(chunk_batch)
+                    chunk_matches.extend(batch_matches)
                     documents_seen.extend(batch)
                     (
                         batch_entities,
@@ -831,8 +857,11 @@ class Graph:
                     final_stats.skipped = stats.skipped
                     final_stats.quarantined = stats.quarantined
                     final_stats.quarantined_items = list(stats.quarantined_items)
-                    chunk_batch = await asyncio.to_thread(self._chunk_documents, batch)
+                    chunk_batch, batch_matches = await asyncio.to_thread(
+                        self._chunk_documents, batch
+                    )
                     chunks.extend(chunk_batch)
+                    chunk_matches.extend(batch_matches)
                     documents_seen.extend(batch)
                     (
                         batch_entities,
@@ -948,7 +977,11 @@ class Graph:
                     tracer=self._tracer,
                 )
                 partials.append(_with_cleanup_failures(partial, cleanup_failures))
-            result = _merge_add_results(partials, ingestion=ingestion)
+            result = _merge_add_results(
+                partials,
+                ingestion=ingestion,
+                chunking=ChunkingStats.from_matches(chunk_matches),
+            )
 
             if on_progress is not None:
                 with contextlib.suppress(Exception):
@@ -969,10 +1002,14 @@ class Graph:
 
         Looks up the persisted ``Document`` node by ``document_key``. An
         unchanged content hash is a no-op returning before any chunking,
-        extraction, or writes. Otherwise the fresh content ingests under a
-        Cutover Job holding this document's lease, and the commit flips
-        the job, closes the document's open ``PART_OF`` edges, and clears
-        every pending tag in one transaction — so a crash either leaves
+        extraction, or writes, unless the chunker that this graph's rules pick
+        for the document differs from the one that made its current chunks. A
+        chunker with new settings re-chunks the document as a content change
+        does. Chunks written before chunkers were recorded count as unchanged.
+        Otherwise the fresh content ingests under a Cutover Job holding this
+        document's lease, and the commit flips the job, closes the document's
+        open ``PART_OF`` edges, and clears every pending tag in one
+        transaction — so a crash either leaves
         the old version untouched or completes the replacement including
         cleanup. Entities that lose their last evidence are pruned after
         the commit, so replacement mentions count as evidence. A source
@@ -1050,9 +1087,11 @@ class Graph:
                 )
 
             found = await find_document(self._graph_store, document_key=document_key)
+            _, chunker = self._chunking.select(document)
             if (
                 found is not None
                 and found.current_content_hash == document.content_hash
+                and found.current_chunker_hash in (None, chunker.fingerprint())
             ):
                 return UpdateResult(
                     document_key=document_key,
@@ -1066,7 +1105,9 @@ class Graph:
                 candidates = await self._document_entity_candidates(
                     found.document_node_id
                 )
-            chunks = await asyncio.to_thread(self._chunk_documents, [document])
+            chunks, chunk_matches = await asyncio.to_thread(
+                self._chunk_documents, [document]
+            )
             entities, relations, extraction_failures = await extract_chunks(
                 chunks,
                 start_index=0,
@@ -1130,7 +1171,11 @@ class Graph:
                 previous_content_hash=(found.current_content_hash if found else None),
                 new_content_hash=document.content_hash,
                 chunks_closed=chunks_closed,
-                add_result=_with_cleanup_failures(add_result, cleanup_failures),
+                add_result=_with_cleanup_failures(
+                    add_result, cleanup_failures
+                ).model_copy(
+                    update={"chunking": ChunkingStats.from_matches(chunk_matches)}
+                ),
             )
 
     async def delete_document(self, document_key: str) -> UpdateResult:
@@ -1318,50 +1363,45 @@ class Graph:
                 pruning.removed_resolved_entity_ids,
             )
 
-    def _chunk_documents(self, documents: list[Document]) -> list[Chunk]:
-        """Chunk a batch of documents with the right chunker each.
+    def _chunk_documents(
+        self, documents: list[Document]
+    ) -> tuple[list[Chunk], list[ChunkingMatch]]:
+        """Chunk a batch of documents, each with the chunker its rule picks.
 
         Args:
             documents: The documents to chunk.
 
         Returns:
-            The chunks, in document then chunk order.
+            The chunks in document then chunk order, and one match per document
+            that records the rule and chunker it got.
         """
         chunks: list[Chunk] = []
-        tracer = get_tracer(self._tracer)
+        matches: list[ChunkingMatch] = []
         for document in documents:
-            document_chunks: list[Chunk]
-            if document.loader_name == "docling":
-                docling_doc = document.metadata.get("_docling_document")
-                if docling_doc is not None:
-                    with tracer.start_as_current_span(
-                        "agrag.ingestion.chunk_docling_document",
-                        attributes={
-                            "agrag.document_key": document.resolved_document_key
-                        },
-                    ) as span:
-                        document_chunks = chunk_docling_document(
-                            docling_doc,
-                            Document.node_id_for(
-                                document_key=document.resolved_document_key
-                            ),
-                            version_id=Document.id_for(
-                                content_hash=document.content_hash
-                            ),
-                        )
-                        span.set_attribute(
-                            "agrag.chunks_produced", len(document_chunks)
-                        )
-                    chunks.extend(document_chunks)
-                    continue
-            with tracer.start_as_current_span(
+            rule, chunker = self._chunking.select(document)
+            with self._tracer.start_as_current_span(
                 "agrag.ingestion.chunk_document",
-                attributes={"agrag.document_key": document.resolved_document_key},
+                attributes={
+                    "agrag.document_key": document.resolved_document_key,
+                    "agrag.chunker.strategy": chunker.strategy,
+                    "agrag.chunker.hash": chunker.fingerprint(),
+                    "agrag.chunker.settings": json.dumps(chunker.settings()),
+                    "agrag.chunker.rule": "fallback" if rule is None else str(rule),
+                },
             ) as span:
-                document_chunks = chunk_document(document, self._chunker)
+                document_chunks = chunker.chunk(document)
                 span.set_attribute("agrag.chunks_produced", len(document_chunks))
             chunks.extend(document_chunks)
-        return chunks
+            matches.append(
+                ChunkingMatch(
+                    document_key=document.resolved_document_key,
+                    rule=rule,
+                    strategy=chunker.strategy,
+                    chunker_hash=chunker.fingerprint(),
+                    chunks=len(document_chunks),
+                )
+            )
+        return chunks, matches
 
     async def _all_entities_by_label(self, label: str) -> list[Entity]:
         """Return every persisted entity with label, for consolidate().

@@ -10,7 +10,7 @@ Agentic GraphRAG: graph-based RAG with agentic reasoning.
 **Modules:**
 
 - [**agents**](#agrag.agents) – Agentic layer: planner/researcher/verifier over SearchEngine.
-- [**chunking**](#agrag.chunking) – Chunking helpers for the ingestion layer.
+- [**chunking**](#agrag.chunking) – Chunking: how a Document becomes Chunks.
 - [**common**](#agrag.common) – Common utilities and data models shared across agrag.
 - [**cypher**](#agrag.cypher) – Cypher query builders for graph stores.
 - [**embedding**](#agrag.embedding) – Text embedding: turn strings into dense vectors.
@@ -1349,292 +1349,1763 @@ when it delegates to the verifier.
 
 ### `agrag.chunking`
 
-Chunking helpers for the ingestion layer.
+Chunking: how a Document becomes Chunks.
 
-This module isolates the chonkie dependency to one import site, so the rest of the
-codebase (and tests) can build a chunker without importing chonkie directly.
+A `Chunker` splits one document. A `Chunking` holds the rules that pick a chunker
+for each document, and `DEFAULT_CHUNKING` is the preset that `Graph` uses.
 
 **Modules:**
 
-- [**text**](#agrag.chunking.text) – Splits a text Document into Chunks with the chonkie chunker.
+- [**base**](#agrag.chunking.base) – The Chunker contract: how a Document becomes Chunks, and how that is recorded.
+- [**docling**](#agrag.chunking.docling) – Docling-native chunking.
+- [**recursive**](#agrag.chunking.recursive) – The recursive strategy: split on the coarsest delimiter that fits the budget.
+- [**rules**](#agrag.chunking.rules) – Chunking rules: which chunker a document gets, as data.
+- [**sentence**](#agrag.chunking.sentence) – The sentence strategy: whole sentences packed up to a token budget.
+- [**token**](#agrag.chunking.token) – The token strategy: fixed-size windows of tokens, with optional overlap.
 
 **Classes:**
 
-- [**RecursiveChunker**](#agrag.chunking.RecursiveChunker) – Chunker that recursively splits text into smaller chunks, based on the provided RecursiveRules.
-
-**Functions:**
-
-- [**default_chunker**](#agrag.chunking.default_chunker) – Build the default text chunker.
-
-#### `agrag.chunking.RecursiveChunker`
-
-```python
-RecursiveChunker(tokenizer:Union[str, TokenizerProtocol] = 'character', chunk_size:int = 2048, rules:RecursiveRules = RecursiveRules(), min_characters_per_chunk:int = 24) -> None
-```
-
-Bases: <code>[BaseChunker](#chonkie.chunker.base.BaseChunker)</code>
-
-Chunker that recursively splits text into smaller chunks, based on the provided RecursiveRules.
-
-**Parameters:**
-
-- **tokenizer** (<code>[Union](#typing.Union)\[[str](#str), [TokenizerProtocol](#chonkie.tokenizer.TokenizerProtocol)\]</code>) – Tokenizer to use
-- **chunk_size** (<code>[int](#int)</code>) – Maximum size of each chunk.
-- **rules** (<code>[RecursiveRules](#chonkie.types.RecursiveRules)</code>) – Recursive rules to use for chunking.
-- **min_characters_per_chunk** (<code>[int](#int)</code>) – Minimum number of characters per chunk.
-
-**Functions:**
-
-- [**achunk**](#agrag.chunking.RecursiveChunker.achunk) – Chunk the given text asynchronously.
-- [**achunk_batch**](#agrag.chunking.RecursiveChunker.achunk_batch) – Chunk a batch of texts asynchronously.
-- [**achunk_document**](#agrag.chunking.RecursiveChunker.achunk_document) – Chunk a document asynchronously.
-- [**chunk**](#agrag.chunking.RecursiveChunker.chunk) – Recursively chunk text.
-- [**chunk_batch**](#agrag.chunking.RecursiveChunker.chunk_batch) – Chunk a batch of texts.
-- [**chunk_document**](#agrag.chunking.RecursiveChunker.chunk_document) – Chunk a document.
-- [**from_recipe**](#agrag.chunking.RecursiveChunker.from_recipe) – Create a RecursiveChunker object from a recipe.
+- [**Chunker**](#agrag.chunking.Chunker) – Splits one Document into Chunks and builds their provenance.
+- [**Chunking**](#agrag.chunking.Chunking) – An ordered list of chunking rules and a fallback chunker.
+- [**ChunkingError**](#agrag.chunking.ChunkingError) – A chunker broke the chunk contract or could not chunk a document.
+- [**ChunkingRule**](#agrag.chunking.ChunkingRule) – A match and the chunker for the documents it matches.
+- [**DoclingChunker**](#agrag.chunking.DoclingChunker) – Splits a parsed docling document with docling's hybrid chunker.
+- [**RecursiveChunker**](#agrag.chunking.RecursiveChunker) – Splits on paragraph, sentence and word boundaries, coarsest first.
+- [**RuleMatch**](#agrag.chunking.RuleMatch) – The documents a rule applies to.
+- [**SentenceChunker**](#agrag.chunking.SentenceChunker) – Packs whole sentences into chunks of at most `chunk_size` tokens.
+- [**SplitLevel**](#agrag.chunking.SplitLevel) – One level of recursive split rules.
+- [**TokenChunker**](#agrag.chunking.TokenChunker) – Cuts the text into windows of `chunk_size` tokens.
 
 **Attributes:**
 
-- [**chunk_size**](#agrag.chunking.RecursiveChunker.chunk_size) –
-- [**min_characters_per_chunk**](#agrag.chunking.RecursiveChunker.min_characters_per_chunk) –
-- [**rules**](#agrag.chunking.RecursiveChunker.rules) –
-- [**sep**](#agrag.chunking.RecursiveChunker.sep) –
-- [**tokenizer**](#agrag.chunking.RecursiveChunker.tokenizer) (<code>[AutoTokenizer](#chonkie.tokenizer.AutoTokenizer)</code>) – Get the tokenizer instance.
+- [**DEFAULT_CHUNKING**](#agrag.chunking.DEFAULT_CHUNKING) –
+
+#### `agrag.chunking.Chunker`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>, <code>[ABC](#abc.ABC)</code>
+
+Splits one Document into Chunks and builds their provenance.
+
+A chunker is plain data: its fields are its settings. `settings()` lists them
+and `fingerprint()` hashes them, so two chunkers with equal settings have equal
+fingerprints. Subclasses implement `strategy` and `_split`. `chunk()`
+checks what `_split` returns and records the chunker on every chunk.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.Chunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.Chunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_post_init**](#agrag.chunking.Chunker.model_post_init) – Compute the fingerprint once, after the settings are validated.
+- [**settings**](#agrag.chunking.Chunker.settings) – Return the strategy name and every setting as JSON-safe data.
+
+**Attributes:**
+
+- [**model_config**](#agrag.chunking.Chunker.model_config) –
+- [**strategy**](#agrag.chunking.Chunker.strategy) (<code>[str](#str)</code>) – The stable name of this strategy, for example `"recursive"`.
+
+##### `agrag.chunking.Chunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
 
 **Parameters:**
 
-- **tokenizer** (<code>[Union](#typing.Union)\[[str](#str), [TokenizerProtocol](#chonkie.tokenizer.TokenizerProtocol)\]</code>) – Tokenizer to use
-- **chunk_size** (<code>[int](#int)</code>) – Maximum size of each chunk.
-- **rules** (<code>[RecursiveRules](#chonkie.types.RecursiveRules)</code>) – Recursive rules to use for chunking.
-- **min_characters_per_chunk** (<code>[int](#int)</code>) – Minimum number of characters per chunk.
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
 
 **Raises:**
 
-- <code>[ValueError](#ValueError)</code> – If chunk_size \<=0
-- <code>[ValueError](#ValueError)</code> – If min_characters_per_chunk < 1
-- <code>[ValueError](#ValueError)</code> – If rules is not a RecursiveRules object.
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
 
-##### `agrag.chunking.RecursiveChunker.achunk`
+##### `agrag.chunking.Chunker.fingerprint`
 
 ```python
-achunk(text:str) -> list[Chunk]
+fingerprint() -> str
 ```
 
-Chunk the given text asynchronously.
+Return the hash of `settings()`, 16 hex characters.
+
+##### `agrag.chunking.Chunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.Chunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Compute the fingerprint once, after the settings are validated.
+
+##### `agrag.chunking.Chunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+##### `agrag.chunking.Chunker.strategy`
+
+```python
+strategy: str
+```
+
+The stable name of this strategy, for example `"recursive"`.
+
+#### `agrag.chunking.Chunking`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+An ordered list of chunking rules and a fallback chunker.
+
+The first rule that matches a document picks its chunker. A document that no
+rule matches gets `fallback`.
+
+**Attributes:**
+
+- [**rules**](#agrag.chunking.Chunking.rules) (<code>[list](#list)\[[ChunkingRule](#agrag.chunking.rules.ChunkingRule)\]</code>) – The rules, most specific first.
+- [**fallback**](#agrag.chunking.Chunking.fallback) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[Chunker](#agrag.chunking.base.Chunker)\]</code>) – The chunker for documents that no rule matches.
+
+**Functions:**
+
+- [**fingerprint**](#agrag.chunking.Chunking.fingerprint) – Return a hash of every rule match and every chunker setting.
+- [**select**](#agrag.chunking.Chunking.select) – Pick the chunker for a document.
+
+##### `agrag.chunking.Chunking.fallback`
+
+```python
+fallback: SerializeAsAny[Chunker]
+```
+
+##### `agrag.chunking.Chunking.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return a hash of every rule match and every chunker setting.
+
+##### `agrag.chunking.Chunking.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.Chunking.rules`
+
+```python
+rules: list[ChunkingRule] = Field(default_factory=list)
+```
+
+##### `agrag.chunking.Chunking.select`
+
+```python
+select(document:Document) -> tuple[int | None, Chunker]
+```
+
+Pick the chunker for a document.
 
 **Parameters:**
 
-- **text** (<code>[str](#str)</code>) – The text to chunk.
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to chunk.
 
 **Returns:**
 
-- <code>[list](#list)\[[Chunk](#chonkie.types.Chunk)\]</code> – list\[Chunk\]: A list of Chunks.
+- <code>[int](#int) | None</code> – The index of the first matching rule and its chunker, or `None` and
+- <code>[Chunker](#agrag.chunking.base.Chunker)</code> – the fallback when no rule matches.
 
-##### `agrag.chunking.RecursiveChunker.achunk_batch`
+#### `agrag.chunking.ChunkingError`
+
+Bases: <code>[Exception](#Exception)</code>
+
+A chunker broke the chunk contract or could not chunk a document.
+
+#### `agrag.chunking.ChunkingRule`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+A match and the chunker for the documents it matches.
+
+**Attributes:**
+
+- [**match**](#agrag.chunking.ChunkingRule.match) (<code>[RuleMatch](#agrag.chunking.rules.RuleMatch)</code>) – The documents this rule applies to.
+- [**chunker**](#agrag.chunking.ChunkingRule.chunker) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[Chunker](#agrag.chunking.base.Chunker)\]</code>) – The chunker those documents get.
+
+##### `agrag.chunking.ChunkingRule.chunker`
 
 ```python
-achunk_batch(texts:Sequence[str], show_progress:bool = True) -> list[list[Chunk]]
+chunker: SerializeAsAny[Chunker]
 ```
 
-Chunk a batch of texts asynchronously.
+##### `agrag.chunking.ChunkingRule.match`
+
+```python
+match: RuleMatch
+```
+
+##### `agrag.chunking.ChunkingRule.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+#### `agrag.chunking.DEFAULT_CHUNKING`
+
+```python
+DEFAULT_CHUNKING = Chunking(rules=[ChunkingRule(match=RuleMatch(loader_names=['docling']), chunker=DoclingChunker())], fallback=RecursiveChunker(tokenizer='character', chunk_size=1024, min_characters_per_chunk=24))
+```
+
+#### `agrag.chunking.DoclingChunker`
+
+Bases: <code>[Chunker](#agrag.chunking.base.Chunker)</code>
+
+Splits a parsed docling document with docling's hybrid chunker.
+
+The chunker reads the parsed document that the docling loader keeps in
+`Document.metadata["_docling_document"]`. Each chunk has page provenance.
+Chunk ids come from the chunk index, so they are not stable across a re-parse.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.DoclingChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.DoclingChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_post_init**](#agrag.chunking.DoclingChunker.model_post_init) – Compute the fingerprint once, after the settings are validated.
+- [**settings**](#agrag.chunking.DoclingChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+
+**Attributes:**
+
+- [**model_config**](#agrag.chunking.DoclingChunker.model_config) –
+- [**strategy**](#agrag.chunking.DoclingChunker.strategy) (<code>[str](#str)</code>) – The strategy name, `"docling"`.
+
+##### `agrag.chunking.DoclingChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
 
 **Parameters:**
 
-- **texts** (<code>[Sequence](#typing.Sequence)\[[str](#str)\]</code>) – The texts to chunk.
-- **show_progress** (<code>[bool](#bool)</code>) – Whether to show progress.
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
 
 **Returns:**
 
-- <code>[list](#list)\[[list](#list)\[[Chunk](#chonkie.types.Chunk)\]\]</code> – list\[list[Chunk]\]: A list of lists of Chunks.
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
 
-##### `agrag.chunking.RecursiveChunker.achunk_document`
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+##### `agrag.chunking.DoclingChunker.fingerprint`
 
 ```python
-achunk_document(document:Document) -> Document
+fingerprint() -> str
 ```
 
-Chunk a document asynchronously.
+Return the hash of `settings()`, 16 hex characters.
 
-**Parameters:**
+##### `agrag.chunking.DoclingChunker.model_config`
 
-- **document** (<code>[Document](#chonkie.types.Document)</code>) – The document to chunk.
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
 
-**Returns:**
+##### `agrag.chunking.DoclingChunker.model_post_init`
 
-- <code>[Document](#chonkie.types.Document)</code> – The document with chunks populated.
+```python
+model_post_init(context:Any) -> None
+```
+
+Compute the fingerprint once, after the settings are validated.
+
+##### `agrag.chunking.DoclingChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+##### `agrag.chunking.DoclingChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"docling"`.
+
+#### `agrag.chunking.RecursiveChunker`
+
+Bases: <code>[SpanChunker](#agrag.chunking.base.SpanChunker)</code>
+
+Splits on paragraph, sentence and word boundaries, coarsest first.
+
+**Attributes:**
+
+- [**chunk_size**](#agrag.chunking.RecursiveChunker.chunk_size) (<code>[int](#int)</code>) – The largest chunk size, counted with `tokenizer`.
+- [**tokenizer**](#agrag.chunking.RecursiveChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
+- [**min_characters_per_chunk**](#agrag.chunking.RecursiveChunker.min_characters_per_chunk) (<code>[int](#int)</code>) – The smallest piece the splitter keeps apart.
+- [**levels**](#agrag.chunking.RecursiveChunker.levels) (<code>[list](#list)\[[SplitLevel](#agrag.chunking.recursive.SplitLevel)\] | None</code>) – The split levels, coarsest first. `None` uses the default levels
+  (paragraphs, sentences, punctuation, words, characters).
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.RecursiveChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.RecursiveChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_post_init**](#agrag.chunking.RecursiveChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
+- [**settings**](#agrag.chunking.RecursiveChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.RecursiveChunker.spans) – Return the half-open character spans this strategy cuts text into.
 
 ##### `agrag.chunking.RecursiveChunker.chunk`
 
 ```python
-chunk(text:str) -> list[Chunk]
+chunk(document:Document) -> list[Chunk]
 ```
 
-Recursively chunk text.
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
 
 **Parameters:**
 
-- **text** (<code>[str](#str)</code>) – Text to chunk.
-
-##### `agrag.chunking.RecursiveChunker.chunk_batch`
-
-```python
-chunk_batch(texts:Sequence[str], show_progress:bool = True) -> list[list[Chunk]]
-```
-
-Chunk a batch of texts.
-
-**Parameters:**
-
-- **texts** (<code>[Sequence](#typing.Sequence)\[[str](#str)\]</code>) – The texts to chunk.
-- **show_progress** (<code>[bool](#bool)</code>) – Whether to show progress.
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
 
 **Returns:**
 
-- <code>[list](#list)\[[list](#list)\[[Chunk](#chonkie.types.Chunk)\]\]</code> – list\[list[Chunk]\]: A list of lists of Chunks.
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
 
-##### `agrag.chunking.RecursiveChunker.chunk_document`
+**Raises:**
 
-```python
-chunk_document(document:Document) -> Document
-```
-
-Chunk a document.
-
-After chunking, non-empty `document.metadata` is shallow-merged into each
-chunk's :attr:`~chonkie.types.Chunk.metadata` (chunk keys override on conflict).
-
-**Parameters:**
-
-- **document** (<code>[Document](#chonkie.types.Document)</code>) – The document to chunk.
-
-**Returns:**
-
-- <code>[Document](#chonkie.types.Document)</code> – The document with chunks populated.
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
 
 ##### `agrag.chunking.RecursiveChunker.chunk_size`
 
 ```python
-chunk_size = chunk_size
+chunk_size: int = Field(default=256, gt=0)
 ```
 
-##### `agrag.chunking.RecursiveChunker.from_recipe`
+##### `agrag.chunking.RecursiveChunker.fingerprint`
 
 ```python
-from_recipe(name:Optional[str] = 'default', lang:Optional[str] = 'en', path:str | PathLike | None = None, tokenizer:Union[str, TokenizerProtocol] = 'character', chunk_size:int = 2048, min_characters_per_chunk:int = 24) -> RecursiveChunker
+fingerprint() -> str
 ```
 
-Create a RecursiveChunker object from a recipe.
+Return the hash of `settings()`, 16 hex characters.
 
-The recipes are registered in the [Chonkie Recipe Store](https://huggingface.co/datasets/chonkie-ai/recipes). If the recipe is not there, you can create your own recipe and share it with the community!
+##### `agrag.chunking.RecursiveChunker.levels`
 
-**Parameters:**
-
-- **name** (<code>[Optional](#typing.Optional)\[[str](#str)\]</code>) – The name of the recipe.
-- **lang** (<code>[Optional](#typing.Optional)\[[str](#str)\]</code>) – The language that the recursive chunker should support.
-- **path** (<code>[Optional](#typing.Optional)\[[str](#str)\]</code>) – The path to the recipe.
-- **tokenizer** (<code>[Union](#typing.Union)\[[str](#str), [TokenizerProtocol](#chonkie.tokenizer.TokenizerProtocol)\]</code>) – The tokenizer to use.
-- **chunk_size** (<code>[int](#int)</code>) – The chunk size.
-- **min_characters_per_chunk** (<code>[int](#int)</code>) – The minimum number of characters per chunk.
-
-**Returns:**
-
-- **RecursiveChunker** (<code>[RecursiveChunker](#chonkie.chunker.recursive.RecursiveChunker)</code>) – The RecursiveChunker object.
-
-**Raises:**
-
-- <code>[ValueError](#ValueError)</code> – If the recipe is not found.
+```python
+levels: list[SplitLevel] | None = None
+```
 
 ##### `agrag.chunking.RecursiveChunker.min_characters_per_chunk`
 
 ```python
-min_characters_per_chunk = min_characters_per_chunk
+min_characters_per_chunk: int = Field(default=24, gt=0)
 ```
 
-##### `agrag.chunking.RecursiveChunker.rules`
+##### `agrag.chunking.RecursiveChunker.model_config`
 
 ```python
-rules = rules
+model_config = ConfigDict(frozen=True, extra='forbid')
 ```
 
-##### `agrag.chunking.RecursiveChunker.sep`
+##### `agrag.chunking.RecursiveChunker.model_post_init`
 
 ```python
-sep = '✄'
+model_post_init(context:Any) -> None
 ```
+
+Build the engine once, so a bad setting fails at construction.
+
+##### `agrag.chunking.RecursiveChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+##### `agrag.chunking.RecursiveChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return the half-open character spans this strategy cuts text into.
+
+A cut inside a character that a tokenizer splits into several tokens makes
+an empty piece. This method drops empty pieces, and no text is lost with them.
+
+**Parameters:**
+
+- **text** (<code>[str](#str)</code>) – The text to cut.
+
+**Returns:**
+
+- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – The spans, in order, all non-empty.
+
+##### `agrag.chunking.RecursiveChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"recursive"`.
 
 ##### `agrag.chunking.RecursiveChunker.tokenizer`
 
 ```python
-tokenizer: AutoTokenizer
+tokenizer: str = DEFAULT_TOKENIZER
 ```
 
-Get the tokenizer instance.
+#### `agrag.chunking.RuleMatch`
 
-#### `agrag.chunking.default_chunker`
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
 
-```python
-default_chunker(chunk_size:int = 1024) -> RecursiveChunker
-```
+The documents a rule applies to.
 
-Build the default text chunker.
+Every key is optional and a key left as `None` matches any value. Keys combine
+with AND. A value in a list key matches if it equals any item of the list.
 
-**Parameters:**
+**Attributes:**
 
-- **chunk_size** (<code>[int](#int)</code>) – The maximum number of characters per chunk.
-
-**Returns:**
-
-- <code>[RecursiveChunker](#chonkie.RecursiveChunker)</code> – A character-based recursive chunker.
-
-#### `agrag.chunking.text`
-
-Splits a text Document into Chunks with the chonkie chunker.
+- [**loader_names**](#agrag.chunking.RuleMatch.loader_names) (<code>[list](#list)\[[str](#str)\] | None</code>) – Match `Document.loader_name`.
+- [**source_formats**](#agrag.chunking.RuleMatch.source_formats) (<code>[list](#list)\[[SourceFormat](#agrag.common.data_models.document.SourceFormat)\] | None</code>) – Match `Document.source_format`.
+- [**families**](#agrag.chunking.RuleMatch.families) (<code>[list](#list)\[[DocumentFamily](#agrag.common.data_models.document.DocumentFamily)\] | None</code>) – Match `Document.family`.
+- [**uri_glob**](#agrag.chunking.RuleMatch.uri_glob) (<code>[str](#str) | None</code>) – Match `Document.uri` against this `fnmatch` pattern. Case
+  sensitive.
 
 **Functions:**
 
-- [**chunk_document**](#agrag.chunking.text.chunk_document) – Split a document's text into chunks.
-- [**iter_chunk_documents**](#agrag.chunking.text.iter_chunk_documents) – Chunk a stream of documents into a flat stream of chunks.
+- [**matches**](#agrag.chunking.RuleMatch.matches) – Return whether every set key matches the document.
 
-##### `agrag.chunking.text.chunk_document`
+##### `agrag.chunking.RuleMatch.families`
 
 ```python
-chunk_document(document:Document, chunker:RecursiveChunker) -> list[Chunk]
+families: list[DocumentFamily] | None = None
 ```
 
-Split a document's text into chunks.
+##### `agrag.chunking.RuleMatch.loader_names`
 
-This function computes `line_start` and `line_end` from each chunk's character
-span,
-because the chunker does not report line numbers. It also sets `heading_path` from
-the
-document's heading outline.
+```python
+loader_names: list[str] | None = None
+```
+
+##### `agrag.chunking.RuleMatch.matches`
+
+```python
+matches(document:Document) -> bool
+```
+
+Return whether every set key matches the document.
+
+##### `agrag.chunking.RuleMatch.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.RuleMatch.source_formats`
+
+```python
+source_formats: list[SourceFormat] | None = None
+```
+
+##### `agrag.chunking.RuleMatch.uri_glob`
+
+```python
+uri_glob: str | None = None
+```
+
+#### `agrag.chunking.SentenceChunker`
+
+Bases: <code>[SpanChunker](#agrag.chunking.base.SpanChunker)</code>
+
+Packs whole sentences into chunks of at most `chunk_size` tokens.
+
+A single sentence longer than `chunk_size` stays whole, so a chunk can be
+larger than the budget when the text has a very long sentence.
+
+**Attributes:**
+
+- [**chunk_size**](#agrag.chunking.SentenceChunker.chunk_size) (<code>[int](#int)</code>) – The largest chunk size, counted with `tokenizer`.
+- [**chunk_overlap**](#agrag.chunking.SentenceChunker.chunk_overlap) (<code>[int](#int)</code>) – The overlap between neighbours, in tokens. Each chunk keeps
+  its exact span in the document.
+- [**min_sentences_per_chunk**](#agrag.chunking.SentenceChunker.min_sentences_per_chunk) (<code>[int](#int)</code>) – The fewest sentences in a chunk.
+- [**min_characters_per_sentence**](#agrag.chunking.SentenceChunker.min_characters_per_sentence) (<code>[int](#int)</code>) – The shortest text that counts as a sentence.
+- [**tokenizer**](#agrag.chunking.SentenceChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.SentenceChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.SentenceChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_post_init**](#agrag.chunking.SentenceChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
+- [**settings**](#agrag.chunking.SentenceChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.SentenceChunker.spans) – Return the half-open character spans this strategy cuts text into.
+
+##### `agrag.chunking.SentenceChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
 
 **Parameters:**
 
-- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split. This function reads only its `text` and
-  `heading_outline` fields.
-- **chunker** (<code>[RecursiveChunker](#chonkie.RecursiveChunker)</code>) – The chunker to run.
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
 
 **Returns:**
 
-- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order.
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
 
-##### `agrag.chunking.text.iter_chunk_documents`
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+##### `agrag.chunking.SentenceChunker.chunk_overlap`
 
 ```python
-iter_chunk_documents(documents:Iterator[Document], chunker:RecursiveChunker) -> Iterator[Chunk]
+chunk_overlap: int = Field(default=0, ge=0)
 ```
 
-Chunk a stream of documents into a flat stream of chunks.
+##### `agrag.chunking.SentenceChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+##### `agrag.chunking.SentenceChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+##### `agrag.chunking.SentenceChunker.min_characters_per_sentence`
+
+```python
+min_characters_per_sentence: int = Field(default=12, gt=0)
+```
+
+##### `agrag.chunking.SentenceChunker.min_sentences_per_chunk`
+
+```python
+min_sentences_per_chunk: int = Field(default=1, gt=0)
+```
+
+##### `agrag.chunking.SentenceChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.SentenceChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Build the engine once, so a bad setting fails at construction.
+
+##### `agrag.chunking.SentenceChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+##### `agrag.chunking.SentenceChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return the half-open character spans this strategy cuts text into.
+
+A cut inside a character that a tokenizer splits into several tokens makes
+an empty piece. This method drops empty pieces, and no text is lost with them.
 
 **Parameters:**
 
-- **documents** (<code>[Iterator](#collections.abc.Iterator)\[[Document](#agrag.common.data_models.document.Document)\]</code>) – The documents to chunk, in order.
-- **chunker** (<code>[RecursiveChunker](#chonkie.RecursiveChunker)</code>) – The chunker to run on each document.
+- **text** (<code>[str](#str)</code>) – The text to cut.
 
-**Yields:**
+**Returns:**
 
-- <code>[Chunk](#agrag.common.data_models.chunk.Chunk)</code> – Each chunk, in document then chunk order.
+- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – The spans, in order, all non-empty.
+
+##### `agrag.chunking.SentenceChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"sentence"`.
+
+##### `agrag.chunking.SentenceChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
+```
+
+#### `agrag.chunking.SplitLevel`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One level of recursive split rules.
+
+**Attributes:**
+
+- [**delimiters**](#agrag.chunking.SplitLevel.delimiters) (<code>[list](#list)\[[str](#str)\] | None</code>) – The strings to split on at this level. `None` means none.
+- [**whitespace**](#agrag.chunking.SplitLevel.whitespace) (<code>[bool](#bool)</code>) – Whether to split on whitespace at this level.
+- [**include_delim**](#agrag.chunking.SplitLevel.include_delim) (<code>[Literal](#typing.Literal)['prev', 'next'] | None</code>) – Whether a delimiter stays with the previous piece, the next
+  piece, or is dropped.
+
+##### `agrag.chunking.SplitLevel.delimiters`
+
+```python
+delimiters: list[str] | None = None
+```
+
+##### `agrag.chunking.SplitLevel.include_delim`
+
+```python
+include_delim: Literal['prev', 'next'] | None = 'prev'
+```
+
+##### `agrag.chunking.SplitLevel.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.SplitLevel.whitespace`
+
+```python
+whitespace: bool = False
+```
+
+#### `agrag.chunking.TokenChunker`
+
+Bases: <code>[SpanChunker](#agrag.chunking.base.SpanChunker)</code>
+
+Cuts the text into windows of `chunk_size` tokens.
+
+Neighbouring chunks overlap when `chunk_overlap` is set, and each chunk keeps
+its exact span in the document.
+
+**Attributes:**
+
+- [**chunk_size**](#agrag.chunking.TokenChunker.chunk_size) (<code>[int](#int)</code>) – The window size, counted with `tokenizer`.
+- [**chunk_overlap**](#agrag.chunking.TokenChunker.chunk_overlap) (<code>[int](#int) | [float](#float)</code>) – The overlap between neighbours. An int counts tokens. A float
+  from 0 up to 1 is a share of `chunk_size`.
+- [**tokenizer**](#agrag.chunking.TokenChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.TokenChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.TokenChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_post_init**](#agrag.chunking.TokenChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
+- [**settings**](#agrag.chunking.TokenChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.TokenChunker.spans) – Return the half-open character spans this strategy cuts text into.
+
+##### `agrag.chunking.TokenChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+##### `agrag.chunking.TokenChunker.chunk_overlap`
+
+```python
+chunk_overlap: int | float = Field(default=0, ge=0)
+```
+
+##### `agrag.chunking.TokenChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+##### `agrag.chunking.TokenChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+##### `agrag.chunking.TokenChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.TokenChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Build the engine once, so a bad setting fails at construction.
+
+##### `agrag.chunking.TokenChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+##### `agrag.chunking.TokenChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return the half-open character spans this strategy cuts text into.
+
+A cut inside a character that a tokenizer splits into several tokens makes
+an empty piece. This method drops empty pieces, and no text is lost with them.
+
+**Parameters:**
+
+- **text** (<code>[str](#str)</code>) – The text to cut.
+
+**Returns:**
+
+- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – The spans, in order, all non-empty.
+
+##### `agrag.chunking.TokenChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"token"`.
+
+##### `agrag.chunking.TokenChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
+```
+
+#### `agrag.chunking.base`
+
+The Chunker contract: how a Document becomes Chunks, and how that is recorded.
+
+**Classes:**
+
+- [**Chunker**](#agrag.chunking.base.Chunker) – Splits one Document into Chunks and builds their provenance.
+- [**ChunkingError**](#agrag.chunking.base.ChunkingError) – A chunker broke the chunk contract or could not chunk a document.
+- [**SpanChunker**](#agrag.chunking.base.SpanChunker) – A chunker that only decides where to cut; text and offsets come from the source.
+
+**Functions:**
+
+- [**fingerprint_of**](#agrag.chunking.base.fingerprint_of) – Return a short stable hash of a JSON-safe value.
+
+**Attributes:**
+
+- [**DEFAULT_TOKENIZER**](#agrag.chunking.base.DEFAULT_TOKENIZER) –
+
+##### `agrag.chunking.base.Chunker`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>, <code>[ABC](#abc.ABC)</code>
+
+Splits one Document into Chunks and builds their provenance.
+
+A chunker is plain data: its fields are its settings. `settings()` lists them
+and `fingerprint()` hashes them, so two chunkers with equal settings have equal
+fingerprints. Subclasses implement `strategy` and `_split`. `chunk()`
+checks what `_split` returns and records the chunker on every chunk.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.base.Chunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.base.Chunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_post_init**](#agrag.chunking.base.Chunker.model_post_init) – Compute the fingerprint once, after the settings are validated.
+- [**settings**](#agrag.chunking.base.Chunker.settings) – Return the strategy name and every setting as JSON-safe data.
+
+**Attributes:**
+
+- [**model_config**](#agrag.chunking.base.Chunker.model_config) –
+- [**strategy**](#agrag.chunking.base.Chunker.strategy) (<code>[str](#str)</code>) – The stable name of this strategy, for example `"recursive"`.
+
+###### `agrag.chunking.base.Chunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+###### `agrag.chunking.base.Chunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+###### `agrag.chunking.base.Chunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.base.Chunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Compute the fingerprint once, after the settings are validated.
+
+###### `agrag.chunking.base.Chunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+###### `agrag.chunking.base.Chunker.strategy`
+
+```python
+strategy: str
+```
+
+The stable name of this strategy, for example `"recursive"`.
+
+##### `agrag.chunking.base.ChunkingError`
+
+Bases: <code>[Exception](#Exception)</code>
+
+A chunker broke the chunk contract or could not chunk a document.
+
+##### `agrag.chunking.base.DEFAULT_TOKENIZER`
+
+```python
+DEFAULT_TOKENIZER = 'o200k_base'
+```
+
+##### `agrag.chunking.base.SpanChunker`
+
+Bases: <code>[Chunker](#agrag.chunking.base.Chunker)</code>
+
+A chunker that only decides where to cut; text and offsets come from the source.
+
+Subclasses build an engine that returns objects with `start_index` and
+`end_index` for a text. The chunk text is always a slice of the document text,
+so a lossy tokenizer round trip cannot change it.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.base.SpanChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.base.SpanChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_post_init**](#agrag.chunking.base.SpanChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
+- [**settings**](#agrag.chunking.base.SpanChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.base.SpanChunker.spans) – Return the half-open character spans this strategy cuts text into.
+
+**Attributes:**
+
+- [**model_config**](#agrag.chunking.base.SpanChunker.model_config) –
+- [**strategy**](#agrag.chunking.base.SpanChunker.strategy) (<code>[str](#str)</code>) – The stable name of this strategy, for example `"recursive"`.
+
+###### `agrag.chunking.base.SpanChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+###### `agrag.chunking.base.SpanChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+###### `agrag.chunking.base.SpanChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.base.SpanChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Build the engine once, so a bad setting fails at construction.
+
+###### `agrag.chunking.base.SpanChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+###### `agrag.chunking.base.SpanChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return the half-open character spans this strategy cuts text into.
+
+A cut inside a character that a tokenizer splits into several tokens makes
+an empty piece. This method drops empty pieces, and no text is lost with them.
+
+**Parameters:**
+
+- **text** (<code>[str](#str)</code>) – The text to cut.
+
+**Returns:**
+
+- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – The spans, in order, all non-empty.
+
+###### `agrag.chunking.base.SpanChunker.strategy`
+
+```python
+strategy: str
+```
+
+The stable name of this strategy, for example `"recursive"`.
+
+##### `agrag.chunking.base.fingerprint_of`
+
+```python
+fingerprint_of(value:object) -> str
+```
+
+Return a short stable hash of a JSON-safe value.
+
+**Parameters:**
+
+- **value** (<code>[object](#object)</code>) – Data made of dicts, lists, strings, numbers, booleans and `None`.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The first 16 hex characters of the SHA-256 of the canonical JSON.
+
+#### `agrag.chunking.docling`
+
+Docling-native chunking.
+
+This module wraps docling's `HybridChunker` to produce `Chunk` objects with
+`PageProvenance`. It imports docling inside the chunking method so that importing
+the module does not require the `docling` extra.
+
+**Classes:**
+
+- [**DoclingChunker**](#agrag.chunking.docling.DoclingChunker) – Splits a parsed docling document with docling's hybrid chunker.
+
+##### `agrag.chunking.docling.DoclingChunker`
+
+Bases: <code>[Chunker](#agrag.chunking.base.Chunker)</code>
+
+Splits a parsed docling document with docling's hybrid chunker.
+
+The chunker reads the parsed document that the docling loader keeps in
+`Document.metadata["_docling_document"]`. Each chunk has page provenance.
+Chunk ids come from the chunk index, so they are not stable across a re-parse.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.docling.DoclingChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.docling.DoclingChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_post_init**](#agrag.chunking.docling.DoclingChunker.model_post_init) – Compute the fingerprint once, after the settings are validated.
+- [**settings**](#agrag.chunking.docling.DoclingChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+
+**Attributes:**
+
+- [**model_config**](#agrag.chunking.docling.DoclingChunker.model_config) –
+- [**strategy**](#agrag.chunking.docling.DoclingChunker.strategy) (<code>[str](#str)</code>) – The strategy name, `"docling"`.
+
+###### `agrag.chunking.docling.DoclingChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+###### `agrag.chunking.docling.DoclingChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+###### `agrag.chunking.docling.DoclingChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.docling.DoclingChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Compute the fingerprint once, after the settings are validated.
+
+###### `agrag.chunking.docling.DoclingChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+###### `agrag.chunking.docling.DoclingChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"docling"`.
+
+#### `agrag.chunking.recursive`
+
+The recursive strategy: split on the coarsest delimiter that fits the budget.
+
+**Classes:**
+
+- [**RecursiveChunker**](#agrag.chunking.recursive.RecursiveChunker) – Splits on paragraph, sentence and word boundaries, coarsest first.
+- [**SplitLevel**](#agrag.chunking.recursive.SplitLevel) – One level of recursive split rules.
+
+##### `agrag.chunking.recursive.RecursiveChunker`
+
+Bases: <code>[SpanChunker](#agrag.chunking.base.SpanChunker)</code>
+
+Splits on paragraph, sentence and word boundaries, coarsest first.
+
+**Attributes:**
+
+- [**chunk_size**](#agrag.chunking.recursive.RecursiveChunker.chunk_size) (<code>[int](#int)</code>) – The largest chunk size, counted with `tokenizer`.
+- [**tokenizer**](#agrag.chunking.recursive.RecursiveChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
+- [**min_characters_per_chunk**](#agrag.chunking.recursive.RecursiveChunker.min_characters_per_chunk) (<code>[int](#int)</code>) – The smallest piece the splitter keeps apart.
+- [**levels**](#agrag.chunking.recursive.RecursiveChunker.levels) (<code>[list](#list)\[[SplitLevel](#agrag.chunking.recursive.SplitLevel)\] | None</code>) – The split levels, coarsest first. `None` uses the default levels
+  (paragraphs, sentences, punctuation, words, characters).
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.recursive.RecursiveChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.recursive.RecursiveChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_post_init**](#agrag.chunking.recursive.RecursiveChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
+- [**settings**](#agrag.chunking.recursive.RecursiveChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.recursive.RecursiveChunker.spans) – Return the half-open character spans this strategy cuts text into.
+
+###### `agrag.chunking.recursive.RecursiveChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+###### `agrag.chunking.recursive.RecursiveChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+###### `agrag.chunking.recursive.RecursiveChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+###### `agrag.chunking.recursive.RecursiveChunker.levels`
+
+```python
+levels: list[SplitLevel] | None = None
+```
+
+###### `agrag.chunking.recursive.RecursiveChunker.min_characters_per_chunk`
+
+```python
+min_characters_per_chunk: int = Field(default=24, gt=0)
+```
+
+###### `agrag.chunking.recursive.RecursiveChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.recursive.RecursiveChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Build the engine once, so a bad setting fails at construction.
+
+###### `agrag.chunking.recursive.RecursiveChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+###### `agrag.chunking.recursive.RecursiveChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return the half-open character spans this strategy cuts text into.
+
+A cut inside a character that a tokenizer splits into several tokens makes
+an empty piece. This method drops empty pieces, and no text is lost with them.
+
+**Parameters:**
+
+- **text** (<code>[str](#str)</code>) – The text to cut.
+
+**Returns:**
+
+- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – The spans, in order, all non-empty.
+
+###### `agrag.chunking.recursive.RecursiveChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"recursive"`.
+
+###### `agrag.chunking.recursive.RecursiveChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
+```
+
+##### `agrag.chunking.recursive.SplitLevel`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One level of recursive split rules.
+
+**Attributes:**
+
+- [**delimiters**](#agrag.chunking.recursive.SplitLevel.delimiters) (<code>[list](#list)\[[str](#str)\] | None</code>) – The strings to split on at this level. `None` means none.
+- [**whitespace**](#agrag.chunking.recursive.SplitLevel.whitespace) (<code>[bool](#bool)</code>) – Whether to split on whitespace at this level.
+- [**include_delim**](#agrag.chunking.recursive.SplitLevel.include_delim) (<code>[Literal](#typing.Literal)['prev', 'next'] | None</code>) – Whether a delimiter stays with the previous piece, the next
+  piece, or is dropped.
+
+###### `agrag.chunking.recursive.SplitLevel.delimiters`
+
+```python
+delimiters: list[str] | None = None
+```
+
+###### `agrag.chunking.recursive.SplitLevel.include_delim`
+
+```python
+include_delim: Literal['prev', 'next'] | None = 'prev'
+```
+
+###### `agrag.chunking.recursive.SplitLevel.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.recursive.SplitLevel.whitespace`
+
+```python
+whitespace: bool = False
+```
+
+#### `agrag.chunking.rules`
+
+Chunking rules: which chunker a document gets, as data.
+
+**Classes:**
+
+- [**Chunking**](#agrag.chunking.rules.Chunking) – An ordered list of chunking rules and a fallback chunker.
+- [**ChunkingRule**](#agrag.chunking.rules.ChunkingRule) – A match and the chunker for the documents it matches.
+- [**RuleMatch**](#agrag.chunking.rules.RuleMatch) – The documents a rule applies to.
+
+**Attributes:**
+
+- [**DEFAULT_CHUNKING**](#agrag.chunking.rules.DEFAULT_CHUNKING) –
+
+##### `agrag.chunking.rules.Chunking`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+An ordered list of chunking rules and a fallback chunker.
+
+The first rule that matches a document picks its chunker. A document that no
+rule matches gets `fallback`.
+
+**Attributes:**
+
+- [**rules**](#agrag.chunking.rules.Chunking.rules) (<code>[list](#list)\[[ChunkingRule](#agrag.chunking.rules.ChunkingRule)\]</code>) – The rules, most specific first.
+- [**fallback**](#agrag.chunking.rules.Chunking.fallback) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[Chunker](#agrag.chunking.base.Chunker)\]</code>) – The chunker for documents that no rule matches.
+
+**Functions:**
+
+- [**fingerprint**](#agrag.chunking.rules.Chunking.fingerprint) – Return a hash of every rule match and every chunker setting.
+- [**select**](#agrag.chunking.rules.Chunking.select) – Pick the chunker for a document.
+
+###### `agrag.chunking.rules.Chunking.fallback`
+
+```python
+fallback: SerializeAsAny[Chunker]
+```
+
+###### `agrag.chunking.rules.Chunking.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return a hash of every rule match and every chunker setting.
+
+###### `agrag.chunking.rules.Chunking.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.rules.Chunking.rules`
+
+```python
+rules: list[ChunkingRule] = Field(default_factory=list)
+```
+
+###### `agrag.chunking.rules.Chunking.select`
+
+```python
+select(document:Document) -> tuple[int | None, Chunker]
+```
+
+Pick the chunker for a document.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to chunk.
+
+**Returns:**
+
+- <code>[int](#int) | None</code> – The index of the first matching rule and its chunker, or `None` and
+- <code>[Chunker](#agrag.chunking.base.Chunker)</code> – the fallback when no rule matches.
+
+##### `agrag.chunking.rules.ChunkingRule`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+A match and the chunker for the documents it matches.
+
+**Attributes:**
+
+- [**match**](#agrag.chunking.rules.ChunkingRule.match) (<code>[RuleMatch](#agrag.chunking.rules.RuleMatch)</code>) – The documents this rule applies to.
+- [**chunker**](#agrag.chunking.rules.ChunkingRule.chunker) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[Chunker](#agrag.chunking.base.Chunker)\]</code>) – The chunker those documents get.
+
+###### `agrag.chunking.rules.ChunkingRule.chunker`
+
+```python
+chunker: SerializeAsAny[Chunker]
+```
+
+###### `agrag.chunking.rules.ChunkingRule.match`
+
+```python
+match: RuleMatch
+```
+
+###### `agrag.chunking.rules.ChunkingRule.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.rules.DEFAULT_CHUNKING`
+
+```python
+DEFAULT_CHUNKING = Chunking(rules=[ChunkingRule(match=RuleMatch(loader_names=['docling']), chunker=DoclingChunker())], fallback=RecursiveChunker(tokenizer='character', chunk_size=1024, min_characters_per_chunk=24))
+```
+
+##### `agrag.chunking.rules.RuleMatch`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The documents a rule applies to.
+
+Every key is optional and a key left as `None` matches any value. Keys combine
+with AND. A value in a list key matches if it equals any item of the list.
+
+**Attributes:**
+
+- [**loader_names**](#agrag.chunking.rules.RuleMatch.loader_names) (<code>[list](#list)\[[str](#str)\] | None</code>) – Match `Document.loader_name`.
+- [**source_formats**](#agrag.chunking.rules.RuleMatch.source_formats) (<code>[list](#list)\[[SourceFormat](#agrag.common.data_models.document.SourceFormat)\] | None</code>) – Match `Document.source_format`.
+- [**families**](#agrag.chunking.rules.RuleMatch.families) (<code>[list](#list)\[[DocumentFamily](#agrag.common.data_models.document.DocumentFamily)\] | None</code>) – Match `Document.family`.
+- [**uri_glob**](#agrag.chunking.rules.RuleMatch.uri_glob) (<code>[str](#str) | None</code>) – Match `Document.uri` against this `fnmatch` pattern. Case
+  sensitive.
+
+**Functions:**
+
+- [**matches**](#agrag.chunking.rules.RuleMatch.matches) – Return whether every set key matches the document.
+
+###### `agrag.chunking.rules.RuleMatch.families`
+
+```python
+families: list[DocumentFamily] | None = None
+```
+
+###### `agrag.chunking.rules.RuleMatch.loader_names`
+
+```python
+loader_names: list[str] | None = None
+```
+
+###### `agrag.chunking.rules.RuleMatch.matches`
+
+```python
+matches(document:Document) -> bool
+```
+
+Return whether every set key matches the document.
+
+###### `agrag.chunking.rules.RuleMatch.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.rules.RuleMatch.source_formats`
+
+```python
+source_formats: list[SourceFormat] | None = None
+```
+
+###### `agrag.chunking.rules.RuleMatch.uri_glob`
+
+```python
+uri_glob: str | None = None
+```
+
+#### `agrag.chunking.sentence`
+
+The sentence strategy: whole sentences packed up to a token budget.
+
+**Classes:**
+
+- [**SentenceChunker**](#agrag.chunking.sentence.SentenceChunker) – Packs whole sentences into chunks of at most `chunk_size` tokens.
+
+##### `agrag.chunking.sentence.SentenceChunker`
+
+Bases: <code>[SpanChunker](#agrag.chunking.base.SpanChunker)</code>
+
+Packs whole sentences into chunks of at most `chunk_size` tokens.
+
+A single sentence longer than `chunk_size` stays whole, so a chunk can be
+larger than the budget when the text has a very long sentence.
+
+**Attributes:**
+
+- [**chunk_size**](#agrag.chunking.sentence.SentenceChunker.chunk_size) (<code>[int](#int)</code>) – The largest chunk size, counted with `tokenizer`.
+- [**chunk_overlap**](#agrag.chunking.sentence.SentenceChunker.chunk_overlap) (<code>[int](#int)</code>) – The overlap between neighbours, in tokens. Each chunk keeps
+  its exact span in the document.
+- [**min_sentences_per_chunk**](#agrag.chunking.sentence.SentenceChunker.min_sentences_per_chunk) (<code>[int](#int)</code>) – The fewest sentences in a chunk.
+- [**min_characters_per_sentence**](#agrag.chunking.sentence.SentenceChunker.min_characters_per_sentence) (<code>[int](#int)</code>) – The shortest text that counts as a sentence.
+- [**tokenizer**](#agrag.chunking.sentence.SentenceChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.sentence.SentenceChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.sentence.SentenceChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_post_init**](#agrag.chunking.sentence.SentenceChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
+- [**settings**](#agrag.chunking.sentence.SentenceChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.sentence.SentenceChunker.spans) – Return the half-open character spans this strategy cuts text into.
+
+###### `agrag.chunking.sentence.SentenceChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+###### `agrag.chunking.sentence.SentenceChunker.chunk_overlap`
+
+```python
+chunk_overlap: int = Field(default=0, ge=0)
+```
+
+###### `agrag.chunking.sentence.SentenceChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+###### `agrag.chunking.sentence.SentenceChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+###### `agrag.chunking.sentence.SentenceChunker.min_characters_per_sentence`
+
+```python
+min_characters_per_sentence: int = Field(default=12, gt=0)
+```
+
+###### `agrag.chunking.sentence.SentenceChunker.min_sentences_per_chunk`
+
+```python
+min_sentences_per_chunk: int = Field(default=1, gt=0)
+```
+
+###### `agrag.chunking.sentence.SentenceChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.sentence.SentenceChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Build the engine once, so a bad setting fails at construction.
+
+###### `agrag.chunking.sentence.SentenceChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+###### `agrag.chunking.sentence.SentenceChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return the half-open character spans this strategy cuts text into.
+
+A cut inside a character that a tokenizer splits into several tokens makes
+an empty piece. This method drops empty pieces, and no text is lost with them.
+
+**Parameters:**
+
+- **text** (<code>[str](#str)</code>) – The text to cut.
+
+**Returns:**
+
+- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – The spans, in order, all non-empty.
+
+###### `agrag.chunking.sentence.SentenceChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"sentence"`.
+
+###### `agrag.chunking.sentence.SentenceChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
+```
+
+#### `agrag.chunking.token`
+
+The token strategy: fixed-size windows of tokens, with optional overlap.
+
+**Classes:**
+
+- [**TokenChunker**](#agrag.chunking.token.TokenChunker) – Cuts the text into windows of `chunk_size` tokens.
+
+##### `agrag.chunking.token.TokenChunker`
+
+Bases: <code>[SpanChunker](#agrag.chunking.base.SpanChunker)</code>
+
+Cuts the text into windows of `chunk_size` tokens.
+
+Neighbouring chunks overlap when `chunk_overlap` is set, and each chunk keeps
+its exact span in the document.
+
+**Attributes:**
+
+- [**chunk_size**](#agrag.chunking.token.TokenChunker.chunk_size) (<code>[int](#int)</code>) – The window size, counted with `tokenizer`.
+- [**chunk_overlap**](#agrag.chunking.token.TokenChunker.chunk_overlap) (<code>[int](#int) | [float](#float)</code>) – The overlap between neighbours. An int counts tokens. A float
+  from 0 up to 1 is a share of `chunk_size`.
+- [**tokenizer**](#agrag.chunking.token.TokenChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.token.TokenChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.token.TokenChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_post_init**](#agrag.chunking.token.TokenChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
+- [**settings**](#agrag.chunking.token.TokenChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.token.TokenChunker.spans) – Return the half-open character spans this strategy cuts text into.
+
+###### `agrag.chunking.token.TokenChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+###### `agrag.chunking.token.TokenChunker.chunk_overlap`
+
+```python
+chunk_overlap: int | float = Field(default=0, ge=0)
+```
+
+###### `agrag.chunking.token.TokenChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+###### `agrag.chunking.token.TokenChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+###### `agrag.chunking.token.TokenChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.token.TokenChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Build the engine once, so a bad setting fails at construction.
+
+###### `agrag.chunking.token.TokenChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+###### `agrag.chunking.token.TokenChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return the half-open character spans this strategy cuts text into.
+
+A cut inside a character that a tokenizer splits into several tokens makes
+an empty piece. This method drops empty pieces, and no text is lost with them.
+
+**Parameters:**
+
+- **text** (<code>[str](#str)</code>) – The text to cut.
+
+**Returns:**
+
+- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – The spans, in order, all non-empty.
+
+###### `agrag.chunking.token.TokenChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"token"`.
+
+###### `agrag.chunking.token.TokenChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
+```
 
 ### `agrag.common`
 
@@ -11652,7 +13123,7 @@ The ingestion package.
 #### `agrag.ingestion.Graph`
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -11673,6 +13144,10 @@ by `open()` when missing.
 - [**open**](#agrag.ingestion.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
 - [**reevaluate**](#agrag.ingestion.Graph.reevaluate) – Reevaluate matches among the given entities, adding and removing edges.
 - [**update**](#agrag.ingestion.Graph.update) – Replace one document version, closing its former PART_OF edges.
+
+**Attributes:**
+
+- [**chunking**](#agrag.ingestion.Graph.chunking) (<code>[Chunking](#agrag.chunking.Chunking)</code>) – The rules that pick a chunker for each document.
 
 **Parameters:**
 
@@ -11696,6 +13171,8 @@ by `open()` when missing.
 - **cutover_settings** (<code>[CutoverJobSettings](#agrag.ingestion.settings.CutoverJobSettings) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
+- **chunking** (<code>[Chunking](#agrag.chunking.Chunking)</code>) – The rules that pick a chunker for each document. The
+  default is `DEFAULT_CHUNKING`.
 
 ##### `agrag.ingestion.Graph.add`
 
@@ -11744,6 +13221,14 @@ Give exactly one of `source`, `text`, and `documents`.
   instead of always stopping the call.
 - <code>[ValueError](#ValueError)</code> – The input contains multiple documents with the same
   `document_key`.
+
+##### `agrag.ingestion.Graph.chunking`
+
+```python
+chunking: Chunking
+```
+
+The rules that pick a chunker for each document.
 
 ##### `agrag.ingestion.Graph.consolidate`
 
@@ -11859,7 +13344,7 @@ previous one's.
 ##### `agrag.ingestion.Graph.open`
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -11891,6 +13376,8 @@ missing) so the dual writes never hit an absent collection.
 - **cutover_settings** (<code>[CutoverJobSettings](#agrag.ingestion.settings.CutoverJobSettings) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
+- **chunking** (<code>[Chunking](#agrag.chunking.Chunking)</code>) – The rules that pick a chunker for each document; see
+  __init__.
 
 **Returns:**
 
@@ -11945,10 +13432,14 @@ Replace one document version, closing its former PART_OF edges.
 
 Looks up the persisted `Document` node by `document_key`. An
 unchanged content hash is a no-op returning before any chunking,
-extraction, or writes. Otherwise the fresh content ingests under a
-Cutover Job holding this document's lease, and the commit flips
-the job, closes the document's open `PART_OF` edges, and clears
-every pending tag in one transaction — so a crash either leaves
+extraction, or writes, unless the chunker that this graph's rules pick
+for the document differs from the one that made its current chunks. A
+chunker with new settings re-chunks the document as a content change
+does. Chunks written before chunkers were recorded count as unchanged.
+Otherwise the fresh content ingests under a Cutover Job holding this
+document's lease, and the commit flips the job, closes the document's
+open `PART_OF` edges, and clears every pending tag in one
+transaction — so a crash either leaves
 the old version untouched or completes the replacement including
 cleanup. Entities that lose their last evidence are pruned after
 the commit, so replacement mentions count as evidence. A source
@@ -12576,7 +14067,7 @@ The public Graph API for ingestion.
 ##### `agrag.ingestion.graph.Graph`
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -12597,6 +14088,10 @@ by `open()` when missing.
 - [**open**](#agrag.ingestion.graph.Graph.open) – Open a graph, connecting and fully provisioning graph_store.
 - [**reevaluate**](#agrag.ingestion.graph.Graph.reevaluate) – Reevaluate matches among the given entities, adding and removing edges.
 - [**update**](#agrag.ingestion.graph.Graph.update) – Replace one document version, closing its former PART_OF edges.
+
+**Attributes:**
+
+- [**chunking**](#agrag.ingestion.graph.Graph.chunking) (<code>[Chunking](#agrag.chunking.Chunking)</code>) – The rules that pick a chunker for each document.
 
 **Parameters:**
 
@@ -12620,6 +14115,8 @@ by `open()` when missing.
 - **cutover_settings** (<code>[CutoverJobSettings](#agrag.ingestion.settings.CutoverJobSettings) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
+- **chunking** (<code>[Chunking](#agrag.chunking.Chunking)</code>) – The rules that pick a chunker for each document. The
+  default is `DEFAULT_CHUNKING`.
 
 ###### `agrag.ingestion.graph.Graph.add`
 
@@ -12668,6 +14165,14 @@ Give exactly one of `source`, `text`, and `documents`.
   instead of always stopping the call.
 - <code>[ValueError](#ValueError)</code> – The input contains multiple documents with the same
   `document_key`.
+
+###### `agrag.ingestion.graph.Graph.chunking`
+
+```python
+chunking: Chunking
+```
+
+The rules that pick a chunker for each document.
 
 ###### `agrag.ingestion.graph.Graph.consolidate`
 
@@ -12783,7 +14288,7 @@ previous one's.
 ###### `agrag.ingestion.graph.Graph.open`
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -12815,6 +14320,8 @@ missing) so the dual writes never hit an absent collection.
 - **cutover_settings** (<code>[CutoverJobSettings](#agrag.ingestion.settings.CutoverJobSettings) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
+- **chunking** (<code>[Chunking](#agrag.chunking.Chunking)</code>) – The rules that pick a chunker for each document; see
+  __init__.
 
 **Returns:**
 
@@ -12869,10 +14376,14 @@ Replace one document version, closing its former PART_OF edges.
 
 Looks up the persisted `Document` node by `document_key`. An
 unchanged content hash is a no-op returning before any chunking,
-extraction, or writes. Otherwise the fresh content ingests under a
-Cutover Job holding this document's lease, and the commit flips
-the job, closes the document's open `PART_OF` edges, and clears
-every pending tag in one transaction — so a crash either leaves
+extraction, or writes, unless the chunker that this graph's rules pick
+for the document differs from the one that made its current chunks. A
+chunker with new settings re-chunks the document as a content change
+does. Chunks written before chunkers were recorded count as unchanged.
+Otherwise the fresh content ingests under a Cutover Job holding this
+document's lease, and the commit flips the job, closes the document's
+open `PART_OF` edges, and clears every pending tag in one
+transaction — so a crash either leaves
 the old version untouched or completes the replacement including
 cleanup. Entities that lose their last evidence are pruned after
 the commit, so replacement mentions count as evidence. A source

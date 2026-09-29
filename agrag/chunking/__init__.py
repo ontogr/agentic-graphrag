@@ -1,24 +1,27 @@
-"""Chunking helpers for the ingestion layer.
+"""Chunking: how a Document becomes Chunks.
 
-This module isolates the chonkie dependency to one import site, so the rest of the
-codebase (and tests) can build a chunker without importing chonkie directly.
+A ``Chunker`` splits one document. A ``Chunking`` holds the rules that pick a chunker
+for each document, and ``DEFAULT_CHUNKING`` is the preset that ``Graph`` uses.
 """
 
-from chonkie import RecursiveChunker
+from agrag.chunking.base import Chunker, ChunkingError
+from agrag.chunking.docling import DoclingChunker
+from agrag.chunking.recursive import RecursiveChunker, SplitLevel
+from agrag.chunking.rules import DEFAULT_CHUNKING, Chunking, ChunkingRule, RuleMatch
+from agrag.chunking.sentence import SentenceChunker
+from agrag.chunking.token import TokenChunker
 
 
-def default_chunker(chunk_size: int = 1024) -> RecursiveChunker:
-    """Build the default text chunker.
-
-    Args:
-        chunk_size: The maximum number of characters per chunk.
-
-    Returns:
-        A character-based recursive chunker.
-    """
-    return RecursiveChunker(
-        chunk_size=chunk_size, tokenizer="character", min_characters_per_chunk=24
-    )
-
-
-__all__ = ["default_chunker", "RecursiveChunker"]
+__all__ = [
+    "DEFAULT_CHUNKING",
+    "Chunker",
+    "Chunking",
+    "ChunkingError",
+    "ChunkingRule",
+    "DoclingChunker",
+    "RecursiveChunker",
+    "RuleMatch",
+    "SentenceChunker",
+    "SplitLevel",
+    "TokenChunker",
+]

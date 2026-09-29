@@ -1,59 +1,61 @@
 """Docling-native chunking.
 
 This module wraps docling's ``HybridChunker`` to produce ``Chunk`` objects with
-``PageProvenance``. It imports docling inside the chunking function so that importing
-the
-module does not require the ``docling`` extra.
+``PageProvenance``. It imports docling inside the chunking method so that importing
+the module does not require the ``docling`` extra.
 """
 
 from typing import Any
-from uuid import UUID
 
+from agrag.chunking.base import Chunker
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.document import Document
 from agrag.common.data_models.provenance import BoundingBox, PageProvenance, PageSpan
 
 
-def chunk_docling_document(
-    docling_doc: object, document_id: UUID, *, version_id: UUID | None = None
-) -> list[Chunk]:
-    """Split a docling document into chunks with page provenance.
+class DoclingChunker(Chunker):
+    """Splits a parsed docling document with docling's hybrid chunker.
 
-    A chunk that crosses a page boundary produces more than one ``PageSpan``. The spans
-    come from every provenance entry across every docling item the chunk covers.
-
-    Args:
-        docling_doc: The parsed docling document to chunk.
-        document_id: The id of the parent Document.
-        version_id: Optional id for the parent document version.
-
-    Returns:
-        The chunks, in document order.
+    The chunker reads the parsed document that the docling loader keeps in
+    ``Document.metadata["_docling_document"]``. Each chunk has page provenance.
+    Chunk ids come from the chunk index, so they are not stable across a re-parse.
     """
-    from docling.chunking import (  # noqa: PLC0415
-        HybridChunker,
-    )
 
-    chunker = HybridChunker()
-    chunks: list[Chunk] = []
-    for index, item in enumerate(chunker.chunk(docling_doc)):  # ty: ignore[invalid-argument-type]
-        text = getattr(item, "text", "")
-        page_spans = _page_spans_for(item, docling_doc)
-        chunks.append(
-            Chunk(
-                id=Chunk.id_for(
-                    document_id=document_id,
-                    version_id=version_id,
-                    provenance=PageProvenance(page_spans=page_spans),
-                    index=index,
-                ),
-                document_id=document_id,
-                index=index,
-                text=text,
-                provenance=PageProvenance(page_spans=page_spans),
-                content_kind="text",
+    @property
+    def strategy(self) -> str:
+        """The strategy name, ``"docling"``."""
+        return "docling"
+
+    def _split(self, document: Document) -> list[Chunk]:
+        docling_doc = document.metadata.get("_docling_document")
+        if docling_doc is None:
+            raise self._error(
+                document, 0, "the document has no parsed docling document"
             )
-        )
-    return chunks
+        from docling.chunking import HybridChunker  # noqa: PLC0415
+
+        document_id = Document.node_id_for(document_key=document.resolved_document_key)
+        version_id = Document.id_for(content_hash=document.content_hash)
+        chunks: list[Chunk] = []
+        for index, item in enumerate(HybridChunker().chunk(docling_doc)):
+            page_spans = _page_spans_for(item, docling_doc)
+            provenance = PageProvenance(page_spans=page_spans)
+            chunks.append(
+                Chunk(
+                    id=Chunk.id_for(
+                        document_id=document_id,
+                        version_id=version_id,
+                        provenance=provenance,
+                        index=index,
+                    ),
+                    document_id=document_id,
+                    index=index,
+                    text=getattr(item, "text", ""),
+                    provenance=provenance,
+                    content_kind="text",
+                )
+            )
+        return chunks
 
 
 def _page_height(docling_doc: object, page_no: int) -> float:
