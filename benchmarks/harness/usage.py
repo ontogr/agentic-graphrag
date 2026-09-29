@@ -199,7 +199,7 @@ def summarize(spans: Sequence[ReadableSpan]) -> UsageSummary:
 
         prompt = attributes.get(SpanAttributes.LLM_TOKEN_COUNT_PROMPT)
         completion = attributes.get(SpanAttributes.LLM_TOKEN_COUNT_COMPLETION)
-        if prompt is None:
+        if prompt is None or completion is None:
             complete = False
         path = next((p for a in chain if (p := _path_of(a.name))), "other")
         for usage in (total, by_path[path]):

@@ -81,6 +81,14 @@ class TestSummarize:
 
         assert summarize(_spans(tracing)).usage_complete is False
 
+    def test_a_span_without_completion_tokens_makes_usage_incomplete(self, tmp_path):
+        """A span without completion tokens makes usage incomplete."""
+        tracing = start_tracing(tmp_path / "t.jsonl.gz")
+        llm_span(tracing.tracer, completion=None)
+        tracing.close()
+
+        assert summarize(_spans(tracing)).usage_complete is False
+
     def test_counts_empty_extractions_per_corpus(self, tmp_path):
         """Counts empty extractions per corpus."""
         tracing = start_tracing(tmp_path / "t.jsonl.gz")

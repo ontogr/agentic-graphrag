@@ -45,9 +45,13 @@ COST = CostModel(
 LLM = {"openinference.span.kind": "LLM"}
 
 
-def llm_span(tracer: Tracer, *, prompt: int | None = 10, completion: int = 5) -> None:
+def llm_span(
+    tracer: Tracer, *, prompt: int | None = 10, completion: int | None = 5
+) -> None:
     """Emit one finished LLM span with token counts."""
-    attributes: dict[str, Any] = {**LLM, "llm.token_count.completion": completion}
+    attributes: dict[str, Any] = {**LLM}
+    if completion is not None:
+        attributes["llm.token_count.completion"] = completion
     if prompt is not None:
         attributes["llm.token_count.prompt"] = prompt
     with tracer.start_as_current_span("llm", attributes=attributes):
