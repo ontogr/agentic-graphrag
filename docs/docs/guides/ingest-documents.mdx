@@ -97,6 +97,25 @@ you already hold `Document` objects.
 
 `Graph.open` takes a `chunking` argument that decides which chunker splits each document. Loaders also normalize the text of each file: they remove the byte-order mark, change line endings to LF, and apply NFKC. Pass `read_options=ReadOptions(normalization=...)` to `Graph.add` to change this. PDF and Office documents chunk at up to 1024 tokens by default. See [Configure chunking](./configure-chunking.mdx) for both.
 
+## Add a chat file
+
+`ChatLoader` reads a file of chat messages as one document. Use `.jsonl` or `.ndjson` with one JSON object per line, or `.json` with an array of objects. Each message needs a non-empty string `role` and a string `content`. It can also have an `id`, which must be unique in the file.
+
+```json
+{"role": "user", "content": "Hi there", "id": 1}
+{"role": "assistant", "content": "Hello! How can I help?", "id": 2}
+```
+
+The document text has one `[role] content` block for each message, with a blank line between blocks. `Document.turns` records the role, the id and the character span of each block. Pass the loader for one file:
+
+```python
+from agrag.loaders.corpus import ChatLoader
+
+result = await graph.add(source="session.jsonl", loader=ChatLoader())
+```
+
+To cut the document between turns, use `TurnWindowChunker` as [Configure chunking](./configure-chunking.mdx) shows.
+
 ## Handle errors per source
 
 Use `error_policy` to control what happens when a source fails to load. The

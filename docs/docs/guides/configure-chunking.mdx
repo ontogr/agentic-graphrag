@@ -55,9 +55,42 @@ A rule matches on these keys. All keys are optional. A document must match every
 | `RecursiveChunker` | paragraph, sentence, then word boundaries | none |
 | `TokenChunker` | a fixed number of tokens | `chunk_overlap` |
 | `SentenceChunker` | sentence boundaries | `chunk_overlap` |
+| `HeadingChunker` | section boundaries from `Document.heading_outline` | none |
+| `TurnWindowChunker` | chat turn boundaries from `Document.turns` | `turn_overlap` (in turns) |
 | `DoclingChunker` | Docling document structure (PDF and Office files) | none |
 
 `SentenceChunker` never cuts inside a sentence, so one very long sentence makes a chunk larger than `chunk_size`.
+
+## Split Markdown by headings
+
+`HeadingChunker` starts a new chunk at every heading up to `split_level` (default 2). A section within `chunk_size` tokens is one chunk, and small sibling sections stay apart. A larger section is cut at its deeper headings, and the parts are packed to the budget. A part that is still too large goes to `fallback`, and those chunks have the chunker name `heading:recursive`.
+
+```python
+HeadingChunker(chunk_size=400, split_level=2, fallback=RecursiveChunker(chunk_size=400))
+```
+
+Only the Markdown and AsciiDoc loaders fill `heading_outline`. For a document with no outline, the chunker uses `fallback` for the whole text and names the chunks `heading:recursive`.
+
+## Split chat by turns
+
+`TurnWindowChunker` packs whole turns into windows of at most `chunk_size` tokens. A chunk boundary never falls inside a turn. `turn_overlap` repeats the last turns of a window at the start of the next one. Text before the first turn, such as a date line, stays in the first chunk. A turn above the budget goes to `fallback`, and those chunks have the chunker name `turn-window:recursive`.
+
+Tokens are counted for each turn alone, so the blank line between turns does not count.
+
+Turns come from `Document.turns`. The `ChatLoader` fills them. Route chat documents with a rule on the loader name:
+
+```python
+from agrag.chunking import ChunkingRule, RuleMatch, TurnWindowChunker
+from agrag.loaders.corpus import ChatLoader
+
+rule = ChunkingRule(
+    match=RuleMatch(loader_names=["chat"]),
+    chunker=TurnWindowChunker(chunk_size=300, turn_overlap=1),
+)
+result = await graph.add(source="session.jsonl", loader=ChatLoader())
+```
+
+`ChatLoader` is not registered for any extension, because `.jsonl` belongs to the record loader. You must pass `loader=ChatLoader()`, and the source must be one file. See [Ingest documents](./ingest-documents.mdx) for the file format.
 
 ## Tune the Docling chunker
 
