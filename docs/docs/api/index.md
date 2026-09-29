@@ -13176,7 +13176,7 @@ by `open()` when missing.
 ##### `agrag.ingestion.Graph.add`
 
 ```python
-add(source:SourcesType | None = None, *, text:str | None = None, documents:Sequence[Document] | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, on_progress:Callable[[AddResult], None] | None = None, return_chunks:bool = False) -> AddResult
+add(source:SourcesType | None = None, *, text:str | None = None, documents:Sequence[Document] | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, on_progress:Callable[[AddResult], None] | None = None, return_chunks:bool = False, read_options:ReadOptions | None = None) -> AddResult
 ```
 
 Add content to the graph.
@@ -13197,6 +13197,8 @@ Give exactly one of `source`, `text`, and `documents`.
 - **return_chunks** (<code>[bool](#bool)</code>) – Whether to include the produced chunks in the
   returned AddResult. False by default to avoid holding full text
   for a large corpus when not needed.
+- **read_options** (<code>[ReadOptions](#agrag.loaders.corpus.types.ReadOptions) | None</code>) – How loaders read sources, including the normalization of
+  decoded text. None uses `ReadOptions()` defaults.
 
 **Returns:**
 
@@ -13424,7 +13426,7 @@ requests for L labels, as in Graph.add.
 ##### `agrag.ingestion.Graph.update`
 
 ```python
-update(document_key:str, *, text:str | None = None, source:SourcesType | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE) -> UpdateResult
+update(document_key:str, *, text:str | None = None, source:SourcesType | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, read_options:ReadOptions | None = None) -> UpdateResult
 ```
 
 Replace one document version, closing its former PART_OF edges.
@@ -13453,6 +13455,8 @@ must resolve to exactly one document.
 - **loader** (<code>[Loader](#agrag.loaders.corpus.base.Loader) | None</code>) – A loader override for a single-file `source`.
 - **error_policy** (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – RAISE propagates a stage failure; any other
   policy records it and continues.
+- **read_options** (<code>[ReadOptions](#agrag.loaders.corpus.types.ReadOptions) | None</code>) – How loaders read the replacement, including the
+  normalization of its text. None uses `ReadOptions()` defaults.
 
 **Returns:**
 
@@ -14120,7 +14124,7 @@ by `open()` when missing.
 ###### `agrag.ingestion.graph.Graph.add`
 
 ```python
-add(source:SourcesType | None = None, *, text:str | None = None, documents:Sequence[Document] | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, on_progress:Callable[[AddResult], None] | None = None, return_chunks:bool = False) -> AddResult
+add(source:SourcesType | None = None, *, text:str | None = None, documents:Sequence[Document] | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, on_progress:Callable[[AddResult], None] | None = None, return_chunks:bool = False, read_options:ReadOptions | None = None) -> AddResult
 ```
 
 Add content to the graph.
@@ -14141,6 +14145,8 @@ Give exactly one of `source`, `text`, and `documents`.
 - **return_chunks** (<code>[bool](#bool)</code>) – Whether to include the produced chunks in the
   returned AddResult. False by default to avoid holding full text
   for a large corpus when not needed.
+- **read_options** (<code>[ReadOptions](#agrag.loaders.corpus.types.ReadOptions) | None</code>) – How loaders read sources, including the normalization of
+  decoded text. None uses `ReadOptions()` defaults.
 
 **Returns:**
 
@@ -14368,7 +14374,7 @@ requests for L labels, as in Graph.add.
 ###### `agrag.ingestion.graph.Graph.update`
 
 ```python
-update(document_key:str, *, text:str | None = None, source:SourcesType | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE) -> UpdateResult
+update(document_key:str, *, text:str | None = None, source:SourcesType | None = None, loader:Loader | None = None, error_policy:ErrorPolicy = ErrorPolicy.RAISE, read_options:ReadOptions | None = None) -> UpdateResult
 ```
 
 Replace one document version, closing its former PART_OF edges.
@@ -14397,6 +14403,8 @@ must resolve to exactly one document.
 - **loader** (<code>[Loader](#agrag.loaders.corpus.base.Loader) | None</code>) – A loader override for a single-file `source`.
 - **error_policy** (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – RAISE propagates a stage failure; any other
   policy records it and continues.
+- **read_options** (<code>[ReadOptions](#agrag.loaders.corpus.types.ReadOptions) | None</code>) – How loaders read the replacement, including the
+  normalization of its text. None uses `ReadOptions()` defaults.
 
 **Returns:**
 

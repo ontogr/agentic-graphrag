@@ -106,6 +106,7 @@ def build_prose_document(
         char_count=len(text),
         line_count=text.count("\n") + 1,
         heading_outline=list(heading_outline or []),
+        normalization=opts.normalization,
     )
 
 
@@ -275,4 +276,5 @@ def build_record_document(
         record_index=record_index,
         record_id=record_id,
         raw_record=raw_record,
+        normalization=opts.normalization,
     )

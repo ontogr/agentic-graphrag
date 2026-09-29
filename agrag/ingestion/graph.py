@@ -5,7 +5,6 @@ import contextlib
 import glob
 import hashlib
 import json
-import unicodedata
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Union
@@ -92,7 +91,11 @@ from agrag.ingestion.stats import (
     StorageStats,
 )
 from agrag.loaders.corpus import registry as _corpus_registry
-from agrag.loaders.corpus._walk import _CorpusWalk, _InMemoryWalk
+from agrag.loaders.corpus._walk import (
+    _CorpusWalk,
+    _InMemoryWalk,
+    normalize_inline_text,
+)
 from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions
 from agrag.observability import get_tracer, record_stage_failure
@@ -666,6 +669,7 @@ class Graph:
         error_policy: ErrorPolicy = ErrorPolicy.RAISE,
         on_progress: Callable[[AddResult], None] | None = None,
         return_chunks: bool = False,
+        read_options: ReadOptions | None = None,
     ) -> AddResult:
         """Add content to the graph.
 
@@ -684,6 +688,8 @@ class Graph:
             return_chunks: Whether to include the produced chunks in the
                 returned AddResult. False by default to avoid holding full text
                 for a large corpus when not needed.
+            read_options: How loaders read sources, including the normalization of
+                decoded text. None uses ``ReadOptions()`` defaults.
 
         Returns:
             A summary of what was added per pipeline stage. Resolution runs
@@ -707,6 +713,7 @@ class Graph:
                 ``document_key``.
         """
         with self._tracer.start_as_current_span("agrag.ingestion.add"):
+            opts = read_options or ReadOptions()
             given = sum(x is not None for x in (source, text, documents))
             if given != 1:
                 raise ValueError(
@@ -798,7 +805,7 @@ class Graph:
                     with contextlib.suppress(Exception):
                         on_progress(_build_partial_add_result())
             elif text is not None:
-                walk = _InMemoryWalk(text, opts=ReadOptions())
+                walk = _InMemoryWalk(text, opts=opts)
                 batches = walk.iter_batches()
                 async for batch, _cursor, stats in batches:
                     _record_document_keys(batch)
@@ -844,7 +851,7 @@ class Graph:
                 walk = _CorpusWalk(
                     paths,
                     registry=self._registry,
-                    opts=ReadOptions(),
+                    opts=opts,
                     error_policy=error_policy,
                     loader=loader,
                     tracer=self._tracer,
@@ -997,6 +1004,7 @@ class Graph:
         source: SourcesType | None = None,
         loader: Loader | None = None,
         error_policy: ErrorPolicy = ErrorPolicy.RAISE,
+        read_options: ReadOptions | None = None,
     ) -> UpdateResult:
         """Replace one document version, closing its former PART_OF edges.
 
@@ -1023,6 +1031,8 @@ class Graph:
             loader: A loader override for a single-file ``source``.
             error_policy: RAISE propagates a stage failure; any other
                 policy records it and continues.
+            read_options: How loaders read the replacement, including the
+                normalization of its text. None uses ``ReadOptions()`` defaults.
 
         Returns:
             The update summary. A no-op reports ``no_op=True`` with no
@@ -1045,8 +1055,9 @@ class Graph:
             if (text is None) == (source is None):
                 raise ValueError("Provide exactly one of 'text' or 'source'.")
 
+            opts = read_options or ReadOptions()
             if text is not None:
-                normalized = unicodedata.normalize("NFKC", text)
+                normalized, normalization = normalize_inline_text(text, opts)
                 content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
                 document = Document(
                     text=normalized,
@@ -1060,6 +1071,7 @@ class Graph:
                     encoding="utf-8",
                     char_count=len(normalized),
                     line_count=normalized.count("\n") + 1,
+                    normalization=normalization,
                 )
             else:
                 assert source is not None
@@ -1072,7 +1084,7 @@ class Graph:
                 walk = _CorpusWalk(
                     paths,
                     registry=self._registry,
-                    opts=ReadOptions(),
+                    opts=opts,
                     error_policy=error_policy,
                     loader=loader,
                     tracer=self._tracer,

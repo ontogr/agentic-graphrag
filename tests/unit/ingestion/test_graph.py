@@ -55,6 +55,7 @@ from agrag.common.data_models.graph_schema import (
     EntityType,
     GraphSchema,
 )
+from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.resolved_entity import (
     MATCHES_RELATION,
     RESOLVED_AS_RELATION,
@@ -74,7 +75,7 @@ from agrag.ingestion.graph import SYSTEM_RELATION_TYPES
 from agrag.ingestion.resolve import ResolutionResult
 from agrag.loaders.corpus.errors import UnsupportedFormatError
 from agrag.loaders.corpus.readers.prose import TextLoader
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.corpus.types import ErrorPolicy, ReadOptions
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
@@ -785,6 +786,24 @@ class TestGraphChunking:
         assert by_uri[".txt"].rule is None
         assert result.chunking.matches_total == len(result.chunking.matches)
         assert sum(result.chunking.chunks_by_strategy.values()) == len(result.chunks)
+
+    async def test_add_and_update_pass_read_options_to_the_loaders(self) -> None:
+        """A none Unicode form keeps a ligature in the chunk text on both paths."""
+        graph = await self._open()
+        options = ReadOptions(normalization=Normalization(unicode_form="none"))
+
+        added = await graph.add(
+            text="\ufb01 rst line", read_options=options, return_chunks=True
+        )
+        updated = await graph.update(
+            "memory://doc", text="\ufb01 rst line", read_options=options
+        )
+
+        assert added.chunks[0].text == "\ufb01 rst line"
+        assert (
+            updated.new_content_hash
+            == hashlib.sha256("\ufb01 rst line".encode()).hexdigest()
+        )
 
     async def _update(
         self, graph: Graph, stored_hash: str | None, *, has_chunk: bool = True

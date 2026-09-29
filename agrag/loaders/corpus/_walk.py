@@ -13,6 +13,7 @@ from typing import BinaryIO
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.errors import IngestionError, UnsupportedFormatError
@@ -147,6 +148,9 @@ class _CorpusWalk:
                             attributes={
                                 "agrag.source_uri": uri,
                                 "agrag.loader_name": type(loader).__name__,
+                                "agrag.normalization": (
+                                    self._opts.normalization.model_dump_json()
+                                ),
                             },
                         ) as span:
                             # None, not a sentinel object(), so `doc` stays
@@ -285,16 +289,32 @@ class _CorpusWalk:
         return start.record_index or 0
 
 
+def normalize_inline_text(text: str, opts: ReadOptions) -> tuple[str, Normalization]:
+    """Normalize text that a caller passed in memory.
+
+    Inline text has no bytes to decode, so only the Unicode form applies.
+
+    Args:
+        text: The text as the caller gave it.
+        opts: The read options. Only ``opts.normalization.unicode_form`` is used.
+
+    Returns:
+        The normalized text and the normalization to record on its document.
+    """
+    form = opts.normalization.unicode_form
+    normalized = text if form == "none" else unicodedata.normalize(form, text)
+    return normalized, Normalization(bom="keep", newline="keep", unicode_form=form)
+
+
 class _InMemoryWalk:
     """Walk a single in-memory text string as one source.
 
     This class backs ``Graph.add(text=...)``. It produces one prose Document whose uri
-    is
-    derived from the text hash.
+    is derived from the text hash.
     """
 
     def __init__(self, text: str, *, opts: ReadOptions) -> None:
-        self._text = unicodedata.normalize("NFKC", text)
+        self._text, self._normalization = normalize_inline_text(text, opts)
         self._opts = opts
 
     async def iter_batches(
@@ -320,6 +340,7 @@ class _InMemoryWalk:
             encoding="utf-8",
             char_count=len(self._text),
             line_count=self._text.count("\n") + 1,
+            normalization=self._normalization,
         )
         stats = LoadStats(
             documents=1, sources=1, bytes_read=len(self._text.encode("utf-8"))

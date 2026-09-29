@@ -11,6 +11,7 @@ installed.
 from io import BytesIO
 
 from agrag.common.data_models.document import DocumentFamily, SourceFormat
+from agrag.common.data_models.normalization import Normalization
 from agrag.loaders.corpus.errors import DocumentTooLargeError
 from agrag.loaders.corpus.readers.prose import (
     AsciiDocLoader,
@@ -45,6 +46,19 @@ class TestTextLoader:
         assert doc.source_format == SourceFormat.TXT
         assert "First line of plain text." in doc.text
         assert doc.char_count == len(doc.text)
+
+    def test_document_records_the_normalization(self) -> None:
+        """The document says how its text was normalized."""
+        default = _documents(TextLoader(), "sample.txt", ".txt")[0]
+        raw = _documents(
+            TextLoader(),
+            "sample.txt",
+            ".txt",
+            ReadOptions(normalization=Normalization(unicode_form="none")),
+        )[0]
+
+        assert default.normalization == Normalization()
+        assert raw.normalization == Normalization(unicode_form="none")
 
     def test_log_file_uses_log_format(self) -> None:
         """Log file uses log format."""

@@ -1,10 +1,9 @@
 """The four-step decode pipeline for source bytes.
 
-Every text loader shares this pipeline. It runs, in order: byte-order-mark handling,
-encoding detection via charset-normalizer, CRLF to LF newline normalization, and NFKC
-Unicode normalization. It raises ``DecodeError`` on failure rather than silently
-emitting
-mojibake.
+Every text loader shares this pipeline. It runs, in order: encoding detection via
+charset-normalizer, byte-order-mark handling, newline normalization, and Unicode
+normalization. ``ReadOptions.normalization`` sets the last three steps. It raises
+``DecodeError`` on failure rather than silently emitting mojibake.
 """
 
 import hashlib
@@ -29,7 +28,7 @@ def _had_bom(raw: bytes) -> bool:
 def decode_text(raw: bytes, opts: ReadOptions) -> DecodedText:
     """Decode raw source bytes into normalized text.
 
-    This function detects the encoding, normalizes newlines and Unicode, and hashes the
+    This function detects the encoding, applies ``opts.normalization`` and hashes the
     result. It raises ``DecodeError`` instead of returning garbled text.
 
     Args:
@@ -66,11 +65,17 @@ def decode_text(raw: bytes, opts: ReadOptions) -> DecodedText:
             text = str(match)
             encoding = match.encoding
 
-    if text and text[0] == "\ufeff":
-        text = text[1:]
+    normalization = opts.normalization
+    if normalization.bom == "strip":
+        text = text.removeprefix("\ufeff")
+    elif had_bom and not text.startswith("\ufeff"):
+        # Detection and UTF-16 decoding drop the mark, so put it back.
+        text = "\ufeff" + text
 
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = unicodedata.normalize("NFKC", text)
+    if normalization.newline == "lf":
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if normalization.unicode_form != "none":
+        text = unicodedata.normalize(normalization.unicode_form, text)
 
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return DecodedText(
