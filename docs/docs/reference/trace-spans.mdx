@@ -44,6 +44,7 @@ attempt fails. The `call` span is `ERROR` when the call as a whole fails.
 |---|---|
 | `agrag.ingestion.load_document` | `agrag.source_uri`, `agrag.loader_name`, `agrag.normalization` (JSON) |
 | `agrag.ingestion.chunk_document` | `agrag.document_key`, `agrag.chunker.strategy`, `agrag.chunker.hash`, `agrag.chunker.settings` (JSON), `agrag.chunker.rule` (a rule index or `fallback`), `agrag.chunks_produced` |
+| `agrag.storage.embed_chunks` | `agrag.embedding.heading_context` (bool, whether the embedder got the heading path) |
 
 ## Domain spans by path
 
@@ -51,12 +52,13 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 
 | Path | Domain span | Attributes |
 |---|---|---|
-| Extraction, BAML | `agrag.extraction.baml` | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted` |
+| Extraction, BAML | `agrag.extraction.baml` | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.extraction.heading_context` (bool, whether a section line was sent) |
 | Extraction, GLiNER | `agrag.extraction.gliner`, and `agrag.extraction.model_load` around the one-time model build | the same counts; `agrag.model` on the load span |
 | Extraction, escalating | `agrag.extraction.escalating` | `agrag.chunk_id`, `agrag.escalated` (bool) |
 | Resolution | `agrag.resolution.llm_verify` | `agrag.pair_count`, `agrag.match_count`, `agrag.uncertain_count`, `agrag.request_failed` (bool) |
 | Merge | `agrag.merge.resolve_description` | `agrag.description_count`, `agrag.summarized` (bool) |
 | Community | `agrag.community.report_batch` | `agrag.batch_size` |
+| Chunk retrieval | `agrag.retrieval.hydrate_parents` | `agrag.parent_count`, `agrag.result.count`, `retrieval.documents` (JSON array of attached parent chunks) |
 | Text2cypher | `agrag.retrieval.generate_cypher` | `agrag.is_repair` (bool) |
 | Judge | `agrag.eval.judge` | `agrag.eval.judge_model` |
 

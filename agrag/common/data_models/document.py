@@ -68,6 +68,22 @@ class HeadingRef(BaseModel):
     char_start: int
 
 
+class TurnRef(BaseModel):
+    """One speaker turn in a chat document.
+
+    Attributes:
+        role: The speaker of the turn, for example ``"user"``.
+        turn_id: The id of the message in the source, when it has one.
+        char_start: The start character offset of the turn in the document text.
+        char_end: The end character offset of the turn, exclusive.
+    """
+
+    role: str = Field(min_length=1)
+    turn_id: str | None = None
+    char_start: int
+    char_end: int
+
+
 class Document(DataPoint):
     """One unit of source text, before chunking.
 
@@ -115,6 +131,8 @@ class Document(DataPoint):
         document_key: The stable identifier for this document's persisted graph node.
             Independent of ``id``, which changes with every content edit. Defaults to
             ``uri`` when not supplied.
+        turns: The speaker turns of a chat document, in order. A chat loader sets this
+            field. Turn spans index ``text`` and do not overlap.
         normalization: How the loader normalized ``text``. ``None`` for a document
             that no text loader made, such as a docling document or one built by hand.
     """
@@ -141,7 +159,26 @@ class Document(DataPoint):
 
     heading_outline: list[HeadingRef] = Field(default_factory=list)
     document_key: str | None = None
+    turns: list[TurnRef] = Field(default_factory=list)
     normalization: Normalization | None = None
+
+    @model_validator(mode="after")
+    def _check_turns(self) -> "Document":
+        """Require turn spans in order, without overlap, inside the text."""
+        limit = len(self.text)
+        previous_end = 0
+        for turn in self.turns:
+            if not 0 <= turn.char_start < turn.char_end <= limit:
+                raise ValueError(
+                    f"turn span {turn.char_start}:{turn.char_end} is not in the text"
+                )
+            if turn.char_start < previous_end:
+                raise ValueError(
+                    "turns must be in order and must not overlap: "
+                    f"{turn.char_start} starts before {previous_end}"
+                )
+            previous_end = turn.char_end
+        return self
 
     @model_validator(mode="after")
     def _resolve_id(self) -> "Document":

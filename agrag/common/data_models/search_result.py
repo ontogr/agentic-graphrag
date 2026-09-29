@@ -24,11 +24,14 @@ class SearchResult(BaseModel):
             across methods until Fusion normalizes it.
         method: The name of the retrieval method that produced
             this result.
+        parent: The parent chunk of a child chunk result, so a caller can show the
+            larger passage. ``None`` for every other result.
     """
 
     item: Union[Entity, ResolvedEntity, Relation, Chunk, Community, QueryValue]
     score: float
     method: str
+    parent: Chunk | None = None
 
     @property
     def identity_key(self) -> tuple[str, UUID]:

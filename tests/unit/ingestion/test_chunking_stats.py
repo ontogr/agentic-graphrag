@@ -46,3 +46,14 @@ class TestChunkingStats:
         assert stats.matches_total == total
         assert stats.matches_truncated
         assert stats.chunks_by_strategy == {"recursive": total}
+
+    def test_counts_fallback_chunks_under_their_own_name(self) -> None:
+        """A strategy that used a fallback shows both names."""
+        match = _match("a", 0, "heading", 5)
+        match = match.model_copy(
+            update={"chunks_by_chunker": {"heading": 3, "heading:recursive": 2}}
+        )
+
+        stats = ChunkingStats.from_matches([match])
+
+        assert stats.chunks_by_strategy == {"heading": 3, "heading:recursive": 2}
