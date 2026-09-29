@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 
 from benchmarks.models import Mode
 
@@ -48,6 +49,34 @@ class CodeIdentity(BaseModel):
     agrag_tree: str
     benchmarks_code_sha256: str
     uv_lock_sha256: str
+
+
+class ModelInfo(TypedDict):
+    """A model and its provider."""
+
+    model_id: str
+    provider: str
+
+
+class JudgeInfo(ModelInfo):
+    """The judge model, with the temperature it runs at."""
+
+    temperature: float | None
+
+
+class EmbedderInfo(TypedDict):
+    """The embedder model."""
+
+    model: str
+
+
+class ModelsInfo(TypedDict):
+    """The models of a run, by role."""
+
+    agent: ModelInfo
+    judge: JudgeInfo
+    extractor: ModelInfo
+    embedder: EmbedderInfo
 
 
 class DatasetInfo(BaseModel):
@@ -202,7 +231,7 @@ class RunRecord(BaseModel):
     dataset: DatasetInfo
     schemas: list[SchemaInfo]
     chunking: ChunkingInfo
-    models: dict[str, dict[str, Any]]
+    models: ModelsInfo
     config: RunConfig
     corpora: list[CorpusRecord]
     usage: UsageRecord

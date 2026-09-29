@@ -12,9 +12,9 @@ async def _record(tmp_path, *, model: str, created_at: str, chunk_size: int = 10
         tmp_path,
         Behaviour(),
         models={
-            "agent": {"model_id": model},
-            "judge": {"model_id": "judge"},
-            "extractor": {"model_id": model},
+            "agent": {"model_id": model, "provider": "p"},
+            "judge": {"model_id": "judge", "provider": "p", "temperature": 0.0},
+            "extractor": {"model_id": model, "provider": "p"},
             "embedder": {"model": "e"},
         },
         chunking=Chunking(

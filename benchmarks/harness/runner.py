@@ -29,6 +29,7 @@ from benchmarks.harness.record import (
     CorpusRecord,
     DatasetInfo,
     GraphStats,
+    ModelsInfo,
     PathUsage,
     QuestionRecord,
     RunConfig,
@@ -145,7 +146,7 @@ class RunEnvironment:
     system_name: str
     code: CodeIdentity
     chunking: Chunking
-    models: dict[str, dict[str, Any]]
+    models: ModelsInfo
     agent_config: dict[str, Any]
     make_system: Callable[[SystemContext], SystemAdapter]
     make_judge: Callable[[Tracer], Any]

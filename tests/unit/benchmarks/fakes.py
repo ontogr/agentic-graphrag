@@ -270,9 +270,9 @@ def make_environment(
         "code": make_code(),
         "chunking": BENCH_CHUNKING,
         "models": {
-            "agent": {"model_id": "m1"},
-            "judge": {"model_id": "m1"},
-            "extractor": {"model_id": "m1"},
+            "agent": {"model_id": "m1", "provider": "p"},
+            "judge": {"model_id": "m1", "provider": "p", "temperature": 0.0},
+            "extractor": {"model_id": "m1", "provider": "p"},
             "embedder": {"model": "e"},
         },
         "agent_config": {"recursion_limit": 50},
