@@ -7,6 +7,12 @@ from uuid import UUID, uuid4
 
 import pytest
 import weaviate
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import SpanKind, StatusCode
 from weaviate.classes.config import VectorDistances
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
@@ -482,3 +488,317 @@ class TestMissingExtra:
         ):
             await store.initialize()
         assert exc_info.value.extra == "weaviate"
+
+
+def _provider() -> tuple[TracerProvider, InMemorySpanExporter]:
+    """Return a provider wired to an in-memory exporter."""
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider, exporter
+
+
+class TestTracingUpsert:
+    """Traced upsert exports one outer span plus one child per batch."""
+
+    async def test_upsert_exports_one_outer_plus_n_batch_spans(self, client) -> None:
+        """Five records at batch_size=2 export 1 outer INTERNAL + 3 CLIENT."""
+        provider, exporter = _provider()
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        records = [VectorRecord(id=uuid4(), vector=[0.1], payload={}) for _ in range(5)]
+        await store.upsert("c", records, batch_size=2)
+
+        by_name: dict[str, list] = {}
+        for span in exporter.get_finished_spans():
+            by_name.setdefault(span.name, []).append(span)
+        (outer,) = by_name["agrag.vectordb.upsert"]
+        assert outer.kind is SpanKind.INTERNAL
+        assert (outer.attributes or {}).get("db.collection.name") == "c"
+        assert (outer.attributes or {})["agrag.record_count"] == 5
+        assert outer.status.status_code is StatusCode.UNSET
+        batches = by_name["agrag.vectordb.upsert_batch"]
+        assert len(batches) == 3
+        assert [b.attributes["agrag.batch_size"] for b in batches] == [2, 2, 1]
+        for batch in batches:
+            assert batch.kind is SpanKind.CLIENT
+            assert (batch.attributes or {}).get("db.system.name") == "weaviate"
+            assert (batch.attributes or {}).get("db.collection.name") == "c"
+            assert batch.parent is not None
+            assert batch.parent.span_id == outer.context.span_id
+            assert batch.status.status_code is StatusCode.UNSET
+
+    async def test_upsert_error_marks_outer_error_batch_unset(self, client) -> None:
+        """A failing Weaviate batch raises outside its span: outer is ERROR.
+
+        Weaviate checks ``has_errors`` after the per-batch CLIENT span has
+        already closed, so the batch span stays UNSET while the outer
+        ``upsert`` span — where the ``VectorStoreError`` actually raises —
+        is ERROR. This matches the plan's behavioral note for Weaviate's
+        raise-on-first-batch-error path.
+        """
+        provider, exporter = _provider()
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        client._collection.data.insert_many.return_value = make_batch_result(
+            has_errors=True, errors={0: "boom"}
+        )
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={})
+        with pytest.raises(VectorStoreError):
+            await store.upsert("c", [record])
+        spans = {s.name: s for s in exporter.get_finished_spans()}
+        assert spans["agrag.vectordb.upsert_batch"].status.status_code is (
+            StatusCode.UNSET
+        )
+        assert spans["agrag.vectordb.upsert"].status.status_code is (StatusCode.ERROR)
+        assert len(list(spans["agrag.vectordb.upsert"].events)) == 1
+
+
+class TestTracingSearch:
+    """Traced search/hybrid export one CLIENT span with query attributes."""
+
+    async def test_search_span_carries_system_collection_limit(self, client) -> None:
+        """Search exports one CLIENT span with system, collection, limit."""
+        provider, exporter = _provider()
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        obj_id = str(uuid4())
+        obj = make_object(obj_id, {"text": "a"}, distance=0.1)
+        client._collection.query.near_vector.return_value = make_response([obj])
+        hits = await store.search("c", [0.1, 0.2], limit=5)
+        assert len(hits) == 1
+        (span,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.vectordb.search"
+        ]
+        assert span.kind is SpanKind.CLIENT
+        assert (span.attributes or {})["db.system.name"] == "weaviate"
+        assert (span.attributes or {})["db.collection.name"] == "c"
+        assert (span.attributes or {})["agrag.limit"] == 5
+        assert span.status.status_code is StatusCode.UNSET
+
+    async def test_search_error_marks_span_error(self, client) -> None:
+        """A failing search marks its span ERROR with one exception event."""
+        provider, exporter = _provider()
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        client._collection.query.near_vector = mock.AsyncMock(
+            side_effect=RuntimeError("down")
+        )
+        with pytest.raises(RuntimeError, match="down"):
+            await store.search("c", [0.1, 0.2], limit=5)
+        (span,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.vectordb.search"
+        ]
+        assert span.status.status_code is StatusCode.ERROR
+        assert len(list(span.events)) == 1
+
+    async def test_hybrid_search_single_client_span(self, client) -> None:
+        """Hybrid exports a single CLIENT span with limit and alpha."""
+        provider, exporter = _provider()
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        obj_id = str(uuid4())
+        obj = make_object(obj_id, {"text": "a"}, score=0.9)
+        client._collection.query.hybrid.return_value = make_response([obj])
+        hits = await store.hybrid_search("c", [0.1, 0.2], "query", limit=5, alpha=0.6)
+        assert len(hits) == 1
+        (span,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.vectordb.hybrid_search"
+        ]
+        assert span.kind is SpanKind.CLIENT
+        assert (span.attributes or {})["db.system.name"] == "weaviate"
+        assert (span.attributes or {})["db.collection.name"] == "c"
+        assert (span.attributes or {})["agrag.limit"] == 5
+        assert (span.attributes or {})["agrag.alpha"] == 0.6
+        assert span.status.status_code is StatusCode.UNSET
+
+
+class TestTracingDirectCalls:
+    """Traced scroll/retrieve/count/delete each export one CLIENT span."""
+
+    async def test_scroll_span_carries_system_collection_limit(self, client) -> None:
+        """Scroll exports one CLIENT span with system, collection, limit."""
+        provider, exporter = _provider()
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        obj_id = str(uuid4())
+        client._collection.query.fetch_objects.return_value = make_response(
+            [make_object(obj_id, {"text": "a"})]
+        )
+        records, next_offset = await store.scroll("c", limit=1)
+        assert len(records) == 1
+        assert next_offset == obj_id
+        (span,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.vectordb.scroll"
+        ]
+        assert span.kind is SpanKind.CLIENT
+        attributes = span.attributes or {}
+        assert attributes["db.system.name"] == "weaviate"
+        assert attributes["db.collection.name"] == "c"
+        assert attributes["agrag.limit"] == 1
+        assert span.status.status_code is StatusCode.UNSET
+
+    async def test_retrieve_exports_one_span_per_id(self, client) -> None:
+        """Retrieve exports one CLIENT span per id round trip."""
+        provider, exporter = _provider()
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        obj_id = uuid4()
+        client._collection.query.fetch_object_by_id.return_value = make_object(
+            str(obj_id), {"text": "a"}, vector=[0.1]
+        )
+        records = await store.retrieve("c", [obj_id])
+        assert len(records) == 1
+        spans = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.vectordb.retrieve"
+        ]
+        assert len(spans) == 1
+        span = spans[0]
+        assert span.kind is SpanKind.CLIENT
+        attributes = span.attributes or {}
+        assert attributes["db.system.name"] == "weaviate"
+        assert attributes["db.collection.name"] == "c"
+        assert span.status.status_code is StatusCode.UNSET
+
+    async def test_count_span_carries_system_and_collection(self, client) -> None:
+        """Count exports one CLIENT span with system and collection."""
+        provider, exporter = _provider()
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        client._collection.aggregate.over_all.return_value = SimpleNamespace(
+            total_count=3
+        )
+        assert await store.count("c") == 3
+        (span,) = [
+            s for s in exporter.get_finished_spans() if s.name == "agrag.vectordb.count"
+        ]
+        assert span.kind is SpanKind.CLIENT
+        attributes = span.attributes or {}
+        assert attributes["db.system.name"] == "weaviate"
+        assert attributes["db.collection.name"] == "c"
+        assert span.status.status_code is StatusCode.UNSET
+
+    async def test_delete_span_carries_system_and_collection(self, client) -> None:
+        """Delete exports one CLIENT span with system and collection."""
+        provider, exporter = _provider()
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        await store.delete("c", [uuid4()])
+        (span,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.vectordb.delete"
+        ]
+        assert span.kind is SpanKind.CLIENT
+        attributes = span.attributes or {}
+        assert attributes["db.system.name"] == "weaviate"
+        assert attributes["db.collection.name"] == "c"
+        assert span.status.status_code is StatusCode.UNSET
+
+    async def test_failing_count_marks_span_error(self, client) -> None:
+        """A failing count marks its span ERROR with one exception event."""
+        provider, exporter = _provider()
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        client._collection.aggregate.over_all = mock.AsyncMock(
+            side_effect=RuntimeError("down")
+        )
+        with pytest.raises(RuntimeError, match="down"):
+            await store.count("c")
+        (span,) = [
+            s for s in exporter.get_finished_spans() if s.name == "agrag.vectordb.count"
+        ]
+        assert span.status.status_code is StatusCode.ERROR
+        assert len(list(span.events)) == 1
+
+
+class TestTracingBuildClient:
+    """Concurrent first use exports exactly one build_client span."""
+
+    async def test_concurrent_first_calls_export_single_build_span(
+        self,
+    ) -> None:
+        """Two concurrent _ensure_client calls share one INTERNAL span."""
+        provider, exporter = _provider()
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(
+                mode="cloud", url="https://xyz.cloud.weaviate.io"
+            ),
+            tracer=provider.get_tracer("test"),
+        )
+        mock_client = mock.AsyncMock()
+        with mock.patch.object(
+            weaviate, "use_async_with_weaviate_cloud", return_value=mock_client
+        ):
+            first, second = await asyncio.gather(
+                store._ensure_client(), store._ensure_client()
+            )
+        assert first is mock_client
+        assert second is mock_client
+        mock_client.connect.assert_called_once()
+        builds = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.vectordb.build_client"
+        ]
+        assert len(builds) == 1
+        assert builds[0].kind is SpanKind.INTERNAL
+
+
+class TestTracingDisabled:
+    """A store built without a tracer never marks a host span."""
+
+    async def test_tracer_none_leaves_host_span_unset(self, client) -> None:
+        """The host span stays UNSET with no events under tracer=None."""
+        provider, exporter = _provider()
+        host_tracer = provider.get_tracer("host")
+        store = WeaviateVectorStore(
+            settings=WeaviateSettings(), client=client, tracer=None
+        )
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "a"})
+        with host_tracer.start_as_current_span("host.request"):
+            await store.upsert("c", [record])
+        (host_span,) = exporter.get_finished_spans()
+        assert host_span.name == "host.request"
+        assert host_span.status.status_code is StatusCode.UNSET
+        assert list(host_span.events) == []

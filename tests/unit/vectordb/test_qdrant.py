@@ -8,6 +8,12 @@ from unittest import mock
 from uuid import UUID, uuid4
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import SpanKind, StatusCode
 from qdrant_client import models as qdrant_models
 
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
@@ -613,3 +619,303 @@ class TestEnsureClientConcurrency:
             )
         assert build_calls == 1
         assert first is second
+
+
+def _provider() -> tuple[TracerProvider, InMemorySpanExporter]:
+    """Return a provider wired to an in-memory exporter."""
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider, exporter
+
+
+class TestTracingUpsert:
+    """Traced upsert exports one outer span plus one child per batch."""
+
+    async def test_upsert_exports_one_outer_plus_n_batch_spans(self, client) -> None:
+        """Five records at batch_size=2 export 1 outer INTERNAL + 3 CLIENT."""
+        provider, exporter = _provider()
+        store = QdrantVectorStore(
+            settings=QdrantSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        records = [VectorRecord(id=uuid4(), vector=[0.1], payload={}) for _ in range(5)]
+        await store.upsert("c", records, batch_size=2)
+
+        by_name: dict[str, list] = {}
+        for span in exporter.get_finished_spans():
+            by_name.setdefault(span.name, []).append(span)
+        (outer,) = by_name["agrag.vectordb.upsert"]
+        assert outer.kind is SpanKind.INTERNAL
+        assert (outer.attributes or {}).get("db.collection.name") == "c"
+        assert (outer.attributes or {})["agrag.record_count"] == 5
+        assert outer.status.status_code is StatusCode.UNSET
+        batches = by_name["agrag.vectordb.upsert_batch"]
+        assert len(batches) == 3
+        assert [b.attributes["agrag.batch_size"] for b in batches] == [2, 2, 1]
+        for batch in batches:
+            assert batch.kind is SpanKind.CLIENT
+            assert (batch.attributes or {}).get("db.system.name") == "qdrant"
+            assert (batch.attributes or {}).get("db.collection.name") == "c"
+            assert batch.parent is not None
+            assert batch.parent.span_id == outer.context.span_id
+            assert batch.status.status_code is StatusCode.UNSET
+
+    async def test_upsert_batch_error_marks_batch_and_outer_error(self, client) -> None:
+        """A failing batch marks both the batch span and outer span ERROR."""
+        provider, exporter = _provider()
+        store = QdrantVectorStore(
+            settings=QdrantSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        client.upsert = mock.AsyncMock(side_effect=RuntimeError("boom"))
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={})
+        with pytest.raises(RuntimeError, match="boom"):
+            await store.upsert("c", [record])
+        spans = {s.name: s for s in exporter.get_finished_spans()}
+        batch = spans["agrag.vectordb.upsert_batch"]
+        outer = spans["agrag.vectordb.upsert"]
+        assert batch.status.status_code is StatusCode.ERROR
+        assert len(list(batch.events)) == 1
+        assert outer.status.status_code is StatusCode.ERROR
+        assert len(list(outer.events)) == 1
+
+
+class TestTracingSearch:
+    """Traced search/hybrid export connected spans with query attributes."""
+
+    async def test_search_span_carries_system_collection_limit(self, client) -> None:
+        """Search exports one CLIENT span with system, collection, limit."""
+        provider, exporter = _provider()
+        store = QdrantVectorStore(
+            settings=QdrantSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        point_id = str(uuid4())
+        client.query_points.return_value = make_response(
+            [make_point(point_id, 0.9, {})]
+        )
+        hits = await store.search("c", [0.1, 0.2], limit=5)
+        assert len(hits) == 1
+        (span,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.vectordb.search"
+        ]
+        assert span.kind is SpanKind.CLIENT
+        assert (span.attributes or {})["db.system.name"] == "qdrant"
+        assert (span.attributes or {})["db.collection.name"] == "c"
+        assert (span.attributes or {})["agrag.limit"] == 5
+        assert span.status.status_code is StatusCode.UNSET
+
+    async def test_search_error_marks_span_error(self, client) -> None:
+        """A failing search marks its span ERROR with one exception event."""
+        provider, exporter = _provider()
+        store = QdrantVectorStore(
+            settings=QdrantSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        client.query_points = mock.AsyncMock(side_effect=RuntimeError("down"))
+        with pytest.raises(RuntimeError, match="down"):
+            await store.search("c", [0.1, 0.2], limit=5)
+        (span,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.vectordb.search"
+        ]
+        assert span.status.status_code is StatusCode.ERROR
+        assert len(list(span.events)) == 1
+
+    async def test_hybrid_outer_internal_with_dense_sparse_arms(self, client) -> None:
+        """Hybrid exports one INTERNAL outer with dense/sparse CLIENT arms."""
+        provider, exporter = _provider()
+        store = QdrantVectorStore(
+            settings=QdrantSettings(),
+            client=client,
+            tracer=provider.get_tracer("test"),
+        )
+        sparse = mock.AsyncMock()
+        sparse.query_embed = mock.AsyncMock(
+            return_value=[SparseVector(indices=[0], values=[1.0])]
+        )
+        store._sparse_embedder = sparse
+        point_id = str(uuid4())
+
+        async def fake_query_points(**kwargs):
+            if kwargs.get("using") == _SPARSE_VECTOR_NAME:
+                return make_response([make_point(point_id, 0.7, {})])
+            return make_response([make_point(point_id, 0.9, {})])
+
+        client.query_points = mock.AsyncMock(side_effect=fake_query_points)
+        hits = await store.hybrid_search(
+            "c", [0.1, 0.2], "query text", limit=5, alpha=0.6
+        )
+        assert len(hits) == 1
+        spans = exporter.get_finished_spans()
+        (outer,) = [s for s in spans if s.name == "agrag.vectordb.hybrid_search"]
+        assert outer.kind is SpanKind.INTERNAL
+        assert (outer.attributes or {})["agrag.limit"] == 5
+        assert (outer.attributes or {})["agrag.alpha"] == 0.6
+        assert outer.status.status_code is StatusCode.UNSET
+        arms = [s for s in spans if s.name == "agrag.vectordb.query_points"]
+        assert len(arms) == 2
+        assert {(a.attributes or {})["agrag.query_arm"] for a in arms} == {
+            "dense",
+            "sparse",
+        }
+        for arm in arms:
+            assert arm.kind is SpanKind.CLIENT
+            assert (arm.attributes or {})["db.system.name"] == "qdrant"
+            assert arm.parent is not None
+            assert arm.parent.span_id == outer.context.span_id
+
+
+class TestTracingDirectCalls:
+    """Traced scroll/retrieve/count/delete each export one CLIENT span."""
+
+    async def test_scroll_span_carries_system_collection_limit(self, client) -> None:
+        """Scroll exports one CLIENT span with system, collection, limit."""
+        provider, exporter = _provider()
+        store = QdrantVectorStore(
+            settings=QdrantSettings(),
+            client=client,
+            models=qdrant_models,
+            tracer=provider.get_tracer("test"),
+        )
+        records, next_offset = await store.scroll("c", limit=7)
+        assert records == []
+        assert next_offset is None
+        (span,) = exporter.get_finished_spans()
+        assert span.name == "agrag.vectordb.scroll"
+        assert span.kind is SpanKind.CLIENT
+        attributes = span.attributes or {}
+        assert attributes["db.system.name"] == "qdrant"
+        assert attributes["db.collection.name"] == "c"
+        assert attributes["agrag.limit"] == 7
+        assert span.status.status_code is StatusCode.UNSET
+
+    async def test_retrieve_span_carries_system_and_collection(self, client) -> None:
+        """Retrieve exports one CLIENT span with system and collection."""
+        provider, exporter = _provider()
+        store = QdrantVectorStore(
+            settings=QdrantSettings(),
+            client=client,
+            models=qdrant_models,
+            tracer=provider.get_tracer("test"),
+        )
+        await store.retrieve("c", [uuid4()])
+        (span,) = exporter.get_finished_spans()
+        assert span.name == "agrag.vectordb.retrieve"
+        assert span.kind is SpanKind.CLIENT
+        attributes = span.attributes or {}
+        assert attributes["db.system.name"] == "qdrant"
+        assert attributes["db.collection.name"] == "c"
+        assert span.status.status_code is StatusCode.UNSET
+
+    async def test_count_span_carries_system_and_collection(self, client) -> None:
+        """Count exports one CLIENT span with system and collection."""
+        provider, exporter = _provider()
+        store = QdrantVectorStore(
+            settings=QdrantSettings(),
+            client=client,
+            models=qdrant_models,
+            tracer=provider.get_tracer("test"),
+        )
+        client.count.return_value = SimpleNamespace(count=3)
+        assert await store.count("c") == 3
+        (span,) = exporter.get_finished_spans()
+        assert span.name == "agrag.vectordb.count"
+        assert span.kind is SpanKind.CLIENT
+        attributes = span.attributes or {}
+        assert attributes["db.system.name"] == "qdrant"
+        assert attributes["db.collection.name"] == "c"
+        assert span.status.status_code is StatusCode.UNSET
+
+    async def test_delete_span_carries_system_and_collection(self, client) -> None:
+        """Delete exports one CLIENT span with system and collection."""
+        provider, exporter = _provider()
+        store = QdrantVectorStore(
+            settings=QdrantSettings(),
+            client=client,
+            models=qdrant_models,
+            tracer=provider.get_tracer("test"),
+        )
+        await store.delete("c", [uuid4()])
+        (span,) = exporter.get_finished_spans()
+        assert span.name == "agrag.vectordb.delete"
+        assert span.kind is SpanKind.CLIENT
+        attributes = span.attributes or {}
+        assert attributes["db.system.name"] == "qdrant"
+        assert attributes["db.collection.name"] == "c"
+        assert span.status.status_code is StatusCode.UNSET
+
+    async def test_failing_count_marks_span_error(self, client) -> None:
+        """A failing count marks its span ERROR with one exception event."""
+        provider, exporter = _provider()
+        store = QdrantVectorStore(
+            settings=QdrantSettings(),
+            client=client,
+            models=qdrant_models,
+            tracer=provider.get_tracer("test"),
+        )
+        client.count = mock.AsyncMock(side_effect=RuntimeError("down"))
+        with pytest.raises(RuntimeError, match="down"):
+            await store.count("c")
+        (span,) = exporter.get_finished_spans()
+        assert span.name == "agrag.vectordb.count"
+        assert span.status.status_code is StatusCode.ERROR
+        assert len(list(span.events)) == 1
+
+
+class TestTracingBuildClient:
+    """Concurrent first use exports exactly one build_client span."""
+
+    async def test_concurrent_first_calls_export_single_build_span(self) -> None:
+        """Two concurrent _ensure_client calls share one INTERNAL span."""
+        provider, exporter = _provider()
+        store = QdrantVectorStore(
+            settings=QdrantSettings(), tracer=provider.get_tracer("test")
+        )
+        build_calls = 0
+
+        def mock_client_ctor(*args, **kwargs):
+            nonlocal build_calls
+            build_calls += 1
+            return object()
+
+        with mock.patch(
+            "qdrant_client.AsyncQdrantClient", side_effect=mock_client_ctor
+        ):
+            first, second = await asyncio.gather(
+                store._ensure_client(), store._ensure_client()
+            )
+        assert build_calls == 1
+        assert first is second
+        builds = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.vectordb.build_client"
+        ]
+        assert len(builds) == 1
+        assert builds[0].kind is SpanKind.INTERNAL
+
+
+class TestTracingDisabled:
+    """A store built without a tracer never marks a host span."""
+
+    async def test_tracer_none_leaves_host_span_unset(self, client) -> None:
+        """The host span stays UNSET with no events under tracer=None."""
+        provider, exporter = _provider()
+        host_tracer = provider.get_tracer("host")
+        store = QdrantVectorStore(settings=QdrantSettings(), client=client, tracer=None)
+        record = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "a"})
+        with host_tracer.start_as_current_span("host.request"):
+            await store.upsert("c", [record])
+        (host_span,) = exporter.get_finished_spans()
+        assert host_span.name == "host.request"
+        assert host_span.status.status_code is StatusCode.UNSET
+        assert list(host_span.events) == []

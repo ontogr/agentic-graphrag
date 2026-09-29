@@ -1,12 +1,17 @@
 """Neo4j graph-store backend."""
 
+import array
 import asyncio
 import contextlib
+import json
+import numbers
 from collections import defaultdict
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
+
+from opentelemetry.trace import Span, SpanKind, Tracer
 
 from agrag.common.data_models.graph_record import (
     NodeRecord,
@@ -44,6 +49,15 @@ from agrag.graphdb.errors import (
 )
 from agrag.graphdb.serialize import node_params, relation_params
 from agrag.graphdb.settings import Neo4jSettings
+from agrag.observability import (
+    DB_COLLECTION_NAME,
+    DB_NAMESPACE,
+    DB_OPERATION_BATCH_SIZE,
+    DB_QUERY_PARAMETER_PREFIX,
+    DB_QUERY_TEXT,
+    DB_SYSTEM_NAME,
+    get_tracer,
+)
 
 
 if TYPE_CHECKING:
@@ -62,6 +76,102 @@ _EQUIVALENT_SCHEMA_RULE_ERROR = (
 )
 
 
+def _is_number(value: Any) -> bool:
+    """Return whether ``value`` is a real number, excluding booleans."""
+    return isinstance(value, numbers.Real) and not isinstance(value, bool)
+
+
+def _is_vector_value(value: Any) -> bool:
+    """Return whether ``value`` is an embedding vector.
+
+    A vector is a non-empty list, tuple, set, or array whose items are all
+    numbers, or a numeric numpy-style array. Vectors are excluded from
+    span attributes; only the remaining parameter values are recorded.
+    """
+    if isinstance(value, array.array):
+        return len(value) > 0 and all(_is_number(item) for item in value)
+    if isinstance(value, (list, tuple, set)):
+        return len(value) > 0 and all(_is_number(item) for item in value)
+    dtype = getattr(value, "dtype", None)
+    if (
+        dtype is not None
+        and hasattr(value, "tolist")
+        and getattr(dtype, "kind", None) in ("i", "u", "f")
+    ):
+        size = getattr(value, "size", None)
+        return size is None or size > 0
+    return False
+
+
+def _strip_vector_fields(value: Any) -> Any:
+    """Return ``value`` with vector-valued fields removed.
+
+    Vector-valued mapping fields are dropped and vector items are
+    dropped from sequences and sets; the rest is kept as is, recursing
+    into nested mappings and sequences.
+    """
+    if isinstance(value, Mapping):
+        return {
+            key: _strip_vector_fields(item)
+            for key, item in value.items()
+            if not _is_vector_value(item)
+        }
+    if isinstance(value, list):
+        return [
+            _strip_vector_fields(item) for item in value if not _is_vector_value(item)
+        ]
+    if isinstance(value, tuple):
+        return tuple(
+            _strip_vector_fields(item) for item in value if not _is_vector_value(item)
+        )
+    if isinstance(value, (set, frozenset)):
+        return {
+            _strip_vector_fields(item) for item in value if not _is_vector_value(item)
+        }
+    if isinstance(value, array.array):
+        return list(value)
+    return value
+
+
+def _serialize_param_value(value: Any) -> str:
+    """Serialize a stripped parameter value to a span attribute string.
+
+    Scalars use ``str()``; dicts, lists, tuples, and sets use
+    ``json.dumps`` (``default=str`` so UUIDs and other non-JSON scalars
+    still serialize), with ``str()`` as the fallback for anything
+    ``json.dumps`` rejects.
+    """
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        try:
+            if isinstance(value, (set, frozenset)):
+                return json.dumps(sorted(value, key=repr), default=str)
+            return json.dumps(value, default=str)
+        except (TypeError, ValueError):
+            return str(value)
+    return str(value)
+
+
+def _query_parameter_attributes(
+    parameters: Mapping[str, Any] | None,
+) -> dict[str, str]:
+    """Build ``db.query.parameter.<key>`` span attributes.
+
+    Skips vector-valued parameters and strips vector-valued fields
+    from nested dictionaries (including nested record dicts) before
+    serializing each value to a string.
+    """
+    if not parameters:
+        return {}
+    attributes: dict[str, str] = {}
+    for key, value in parameters.items():
+        if _is_vector_value(value):
+            continue
+        attributes[f"{DB_QUERY_PARAMETER_PREFIX}{key}"] = _serialize_param_value(
+            _strip_vector_fields(value)
+        )
+    return attributes
+
+
 class _Neo4jTransaction(GraphStoreTransaction):
     """A ``GraphStoreTransaction`` bound to one open Neo4j explicit transaction.
 
@@ -70,7 +180,7 @@ class _Neo4jTransaction(GraphStoreTransaction):
     together when the owning ``Neo4jGraphStore.transaction()`` block exits.
     """
 
-    def __init__(self, tx: Any, *, store: "Neo4jGraphStore") -> None:
+    def __init__(self, tx: Any, *, store: "Neo4jGraphStore", tracer: Tracer) -> None:
         """Bind this handle to an open transaction and its owning store.
 
         Args:
@@ -78,23 +188,49 @@ class _Neo4jTransaction(GraphStoreTransaction):
             store: The store this transaction belongs to, used for label and
                 relation-type bookkeeping and for ensuring each relationship
                 type's identity constraint exists before its first write.
+            tracer: Opens this handle's own spans. Passed explicitly by
+                ``transaction()`` rather than read off ``store`` -- this
+                class does not otherwise touch ``store``'s private state.
         """
         self._tx = tx
         self._store = store
+        self._tracer = tracer
 
     async def execute_read(
         self, query: str, parameters: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Run a read against this transaction and return its rows."""
-        result = await self._tx.run(query, parameters or {})
-        return await result.data()
+        attributes = {
+            DB_SYSTEM_NAME: "neo4j",
+            DB_QUERY_TEXT: query,
+            "agrag.transactional": True,
+            **_query_parameter_attributes(parameters),
+        }
+        with self._tracer.start_as_current_span(
+            "agrag.graphdb.execute_read",
+            kind=SpanKind.CLIENT,
+            attributes=attributes,
+        ):
+            result = await self._tx.run(query, parameters or {})
+            return await result.data()
 
     async def execute_write(
         self, query: str, parameters: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Run a write against this transaction and return its rows."""
-        result = await self._tx.run(query, parameters or {})
-        return await result.data()
+        attributes = {
+            DB_SYSTEM_NAME: "neo4j",
+            DB_QUERY_TEXT: query,
+            "agrag.transactional": True,
+            **_query_parameter_attributes(parameters),
+        }
+        with self._tracer.start_as_current_span(
+            "agrag.graphdb.execute_write",
+            kind=SpanKind.CLIENT,
+            attributes=attributes,
+        ):
+            result = await self._tx.run(query, parameters or {})
+            return await result.data()
 
     async def upsert_nodes(
         self,
@@ -168,6 +304,7 @@ class Neo4jGraphStore(GraphStore):
         *,
         settings: Neo4jSettings | None = None,
         driver: "AsyncDriver | None" = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Build the store.
 
@@ -176,9 +313,11 @@ class Neo4jGraphStore(GraphStore):
             driver: A pre-built ``AsyncDriver``, for tests. When set,
                 ``__init__`` imports nothing and the store calls this object
                 directly instead of building one.
+            tracer: Opens every span this store's methods produce.
         """
         self._settings = settings or Neo4jSettings()
         self._driver: Any = driver
+        self._tracer = get_tracer(tracer)
         self._driver_lock = asyncio.Lock()
         self._known_labels: set[str] = set()
         self._known_relation_types: set[str] = set()
@@ -211,21 +350,24 @@ class Neo4jGraphStore(GraphStore):
         async with self._driver_lock:
             if self._driver is not None:
                 return self._driver
-            try:
-                # Lazy import: a clean install must raise
-                # GraphStoreMissingExtraError, not ImportError, when neo4j is
-                # absent.
-                from neo4j import AsyncGraphDatabase  # noqa: PLC0415
-            except ImportError as exc:
-                raise GraphStoreMissingExtraError("neo4j") from exc
-            self._driver = AsyncGraphDatabase.driver(
-                self._settings.uri,
-                auth=(
-                    self._settings.username,
-                    self._settings.password.get_secret_value(),
-                ),
-                max_connection_lifetime=self._settings.max_connection_lifetime,
-            )
+            with self._tracer.start_as_current_span(
+                "agrag.graphdb.build_driver", kind=SpanKind.INTERNAL
+            ):
+                try:
+                    # Lazy import: a clean install must raise
+                    # GraphStoreMissingExtraError, not ImportError, when neo4j is
+                    # absent.
+                    from neo4j import AsyncGraphDatabase  # noqa: PLC0415
+                except ImportError as exc:
+                    raise GraphStoreMissingExtraError("neo4j") from exc
+                self._driver = AsyncGraphDatabase.driver(
+                    self._settings.uri,
+                    auth=(
+                        self._settings.username,
+                        self._settings.password.get_secret_value(),
+                    ),
+                    max_connection_lifetime=self._settings.max_connection_lifetime,
+                )
         return self._driver
 
     async def connect(self) -> None:
@@ -263,16 +405,27 @@ class Neo4jGraphStore(GraphStore):
         Returns:
             The result rows as dicts.
         """
-        async with self.session() as s:
-            if timeout is None:
-                return await s.execute_read(self._run, query, parameters or {})
-            from neo4j import unit_of_work  # noqa: PLC0415
+        attributes: dict[str, Any] = {
+            DB_SYSTEM_NAME: "neo4j",
+            DB_NAMESPACE: self._settings.database,
+            DB_QUERY_TEXT: query,
+            **_query_parameter_attributes(parameters),
+        }
+        with self._tracer.start_as_current_span(
+            "agrag.graphdb.execute_read",
+            kind=SpanKind.CLIENT,
+            attributes=attributes,
+        ):
+            async with self.session() as s:
+                if timeout is None:
+                    return await s.execute_read(self._run, query, parameters or {})
+                from neo4j import unit_of_work  # noqa: PLC0415
 
-            return await s.execute_read(
-                unit_of_work(timeout=timeout)(self._run),
-                query,
-                parameters or {},
-            )
+                return await s.execute_read(
+                    unit_of_work(timeout=timeout)(self._run),
+                    query,
+                    parameters or {},
+                )
 
     async def execute_write(
         self, query: str, parameters: Mapping[str, Any] | None = None
@@ -286,11 +439,22 @@ class Neo4jGraphStore(GraphStore):
         """
         from neo4j.exceptions import ConstraintError  # noqa: PLC0415
 
-        async with self.session() as s:
-            try:
-                return await s.execute_write(self._run, query, parameters or {})
-            except ConstraintError as exc:
-                raise GraphStoreConstraintViolationError(str(exc)) from exc
+        attributes: dict[str, Any] = {
+            DB_SYSTEM_NAME: "neo4j",
+            DB_NAMESPACE: self._settings.database,
+            DB_QUERY_TEXT: query,
+            **_query_parameter_attributes(parameters),
+        }
+        with self._tracer.start_as_current_span(
+            "agrag.graphdb.execute_write",
+            kind=SpanKind.CLIENT,
+            attributes=attributes,
+        ):
+            async with self.session() as s:
+                try:
+                    return await s.execute_write(self._run, query, parameters or {})
+                except ConstraintError as exc:
+                    raise GraphStoreConstraintViolationError(str(exc)) from exc
 
     @staticmethod
     async def _run(
@@ -319,22 +483,25 @@ class Neo4jGraphStore(GraphStore):
         """
         from neo4j.exceptions import ConstraintError  # noqa: PLC0415
 
-        await self._ensure_identity_constraint()
-        await self._ensure_merge_alias_constraint()
-        await self._ensure_cutover_job_constraint()
-        await self._ensure_cutover_job_status_index()
-        async with self.session() as session:
-            tx = await session.begin_transaction()
-            try:
-                yield _Neo4jTransaction(tx, store=self)
-                await tx.commit()
-            except ConstraintError as exc:
-                with contextlib.suppress(Exception):
+        with self._tracer.start_as_current_span(
+            "agrag.graphdb.transaction", kind=SpanKind.INTERNAL
+        ):
+            await self._ensure_identity_constraint()
+            await self._ensure_merge_alias_constraint()
+            await self._ensure_cutover_job_constraint()
+            await self._ensure_cutover_job_status_index()
+            async with self.session() as session:
+                tx = await session.begin_transaction()
+                try:
+                    yield _Neo4jTransaction(tx, store=self, tracer=self._tracer)
+                    await tx.commit()
+                except ConstraintError as exc:
+                    with contextlib.suppress(Exception):
+                        await tx.rollback()
+                    raise GraphStoreConstraintViolationError(str(exc)) from exc
+                except Exception:
                     await tx.rollback()
-                raise GraphStoreConstraintViolationError(str(exc)) from exc
-            except Exception:
-                await tx.rollback()
-                raise
+                    raise
 
     async def setup_constraints(self) -> None:
         """Create ``id`` and ``merge_key`` uniqueness constraints per label.
@@ -579,34 +746,51 @@ class Neo4jGraphStore(GraphStore):
         Raises:
             ValueError: ``batch_size`` is not positive.
         """
-        require_positive_batch_size(batch_size)
-        validate_identifier(label)
-        await self._ensure_identity_constraint()
-        self._known_labels.add(label)
-        groups: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
-        outcome = UpsertResult()
-        for node in nodes:
-            labels = tuple(sorted(set(node.labels)))
-            try:
-                for node_label in labels:
-                    validate_identifier(node_label)
-            except ValueError as exc:
-                outcome.failures.append(
-                    UpsertFailure(
-                        id=str(node.id),
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
+        with self._tracer.start_as_current_span(
+            "agrag.graphdb.upsert_nodes",
+            kind=SpanKind.INTERNAL,
+            attributes={
+                DB_COLLECTION_NAME: label,
+                "agrag.record_count": len(nodes),
+            },
+        ) as span:
+            require_positive_batch_size(batch_size)
+            validate_identifier(label)
+            await self._ensure_identity_constraint()
+            self._known_labels.add(label)
+            groups: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
+            outcome = UpsertResult()
+            for node in nodes:
+                labels = tuple(sorted(set(node.labels)))
+                try:
+                    for node_label in labels:
+                        validate_identifier(node_label)
+                except ValueError as exc:
+                    outcome.failures.append(
+                        UpsertFailure(
+                            id=str(node.id),
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
                     )
-                )
-                continue
-            self._known_labels.update(labels)
-            groups[labels].append(node_params(node))
-        for labels, records in groups.items():
-            query = upsert_node_query(labels)
-            batch_result = await self._batch_write(query, records, batch_size)
-            outcome.written += batch_result.written
-            outcome.failures.extend(batch_result.failures)
-        return outcome
+                    continue
+                self._known_labels.update(labels)
+                groups[labels].append(node_params(node))
+            # Records are chunked within each label group, so the largest
+            # group bounds the biggest batch any of them can submit.
+            self._record_batch_size(
+                span,
+                max((len(group) for group in groups.values()), default=0),
+                batch_size,
+            )
+            for labels, records in groups.items():
+                query = upsert_node_query(labels)
+                batch_result = await self._batch_write(query, records, batch_size)
+                outcome.written += batch_result.written
+                outcome.failures.extend(batch_result.failures)
+            span.set_attribute("agrag.written", outcome.written)
+            span.set_attribute("agrag.failures_count", len(outcome.failures))
+            return outcome
 
     async def upsert_relations(
         self,
@@ -626,32 +810,48 @@ class Neo4jGraphStore(GraphStore):
         Raises:
             ValueError: ``batch_size`` is not positive.
         """
-        require_positive_batch_size(batch_size)
-        by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        outcome = UpsertResult()
-        for rel in relations:
-            try:
-                validate_identifier(rel.type)
-            except ValueError as exc:
-                outcome.failures.append(
-                    UpsertFailure(
-                        id=str(rel.id),
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
+        with self._tracer.start_as_current_span(
+            "agrag.graphdb.upsert_relations",
+            kind=SpanKind.INTERNAL,
+            attributes={
+                "agrag.record_count": len(relations),
+            },
+        ) as span:
+            require_positive_batch_size(batch_size)
+            by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+            outcome = UpsertResult()
+            for rel in relations:
+                try:
+                    validate_identifier(rel.type)
+                except ValueError as exc:
+                    outcome.failures.append(
+                        UpsertFailure(
+                            id=str(rel.id),
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
                     )
-                )
-                continue
-            by_type[rel.type].append(relation_params(rel))
-        for rel_type, params in by_type.items():
-            await self._ensure_relation_constraint(rel_type)
-            self._known_relation_types.add(rel_type)
-            query = upsert_relation_query(rel_type)
-            batch_result = await self._batch_write(
-                query, params, batch_size, require_returned_ids=True
+                    continue
+                by_type[rel.type].append(relation_params(rel))
+            # Records are chunked within each type group, so the largest
+            # group bounds the biggest batch any of them can submit.
+            self._record_batch_size(
+                span,
+                max((len(group) for group in by_type.values()), default=0),
+                batch_size,
             )
-            outcome.written += batch_result.written
-            outcome.failures.extend(batch_result.failures)
-        return outcome
+            for rel_type, params in by_type.items():
+                await self._ensure_relation_constraint(rel_type)
+                self._known_relation_types.add(rel_type)
+                query = upsert_relation_query(rel_type)
+                batch_result = await self._batch_write(
+                    query, params, batch_size, require_returned_ids=True
+                )
+                outcome.written += batch_result.written
+                outcome.failures.extend(batch_result.failures)
+            span.set_attribute("agrag.written", outcome.written)
+            span.set_attribute("agrag.failures_count", len(outcome.failures))
+            return outcome
 
     async def ensure_vector_index(
         self, *, label: str, vector_property: str, dimensions: int, distance: Distance
@@ -708,28 +908,36 @@ class Neo4jGraphStore(GraphStore):
         validate_identifier(vector_property)
         index_name = vector_index_name(label, vector_property)
         query, filter_params = vector_search_query(index_name, filters)
-        k = limit
-        rows: list[dict[str, Any]] = []
-        while True:
-            params: dict[str, Any] = {
-                **filter_params,
-                "index": index_name,
-                "k": k,
-                "vector": list(query_vector),
-            }
-            try:
-                rows = await self.execute_read(query, params)
-            except Exception as exc:
-                # A label with no provisioned vector index (for example a
-                # filter naming a label that was never ingested) has nothing
-                # to search, so return empty instead of failing the whole
-                # retrieval. Any other driver error keeps propagating.
-                if "no such vector schema index" not in str(exc):
-                    raise
-                return []
-            if len(rows) >= limit or k >= _VECTOR_SEARCH_MAX_K:
-                break
-            k = min(k * _VECTOR_SEARCH_OVERFETCH_MULTIPLIER, _VECTOR_SEARCH_MAX_K)
+        with self._tracer.start_as_current_span(
+            "agrag.graphdb.vector_search",
+            kind=SpanKind.INTERNAL,
+            attributes={DB_COLLECTION_NAME: label, "agrag.limit": limit},
+        ) as span:
+            k = limit
+            rows: list[dict[str, Any]] = []
+            while True:
+                params: dict[str, Any] = {
+                    **filter_params,
+                    "index": index_name,
+                    "k": k,
+                    "vector": list(query_vector),
+                }
+                try:
+                    rows = await self.execute_read(query, params)
+                except Exception as exc:
+                    # A label with no provisioned vector index (for example a
+                    # filter naming a label that was never ingested) has nothing
+                    # to search, so return empty instead of failing the whole
+                    # retrieval. Any other driver error keeps propagating.
+                    if "no such vector schema index" not in str(exc):
+                        raise
+                    span.record_exception(exc)
+                    span.set_attribute("agrag.index_missing", True)
+                    return []
+                if len(rows) >= limit or k >= _VECTOR_SEARCH_MAX_K:
+                    break
+                k = min(k * _VECTOR_SEARCH_OVERFETCH_MULTIPLIER, _VECTOR_SEARCH_MAX_K)
+            span.set_attribute("agrag.k_final", k)
         hits: list[VectorHit] = []
         for row in rows[:limit]:
             node = row["node"]
@@ -803,6 +1011,28 @@ class Neo4jGraphStore(GraphStore):
                         )
                     )
         return outcome
+
+    @staticmethod
+    def _record_batch_size(span: Span | None, records: int, batch_size: int) -> None:
+        """Record the size of the batch a write actually submits.
+
+        The value describes records sent in one round trip, not the
+        configured ``batch_size``: a caller writing fewer records than the
+        limit submits one smaller batch, so reporting the limit there would
+        misstate the round trip.
+
+        It is set only where a batch really exists. A single record is one
+        operation, not a batch, so the attribute is left off. An explicitly
+        empty write records ``0``, which is distinguishable from the absent
+        attribute a one-record write leaves. ``span`` is optional because
+        this is also called from paths with no traced operation.
+        """
+        if span is None:
+            return
+        if records == 0:
+            span.set_attribute(DB_OPERATION_BATCH_SIZE, 0)
+        elif records > 1:
+            span.set_attribute(DB_OPERATION_BATCH_SIZE, min(records, batch_size))
 
     @staticmethod
     def _is_record_specific_error(exc: Exception) -> bool:
