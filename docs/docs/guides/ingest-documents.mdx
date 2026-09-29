@@ -95,7 +95,7 @@ you already hold `Document` objects.
 
 ## Choose how documents are chunked
 
-`Graph.open` takes a `chunking` argument that decides which chunker splits each document. Loaders also normalize the text of each file: they remove the byte-order mark, change line endings to LF, and apply NFKC. Pass `read_options=ReadOptions(normalization=...)` to `Graph.add` to change this. See [Configure chunking](./configure-chunking.mdx) for both.
+`Graph.open` takes a `chunking` argument that decides which chunker splits each document. Loaders also normalize the text of each file: they remove the byte-order mark, change line endings to LF, and apply NFKC. Pass `read_options=ReadOptions(normalization=...)` to `Graph.add` to change this. PDF and Office documents chunk at up to 1024 tokens by default. See [Configure chunking](./configure-chunking.mdx) for both.
 
 ## Handle errors per source
 

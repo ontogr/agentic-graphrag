@@ -59,6 +59,21 @@ A rule matches on these keys. All keys are optional. A document must match every
 
 `SentenceChunker` never cuts inside a sentence, so one very long sentence makes a chunk larger than `chunk_size`.
 
+## Tune the Docling chunker
+
+`DoclingChunker` splits PDF and Office documents along the structure that Docling found. Its settings:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `tokenizer` | `o200k_base` | Counts tokens the same way as the text strategies. A name with a slash is a Hugging Face model id, which needs the network the first time. |
+| `max_tokens` | `1024` | The most tokens in a chunk. Headings count against it. |
+| `merge_peers` | `True` | Merges small neighbours that share headings. |
+| `repeat_table_header` | `True` | Repeats the table header in each chunk of a split table. |
+| `omit_header_on_overflow` | `False` | Drops headings from a chunk when they do not fit. |
+| `table_format` | `"triplet"` | `"triplet"` writes `row, column = value` text. `"markdown"` writes a pipe table. |
+
+Each chunk has the headings above it in `heading_path`. The chunk text is the body without headings. A chunk that holds only table items has `content_kind="table_row"`. Chunk ids include the chunker hash, so new settings give new chunks and `Graph.update` closes the old ones.
+
 ## Set the size and the tokenizer
 
 `chunk_size` counts units of the `tokenizer`. The default tokenizer is `o200k_base`, which loads offline. Use `tokenizer="character"` to count characters.
