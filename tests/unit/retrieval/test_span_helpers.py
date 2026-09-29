@@ -143,7 +143,7 @@ class TestVectorSearchSpan:
         provider, exporter = _provider()
         tracer = provider.get_tracer("t")
 
-        with pytest_raises_value_error():
+        with _raises_value_error():
             await vector_search(
                 "q",
                 embedder=_MockEmbedder(),
@@ -161,7 +161,7 @@ class TestVectorSearchSpan:
         assert span.status.status_code.name == "ERROR"
 
 
-def pytest_raises_value_error():
+def _raises_value_error():
     """Return the context manager the misconfiguration test uses."""
     return contextlib.suppress(ValueError)
 
@@ -356,7 +356,7 @@ class TestNodeDistanceSpan:
         seed_id = uuid4()
         candidates = [_entity_result() for _ in range(3)]
         candidates.append(
-            SearchResult(item=seed_entity(seed_id), score=1.0, method="bfs")
+            SearchResult(item=_seed_entity(seed_id), score=1.0, method="bfs")
         )
         gs = AsyncMock()
         gs.execute_read.return_value = [{"dist": 2}]
@@ -375,7 +375,7 @@ class TestNodeDistanceSpan:
         assert attributes["agrag.path_query_count"] == 3
 
 
-def seed_entity(seed_id):
+def _seed_entity(seed_id):
     """Return the entity the seed id names."""
     return Entity(id=seed_id, label="Person", name="Seed")
 

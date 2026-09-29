@@ -54,7 +54,7 @@ _FOUNDER_CHUNK = "Zephyra Robotics was founded by Mira Okafor in a garage worksh
 _LIFT_CHUNK = "The Lumen-9 robot can lift 40 kilograms with its dual arms."
 
 
-class _KeywordEmbedder(Embedder):
+class _FakeKeywordEmbedder(Embedder):
     """Embedder that separates texts by keyword in four dimensions.
 
     One dimension per keyword, so the founder and lifting facts land far
@@ -143,7 +143,7 @@ class TestAgentTracing:
         self.person_label = validate_identifier(f"Person_{suffix}")
         self.company_label = validate_identifier(f"Company_{suffix}")
         self.robot_label = validate_identifier(f"Robot_{suffix}")
-        self.embedder = _KeywordEmbedder()
+        self.embedder = _FakeKeywordEmbedder()
         self.chunk_ids: list = []
         self.document_id = str(uuid4())
         yield
@@ -304,7 +304,7 @@ class TestAgentTracing:
                 a for a in _ancestors(tool, by_id) if a.context.span_id in task_ids
             )
             owners.setdefault(task.context.span_id, set()).add(tool.context.span_id)
-        assert owners, "the agent ran no retrieval"
+        assert len(owners) >= 2, "fewer than two task calls ran retrieval"
 
         # Tool calls of different tasks are different spans.
         tool_sets = list(owners.values())
@@ -319,4 +319,3 @@ class TestAgentTracing:
         ]
         assert searches
         assert {step.subagent for step in searches} == {"researcher"}
-        print(f"task calls observed: {len(tasks)}")
