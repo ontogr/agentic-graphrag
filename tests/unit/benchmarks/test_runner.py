@@ -172,6 +172,22 @@ class TestRunner:
         assert commands.verbs()[-1] == "stop"
         assert all(store.closed for store in opened)
 
+    async def test_teardown_failure_still_stops_the_service(self, tmp_path):
+        """A failing teardown does not leave the corpus service running."""
+        behaviour = Behaviour()
+        env, commands = make_environment(tmp_path, behaviour)
+
+        class BrokenTeardown(FakeSystem):
+            async def teardown(self) -> None:
+                raise RuntimeError("teardown failed")
+
+        env.make_system = lambda context: BrokenTeardown(context, behaviour)
+
+        with pytest.raises(RuntimeError, match="teardown failed"):
+            await run("fake", DOMAIN, "lite", options(), env)
+
+        assert commands.verbs()[-1] == "stop"
+
     async def test_corpora_sharing_a_schema_name_keep_both_schemas(self, tmp_path):
         """Schemas that share a name but differ in version are both recorded."""
         env, _ = make_environment(tmp_path, Behaviour())

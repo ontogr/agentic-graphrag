@@ -374,8 +374,10 @@ async def _execute(
                 )
             )
         finally:
-            await serving.release()
-            env.services.stop(corpus.service)
+            try:
+                await serving.release()
+            finally:
+                env.services.stop(corpus.service)
     return corpora, schemas, outcomes
 
 
