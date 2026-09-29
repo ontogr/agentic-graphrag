@@ -481,6 +481,10 @@ class TestCrossPathValueAgreement:
         for attributes in (baml, agent):
             prompt_tokens = attributes["llm.token_count.prompt"]
             completion_tokens = attributes["llm.token_count.completion"]
+            if not isinstance(prompt_tokens, int) or not isinstance(
+                completion_tokens, int
+            ):
+                pytest.fail("LLM token counts must be integers")
             assert attributes["llm.token_count.total"] == (
                 prompt_tokens + completion_tokens
             )
