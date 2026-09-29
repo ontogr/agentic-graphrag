@@ -52,7 +52,7 @@ class TestTextStrategies:
     ) -> None:
         """Random Unicode text: slices match, spans are ordered, gaps are blank."""
         chunker = _STRATEGIES[strategy](size)
-        for seed in range(40):
+        for seed in range(200):
             document = make_document(_random_text(seed))
 
             chunks = chunker.chunk(document)
