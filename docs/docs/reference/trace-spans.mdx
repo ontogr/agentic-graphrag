@@ -38,6 +38,13 @@ agrag.extraction.extract_chunk            (INTERNAL)
 `ExtractEntitiesAndRelations`. The attempt span records the exception when an
 attempt fails. The `call` span is `ERROR` when the call as a whole fails.
 
+## Ingestion spans
+
+| Span | Attributes |
+|---|---|
+| `agrag.ingestion.load_document` | `agrag.source_uri`, `agrag.loader_name`, `agrag.normalization` (JSON) |
+| `agrag.ingestion.chunk_document` | `agrag.document_key`, `agrag.chunker.strategy`, `agrag.chunker.hash`, `agrag.chunker.settings` (JSON), `agrag.chunker.rule` (a rule index or `fallback`), `agrag.chunks_produced` |
+
 ## Domain spans by path
 
 Each LLM path also opens one small domain span carrying its own ids and counts.

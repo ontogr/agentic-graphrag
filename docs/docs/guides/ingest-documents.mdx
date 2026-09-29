@@ -93,6 +93,10 @@ result = await graph.add(documents=[doc])
 For most callers, `source=` or `text=` is simpler; reach for `documents=` when
 you already hold `Document` objects.
 
+## Choose how documents are chunked
+
+`Graph.open` takes a `chunking` argument that decides which chunker splits each document. Loaders also normalize the text of each file: they remove the byte-order mark, change line endings to LF, and apply NFKC. Pass `read_options=ReadOptions(normalization=...)` to `Graph.add` to change this. See [Configure chunking](./configure-chunking.mdx) for both.
+
 ## Handle errors per source
 
 Use `error_policy` to control what happens when a source fails to load. The
@@ -142,8 +146,8 @@ result = await graph.add(source="./corpus", on_progress=report)
 ## Update or delete a document
 
 Use `Graph.update` to ingest new content under the same stable `document_key`.
-If the content hash is unchanged, the operation does not re-chunk or rewrite the
-document.
+If the content hash and the chunker settings are unchanged, the operation does
+not re-chunk or rewrite the document.
 
 ```python
 result = await graph.update("memory://manual", text="Revised document text")
