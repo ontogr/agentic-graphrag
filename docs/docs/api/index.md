@@ -18364,8 +18364,8 @@ stores; does not depend on a Graph instance existing.
 A `tracer` opens the retrieval spans and flows to every
 retriever and free function the engine calls. It is *not* pushed
 into `graph_store`, `embedder` or `vector_store`: pass the
-same tracer to those when you build them (ADR 0053), so their
-adapter spans nest under these retrieval spans.
+same tracer to those when you build them, so their adapter spans
+nest under these retrieval spans.
 
 **Functions:**
 
