@@ -3870,6 +3870,7 @@ The Document model: one unit of source text, before chunking.
 - [**DocumentFamily**](#agrag.common.data_models.document.DocumentFamily) – The shape of a document's source.
 - [**HeadingRef**](#agrag.common.data_models.document.HeadingRef) – One heading in a document outline.
 - [**SourceFormat**](#agrag.common.data_models.document.SourceFormat) – A source format that a loader can read.
+- [**TurnRef**](#agrag.common.data_models.document.TurnRef) – One speaker turn in a chat document.
 
 **Attributes:**
 
@@ -3932,6 +3933,8 @@ set. Pass `id` only when rebuilding a document from stored data.
 - [**document_key**](#agrag.common.data_models.document.Document.document_key) (<code>[str](#str) | None</code>) – The stable identifier for this document's persisted graph node.
   Independent of `id`, which changes with every content edit. Defaults to
   `uri` when not supplied.
+- [**turns**](#agrag.common.data_models.document.Document.turns) (<code>[list](#list)\[[TurnRef](#agrag.common.data_models.document.TurnRef)\]</code>) – The speaker turns of a chat document, in order. A chat loader sets this
+  field. Turn spans index `text` and do not overlap.
 - [**normalization**](#agrag.common.data_models.document.Document.normalization) (<code>[Normalization](#agrag.common.data_models.normalization.Normalization) | None</code>) – How the loader normalized `text`. `None` for a document
   that no text loader made, such as a docling document or one built by hand.
 
@@ -4161,6 +4164,12 @@ The record excludes `text`: the persisted node exists for traversal and
 the update no-op check, not to duplicate the document body already held
 per-chunk.
 
+####### `agrag.common.data_models.document.Document.turns`
+
+```python
+turns: list[TurnRef] = Field(default_factory=list)
+```
+
 ####### `agrag.common.data_models.document.Document.uri`
 
 ```python
@@ -4332,6 +4341,43 @@ TXT = 'txt'
 
 ```python
 XML = 'xml'
+```
+
+###### `agrag.common.data_models.document.TurnRef`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One speaker turn in a chat document.
+
+**Attributes:**
+
+- [**role**](#agrag.common.data_models.document.TurnRef.role) (<code>[str](#str)</code>) – The speaker of the turn, for example `"user"`.
+- [**turn_id**](#agrag.common.data_models.document.TurnRef.turn_id) (<code>[str](#str) | None</code>) – The id of the message in the source, when it has one.
+- [**char_start**](#agrag.common.data_models.document.TurnRef.char_start) (<code>[int](#int)</code>) – The start character offset of the turn in the document text.
+- [**char_end**](#agrag.common.data_models.document.TurnRef.char_end) (<code>[int](#int)</code>) – The end character offset of the turn, exclusive.
+
+####### `agrag.common.data_models.document.TurnRef.char_end`
+
+```python
+char_end: int
+```
+
+####### `agrag.common.data_models.document.TurnRef.char_start`
+
+```python
+char_start: int
+```
+
+####### `agrag.common.data_models.document.TurnRef.role`
+
+```python
+role: str = Field(min_length=1)
+```
+
+####### `agrag.common.data_models.document.TurnRef.turn_id`
+
+```python
+turn_id: str | None = None
 ```
 
 ##### `agrag.common.data_models.entity`

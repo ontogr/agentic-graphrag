@@ -10,6 +10,7 @@ from agrag.common.data_models.document import (
     Document,
     DocumentFamily,
     SourceFormat,
+    TurnRef,
 )
 
 
@@ -72,3 +73,60 @@ class TestToNodeRecord:
         """The record never carries the full document body."""
         record = _doc().to_node_record()
         assert "text" not in record.properties
+
+
+class TestTurns:
+    """Document.turns holds ordered, non-overlapping spans inside the text."""
+
+    _TEXT = "[user] hello\n\n[assistant] hi there"
+
+    def _with_turns(self, turns: list[TurnRef]) -> Document:
+        return Document(
+            text=self._TEXT,
+            title="t",
+            uri="u",
+            source_format=SourceFormat.JSONL,
+            family=DocumentFamily.PROSE,
+            content_hash="h",
+            loader_name="chat",
+            char_count=len(self._TEXT),
+            turns=turns,
+        )
+
+    def test_accepts_ordered_turns(self) -> None:
+        """Turns that follow the text in order are kept as given."""
+        turns = [
+            TurnRef(role="user", char_start=0, char_end=12),
+            TurnRef(role="assistant", turn_id="a1", char_start=14, char_end=34),
+        ]
+
+        assert self._with_turns(turns).turns == turns
+
+    def test_defaults_to_no_turns(self) -> None:
+        """A document without chat structure has no turns."""
+        assert self._with_turns([]).turns == []
+
+    @pytest.mark.parametrize(
+        ("spans", "message"),
+        [
+            ([(14, 34), (0, 12)], "order"),
+            ([(0, 20), (10, 34)], "overlap"),
+            ([(0, 99)], "text"),
+            ([(-1, 5)], "text"),
+            ([(5, 5)], "text"),
+        ],
+        ids=["out-of-order", "overlap", "past-end", "negative", "empty"],
+    )
+    def test_rejects_bad_spans(
+        self, spans: list[tuple[int, int]], message: str
+    ) -> None:
+        """Out-of-order, overlapping or out-of-range spans raise."""
+        turns = [TurnRef(role="user", char_start=a, char_end=b) for a, b in spans]
+
+        with pytest.raises(ValueError, match=message):
+            self._with_turns(turns)
+
+    def test_rejects_empty_role(self) -> None:
+        """A turn must name its speaker."""
+        with pytest.raises(ValueError, match="role"):
+            TurnRef(role="", char_start=0, char_end=3)
