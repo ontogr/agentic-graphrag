@@ -58,7 +58,7 @@ def _entity_result(score: float = 1.0) -> SearchResult:
     )
 
 
-class MockEmbedder:
+class _MockEmbedder:
     """Mock embedder for vector search tests."""
 
     async def embed_one(self, text: str) -> list[float]:
@@ -80,7 +80,7 @@ class TestVectorSearchSpan:
 
         hits = await vector_search(
             "q",
-            embedder=MockEmbedder(),
+            embedder=_MockEmbedder(),
             graph_store=gs,
             vector_store=None,
             collection="agrag_entities",
@@ -118,7 +118,7 @@ class TestVectorSearchSpan:
 
         await vector_search(
             "q",
-            embedder=MockEmbedder(),
+            embedder=_MockEmbedder(),
             graph_store=AsyncMock(),
             vector_store=vs,
             collection="agrag_entities",
@@ -146,7 +146,7 @@ class TestVectorSearchSpan:
         with pytest_raises_value_error():
             await vector_search(
                 "q",
-                embedder=MockEmbedder(),
+                embedder=_MockEmbedder(),
                 graph_store=AsyncMock(),
                 vector_store=None,
                 collection="agrag_entities",
@@ -286,7 +286,7 @@ class TestCrossEncoderSpan:
         tracer = provider.get_tracer("t")
         results = [_entity_result()]
 
-        class FakeCrossEncoder:
+        class _FakeCrossEncoder:
             def __init__(self, *args: object, **kwargs: object) -> None:
                 pass
 
@@ -294,7 +294,7 @@ class TestCrossEncoderSpan:
                 return [0.5 for _ in pairs]
 
         module = ModuleType("fake")
-        module.CrossEncoder = FakeCrossEncoder
+        module.CrossEncoder = _FakeCrossEncoder
         model_name = f"span-model-{uuid4().hex}"
 
         with patch.dict(sys.modules, {"sentence_transformers": module}):
@@ -316,7 +316,7 @@ class TestCrossEncoderSpan:
         tracer = provider.get_tracer("t")
         results = [_entity_result()]
 
-        class FakeCrossEncoder:
+        class _FakeCrossEncoder:
             def __init__(self, *args: object, **kwargs: object) -> None:
                 pass
 
@@ -324,7 +324,7 @@ class TestCrossEncoderSpan:
                 return [0.75]
 
         module = ModuleType("fake")
-        module.CrossEncoder = FakeCrossEncoder
+        module.CrossEncoder = _FakeCrossEncoder
 
         with patch.dict(sys.modules, {"sentence_transformers": module}):
             await cross_encoder_rerank(
@@ -393,7 +393,7 @@ class TestNoTracerLeavesHostSpanUntouched:
         with tracer.start_as_current_span("host"):
             await vector_search(
                 "q",
-                embedder=MockEmbedder(),
+                embedder=_MockEmbedder(),
                 graph_store=gs,
                 vector_store=None,
                 collection="c",
@@ -439,7 +439,7 @@ class TestNoTracerLeavesHostSpanUntouched:
         tracer = provider.get_tracer("t")
         results = [_entity_result()]
 
-        class FakeCrossEncoder:
+        class _FakeCrossEncoder:
             def __init__(self, *args: object, **kwargs: object) -> None:
                 pass
 
@@ -447,7 +447,7 @@ class TestNoTracerLeavesHostSpanUntouched:
                 return [0.5 for _ in pairs]
 
         module = ModuleType("fake")
-        module.CrossEncoder = FakeCrossEncoder
+        module.CrossEncoder = _FakeCrossEncoder
         gs = AsyncMock()
         gs.execute_read.return_value = [{"dist": 1}]
 

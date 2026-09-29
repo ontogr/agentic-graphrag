@@ -89,7 +89,7 @@ def _chunk_rows(chunk_id) -> list[dict]:
     ]
 
 
-class MockEmbedder:
+class _MockEmbedder:
     """Mock embedder returning a fixed vector."""
 
     async def embed_one(self, text: str) -> list[float]:
@@ -116,7 +116,7 @@ class TestChunkRetrieverSpan:
         store.execute_read.return_value = _chunk_rows(hits[0].id)
         retriever = ChunkRetriever(
             graph_store=store,
-            embedder=MockEmbedder(),
+            embedder=_MockEmbedder(),
             settings=RetrievalSettings(),
             tracer=tracer,
         )
@@ -158,7 +158,7 @@ class TestChunkRetrieverSpan:
         store.execute_read.side_effect = RuntimeError("read failed")
         retriever = ChunkRetriever(
             graph_store=store,
-            embedder=MockEmbedder(),
+            embedder=_MockEmbedder(),
             settings=RetrievalSettings(),
             tracer=tracer,
         )
@@ -185,7 +185,7 @@ class TestChunkRetrieverSpan:
         store.execute_read.return_value = []
         retriever = ChunkRetriever(
             graph_store=store,
-            embedder=MockEmbedder(),
+            embedder=_MockEmbedder(),
             settings=RetrievalSettings(),
             tracer=None,
         )
@@ -303,7 +303,7 @@ class TestEntityRetrieverSpans:
         store.execute_read.side_effect = _read
         retriever = EntityRetriever(
             graph_store=store,
-            embedder=MockEmbedder(),
+            embedder=_MockEmbedder(),
             settings=RetrievalSettings(),
             entity_labels=["Person"],
             tracer=tracer,
@@ -344,7 +344,7 @@ class TestEntityRetrieverSpans:
         store = _vector_searching_store([])
         retriever = EntityRetriever(
             graph_store=store,
-            embedder=MockEmbedder(),
+            embedder=_MockEmbedder(),
             settings=RetrievalSettings(),
             entity_labels=["Person"],
             tracer=None,

@@ -94,7 +94,7 @@ def _chunk_rows(chunk_id) -> list[dict]:
     ]
 
 
-class MockEmbedder:
+class _MockEmbedder:
     """Mock embedder returning a fixed vector."""
 
     async def embed_one(self, text: str) -> list[float]:
@@ -152,7 +152,7 @@ def _engine(store: AsyncMock, tracer) -> SearchEngine:
     """Return a SearchEngine over ``store`` with entity labels set."""
     return SearchEngine(
         graph_store=store,
-        embedder=MockEmbedder(),
+        embedder=_MockEmbedder(),
         settings=RetrievalSettings(),
         entity_labels=["Person"],
         tracer=tracer,
@@ -288,7 +288,7 @@ class TestTraversalRootSpans:
         result = await find_entity(
             "alice",
             graph_store=store,
-            embedder=MockEmbedder(),
+            embedder=_MockEmbedder(),
             vector_store=None,
             settings=RetrievalSettings(),
             entity_labels=["Person"],
