@@ -137,6 +137,23 @@ class TestFingerprint:
         """Each setting, and the strategy, is part of the fingerprint."""
         assert RecursiveChunker(chunk_size=99).fingerprint() != other.fingerprint()
 
+    def test_copy_with_changes_rebuilds_the_fingerprint_and_the_splitter(self) -> None:
+        """A changed copy behaves like a chunker built with the new settings."""
+        original = RecursiveChunker(chunk_size=8, tokenizer="character")
+        changed = original.model_copy(update={"chunk_size": 64})
+        document = make_document("word " * 40)
+
+        assert changed.fingerprint() == (
+            RecursiveChunker(chunk_size=64, tokenizer="character").fingerprint()
+        )
+        assert changed.fingerprint() != original.fingerprint()
+        assert len(changed.chunk(document)) < len(original.chunk(document))
+
+    def test_copy_rejects_an_invalid_change(self) -> None:
+        """A changed copy is validated like a new chunker."""
+        with pytest.raises(ValueError, match="chunk_size"):
+            RecursiveChunker().model_copy(update={"chunk_size": 0})
+
     def test_settings_are_json_data_that_name_the_strategy(self) -> None:
         """settings() lists the strategy and every field."""
         assert RecursiveChunker(chunk_size=5, tokenizer="character").settings() == {

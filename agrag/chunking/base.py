@@ -3,7 +3,8 @@
 import hashlib
 import json
 from abc import ABC, abstractmethod
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Self
 
 from pydantic import (
     BaseModel,
@@ -60,6 +61,18 @@ class Chunker(BaseModel, ABC):
     @abstractmethod
     def strategy(self) -> str:
         """The stable name of this strategy, for example ``"recursive"``."""
+
+    def model_copy(
+        self, *, update: Mapping[str, Any] | None = None, deep: bool = False
+    ) -> Self:
+        """Copy the chunker, validating any changed setting.
+
+        A plain copy would keep the fingerprint and the splitter of the original,
+        so a copy with changes is built again from its settings.
+        """
+        if not update:
+            return super().model_copy(deep=deep)
+        return type(self)(**{**dict(self), **update})
 
     def chunk(self, document: Document) -> list[Chunk]:
         """Split a document into chunks.

@@ -1395,6 +1395,7 @@ checks what `_split` returns and records the chunker on every chunk.
 
 - [**chunk**](#agrag.chunking.Chunker.chunk) – Split a document into chunks.
 - [**fingerprint**](#agrag.chunking.Chunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.Chunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.Chunker.model_post_init) – Compute the fingerprint once, after the settings are validated.
 - [**settings**](#agrag.chunking.Chunker.settings) – Return the strategy name and every setting as JSON-safe data.
 
@@ -1440,6 +1441,17 @@ Return the hash of `settings()`, 16 hex characters.
 ```python
 model_config = ConfigDict(frozen=True, extra='forbid')
 ```
+
+##### `agrag.chunking.Chunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
 
 ##### `agrag.chunking.Chunker.model_post_init`
 
@@ -1584,6 +1596,7 @@ Chunk ids come from the chunk index, so they are not stable across a re-parse.
 
 - [**chunk**](#agrag.chunking.DoclingChunker.chunk) – Split a document into chunks.
 - [**fingerprint**](#agrag.chunking.DoclingChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.DoclingChunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.DoclingChunker.model_post_init) – Compute the fingerprint once, after the settings are validated.
 - [**settings**](#agrag.chunking.DoclingChunker.settings) – Return the strategy name and every setting as JSON-safe data.
 
@@ -1630,6 +1643,17 @@ Return the hash of `settings()`, 16 hex characters.
 model_config = ConfigDict(frozen=True, extra='forbid')
 ```
 
+##### `agrag.chunking.DoclingChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
 ##### `agrag.chunking.DoclingChunker.model_post_init`
 
 ```python
@@ -1674,6 +1698,7 @@ Splits on paragraph, sentence and word boundaries, coarsest first.
 
 - [**chunk**](#agrag.chunking.RecursiveChunker.chunk) – Split a document into chunks.
 - [**fingerprint**](#agrag.chunking.RecursiveChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.RecursiveChunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.RecursiveChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
 - [**settings**](#agrag.chunking.RecursiveChunker.settings) – Return the strategy name and every setting as JSON-safe data.
 - [**spans**](#agrag.chunking.RecursiveChunker.spans) – Return the half-open character spans this strategy cuts text into.
@@ -1733,6 +1758,17 @@ min_characters_per_chunk: int = Field(default=24, gt=0)
 ```python
 model_config = ConfigDict(frozen=True, extra='forbid')
 ```
+
+##### `agrag.chunking.RecursiveChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
 
 ##### `agrag.chunking.RecursiveChunker.model_post_init`
 
@@ -1866,6 +1902,7 @@ larger than the budget when the text has a very long sentence.
 
 - [**chunk**](#agrag.chunking.SentenceChunker.chunk) – Split a document into chunks.
 - [**fingerprint**](#agrag.chunking.SentenceChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.SentenceChunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.SentenceChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
 - [**settings**](#agrag.chunking.SentenceChunker.settings) – Return the strategy name and every setting as JSON-safe data.
 - [**spans**](#agrag.chunking.SentenceChunker.spans) – Return the half-open character spans this strategy cuts text into.
@@ -1931,6 +1968,17 @@ min_sentences_per_chunk: int = Field(default=1, gt=0)
 ```python
 model_config = ConfigDict(frozen=True, extra='forbid')
 ```
+
+##### `agrag.chunking.SentenceChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
 
 ##### `agrag.chunking.SentenceChunker.model_post_init`
 
@@ -2040,6 +2088,7 @@ its exact span in the document.
 
 - [**chunk**](#agrag.chunking.TokenChunker.chunk) – Split a document into chunks.
 - [**fingerprint**](#agrag.chunking.TokenChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.TokenChunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.TokenChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
 - [**settings**](#agrag.chunking.TokenChunker.settings) – Return the strategy name and every setting as JSON-safe data.
 - [**spans**](#agrag.chunking.TokenChunker.spans) – Return the half-open character spans this strategy cuts text into.
@@ -2093,6 +2142,17 @@ Return the hash of `settings()`, 16 hex characters.
 ```python
 model_config = ConfigDict(frozen=True, extra='forbid')
 ```
+
+##### `agrag.chunking.TokenChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
 
 ##### `agrag.chunking.TokenChunker.model_post_init`
 
@@ -2178,6 +2238,7 @@ checks what `_split` returns and records the chunker on every chunk.
 
 - [**chunk**](#agrag.chunking.base.Chunker.chunk) – Split a document into chunks.
 - [**fingerprint**](#agrag.chunking.base.Chunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.base.Chunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.base.Chunker.model_post_init) – Compute the fingerprint once, after the settings are validated.
 - [**settings**](#agrag.chunking.base.Chunker.settings) – Return the strategy name and every setting as JSON-safe data.
 
@@ -2223,6 +2284,17 @@ Return the hash of `settings()`, 16 hex characters.
 ```python
 model_config = ConfigDict(frozen=True, extra='forbid')
 ```
+
+###### `agrag.chunking.base.Chunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
 
 ###### `agrag.chunking.base.Chunker.model_post_init`
 
@@ -2276,6 +2348,7 @@ so a lossy tokenizer round trip cannot change it.
 
 - [**chunk**](#agrag.chunking.base.SpanChunker.chunk) – Split a document into chunks.
 - [**fingerprint**](#agrag.chunking.base.SpanChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.base.SpanChunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.base.SpanChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
 - [**settings**](#agrag.chunking.base.SpanChunker.settings) – Return the strategy name and every setting as JSON-safe data.
 - [**spans**](#agrag.chunking.base.SpanChunker.spans) – Return the half-open character spans this strategy cuts text into.
@@ -2322,6 +2395,17 @@ Return the hash of `settings()`, 16 hex characters.
 ```python
 model_config = ConfigDict(frozen=True, extra='forbid')
 ```
+
+###### `agrag.chunking.base.SpanChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
 
 ###### `agrag.chunking.base.SpanChunker.model_post_init`
 
@@ -2410,6 +2494,7 @@ Chunk ids come from the chunk index, so they are not stable across a re-parse.
 
 - [**chunk**](#agrag.chunking.docling.DoclingChunker.chunk) – Split a document into chunks.
 - [**fingerprint**](#agrag.chunking.docling.DoclingChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.docling.DoclingChunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.docling.DoclingChunker.model_post_init) – Compute the fingerprint once, after the settings are validated.
 - [**settings**](#agrag.chunking.docling.DoclingChunker.settings) – Return the strategy name and every setting as JSON-safe data.
 
@@ -2455,6 +2540,17 @@ Return the hash of `settings()`, 16 hex characters.
 ```python
 model_config = ConfigDict(frozen=True, extra='forbid')
 ```
+
+###### `agrag.chunking.docling.DoclingChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
 
 ###### `agrag.chunking.docling.DoclingChunker.model_post_init`
 
@@ -2509,6 +2605,7 @@ Splits on paragraph, sentence and word boundaries, coarsest first.
 
 - [**chunk**](#agrag.chunking.recursive.RecursiveChunker.chunk) – Split a document into chunks.
 - [**fingerprint**](#agrag.chunking.recursive.RecursiveChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.recursive.RecursiveChunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.recursive.RecursiveChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
 - [**settings**](#agrag.chunking.recursive.RecursiveChunker.settings) – Return the strategy name and every setting as JSON-safe data.
 - [**spans**](#agrag.chunking.recursive.RecursiveChunker.spans) – Return the half-open character spans this strategy cuts text into.
@@ -2568,6 +2665,17 @@ min_characters_per_chunk: int = Field(default=24, gt=0)
 ```python
 model_config = ConfigDict(frozen=True, extra='forbid')
 ```
+
+###### `agrag.chunking.recursive.RecursiveChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
 
 ###### `agrag.chunking.recursive.RecursiveChunker.model_post_init`
 
@@ -2857,6 +2965,7 @@ larger than the budget when the text has a very long sentence.
 
 - [**chunk**](#agrag.chunking.sentence.SentenceChunker.chunk) – Split a document into chunks.
 - [**fingerprint**](#agrag.chunking.sentence.SentenceChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.sentence.SentenceChunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.sentence.SentenceChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
 - [**settings**](#agrag.chunking.sentence.SentenceChunker.settings) – Return the strategy name and every setting as JSON-safe data.
 - [**spans**](#agrag.chunking.sentence.SentenceChunker.spans) – Return the half-open character spans this strategy cuts text into.
@@ -2922,6 +3031,17 @@ min_sentences_per_chunk: int = Field(default=1, gt=0)
 ```python
 model_config = ConfigDict(frozen=True, extra='forbid')
 ```
+
+###### `agrag.chunking.sentence.SentenceChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
 
 ###### `agrag.chunking.sentence.SentenceChunker.model_post_init`
 
@@ -3002,6 +3122,7 @@ its exact span in the document.
 
 - [**chunk**](#agrag.chunking.token.TokenChunker.chunk) – Split a document into chunks.
 - [**fingerprint**](#agrag.chunking.token.TokenChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.token.TokenChunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.token.TokenChunker.model_post_init) – Build the engine once, so a bad setting fails at construction.
 - [**settings**](#agrag.chunking.token.TokenChunker.settings) – Return the strategy name and every setting as JSON-safe data.
 - [**spans**](#agrag.chunking.token.TokenChunker.spans) – Return the half-open character spans this strategy cuts text into.
@@ -3055,6 +3176,17 @@ Return the hash of `settings()`, 16 hex characters.
 ```python
 model_config = ConfigDict(frozen=True, extra='forbid')
 ```
+
+###### `agrag.chunking.token.TokenChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
 
 ###### `agrag.chunking.token.TokenChunker.model_post_init`
 
