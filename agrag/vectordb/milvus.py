@@ -811,14 +811,23 @@ class MilvusVectorStore(VectorStore):
         if page_offset is not None:
             cursor_clause = f"id > {_escape_scalar(page_offset)}"
             expr = f"{cursor_clause} and {expr}" if expr else cursor_clause
-        rows = await client.query(
-            collection_name=collection,
-            filter=expr,
-            output_fields=output_fields,
-            limit=safe_limit,
-            order_by="id:asc",
-            consistency_level=_READ_CONSISTENCY,
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.scroll",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "milvus",
+                DB_COLLECTION_NAME: collection,
+                "agrag.limit": limit,
+            },
+        ):
+            rows = await client.query(
+                collection_name=collection,
+                filter=expr,
+                output_fields=output_fields,
+                limit=safe_limit,
+                order_by="id:asc",
+                consistency_level=_READ_CONSISTENCY,
+            )
         records = [self._to_record(row) for row in rows]
         next_offset = rows[-1]["id"] if rows and len(rows) == safe_limit else None
         return records, next_offset
@@ -846,12 +855,20 @@ class MilvusVectorStore(VectorStore):
         by_id: dict[str, dict[str, Any]] = {}
         for start in range(0, len(ids), MAX_RESPONSE_LIMIT):
             batch = ids[start : start + MAX_RESPONSE_LIMIT]
-            rows = await client.get(
-                collection_name=collection,
-                ids=[str(i) for i in batch],
-                output_fields=["id", _VECTOR_FIELD, _PAYLOAD_FIELD],
-                consistency_level=_READ_CONSISTENCY,
-            )
+            with self._tracer.start_as_current_span(
+                "agrag.vectordb.retrieve",
+                kind=SpanKind.CLIENT,
+                attributes={
+                    DB_SYSTEM_NAME: "milvus",
+                    DB_COLLECTION_NAME: collection,
+                },
+            ):
+                rows = await client.get(
+                    collection_name=collection,
+                    ids=[str(i) for i in batch],
+                    output_fields=["id", _VECTOR_FIELD, _PAYLOAD_FIELD],
+                    consistency_level=_READ_CONSISTENCY,
+                )
             by_id.update({row["id"]: row for row in rows})
         records = []
         for item_id in ids:
@@ -873,12 +890,20 @@ class MilvusVectorStore(VectorStore):
             The number of matching records.
         """
         client = await self._ensure_client()
-        rows = await client.query(
-            collection_name=collection,
-            filter=self._compile_filter(filters),
-            output_fields=["count(*)"],
-            consistency_level=_READ_CONSISTENCY,
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.count",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "milvus",
+                DB_COLLECTION_NAME: collection,
+            },
+        ):
+            rows = await client.query(
+                collection_name=collection,
+                filter=self._compile_filter(filters),
+                output_fields=["count(*)"],
+                consistency_level=_READ_CONSISTENCY,
+            )
         if not rows:
             return 0
         return int(rows[0]["count(*)"])
@@ -891,7 +916,15 @@ class MilvusVectorStore(VectorStore):
             ids: The ids to delete.
         """
         client = await self._ensure_client()
-        await client.delete(collection_name=collection, ids=[str(i) for i in ids])
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.delete",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "milvus",
+                DB_COLLECTION_NAME: collection,
+            },
+        ):
+            await client.delete(collection_name=collection, ids=[str(i) for i in ids])
 
     async def close(self) -> None:
         """Release the backend connection."""

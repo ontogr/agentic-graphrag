@@ -765,14 +765,23 @@ class QdrantVectorStore(VectorStore):
             end.
         """
         client = await self._ensure_client()
-        points, offset = await client.scroll(
-            collection_name=collection,
-            limit=limit,
-            offset=page_offset,
-            scroll_filter=self._compile_filter(filters),
-            with_payload=True,
-            with_vectors=with_vectors,
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.scroll",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "qdrant",
+                DB_COLLECTION_NAME: collection,
+                "agrag.limit": limit,
+            },
+        ):
+            points, offset = await client.scroll(
+                collection_name=collection,
+                limit=limit,
+                offset=page_offset,
+                scroll_filter=self._compile_filter(filters),
+                with_payload=True,
+                with_vectors=with_vectors,
+            )
         records = [self._to_record(point) for point in points]
         return records, str(offset) if offset else None
 
@@ -790,12 +799,20 @@ class QdrantVectorStore(VectorStore):
             ids.
         """
         client = await self._ensure_client()
-        points = await client.retrieve(
-            collection_name=collection,
-            ids=[str(i) for i in ids],
-            with_payload=True,
-            with_vectors=True,
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.retrieve",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "qdrant",
+                DB_COLLECTION_NAME: collection,
+            },
+        ):
+            points = await client.retrieve(
+                collection_name=collection,
+                ids=[str(i) for i in ids],
+                with_payload=True,
+                with_vectors=True,
+            )
         return [self._to_record(point) for point in points]
 
     async def count(
@@ -811,9 +828,17 @@ class QdrantVectorStore(VectorStore):
             The number of matching records.
         """
         client = await self._ensure_client()
-        result = await client.count(
-            collection_name=collection, count_filter=self._compile_filter(filters)
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.count",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "qdrant",
+                DB_COLLECTION_NAME: collection,
+            },
+        ):
+            result = await client.count(
+                collection_name=collection, count_filter=self._compile_filter(filters)
+            )
         return result.count
 
     async def delete(self, collection: str, ids: Sequence[UUID]) -> None:
@@ -824,10 +849,18 @@ class QdrantVectorStore(VectorStore):
             ids: The ids to delete.
         """
         client = await self._ensure_client()
-        await client.delete(
-            collection_name=collection,
-            points_selector=self._models.PointIdsList(points=[str(i) for i in ids]),
-        )
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.delete",
+            kind=SpanKind.CLIENT,
+            attributes={
+                DB_SYSTEM_NAME: "qdrant",
+                DB_COLLECTION_NAME: collection,
+            },
+        ):
+            await client.delete(
+                collection_name=collection,
+                points_selector=self._models.PointIdsList(points=[str(i) for i in ids]),
+            )
 
     async def close(self) -> None:
         """Release the backend connection."""
