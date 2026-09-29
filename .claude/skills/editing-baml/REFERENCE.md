@@ -1,22 +1,6 @@
-# BAML (Basically, A Made-Up Language) Reference Guide for AI Agents
+# BAML Reference
 
-## Project rules (authoritative)
-
-These bind this repository. The generic BAML reference below is background only.
-
-- Edit BAML sources under `agrag/llm/baml_src/`. Never manually edit the
-  generated client under `agrag/llm/baml_client/`.
-- After any `.baml` change, regenerate the client with `make baml-gen` (not a
-  bare `baml-cli generate`), and commit the regenerated client.
-- The generator targets `python/pydantic`; generated BAML types are Pydantic
-  models.
-- Model IDs shown in the examples below are illustrative of syntax, not
-  prescriptive. For actual model choice use current generally available models
-  and verify against provider docs; do not copy a pinned ID from this file.
-
-The remainder of this file is upstream BAML reference, kept for on-demand lookup
-of syntax and features. Prefer the rules above and the live docs at
-`https://docs.boundaryml.com` when they disagree.
+Upstream BAML syntax and feature reference.
 
 <Overview>
 BAML is a domain-specific language for building type-safe LLM prompts as functions. It provides:

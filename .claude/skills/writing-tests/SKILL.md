@@ -1,3 +1,8 @@
+---
+name: writing-tests
+description: Testing rules for unit and integration tests. Use when adding, changing, or fixing pytest tests under tests/.
+---
+
 # Testing Rules
 
 Use these rules for tests in this repository.

@@ -1,6 +1,6 @@
 ---
-name: add-or-fix-type-checking
-description: Fixes broken typing checks detected by ty or make lint-typing. Use when typing errors appear in local runs, CI, or PR logs.
+name: fixing-ty-errors
+description: Fix ty type-check failures. Use when make lint-typing or uv run ty check reports errors, or when annotating code to satisfy ty.
 ---
 
 # Add Or Fix Type Checking - ty type checker
