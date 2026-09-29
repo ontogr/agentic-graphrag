@@ -2191,9 +2191,12 @@ Extraction runs on the parents, which have `level=1`. The children have
 A search hit returns the child with its parent attached.
 
 A child never crosses a parent boundary, because the child strategy cuts each
-parent alone. A parent that the child strategy leaves without a piece gets one
-child with the span of the parent. The chunker returns all parents, then all
-children. Indexes count from 0 at each level.
+parent alone. Text of a parent that the child strategy leaves out gets a child of
+its own, so all non-blank text can be found by search. A parent that the child
+strategy leaves without any piece gets one child with the span of the parent.
+
+The chunker returns all parents, then all children. Indexes count from 0 at each
+level.
 
 **Attributes:**
 
@@ -4114,9 +4117,12 @@ Extraction runs on the parents, which have `level=1`. The children have
 A search hit returns the child with its parent attached.
 
 A child never crosses a parent boundary, because the child strategy cuts each
-parent alone. A parent that the child strategy leaves without a piece gets one
-child with the span of the parent. The chunker returns all parents, then all
-children. Indexes count from 0 at each level.
+parent alone. Text of a parent that the child strategy leaves out gets a child of
+its own, so all non-blank text can be found by search. A parent that the child
+strategy leaves without any piece gets one child with the span of the parent.
+
+The chunker returns all parents, then all children. Indexes count from 0 at each
+level.
 
 **Attributes:**
 

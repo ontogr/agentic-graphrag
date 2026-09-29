@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from agrag.chunking.base import DEFAULT_TOKENIZER, Chunker
+from agrag.chunking.base import DEFAULT_TOKENIZER, Chunker, ChunkerMissingExtraError
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.provenance import BoundingBox, PageProvenance, PageSpan
@@ -69,11 +69,14 @@ class DoclingChunker(Chunker):
             raise self._error(
                 document, 0, "the document has no parsed docling document"
             )
-        from docling.chunking import HybridChunker  # noqa: PLC0415
+        try:
+            from docling.chunking import HybridChunker  # noqa: PLC0415
 
-        from agrag.chunking._docling_adapters import (  # noqa: PLC0415
-            MarkdownTableProvider,
-        )
+            from agrag.chunking._docling_adapters import (  # noqa: PLC0415
+                MarkdownTableProvider,
+            )
+        except ImportError as exc:
+            raise ChunkerMissingExtraError(self.strategy, "docling") from exc
 
         options: dict[str, Any] = {}
         if self.table_format == "markdown":

@@ -4,6 +4,8 @@ The documents are built with docling's own builder API, so no model, PDF or netw
 is needed. Page provenance conversion is covered in the docling loader tests.
 """
 
+import sys
+
 import pytest
 
 
@@ -88,6 +90,25 @@ class TestSplit:
 
         with pytest.raises(ChunkingError, match="docling chunker"):
             DoclingChunker().chunk(document)
+
+
+class TestMissingExtra:
+    """A missing docling package gives the usual missing extra error."""
+
+    def test_raises_a_clear_error_naming_the_extra(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """chunk() names the docling extra instead of raising a raw ImportError."""
+        from agrag.chunking import ChunkerMissingExtraError  # noqa: PLC0415
+
+        document = docling_document(sections=[("A", ["Body."])])
+        monkeypatch.setitem(sys.modules, "docling", None)
+        monkeypatch.setitem(sys.modules, "docling.chunking", None)
+
+        with pytest.raises(ChunkerMissingExtraError, match="docling") as raised:
+            DoclingChunker().chunk(document)
+
+        assert raised.value.extra == "docling"
 
 
 class TestTables:

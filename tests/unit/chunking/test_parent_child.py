@@ -3,12 +3,15 @@
 Sizes use the ``character`` tokenizer so a budget is a number of characters.
 """
 
+from types import SimpleNamespace
+
 from agrag.chunking import (
     ParentChildChunker,
     RecursiveChunker,
     SentenceChunker,
     TokenChunker,
 )
+from agrag.chunking.base import SpanChunker
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import HeadingRef
 from agrag.common.data_models.provenance import TextProvenance
@@ -140,6 +143,74 @@ class TestStructure:
             return [(c.id, c.text, c.level, c.parent_id) for c in chunks]
 
         assert key(chunker.chunk(document)) == key(chunker.chunk(document))
+
+
+class _FixedCuts(SpanChunker):
+    """A child strategy that returns fixed spans, to test uncovered parent text."""
+
+    cuts: tuple[tuple[int, int], ...] = ()
+
+    @property
+    def strategy(self) -> str:
+        return "fixed"
+
+    def _build_engine(self):  # noqa: ANN202
+        cuts = self.cuts
+        return SimpleNamespace(
+            chunk=lambda text: [
+                SimpleNamespace(start_index=a, end_index=b)
+                for a, b in cuts
+                if b <= len(text)
+            ]
+        )
+
+
+class TestUncoveredParentText:
+    """Text that the child strategy leaves out still lands in some child."""
+
+    _TEXT = "alpha beta gamma delta"
+
+    def _children(self, cuts: tuple[tuple[int, int], ...]) -> list[str]:
+        chunker = ParentChildChunker(
+            parent=RecursiveChunker(chunk_size=500, tokenizer="character"),
+            child=_FixedCuts(cuts=cuts),
+        )
+        chunks = chunker.chunk(make_document(self._TEXT))
+        return [c.text for c in chunks if c.level == 0]
+
+    def test_text_before_and_after_the_child_spans_gets_children(self) -> None:
+        """Both edges of the parent are covered."""
+        assert self._children(((6, 10),)) == ["alpha", "beta", "gamma delta"]
+
+    def test_text_between_child_spans_gets_a_child(self) -> None:
+        """A gap in the middle is covered."""
+        assert self._children(((0, 5), (17, 22))) == [
+            "alpha",
+            "beta gamma",
+            "delta",
+        ]
+
+    def test_blank_gaps_make_no_child(self) -> None:
+        """Whitespace between children is not turned into a chunk."""
+        assert self._children(((0, 5), (6, 10), (11, 16), (17, 22))) == [
+            "alpha",
+            "beta",
+            "gamma",
+            "delta",
+        ]
+
+    def test_gap_children_belong_to_the_parent_and_lie_inside_it(self) -> None:
+        """Gap children pass the base class checks and point at their parent."""
+        chunker = ParentChildChunker(
+            parent=RecursiveChunker(chunk_size=500, tokenizer="character"),
+            child=_FixedCuts(cuts=((6, 10),)),
+        )
+
+        parents, children = _split(chunker.chunk(make_document(self._TEXT)))
+
+        assert len(parents) == 1
+        assert {c.parent_id for c in children} == {parents[0].id}
+        assert [c.index for c in children] == [0, 1, 2]
 
 
 class TestSettings:
