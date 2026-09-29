@@ -6700,12 +6700,16 @@ close_part_of_query() -> str
 Build Cypher that closes currently valid document-to-chunk edges.
 
 Only committed edges are closed. Pending edges belong to an in-flight
-cutover and remain open until that job commits.
+cutover and remain open until that job commits. An edge to a chunk in
+`$keep_chunk_ids` stays open: a job that writes a chunk with the id of
+a committed one reuses its edge without tagging it, and the edge must
+outlive the close.
 
 **Returns:**
 
-- <code>[str](#str)</code> – Parameterized Cypher expecting $document_node_id. Returns the
-- <code>[str](#str)</code> – number of committed edges closed.
+- <code>[str](#str)</code> – Parameterized Cypher expecting $document_node_id and $keep_chunk_ids
+- <code>[str](#str)</code> – (a list of chunk id strings). Returns the number of committed edges
+- <code>[str](#str)</code> – closed.
 
 ##### `agrag.cypher.relations.entities_in_documents_query`
 

@@ -1175,6 +1175,7 @@ class Graph:
                 close_document_node_id=(
                     found.document_node_id if found is not None else None
                 ),
+                keep_chunk_ids=[chunk.id for chunk in chunks if chunk.id is not None],
                 tracer=self._tracer,
             )
             return UpdateResult(

@@ -301,6 +301,7 @@ class TestChunkingE2E:
         new_rows = await env.chunk_rows(rule_guide)
         new_ids = {str(r["id"]) for r in new_rows}
         assert new_rows
+        assert len(new_rows) == changed.add_result.chunking.chunks_by_strategy["token"]
         assert len(new_rows) < len(guide_rows)
         assert {r["chunker_hash"] for r in new_rows} == {
             new_chunking.rules[0].chunker.fingerprint()
@@ -330,6 +331,34 @@ class TestChunkingE2E:
         artifact["5_legacy_update_no_op"] = legacy.no_op
 
         write_artifact("chunking", artifact)
+
+    async def test_rechunk_keeps_a_chunk_that_both_chunkings_produce(
+        self, env: _Env
+    ) -> None:
+        """A short document has one span under any size, and it stays current."""
+        short = env.root.parent / f"{env.root.name}_short"
+        short.mkdir()
+        body = _prose("short", 3)
+        (short / "short.txt").write_text(body, encoding="utf-8")
+        key = str(short / "short.txt")
+        first = await env.open_graph(
+            Chunking(fallback=RecursiveChunker(chunk_size=1024, tokenizer="character"))
+        )
+        second_chunking = Chunking(
+            fallback=RecursiveChunker(chunk_size=512, tokenizer="character")
+        )
+        second = await env.open_graph(second_chunking)
+        await first.add(source=short)
+        (before,) = await env.chunk_rows(key)
+
+        changed = await second.update(key, source=short / "short.txt")
+
+        assert changed.no_op is False
+        (after,) = await env.chunk_rows(key)
+        assert after["id"] == before["id"]
+        assert after["chunker_hash"] == second_chunking.fallback.fingerprint()
+        found = await env.retrieved_chunk_ids(body, [key])
+        assert found == {str(after["id"])}
 
     async def test_large_chunk_reaches_the_ledger_whole(self, env: _Env) -> None:
         """A 5,000 character chunk is stored, retrieved and rendered without a cut."""

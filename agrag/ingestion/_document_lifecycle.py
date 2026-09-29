@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -79,6 +80,7 @@ async def close_open_part_of_edges(
     *,
     document_node_id: UUID,
     job_id: UUID | None = None,
+    keep_chunk_ids: Sequence[UUID] = (),
 ) -> int:
     """Close every currently-open PART_OF edge for a Document node.
 
@@ -95,6 +97,9 @@ async def close_open_part_of_edges(
             wrote stay open, so closing the superseded version does not
             close the version replacing it. None closes every open edge
             the committed graph holds.
+        keep_chunk_ids: Chunks whose edges stay open. A replacement version
+            can produce a chunk with the id of one it replaces, and closing
+            that chunk's edge would hide the new chunk.
 
     Returns:
         The number of edges closed.
@@ -104,6 +109,7 @@ async def close_open_part_of_edges(
         {
             "document_node_id": str(document_node_id),
             "job_id": str(job_id) if job_id is not None else None,
+            "keep_chunk_ids": [str(chunk_id) for chunk_id in keep_chunk_ids],
         },
     )
     return int(rows[0].get("closed", 0)) if rows else 0
