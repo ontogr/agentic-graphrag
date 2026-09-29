@@ -73,6 +73,9 @@ eval = [
     "openinference-instrumentation-langchain>=0.1.76,<0.2",
 ]
 community = ["graspologic-native>=1.2.5"]
+chunk-semantic = ["chonkie[semantic]>=1.7"]
+chunk-neural = ["chonkie[neural]>=1.7"]
+chunk-code = ["chonkie[code]>=1.7"]
 
 [project.urls]
 Documentation = "https://ontogr.github.io/agentic-graphrag/"

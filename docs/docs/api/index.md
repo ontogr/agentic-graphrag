@@ -1360,6 +1360,7 @@ for each document, and `DEFAULT_CHUNKING` is the preset that `Graph` uses.
 
 - [**base**](#agrag.chunking.base) – The Chunker contract: how a Document becomes Chunks, and how that is recorded.
 - [**docling**](#agrag.chunking.docling) – Docling-native chunking.
+- [**extras**](#agrag.chunking.extras) – Opt-in chunkers that need a package extra: semantic, neural and code.
 - [**heading**](#agrag.chunking.heading) – The heading-aware strategy: sections packed to a token budget.
 - [**parent_child**](#agrag.chunking.parent_child) – The parent-child strategy: large parents to extract, small children to search.
 - [**recursive**](#agrag.chunking.recursive) – The recursive strategy: split on the coarsest delimiter that fits the budget.
@@ -1371,14 +1372,18 @@ for each document, and `DEFAULT_CHUNKING` is the preset that `Graph` uses.
 **Classes:**
 
 - [**Chunker**](#agrag.chunking.Chunker) – Splits one Document into Chunks and builds their provenance.
+- [**ChunkerMissingExtraError**](#agrag.chunking.ChunkerMissingExtraError) – A chunker needs a package extra that is not installed.
 - [**Chunking**](#agrag.chunking.Chunking) – An ordered list of chunking rules and a fallback chunker.
 - [**ChunkingError**](#agrag.chunking.ChunkingError) – A chunker broke the chunk contract or could not chunk a document.
 - [**ChunkingRule**](#agrag.chunking.ChunkingRule) – A match and the chunker for the documents it matches.
+- [**CodeChunker**](#agrag.chunking.CodeChunker) – Cuts source code along its syntax tree.
 - [**DoclingChunker**](#agrag.chunking.DoclingChunker) – Splits a parsed docling document with docling's hybrid chunker.
 - [**HeadingChunker**](#agrag.chunking.HeadingChunker) – Cuts a document into sections at its headings and packs them to a budget.
+- [**NeuralChunker**](#agrag.chunking.NeuralChunker) – Cuts where a token classification model predicts a topic break.
 - [**ParentChildChunker**](#agrag.chunking.ParentChildChunker) – Cuts a document into parent chunks and cuts each parent into child chunks.
 - [**RecursiveChunker**](#agrag.chunking.RecursiveChunker) – Splits on paragraph, sentence and word boundaries, coarsest first.
 - [**RuleMatch**](#agrag.chunking.RuleMatch) – The documents a rule applies to.
+- [**SemanticChunker**](#agrag.chunking.SemanticChunker) – Cuts where the meaning of neighbouring sentences changes.
 - [**SentenceChunker**](#agrag.chunking.SentenceChunker) – Packs whole sentences into chunks of at most `chunk_size` tokens.
 - [**SplitLevel**](#agrag.chunking.SplitLevel) – One level of recursive split rules.
 - [**TokenChunker**](#agrag.chunking.TokenChunker) – Cuts the text into windows of `chunk_size` tokens.
@@ -1487,6 +1492,33 @@ strategy: str
 
 The stable name of this strategy, for example `"recursive"`.
 
+#### `agrag.chunking.ChunkerMissingExtraError`
+
+```python
+ChunkerMissingExtraError(strategy:str, extra:str) -> None
+```
+
+Bases: <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code>
+
+A chunker needs a package extra that is not installed.
+
+**Attributes:**
+
+- [**strategy**](#agrag.chunking.ChunkerMissingExtraError.strategy) – The strategy name that needs the extra.
+- [**extra**](#agrag.chunking.ChunkerMissingExtraError.extra) – The package extra to install.
+
+##### `agrag.chunking.ChunkerMissingExtraError.extra`
+
+```python
+extra = extra
+```
+
+##### `agrag.chunking.ChunkerMissingExtraError.strategy`
+
+```python
+strategy = strategy
+```
+
 #### `agrag.chunking.Chunking`
 
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
@@ -1582,6 +1614,132 @@ match: RuleMatch
 
 ```python
 model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+#### `agrag.chunking.CodeChunker`
+
+Bases: <code>[\_ExtraSpanChunker](#agrag.chunking.extras._ExtraSpanChunker)</code>
+
+Cuts source code along its syntax tree.
+
+Needs the `chunk-code` extra. The parser reports byte offsets, and this
+chunker converts them to character offsets, so chunk text equals the source
+slice for non-ASCII code too.
+
+**Attributes:**
+
+- [**language**](#agrag.chunking.CodeChunker.language) (<code>[str](#str)</code>) – A tree-sitter language name, or `"auto"` to detect it.
+- [**chunk_size**](#agrag.chunking.CodeChunker.chunk_size) (<code>[int](#int)</code>) – The largest chunk size, counted with `tokenizer`.
+- [**tokenizer**](#agrag.chunking.CodeChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.CodeChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.CodeChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.CodeChunker.model_copy) – Copy the chunker, validating any changed setting.
+- [**model_post_init**](#agrag.chunking.CodeChunker.model_post_init) – Compute the fingerprint only, so the extra is not needed to build.
+- [**settings**](#agrag.chunking.CodeChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.CodeChunker.spans) – Return character spans, converted from the parser's byte spans.
+
+##### `agrag.chunking.CodeChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+##### `agrag.chunking.CodeChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+##### `agrag.chunking.CodeChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+##### `agrag.chunking.CodeChunker.language`
+
+```python
+language: str = 'auto'
+```
+
+##### `agrag.chunking.CodeChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.CodeChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
+##### `agrag.chunking.CodeChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Compute the fingerprint only, so the extra is not needed to build.
+
+##### `agrag.chunking.CodeChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+##### `agrag.chunking.CodeChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return character spans, converted from the parser's byte spans.
+
+##### `agrag.chunking.CodeChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"code"`.
+
+##### `agrag.chunking.CodeChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
 ```
 
 #### `agrag.chunking.DEFAULT_CHUNKING`
@@ -1864,6 +2022,134 @@ The strategy name, `"heading"`.
 ```python
 tokenizer: str = DEFAULT_TOKENIZER
 ```
+
+#### `agrag.chunking.NeuralChunker`
+
+Bases: <code>[\_ExtraSpanChunker](#agrag.chunking.extras._ExtraSpanChunker)</code>
+
+Cuts where a token classification model predicts a topic break.
+
+Needs the `chunk-neural` extra. The first use downloads the model.
+
+**Attributes:**
+
+- [**model**](#agrag.chunking.NeuralChunker.model) (<code>[str](#str) | None</code>) – The Hugging Face model id. `None` uses chonkie's default model.
+- [**device_map**](#agrag.chunking.NeuralChunker.device_map) (<code>[str](#str)</code>) – The device for the model, for example `"cpu"` or `"auto"`.
+- [**min_characters_per_chunk**](#agrag.chunking.NeuralChunker.min_characters_per_chunk) (<code>[int](#int)</code>) – The smallest chunk the splitter keeps apart.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.NeuralChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.NeuralChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.NeuralChunker.model_copy) – Copy the chunker, validating any changed setting.
+- [**model_post_init**](#agrag.chunking.NeuralChunker.model_post_init) – Compute the fingerprint only, so the extra is not needed to build.
+- [**settings**](#agrag.chunking.NeuralChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.NeuralChunker.spans) – Return the character spans this strategy cuts text into.
+
+##### `agrag.chunking.NeuralChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+##### `agrag.chunking.NeuralChunker.device_map`
+
+```python
+device_map: str = 'cpu'
+```
+
+##### `agrag.chunking.NeuralChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+##### `agrag.chunking.NeuralChunker.min_characters_per_chunk`
+
+```python
+min_characters_per_chunk: int = Field(default=10, gt=0)
+```
+
+##### `agrag.chunking.NeuralChunker.model`
+
+```python
+model: str | None = None
+```
+
+##### `agrag.chunking.NeuralChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.NeuralChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
+##### `agrag.chunking.NeuralChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Compute the fingerprint only, so the extra is not needed to build.
+
+##### `agrag.chunking.NeuralChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+##### `agrag.chunking.NeuralChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return the character spans this strategy cuts text into.
+
+**Raises:**
+
+- <code>[ChunkerMissingExtraError](#agrag.chunking.base.ChunkerMissingExtraError)</code> – The package extra is not installed.
+
+##### `agrag.chunking.NeuralChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"neural"`.
 
 #### `agrag.chunking.ParentChildChunker`
 
@@ -2178,6 +2464,142 @@ source_formats: list[SourceFormat] | None = None
 
 ```python
 uri_glob: str | None = None
+```
+
+#### `agrag.chunking.SemanticChunker`
+
+Bases: <code>[\_ExtraSpanChunker](#agrag.chunking.extras._ExtraSpanChunker)</code>
+
+Cuts where the meaning of neighbouring sentences changes.
+
+Needs the `chunk-semantic` extra. The chunker embeds sentences with a small
+static model and cuts where similarity drops below `threshold`.
+
+**Attributes:**
+
+- [**embedding_model**](#agrag.chunking.SemanticChunker.embedding_model) (<code>[str](#str)</code>) – The model that embeds sentences. The first use downloads it.
+- [**threshold**](#agrag.chunking.SemanticChunker.threshold) (<code>[float](#float)</code>) – The similarity below which a new chunk starts, from 0 to 1.
+- [**chunk_size**](#agrag.chunking.SemanticChunker.chunk_size) (<code>[int](#int)</code>) – The largest chunk size, as chonkie's semantic chunker counts it.
+- [**similarity_window**](#agrag.chunking.SemanticChunker.similarity_window) (<code>[int](#int)</code>) – The number of sentences that a similarity looks across.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.SemanticChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.SemanticChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.SemanticChunker.model_copy) – Copy the chunker, validating any changed setting.
+- [**model_post_init**](#agrag.chunking.SemanticChunker.model_post_init) – Compute the fingerprint only, so the extra is not needed to build.
+- [**settings**](#agrag.chunking.SemanticChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.SemanticChunker.spans) – Return the character spans this strategy cuts text into.
+
+##### `agrag.chunking.SemanticChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+##### `agrag.chunking.SemanticChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+##### `agrag.chunking.SemanticChunker.embedding_model`
+
+```python
+embedding_model: str = 'minishlab/potion-base-32M'
+```
+
+##### `agrag.chunking.SemanticChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+##### `agrag.chunking.SemanticChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.SemanticChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
+##### `agrag.chunking.SemanticChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Compute the fingerprint only, so the extra is not needed to build.
+
+##### `agrag.chunking.SemanticChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+##### `agrag.chunking.SemanticChunker.similarity_window`
+
+```python
+similarity_window: int = Field(default=3, gt=0)
+```
+
+##### `agrag.chunking.SemanticChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return the character spans this strategy cuts text into.
+
+**Raises:**
+
+- <code>[ChunkerMissingExtraError](#agrag.chunking.base.ChunkerMissingExtraError)</code> – The package extra is not installed.
+
+##### `agrag.chunking.SemanticChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"semantic"`.
+
+##### `agrag.chunking.SemanticChunker.threshold`
+
+```python
+threshold: float = Field(default=0.8, gt=0, le=1)
 ```
 
 #### `agrag.chunking.SentenceChunker`
@@ -2644,6 +3066,7 @@ The Chunker contract: how a Document becomes Chunks, and how that is recorded.
 **Classes:**
 
 - [**Chunker**](#agrag.chunking.base.Chunker) – Splits one Document into Chunks and builds their provenance.
+- [**ChunkerMissingExtraError**](#agrag.chunking.base.ChunkerMissingExtraError) – A chunker needs a package extra that is not installed.
 - [**ChunkingError**](#agrag.chunking.base.ChunkingError) – A chunker broke the chunk contract or could not chunk a document.
 - [**SpanChunker**](#agrag.chunking.base.SpanChunker) – A chunker that only decides where to cut; text and offsets come from the source.
 
@@ -2753,6 +3176,33 @@ strategy: str
 ```
 
 The stable name of this strategy, for example `"recursive"`.
+
+##### `agrag.chunking.base.ChunkerMissingExtraError`
+
+```python
+ChunkerMissingExtraError(strategy:str, extra:str) -> None
+```
+
+Bases: <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code>
+
+A chunker needs a package extra that is not installed.
+
+**Attributes:**
+
+- [**strategy**](#agrag.chunking.base.ChunkerMissingExtraError.strategy) – The strategy name that needs the extra.
+- [**extra**](#agrag.chunking.base.ChunkerMissingExtraError.extra) – The package extra to install.
+
+###### `agrag.chunking.base.ChunkerMissingExtraError.extra`
+
+```python
+extra = extra
+```
+
+###### `agrag.chunking.base.ChunkerMissingExtraError.strategy`
+
+```python
+strategy = strategy
+```
 
 ##### `agrag.chunking.base.ChunkingError`
 
@@ -3054,6 +3504,427 @@ table_format: Literal['triplet', 'markdown'] = 'triplet'
 ```python
 tokenizer: str = DEFAULT_TOKENIZER
 ```
+
+#### `agrag.chunking.extras`
+
+Opt-in chunkers that need a package extra: semantic, neural and code.
+
+**Classes:**
+
+- [**CodeChunker**](#agrag.chunking.extras.CodeChunker) – Cuts source code along its syntax tree.
+- [**NeuralChunker**](#agrag.chunking.extras.NeuralChunker) – Cuts where a token classification model predicts a topic break.
+- [**SemanticChunker**](#agrag.chunking.extras.SemanticChunker) – Cuts where the meaning of neighbouring sentences changes.
+
+**Functions:**
+
+- [**byte_spans_to_char_spans**](#agrag.chunking.extras.byte_spans_to_char_spans) – Convert UTF-8 byte spans of `text` to character spans.
+
+##### `agrag.chunking.extras.CodeChunker`
+
+Bases: <code>[\_ExtraSpanChunker](#agrag.chunking.extras._ExtraSpanChunker)</code>
+
+Cuts source code along its syntax tree.
+
+Needs the `chunk-code` extra. The parser reports byte offsets, and this
+chunker converts them to character offsets, so chunk text equals the source
+slice for non-ASCII code too.
+
+**Attributes:**
+
+- [**language**](#agrag.chunking.extras.CodeChunker.language) (<code>[str](#str)</code>) – A tree-sitter language name, or `"auto"` to detect it.
+- [**chunk_size**](#agrag.chunking.extras.CodeChunker.chunk_size) (<code>[int](#int)</code>) – The largest chunk size, counted with `tokenizer`.
+- [**tokenizer**](#agrag.chunking.extras.CodeChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.extras.CodeChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.extras.CodeChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.extras.CodeChunker.model_copy) – Copy the chunker, validating any changed setting.
+- [**model_post_init**](#agrag.chunking.extras.CodeChunker.model_post_init) – Compute the fingerprint only, so the extra is not needed to build.
+- [**settings**](#agrag.chunking.extras.CodeChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.extras.CodeChunker.spans) – Return character spans, converted from the parser's byte spans.
+
+###### `agrag.chunking.extras.CodeChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+###### `agrag.chunking.extras.CodeChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+###### `agrag.chunking.extras.CodeChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+###### `agrag.chunking.extras.CodeChunker.language`
+
+```python
+language: str = 'auto'
+```
+
+###### `agrag.chunking.extras.CodeChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.extras.CodeChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
+###### `agrag.chunking.extras.CodeChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Compute the fingerprint only, so the extra is not needed to build.
+
+###### `agrag.chunking.extras.CodeChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+###### `agrag.chunking.extras.CodeChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return character spans, converted from the parser's byte spans.
+
+###### `agrag.chunking.extras.CodeChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"code"`.
+
+###### `agrag.chunking.extras.CodeChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
+```
+
+##### `agrag.chunking.extras.NeuralChunker`
+
+Bases: <code>[\_ExtraSpanChunker](#agrag.chunking.extras._ExtraSpanChunker)</code>
+
+Cuts where a token classification model predicts a topic break.
+
+Needs the `chunk-neural` extra. The first use downloads the model.
+
+**Attributes:**
+
+- [**model**](#agrag.chunking.extras.NeuralChunker.model) (<code>[str](#str) | None</code>) – The Hugging Face model id. `None` uses chonkie's default model.
+- [**device_map**](#agrag.chunking.extras.NeuralChunker.device_map) (<code>[str](#str)</code>) – The device for the model, for example `"cpu"` or `"auto"`.
+- [**min_characters_per_chunk**](#agrag.chunking.extras.NeuralChunker.min_characters_per_chunk) (<code>[int](#int)</code>) – The smallest chunk the splitter keeps apart.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.extras.NeuralChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.extras.NeuralChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.extras.NeuralChunker.model_copy) – Copy the chunker, validating any changed setting.
+- [**model_post_init**](#agrag.chunking.extras.NeuralChunker.model_post_init) – Compute the fingerprint only, so the extra is not needed to build.
+- [**settings**](#agrag.chunking.extras.NeuralChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.extras.NeuralChunker.spans) – Return the character spans this strategy cuts text into.
+
+###### `agrag.chunking.extras.NeuralChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+###### `agrag.chunking.extras.NeuralChunker.device_map`
+
+```python
+device_map: str = 'cpu'
+```
+
+###### `agrag.chunking.extras.NeuralChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+###### `agrag.chunking.extras.NeuralChunker.min_characters_per_chunk`
+
+```python
+min_characters_per_chunk: int = Field(default=10, gt=0)
+```
+
+###### `agrag.chunking.extras.NeuralChunker.model`
+
+```python
+model: str | None = None
+```
+
+###### `agrag.chunking.extras.NeuralChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.extras.NeuralChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
+###### `agrag.chunking.extras.NeuralChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Compute the fingerprint only, so the extra is not needed to build.
+
+###### `agrag.chunking.extras.NeuralChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+###### `agrag.chunking.extras.NeuralChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return the character spans this strategy cuts text into.
+
+**Raises:**
+
+- <code>[ChunkerMissingExtraError](#agrag.chunking.base.ChunkerMissingExtraError)</code> – The package extra is not installed.
+
+###### `agrag.chunking.extras.NeuralChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"neural"`.
+
+##### `agrag.chunking.extras.SemanticChunker`
+
+Bases: <code>[\_ExtraSpanChunker](#agrag.chunking.extras._ExtraSpanChunker)</code>
+
+Cuts where the meaning of neighbouring sentences changes.
+
+Needs the `chunk-semantic` extra. The chunker embeds sentences with a small
+static model and cuts where similarity drops below `threshold`.
+
+**Attributes:**
+
+- [**embedding_model**](#agrag.chunking.extras.SemanticChunker.embedding_model) (<code>[str](#str)</code>) – The model that embeds sentences. The first use downloads it.
+- [**threshold**](#agrag.chunking.extras.SemanticChunker.threshold) (<code>[float](#float)</code>) – The similarity below which a new chunk starts, from 0 to 1.
+- [**chunk_size**](#agrag.chunking.extras.SemanticChunker.chunk_size) (<code>[int](#int)</code>) – The largest chunk size, as chonkie's semantic chunker counts it.
+- [**similarity_window**](#agrag.chunking.extras.SemanticChunker.similarity_window) (<code>[int](#int)</code>) – The number of sentences that a similarity looks across.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.extras.SemanticChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.extras.SemanticChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.extras.SemanticChunker.model_copy) – Copy the chunker, validating any changed setting.
+- [**model_post_init**](#agrag.chunking.extras.SemanticChunker.model_post_init) – Compute the fingerprint only, so the extra is not needed to build.
+- [**settings**](#agrag.chunking.extras.SemanticChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+- [**spans**](#agrag.chunking.extras.SemanticChunker.spans) – Return the character spans this strategy cuts text into.
+
+###### `agrag.chunking.extras.SemanticChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+###### `agrag.chunking.extras.SemanticChunker.chunk_size`
+
+```python
+chunk_size: int = Field(default=256, gt=0)
+```
+
+###### `agrag.chunking.extras.SemanticChunker.embedding_model`
+
+```python
+embedding_model: str = 'minishlab/potion-base-32M'
+```
+
+###### `agrag.chunking.extras.SemanticChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+###### `agrag.chunking.extras.SemanticChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.extras.SemanticChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
+###### `agrag.chunking.extras.SemanticChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Compute the fingerprint only, so the extra is not needed to build.
+
+###### `agrag.chunking.extras.SemanticChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+###### `agrag.chunking.extras.SemanticChunker.similarity_window`
+
+```python
+similarity_window: int = Field(default=3, gt=0)
+```
+
+###### `agrag.chunking.extras.SemanticChunker.spans`
+
+```python
+spans(text:str) -> list[tuple[int, int]]
+```
+
+Return the character spans this strategy cuts text into.
+
+**Raises:**
+
+- <code>[ChunkerMissingExtraError](#agrag.chunking.base.ChunkerMissingExtraError)</code> – The package extra is not installed.
+
+###### `agrag.chunking.extras.SemanticChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"semantic"`.
+
+###### `agrag.chunking.extras.SemanticChunker.threshold`
+
+```python
+threshold: float = Field(default=0.8, gt=0, le=1)
+```
+
+##### `agrag.chunking.extras.byte_spans_to_char_spans`
+
+```python
+byte_spans_to_char_spans(text:str, spans:list[tuple[int, int]]) -> list[tuple[int, int]]
+```
+
+Convert UTF-8 byte spans of `text` to character spans.
+
+**Parameters:**
+
+- **text** (<code>[str](#str)</code>) – The text the byte offsets index once encoded as UTF-8.
+- **spans** (<code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code>) – Half-open byte spans.
+
+**Returns:**
+
+- <code>[list](#list)\[[tuple](#tuple)\[[int](#int), [int](#int)\]\]</code> – The same spans as character offsets. ASCII text returns the spans as given.
 
 #### `agrag.chunking.heading`
 

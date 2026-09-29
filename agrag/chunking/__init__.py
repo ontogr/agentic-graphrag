@@ -4,8 +4,9 @@ A ``Chunker`` splits one document. A ``Chunking`` holds the rules that pick a ch
 for each document, and ``DEFAULT_CHUNKING`` is the preset that ``Graph`` uses.
 """
 
-from agrag.chunking.base import Chunker, ChunkingError
+from agrag.chunking.base import Chunker, ChunkerMissingExtraError, ChunkingError
 from agrag.chunking.docling import DoclingChunker
+from agrag.chunking.extras import CodeChunker, NeuralChunker, SemanticChunker
 from agrag.chunking.heading import HeadingChunker
 from agrag.chunking.parent_child import ParentChildChunker
 from agrag.chunking.recursive import RecursiveChunker, SplitLevel
@@ -18,14 +19,18 @@ from agrag.chunking.turns import TurnWindowChunker
 __all__ = [
     "DEFAULT_CHUNKING",
     "Chunker",
+    "ChunkerMissingExtraError",
     "Chunking",
     "ChunkingError",
     "ChunkingRule",
+    "CodeChunker",
     "DoclingChunker",
     "HeadingChunker",
+    "NeuralChunker",
     "ParentChildChunker",
     "RecursiveChunker",
     "RuleMatch",
+    "SemanticChunker",
     "SentenceChunker",
     "SplitLevel",
     "TokenChunker",

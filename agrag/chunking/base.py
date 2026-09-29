@@ -40,6 +40,24 @@ class ChunkingError(Exception):
     """A chunker broke the chunk contract or could not chunk a document."""
 
 
+class ChunkerMissingExtraError(ChunkingError):
+    """A chunker needs a package extra that is not installed.
+
+    Attributes:
+        strategy: The strategy name that needs the extra.
+        extra: The package extra to install.
+    """
+
+    def __init__(self, strategy: str, extra: str) -> None:
+        """Bind the strategy and the missing extra to the error."""
+        super().__init__(
+            f"The {strategy!r} chunker needs the {extra!r} extra: "
+            f"pip install 'agentic-graphrag[{extra}]'"
+        )
+        self.strategy = strategy
+        self.extra = extra
+
+
 class Chunker(BaseModel, ABC):
     """Splits one Document into Chunks and builds their provenance.
 
