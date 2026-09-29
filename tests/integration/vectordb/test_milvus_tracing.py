@@ -187,7 +187,10 @@ class TestMilvusVectorStoreTracing:
                 assert span.status.status_code is not StatusCode.ERROR
 
             _write_span_tree(_span_tree_path(), spans)
+        finally:
+            # Cleanup runs in `finally` so a failed assertion cannot leave
+            # collections behind in the shared backend. The names are bound
+            # before the first write, so they are always defined here.
             await store.delete_collection(name)
             await store.delete_collection(hybrid_name)
-        finally:
             await store.close()

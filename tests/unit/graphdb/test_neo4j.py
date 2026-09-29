@@ -614,6 +614,55 @@ class TestUpsertTracing:
         assert outer.status.status_code is StatusCode.UNSET
         assert [s for s in spans if s.name == "agrag.graphdb.execute_write"]
 
+    async def test_batch_size_reports_submitted_batch_not_configured_limit(
+        self,
+    ) -> None:
+        """A short write reports the batch it sent, not the configured limit."""
+        provider, exporter = _provider()
+        store = _store()
+        store._tracer = provider.get_tracer("test")
+        nodes = [
+            NodeRecord(id=uuid4(), labels=["Doc"], properties={"text": str(index)})
+            for index in range(3)
+        ]
+        await store.upsert_nodes("Doc", nodes, batch_size=256)
+        (outer,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.graphdb.upsert_nodes"
+        ]
+        assert (outer.attributes or {})["db.operation.batch.size"] == 3
+
+    async def test_batch_size_reports_full_batch_when_it_fills_the_limit(self) -> None:
+        """A write larger than the limit reports the limit it actually sent."""
+        provider, exporter = _provider()
+        store = _store()
+        store._tracer = provider.get_tracer("test")
+        nodes = [
+            NodeRecord(id=uuid4(), labels=["Doc"], properties={"text": str(index)})
+            for index in range(5)
+        ]
+        await store.upsert_nodes("Doc", nodes, batch_size=2)
+        (outer,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.graphdb.upsert_nodes"
+        ]
+        assert (outer.attributes or {})["db.operation.batch.size"] == 2
+
+    async def test_empty_write_omits_batch_size(self) -> None:
+        """A write with nothing to submit carries no batch-size attribute."""
+        provider, exporter = _provider()
+        store = _store()
+        store._tracer = provider.get_tracer("test")
+        await store.upsert_nodes("Doc", [])
+        (outer,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.graphdb.upsert_nodes"
+        ]
+        assert "db.operation.batch.size" not in (outer.attributes or {})
+
     async def test_transaction_wraps_transactional_execute_write(self) -> None:
         """transaction() INTERNAL parents a transactional CLIENT write."""
         provider, exporter = _provider()

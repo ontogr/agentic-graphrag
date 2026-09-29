@@ -136,6 +136,9 @@ class TestWeaviateVectorStoreTracing:
                 assert span.status.status_code is not StatusCode.ERROR
 
             _write_span_tree(_span_tree_path(), spans)
-            await store.delete_collection(name)
         finally:
+            # Cleanup runs in `finally` so a failed assertion cannot leave a
+            # collection behind in the shared backend. The name is bound
+            # before the first write, so it is always defined here.
+            await store.delete_collection(name)
             await store.close()

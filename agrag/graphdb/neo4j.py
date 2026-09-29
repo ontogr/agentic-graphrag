@@ -11,7 +11,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from opentelemetry.trace import SpanKind, Tracer
+from opentelemetry.trace import Span, SpanKind, Tracer
 
 from agrag.common.data_models.graph_record import (
     NodeRecord,
@@ -752,7 +752,6 @@ class Neo4jGraphStore(GraphStore):
             attributes={
                 DB_COLLECTION_NAME: label,
                 "agrag.record_count": len(nodes),
-                DB_OPERATION_BATCH_SIZE: batch_size,
             },
         ) as span:
             require_positive_batch_size(batch_size)
@@ -779,7 +778,9 @@ class Neo4jGraphStore(GraphStore):
                 groups[labels].append(node_params(node))
             for labels, records in groups.items():
                 query = upsert_node_query(labels)
-                batch_result = await self._batch_write(query, records, batch_size)
+                batch_result = await self._batch_write(
+                    query, records, batch_size, span=span
+                )
                 outcome.written += batch_result.written
                 outcome.failures.extend(batch_result.failures)
             span.set_attribute("agrag.written", outcome.written)
@@ -809,7 +810,6 @@ class Neo4jGraphStore(GraphStore):
             kind=SpanKind.INTERNAL,
             attributes={
                 "agrag.record_count": len(relations),
-                DB_OPERATION_BATCH_SIZE: batch_size,
             },
         ) as span:
             require_positive_batch_size(batch_size)
@@ -833,7 +833,11 @@ class Neo4jGraphStore(GraphStore):
                 self._known_relation_types.add(rel_type)
                 query = upsert_relation_query(rel_type)
                 batch_result = await self._batch_write(
-                    query, params, batch_size, require_returned_ids=True
+                    query,
+                    params,
+                    batch_size,
+                    require_returned_ids=True,
+                    span=span,
                 )
                 outcome.written += batch_result.written
                 outcome.failures.extend(batch_result.failures)
@@ -948,8 +952,10 @@ class Neo4jGraphStore(GraphStore):
         batch_size: int,
         *,
         require_returned_ids: bool = False,
+        span: Span | None = None,
     ) -> UpsertResult:
         """Run batched writes, isolating failures that belong to one record."""
+        self._record_batch_size(span, min(len(records), batch_size))
         outcome = UpsertResult()
         for start in range(0, len(records), batch_size):
             batch = records[start : start + batch_size]
@@ -999,6 +1005,21 @@ class Neo4jGraphStore(GraphStore):
                         )
                     )
         return outcome
+
+    @staticmethod
+    def _record_batch_size(span: Span | None, submitted: int) -> None:
+        """Record the size of the batch a write actually submitted.
+
+        This is the size of the records sent in one round trip, not the
+        configured ``batch_size``: a caller writing fewer records than the
+        limit submits one smaller batch, so reporting the limit there would
+        misstate the round trip. A write with nothing to submit leaves the
+        attribute off entirely. ``span`` is optional because the batch
+        helper is also called directly, outside any traced operation.
+        """
+        if span is None or not submitted:
+            return
+        span.set_attribute(DB_OPERATION_BATCH_SIZE, submitted)
 
     @staticmethod
     def _is_record_specific_error(exc: Exception) -> bool:
