@@ -132,6 +132,9 @@ weaviate = [
 ]
 
 [package.dev-dependencies]
+benchmarks = [
+    { name = "huggingface-hub" },
+]
 dev = [
     { name = "bandit" },
     { name = "coverage", extra = ["toml"] },
@@ -198,6 +201,7 @@ requires-dist = [
 provides-extras = ["docling", "embed-local", "qdrant", "weaviate", "milvus", "neo4j", "observability", "llm", "extract", "agents", "eval", "community", "chunk-semantic", "chunk-neural", "chunk-code"]
 
 [package.metadata.requires-dev]
+benchmarks = [{ name = "huggingface-hub", specifier = ">=0.30" }]
 dev = [
     { name = "bandit", specifier = ">=1.9.4" },
     { name = "coverage", extras = ["toml"], specifier = ">=7.13.0" },

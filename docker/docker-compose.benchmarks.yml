@@ -1,0 +1,38 @@
+# One Neo4j instance per benchmark corpus, so corpora never share a graph.
+# The benchmark harness starts and stops these services itself:
+#   docker compose -f docker/docker-compose.benchmarks.yml up -d --wait <service>
+#   docker compose -f docker/docker-compose.benchmarks.yml down -v <service>
+#
+# Each service binds its Bolt port to the loopback address only. The ports and the
+# password match benchmarks/harness/services.py. A domain adds its services here
+# and to SERVICE_PORTS.
+#
+# | Service | Corpus                                       | Bolt port |
+# |---------|----------------------------------------------|-----------|
+# | fake    | local checks of the harness, no real dataset | 7700      |
+
+name: agrag-bench
+
+x-neo4j: &neo4j
+  image: neo4j:5.26.0-community
+  environment:
+    NEO4J_AUTH: neo4j/benchmark-local
+  mem_limit: 4g
+  healthcheck:
+    test: ["CMD-SHELL", "wget -O /dev/null -q http://localhost:7474 || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 10
+    start_period: 30s
+
+services:
+  fake:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7700:7687"
+    volumes:
+      - agrag-bench-fake:/data
+
+volumes:
+  agrag-bench-fake:
+    name: agrag-bench-fake
