@@ -228,3 +228,93 @@ class TestChunkRetriever:
             assert results == []
             mock_vs.assert_not_called()
             gs.execute_read.assert_not_called()
+
+
+def _node(chunk_id, document_id, text, *, level=0, parent_id=None) -> dict:
+    properties = {
+        "document_id": str(document_id),
+        "text": text,
+        "provenance": json.dumps(
+            {"kind": "text", "char_start": 0, "char_end": len(text)}
+        ),
+    }
+    if level:
+        properties["level"] = level
+    if parent_id is not None:
+        properties["parent_id"] = str(parent_id)
+    return {"n": {"id": str(chunk_id), "properties": properties}}
+
+
+class TestParentAttachment:
+    """A child hit returns with its parent chunk attached."""
+
+    def _store(self, nodes: dict[str, dict], calls: list[list[str]]) -> AsyncMock:
+        store = AsyncMock()
+
+        async def read(query: str, params: dict) -> list[dict]:
+            calls.append(list(params["ids"]))
+            return [nodes[i] for i in params["ids"] if i in nodes]
+
+        store.execute_read.side_effect = read
+        return store
+
+    async def _retrieve(self, store: AsyncMock, hit_ids: list) -> list:
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search", new_callable=AsyncMock
+        ) as search:
+            search.return_value = [
+                VectorHit(id=i, score=0.9 - n / 10, payload={})
+                for n, i in enumerate(hit_ids)
+            ]
+            return await ChunkRetriever(
+                graph_store=store, embedder=MockEmbedder()
+            ).retrieve("q")
+
+    async def test_attaches_the_parent_and_loads_a_shared_parent_once(self) -> None:
+        """Two children of one parent cause one extra query for one parent id."""
+        document_id, parent_id, first, second = uuid4(), uuid4(), uuid4(), uuid4()
+        nodes = {
+            str(parent_id): _node(parent_id, document_id, "the whole parent", level=1),
+            str(first): _node(first, document_id, "child a", parent_id=parent_id),
+            str(second): _node(second, document_id, "child b", parent_id=parent_id),
+        }
+        calls: list[list[str]] = []
+
+        results = await self._retrieve(self._store(nodes, calls), [first, second])
+
+        assert [r.item.text for r in results] == ["child a", "child b"]
+        assert [r.parent.text for r in results] == ["the whole parent"] * 2
+        assert calls == [[str(first), str(second)], [str(parent_id)]]
+
+    async def test_chunk_without_a_parent_needs_no_second_query(self) -> None:
+        """A standalone chunk has parent None and costs one query."""
+        chunk_id, document_id = uuid4(), uuid4()
+        nodes = {str(chunk_id): _node(chunk_id, document_id, "alone")}
+        calls: list[list[str]] = []
+
+        results = await self._retrieve(self._store(nodes, calls), [chunk_id])
+
+        assert results[0].parent is None
+        assert len(calls) == 1
+
+    async def test_missing_or_closed_parent_returns_the_child_alone(self) -> None:
+        """A parent that hydration does not return leaves parent None."""
+        child, document_id = uuid4(), uuid4()
+        nodes = {str(child): _node(child, document_id, "orphan", parent_id=uuid4())}
+
+        results = await self._retrieve(self._store(nodes, []), [child])
+
+        assert [r.item.text for r in results] == ["orphan"]
+        assert results[0].parent is None
+
+    async def test_parent_query_failure_keeps_the_child_results(self) -> None:
+        """If the parent query raises, children still come back."""
+        child, document_id, parent_id = uuid4(), uuid4(), uuid4()
+        child_node = _node(child, document_id, "kept", parent_id=parent_id)
+        store = AsyncMock()
+        store.execute_read.side_effect = [[child_node], RuntimeError("down")]
+
+        results = await self._retrieve(store, [child])
+
+        assert [r.item.text for r in results] == ["kept"]
+        assert results[0].parent is None

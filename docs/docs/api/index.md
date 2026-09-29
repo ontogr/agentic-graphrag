@@ -225,7 +225,9 @@ A key (E1, R1, C1 for entities, relations, and chunks) is
 assigned the first time this run encounters that item, by
 SearchResult.identity_key, and never reassigned within the run.
 The agent is shown rendered evidence carrying these keys, never
-raw SearchResults.
+raw SearchResults. A chunk result that has a parent shows the parent text under
+the first child's key. Later children of that parent show their own text and
+name the first key.
 
 **Functions:**
 
@@ -6350,6 +6352,8 @@ One retrieved item, tagged with where it came from.
   across methods until Fusion normalizes it.
 - [**method**](#agrag.common.data_models.search_result.SearchResult.method) (<code>[str](#str)</code>) – The name of the retrieval method that produced
   this result.
+- [**parent**](#agrag.common.data_models.search_result.SearchResult.parent) (<code>[Chunk](#agrag.common.data_models.chunk.Chunk) | None</code>) – The parent chunk of a child chunk result, so a caller can show the
+  larger passage. `None` for every other result.
 
 ####### `agrag.common.data_models.search_result.SearchResult.identity_key`
 
@@ -6374,6 +6378,12 @@ item: Union[Entity, ResolvedEntity, Relation, Chunk, Community, QueryValue]
 
 ```python
 method: str
+```
+
+####### `agrag.common.data_models.search_result.SearchResult.parent`
+
+```python
+parent: Chunk | None = None
 ```
 
 ####### `agrag.common.data_models.search_result.SearchResult.score`
@@ -21001,7 +21011,8 @@ Run chunk search and return hydrated results.
 
 **Returns:**
 
-- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Ranked SearchResults with hydrated Chunk items.
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Ranked SearchResults with hydrated Chunk items. A child chunk result
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – carries its parent chunk in `SearchResult.parent`.
 
 ##### `agrag.retrieval.retrievers.community`
 
