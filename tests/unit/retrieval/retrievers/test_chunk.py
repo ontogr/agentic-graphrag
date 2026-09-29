@@ -304,18 +304,17 @@ class TestParentAttachment:
         assert results[0].parent is None
         assert len(calls) == 1
 
-    async def test_missing_or_closed_parent_returns_the_child_alone(self) -> None:
-        """A parent that hydration does not return leaves parent None."""
+    async def test_missing_or_closed_parent_omits_the_child(self) -> None:
+        """A child result requires its parent chunk."""
         child, document_id = uuid4(), uuid4()
         nodes = {str(child): _node(child, document_id, "orphan", parent_id=uuid4())}
 
         results = await self._retrieve(self._store(nodes, []), [child])
 
-        assert [r.item.text for r in results] == ["orphan"]
-        assert results[0].parent is None
+        assert results == []
 
-    async def test_parent_query_failure_keeps_the_child_results(self) -> None:
-        """If the parent query raises, children still come back."""
+    async def test_parent_query_failure_omits_the_child_results(self) -> None:
+        """A failed parent query omits child results without their context."""
         child, document_id, parent_id = uuid4(), uuid4(), uuid4()
         child_node = _node(child, document_id, "kept", parent_id=parent_id)
         store = AsyncMock()
@@ -323,8 +322,7 @@ class TestParentAttachment:
 
         results = await self._retrieve(store, [child])
 
-        assert [r.item.text for r in results] == ["kept"]
-        assert results[0].parent is None
+        assert results == []
 
 
 class TestParentHydrationTracing:
@@ -350,7 +348,7 @@ class TestParentHydrationTracing:
                     graph_store=store, embedder=MockEmbedder(), tracer=tracer
                 ).retrieve("q")
 
-        assert [result.item.text for result in results] == ["kept"]
+        assert results == []
         (span,) = [
             span
             for span in exporter.get_finished_spans()
@@ -361,3 +359,46 @@ class TestParentHydrationTracing:
         assert span.status.status_code is StatusCode.UNSET
         assert (span.attributes or {})["agrag.parent_count"] == 1
         assert len(list(span.events)) == 1
+
+    async def test_parent_hydration_records_attached_parent_attributes(
+        self,
+    ) -> None:
+        """A successful parent read records the context available to child results."""
+        provider = TracerProvider()
+        exporter = InMemorySpanExporter()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer("test")
+        document_id, parent_id, child_id = uuid4(), uuid4(), uuid4()
+        parent_node = _node(parent_id, document_id, "full context", level=1)
+        child_node = _node(
+            child_id, document_id, "matching detail", parent_id=parent_id
+        )
+        store = AsyncMock()
+        store.execute_read.side_effect = [[child_node], [parent_node]]
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search", new_callable=AsyncMock
+        ) as search:
+            search.return_value = [VectorHit(id=child_id, score=0.9, payload={})]
+            results = await ChunkRetriever(
+                graph_store=store, embedder=MockEmbedder(), tracer=tracer
+            ).retrieve("q")
+
+        assert results[0].parent is not None
+        (span,) = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "agrag.retrieval.hydrate_parents"
+        ]
+        attributes = span.attributes or {}
+        assert attributes["agrag.result.count"] == 1
+        assert json.loads(attributes["retrieval.documents"]) == [
+            {
+                "document.id": str(parent_id),
+                "document.content": "full context",
+                "document.metadata": {
+                    "document_id": str(document_id),
+                    "level": 1,
+                },
+            }
+        ]

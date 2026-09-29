@@ -15,6 +15,7 @@ from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
+from agrag.retrieval.tracing import record_chunks
 from agrag.vectordb.base import VectorStore
 
 
@@ -114,6 +115,8 @@ class ChunkRetriever(Retriever):
                 chunk = by_id.get(str(hit.id))
                 if chunk is not None:
                     parent = parents.get(str(chunk.parent_id))
+                    if chunk.parent_id is not None and parent is None:
+                        continue
                     results.append(
                         SearchResult(
                             item=chunk,
@@ -129,8 +132,8 @@ class ChunkRetriever(Retriever):
     async def _hydrate_parents(self, chunks: list[Chunk]) -> dict[str, Chunk]:
         """Load the distinct parents of child chunks with one query.
 
-        A parent that is missing or closed is left out, and a failed query gives no
-        parents, so the child results still return.
+        A parent that is missing or closed is left out, so its child cannot become a
+        result. A failed query returns no parents.
         """
         parent_ids = sorted({str(c.parent_id) for c in chunks if c.parent_id})
         if not parent_ids:
@@ -139,7 +142,7 @@ class ChunkRetriever(Retriever):
             "agrag.retrieval.hydrate_parents",
             kind=SpanKind.INTERNAL,
             attributes={"agrag.parent_count": len(parent_ids)},
-        ):
+        ) as span:
             try:
                 rows = await self._graph_store.execute_read(
                     hydrate_chunks_by_id_query(), {"ids": parent_ids, "job_id": None}
@@ -147,12 +150,13 @@ class ChunkRetriever(Retriever):
             except Exception as exc:
                 record_swallowed_exception(exc)
                 return {}
-        parents: dict[str, Chunk] = {}
-        for row in rows:
-            node = row.get("n") if isinstance(row, dict) and "n" in row else row
-            parent = self._parse_chunk_node(node)
-            if parent is not None:
-                parents[str(parent.id)] = parent
+            parents: dict[str, Chunk] = {}
+            for row in rows:
+                node = row.get("n") if isinstance(row, dict) and "n" in row else row
+                parent = self._parse_chunk_node(node)
+                if parent is not None:
+                    parents[str(parent.id)] = parent
+            record_chunks(span, list(parents.values()))
         return parents
 
     @staticmethod

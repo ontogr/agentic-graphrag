@@ -20876,6 +20876,7 @@ Retrieval package: search engine, fusion, reranking, and retrievers.
 - [**retrievers**](#agrag.retrieval.retrievers) – Retriever implementations for entity, chunk, BFS, and text2cypher search.
 - [**search_engine**](#agrag.retrieval.search_engine) – Retrieval's public entry point, independent of Graph.
 - [**settings**](#agrag.retrieval.settings) – Env-backed configuration for retrieval methods and fusion.
+- [**tracing**](#agrag.retrieval.tracing) – OpenTelemetry helpers for retrieval results.
 
 #### `agrag.retrieval.community_context`
 
@@ -22520,6 +22521,22 @@ traversal_depth: int = 2
 ```python
 traversal_limit: int = 50
 ```
+
+#### `agrag.retrieval.tracing`
+
+OpenTelemetry helpers for retrieval results.
+
+**Functions:**
+
+- [**record_chunks**](#agrag.retrieval.tracing.record_chunks) – Record hydrated chunks as OpenTelemetry-safe attributes.
+
+##### `agrag.retrieval.tracing.record_chunks`
+
+```python
+record_chunks(span:Span, chunks:Sequence[Chunk]) -> None
+```
+
+Record hydrated chunks as OpenTelemetry-safe attributes.
 
 ### `agrag.vectordb`
 
