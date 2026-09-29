@@ -776,11 +776,16 @@ class Neo4jGraphStore(GraphStore):
                     continue
                 self._known_labels.update(labels)
                 groups[labels].append(node_params(node))
+            # Records are chunked within each label group, so the largest
+            # group bounds the biggest batch any of them can submit.
+            self._record_batch_size(
+                span,
+                max((len(group) for group in groups.values()), default=0),
+                batch_size,
+            )
             for labels, records in groups.items():
                 query = upsert_node_query(labels)
-                batch_result = await self._batch_write(
-                    query, records, batch_size, span=span
-                )
+                batch_result = await self._batch_write(query, records, batch_size)
                 outcome.written += batch_result.written
                 outcome.failures.extend(batch_result.failures)
             span.set_attribute("agrag.written", outcome.written)
@@ -828,16 +833,19 @@ class Neo4jGraphStore(GraphStore):
                     )
                     continue
                 by_type[rel.type].append(relation_params(rel))
+            # Records are chunked within each type group, so the largest
+            # group bounds the biggest batch any of them can submit.
+            self._record_batch_size(
+                span,
+                max((len(group) for group in by_type.values()), default=0),
+                batch_size,
+            )
             for rel_type, params in by_type.items():
                 await self._ensure_relation_constraint(rel_type)
                 self._known_relation_types.add(rel_type)
                 query = upsert_relation_query(rel_type)
                 batch_result = await self._batch_write(
-                    query,
-                    params,
-                    batch_size,
-                    require_returned_ids=True,
-                    span=span,
+                    query, params, batch_size, require_returned_ids=True
                 )
                 outcome.written += batch_result.written
                 outcome.failures.extend(batch_result.failures)
@@ -952,10 +960,8 @@ class Neo4jGraphStore(GraphStore):
         batch_size: int,
         *,
         require_returned_ids: bool = False,
-        span: Span | None = None,
     ) -> UpsertResult:
         """Run batched writes, isolating failures that belong to one record."""
-        self._record_batch_size(span, min(len(records), batch_size))
         outcome = UpsertResult()
         for start in range(0, len(records), batch_size):
             batch = records[start : start + batch_size]
@@ -1007,19 +1013,26 @@ class Neo4jGraphStore(GraphStore):
         return outcome
 
     @staticmethod
-    def _record_batch_size(span: Span | None, submitted: int) -> None:
-        """Record the size of the batch a write actually submitted.
+    def _record_batch_size(span: Span | None, records: int, batch_size: int) -> None:
+        """Record the size of the batch a write actually submits.
 
-        This is the size of the records sent in one round trip, not the
+        The value describes records sent in one round trip, not the
         configured ``batch_size``: a caller writing fewer records than the
         limit submits one smaller batch, so reporting the limit there would
-        misstate the round trip. A write with nothing to submit leaves the
-        attribute off entirely. ``span`` is optional because the batch
-        helper is also called directly, outside any traced operation.
+        misstate the round trip.
+
+        It is set only where a batch really exists. A single record is one
+        operation, not a batch, so the attribute is left off. An explicitly
+        empty write records ``0``, which is distinguishable from the absent
+        attribute a one-record write leaves. ``span`` is optional because
+        this is also called from paths with no traced operation.
         """
-        if span is None or not submitted:
+        if span is None:
             return
-        span.set_attribute(DB_OPERATION_BATCH_SIZE, submitted)
+        if records == 0:
+            span.set_attribute(DB_OPERATION_BATCH_SIZE, 0)
+        elif records > 1:
+            span.set_attribute(DB_OPERATION_BATCH_SIZE, min(records, batch_size))
 
     @staticmethod
     def _is_record_specific_error(exc: Exception) -> bool:

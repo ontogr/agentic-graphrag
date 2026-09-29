@@ -650,8 +650,22 @@ class TestUpsertTracing:
         ]
         assert (outer.attributes or {})["db.operation.batch.size"] == 2
 
-    async def test_empty_write_omits_batch_size(self) -> None:
-        """A write with nothing to submit carries no batch-size attribute."""
+    async def test_batch_size_omitted_for_a_single_record_write(self) -> None:
+        """One record is a single operation, not a batch, so it is not reported."""
+        provider, exporter = _provider()
+        store = _store()
+        store._tracer = provider.get_tracer("test")
+        node = NodeRecord(id=uuid4(), labels=["Doc"], properties={"text": "a"})
+        await store.upsert_nodes("Doc", [node])
+        (outer,) = [
+            s
+            for s in exporter.get_finished_spans()
+            if s.name == "agrag.graphdb.upsert_nodes"
+        ]
+        assert "db.operation.batch.size" not in (outer.attributes or {})
+
+    async def test_empty_write_reports_zero_batch_size(self) -> None:
+        """An empty write records 0, distinct from the absent one-record case."""
         provider, exporter = _provider()
         store = _store()
         store._tracer = provider.get_tracer("test")
@@ -661,7 +675,7 @@ class TestUpsertTracing:
             for s in exporter.get_finished_spans()
             if s.name == "agrag.graphdb.upsert_nodes"
         ]
-        assert "db.operation.batch.size" not in (outer.attributes or {})
+        assert (outer.attributes or {})["db.operation.batch.size"] == 0
 
     async def test_transaction_wraps_transactional_execute_write(self) -> None:
         """transaction() INTERNAL parents a transactional CLIENT write."""
