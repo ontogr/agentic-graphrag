@@ -393,7 +393,7 @@ class TestJudge:
 
 
 class TestCrossPathValueAgreement:
-    """The BAML path and the agent path name the same values."""
+    """BAML and agent paths report consistent LLM span attributes."""
 
     async def test_both_paths_agree_on_provider_model_and_tokens(
         self, local: LocalLLM, capture: tuple[Any, InMemorySpanExporter]
@@ -436,11 +436,9 @@ class TestCrossPathValueAgreement:
     async def test_both_paths_agree_against_a_real_endpoint(
         self, capture: tuple[Any, InMemorySpanExporter]
     ) -> None:
-        """The same canary against the configured endpoint, or skip.
+        """Both paths report model identity and internally consistent usage.
 
-        The local server proves the names agree. This variant proves the values
-        agree for a real provider, which is the only place a token-count
-        convention could differ from the fake endpoint's.
+        The calls use different prompts, so their token counts need not match.
         """
         import os  # noqa: PLC0415
 
@@ -480,12 +478,12 @@ class TestCrossPathValueAgreement:
 
         assert agent["llm.provider"] == baml["llm.provider"]
         assert agent["llm.model_name"] == baml["llm.model_name"]
-        for key in (
-            "llm.token_count.prompt",
-            "llm.token_count.completion",
-            "llm.token_count.total",
-        ):
-            assert agent[key] == baml[key], key
+        for attributes in (baml, agent):
+            prompt_tokens = attributes["llm.token_count.prompt"]
+            completion_tokens = attributes["llm.token_count.completion"]
+            assert attributes["llm.token_count.total"] == (
+                prompt_tokens + completion_tokens
+            )
 
 
 class TestNoSecretsInSpans:
