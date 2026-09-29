@@ -32,6 +32,10 @@ class Chunk(DataPoint):
             Empty for a docling chunk and for a chunk with no heading above it.
         content_kind: The kind of content in this chunk. A text chunker always sets
             ``"text"``. A docling chunk can also be ``"table_row"``.
+        chunker: The strategy name of the chunker that made this chunk. ``None`` for a
+            chunk written before chunkers were recorded.
+        chunker_hash: The fingerprint of the settings of the chunker that made this
+            chunk. ``None`` for a chunk written before chunkers were recorded.
     """
 
     id: UUID | None = None
@@ -41,6 +45,8 @@ class Chunk(DataPoint):
     provenance: TextProvenance | PageProvenance = Field(discriminator="kind")
     heading_path: list[str] = Field(default_factory=list)
     content_kind: Literal["text", "table_row", "code", "heading"] = "text"
+    chunker: str | None = None
+    chunker_hash: str | None = None
     embedding: list[float] | None = None
 
     @model_validator(mode="after")
@@ -114,6 +120,10 @@ class Chunk(DataPoint):
             "content_kind": self.content_kind,
             "created_at": self.created_at.isoformat(),
         }
+        if self.chunker is not None:
+            properties["chunker"] = self.chunker
+        if self.chunker_hash is not None:
+            properties["chunker_hash"] = self.chunker_hash
         if self.embedding is not None:
             properties["embedding"] = self.embedding
         return NodeRecord(id=self.id, labels=[CHUNK_LABEL], properties=properties)

@@ -12,6 +12,9 @@ from pydantic import BaseModel
 class TextProvenance(BaseModel):
     """The location of a chunk inside flattened document text.
 
+    The offsets index the normalized text in ``Document.text``, not the raw source.
+    See ``Normalization``.
+
     Attributes:
         kind: The literal tag ``"text"``. Marks this as text provenance.
         char_start: The start character offset in the document text.

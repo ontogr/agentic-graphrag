@@ -166,6 +166,8 @@ class ChunkRetriever(Retriever):
                 provenance=provenance,
                 heading_path=props.get("heading_path", []),
                 content_kind=props.get("content_kind", "text"),
+                chunker=props.get("chunker"),
+                chunker_hash=props.get("chunker_hash"),
             )
             if embedding is not None:
                 chunk.embedding = list(embedding)

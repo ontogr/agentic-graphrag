@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.ingestion.stats import (
+    ChunkingStats,
     ExtractionStats,
     IngestStats,
     MergeStats,
@@ -20,6 +21,7 @@ class AddResult(BaseModel):
 
     Attributes:
         ingestion: Ingestion-stage results.
+        chunking: The chunker each document got and the chunks it made.
         extraction: Extractor output across every chunk this call
             processed.
         resolution: Resolution's tier-by-tier match counts.
@@ -32,6 +34,7 @@ class AddResult(BaseModel):
     """
 
     ingestion: IngestStats = Field(default_factory=IngestStats)
+    chunking: ChunkingStats = Field(default_factory=ChunkingStats)
     extraction: ExtractionStats = Field(default_factory=ExtractionStats)
     resolution: ResolutionStats = Field(default_factory=ResolutionStats)
     merge: MergeStats = Field(default_factory=MergeStats)

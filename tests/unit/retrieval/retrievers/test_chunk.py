@@ -69,6 +69,74 @@ class TestChunkRetriever:
             assert results[0].item.text == "Hello world"
             assert results[0].method == "chunk"
 
+    async def test_reads_chunker_fields_from_node(self) -> None:
+        """A chunk node with chunker properties returns them on the Chunk."""
+        ch_id = uuid4()
+        gs = AsyncMock()
+        gs.execute_read.return_value = [
+            {
+                "n": {
+                    "id": str(ch_id),
+                    "properties": {
+                        "document_id": str(uuid4()),
+                        "text": "Hello world",
+                        "provenance": json.dumps(
+                            {"kind": "text", "char_start": 0, "char_end": 11}
+                        ),
+                        "chunker": "recursive",
+                        "chunker_hash": "0123456789abcdef",
+                    },
+                }
+            }
+        ]
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = [VectorHit(id=ch_id, score=0.5, payload={})]
+            results = await ChunkRetriever(
+                graph_store=gs, embedder=MockEmbedder()
+            ).retrieve("test")
+
+        chunk = results[0].item
+        assert isinstance(chunk, Chunk)
+        assert chunk.chunker == "recursive"
+        assert chunk.chunker_hash == "0123456789abcdef"
+
+    async def test_legacy_node_has_no_chunker_fields(self) -> None:
+        """A chunk node written before chunkers were recorded reads as None."""
+        ch_id = uuid4()
+        gs = AsyncMock()
+        gs.execute_read.return_value = [
+            {
+                "n": {
+                    "id": str(ch_id),
+                    "properties": {
+                        "document_id": str(uuid4()),
+                        "text": "old",
+                        "provenance": json.dumps(
+                            {"kind": "text", "char_start": 0, "char_end": 3}
+                        ),
+                    },
+                }
+            }
+        ]
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = [VectorHit(id=ch_id, score=0.5, payload={})]
+            results = await ChunkRetriever(
+                graph_store=gs, embedder=MockEmbedder()
+            ).retrieve("test")
+
+        chunk = results[0].item
+        assert isinstance(chunk, Chunk)
+        assert chunk.chunker is None
+        assert chunk.chunker_hash is None
+
     async def test_skips_missing_chunks(self) -> None:
         """Chunks not found in the store are skipped."""
         gs = AsyncMock()

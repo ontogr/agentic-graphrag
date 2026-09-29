@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from agrag.common.data_models.data_point import DataPoint
 from agrag.common.data_models.graph_record import NodeRecord
+from agrag.common.data_models.normalization import Normalization
 
 
 DOCUMENT_LABEL = "Document"
@@ -114,6 +115,8 @@ class Document(DataPoint):
         document_key: The stable identifier for this document's persisted graph node.
             Independent of ``id``, which changes with every content edit. Defaults to
             ``uri`` when not supplied.
+        normalization: How the loader normalized ``text``. ``None`` for a document
+            that no text loader made, such as a docling document or one built by hand.
     """
 
     id: UUID | None = None
@@ -138,6 +141,7 @@ class Document(DataPoint):
 
     heading_outline: list[HeadingRef] = Field(default_factory=list)
     document_key: str | None = None
+    normalization: Normalization | None = None
 
     @model_validator(mode="after")
     def _resolve_id(self) -> "Document":

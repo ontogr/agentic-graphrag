@@ -1661,6 +1661,7 @@ Shared data models used by agrag components.
 - [**extraction**](#agrag.common.data_models.extraction) – Pre-resolution entity and relation mentions produced by an Extractor.
 - [**graph_record**](#agrag.common.data_models.graph_record) – Graph storage record shapes for GraphStore.
 - [**graph_schema**](#agrag.common.data_models.graph_schema) – The GraphSchema contract: entity and relation types extraction validates against.
+- [**normalization**](#agrag.common.data_models.normalization) – The Normalization model: how a loader turned source bytes into text.
 - [**provenance**](#agrag.common.data_models.provenance) – Provenance types for a chunk.
 - [**query_value**](#agrag.common.data_models.query_value) – A result row returned by a direct graph query.
 - [**relation**](#agrag.common.data_models.relation) – The canonical, deduped graph relationship that merge mechanics produces.
@@ -1707,11 +1708,27 @@ One retrieval-sized piece of a Document.
   Empty for a docling chunk and for a chunk with no heading above it.
 - [**content_kind**](#agrag.common.data_models.chunk.Chunk.content_kind) (<code>[Literal](#typing.Literal)['text', 'table_row', 'code', 'heading']</code>) – The kind of content in this chunk. A text chunker always sets
   `"text"`. A docling chunk can also be `"table_row"`.
+- [**chunker**](#agrag.common.data_models.chunk.Chunk.chunker) (<code>[str](#str) | None</code>) – The strategy name of the chunker that made this chunk. `None` for a
+  chunk written before chunkers were recorded.
+- [**chunker_hash**](#agrag.common.data_models.chunk.Chunk.chunker_hash) (<code>[str](#str) | None</code>) – The fingerprint of the settings of the chunker that made this
+  chunk. `None` for a chunk written before chunkers were recorded.
 
 **Functions:**
 
 - [**id_for**](#agrag.common.data_models.chunk.Chunk.id_for) – Compute the chunk id.
 - [**to_node_record**](#agrag.common.data_models.chunk.Chunk.to_node_record) – Return this chunk as a GraphStore write record.
+
+####### `agrag.common.data_models.chunk.Chunk.chunker`
+
+```python
+chunker: str | None = None
+```
+
+####### `agrag.common.data_models.chunk.Chunk.chunker_hash`
+
+```python
+chunker_hash: str | None = None
+```
 
 ####### `agrag.common.data_models.chunk.Chunk.content_kind`
 
@@ -2218,6 +2235,8 @@ set. Pass `id` only when rebuilding a document from stored data.
 - [**document_key**](#agrag.common.data_models.document.Document.document_key) (<code>[str](#str) | None</code>) – The stable identifier for this document's persisted graph node.
   Independent of `id`, which changes with every content edit. Defaults to
   `uri` when not supplied.
+- [**normalization**](#agrag.common.data_models.document.Document.normalization) (<code>[Normalization](#agrag.common.data_models.normalization.Normalization) | None</code>) – How the loader normalized `text`. `None` for a document
+  that no text loader made, such as a docling document or one built by hand.
 
 **Functions:**
 
@@ -2347,6 +2366,12 @@ content hash.
 **Returns:**
 
 - <code>[UUID](#uuid.UUID)</code> – The Document graph node id.
+
+####### `agrag.common.data_models.document.Document.normalization`
+
+```python
+normalization: Normalization | None = None
+```
 
 ####### `agrag.common.data_models.document.Document.raw_record`
 
@@ -3309,6 +3334,53 @@ label: str
 patterns: list[tuple[str, str]]
 ```
 
+##### `agrag.common.data_models.normalization`
+
+The Normalization model: how a loader turned source bytes into text.
+
+**Classes:**
+
+- [**Normalization**](#agrag.common.data_models.normalization.Normalization) – How a loader turned source bytes into `Document.text`.
+
+###### `agrag.common.data_models.normalization.Normalization`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+How a loader turned source bytes into `Document.text`.
+
+Provenance offsets index the normalized text. A caller who needs offsets into
+the raw source chooses `Normalization(bom="keep", newline="keep", unicode_form="none")`.
+
+**Attributes:**
+
+- [**bom**](#agrag.common.data_models.normalization.Normalization.bom) (<code>[Literal](#typing.Literal)['strip', 'keep']</code>) – `"strip"` removes a leading byte-order mark. `"keep"` leaves it.
+- [**newline**](#agrag.common.data_models.normalization.Normalization.newline) (<code>[Literal](#typing.Literal)['lf', 'keep']</code>) – `"lf"` turns CRLF and CR into LF. `"keep"` leaves them.
+- [**unicode_form**](#agrag.common.data_models.normalization.Normalization.unicode_form) (<code>[Literal](#typing.Literal)['NFKC', 'NFC', 'NFD', 'NFKD', 'none']</code>) – The Unicode normalization form to apply, or `"none"`.
+
+####### `agrag.common.data_models.normalization.Normalization.bom`
+
+```python
+bom: Literal['strip', 'keep'] = 'strip'
+```
+
+####### `agrag.common.data_models.normalization.Normalization.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+####### `agrag.common.data_models.normalization.Normalization.newline`
+
+```python
+newline: Literal['lf', 'keep'] = 'lf'
+```
+
+####### `agrag.common.data_models.normalization.Normalization.unicode_form`
+
+```python
+unicode_form: Literal['NFKC', 'NFC', 'NFD', 'NFKD', 'none'] = 'NFKC'
+```
+
 ##### `agrag.common.data_models.provenance`
 
 Provenance types for a chunk.
@@ -3415,6 +3487,9 @@ page_no: int
 Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
 
 The location of a chunk inside flattened document text.
+
+The offsets index the normalized text in `Document.text`, not the raw source.
+See `Normalization`.
 
 **Attributes:**
 
@@ -13543,6 +13618,7 @@ Graph.add()'s return type — one summary per pipeline stage.
 **Attributes:**
 
 - [**ingestion**](#agrag.ingestion.reports.AddResult.ingestion) (<code>[IngestStats](#agrag.ingestion.stats.IngestStats)</code>) – Ingestion-stage results.
+- [**chunking**](#agrag.ingestion.reports.AddResult.chunking) (<code>[ChunkingStats](#agrag.ingestion.stats.ChunkingStats)</code>) – The chunker each document got and the chunks it made.
 - [**extraction**](#agrag.ingestion.reports.AddResult.extraction) (<code>[ExtractionStats](#agrag.ingestion.stats.ExtractionStats)</code>) – Extractor output across every chunk this call
   processed.
 - [**resolution**](#agrag.ingestion.reports.AddResult.resolution) (<code>[ResolutionStats](#agrag.ingestion.stats.ResolutionStats)</code>) – Resolution's tier-by-tier match counts.
@@ -13552,6 +13628,12 @@ Graph.add()'s return type — one summary per pipeline stage.
   return_chunks=True — holding full chunk text for a large
   corpus is a real memory cost most callers don't need paid
   for.
+
+###### `agrag.ingestion.reports.AddResult.chunking`
+
+```python
+chunking: ChunkingStats = Field(default_factory=ChunkingStats)
+```
 
 ###### `agrag.ingestion.reports.AddResult.chunks`
 
@@ -13809,6 +13891,7 @@ Graph.add()'s return type — one summary per pipeline stage.
 **Attributes:**
 
 - [**ingestion**](#agrag.ingestion.reports.add_result.AddResult.ingestion) (<code>[IngestStats](#agrag.ingestion.stats.IngestStats)</code>) – Ingestion-stage results.
+- [**chunking**](#agrag.ingestion.reports.add_result.AddResult.chunking) (<code>[ChunkingStats](#agrag.ingestion.stats.ChunkingStats)</code>) – The chunker each document got and the chunks it made.
 - [**extraction**](#agrag.ingestion.reports.add_result.AddResult.extraction) (<code>[ExtractionStats](#agrag.ingestion.stats.ExtractionStats)</code>) – Extractor output across every chunk this call
   processed.
 - [**resolution**](#agrag.ingestion.reports.add_result.AddResult.resolution) (<code>[ResolutionStats](#agrag.ingestion.stats.ResolutionStats)</code>) – Resolution's tier-by-tier match counts.
@@ -13818,6 +13901,12 @@ Graph.add()'s return type — one summary per pipeline stage.
   return_chunks=True — holding full chunk text for a large
   corpus is a real memory cost most callers don't need paid
   for.
+
+####### `agrag.ingestion.reports.add_result.AddResult.chunking`
+
+```python
+chunking: ChunkingStats = Field(default_factory=ChunkingStats)
+```
 
 ####### `agrag.ingestion.reports.add_result.AddResult.chunks`
 
@@ -16313,6 +16402,7 @@ outside the ingestion pipeline too -- and are not re-exported here.
 
 **Modules:**
 
+- [**chunking**](#agrag.ingestion.stats.chunking) – Chunking-stage stats.
 - [**extraction**](#agrag.ingestion.stats.extraction) – Extraction-stage stats.
 - [**ingest**](#agrag.ingestion.stats.ingest) – Ingestion-stage stats.
 - [**merge**](#agrag.ingestion.stats.merge) – Merge-stage stats.
@@ -16321,11 +16411,122 @@ outside the ingestion pipeline too -- and are not re-exported here.
 
 **Classes:**
 
+- [**ChunkingMatch**](#agrag.ingestion.stats.ChunkingMatch) – The chunker that one document got, and what it produced.
+- [**ChunkingStats**](#agrag.ingestion.stats.ChunkingStats) – Chunking-stage results.
 - [**ExtractionStats**](#agrag.ingestion.stats.ExtractionStats) – Extraction-stage results.
 - [**IngestStats**](#agrag.ingestion.stats.IngestStats) – Ingestion-stage results.
 - [**MergeStats**](#agrag.ingestion.stats.MergeStats) – Merge-stage results.
 - [**ResolutionStats**](#agrag.ingestion.stats.ResolutionStats) – Resolution-stage results.
 - [**StorageStats**](#agrag.ingestion.stats.StorageStats) – Storage-write-stage results.
+
+##### `agrag.ingestion.stats.ChunkingMatch`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The chunker that one document got, and what it produced.
+
+**Attributes:**
+
+- [**document_key**](#agrag.ingestion.stats.ChunkingMatch.document_key) (<code>[str](#str)</code>) – The key of the chunked document.
+- [**rule**](#agrag.ingestion.stats.ChunkingMatch.rule) (<code>[int](#int) | None</code>) – The index of the matching rule, or `None` for the fallback.
+- [**strategy**](#agrag.ingestion.stats.ChunkingMatch.strategy) (<code>[str](#str)</code>) – The strategy name of the chunker.
+- [**chunker_hash**](#agrag.ingestion.stats.ChunkingMatch.chunker_hash) (<code>[str](#str)</code>) – The fingerprint of the chunker settings.
+- [**chunks**](#agrag.ingestion.stats.ChunkingMatch.chunks) (<code>[int](#int)</code>) – The number of chunks the chunker produced.
+
+###### `agrag.ingestion.stats.ChunkingMatch.chunker_hash`
+
+```python
+chunker_hash: str
+```
+
+###### `agrag.ingestion.stats.ChunkingMatch.chunks`
+
+```python
+chunks: int
+```
+
+###### `agrag.ingestion.stats.ChunkingMatch.document_key`
+
+```python
+document_key: str
+```
+
+###### `agrag.ingestion.stats.ChunkingMatch.rule`
+
+```python
+rule: int | None
+```
+
+###### `agrag.ingestion.stats.ChunkingMatch.strategy`
+
+```python
+strategy: str
+```
+
+##### `agrag.ingestion.stats.ChunkingStats`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Chunking-stage results.
+
+**Attributes:**
+
+- [**chunks_by_strategy**](#agrag.ingestion.stats.ChunkingStats.chunks_by_strategy) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – Chunk counts per strategy name.
+- [**documents_by_rule**](#agrag.ingestion.stats.ChunkingStats.documents_by_rule) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – Document counts per rule, keyed `"rule 0"`,
+  `"rule 1"` and so on, and `"fallback"`.
+- [**matches**](#agrag.ingestion.stats.ChunkingStats.matches) (<code>[list](#list)\[[ChunkingMatch](#agrag.ingestion.stats.chunking.ChunkingMatch)\]</code>) – One entry per chunked document, capped at 1000.
+- [**matches_total**](#agrag.ingestion.stats.ChunkingStats.matches_total) (<code>[int](#int)</code>) – Matches recorded before capping.
+- [**matches_truncated**](#agrag.ingestion.stats.ChunkingStats.matches_truncated) (<code>[bool](#bool)</code>) – Whether `matches` was cut to the cap.
+
+**Functions:**
+
+- [**from_matches**](#agrag.ingestion.stats.ChunkingStats.from_matches) – Summarize per-document matches.
+
+###### `agrag.ingestion.stats.ChunkingStats.chunks_by_strategy`
+
+```python
+chunks_by_strategy: dict[str, int] = Field(default_factory=dict)
+```
+
+###### `agrag.ingestion.stats.ChunkingStats.documents_by_rule`
+
+```python
+documents_by_rule: dict[str, int] = Field(default_factory=dict)
+```
+
+###### `agrag.ingestion.stats.ChunkingStats.from_matches`
+
+```python
+from_matches(matches:list[ChunkingMatch]) -> ChunkingStats
+```
+
+Summarize per-document matches.
+
+**Parameters:**
+
+- **matches** (<code>[list](#list)\[[ChunkingMatch](#agrag.ingestion.stats.chunking.ChunkingMatch)\]</code>) – One match per chunked document, in chunking order.
+
+**Returns:**
+
+- <code>[ChunkingStats](#agrag.ingestion.stats.chunking.ChunkingStats)</code> – The counters over all matches and the matches up to the cap.
+
+###### `agrag.ingestion.stats.ChunkingStats.matches`
+
+```python
+matches: list[ChunkingMatch] = Field(default_factory=list)
+```
+
+###### `agrag.ingestion.stats.ChunkingStats.matches_total`
+
+```python
+matches_total: int = 0
+```
+
+###### `agrag.ingestion.stats.ChunkingStats.matches_truncated`
+
+```python
+matches_truncated: bool = False
+```
 
 ##### `agrag.ingestion.stats.ExtractionStats`
 
@@ -16566,6 +16767,134 @@ nodes_written: int = 0
 
 ```python
 relationships_written: int = 0
+```
+
+##### `agrag.ingestion.stats.chunking`
+
+Chunking-stage stats.
+
+**Classes:**
+
+- [**ChunkingMatch**](#agrag.ingestion.stats.chunking.ChunkingMatch) – The chunker that one document got, and what it produced.
+- [**ChunkingStats**](#agrag.ingestion.stats.chunking.ChunkingStats) – Chunking-stage results.
+
+**Attributes:**
+
+- [**MAX_CHUNKING_MATCHES**](#agrag.ingestion.stats.chunking.MAX_CHUNKING_MATCHES) –
+
+###### `agrag.ingestion.stats.chunking.ChunkingMatch`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The chunker that one document got, and what it produced.
+
+**Attributes:**
+
+- [**document_key**](#agrag.ingestion.stats.chunking.ChunkingMatch.document_key) (<code>[str](#str)</code>) – The key of the chunked document.
+- [**rule**](#agrag.ingestion.stats.chunking.ChunkingMatch.rule) (<code>[int](#int) | None</code>) – The index of the matching rule, or `None` for the fallback.
+- [**strategy**](#agrag.ingestion.stats.chunking.ChunkingMatch.strategy) (<code>[str](#str)</code>) – The strategy name of the chunker.
+- [**chunker_hash**](#agrag.ingestion.stats.chunking.ChunkingMatch.chunker_hash) (<code>[str](#str)</code>) – The fingerprint of the chunker settings.
+- [**chunks**](#agrag.ingestion.stats.chunking.ChunkingMatch.chunks) (<code>[int](#int)</code>) – The number of chunks the chunker produced.
+
+####### `agrag.ingestion.stats.chunking.ChunkingMatch.chunker_hash`
+
+```python
+chunker_hash: str
+```
+
+####### `agrag.ingestion.stats.chunking.ChunkingMatch.chunks`
+
+```python
+chunks: int
+```
+
+####### `agrag.ingestion.stats.chunking.ChunkingMatch.document_key`
+
+```python
+document_key: str
+```
+
+####### `agrag.ingestion.stats.chunking.ChunkingMatch.rule`
+
+```python
+rule: int | None
+```
+
+####### `agrag.ingestion.stats.chunking.ChunkingMatch.strategy`
+
+```python
+strategy: str
+```
+
+###### `agrag.ingestion.stats.chunking.ChunkingStats`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Chunking-stage results.
+
+**Attributes:**
+
+- [**chunks_by_strategy**](#agrag.ingestion.stats.chunking.ChunkingStats.chunks_by_strategy) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – Chunk counts per strategy name.
+- [**documents_by_rule**](#agrag.ingestion.stats.chunking.ChunkingStats.documents_by_rule) (<code>[dict](#dict)\[[str](#str), [int](#int)\]</code>) – Document counts per rule, keyed `"rule 0"`,
+  `"rule 1"` and so on, and `"fallback"`.
+- [**matches**](#agrag.ingestion.stats.chunking.ChunkingStats.matches) (<code>[list](#list)\[[ChunkingMatch](#agrag.ingestion.stats.chunking.ChunkingMatch)\]</code>) – One entry per chunked document, capped at 1000.
+- [**matches_total**](#agrag.ingestion.stats.chunking.ChunkingStats.matches_total) (<code>[int](#int)</code>) – Matches recorded before capping.
+- [**matches_truncated**](#agrag.ingestion.stats.chunking.ChunkingStats.matches_truncated) (<code>[bool](#bool)</code>) – Whether `matches` was cut to the cap.
+
+**Functions:**
+
+- [**from_matches**](#agrag.ingestion.stats.chunking.ChunkingStats.from_matches) – Summarize per-document matches.
+
+####### `agrag.ingestion.stats.chunking.ChunkingStats.chunks_by_strategy`
+
+```python
+chunks_by_strategy: dict[str, int] = Field(default_factory=dict)
+```
+
+####### `agrag.ingestion.stats.chunking.ChunkingStats.documents_by_rule`
+
+```python
+documents_by_rule: dict[str, int] = Field(default_factory=dict)
+```
+
+####### `agrag.ingestion.stats.chunking.ChunkingStats.from_matches`
+
+```python
+from_matches(matches:list[ChunkingMatch]) -> ChunkingStats
+```
+
+Summarize per-document matches.
+
+**Parameters:**
+
+- **matches** (<code>[list](#list)\[[ChunkingMatch](#agrag.ingestion.stats.chunking.ChunkingMatch)\]</code>) – One match per chunked document, in chunking order.
+
+**Returns:**
+
+- <code>[ChunkingStats](#agrag.ingestion.stats.chunking.ChunkingStats)</code> – The counters over all matches and the matches up to the cap.
+
+####### `agrag.ingestion.stats.chunking.ChunkingStats.matches`
+
+```python
+matches: list[ChunkingMatch] = Field(default_factory=list)
+```
+
+####### `agrag.ingestion.stats.chunking.ChunkingStats.matches_total`
+
+```python
+matches_total: int = 0
+```
+
+####### `agrag.ingestion.stats.chunking.ChunkingStats.matches_truncated`
+
+```python
+matches_truncated: bool = False
+```
+
+###### `agrag.ingestion.stats.chunking.MAX_CHUNKING_MATCHES`
+
+```python
+MAX_CHUNKING_MATCHES = 1000
 ```
 
 ##### `agrag.ingestion.stats.extraction`
