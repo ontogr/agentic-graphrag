@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from benchmarks.datasets.base import Domain
 from benchmarks.harness import dry_run as dry_run_module
 from benchmarks.harness.config import SpendCap
 from benchmarks.harness.dry_run import SpendCapError
@@ -22,7 +23,9 @@ from benchmarks.harness.runner import (
 from benchmarks.harness.trace import upload_trace
 from tests.unit.benchmarks.fakes import (
     DOMAIN,
+    SCHEMA,
     Behaviour,
+    FakeAdapter,
     FakeStore,
     FakeSystem,
     llm_span,
@@ -168,6 +171,23 @@ class TestRunner:
 
         assert commands.verbs()[-1] == "stop"
         assert all(store.closed for store in opened)
+
+    async def test_corpora_sharing_a_schema_name_keep_both_schemas(self, tmp_path):
+        """Schemas that share a name but differ in version are both recorded."""
+        env, _ = make_environment(tmp_path, Behaviour())
+
+        class Versioned(FakeAdapter):
+            def schema(self, corpus):
+                return SCHEMA.model_copy(update={"version": corpus.id})
+
+        domain = Domain(adapter=Versioned(), grader=DOMAIN.grader)
+
+        record, _ = await run("fake", domain, "lite", options(), env)
+
+        assert [(s.name, s.version) for s in record.schemas] == [
+            ("fake", "c1"),
+            ("fake", "c2"),
+        ]
 
     async def test_agent_failure_and_timeout_score_zero_and_are_flagged(self, tmp_path):
         """Agent failure and timeout score zero and are flagged."""

@@ -324,7 +324,7 @@ async def _execute(
     """Ingest and answer each corpus in turn, stopping its service after it."""
     env = ctx.env
     corpora: list[CorpusRecord] = []
-    schemas: dict[str, SchemaInfo] = {}
+    schemas: list[SchemaInfo] = []
     outcomes: list[_Outcome] = []
     for corpus in manifest.corpora:
         schema = domain.adapter.schema(corpus)
@@ -333,7 +333,8 @@ async def _execute(
             version=schema.version,
             sha256=canonical_sha256(schema.model_dump(mode="json")),
         )
-        schemas[info.name] = info
+        if info not in schemas:
+            schemas.append(info)
         key = cache.cache_key(
             manifest=manifest,
             corpus_id=corpus.id,
@@ -375,7 +376,7 @@ async def _execute(
         finally:
             await serving.release()
             env.services.stop(corpus.service)
-    return corpora, list(schemas.values()), outcomes
+    return corpora, schemas, outcomes
 
 
 async def _grade(
