@@ -1490,7 +1490,7 @@ rule matches gets `fallback`.
 
 **Attributes:**
 
-- [**rules**](#agrag.chunking.Chunking.rules) (<code>[list](#list)\[[ChunkingRule](#agrag.chunking.rules.ChunkingRule)\]</code>) – The rules, most specific first.
+- [**rules**](#agrag.chunking.Chunking.rules) (<code>[tuple](#tuple)\[[ChunkingRule](#agrag.chunking.rules.ChunkingRule), ...\]</code>) – The rules, most specific first.
 - [**fallback**](#agrag.chunking.Chunking.fallback) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[Chunker](#agrag.chunking.base.Chunker)\]</code>) – The chunker for documents that no rule matches.
 
 **Functions:**
@@ -1521,7 +1521,7 @@ model_config = ConfigDict(frozen=True, extra='forbid')
 ##### `agrag.chunking.Chunking.rules`
 
 ```python
-rules: list[ChunkingRule] = Field(default_factory=list)
+rules: tuple[ChunkingRule, ...] = ()
 ```
 
 ##### `agrag.chunking.Chunking.select`
@@ -1579,7 +1579,7 @@ model_config = ConfigDict(frozen=True, extra='forbid')
 #### `agrag.chunking.DEFAULT_CHUNKING`
 
 ```python
-DEFAULT_CHUNKING = Chunking(rules=[ChunkingRule(match=RuleMatch(loader_names=['docling']), chunker=DoclingChunker())], fallback=RecursiveChunker(tokenizer='character', chunk_size=1024, min_characters_per_chunk=24))
+DEFAULT_CHUNKING = Chunking(rules=(ChunkingRule(match=RuleMatch(loader_names=['docling']), chunker=DoclingChunker()),), fallback=RecursiveChunker(tokenizer='character', chunk_size=1024, min_characters_per_chunk=24))
 ```
 
 #### `agrag.chunking.DoclingChunker`
@@ -1691,7 +1691,7 @@ Splits on paragraph, sentence and word boundaries, coarsest first.
 - [**chunk_size**](#agrag.chunking.RecursiveChunker.chunk_size) (<code>[int](#int)</code>) – The largest chunk size, counted with `tokenizer`.
 - [**tokenizer**](#agrag.chunking.RecursiveChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
 - [**min_characters_per_chunk**](#agrag.chunking.RecursiveChunker.min_characters_per_chunk) (<code>[int](#int)</code>) – The smallest piece the splitter keeps apart.
-- [**levels**](#agrag.chunking.RecursiveChunker.levels) (<code>[list](#list)\[[SplitLevel](#agrag.chunking.recursive.SplitLevel)\] | None</code>) – The split levels, coarsest first. `None` uses the default levels
+- [**levels**](#agrag.chunking.RecursiveChunker.levels) (<code>[tuple](#tuple)\[[SplitLevel](#agrag.chunking.recursive.SplitLevel), ...\] | None</code>) – The split levels, coarsest first. `None` uses the default levels
   (paragraphs, sentences, punctuation, words, characters).
 
 **Functions:**
@@ -1744,7 +1744,7 @@ Return the hash of `settings()`, 16 hex characters.
 ##### `agrag.chunking.RecursiveChunker.levels`
 
 ```python
-levels: list[SplitLevel] | None = None
+levels: tuple[SplitLevel, ...] | None = None
 ```
 
 ##### `agrag.chunking.RecursiveChunker.min_characters_per_chunk`
@@ -1832,9 +1832,9 @@ with AND. A value in a list key matches if it equals any item of the list.
 
 **Attributes:**
 
-- [**loader_names**](#agrag.chunking.RuleMatch.loader_names) (<code>[list](#list)\[[str](#str)\] | None</code>) – Match `Document.loader_name`.
-- [**source_formats**](#agrag.chunking.RuleMatch.source_formats) (<code>[list](#list)\[[SourceFormat](#agrag.common.data_models.document.SourceFormat)\] | None</code>) – Match `Document.source_format`.
-- [**families**](#agrag.chunking.RuleMatch.families) (<code>[list](#list)\[[DocumentFamily](#agrag.common.data_models.document.DocumentFamily)\] | None</code>) – Match `Document.family`.
+- [**loader_names**](#agrag.chunking.RuleMatch.loader_names) (<code>[tuple](#tuple)\[[str](#str), ...\] | None</code>) – Match `Document.loader_name`.
+- [**source_formats**](#agrag.chunking.RuleMatch.source_formats) (<code>[tuple](#tuple)\[[SourceFormat](#agrag.common.data_models.document.SourceFormat), ...\] | None</code>) – Match `Document.source_format`.
+- [**families**](#agrag.chunking.RuleMatch.families) (<code>[tuple](#tuple)\[[DocumentFamily](#agrag.common.data_models.document.DocumentFamily), ...\] | None</code>) – Match `Document.family`.
 - [**uri_glob**](#agrag.chunking.RuleMatch.uri_glob) (<code>[str](#str) | None</code>) – Match `Document.uri` against this `fnmatch` pattern. Case
   sensitive.
 
@@ -1845,13 +1845,13 @@ with AND. A value in a list key matches if it equals any item of the list.
 ##### `agrag.chunking.RuleMatch.families`
 
 ```python
-families: list[DocumentFamily] | None = None
+families: tuple[DocumentFamily, ...] | None = None
 ```
 
 ##### `agrag.chunking.RuleMatch.loader_names`
 
 ```python
-loader_names: list[str] | None = None
+loader_names: tuple[str, ...] | None = None
 ```
 
 ##### `agrag.chunking.RuleMatch.matches`
@@ -1871,7 +1871,7 @@ model_config = ConfigDict(frozen=True, extra='forbid')
 ##### `agrag.chunking.RuleMatch.source_formats`
 
 ```python
-source_formats: list[SourceFormat] | None = None
+source_formats: tuple[SourceFormat, ...] | None = None
 ```
 
 ##### `agrag.chunking.RuleMatch.uri_glob`
@@ -2039,7 +2039,7 @@ One level of recursive split rules.
 
 **Attributes:**
 
-- [**delimiters**](#agrag.chunking.SplitLevel.delimiters) (<code>[list](#list)\[[str](#str)\] | None</code>) – The strings to split on at this level. `None` means none.
+- [**delimiters**](#agrag.chunking.SplitLevel.delimiters) (<code>[tuple](#tuple)\[[str](#str), ...\] | None</code>) – The strings to split on at this level. `None` means none.
 - [**whitespace**](#agrag.chunking.SplitLevel.whitespace) (<code>[bool](#bool)</code>) – Whether to split on whitespace at this level.
 - [**include_delim**](#agrag.chunking.SplitLevel.include_delim) (<code>[Literal](#typing.Literal)['prev', 'next'] | None</code>) – Whether a delimiter stays with the previous piece, the next
   piece, or is dropped.
@@ -2047,7 +2047,7 @@ One level of recursive split rules.
 ##### `agrag.chunking.SplitLevel.delimiters`
 
 ```python
-delimiters: list[str] | None = None
+delimiters: tuple[str, ...] | None = None
 ```
 
 ##### `agrag.chunking.SplitLevel.include_delim`
@@ -2598,7 +2598,7 @@ Splits on paragraph, sentence and word boundaries, coarsest first.
 - [**chunk_size**](#agrag.chunking.recursive.RecursiveChunker.chunk_size) (<code>[int](#int)</code>) – The largest chunk size, counted with `tokenizer`.
 - [**tokenizer**](#agrag.chunking.recursive.RecursiveChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. `"character"` counts characters.
 - [**min_characters_per_chunk**](#agrag.chunking.recursive.RecursiveChunker.min_characters_per_chunk) (<code>[int](#int)</code>) – The smallest piece the splitter keeps apart.
-- [**levels**](#agrag.chunking.recursive.RecursiveChunker.levels) (<code>[list](#list)\[[SplitLevel](#agrag.chunking.recursive.SplitLevel)\] | None</code>) – The split levels, coarsest first. `None` uses the default levels
+- [**levels**](#agrag.chunking.recursive.RecursiveChunker.levels) (<code>[tuple](#tuple)\[[SplitLevel](#agrag.chunking.recursive.SplitLevel), ...\] | None</code>) – The split levels, coarsest first. `None` uses the default levels
   (paragraphs, sentences, punctuation, words, characters).
 
 **Functions:**
@@ -2651,7 +2651,7 @@ Return the hash of `settings()`, 16 hex characters.
 ###### `agrag.chunking.recursive.RecursiveChunker.levels`
 
 ```python
-levels: list[SplitLevel] | None = None
+levels: tuple[SplitLevel, ...] | None = None
 ```
 
 ###### `agrag.chunking.recursive.RecursiveChunker.min_characters_per_chunk`
@@ -2736,7 +2736,7 @@ One level of recursive split rules.
 
 **Attributes:**
 
-- [**delimiters**](#agrag.chunking.recursive.SplitLevel.delimiters) (<code>[list](#list)\[[str](#str)\] | None</code>) – The strings to split on at this level. `None` means none.
+- [**delimiters**](#agrag.chunking.recursive.SplitLevel.delimiters) (<code>[tuple](#tuple)\[[str](#str), ...\] | None</code>) – The strings to split on at this level. `None` means none.
 - [**whitespace**](#agrag.chunking.recursive.SplitLevel.whitespace) (<code>[bool](#bool)</code>) – Whether to split on whitespace at this level.
 - [**include_delim**](#agrag.chunking.recursive.SplitLevel.include_delim) (<code>[Literal](#typing.Literal)['prev', 'next'] | None</code>) – Whether a delimiter stays with the previous piece, the next
   piece, or is dropped.
@@ -2744,7 +2744,7 @@ One level of recursive split rules.
 ###### `agrag.chunking.recursive.SplitLevel.delimiters`
 
 ```python
-delimiters: list[str] | None = None
+delimiters: tuple[str, ...] | None = None
 ```
 
 ###### `agrag.chunking.recursive.SplitLevel.include_delim`
@@ -2790,7 +2790,7 @@ rule matches gets `fallback`.
 
 **Attributes:**
 
-- [**rules**](#agrag.chunking.rules.Chunking.rules) (<code>[list](#list)\[[ChunkingRule](#agrag.chunking.rules.ChunkingRule)\]</code>) – The rules, most specific first.
+- [**rules**](#agrag.chunking.rules.Chunking.rules) (<code>[tuple](#tuple)\[[ChunkingRule](#agrag.chunking.rules.ChunkingRule), ...\]</code>) – The rules, most specific first.
 - [**fallback**](#agrag.chunking.rules.Chunking.fallback) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[Chunker](#agrag.chunking.base.Chunker)\]</code>) – The chunker for documents that no rule matches.
 
 **Functions:**
@@ -2821,7 +2821,7 @@ model_config = ConfigDict(frozen=True, extra='forbid')
 ###### `agrag.chunking.rules.Chunking.rules`
 
 ```python
-rules: list[ChunkingRule] = Field(default_factory=list)
+rules: tuple[ChunkingRule, ...] = ()
 ```
 
 ###### `agrag.chunking.rules.Chunking.select`
@@ -2873,7 +2873,7 @@ model_config = ConfigDict(frozen=True, extra='forbid')
 ##### `agrag.chunking.rules.DEFAULT_CHUNKING`
 
 ```python
-DEFAULT_CHUNKING = Chunking(rules=[ChunkingRule(match=RuleMatch(loader_names=['docling']), chunker=DoclingChunker())], fallback=RecursiveChunker(tokenizer='character', chunk_size=1024, min_characters_per_chunk=24))
+DEFAULT_CHUNKING = Chunking(rules=(ChunkingRule(match=RuleMatch(loader_names=['docling']), chunker=DoclingChunker()),), fallback=RecursiveChunker(tokenizer='character', chunk_size=1024, min_characters_per_chunk=24))
 ```
 
 ##### `agrag.chunking.rules.RuleMatch`
@@ -2887,9 +2887,9 @@ with AND. A value in a list key matches if it equals any item of the list.
 
 **Attributes:**
 
-- [**loader_names**](#agrag.chunking.rules.RuleMatch.loader_names) (<code>[list](#list)\[[str](#str)\] | None</code>) – Match `Document.loader_name`.
-- [**source_formats**](#agrag.chunking.rules.RuleMatch.source_formats) (<code>[list](#list)\[[SourceFormat](#agrag.common.data_models.document.SourceFormat)\] | None</code>) – Match `Document.source_format`.
-- [**families**](#agrag.chunking.rules.RuleMatch.families) (<code>[list](#list)\[[DocumentFamily](#agrag.common.data_models.document.DocumentFamily)\] | None</code>) – Match `Document.family`.
+- [**loader_names**](#agrag.chunking.rules.RuleMatch.loader_names) (<code>[tuple](#tuple)\[[str](#str), ...\] | None</code>) – Match `Document.loader_name`.
+- [**source_formats**](#agrag.chunking.rules.RuleMatch.source_formats) (<code>[tuple](#tuple)\[[SourceFormat](#agrag.common.data_models.document.SourceFormat), ...\] | None</code>) – Match `Document.source_format`.
+- [**families**](#agrag.chunking.rules.RuleMatch.families) (<code>[tuple](#tuple)\[[DocumentFamily](#agrag.common.data_models.document.DocumentFamily), ...\] | None</code>) – Match `Document.family`.
 - [**uri_glob**](#agrag.chunking.rules.RuleMatch.uri_glob) (<code>[str](#str) | None</code>) – Match `Document.uri` against this `fnmatch` pattern. Case
   sensitive.
 
@@ -2900,13 +2900,13 @@ with AND. A value in a list key matches if it equals any item of the list.
 ###### `agrag.chunking.rules.RuleMatch.families`
 
 ```python
-families: list[DocumentFamily] | None = None
+families: tuple[DocumentFamily, ...] | None = None
 ```
 
 ###### `agrag.chunking.rules.RuleMatch.loader_names`
 
 ```python
-loader_names: list[str] | None = None
+loader_names: tuple[str, ...] | None = None
 ```
 
 ###### `agrag.chunking.rules.RuleMatch.matches`
@@ -2926,7 +2926,7 @@ model_config = ConfigDict(frozen=True, extra='forbid')
 ###### `agrag.chunking.rules.RuleMatch.source_formats`
 
 ```python
-source_formats: list[SourceFormat] | None = None
+source_formats: tuple[SourceFormat, ...] | None = None
 ```
 
 ###### `agrag.chunking.rules.RuleMatch.uri_glob`
