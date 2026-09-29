@@ -17053,7 +17053,7 @@ Community-report enrichment: local-search-style budget-capped context.
 ##### `agrag.retrieval.community_context.community_context`
 
 ```python
-community_context(entity_ids:list[UUID], *, graph_store:GraphStore, top_k:int = 3, filters:SearchFilters | None = None) -> list[SearchResult]
+community_context(entity_ids:list[UUID], *, graph_store:GraphStore, top_k:int = 3, filters:SearchFilters | None = None, tracer:Tracer | None = None) -> list[SearchResult]
 ```
 
 Return the top-overlapping communities' reports for a set of entities.
@@ -17078,6 +17078,7 @@ machinery as any other result.
   property Community nodes never have matches no communities --
   a document- or property-scoped search gets no community
   enrichment rather than one drawn from outside its scope.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the context span. None opens no recorded span.
 
 **Returns:**
 
@@ -17087,7 +17088,7 @@ machinery as any other result.
 ##### `agrag.retrieval.community_context.expand_with_communities`
 
 ```python
-expand_with_communities(fused:list[SearchResult], seed_ids:list[UUID], *, graph_store:GraphStore, top_k:int, filters:SearchFilters | None, rrf_k:int) -> list[SearchResult]
+expand_with_communities(fused:list[SearchResult], seed_ids:list[UUID], *, graph_store:GraphStore, top_k:int, filters:SearchFilters | None, rrf_k:int, tracer:Tracer | None = None) -> list[SearchResult]
 ```
 
 Fuse community reports overlapping seed entities into a result list.
@@ -17098,9 +17099,10 @@ under a `"community"` key, so callers that already have a fused
 result list do not repeat the fetch-then-fuse pattern (or the
 error handling below).
 
-A community lookup that raises is logged and swallowed rather than
-propagating: community reports are enrichment on top of results that
-already exist, so a community-store failure must not discard them.
+A community lookup that raises is recorded on the expansion span and
+swallowed rather than propagating: community reports are enrichment on
+top of results that already exist, so a community-store failure must
+not discard them.
 
 **Parameters:**
 
@@ -17117,6 +17119,7 @@ already exist, so a community-store failure must not discard them.
   consistent with a plain search, not an error.
 - **rrf_k** (<code>[int](#int)</code>) – The reciprocal-rank-fusion constant, from
   `RetrievalSettings.rrf_k`.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the expansion spans. None opens no recorded span.
 
 **Returns:**
 
@@ -17336,7 +17339,7 @@ Reciprocal Rank Fusion: combine ranked results from multiple methods.
 ##### `agrag.retrieval.fusion.fuse`
 
 ```python
-fuse(results_by_method:dict[str, list[SearchResult]], *, rrf_k:int = 60) -> list[SearchResult]
+fuse(results_by_method:dict[str, list[SearchResult]], *, rrf_k:int = 60, tracer:Tracer | None = None) -> list[SearchResult]
 ```
 
 Combine every method's ranked results into one deduplicated list.
@@ -17365,6 +17368,7 @@ every SearchResult it receives already carries a live id.
   method name.
 - **rrf_k** (<code>[int](#int)</code>) – The RRF constant; higher values flatten the influence
   of rank position.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the fusion span. None opens no recorded span.
 
 **Returns:**
 
@@ -17392,7 +17396,7 @@ MAX_MERGE_HOPS = 32
 ##### `agrag.retrieval.identity.resolve_entity`
 
 ```python
-resolve_entity(graph_store:GraphStore, entity_id:UUID) -> Entity
+resolve_entity(graph_store:GraphStore, entity_id:UUID, *, tracer:Tracer | None = None) -> Entity
 ```
 
 Return the live Entity behind an id, following merged_into.
@@ -17410,6 +17414,7 @@ than a relationship, so the chain is walked one hop per query.
   chain live.
 - **entity_id** (<code>[UUID](#uuid.UUID)</code>) – The id a retrieval method found, which may or
   may not still be live.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the resolution span. None opens no recorded span.
 
 **Returns:**
 
@@ -17593,7 +17598,7 @@ Shared vector search helper for GraphStore and VectorStore.
 ###### `agrag.retrieval.methods.vector.vector_search`
 
 ```python
-vector_search(query:str, *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, collection:str, labels:Sequence[str], limit:int, filters:SearchFilters | None, settings:RetrievalSettings, query_vector:Sequence[float] | None = None) -> list[VectorHit]
+vector_search(query:str, *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, collection:str, labels:Sequence[str], limit:int, filters:SearchFilters | None, settings:RetrievalSettings, query_vector:Sequence[float] | None = None, tracer:Tracer | None = None) -> list[VectorHit]
 ```
 
 Embed query and search on whichever store is configured.
@@ -17627,6 +17632,7 @@ receive an uncommitted job's node or vector.
   so they are not sent as node property filters.
 - **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings)</code>) – Supplies hybrid_alpha for the VectorStore path.
 - **query_vector** (<code>[Sequence](#collections.abc.Sequence)\[[float](#float)\] | None</code>) – Precomputed query embedding. None embeds `query`.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the search span. None opens no recorded span.
 
 **Returns:**
 
@@ -17795,7 +17801,7 @@ Cross-encoder reranker using sentence-transformers.
 ###### `agrag.retrieval.rerank.cross_encoder.cross_encoder_rerank`
 
 ```python
-cross_encoder_rerank(query:str, results:list[SearchResult], *, model:str = 'cross-encoder/ms-marco-MiniLM-L-6-v2', min_score:float | None = None) -> list[SearchResult]
+cross_encoder_rerank(query:str, results:list[SearchResult], *, model:str = 'cross-encoder/ms-marco-MiniLM-L-6-v2', min_score:float | None = None, tracer:Tracer | None = None) -> list[SearchResult]
 ```
 
 Rerank results using a cross-encoder model.
@@ -17809,6 +17815,9 @@ loop for other concurrent search() calls. Concurrent first loads of the
 same model share one in-flight construction behind a per-model lock, so
 only one instance (and one download) occurs.
 
+Without the extra, the results are returned unchanged: the span records
+the ImportError and sets `agrag.skipped`, and its status stays UNSET.
+
 **Parameters:**
 
 - **query** (<code>[str](#str)</code>) – The natural-language query text.
@@ -17817,6 +17826,7 @@ only one instance (and one download) occurs.
   Callers pass RetrievalSettings.cross_encoder_model.
 - **min_score** (<code>[float](#float) | None</code>) – Optional minimum score threshold. Results below this
   are dropped.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the rerank spans. None opens no recorded span.
 
 **Returns:**
 
@@ -17833,7 +17843,7 @@ Node distance reranker: reorder by graph proximity to seeds.
 ###### `agrag.retrieval.rerank.node_distance.node_distance_rerank`
 
 ```python
-node_distance_rerank(results:list[SearchResult], *, graph_store:GraphStore, seed_ids:list[UUID]) -> list[SearchResult]
+node_distance_rerank(results:list[SearchResult], *, graph_store:GraphStore, seed_ids:list[UUID], tracer:Tracer | None = None) -> list[SearchResult]
 ```
 
 Rerank results by graph proximity to seed entity ids.
@@ -17852,6 +17862,7 @@ at the end with a high distance penalty.
   are the query's direct hits, not the whole candidate list:
   a candidate that is its own seed measures distance zero,
   so seeding with every candidate leaves the order unchanged.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the rerank span. None opens no recorded span.
 
 **Returns:**
 
@@ -17874,10 +17885,21 @@ Hydration helpers for materialized resolved entities.
 ##### `agrag.retrieval.resolved_entities.hydrate_resolved_entities`
 
 ```python
-hydrate_resolved_entities(graph_store:GraphStore, ids:list[UUID]) -> dict[UUID, ResolvedEntity]
+hydrate_resolved_entities(graph_store:GraphStore, ids:list[UUID], *, tracer:Tracer | None = None) -> dict[UUID, ResolvedEntity]
 ```
 
 Hydrate resolved entities by vector-hit identifiers.
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where the resolved entities live.
+- **ids** (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – The vector-hit ids to hydrate.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the hydration span. None opens no recorded span.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[UUID](#uuid.UUID), [ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity)\]</code> – The hydrated resolved entities by id; an empty dict when `ids` is
+- <code>[dict](#dict)\[[UUID](#uuid.UUID), [ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity)\]</code> – empty or nothing parsed.
 
 ##### `agrag.retrieval.resolved_entities.parse_resolved_entity_node`
 

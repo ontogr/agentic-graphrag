@@ -3,9 +3,12 @@
 from typing import Any
 from uuid import UUID
 
+from opentelemetry.trace import Tracer
+
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.cypher.resolution_read import hydrate_resolved_entities_by_id_query
 from agrag.graphdb.base import GraphStore
+from agrag.observability import get_tracer
 
 
 _SYSTEM_KEYS = {
@@ -60,19 +63,35 @@ def parse_resolved_entity_node(node: object) -> ResolvedEntity | None:
 
 
 async def hydrate_resolved_entities(
-    graph_store: GraphStore, ids: list[UUID]
+    graph_store: GraphStore, ids: list[UUID], *, tracer: Tracer | None = None
 ) -> dict[UUID, ResolvedEntity]:
-    """Hydrate resolved entities by vector-hit identifiers."""
+    """Hydrate resolved entities by vector-hit identifiers.
+
+    Args:
+        graph_store: Where the resolved entities live.
+        ids: The vector-hit ids to hydrate.
+        tracer: Opens the hydration span. None opens no recorded span.
+
+    Returns:
+        The hydrated resolved entities by id; an empty dict when ``ids`` is
+        empty or nothing parsed.
+    """
     if not ids:
         return {}
-    rows = await graph_store.execute_read(
-        hydrate_resolved_entities_by_id_query(),
-        {"ids": [str(item_id) for item_id in ids], "job_id": None},
-    )
-    entities: dict[UUID, ResolvedEntity] = {}
-    for row in rows:
-        node = row.get("resolved") if isinstance(row, dict) else row
-        entity = parse_resolved_entity_node(node)
-        if entity is not None:
-            entities[entity.id] = entity
-    return entities
+    with get_tracer(tracer).start_as_current_span(
+        "agrag.retrieval.hydrate_resolved_entities",
+        attributes={"agrag.requested_count": len(ids)},
+    ) as span:
+        rows = await graph_store.execute_read(
+            hydrate_resolved_entities_by_id_query(),
+            {"ids": [str(item_id) for item_id in ids], "job_id": None},
+        )
+        entities: dict[UUID, ResolvedEntity] = {}
+        for row in rows:
+            node = row.get("resolved") if isinstance(row, dict) else row
+            entity = parse_resolved_entity_node(node)
+            if entity is not None:
+                entities[entity.id] = entity
+        if span.is_recording():
+            span.set_attribute("agrag.hydrated_count", len(entities))
+        return entities
