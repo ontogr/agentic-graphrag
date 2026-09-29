@@ -5,12 +5,15 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
+from opentelemetry.trace import Tracer
+
 from agrag.common.data_models.community import Community
 from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.relations import TraversalDirection
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.observability import record_swallowed_exception
 from agrag.retrieval.community_context import expand_with_communities
 from agrag.retrieval.errors import (
     AllRetrievalMethodsFailedError,
@@ -40,6 +43,7 @@ from agrag.retrieval.retrievers.community import CommunityRetriever
 from agrag.retrieval.retrievers.entity import EntityRetriever
 from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from agrag.retrieval.settings import RetrievalSettings
+from agrag.retrieval.tracing import record_results, retrieval_span
 from agrag.vectordb.base import VectorStore
 
 
@@ -52,6 +56,12 @@ class SearchEngine:
     Fans a query out to every method a Recipe names, fuses the
     results, and optionally reranks them. Constructed from its own
     stores; does not depend on a Graph instance existing.
+
+    A ``tracer`` opens the retrieval spans and flows to every
+    retriever and free function the engine calls. It is *not* pushed
+    into ``graph_store``, ``embedder`` or ``vector_store``: pass the
+    same tracer to those when you build them (ADR 0053), so their
+    adapter spans nest under these retrieval spans.
     """
 
     def __init__(
@@ -63,6 +73,7 @@ class SearchEngine:
         settings: RetrievalSettings | None = None,
         entity_labels: Sequence[str] | None = None,
         graph_schema: GraphSchema | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Construct a SearchEngine.
 
@@ -90,6 +101,9 @@ class SearchEngine:
             graph_schema: The graph's declared schema, ground truth for
                 native entity labels and for generated Cypher. None uses
                 ``GENERIC``.
+            tracer: Opens the search span and flows to every retriever
+                and free function the engine calls. None opens no
+                recorded span.
 
         Raises:
             ValueError: entity_labels does not name exactly the labels
@@ -99,6 +113,7 @@ class SearchEngine:
         self._embedder = embedder
         self._vector_store = vector_store
         self._settings = settings or RetrievalSettings()
+        self._tracer = tracer
         self._graph_schema = graph_schema if graph_schema is not None else GENERIC
         schema_labels = [entity.label for entity in self._graph_schema.entities]
         if (
@@ -152,6 +167,7 @@ class SearchEngine:
             settings=self._settings,
             entity_labels=self._entity_labels,
             filters=filters,
+            tracer=self._tracer,
         )
 
     async def traverse(
@@ -205,6 +221,7 @@ class SearchEngine:
             community_expand=community_expand,
             community_top_k=community_top_k,
             filters=filters,
+            tracer=self._tracer,
         )
 
     async def list_relationship_types(
@@ -237,6 +254,7 @@ class SearchEngine:
             relation_type_filter=relation_type_filter,
             direction=direction,
             filters=filters,
+            tracer=self._tracer,
         )
 
     async def search(  # noqa: PLR0912, PLR0915
@@ -276,7 +294,45 @@ class SearchEngine:
         """
         retrievers = self._build_retrievers()
         self._validate_recipe_methods(recipe, retrievers)
+        with retrieval_span(
+            self._tracer,
+            "agrag.retrieval.search",
+            query=query,
+            filters=filters,
+            attributes={
+                "agrag.recipe.methods": list(recipe.methods),
+                "agrag.recipe.limit": recipe.limit,
+                "agrag.recipe.bfs": recipe.bfs,
+                "agrag.recipe.community_expand": recipe.community_expand,
+                "agrag.recipe.reranker": recipe.reranker or "",
+            },
+        ) as span:
+            return await self._run_search(query, recipe, filters, retrievers, span)
 
+    async def _run_search(  # noqa: PLR0912, PLR0915
+        self,
+        query: str,
+        recipe: Recipe,
+        filters: SearchFilters | None,
+        retrievers: dict[str, Retriever],
+        span: Any,
+    ) -> list[SearchResult]:
+        """Run the search body inside the root span ``search`` opened.
+
+        Args:
+            query: The natural-language query text.
+            recipe: Which methods to run and what follows them.
+            filters: Constraints applied identically to every method.
+            retrievers: The retriever registry ``search`` built.
+            span: The open ``agrag.retrieval.search`` span.
+
+        Returns:
+            Up to recipe.limit results, ranked highest-relevance first.
+
+        Raises:
+            AllRetrievalMethodsFailedError: Every method the recipe
+                names failed.
+        """
         # Project SearchFilters per retriever: labels only go to entity
         # search, while document_ids and property filters apply to entity,
         # chunk, and community search.
@@ -350,9 +406,14 @@ class SearchEngine:
                 sorted(failures),
                 sorted(results_by_method),
             )
+            for failure in failures.values():
+                if isinstance(failure, Exception):
+                    record_swallowed_exception(failure)
+            if span.is_recording():
+                span.set_attribute("agrag.failed_methods", sorted(failures))
 
         # First fusion pass.
-        fused = fuse(results_by_method, rrf_k=self._settings.rrf_k)
+        fused = fuse(results_by_method, rrf_k=self._settings.rrf_k, tracer=self._tracer)
 
         # Entities the recipe's own methods found, before any BFS
         # expansion adds neighbours. These seed both BFS and the
@@ -363,7 +424,9 @@ class SearchEngine:
         # BFS expansion as sequential follow-up.
         if recipe.bfs:
             bfs_retriever = BFSRetriever(
-                graph_store=self._graph_store, settings=self._settings
+                graph_store=self._graph_store,
+                settings=self._settings,
+                tracer=self._tracer,
             )
             bfs_filters = (
                 SearchFilters(
@@ -394,6 +457,7 @@ class SearchEngine:
                 fused = fuse(
                     {"methods": fused, "bfs": bfs_results},
                     rrf_k=self._settings.rrf_k,
+                    tracer=self._tracer,
                 )
 
         if recipe.community_expand:
@@ -404,6 +468,7 @@ class SearchEngine:
                 top_k=recipe.community_top_k,
                 filters=community_filters,
                 rrf_k=self._settings.rrf_k,
+                tracer=self._tracer,
             )
 
         # Rerank.
@@ -420,6 +485,7 @@ class SearchEngine:
                 other_items,
                 model=self._settings.cross_encoder_model,
                 min_score=min_score,
+                tracer=self._tracer,
             )
             reserved = (
                 min(len(community_items), recipe.community_top_k)
@@ -435,9 +501,12 @@ class SearchEngine:
                 fused,
                 graph_store=self._graph_store,
                 seed_ids=search_seed_ids[: self._settings.node_distance_seed_top_k],
+                tracer=self._tracer,
             )
 
-        return fused[: recipe.limit]
+        final = fused[: recipe.limit]
+        record_results(span, final)
+        return final
 
     @staticmethod
     def _validate_recipe_methods(
@@ -464,22 +533,26 @@ class SearchEngine:
                 vector_store=self._vector_store,
                 settings=self._settings,
                 entity_labels=self._entity_labels,
+                tracer=self._tracer,
             ),
             "chunk": ChunkRetriever(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
                 vector_store=self._vector_store,
                 settings=self._settings,
+                tracer=self._tracer,
             ),
             "community": CommunityRetriever(
                 graph_store=self._graph_store,
                 embedder=self._embedder,
                 vector_store=self._vector_store,
                 settings=self._settings,
+                tracer=self._tracer,
             ),
             "text2cypher": Text2CypherRetriever(
                 graph_store=self._graph_store,
                 schema=self._graph_schema,
                 settings=self._settings,
+                tracer=self._tracer,
             ),
         }

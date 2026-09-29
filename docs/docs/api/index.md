@@ -17481,7 +17481,7 @@ Chunks and other non-entity result items are skipped.
 ###### `agrag.retrieval.methods.traversal.find_entity`
 
 ```python
-find_entity(name:str, *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, settings:RetrievalSettings, entity_labels:Sequence[str], filters:SearchFilters | None = None) -> SearchResult | None
+find_entity(name:str, *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, settings:RetrievalSettings, entity_labels:Sequence[str], filters:SearchFilters | None = None, tracer:Tracer | None = None) -> SearchResult | None
 ```
 
 Resolve a named entity to its top search hit, or None.
@@ -17509,6 +17509,8 @@ into traversal seeds.
   label override. An entity that exists only outside this
   scope resolves to None, the same as one that does not
   exist.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the root span and flows to the entity retriever.
+  None opens no recorded span.
 
 **Returns:**
 
@@ -17517,7 +17519,7 @@ into traversal seeds.
 ###### `agrag.retrieval.methods.traversal.list_relationship_types`
 
 ```python
-list_relationship_types(seed:SearchResult, *, graph_store:GraphStore, relation_type_filter:str | None = None, direction:TraversalDirection = 'both', filters:SearchFilters | None = None) -> list[str]
+list_relationship_types(seed:SearchResult, *, graph_store:GraphStore, relation_type_filter:str | None = None, direction:TraversalDirection = 'both', filters:SearchFilters | None = None, tracer:Tracer | None = None) -> list[str]
 ```
 
 List the relationship types directly attached to a resolved entity.
@@ -17533,6 +17535,7 @@ before the query runs.
 - **relation_type_filter** (<code>[str](#str) | None</code>) – Only report this type, if present.
 - **direction** (<code>[TraversalDirection](#agrag.cypher.relations.TraversalDirection)</code>) – Which way to inspect relationships, relative to the seed.
 - **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Scope that limits which relationship types are visible.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the root span. None opens no recorded span.
 
 **Returns:**
 
@@ -17547,7 +17550,7 @@ logger = logging.getLogger(__name__)
 ###### `agrag.retrieval.methods.traversal.traverse`
 
 ```python
-traverse(seed:SearchResult, *, graph_store:GraphStore, settings:RetrievalSettings, relation_type:str | None = None, direction:TraversalDirection = 'both', depth:int = 1, limit:int = 10, community_expand:bool = False, community_top_k:int = 3, filters:SearchFilters | None = None) -> list[SearchResult]
+traverse(seed:SearchResult, *, graph_store:GraphStore, settings:RetrievalSettings, relation_type:str | None = None, direction:TraversalDirection = 'both', depth:int = 1, limit:int = 10, community_expand:bool = False, community_top_k:int = 3, filters:SearchFilters | None = None, tracer:Tracer | None = None) -> list[SearchResult]
 ```
 
 Expand one resolved entity into its neighbours.
@@ -17576,6 +17579,8 @@ Expand one resolved entity into its neighbours.
   is refused without querying the graph. `properties`
   `document_ids`, and `labels` constrain returned
   neighbour nodes.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the root span and flows to the BFS retriever and
+  community expansion. None opens no recorded span.
 
 **Returns:**
 
@@ -18347,7 +18352,7 @@ Retrieval's public entry point, independent of Graph.
 ##### `agrag.retrieval.search_engine.SearchEngine`
 
 ```python
-SearchEngine(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, graph_schema:GraphSchema | None = None) -> None
+SearchEngine(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, graph_schema:GraphSchema | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Retrieval's public entry point, independent of Graph.
@@ -18355,6 +18360,12 @@ Retrieval's public entry point, independent of Graph.
 Fans a query out to every method a Recipe names, fuses the
 results, and optionally reranks them. Constructed from its own
 stores; does not depend on a Graph instance existing.
+
+A `tracer` opens the retrieval spans and flows to every
+retriever and free function the engine calls. It is *not* pushed
+into `graph_store`, `embedder` or `vector_store`: pass the
+same tracer to those when you build them (ADR 0053), so their
+adapter spans nest under these retrieval spans.
 
 **Functions:**
 
@@ -18392,6 +18403,9 @@ stores; does not depend on a Graph instance existing.
 - **graph_schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema) | None</code>) – The graph's declared schema, ground truth for
   native entity labels and for generated Cypher. None uses
   `GENERIC`.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the search span and flows to every retriever
+  and free function the engine calls. None opens no
+  recorded span.
 
 **Raises:**
 
@@ -18798,7 +18812,7 @@ query rows JSON.
 ##### `agrag.retrieval.tracing.retrieval_span`
 
 ```python
-retrieval_span(tracer:Tracer | None, name:str, *, query:str, filters:SearchFilters | None, attributes:dict[str, str | int | float | bool] | None = None) -> Iterator[Span]
+retrieval_span(tracer:Tracer | None, name:str, *, query:str, filters:SearchFilters | None, attributes:dict[str, Any] | None = None) -> Iterator[Span]
 ```
 
 Open a `RETRIEVER` span that records the query and the scope.
@@ -18813,7 +18827,7 @@ before it exits.
 - **name** (<code>[str](#str)</code>) – The span name, in the `agrag.retrieval.*` namespace.
 - **query** (<code>[str](#str)</code>) – The natural-language query, or the seed's text.
 - **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – The scope the wrapped call runs under, always recorded.
-- **attributes** (<code>[dict](#dict)\[[str](#str), [str](#str) | [int](#int) | [float](#float) | [bool](#bool)\] | None</code>) – Extra cheap attributes known before the call starts.
+- **attributes** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – Extra cheap attributes known before the call starts.
 
 **Yields:**
 

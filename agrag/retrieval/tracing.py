@@ -115,7 +115,7 @@ def retrieval_span(
     *,
     query: str,
     filters: SearchFilters | None,
-    attributes: dict[str, str | int | float | bool] | None = None,
+    attributes: dict[str, Any] | None = None,
 ) -> Iterator[Span]:
     """Open a ``RETRIEVER`` span that records the query and the scope.
 
