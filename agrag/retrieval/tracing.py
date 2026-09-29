@@ -10,7 +10,15 @@ from agrag.common.data_models.chunk import Chunk
 
 
 def record_chunks(span: Span, chunks: Sequence[Chunk]) -> None:
-    """Record hydrated chunks as OpenTelemetry-safe attributes."""
+    """Record hydrated chunks as OpenTelemetry-safe attributes.
+
+    Args:
+        span: The active retrieval span.
+        chunks: Parent chunks attached to child results.
+
+    Returns:
+        None.
+    """
     span.set_attributes(
         {
             "agrag.result.count": len(chunks),
