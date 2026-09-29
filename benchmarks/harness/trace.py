@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -18,23 +19,28 @@ from benchmarks.harness.record import TRACE_NAME, TraceRef, sha256_file
 class GzipJsonlSpanExporter(SpanExporter):
     """Writes each exported batch as one line of OTLP protobuf JSON.
 
-    The file is gzipped. Call ``shutdown`` to finish it.
+    The file is gzipped. Call ``shutdown`` to finish it. Spans end on many threads
+    and a gzip stream is not thread safe, so writes take a lock.
     """
 
     def __init__(self, path: Path) -> None:
         """Open ``path`` for writing, creating its parent directory."""
         path.parent.mkdir(parents=True, exist_ok=True)
         self._file = gzip.open(path, "wt", encoding="utf-8")  # noqa: SIM115
+        self._lock = threading.Lock()
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
         """Write one batch as one line."""
         batch = MessageToDict(encode_spans(spans))
-        self._file.write(json.dumps(batch, separators=(",", ":")) + "\n")
+        line = json.dumps(batch, separators=(",", ":")) + "\n"
+        with self._lock:
+            self._file.write(line)
         return SpanExportResult.SUCCESS
 
     def shutdown(self) -> None:
         """Close the file."""
-        self._file.close()
+        with self._lock:
+            self._file.close()
 
 
 def upload_trace(

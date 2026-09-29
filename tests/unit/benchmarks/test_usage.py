@@ -3,6 +3,8 @@
 The spans are real SDK spans made through the harness's own provider.
 """
 
+import threading
+
 from benchmarks.harness.record import PathUsage, read_trace
 from benchmarks.harness.usage import (
     CORPUS_ATTRIBUTE,
@@ -147,3 +149,21 @@ class TestTraceFile:
         assert len(batches) == 2
         span = batches[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["name"] == "llm"
+
+    def test_spans_ended_on_many_threads_leave_every_line_readable(self, tmp_path):
+        """Concurrent exports must not interleave inside the gzip stream."""
+        path = tmp_path / "t.jsonl.gz"
+        tracing = start_tracing(path)
+
+        def work() -> None:
+            for _ in range(100):
+                llm_span(tracing.tracer)
+
+        threads = [threading.Thread(target=work) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        tracing.close()
+
+        assert len(read_trace(path)) == 800
