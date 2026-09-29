@@ -1589,8 +1589,22 @@ Bases: <code>[Chunker](#agrag.chunking.base.Chunker)</code>
 Splits a parsed docling document with docling's hybrid chunker.
 
 The chunker reads the parsed document that the docling loader keeps in
-`Document.metadata["_docling_document"]`. Each chunk has page provenance.
-Chunk ids come from the chunk index, so they are not stable across a re-parse.
+`Document.metadata["_docling_document"]`. Each chunk has page provenance and
+the headings above it in `heading_path`. The chunk text is the body without
+headings, but headings count against the token budget. Chunk ids include the
+fingerprint, so a re-chunk with new settings does not overwrite the old chunks.
+
+**Attributes:**
+
+- [**tokenizer**](#agrag.chunking.DoclingChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. A name with a slash is a Hugging
+  Face model id, which needs the network the first time.
+- [**max_tokens**](#agrag.chunking.DoclingChunker.max_tokens) (<code>[int](#int)</code>) – The most tokens in a chunk, headings included.
+- [**merge_peers**](#agrag.chunking.DoclingChunker.merge_peers) (<code>[bool](#bool)</code>) – Whether to merge small neighbours under the same headings.
+- [**repeat_table_header**](#agrag.chunking.DoclingChunker.repeat_table_header) (<code>[bool](#bool)</code>) – Whether each chunk of a split table repeats its header.
+- [**omit_header_on_overflow**](#agrag.chunking.DoclingChunker.omit_header_on_overflow) (<code>[bool](#bool)</code>) – Whether to drop headings from a chunk when they
+  would not fit the budget.
+- [**table_format**](#agrag.chunking.DoclingChunker.table_format) (<code>[Literal](#typing.Literal)['triplet', 'markdown']</code>) – `"triplet"` writes `row, column = value` text and
+  `"markdown"` writes a pipe table.
 
 **Functions:**
 
@@ -1599,11 +1613,6 @@ Chunk ids come from the chunk index, so they are not stable across a re-parse.
 - [**model_copy**](#agrag.chunking.DoclingChunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.DoclingChunker.model_post_init) – Compute the fingerprint once, after the settings are validated.
 - [**settings**](#agrag.chunking.DoclingChunker.settings) – Return the strategy name and every setting as JSON-safe data.
-
-**Attributes:**
-
-- [**model_config**](#agrag.chunking.DoclingChunker.model_config) –
-- [**strategy**](#agrag.chunking.DoclingChunker.strategy) (<code>[str](#str)</code>) – The strategy name, `"docling"`.
 
 ##### `agrag.chunking.DoclingChunker.chunk`
 
@@ -1637,6 +1646,18 @@ fingerprint() -> str
 
 Return the hash of `settings()`, 16 hex characters.
 
+##### `agrag.chunking.DoclingChunker.max_tokens`
+
+```python
+max_tokens: int = Field(default=1024, gt=0)
+```
+
+##### `agrag.chunking.DoclingChunker.merge_peers`
+
+```python
+merge_peers: bool = True
+```
+
 ##### `agrag.chunking.DoclingChunker.model_config`
 
 ```python
@@ -1662,6 +1683,18 @@ model_post_init(context:Any) -> None
 
 Compute the fingerprint once, after the settings are validated.
 
+##### `agrag.chunking.DoclingChunker.omit_header_on_overflow`
+
+```python
+omit_header_on_overflow: bool = False
+```
+
+##### `agrag.chunking.DoclingChunker.repeat_table_header`
+
+```python
+repeat_table_header: bool = True
+```
+
 ##### `agrag.chunking.DoclingChunker.settings`
 
 ```python
@@ -1679,6 +1712,18 @@ strategy: str
 ```
 
 The strategy name, `"docling"`.
+
+##### `agrag.chunking.DoclingChunker.table_format`
+
+```python
+table_format: Literal['triplet', 'markdown'] = 'triplet'
+```
+
+##### `agrag.chunking.DoclingChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
+```
 
 #### `agrag.chunking.RecursiveChunker`
 
@@ -2473,8 +2518,8 @@ Return a short stable hash of a JSON-safe value.
 Docling-native chunking.
 
 This module wraps docling's `HybridChunker` to produce `Chunk` objects with
-`PageProvenance`. It imports docling inside the chunking method so that importing
-the module does not require the `docling` extra.
+`PageProvenance`. It imports docling only when it chunks a document, so importing
+this module does not require the `docling` extra.
 
 **Classes:**
 
@@ -2487,8 +2532,22 @@ Bases: <code>[Chunker](#agrag.chunking.base.Chunker)</code>
 Splits a parsed docling document with docling's hybrid chunker.
 
 The chunker reads the parsed document that the docling loader keeps in
-`Document.metadata["_docling_document"]`. Each chunk has page provenance.
-Chunk ids come from the chunk index, so they are not stable across a re-parse.
+`Document.metadata["_docling_document"]`. Each chunk has page provenance and
+the headings above it in `heading_path`. The chunk text is the body without
+headings, but headings count against the token budget. Chunk ids include the
+fingerprint, so a re-chunk with new settings does not overwrite the old chunks.
+
+**Attributes:**
+
+- [**tokenizer**](#agrag.chunking.docling.DoclingChunker.tokenizer) (<code>[str](#str)</code>) – The tokenizer that counts size. A name with a slash is a Hugging
+  Face model id, which needs the network the first time.
+- [**max_tokens**](#agrag.chunking.docling.DoclingChunker.max_tokens) (<code>[int](#int)</code>) – The most tokens in a chunk, headings included.
+- [**merge_peers**](#agrag.chunking.docling.DoclingChunker.merge_peers) (<code>[bool](#bool)</code>) – Whether to merge small neighbours under the same headings.
+- [**repeat_table_header**](#agrag.chunking.docling.DoclingChunker.repeat_table_header) (<code>[bool](#bool)</code>) – Whether each chunk of a split table repeats its header.
+- [**omit_header_on_overflow**](#agrag.chunking.docling.DoclingChunker.omit_header_on_overflow) (<code>[bool](#bool)</code>) – Whether to drop headings from a chunk when they
+  would not fit the budget.
+- [**table_format**](#agrag.chunking.docling.DoclingChunker.table_format) (<code>[Literal](#typing.Literal)['triplet', 'markdown']</code>) – `"triplet"` writes `row, column = value` text and
+  `"markdown"` writes a pipe table.
 
 **Functions:**
 
@@ -2497,11 +2556,6 @@ Chunk ids come from the chunk index, so they are not stable across a re-parse.
 - [**model_copy**](#agrag.chunking.docling.DoclingChunker.model_copy) – Copy the chunker, validating any changed setting.
 - [**model_post_init**](#agrag.chunking.docling.DoclingChunker.model_post_init) – Compute the fingerprint once, after the settings are validated.
 - [**settings**](#agrag.chunking.docling.DoclingChunker.settings) – Return the strategy name and every setting as JSON-safe data.
-
-**Attributes:**
-
-- [**model_config**](#agrag.chunking.docling.DoclingChunker.model_config) –
-- [**strategy**](#agrag.chunking.docling.DoclingChunker.strategy) (<code>[str](#str)</code>) – The strategy name, `"docling"`.
 
 ###### `agrag.chunking.docling.DoclingChunker.chunk`
 
@@ -2535,6 +2589,18 @@ fingerprint() -> str
 
 Return the hash of `settings()`, 16 hex characters.
 
+###### `agrag.chunking.docling.DoclingChunker.max_tokens`
+
+```python
+max_tokens: int = Field(default=1024, gt=0)
+```
+
+###### `agrag.chunking.docling.DoclingChunker.merge_peers`
+
+```python
+merge_peers: bool = True
+```
+
 ###### `agrag.chunking.docling.DoclingChunker.model_config`
 
 ```python
@@ -2560,6 +2626,18 @@ model_post_init(context:Any) -> None
 
 Compute the fingerprint once, after the settings are validated.
 
+###### `agrag.chunking.docling.DoclingChunker.omit_header_on_overflow`
+
+```python
+omit_header_on_overflow: bool = False
+```
+
+###### `agrag.chunking.docling.DoclingChunker.repeat_table_header`
+
+```python
+repeat_table_header: bool = True
+```
+
 ###### `agrag.chunking.docling.DoclingChunker.settings`
 
 ```python
@@ -2577,6 +2655,18 @@ strategy: str
 ```
 
 The strategy name, `"docling"`.
+
+###### `agrag.chunking.docling.DoclingChunker.table_format`
+
+```python
+table_format: Literal['triplet', 'markdown'] = 'triplet'
+```
+
+###### `agrag.chunking.docling.DoclingChunker.tokenizer`
+
+```python
+tokenizer: str = DEFAULT_TOKENIZER
+```
 
 #### `agrag.chunking.recursive`
 
@@ -3372,7 +3462,7 @@ id: UUID | None = None
 ####### `agrag.common.data_models.chunk.Chunk.id_for`
 
 ```python
-id_for(*, document_id:UUID, version_id:UUID | None = None, provenance:TextProvenance | PageProvenance, index:int) -> UUID
+id_for(*, document_id:UUID, version_id:UUID | None = None, provenance:TextProvenance | PageProvenance, index:int, chunker_hash:str | None = None) -> UUID
 ```
 
 Compute the chunk id.
@@ -3381,9 +3471,11 @@ For a text chunk, the id comes from the document id and the character span. A
 change in chunk size shifts the span, so it also changes the id. When supplied,
 `version_id` makes the id distinct for each version of a document.
 
-For a docling chunk, the id comes from the document id and the chunk index
-instead. Docling parsing is not always the same between runs, so this id is
-not stable across a re-parse of the same source.
+For a docling chunk, the id comes from the document id, the chunker hash and
+the chunk index instead. The hash keeps a re-chunk with new settings from
+overwriting chunk N of the earlier settings. Docling parsing is not always the
+same between runs, so this id is not stable across a re-parse of the same
+source.
 
 **Parameters:**
 
@@ -3392,6 +3484,8 @@ not stable across a re-parse of the same source.
 - **provenance** (<code>[TextProvenance](#agrag.common.data_models.provenance.TextProvenance) | [PageProvenance](#agrag.common.data_models.provenance.PageProvenance)</code>) – The provenance of the chunk. Its type picks which id rule
   applies.
 - **index** (<code>[int](#int)</code>) – The position of the chunk within its document.
+- **chunker_hash** (<code>[str](#str) | None</code>) – The fingerprint of the chunker. Only a docling chunk uses
+  it; a text chunk id ignores it.
 
 **Returns:**
 

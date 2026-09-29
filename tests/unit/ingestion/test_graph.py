@@ -83,7 +83,11 @@ _FIXTURES = Path(__file__).parents[1] / "loaders" / "corpus" / "fixtures"
 
 
 class _DoclingItem:
-    """A docling chunk with a text and no page items."""
+    """A docling chunk with a text and no headings or page items."""
+
+    class meta:  # noqa: N801
+        headings: list[str] = []
+        doc_items: list[object] = []
 
     text = "chunk"
 

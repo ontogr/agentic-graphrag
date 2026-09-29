@@ -175,7 +175,15 @@ class TestDefaultChunking:
         """The JSON names each strategy and shows the fallback settings."""
         dumped = DEFAULT_CHUNKING.model_dump(mode="json")
 
-        assert dumped["rules"][0]["chunker"] == {"strategy": "docling"}
+        assert dumped["rules"][0]["chunker"] == {
+            "strategy": "docling",
+            "tokenizer": "o200k_base",
+            "max_tokens": 1024,
+            "merge_peers": True,
+            "repeat_table_header": True,
+            "omit_header_on_overflow": False,
+            "table_format": "triplet",
+        }
         assert dumped["fallback"]["strategy"] == "recursive"
         assert dumped["fallback"]["chunk_size"] == 1024
         assert dumped["fallback"]["tokenizer"] == "character"

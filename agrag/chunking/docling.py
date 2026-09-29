@@ -1,25 +1,62 @@
 """Docling-native chunking.
 
 This module wraps docling's ``HybridChunker`` to produce ``Chunk`` objects with
-``PageProvenance``. It imports docling inside the chunking method so that importing
-the module does not require the ``docling`` extra.
+``PageProvenance``. It imports docling only when it chunks a document, so importing
+this module does not require the ``docling`` extra.
 """
 
-from typing import Any
+from typing import Any, Literal
 
-from agrag.chunking.base import Chunker
+from pydantic import Field
+
+from agrag.chunking.base import DEFAULT_TOKENIZER, Chunker
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.provenance import BoundingBox, PageProvenance, PageSpan
+
+
+def _build_tokenizer(name: str, max_tokens: int) -> Any:
+    """Build the tokenizer that docling's chunker counts with.
+
+    Args:
+        name: A tokenizer name. A name with a slash is a Hugging Face model id.
+        max_tokens: The token budget of a chunk.
+
+    Returns:
+        The docling tokenizer.
+    """
+    from agrag.chunking._docling_adapters import build_tokenizer  # noqa: PLC0415
+
+    return build_tokenizer(name, max_tokens)
 
 
 class DoclingChunker(Chunker):
     """Splits a parsed docling document with docling's hybrid chunker.
 
     The chunker reads the parsed document that the docling loader keeps in
-    ``Document.metadata["_docling_document"]``. Each chunk has page provenance.
-    Chunk ids come from the chunk index, so they are not stable across a re-parse.
+    ``Document.metadata["_docling_document"]``. Each chunk has page provenance and
+    the headings above it in ``heading_path``. The chunk text is the body without
+    headings, but headings count against the token budget. Chunk ids include the
+    fingerprint, so a re-chunk with new settings does not overwrite the old chunks.
+
+    Attributes:
+        tokenizer: The tokenizer that counts size. A name with a slash is a Hugging
+            Face model id, which needs the network the first time.
+        max_tokens: The most tokens in a chunk, headings included.
+        merge_peers: Whether to merge small neighbours under the same headings.
+        repeat_table_header: Whether each chunk of a split table repeats its header.
+        omit_header_on_overflow: Whether to drop headings from a chunk when they
+            would not fit the budget.
+        table_format: ``"triplet"`` writes ``row, column = value`` text and
+            ``"markdown"`` writes a pipe table.
     """
+
+    tokenizer: str = DEFAULT_TOKENIZER
+    max_tokens: int = Field(default=1024, gt=0)
+    merge_peers: bool = True
+    repeat_table_header: bool = True
+    omit_header_on_overflow: bool = False
+    table_format: Literal["triplet", "markdown"] = "triplet"
 
     @property
     def strategy(self) -> str:
@@ -34,12 +71,25 @@ class DoclingChunker(Chunker):
             )
         from docling.chunking import HybridChunker  # noqa: PLC0415
 
+        from agrag.chunking._docling_adapters import (  # noqa: PLC0415
+            MarkdownTableProvider,
+        )
+
+        options: dict[str, Any] = {}
+        if self.table_format == "markdown":
+            options["serializer_provider"] = MarkdownTableProvider()
+        hybrid = HybridChunker(
+            tokenizer=_build_tokenizer(self.tokenizer, self.max_tokens),
+            merge_peers=self.merge_peers,
+            repeat_table_header=self.repeat_table_header,
+            omit_header_on_overflow=self.omit_header_on_overflow,
+            **options,
+        )
         document_id = Document.node_id_for(document_key=document.resolved_document_key)
         version_id = Document.id_for(content_hash=document.content_hash)
         chunks: list[Chunk] = []
-        for index, item in enumerate(HybridChunker().chunk(docling_doc)):
-            page_spans = _page_spans_for(item, docling_doc)
-            provenance = PageProvenance(page_spans=page_spans)
+        for index, item in enumerate(hybrid.chunk(docling_doc)):
+            provenance = PageProvenance(page_spans=_page_spans_for(item, docling_doc))
             chunks.append(
                 Chunk(
                     id=Chunk.id_for(
@@ -47,15 +97,27 @@ class DoclingChunker(Chunker):
                         version_id=version_id,
                         provenance=provenance,
                         index=index,
+                        chunker_hash=self.fingerprint(),
                     ),
                     document_id=document_id,
                     index=index,
                     text=getattr(item, "text", ""),
                     provenance=provenance,
-                    content_kind="text",
+                    heading_path=list(getattr(item.meta, "headings", None) or []),
+                    content_kind=_content_kind(item),
                 )
             )
         return chunks
+
+
+def _content_kind(item: Any) -> Literal["text", "table_row"]:
+    """Return ``"table_row"`` when every item of a docling chunk is a table."""
+    doc_items = getattr(item.meta, "doc_items", None) or []
+    if doc_items and all(
+        getattr(getattr(i, "label", None), "value", None) == "table" for i in doc_items
+    ):
+        return "table_row"
+    return "text"
 
 
 def _page_height(docling_doc: object, page_no: int) -> float:
