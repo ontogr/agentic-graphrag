@@ -17,11 +17,11 @@ A benchmark run costs real model calls, so it never runs in CI. You start each r
 
 Each dataset covers one domain. The module plans five:
 
-- **Legal contracts.** LegalBench-RAG questions over contract text, where the answer is a passage that the agent must find and cite.
-- **Novels and medical guidelines.** GraphRAG-Bench questions over long fiction and clinical guideline documents, which test multi-step reasoning across a graph.
-- **Financial filings.** FinanceBench questions over company filings, which mix text with numbers.
-- **Long conversations.** BEAM questions over long chat histories, which test memory across many turns.
-- **Medical answers.** HealthBench conversations that the agent answers from MedCorp passages.
+- **Legal contracts.** [LegalBench-RAG](https://github.com/zeroentropy-ai/legalbenchrag) ([paper](https://arxiv.org/abs/2408.10343)) questions over contract text, where the answer is a passage that the agent must find and cite.
+- **Novels and medical guidelines.** [GraphRAG-Bench](https://github.com/GraphRAG-Bench/GraphRAG-Benchmark) ([paper](https://arxiv.org/abs/2506.05690)) questions over long fiction and clinical guideline documents, which test multi-step reasoning across a graph.
+- **Financial filings.** [FinanceBench](https://github.com/patronus-ai/financebench) ([paper](https://arxiv.org/abs/2311.11944)) questions over company filings, which mix text with numbers.
+- **Long conversations.** [BEAM](https://github.com/mohammadtavakoli78/BEAM) ([paper](https://arxiv.org/abs/2510.27246)) questions over long chat histories, which test memory across many turns.
+- **Medical answers.** [HealthBench](https://openai.com/index/healthbench/) ([paper](https://arxiv.org/abs/2505.08775)) conversations that the agent answers from [MedCorp](https://huggingface.co/MedRAG) ([paper](https://arxiv.org/abs/2402.13178)) passages.
 
 Each dataset adds its own page to this section when it is added to the harness. That page states the exact questions, the source, the graph schema, and the terms of use.
 
