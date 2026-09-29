@@ -17979,7 +17979,7 @@ BFS retriever: graph traversal from seed entity ids.
 ###### `agrag.retrieval.retrievers.bfs.BFSRetriever`
 
 ```python
-BFSRetriever(*, graph_store:GraphStore, settings:RetrievalSettings | None = None) -> None
+BFSRetriever(*, graph_store:GraphStore, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
@@ -18004,6 +18004,8 @@ Degree-capped by RetrievalSettings.traversal_limit.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – The graph store to traverse.
 - **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
   environment.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the retriever and its children's spans. None
+  opens no recorded span.
 
 ####### `agrag.retrieval.retrievers.bfs.BFSRetriever.name`
 
@@ -18050,7 +18052,7 @@ Chunk retriever: dense vector search over chunks.
 ###### `agrag.retrieval.retrievers.chunk.ChunkRetriever`
 
 ```python
-ChunkRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None) -> None
+ChunkRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
@@ -18079,6 +18081,8 @@ VectorStore path searches `chunk_collection`.
 - **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional VectorStore for hybrid search.
 - **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
   environment.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the retriever and its children's spans. None
+  opens no recorded span.
 
 ####### `agrag.retrieval.retrievers.chunk.ChunkRetriever.name`
 
@@ -18116,7 +18120,7 @@ Community retriever: dense vector search over community reports.
 ###### `agrag.retrieval.retrievers.community.CommunityRetriever`
 
 ```python
-CommunityRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None) -> None
+CommunityRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
@@ -18130,6 +18134,15 @@ Dense search over community reports, for direct thematic questions.
 **Attributes:**
 
 - [**name**](#agrag.retrieval.retrievers.community.CommunityRetriever.name) –
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where community nodes live.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Produces query vectors.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional VectorStore for hybrid search.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from environment.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the retriever and its children's spans. None
+  opens no recorded span.
 
 ####### `agrag.retrieval.retrievers.community.CommunityRetriever.name`
 
@@ -18163,7 +18176,7 @@ Entity retriever: dense vector search over entities.
 ###### `agrag.retrieval.retrievers.entity.EntityRetriever`
 
 ```python
-EntityRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None) -> None
+EntityRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
@@ -18196,6 +18209,8 @@ filter when the caller sets one, otherwise `entity_labels`.
   environment.
 - **entity_labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – The schema entity labels native search runs
   against. None uses settings.entity_labels.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the retriever and its children's spans. None
+  opens no recorded span.
 
 ####### `agrag.retrieval.retrievers.entity.EntityRetriever.name`
 
