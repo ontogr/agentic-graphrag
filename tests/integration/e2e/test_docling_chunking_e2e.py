@@ -40,7 +40,7 @@ from tests.integration.e2e.test_chunking_e2e import _cleanup, _Env, _HashEmbedde
 docling_missing = importlib.util.find_spec("docling") is None
 neo4j_missing = importlib.util.find_spec("neo4j") is None
 
-_PDF = Path(__file__).parents[1] / "loaders" / "corpus" / "fixtures" / "multi_page.pdf"
+_PDF = Path(__file__).parent / "fixtures" / "multi_page.pdf"
 
 
 def _docling_chunking(chunker: DoclingChunker) -> Chunking:
