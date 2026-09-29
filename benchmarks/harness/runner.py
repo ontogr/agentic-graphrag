@@ -414,7 +414,7 @@ class Plan:
         manifest: The manifest of the run.
         documents: The documents of each corpus, by corpus id.
         bound: The bound on calls and tokens.
-        cap: The spend cap the bound passed.
+        cap: The spend cap the estimate passed.
     """
 
     manifest: CorpusManifest
@@ -432,11 +432,11 @@ def make_plan(
     chunking: Chunking,
     cost: CostModel | None,
 ) -> Plan:
-    """Load a domain, bound its cost and check the spend cap. Calls no model.
+    """Load a domain, estimate its cost and check the spend cap. Calls no model.
 
     Raises:
         RunRefusedError: No measured cost model exists.
-        SpendCapError: The bound is above the cap, or no cap exists.
+        SpendCapError: The estimate is above the cap, or no cap exists.
     """
     if cost is None:
         raise RunRefusedError("no measured cost model: set COST_MODEL in config")
@@ -488,7 +488,7 @@ async def run(
 
     Raises:
         RunRefusedError: The run cannot start or the owner declined it.
-        SpendCapError: The bound is above the cap, or no cap exists.
+        SpendCapError: The estimate is above the cap, or no cap exists.
         InfrastructureError: A provider or network error survived the retries.
     """
     if mode == "full" and env.trace_repo is None:

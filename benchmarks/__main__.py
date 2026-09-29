@@ -153,8 +153,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(
                 f"chunks {plan.bound.chunks}\n"
-                f"LLM calls (upper bound) {plan.bound.llm_calls}\n"
-                f"tokens (upper bound) {plan.bound.tokens}\n"
+                f"LLM calls (estimate) {plan.bound.llm_calls}\n"
+                f"tokens (estimate) {plan.bound.tokens}\n"
                 f"cap {plan.cap.llm_calls} calls, {plan.cap.tokens} tokens"
             )
             return 0

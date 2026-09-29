@@ -42,7 +42,7 @@ The file `docker/docker-compose.benchmarks.yml` defines one Neo4j service for ea
 
 ## Check the cost first
 
-Run a dry run before you spend model calls. It loads the dataset, counts the chunks, and prints an upper bound. It calls no model.
+Run a dry run before you spend model calls. It loads the dataset, counts the chunks, and prints an estimate of the calls and tokens. It calls no model. The estimate uses measured costs per chunk and per question, so a real run can cost more or less.
 
 ```bash
 make bench-dry DOMAIN=<domain> MODE=lite
@@ -52,8 +52,8 @@ Set `MODE=full` for the full set. The output looks like this:
 
 ```text
 chunks {'corpus-id': 1200}
-LLM calls (upper bound) 2400
-tokens (upper bound) 3000000
+LLM calls (estimate) 2400
+tokens (estimate) 3000000
 cap 3600 calls, 4500000 tokens
 ```
 
@@ -75,7 +75,7 @@ wrote benchmarks/results/lite/<run id>/record.json
 make bench DOMAIN=<domain>
 ```
 
-A full run refuses to start without `BENCH_TRACE_REPO`. It then prints the upper bound and asks `Continue? [y/N]`. Type `y` to start. To skip the prompt, call the command directly with `--yes`:
+A full run refuses to start without `BENCH_TRACE_REPO`. It then prints the estimate and asks `Continue? [y/N]`. Type `y` to start. To skip the prompt, call the command directly with `--yes`:
 
 ```bash
 uv run python -m benchmarks run <domain> --mode full --yes
@@ -90,7 +90,9 @@ Two options change how a run answers:
 
 ## Spend caps
 
-Each domain and mode has a spend cap: the most LLM calls and tokens that a run may need. The run stops before it starts when the upper bound is above the cap. It also stops when the domain and mode have no cap.
+Each domain and mode has a spend cap: the most LLM calls and tokens that the estimate of a run may reach. The run stops before it starts when the estimate is above the cap. It also stops when the domain and mode have no cap.
+
+The cap checks the estimate only. It does not stop a run that costs more than estimated, so read the usage in the record after each run.
 
 To replace the cap for one run, pass both numbers:
 

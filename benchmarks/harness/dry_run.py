@@ -1,4 +1,9 @@
-"""The dry run: an upper bound on calls and tokens, and the spend cap check."""
+"""The dry run: an estimate of calls and tokens, and the spend cap check.
+
+The estimate comes from measured per-chunk and per-question costs, so a run can
+cost more or less than it says. The cap refuses a run before it starts. It does not
+stop a run that costs more than estimated; the record states the real usage.
+"""
 
 import math
 from collections.abc import Mapping, Sequence
@@ -12,17 +17,17 @@ from benchmarks.models import CorpusManifest
 
 
 class SpendCapError(Exception):
-    """The run has no spend cap, or its bound is above the cap."""
+    """The run has no spend cap, or its estimate is above the cap."""
 
 
 @dataclass(frozen=True)
 class DryRun:
-    """An upper bound for one run.
+    """An estimate for one run.
 
     Attributes:
         chunks: The chunk count of each corpus.
-        llm_calls: The bound on LLM calls for ingest, answers and grading.
-        tokens: The bound on tokens for the same.
+        llm_calls: The estimated LLM calls for ingest, answers and grading.
+        tokens: The estimated tokens for the same.
     """
 
     chunks: dict[str, int]
@@ -43,9 +48,9 @@ def dry_run(
     cost: CostModel,
     judge_calls_per_question: int,
 ) -> DryRun:
-    """Bound the calls and tokens of a run from chunk counts and question counts.
+    """Estimate the calls and tokens of a run from chunk counts and question counts.
 
-    Ingest cost follows the chunk count, not the question count, so the bound
+    Ingest cost follows the chunk count, not the question count, so the estimate
     counts chunks.
 
     Args:
@@ -76,13 +81,13 @@ def check_cap(
     max_llm_calls: int | None = None,
     max_tokens: int | None = None,
 ) -> SpendCapRecord:
-    """Check a bound against the cap of its domain and mode.
+    """Check an estimate against the cap of its domain and mode.
 
     The flags replace the cap for one run. The record states that they did.
 
     Raises:
         SpendCapError: No cap exists for the domain and mode and the flags do not
-            give one, or the bound is above the cap.
+            give one, or the estimate is above the cap.
     """
     base: SpendCap | None = SPEND_CAPS.get((domain, mode))
     llm_calls = max_llm_calls
@@ -97,7 +102,7 @@ def check_cap(
         )
     if bound.llm_calls > llm_calls or bound.tokens > tokens:
         raise SpendCapError(
-            f"bound of {bound.llm_calls} calls and {bound.tokens} tokens is above "
+            f"estimate of {bound.llm_calls} calls and {bound.tokens} tokens is above "
             f"the cap of {llm_calls} calls and {tokens} tokens"
         )
     return SpendCapRecord(

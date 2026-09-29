@@ -19,9 +19,9 @@ class CostModel:
         calls_per_chunk: LLM calls that ingest one chunk, including the share of
             resolution, merge and community calls (p95).
         tokens_per_chunk: Tokens that ingest one chunk (p95).
-        agent_calls_per_question: An upper bound on the agent calls for one question.
-        agent_tokens_per_question: An upper bound on the agent tokens for one question.
-        judge_tokens_per_call: An upper bound on the tokens of one judge call.
+        agent_calls_per_question: An estimate of the agent calls for one question.
+        agent_tokens_per_question: An estimate of the agent tokens for one question.
+        judge_tokens_per_call: An estimate of the tokens of one judge call.
     """
 
     calls_per_chunk: float
@@ -33,7 +33,7 @@ class CostModel:
 
 @dataclass(frozen=True)
 class SpendCap:
-    """The most calls and tokens a run of one domain and mode may need."""
+    """The most calls and tokens that the estimate of a run may reach."""
 
     llm_calls: int
     tokens: int
