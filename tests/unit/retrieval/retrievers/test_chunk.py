@@ -8,8 +8,9 @@ node id is not found in the store.
 """
 
 import json
+from typing import NotRequired, TypedDict
 from unittest.mock import AsyncMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -237,8 +238,39 @@ class TestChunkRetriever:
             gs.execute_read.assert_not_called()
 
 
-def _node(chunk_id, document_id, text, *, level=0, parent_id=None) -> dict:
-    properties = {
+class _ChunkProperties(TypedDict):
+    """Properties required to hydrate a chunk row."""
+
+    document_id: str
+    text: str
+    provenance: str
+    level: NotRequired[int]
+    parent_id: NotRequired[str]
+
+
+class _ChunkNode(TypedDict):
+    """A graph node returned in a chunk hydration row."""
+
+    id: str
+    properties: _ChunkProperties
+
+
+class _ChunkRow(TypedDict):
+    """A graph hydration result containing one chunk node."""
+
+    n: _ChunkNode
+
+
+def _node(
+    chunk_id: UUID,
+    document_id: UUID,
+    text: str,
+    *,
+    level: int = 0,
+    parent_id: UUID | None = None,
+) -> _ChunkRow:
+    """Build a typed chunk hydration row."""
+    properties: _ChunkProperties = {
         "document_id": str(document_id),
         "text": text,
         "provenance": json.dumps(
@@ -255,10 +287,10 @@ def _node(chunk_id, document_id, text, *, level=0, parent_id=None) -> dict:
 class TestParentAttachment:
     """A child hit returns with its parent chunk attached."""
 
-    def _store(self, nodes: dict[str, dict], calls: list[list[str]]) -> AsyncMock:
+    def _store(self, nodes: dict[str, _ChunkRow], calls: list[list[str]]) -> AsyncMock:
         store = AsyncMock()
 
-        async def read(query: str, params: dict) -> list[dict]:
+        async def read(query: str, params: dict[str, list[str]]) -> list[_ChunkRow]:
             calls.append(list(params["ids"]))
             return [nodes[i] for i in params["ids"] if i in nodes]
 
