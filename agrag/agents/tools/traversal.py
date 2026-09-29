@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from agrag.agents.tools.search import SCOPE_DENIED, render_results
+from agrag.agents.tracing import tool_span_context
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
@@ -97,9 +98,10 @@ def make_list_relationship_types_tool(
     from langchain_core.tools import tool  # noqa: PLC0415
 
     @tool("list_relationship_types")
-    async def list_relationship_types(
+    async def list_relationship_types(  # noqa: D417
         entity: str,
         relation_type_filter: str | None = None,
+        callbacks: Any = None,
     ) -> str:
         """List the relationship types attached to an entity.
 
@@ -112,16 +114,17 @@ def make_list_relationship_types_tool(
             relation_type_filter: Only report this relationship type, when
                 you are checking whether it is present.
         """
-        resolved = await engine.find_entity(entity, filters=filters)
-        if resolved is None:
-            return _ENTITY_NOT_FOUND
+        with tool_span_context(callbacks):
+            resolved = await engine.find_entity(entity, filters=filters)
+            if resolved is None:
+                return _ENTITY_NOT_FOUND
 
-        try:
-            types = await engine.list_relationship_types(
-                resolved, relation_type_filter=relation_type_filter, filters=filters
-            )
-        except ScopeDeniedError:
-            return SCOPE_DENIED
+            try:
+                types = await engine.list_relationship_types(
+                    resolved, relation_type_filter=relation_type_filter, filters=filters
+                )
+            except ScopeDeniedError:
+                return SCOPE_DENIED
         evidence = ledger.render(resolved)
         if not types:
             return f"{evidence}\nNo relationships found."
@@ -151,11 +154,12 @@ def make_find_related_entities_tool(
     from langchain_core.tools import tool  # noqa: PLC0415
 
     @tool("find_related_entities")
-    async def find_related_entities(
+    async def find_related_entities(  # noqa: D417
         entity: str,
         relation_type: str,
         direction: TraversalDirection = "both",
         community_expand: bool = False,
+        callbacks: Any = None,
     ) -> str:
         """Find the entities one relationship type away from an entity.
 
@@ -173,20 +177,21 @@ def make_find_related_entities_tool(
             community_expand: Also return the summaries of communities the
                 entity belongs to, for surrounding context.
         """
-        resolved = await engine.find_entity(entity, filters=filters)
-        if resolved is None:
-            return _ENTITY_NOT_FOUND
+        with tool_span_context(callbacks):
+            resolved = await engine.find_entity(entity, filters=filters)
+            if resolved is None:
+                return _ENTITY_NOT_FOUND
 
-        try:
-            results = await engine.traverse(
-                resolved,
-                relation_type=relation_type,
-                direction=direction,
-                community_expand=community_expand,
-                filters=filters,
-            )
-        except ScopeDeniedError:
-            return SCOPE_DENIED
+            try:
+                results = await engine.traverse(
+                    resolved,
+                    relation_type=relation_type,
+                    direction=direction,
+                    community_expand=community_expand,
+                    filters=filters,
+                )
+            except ScopeDeniedError:
+                return SCOPE_DENIED
         return render_results(ledger, results)
 
     return find_related_entities
@@ -211,7 +216,9 @@ def make_describe_entity_tool(
     from langchain_core.tools import tool  # noqa: PLC0415
 
     @tool("describe_entity")
-    async def describe_entity(entity: str) -> str:
+    async def describe_entity(  # noqa: D417
+        entity: str, callbacks: Any = None
+    ) -> str:
         """Show an entity's own recorded properties.
 
         Use this for what the graph stores about a single entity, such as
@@ -221,16 +228,17 @@ def make_describe_entity_tool(
         Args:
             entity: The entity name to describe.
         """
-        resolved = await engine.find_entity(entity, filters=filters)
-        if resolved is None:
-            return _ENTITY_NOT_FOUND
+        with tool_span_context(callbacks):
+            resolved = await engine.find_entity(entity, filters=filters)
+            if resolved is None:
+                return _ENTITY_NOT_FOUND
 
-        item = _entity_item(resolved)
-        if item is None:
-            return _ENTITY_NOT_FOUND
+            item = _entity_item(resolved)
+            if item is None:
+                return _ENTITY_NOT_FOUND
 
-        key = ledger.cite(resolved)
-        properties = item.properties
+            key = ledger.cite(resolved)
+            properties = item.properties
         body = (
             "\n".join(f"- {name}: {value}" for name, value in properties.items())
             if properties
@@ -261,11 +269,12 @@ def make_traverse_from_entity_tool(
     from langchain_core.tools import tool  # noqa: PLC0415
 
     @tool("traverse_from_entity")
-    async def traverse_from_entity(
+    async def traverse_from_entity(  # noqa: D417
         entity: str,
         relation_type: str | None = None,
         direction: TraversalDirection = "both",
         depth: int = 1,
+        callbacks: Any = None,
     ) -> str:
         """Walk outward from an entity, one or more relationships at a time.
 
@@ -284,40 +293,41 @@ def make_traverse_from_entity_tool(
             depth: How many relationship hops to walk, from 1 up. Higher
                 depths reach further but pull in less relevant entities.
         """
-        resolved = await engine.find_entity(entity, filters=filters)
-        if resolved is None:
-            return _ENTITY_NOT_FOUND
+        with tool_span_context(callbacks):
+            resolved = await engine.find_entity(entity, filters=filters)
+            if resolved is None:
+                return _ENTITY_NOT_FOUND
 
-        try:
-            if relation_type is None:
+            try:
+                if relation_type is None:
+                    results = await engine.traverse(
+                        resolved,
+                        direction=direction,
+                        depth=depth,
+                        limit=_TRAVERSAL_WIDE_FANOUT + 1,
+                        filters=filters,
+                    )
+                    if len(results) > _TRAVERSAL_WIDE_FANOUT:
+                        types = await engine.list_relationship_types(
+                            resolved, direction=direction, filters=filters
+                        )
+                        evidence = ledger.render(resolved)
+                        return _too_wide_message(
+                            evidence,
+                            len(results),
+                            types,
+                        )
+                    return render_results(ledger, results)
+
                 results = await engine.traverse(
                     resolved,
+                    relation_type=relation_type,
                     direction=direction,
                     depth=depth,
-                    limit=_TRAVERSAL_WIDE_FANOUT + 1,
                     filters=filters,
                 )
-                if len(results) > _TRAVERSAL_WIDE_FANOUT:
-                    types = await engine.list_relationship_types(
-                        resolved, direction=direction, filters=filters
-                    )
-                    evidence = ledger.render(resolved)
-                    return _too_wide_message(
-                        evidence,
-                        len(results),
-                        types,
-                    )
-                return render_results(ledger, results)
-
-            results = await engine.traverse(
-                resolved,
-                relation_type=relation_type,
-                direction=direction,
-                depth=depth,
-                filters=filters,
-            )
-        except ScopeDeniedError:
-            return SCOPE_DENIED
+            except ScopeDeniedError:
+                return SCOPE_DENIED
         return render_results(ledger, results)
 
     return traverse_from_entity

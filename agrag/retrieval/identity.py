@@ -3,10 +3,13 @@
 from typing import Any
 from uuid import UUID
 
+from opentelemetry.trace import Tracer
+
 from agrag.common.data_models.entity import Entity
 from agrag.cypher.entities import resolve_merged_into_query
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._ingest_pipeline import _parse_entity_node
+from agrag.observability import get_tracer
 
 
 MAX_MERGE_HOPS = 32
@@ -28,7 +31,9 @@ def _row_node_and_pointer(row: Any) -> tuple[Any, str | None]:
     return node, str(pointer) if pointer is not None else None
 
 
-async def resolve_entity(graph_store: GraphStore, entity_id: UUID) -> Entity:
+async def resolve_entity(
+    graph_store: GraphStore, entity_id: UUID, *, tracer: Tracer | None = None
+) -> Entity:
     """Return the live Entity behind an id, following merged_into.
 
     Every retrieval path that can produce an entity id must call
@@ -43,6 +48,7 @@ async def resolve_entity(graph_store: GraphStore, entity_id: UUID) -> Entity:
             chain live.
         entity_id: The id a retrieval method found, which may or
             may not still be live.
+        tracer: Opens the resolution span. None opens no recorded span.
 
     Returns:
         The live Entity, after resolving zero or more hops.
@@ -56,25 +62,36 @@ async def resolve_entity(graph_store: GraphStore, entity_id: UUID) -> Entity:
     current_id = str(entity_id)
     visited = {current_id}
 
-    for _ in range(MAX_MERGE_HOPS + 1):
-        rows = await graph_store.execute_read(query, {"id": current_id})
-        if not rows:
-            raise ValueError(f"Entity {current_id} not found or could not be parsed.")
-
-        node, pointer = _row_node_and_pointer(rows[0])
-
-        if pointer is None:
-            entity = _parse_entity_node(node)
-            if entity is None:
+    with get_tracer(tracer).start_as_current_span(
+        "agrag.retrieval.resolve_entity",
+        attributes={"agrag.entity_id": str(entity_id)},
+    ) as span:
+        for hops in range(MAX_MERGE_HOPS + 1):
+            rows = await graph_store.execute_read(query, {"id": current_id})
+            if not rows:
                 raise ValueError(
                     f"Entity {current_id} not found or could not be parsed."
                 )
-            return entity
 
-        if pointer in visited:
-            raise ValueError(f"merged_into chain from {entity_id} cycles at {pointer}.")
-        visited.add(pointer)
-        current_id = pointer
+            node, pointer = _row_node_and_pointer(rows[0])
+
+            if pointer is None:
+                entity = _parse_entity_node(node)
+                if entity is None:
+                    raise ValueError(
+                        f"Entity {current_id} not found or could not be parsed."
+                    )
+                if span.is_recording():
+                    span.set_attribute("agrag.hops", hops)
+                    span.set_attribute("agrag.resolved_id", str(entity.id))
+                return entity
+
+            if pointer in visited:
+                raise ValueError(
+                    f"merged_into chain from {entity_id} cycles at {pointer}."
+                )
+            visited.add(pointer)
+            current_id = pointer
 
     raise ValueError(
         f"merged_into chain from {entity_id} is longer than {MAX_MERGE_HOPS} hops."

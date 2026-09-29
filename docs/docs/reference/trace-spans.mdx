@@ -65,6 +65,83 @@ Two of these are conditional, and that is deliberate:
 call resolves to `NO_MATCH`, not an error, so the span stays `UNSET` and sets
 `agrag.request_failed` instead.
 
+## The retrieval span tree
+
+One `search` call fans out to the recipe's retrievers concurrently, so their
+spans are siblings under the root. The `agrag.graphdb.*`, `agrag.vectordb.*`
+and `agrag.embedding.*` spans nest below these whenever the caller passed the
+same tracer to the stores and the embedder.
+
+```text
+agrag.retrieval.search                     RETRIEVER
+  agrag.retrieval.entity                   RETRIEVER, one per retriever
+    agrag.retrieval.allowed_entity_ids     only with a document scope
+    agrag.retrieval.entity_search
+      agrag.retrieval.vector_search        one per adaptive pass
+    agrag.retrieval.active_member_ids
+    agrag.retrieval.hydrate_entities
+      agrag.retrieval.resolve_entity       per hit that needs the walk
+    agrag.retrieval.resolved_entity_search
+  agrag.retrieval.chunk                    RETRIEVER
+    agrag.retrieval.vector_search
+    agrag.retrieval.hydrate_chunks
+  agrag.retrieval.community                RETRIEVER
+  agrag.retrieval.text2cypher              RETRIEVER
+    agrag.retrieval.generate_cypher
+    agrag.retrieval.execute_cypher         one per attempt
+  agrag.retrieval.fuse
+  agrag.retrieval.bfs                      RETRIEVER, when recipe.bfs
+  agrag.retrieval.community_expand         when recipe.community_expand
+  agrag.retrieval.rerank.cross_encoder     or rerank.node_distance
+    agrag.retrieval.rerank.model_load      only on a cache miss
+```
+
+`agrag.retrieval.find_entity` and `agrag.retrieval.traverse` are `RETRIEVER`
+roots for direct calls that bypass `search`;
+`agrag.retrieval.list_relationship_types` returns strings and carries no kind.
+Inside an agent run, the whole tree nests under the OpenInference `TOOL` span
+of the tool call that made it.
+
+### Attributes
+
+| Span | Attributes |
+|---|---|
+| `agrag.retrieval.search` | `agrag.recipe.methods`, `agrag.recipe.limit`, `agrag.recipe.bfs`, `agrag.recipe.community_expand`, `agrag.recipe.reranker`, `agrag.failed_methods` (when a method failed) |
+| retrievers (`entity`, `chunk`, `community`, `text2cypher`, `bfs`) | `agrag.limit`; `bfs` also `agrag.seed_count`, `agrag.depth`, `agrag.direction`; `text2cypher` also `agrag.cypher` |
+| `agrag.retrieval.find_entity` / `traverse` | `agrag.seed_ids`, `agrag.relation_type`, `agrag.direction`, `agrag.depth`, `agrag.limit`, `agrag.community_expand` on `traverse` |
+| `agrag.retrieval.list_relationship_types` | `agrag.seed_ids`, `agrag.relation_type_filter`, `agrag.direction`, `agrag.result_count`, `agrag.result_types` |
+| `agrag.retrieval.vector_search` | `agrag.collection`, `agrag.store` (`vector_store` or `graph_native`), `agrag.labels`, `agrag.limit`, `agrag.hit_count`, `agrag.hit_ids`, `agrag.hit_scores` |
+| `agrag.retrieval.entity_search` / `resolved_entity_search` | `agrag.limit`, `agrag.passes`, `agrag.hit_count` |
+| `agrag.retrieval.hydrate_*` | `agrag.requested_count`, `agrag.hydrated_count` |
+| `agrag.retrieval.resolve_entity` | `agrag.entity_id`, `agrag.hops`, `agrag.resolved_id` |
+| `agrag.retrieval.allowed_entity_ids` | `agrag.document_count`, `agrag.entity_count` |
+| `agrag.retrieval.active_member_ids` | `agrag.requested_count`, `agrag.superseded_count` |
+| `agrag.retrieval.execute_cypher` | `agrag.is_repair`, `agrag.row_count` |
+| `agrag.retrieval.fuse` | `agrag.rrf_k`, `agrag.fuse.methods`, `agrag.fuse.method_counts` |
+| `agrag.retrieval.community_expand` / `community_context` | `agrag.seed_count`, `agrag.top_k`, `agrag.added_count` on `community_expand` |
+| `agrag.retrieval.rerank.cross_encoder` | `agrag.model`, `agrag.input_count`, `agrag.min_score` (when set), `agrag.skipped` (when the extra is missing) |
+| `agrag.retrieval.rerank.model_load` | `agrag.model` |
+| `agrag.retrieval.rerank.node_distance` | `agrag.seed_count`, `agrag.input_count`, `agrag.path_query_count` |
+
+### Result attributes
+
+Every span that returns a list records its results in full:
+
+- `agrag.result_count`, and arrays `agrag.result_ids`, `agrag.result_scores`,
+  `agrag.result_kinds` and `agrag.result_texts` holding **every** result, with
+  no text cap. Array attributes are not subject to the SDK's per-span
+  attribute limit.
+- For the first 20 results, the OpenInference flattened names
+  `retrieval.documents.N.document.id`, `.document.content`, `.document.score`
+  and `.document.metadata` (a JSON object with `kind` and `method`), which
+  trace viewers draw as a retrieval panel.
+
+The query and the scope are always recorded: `input.value` and `agrag.query`
+carry the query text, and `agrag.filters` carries the scope as JSON, an empty
+scope included. A step that falls back to empty (a failed hydration, a
+reranker without its extra) records the exception as an event on the
+narrowest span and that span's status stays `UNSET`.
+
 ## The `agrag.llm.request` span
 
 This is the only span a BAML path tags with the OpenInference LLM kind.
@@ -109,8 +186,8 @@ produces a usable span.
 
 ## Counting calls and tokens
 
-To count the LLM calls in a trace, count the spans tagged with the OpenInference
-LLM kind:
+To count the LLM calls in a trace, count the spans tagged with the
+OpenInference LLM kind:
 
 ```python
 def count_llm_calls(spans):

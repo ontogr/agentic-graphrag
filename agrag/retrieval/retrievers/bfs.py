@@ -2,6 +2,8 @@
 
 from uuid import UUID
 
+from opentelemetry.trace import Tracer
+
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.relations import TraversalDirection, bfs_expand_query
 from agrag.graphdb.base import GraphStore
@@ -10,6 +12,7 @@ from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.identity import resolve_entity
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
+from agrag.retrieval.tracing import record_results, retrieval_span
 
 
 class BFSRetriever(Retriever):
@@ -28,6 +31,7 @@ class BFSRetriever(Retriever):
         *,
         graph_store: GraphStore,
         settings: RetrievalSettings | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         """Construct a BFSRetriever.
 
@@ -35,9 +39,12 @@ class BFSRetriever(Retriever):
             graph_store: The graph store to traverse.
             settings: Retrieval configuration; defaults from
                 environment.
+            tracer: Opens the retriever and its children's spans. None
+                opens no recorded span.
         """
         self._graph_store = graph_store
         self._settings = settings or RetrievalSettings()
+        self._tracer = tracer
 
     async def retrieve(
         self,
@@ -69,64 +76,81 @@ class BFSRetriever(Retriever):
         Returns:
             SearchResults with entities and relations found via BFS.
         """
-        if not seed_ids:
-            return []
-
         effective_limit = limit if limit is not None else self._settings.traversal_limit
         effective_depth = depth if depth is not None else self._settings.traversal_depth
+        with retrieval_span(
+            self._tracer,
+            "agrag.retrieval.bfs",
+            query=query,
+            filters=filters,
+            attributes={
+                "agrag.seed_count": len(seed_ids) if seed_ids else 0,
+                "agrag.depth": effective_depth,
+                "agrag.direction": direction,
+                "agrag.limit": effective_limit,
+            },
+        ) as span:
+            if not seed_ids:
+                record_results(span, [])
+                return []
 
-        query, filter_params = bfs_expand_query(
-            depth=effective_depth,
-            limit=effective_limit,
-            filters=(
-                SearchFilters(properties=filters.properties).to_property_filter()
-                if filters
-                else None
-            ),
-            relation_types=filters.relation_types if filters else None,
-            direction=direction,
-            document_ids=filters.document_ids if filters else None,
-            labels=filters.labels if filters else None,
-        )
-        params = {
-            "seed_ids": [str(sid) for sid in seed_ids],
-            "job_id": None,
-            **filter_params,
-        }
-        if filters and filters.document_ids:
-            params["document_ids"] = filters.document_ids
-
-        rows = await self._graph_store.execute_read(query, params)
-
-        results: list[SearchResult] = []
-        seen_ids: set[UUID] = set()
-
-        for row in rows:
-            neighbor = (
-                row.get("neighbor")
-                if isinstance(row, dict) and "neighbor" in row
-                else row
+            bfs_query, filter_params = bfs_expand_query(
+                depth=effective_depth,
+                limit=effective_limit,
+                filters=(
+                    SearchFilters(properties=filters.properties).to_property_filter()
+                    if filters
+                    else None
+                ),
+                relation_types=filters.relation_types if filters else None,
+                direction=direction,
+                document_ids=filters.document_ids if filters else None,
+                labels=filters.labels if filters else None,
             )
-            entity = _parse_entity_node(neighbor)
-            if entity is None:
-                continue
+            params = {
+                "seed_ids": [str(sid) for sid in seed_ids],
+                "job_id": None,
+                **filter_params,
+            }
+            if filters and filters.document_ids:
+                params["document_ids"] = filters.document_ids
 
-            # Resolve through merged_into if needed.
-            try:
-                entity = await resolve_entity(self._graph_store, entity.id)
-            except (ValueError, Exception):
-                continue
+            rows = await self._graph_store.execute_read(bfs_query, params)
 
-            if entity.id in seen_ids:
-                continue
-            seen_ids.add(entity.id)
+            results: list[SearchResult] = []
+            seen_ids: set[UUID] = set()
 
-            results.append(
-                SearchResult(
-                    item=entity,
-                    score=1.0,
-                    method=self.name,
+            for row in rows:
+                neighbor = (
+                    row.get("neighbor")
+                    if isinstance(row, dict) and "neighbor" in row
+                    else row
                 )
-            )
+                entity = _parse_entity_node(neighbor)
+                if entity is None:
+                    continue
 
-        return results
+                # Resolve through merged_into if needed. A neighbour that
+                # cannot be resolved is skipped without a record: a row the
+                # caller never sees is not a step that fell back.
+                try:
+                    entity = await resolve_entity(
+                        self._graph_store, entity.id, tracer=self._tracer
+                    )
+                except (ValueError, Exception):
+                    continue
+
+                if entity.id in seen_ids:
+                    continue
+                seen_ids.add(entity.id)
+
+                results.append(
+                    SearchResult(
+                        item=entity,
+                        score=1.0,
+                        method=self.name,
+                    )
+                )
+
+            record_results(span, results)
+            return results

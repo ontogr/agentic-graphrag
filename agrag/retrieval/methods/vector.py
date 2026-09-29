@@ -3,11 +3,15 @@
 import asyncio
 from collections.abc import Sequence
 
+from opentelemetry.trace import Tracer
+
 from agrag.common.data_models.vector_record import PENDING_VECTOR_FLAG, VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.observability import get_tracer
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.settings import RetrievalSettings
+from agrag.retrieval.tracing import filters_json
 from agrag.vectordb.base import VectorStore
 
 
@@ -23,6 +27,7 @@ async def vector_search(
     filters: SearchFilters | None,
     settings: RetrievalSettings,
     query_vector: Sequence[float] | None = None,
+    tracer: Tracer | None = None,
 ) -> list[VectorHit]:
     """Embed query and search on whichever store is configured.
 
@@ -54,6 +59,7 @@ async def vector_search(
             so they are not sent as node property filters.
         settings: Supplies hybrid_alpha for the VectorStore path.
         query_vector: Precomputed query embedding. None embeds ``query``.
+        tracer: Opens the search span. None opens no recorded span.
 
     Returns:
         Ranked VectorHits, from whichever store was searched.
@@ -62,41 +68,64 @@ async def vector_search(
         ValueError: The native path was selected with no labels to
             search.
     """
-    dense_vector = query_vector
-    if dense_vector is None:
-        dense_vector = await embedder.embed_one(query)
-
-    if vector_store is not None:
-        payload_filters = dict(filters.to_payload_filter()) if filters else {}
-        payload_filters[PENDING_VECTOR_FLAG] = False
-        return await vector_store.hybrid_search(
-            collection,
-            dense_vector,
-            query,
-            limit=limit,
-            filters=payload_filters,
-            alpha=settings.hybrid_alpha,
-        )
-
-    if not labels:
-        raise ValueError(
-            "Native vector search needs at least one label. Set "
-            "RETRIEVAL_ENTITY_LABELS or pass entity_labels to SearchEngine."
-        )
-
-    property_filters = filters.to_property_filter() if filters else None
-    per_label = await asyncio.gather(
-        *(
-            graph_store.vector_search(
-                label=label,
-                vector_property="embedding",
-                query_vector=dense_vector,
-                limit=limit,
-                filters=property_filters or None,
+    with get_tracer(tracer).start_as_current_span(
+        "agrag.retrieval.vector_search"
+    ) as span:
+        if span.is_recording():
+            span.set_attributes(
+                {
+                    "agrag.collection": collection,
+                    "agrag.store": (
+                        "vector_store" if vector_store is not None else "graph_native"
+                    ),
+                    "agrag.labels": list(labels),
+                    "agrag.limit": limit,
+                    "agrag.filters": filters_json(filters),
+                }
             )
-            for label in labels
-        )
-    )
-    hits = [hit for label_hits in per_label for hit in label_hits]
-    hits.sort(key=lambda hit: hit.score, reverse=True)
-    return hits[:limit]
+
+        dense_vector = query_vector
+        if dense_vector is None:
+            dense_vector = await embedder.embed_one(query)
+
+        if vector_store is not None:
+            payload_filters = dict(filters.to_payload_filter()) if filters else {}
+            payload_filters[PENDING_VECTOR_FLAG] = False
+            hits = await vector_store.hybrid_search(
+                collection,
+                dense_vector,
+                query,
+                limit=limit,
+                filters=payload_filters,
+                alpha=settings.hybrid_alpha,
+            )
+        else:
+            if not labels:
+                raise ValueError(
+                    "Native vector search needs at least one label. Set "
+                    "RETRIEVAL_ENTITY_LABELS or pass entity_labels to SearchEngine."
+                )
+
+            property_filters = filters.to_property_filter() if filters else None
+            per_label = await asyncio.gather(
+                *(
+                    graph_store.vector_search(
+                        label=label,
+                        vector_property="embedding",
+                        query_vector=dense_vector,
+                        limit=limit,
+                        filters=property_filters or None,
+                    )
+                    for label in labels
+                )
+            )
+            hits = [hit for label_hits in per_label for hit in label_hits]
+            hits.sort(key=lambda hit: hit.score, reverse=True)
+            hits = hits[:limit]
+
+        if span.is_recording():
+            span.set_attribute("agrag.hit_count", len(hits))
+            if hits:
+                span.set_attribute("agrag.hit_ids", [str(hit.id) for hit in hits])
+                span.set_attribute("agrag.hit_scores", [hit.score for hit in hits])
+        return hits

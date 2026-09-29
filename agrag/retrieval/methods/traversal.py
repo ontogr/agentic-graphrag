@@ -9,18 +9,27 @@ import logging
 from collections.abc import Sequence
 from uuid import UUID
 
+from opentelemetry.trace import Tracer
+
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.relations import TraversalDirection, relationship_types_from_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.observability import get_tracer
 from agrag.retrieval.community_context import expand_with_communities
 from agrag.retrieval.errors import ScopeDeniedError
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.retrievers.bfs import BFSRetriever
 from agrag.retrieval.retrievers.entity import EntityRetriever
 from agrag.retrieval.settings import RetrievalSettings
+from agrag.retrieval.tracing import (
+    filters_json,
+    record_results,
+    result_text,
+    retrieval_span,
+)
 from agrag.vectordb.base import VectorStore
 
 
@@ -69,6 +78,7 @@ async def find_entity(
     settings: RetrievalSettings,
     entity_labels: Sequence[str],
     filters: SearchFilters | None = None,
+    tracer: Tracer | None = None,
 ) -> SearchResult | None:
     """Resolve a named entity to its top search hit, or None.
 
@@ -94,6 +104,8 @@ async def find_entity(
             label override. An entity that exists only outside this
             scope resolves to None, the same as one that does not
             exist.
+        tracer: Opens the root span and flows to the entity retriever.
+            None opens no recorded span.
 
     Returns:
         The top-ranked SearchResult, or None when nothing matched.
@@ -107,15 +119,20 @@ async def find_entity(
         if filters and (filters.labels or filters.document_ids or filters.properties)
         else None
     )
-    retriever = EntityRetriever(
-        graph_store=graph_store,
-        embedder=embedder,
-        vector_store=vector_store,
-        settings=settings,
-        entity_labels=entity_labels,
-    )
-    results = await retriever.retrieve(name, filters=projected, limit=1)
-    return results[0] if results else None
+    with retrieval_span(
+        tracer, "agrag.retrieval.find_entity", query=name, filters=filters
+    ) as span:
+        retriever = EntityRetriever(
+            graph_store=graph_store,
+            embedder=embedder,
+            vector_store=vector_store,
+            settings=settings,
+            entity_labels=entity_labels,
+            tracer=tracer,
+        )
+        results = await retriever.retrieve(name, filters=projected, limit=1)
+        record_results(span, results)
+        return results[0] if results else None
 
 
 async def traverse(
@@ -130,6 +147,7 @@ async def traverse(
     community_expand: bool = False,
     community_top_k: int = 3,
     filters: SearchFilters | None = None,
+    tracer: Tracer | None = None,
 ) -> list[SearchResult]:
     """Expand one resolved entity into its neighbours.
 
@@ -156,6 +174,8 @@ async def traverse(
             is refused without querying the graph. ``properties``
             ``document_ids``, and ``labels`` constrain returned
             neighbour nodes.
+        tracer: Opens the root span and flows to the BFS retriever and
+            community expansion. None opens no recorded span.
 
     Returns:
         The neighbouring entities, deduplicated, highest-ranked first,
@@ -165,42 +185,66 @@ async def traverse(
         ScopeDeniedError: relation_type names a type the caller's scope
             does not permit.
     """
-    seed_ids = extract_entity_ids([seed])
-    base_relation_types = list(filters.relation_types) if filters else []
-    allowed_relation_types = _intersect_relation_types(
-        base_relation_types, relation_type
-    )
-    if relation_type is not None and base_relation_types and not allowed_relation_types:
-        raise ScopeDeniedError(
-            f"relation type {relation_type!r} is outside the permitted "
-            f"relation types {base_relation_types!r}"
+    with retrieval_span(
+        tracer,
+        "agrag.retrieval.traverse",
+        query=result_text(seed),
+        filters=filters,
+        attributes={
+            "agrag.seed_ids": [str(seed_id) for seed_id in extract_entity_ids([seed])],
+            "agrag.relation_type": relation_type or "",
+            "agrag.direction": direction,
+            "agrag.depth": depth,
+            "agrag.limit": limit,
+            "agrag.community_expand": community_expand,
+        },
+    ) as span:
+        seed_ids = extract_entity_ids([seed])
+        base_relation_types = list(filters.relation_types) if filters else []
+        allowed_relation_types = _intersect_relation_types(
+            base_relation_types, relation_type
+        )
+        if (
+            relation_type is not None
+            and base_relation_types
+            and not allowed_relation_types
+        ):
+            raise ScopeDeniedError(
+                f"relation type {relation_type!r} is outside the permitted "
+                f"relation types {base_relation_types!r}"
+            )
+
+        retriever = BFSRetriever(
+            graph_store=graph_store, settings=settings, tracer=tracer
+        )
+        results = await retriever.retrieve(
+            query="",
+            filters=SearchFilters(
+                relation_types=allowed_relation_types,
+                labels=filters.labels if filters else [],
+                document_ids=filters.document_ids if filters else [],
+                properties=filters.properties if filters else {},
+            ),
+            seed_ids=seed_ids,
+            depth=depth,
+            limit=limit,
+            direction=direction,
         )
 
-    retriever = BFSRetriever(graph_store=graph_store, settings=settings)
-    results = await retriever.retrieve(
-        query="",
-        filters=SearchFilters(
-            relation_types=allowed_relation_types,
-            labels=filters.labels if filters else [],
-            document_ids=filters.document_ids if filters else [],
-            properties=filters.properties if filters else {},
-        ),
-        seed_ids=seed_ids,
-        depth=depth,
-        limit=limit,
-        direction=direction,
-    )
-
-    if not community_expand:
-        return results
-    return await expand_with_communities(
-        results,
-        seed_ids,
-        graph_store=graph_store,
-        top_k=community_top_k,
-        filters=filters,
-        rrf_k=settings.rrf_k,
-    )
+        if not community_expand:
+            record_results(span, results)
+            return results
+        expanded = await expand_with_communities(
+            results,
+            seed_ids,
+            graph_store=graph_store,
+            top_k=community_top_k,
+            filters=filters,
+            rrf_k=settings.rrf_k,
+            tracer=tracer,
+        )
+        record_results(span, expanded)
+        return expanded
 
 
 async def list_relationship_types(
@@ -210,6 +254,7 @@ async def list_relationship_types(
     relation_type_filter: str | None = None,
     direction: TraversalDirection = "both",
     filters: SearchFilters | None = None,
+    tracer: Tracer | None = None,
 ) -> list[str]:
     """List the relationship types directly attached to a resolved entity.
 
@@ -223,44 +268,57 @@ async def list_relationship_types(
         relation_type_filter: Only report this type, if present.
         direction: Which way to inspect relationships, relative to the seed.
         filters: Scope that limits which relationship types are visible.
+        tracer: Opens the root span. None opens no recorded span.
 
     Returns:
         The distinct attached relationship type names.
     """
-    if (
-        relation_type_filter
-        and filters
-        and filters.relation_types
-        and relation_type_filter not in filters.relation_types
-    ):
-        raise ScopeDeniedError(
-            f"relation type {relation_type_filter!r} is outside the permitted "
-            f"relation types {filters.relation_types!r}"
-        )
-    seed_ids = extract_entity_ids([seed])
-    query = relationship_types_from_query(
-        relation_types=(
-            [relation_type_filter]
-            if relation_type_filter
-            else filters.relation_types
-            if filters and filters.relation_types
-            else None
-        ),
-        direction=direction,
-    )
-    rows = await graph_store.execute_read(
-        query,
-        {
-            "seed_ids": [str(seed_id) for seed_id in seed_ids],
-            "job_id": None,
+    with get_tracer(tracer).start_as_current_span(
+        "agrag.retrieval.list_relationship_types",
+        attributes={
+            "agrag.seed_ids": [str(seed_id) for seed_id in extract_entity_ids([seed])],
+            "agrag.relation_type_filter": relation_type_filter or "",
+            "agrag.direction": direction,
+            "agrag.filters": filters_json(filters),
         },
-    )
-    types: list[str] = []
-    for row in rows:
-        rel_type = row.get("rel_type") if isinstance(row, dict) else None
-        if isinstance(rel_type, str) and rel_type not in types:
-            types.append(rel_type)
-    return types
+    ) as span:
+        if (
+            relation_type_filter
+            and filters
+            and filters.relation_types
+            and relation_type_filter not in filters.relation_types
+        ):
+            raise ScopeDeniedError(
+                f"relation type {relation_type_filter!r} is outside the permitted "
+                f"relation types {filters.relation_types!r}"
+            )
+        seed_ids = extract_entity_ids([seed])
+        query = relationship_types_from_query(
+            relation_types=(
+                [relation_type_filter]
+                if relation_type_filter
+                else filters.relation_types
+                if filters and filters.relation_types
+                else None
+            ),
+            direction=direction,
+        )
+        rows = await graph_store.execute_read(
+            query,
+            {
+                "seed_ids": [str(seed_id) for seed_id in seed_ids],
+                "job_id": None,
+            },
+        )
+        types: list[str] = []
+        for row in rows:
+            rel_type = row.get("rel_type") if isinstance(row, dict) else None
+            if isinstance(rel_type, str) and rel_type not in types:
+                types.append(rel_type)
+        if span.is_recording():
+            span.set_attribute("agrag.result_count", len(types))
+            span.set_attribute("agrag.result_types", types)
+        return types
 
 
 def _intersect_relation_types(base: list[str], requested: str | None) -> list[str]:

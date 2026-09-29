@@ -8,8 +8,10 @@ calls appear in the same trace.
 """
 
 import inspect
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
+from opentelemetry import trace
 from opentelemetry.trace import Tracer
 
 from agrag.agents.errors import AgentMissingExtraError
@@ -69,6 +71,42 @@ def _record_all(trace_config: Any) -> Any:
         if name.startswith("hide_")
     }
     return trace_config(**hide_flags)
+
+
+def tool_span_context(callbacks: Any) -> AbstractContextManager[Any]:
+    """Return a context in which the running tool's OpenInference span is current.
+
+    The OpenInference callback never makes its spans current, so a span that
+    ``agrag`` opens inside a tool would otherwise be a sibling of the tool's
+    span, not its child. A tool declares ``callbacks: Any = None``; LangChain
+    then passes a child callback manager whose ``parent_run_id`` is the tool's
+    run and whose handlers include the callback. The context makes the tool's
+    span current for the tool's body and restores the caller's context on
+    exit. It leaves the tool span's status and events to the callback, so a
+    raising tool records its exception once.
+
+    Args:
+        callbacks: The ``callbacks`` argument LangChain injected, or ``None``
+            when the caller passed none.
+
+    Returns:
+        A context making the tool's ``TOOL`` span current, or a no-op context
+        when there is no OpenInference handler, which is the case whenever
+        ``build_agent`` was given no tracer.
+    """
+    run_id = getattr(callbacks, "parent_run_id", None)
+    if run_id is not None:
+        for handler in getattr(callbacks, "handlers", None) or []:
+            get_span = getattr(handler, "get_span", None)
+            span = get_span(run_id) if get_span is not None else None
+            if span is not None:
+                return trace.use_span(
+                    span,
+                    end_on_exit=False,
+                    record_exception=False,
+                    set_status_on_exception=False,
+                )
+    return nullcontext()
 
 
 def run_callbacks(tracer: Tracer | None) -> list[Any]:
