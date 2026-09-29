@@ -35,6 +35,7 @@ async def test_extraction_reaches_openai_compatible_endpoint() -> None:
 
     result = await b.ExtractEntitiesAndRelations(
         "Ada Lovelace worked at the Analytical Engine Company.",
+        None,
         {"client_registry": registry, "tb": type_builder},
     )
     assert hasattr(result, "entities")

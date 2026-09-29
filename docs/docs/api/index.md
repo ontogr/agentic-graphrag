@@ -4203,6 +4203,7 @@ One retrieval-sized piece of a Document.
 **Functions:**
 
 - [**id_for**](#agrag.common.data_models.chunk.Chunk.id_for) – Compute the chunk id.
+- [**section_label**](#agrag.common.data_models.chunk.Chunk.section_label) – Return the heading path as one line, or `None` when the path is empty.
 - [**to_node_record**](#agrag.common.data_models.chunk.Chunk.to_node_record) – Return this chunk as a GraphStore write record.
 
 ####### `agrag.common.data_models.chunk.Chunk.chunker`
@@ -4222,6 +4223,17 @@ chunker_hash: str | None = None
 ```python
 content_kind: Literal['text', 'table_row', 'code', 'heading'] = 'text'
 ```
+
+####### `agrag.common.data_models.chunk.Chunk.contextual_text`
+
+```python
+contextual_text: str
+```
+
+The text with its heading path above it, for embedding.
+
+The stored text and its offsets do not change. A chunk with no heading path
+returns its text.
 
 ####### `agrag.common.data_models.chunk.Chunk.created_at`
 
@@ -4317,6 +4329,18 @@ parent_id: UUID | None = None
 ```python
 provenance: TextProvenance | PageProvenance = Field(discriminator='kind')
 ```
+
+####### `agrag.common.data_models.chunk.Chunk.section_label`
+
+```python
+section_label() -> str | None
+```
+
+Return the heading path as one line, or `None` when the path is empty.
+
+Whitespace runs in a heading become one space, and runs of three or more
+dashes become one dash, so a heading cannot end the text block of the
+extraction prompt.
 
 ####### `agrag.common.data_models.chunk.Chunk.text`
 
@@ -14215,7 +14239,7 @@ The ingestion package.
 #### `agrag.ingestion.Graph`
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -14265,6 +14289,10 @@ by `open()` when missing.
   CutoverJobSettings defaults.
 - **chunking** (<code>[Chunking](#agrag.chunking.Chunking)</code>) – The rules that pick a chunker for each document. The
   default is `DEFAULT_CHUNKING`.
+- **embed_heading_path** (<code>[bool](#bool)</code>) – Whether chunk embeddings include the chunk's
+  heading path above its text. The stored text does not change.
+  Existing embeddings stay until a document is re-chunked with
+  `update()`.
 
 ##### `agrag.ingestion.Graph.add`
 
@@ -14438,7 +14466,7 @@ previous one's.
 ##### `agrag.ingestion.Graph.open`
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -14472,6 +14500,8 @@ missing) so the dual writes never hit an absent collection.
   CutoverJobSettings defaults.
 - **chunking** (<code>[Chunking](#agrag.chunking.Chunking)</code>) – The rules that pick a chunker for each document; see
   __init__.
+- **embed_heading_path** (<code>[bool](#bool)</code>) – Whether chunk embeddings include the heading path;
+  see __init__.
 
 **Returns:**
 
@@ -14868,7 +14898,7 @@ The Extractor interface: reads one Chunk and produces an ExtractionResult.
 ##### `agrag.ingestion.extract.BAMLExtractor`
 
 ```python
-BAMLExtractor(*, settings:ExtractionLLMSettings | None = None, client:object | None = None, tracer:Tracer | None = None) -> None
+BAMLExtractor(*, settings:ExtractionLLMSettings | None = None, client:object | None = None, tracer:Tracer | None = None, include_heading_path:bool = True) -> None
 ```
 
 Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
@@ -14894,6 +14924,9 @@ Extracts with an LLM, via a BAML function and a runtime ClientRegistry.
   `ExtractEntitiesAndRelations`. Tests inject a fake here.
 - **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens `agrag.extraction.baml` and the nested
   `agrag.llm.call` spans. `None` opens no recorded span.
+- **include_heading_path** (<code>[bool](#bool)</code>) – Whether to give the model the heading path of the
+  chunk as a separate `section` line above the text. Offsets still
+  index `chunk.text`. Only this extractor uses heading context.
 
 ###### `agrag.ingestion.extract.BAMLExtractor.extract`
 
@@ -15163,7 +15196,7 @@ The public Graph API for ingestion.
 ##### `agrag.ingestion.graph.Graph`
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -15213,6 +15246,10 @@ by `open()` when missing.
   CutoverJobSettings defaults.
 - **chunking** (<code>[Chunking](#agrag.chunking.Chunking)</code>) – The rules that pick a chunker for each document. The
   default is `DEFAULT_CHUNKING`.
+- **embed_heading_path** (<code>[bool](#bool)</code>) – Whether chunk embeddings include the chunk's
+  heading path above its text. The stored text does not change.
+  Existing embeddings stay until a document is re-chunked with
+  `update()`.
 
 ###### `agrag.ingestion.graph.Graph.add`
 
@@ -15386,7 +15423,7 @@ previous one's.
 ###### `agrag.ingestion.graph.Graph.open`
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -15420,6 +15457,8 @@ missing) so the dual writes never hit an absent collection.
   CutoverJobSettings defaults.
 - **chunking** (<code>[Chunking](#agrag.chunking.Chunking)</code>) – The rules that pick a chunker for each document; see
   __init__.
+- **embed_heading_path** (<code>[bool](#bool)</code>) – Whether chunk embeddings include the heading path;
+  see __init__.
 
 **Returns:**
 

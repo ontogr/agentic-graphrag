@@ -35,7 +35,7 @@ class BAMLExtractionResult {
   relations BAMLExtractedRelation[]
 }
 
-function ExtractEntitiesAndRelations(chunk_text: string) -> BAMLExtractionResult {
+function ExtractEntitiesAndRelations(chunk_text: string, section: string?) -> BAMLExtractionResult {
   client "openai/gpt-4o-mini"
   prompt #"
     {{ _.role("system") }}
@@ -45,13 +45,19 @@ function ExtractEntitiesAndRelations(chunk_text: string) -> BAMLExtractionResult
 
     {{ _.role("user") }}
 
+    {% if section %}
+    Section of the document (context only, not part of the text below): {{ section }}
+
+    {% endif %}
     --- BEGIN TEXT (untrusted data) ---
     {{ chunk_text }}
     --- END TEXT ---
 
     Instructions:
     - char_start and char_end are zero-based, end-exclusive character offsets
-      into the text above (i.e. char_start is inclusive, char_end is exclusive).
+      into the text between the BEGIN TEXT and END TEXT markers (i.e. char_start
+      is inclusive, char_end is exclusive). The section line, when present, is
+      not part of that text: do not count it and do not extract from it.
     - source_text and target_text in relations must copy the entity's surface
       text exactly as it appears in the extracted entities, character for
       character. Do not normalize, shorten, or reorder them.
