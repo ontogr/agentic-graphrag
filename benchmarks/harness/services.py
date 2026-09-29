@@ -4,12 +4,12 @@ Neo4j Community holds one database per instance. The harness starts the service
 of the corpus it works on and stops it afterwards, so one instance runs at a time.
 """
 
-import os
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agrag.graphdb import Neo4jSettings
 
@@ -18,6 +18,22 @@ COMPOSE_FILE = (
     Path(__file__).resolve().parents[2] / "docker" / ("docker-compose.benchmarks.yml")
 )
 PASSWORD_VARIABLE = "BENCH_NEO4J_PASSWORD"
+
+
+class BenchSettings(BaseSettings):
+    """Benchmark harness configuration.
+
+    Attributes:
+        neo4j_password: The password of the benchmark Neo4j services, empty when
+            unset. Env: ``BENCH_NEO4J_PASSWORD``.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="BENCH_", env_file=".env", extra="ignore"
+    )
+
+    neo4j_password: SecretStr = SecretStr("")
+
 
 # Bolt ports on the loopback address, one per compose service. A domain adds its
 # services here and in the compose file.
@@ -34,14 +50,15 @@ def run_command(command: Sequence[str]) -> None:
 def neo4j_settings(service: str) -> Neo4jSettings:
     """Return the connection settings of a service.
 
-    The password comes from ``BENCH_NEO4J_PASSWORD``, the same variable the compose
-    file gives to the Neo4j services.
+    The password comes from ``BENCH_NEO4J_PASSWORD``, in the environment or the
+    repo-root ``.env``. The compose file gives the same variable to the Neo4j
+    services.
 
     Raises:
         KeyError: The service is not in ``SERVICE_PORTS``.
         RuntimeError: ``BENCH_NEO4J_PASSWORD`` is not set.
     """
-    password = os.environ.get(PASSWORD_VARIABLE)
+    password = BenchSettings().neo4j_password.get_secret_value()
     if not password:
         raise RuntimeError(f"set {PASSWORD_VARIABLE} to the Neo4j password")
     return Neo4jSettings(
