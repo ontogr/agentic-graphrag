@@ -1,0 +1,88 @@
+---
+sidebar_position: 1
+title: Benchmarks
+---
+
+# Benchmarks
+
+The benchmark module runs `agrag` on public datasets and keeps an auditable record of each run. This page explains what the module measures, why it works the way it does, and how far you can trust its numbers. See [Run the benchmarks](./run-benchmarks.mdx) for the commands.
+
+## Why the module exists
+
+Unit tests show that the code works. They do not show how well `agrag` answers real questions over real documents. The benchmark module answers that question on public datasets, so anyone can check a number against the code that made it.
+
+A benchmark run costs real model calls, so it never runs in CI. You start each run by hand, and each run writes a record that you can commit.
+
+## The datasets
+
+Each dataset covers one domain. The module plans five:
+
+- **Legal contracts.** LegalBench-RAG questions over contract text, where the answer is a passage that the agent must find and cite.
+- **Novels and medical guidelines.** GraphRAG-Bench questions over long fiction and clinical guideline documents, which test multi-step reasoning across a graph.
+- **Financial filings.** FinanceBench questions over company filings, which mix text with numbers.
+- **Long conversations.** BEAM questions over long chat histories, which test memory across many turns.
+- **Medical answers.** HealthBench conversations that the agent answers from MedCorp passages.
+
+Each dataset adds its own page to this section when it is added to the harness. That page states the exact questions, the source, the graph schema, and the terms of use.
+
+## Lite and full sets
+
+Each dataset has two sets of questions.
+
+- The **lite** set has about 10 questions. Use it as a smoke test: it shows that ingest, answering, and grading work end to end.
+- The **full** set has all the selected questions of the dataset.
+
+The lite set is a subset of the full set. A lite score is not statistically meaningful, because 10 questions cannot separate a real change from noise. Compare only full runs.
+
+Ingest cost drives the total cost, not the question count. `agrag` must read and extract every chunk of a corpus before it can answer one question. A lite run pays the full ingest cost of its corpus. The lite set therefore saves answer and grading calls, not ingest calls.
+
+## The audit trail
+
+Each run produces two files: a record and a trace.
+
+The **record** is a JSON file. It holds ids and scores only, with no question text and no source text. It pins the run to the code that made it:
+
+- the git commit and the output of `git describe`
+- the tree hash of the `agrag/` directory, which survives a squash merge
+- the installed package version
+- the hash of `uv.lock`
+- the hash of the dataset manifest and of the list of question ids
+- the models, the chunking, and the graph schemas
+
+The **trace** is a gzipped OpenTelemetry file. It holds every span of the run, with the full prompt and response of every model call. The [trace span reference](../reference/trace-spans.mdx) lists the spans.
+
+A trace contains passages of the source datasets. Each trace is therefore subject to the terms of the dataset it came from. The file `benchmarks/results/NOTICE` lists the license and the terms of each dataset. Read it before you share a trace.
+
+The two files go to different places:
+
+| Run | Record | Trace |
+|---|---|---|
+| Lite | `benchmarks/results/lite/<run id>/` | Beside the record, in the repository |
+| Full | `benchmarks/results/full/<run id>/` | In a private Hugging Face dataset repo, named by `BENCH_TRACE_REPO`; the record holds the repo, the revision, and the hash |
+| Dirty or incomplete usage | `reports/benchmarks/`, which git ignores | Beside the record |
+
+A run never reaches `benchmarks/results` when the git tree has uncommitted changes. The reason is that a record must name code that anyone can check out. A run also stays out when a model call has no token count, because its usage figures would be wrong.
+
+## One graph for each corpus
+
+Each corpus gets its own Neo4j instance. Neo4j Community holds one database for each instance, and separate instances make sure that one corpus never sees the entities of another. The harness starts the instance of the corpus it works on and stops it afterward.
+
+A Neo4j instance keeps its graph in a volume. The harness stores a marker in the graph, so a second run over the same corpus can skip ingest when nothing that changes the graph has changed.
+
+## Graph schemas
+
+Each dataset defines the graph schema that fits its domain. A contract graph has different entity types than a novel graph. The record lists the name, the version, and the hash of each schema.
+
+Because the schema is part of the setup, `agrag` numbers are not comparable with the numbers of other systems that use their own schemas or no schema. Use the numbers to track `agrag` over time, not to rank it against other systems.
+
+## Who grades the answers
+
+By default, the judge is the model that you configure with `LLM_MODEL_ID`. This means the same model can grade its own answers. A model tends to score its own output higher, so scores from a self-grading run are biased upward.
+
+To grade with another model, set the `EVAL_JUDGE_*` variables. The record names both the agent model and the judge model. The report warns when a domain has runs on more than one model pair, because you must not compare or average those runs.
+
+Judged metrics run once for each answer. The record holds no estimate of the noise in the judge.
+
+## How to read the usage numbers
+
+The record counts calls and tokens from the spans of the trace. Extraction calls are exact: each span is one provider request. Agent and judge counts are a lower bound. A span of the agent or the judge is one LangChain call, and LangChain and the provider SDKs retry below that span. A retry is a real request that the count does not show.
