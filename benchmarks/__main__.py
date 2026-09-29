@@ -93,6 +93,14 @@ def _options(args: argparse.Namespace) -> RunOptions:
     )
 
 
+def _positive_int(text: str) -> int:
+    """Parse a command-line integer that must be at least one."""
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"{text} is not a positive integer")
+    return value
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m benchmarks", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -106,7 +114,7 @@ def _parser() -> argparse.ArgumentParser:
     run_command = commands.add_parser("run", help="Ingest, answer, grade and record.")
     add_target(run_command)
     run_command.add_argument("--yes", action="store_true", help="Skip the prompt.")
-    run_command.add_argument("--concurrency", type=int, default=2)
+    run_command.add_argument("--concurrency", type=_positive_int, default=2)
     run_command.add_argument("--question-timeout", type=float, default=900.0)
     add_target(commands.add_parser("dry-run", help="Bound the cost without a model."))
     report_command = commands.add_parser("report", help="Print committed records.")
