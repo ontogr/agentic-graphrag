@@ -217,6 +217,19 @@ class TestRunner:
         assert batches
         assert record.trace.path == "trace.jsonl.gz"
 
+    async def test_runs_started_in_the_same_minute_keep_separate_records(
+        self, tmp_path
+    ):
+        """Runs started in the same minute keep separate records."""
+        env, _ = make_environment(tmp_path, Behaviour())
+
+        first, first_path = await run("fake", DOMAIN, "lite", options(), env)
+        second, second_path = await run("fake", DOMAIN, "lite", options(), env)
+
+        assert first.run_id != second.run_id
+        assert first_path.exists()
+        assert second_path.exists()
+
 
 class TestFullMode:
     """Full-mode guards: trace repo, confirmation and trace upload."""

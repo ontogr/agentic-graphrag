@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
+from uuid import uuid4
 
 from opentelemetry.trace import Tracer
 
@@ -501,7 +502,7 @@ async def run(
         raise RunRefusedError("full run declined")
 
     now = datetime.now(UTC)
-    run_id = f"{now:%Y%m%dT%H%MZ}-{name}-{mode}-{env.system_name}"
+    run_id = f"{now:%Y%m%dT%H%M%SZ}-{name}-{mode}-{env.system_name}-{uuid4().hex[:6]}"
     work_dir = env.reports_dir / mode / run_id
     trace_path = work_dir / TRACE_NAME
     tracing = start_tracing(trace_path)
