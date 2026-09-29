@@ -213,10 +213,8 @@ class TestRecursiveLevels:
         """Split levels cannot diverge from the initialized engine settings."""
         chunker = RecursiveChunker(levels=[SplitLevel(delimiters=["|"])])
 
-        with pytest.raises(AttributeError):
-            chunker.levels.append(SplitLevel(whitespace=True))
-        with pytest.raises(AttributeError):
-            chunker.levels[0].delimiters.append("/")
+        assert isinstance(chunker.levels, tuple)
+        assert isinstance(chunker.levels[0].delimiters, tuple)
 
     def test_custom_level_splits_on_its_delimiter(self) -> None:
         """A level that splits on ``|`` cuts at the bars."""

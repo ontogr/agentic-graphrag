@@ -167,10 +167,8 @@ class TestFingerprint:
             fallback=_FALLBACK,
         )
 
-        with pytest.raises(AttributeError):
-            chunking.rules.append(chunking.rules[0])
-        with pytest.raises(AttributeError):
-            chunking.rules[0].match.loader_names.append("docling")
+        assert isinstance(chunking.rules, tuple)
+        assert isinstance(chunking.rules[0].match.loader_names, tuple)
 
 
 class TestDefaultChunking:
