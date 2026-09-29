@@ -39,15 +39,17 @@ class SpendCap:
     tokens: int
 
 
-# Measured on the Legal lite corpus (23 chunks) with the benchmark chunking: extraction
-# takes one call per chunk, and resolution, merge and community calls make up most of
-# the rest. Resolution cost can grow faster than the chunk count, so measure a larger
-# corpus before you trust a bound for one.
+# Measured on the Legal lite corpus (23 chunks) with the benchmark chunking.
+# Extraction takes one call per chunk, and resolution, merge and community calls make
+# up most of the rest. Agent figures come from two Legal questions that made 12 and
+# 45 calls and used about 136k tokens each on average, counting the calls that tools
+# make inside the agent run. Resolution cost can grow faster than the chunk count, so
+# measure a larger corpus before you trust a bound for one.
 COST_MODEL: CostModel | None = CostModel(
     calls_per_chunk=7,
     tokens_per_chunk=105_000,
-    agent_calls_per_question=20,
-    agent_tokens_per_question=100_000,
+    agent_calls_per_question=60,
+    agent_tokens_per_question=250_000,
     judge_tokens_per_call=2_000,
 )
 
