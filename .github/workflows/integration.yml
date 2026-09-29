@@ -59,7 +59,7 @@ jobs:
             services: neo4j
             timeout: 15
           - name: pipeline
-            paths: "tests/integration/agents tests/integration/ingestion tests/integration/embedding tests/integration/loaders"
+            paths: "tests/integration/agents tests/integration/ingestion tests/integration/embedding tests/integration/loaders tests/integration/llm"
             dist: loadscope
             services: neo4j
             timeout: 20
