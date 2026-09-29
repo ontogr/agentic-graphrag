@@ -2,11 +2,15 @@
 
 from uuid import UUID
 
+from opentelemetry.trace import Tracer
+
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.graphdb.base import GraphStore
+from agrag.observability import get_tracer
+from agrag.retrieval.tracing import record_results
 
 
 async def node_distance_rerank(
@@ -14,6 +18,7 @@ async def node_distance_rerank(
     *,
     graph_store: GraphStore,
     seed_ids: list[UUID],
+    tracer: Tracer | None = None,
 ) -> list[SearchResult]:
     """Rerank results by graph proximity to seed entity ids.
 
@@ -30,6 +35,7 @@ async def node_distance_rerank(
             are the query's direct hits, not the whole candidate list:
             a candidate that is its own seed measures distance zero,
             so seeding with every candidate leaves the order unchanged.
+        tracer: Opens the rerank span. None opens no recorded span.
 
     Returns:
         Results reranked by proximity, closest first.
@@ -41,44 +47,59 @@ async def node_distance_rerank(
     if not results or not seed_ids:
         return results
 
-    seed_set = set(seed_ids)
-    seed_strs = [str(sid) for sid in seed_set]
+    with get_tracer(tracer).start_as_current_span(
+        "agrag.retrieval.rerank.node_distance",
+        attributes={
+            "agrag.seed_count": len(seed_ids),
+            "agrag.input_count": len(results),
+        },
+    ) as span:
+        seed_set = set(seed_ids)
+        seed_strs = [str(sid) for sid in seed_set]
 
-    scored: list[tuple[float, SearchResult]] = []
-    for result in results:
-        item = result.item
-        if isinstance(item, Entity):
-            target_ids = [item.id]
-        elif isinstance(item, ResolvedEntity):
-            target_ids = item.member_ids
-        else:
-            scored.append((999999.0, result))
-            continue
-        if not target_ids:
-            scored.append((999999.0, result))
-            continue
+        scored: list[tuple[float, SearchResult]] = []
+        path_query_count = 0
+        for result in results:
+            item = result.item
+            if isinstance(item, Entity):
+                target_ids = [item.id]
+            elif isinstance(item, ResolvedEntity):
+                target_ids = item.member_ids
+            else:
+                scored.append((999999.0, result))
+                continue
+            if not target_ids:
+                scored.append((999999.0, result))
+                continue
 
-        # shortestPath from a node to itself is a Neo4j error, so seeds are
-        # scored here and never sent to the path query.
-        if not seed_set.isdisjoint(target_ids):
-            scored.append((0.0, result))
-            continue
+            # shortestPath from a node to itself is a Neo4j error, so seeds are
+            # scored here and never sent to the path query.
+            if not seed_set.isdisjoint(target_ids):
+                scored.append((0.0, result))
+                continue
 
-        rows = await graph_store.execute_read(
-            f"UNWIND $seed_ids AS seed_id "
-            f"UNWIND $target_ids AS target_id "
-            f"MATCH path = shortestPath("
-            f"  (seed:{NODE_IDENTITY_LABEL} {{id: seed_id}})"
-            f"-[*]-(target:{NODE_IDENTITY_LABEL} {{id: target_id}})"
-            f") "
-            f"RETURN length(path) AS dist",
-            {
-                "seed_ids": seed_strs,
-                "target_ids": [str(target_id) for target_id in target_ids],
-            },
-        )
-        distances = [float(row["dist"]) for row in rows if row.get("dist") is not None]
-        scored.append((min(distances) if distances else 999999.0, result))
+            path_query_count += 1
+            rows = await graph_store.execute_read(
+                f"UNWIND $seed_ids AS seed_id "
+                f"UNWIND $target_ids AS target_id "
+                f"MATCH path = shortestPath("
+                f"  (seed:{NODE_IDENTITY_LABEL} {{id: seed_id}})"
+                f"-[*]-(target:{NODE_IDENTITY_LABEL} {{id: target_id}})"
+                f") "
+                f"RETURN length(path) AS dist",
+                {
+                    "seed_ids": seed_strs,
+                    "target_ids": [str(target_id) for target_id in target_ids],
+                },
+            )
+            distances = [
+                float(row["dist"]) for row in rows if row.get("dist") is not None
+            ]
+            scored.append((min(distances) if distances else 999999.0, result))
 
-    scored.sort(key=lambda pair: pair[0])
-    return [result for _, result in scored]
+        scored.sort(key=lambda pair: pair[0])
+        reranked = [result for _, result in scored]
+        if span.is_recording():
+            span.set_attribute("agrag.path_query_count", path_query_count)
+        record_results(span, reranked)
+        return reranked

@@ -381,13 +381,13 @@ class TestParentHydrationTracing:
                 ).retrieve("q")
 
         assert results == []
-        (span,) = [
-            span
-            for span in exporter.get_finished_spans()
-            if span.name == "agrag.retrieval.hydrate_parents"
-        ]
+        finished = list(exporter.get_finished_spans())
+        (span,) = [s for s in finished if s.name == "agrag.retrieval.hydrate_parents"]
+        (retrieval,) = [s for s in finished if s.name == "agrag.retrieval.chunk"]
         assert span.parent is not None
-        assert span.parent.span_id == parent_span.get_span_context().span_id
+        assert span.parent.span_id == retrieval.get_span_context().span_id
+        assert retrieval.parent is not None
+        assert retrieval.parent.span_id == parent_span.get_span_context().span_id
         assert span.status.status_code is StatusCode.UNSET
         assert (span.attributes or {})["agrag.parent_count"] == 1
         assert len(list(span.events)) == 1

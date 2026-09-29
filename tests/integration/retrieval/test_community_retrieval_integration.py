@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 import pytest
+from opentelemetry.trace import Tracer
 
 from agrag.agents.ledger import Ledger
 from agrag.common.data_models.community import (
@@ -388,6 +389,7 @@ class TestCommunityRetrievalIntegration:
             graph_store: object = None,  # type: ignore[assignment]
             top_k: int = 3,
             filters: SearchFilters | None = None,
+            tracer: Tracer | None = None,
         ) -> list[SearchResult]:
             """Capture entity_ids and delegate to real community_context."""
             captured["ids"] = list(entity_ids)
@@ -396,6 +398,7 @@ class TestCommunityRetrievalIntegration:
                 graph_store=graph_store,
                 top_k=top_k,
                 filters=filters,
+                tracer=tracer,
             )
 
         with patch(

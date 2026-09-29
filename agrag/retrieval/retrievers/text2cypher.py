@@ -22,11 +22,12 @@ from agrag.cypher.safety import (
 )
 from agrag.graphdb.base import GraphStore
 from agrag.llm.retry import NO_RETRY, call_with_retry
-from agrag.observability import get_tracer
+from agrag.observability import get_tracer, record_swallowed_exception
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.identity import resolve_entity
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
+from agrag.retrieval.tracing import record_results, retrieval_span
 
 
 if TYPE_CHECKING:
@@ -474,69 +475,102 @@ class Text2CypherRetriever(Retriever):
                 resolved through ``resolve_entity``; relation, chunk, and
                 scalar rows parsed directly.
         """
-        try:
-            cypher_query = await self._generate_cypher(query)
-        except Exception:
-            return []
-
-        try:
-            rows = await self._execute_query(cypher_query)
-        except UnsafeCypherError:
-            return []
-        except Exception as exc:
-            if _is_environment_failure(exc):
-                return []
+        with retrieval_span(
+            self._tracer,
+            "agrag.retrieval.text2cypher",
+            query=query,
+            filters=filters,
+            attributes={"agrag.limit": limit},
+        ) as span:
             try:
-                cypher_query = await self._generate_cypher(
-                    query, failure_context=_format_retry_diagnostic(exc)
-                )
-                rows = await self._execute_query(cypher_query)
-            except Exception:
+                cypher_query = await self._generate_cypher(query)
+            except Exception as exc:
+                record_swallowed_exception(exc)
+                record_results(span, [])
                 return []
 
-        method = f"text2cypher: {cypher_query[:100]}"
-        results: list[SearchResult] = []
-        for row in rows[:limit]:
-            # Try to find an entity id in the row.
-            entity_id = self._extract_entity_id(row)
-            if entity_id is not None:
+            if span.is_recording():
+                span.set_attribute("agrag.cypher", cypher_query)
+
+            try:
+                rows = await self._execute_query(cypher_query, is_repair=False)
+            except UnsafeCypherError as exc:
+                record_swallowed_exception(exc)
+                record_results(span, [])
+                return []
+            except Exception as exc:
+                if _is_environment_failure(exc):
+                    record_swallowed_exception(exc)
+                    record_results(span, [])
+                    return []
                 try:
-                    entity = await resolve_entity(self._graph_store, entity_id)
-                    results.append(SearchResult(item=entity, score=1.0, method=method))
-                except Exception:
-                    continue
-            else:
-                relation = self._extract_relation(row)
-                if relation is not None:
-                    results.append(
-                        SearchResult(item=relation, score=1.0, method=method)
+                    cypher_query = await self._generate_cypher(
+                        query, failure_context=_format_retry_diagnostic(exc)
                     )
-                else:
-                    chunk = self._extract_chunk(row)
-                    if chunk is not None:
+                    rows = await self._execute_query(cypher_query, is_repair=True)
+                except Exception as repair_exc:
+                    record_swallowed_exception(repair_exc)
+                    record_results(span, [])
+                    return []
+
+            if span.is_recording():
+                span.set_attribute("agrag.cypher", cypher_query)
+
+            method = f"text2cypher: {cypher_query[:100]}"
+            results: list[SearchResult] = []
+            for row in rows[:limit]:
+                # Try to find an entity id in the row.
+                entity_id = self._extract_entity_id(row)
+                if entity_id is not None:
+                    try:
+                        entity = await resolve_entity(
+                            self._graph_store, entity_id, tracer=self._tracer
+                        )
                         results.append(
-                            SearchResult(item=chunk, score=1.0, method=method)
+                            SearchResult(item=entity, score=1.0, method=method)
+                        )
+                    except Exception:
+                        continue
+                else:
+                    relation = self._extract_relation(row)
+                    if relation is not None:
+                        results.append(
+                            SearchResult(item=relation, score=1.0, method=method)
                         )
                     else:
-                        results.append(
-                            SearchResult(
-                                item=QueryValue(value=dict(row)),
-                                score=1.0,
-                                method=method,
+                        chunk = self._extract_chunk(row)
+                        if chunk is not None:
+                            results.append(
+                                SearchResult(item=chunk, score=1.0, method=method)
                             )
-                        )
+                        else:
+                            results.append(
+                                SearchResult(
+                                    item=QueryValue(value=dict(row)),
+                                    score=1.0,
+                                    method=method,
+                                )
+                            )
 
-        return results
+            record_results(span, results)
+            return results
 
-    async def _execute_query(self, cypher_query: str) -> list[dict[str, Any]]:
+    async def _execute_query(
+        self, cypher_query: str, *, is_repair: bool = False
+    ) -> list[dict[str, Any]]:
         """Gate, bound, plan, and run one generated read query.
 
         The row limit and the server-side timeout cap a pathological
         traversal, and the query is planned before it runs so a malformed
-        one fails here rather than mid-execution.
+        one fails here rather than mid-execution. The write-gate rejection
+        or a planning/execution failure propagates and marks this span
+        ERROR; the exception a first attempt raises that triggers the
+        repair needs no extra record here. A repair shows as a second
+        ``execute_cypher`` span with ``agrag.is_repair`` true.
 
         Args:
             cypher_query: The generated read query.
+            is_repair: Whether this call is the one repair attempt.
 
         Returns:
             The rows the query returned.
@@ -545,15 +579,22 @@ class Text2CypherRetriever(Retriever):
             UnsafeCypherError: The query contains a write clause.
             Exception: The query failed to plan or to execute.
         """
-        reject_write_cypher(cypher_query)
-        bounded_query = _append_row_limit(
-            cypher_query, self._settings.text2cypher_max_rows
-        )
-        timeout = self._settings.text2cypher_timeout_seconds
-        await self._graph_store.execute_read(
-            f"EXPLAIN {bounded_query}", timeout=timeout
-        )
-        return await self._graph_store.execute_read(bounded_query, timeout=timeout)
+        with get_tracer(self._tracer).start_as_current_span(
+            "agrag.retrieval.execute_cypher",
+            attributes={"agrag.is_repair": is_repair},
+        ) as span:
+            reject_write_cypher(cypher_query)
+            bounded_query = _append_row_limit(
+                cypher_query, self._settings.text2cypher_max_rows
+            )
+            timeout = self._settings.text2cypher_timeout_seconds
+            await self._graph_store.execute_read(
+                f"EXPLAIN {bounded_query}", timeout=timeout
+            )
+            rows = await self._graph_store.execute_read(bounded_query, timeout=timeout)
+            if span.is_recording():
+                span.set_attribute("agrag.row_count", len(rows))
+            return rows
 
     async def _generate_cypher(
         self, question: str, *, failure_context: str | None = None

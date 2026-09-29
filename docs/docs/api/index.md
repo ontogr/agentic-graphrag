@@ -1229,6 +1229,7 @@ calls appear in the same trace.
 
 - [**require_tracing**](#agrag.agents.tracing.require_tracing) – Raise a typed error when tracing dependencies are unavailable.
 - [**run_callbacks**](#agrag.agents.tracing.run_callbacks) – Return the callbacks for one agent run.
+- [**tool_span_context**](#agrag.agents.tracing.tool_span_context) – Return a context in which the running tool's OpenInference span is current.
 
 ##### `agrag.agents.tracing.require_tracing`
 
@@ -1263,6 +1264,34 @@ Spans carry the question, tool inputs, and evidence text.
 **Returns:**
 
 - <code>[list](#list)\[[Any](#typing.Any)\]</code> – A one-item callback list, or an empty list when `tracer` is `None`.
+
+##### `agrag.agents.tracing.tool_span_context`
+
+```python
+tool_span_context(callbacks:Any) -> AbstractContextManager[Any]
+```
+
+Return a context in which the running tool's OpenInference span is current.
+
+The OpenInference callback never makes its spans current, so a span that
+`agrag` opens inside a tool would otherwise be a sibling of the tool's
+span, not its child. A tool declares `callbacks: Any = None`; LangChain
+then passes a child callback manager whose `parent_run_id` is the tool's
+run and whose handlers include the callback. The context makes the tool's
+span current for the tool's body and restores the caller's context on
+exit. It leaves the tool span's status and events to the callback, so a
+raising tool records its exception once.
+
+**Parameters:**
+
+- **callbacks** (<code>[Any](#typing.Any)</code>) – The `callbacks` argument LangChain injected, or `None`
+  when the caller passed none.
+
+**Returns:**
+
+- <code>[AbstractContextManager](#contextlib.AbstractContextManager)\[[Any](#typing.Any)\]</code> – A context making the tool's `TOOL` span current, or a no-op context
+- <code>[AbstractContextManager](#contextlib.AbstractContextManager)\[[Any](#typing.Any)\]</code> – when there is no OpenInference handler, which is the case whenever
+- <code>[AbstractContextManager](#contextlib.AbstractContextManager)\[[Any](#typing.Any)\]</code> – `build_agent` was given no tracer.
 
 #### `agrag.agents.verification`
 
@@ -20876,7 +20905,7 @@ Retrieval package: search engine, fusion, reranking, and retrievers.
 - [**retrievers**](#agrag.retrieval.retrievers) – Retriever implementations for entity, chunk, BFS, and text2cypher search.
 - [**search_engine**](#agrag.retrieval.search_engine) – Retrieval's public entry point, independent of Graph.
 - [**settings**](#agrag.retrieval.settings) – Env-backed configuration for retrieval methods and fusion.
-- [**tracing**](#agrag.retrieval.tracing) – OpenTelemetry helpers for retrieval results.
+- [**tracing**](#agrag.retrieval.tracing) – Span helpers shared by the retrieval spans.
 
 #### `agrag.retrieval.community_context`
 
@@ -20894,7 +20923,7 @@ Community-report enrichment: local-search-style budget-capped context.
 ##### `agrag.retrieval.community_context.community_context`
 
 ```python
-community_context(entity_ids:list[UUID], *, graph_store:GraphStore, top_k:int = 3, filters:SearchFilters | None = None) -> list[SearchResult]
+community_context(entity_ids:list[UUID], *, graph_store:GraphStore, top_k:int = 3, filters:SearchFilters | None = None, tracer:Tracer | None = None) -> list[SearchResult]
 ```
 
 Return the top-overlapping communities' reports for a set of entities.
@@ -20919,6 +20948,7 @@ machinery as any other result.
   property Community nodes never have matches no communities --
   a document- or property-scoped search gets no community
   enrichment rather than one drawn from outside its scope.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the context span. None opens no recorded span.
 
 **Returns:**
 
@@ -20928,7 +20958,7 @@ machinery as any other result.
 ##### `agrag.retrieval.community_context.expand_with_communities`
 
 ```python
-expand_with_communities(fused:list[SearchResult], seed_ids:list[UUID], *, graph_store:GraphStore, top_k:int, filters:SearchFilters | None, rrf_k:int) -> list[SearchResult]
+expand_with_communities(fused:list[SearchResult], seed_ids:list[UUID], *, graph_store:GraphStore, top_k:int, filters:SearchFilters | None, rrf_k:int, tracer:Tracer | None = None) -> list[SearchResult]
 ```
 
 Fuse community reports overlapping seed entities into a result list.
@@ -20939,9 +20969,10 @@ under a `"community"` key, so callers that already have a fused
 result list do not repeat the fetch-then-fuse pattern (or the
 error handling below).
 
-A community lookup that raises is logged and swallowed rather than
-propagating: community reports are enrichment on top of results that
-already exist, so a community-store failure must not discard them.
+A community lookup that raises is recorded on the expansion span and
+swallowed rather than propagating: community reports are enrichment on
+top of results that already exist, so a community-store failure must
+not discard them.
 
 **Parameters:**
 
@@ -20958,6 +20989,7 @@ already exist, so a community-store failure must not discard them.
   consistent with a plain search, not an error.
 - **rrf_k** (<code>[int](#int)</code>) – The reciprocal-rank-fusion constant, from
   `RetrievalSettings.rrf_k`.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the expansion spans. None opens no recorded span.
 
 **Returns:**
 
@@ -21177,7 +21209,7 @@ Reciprocal Rank Fusion: combine ranked results from multiple methods.
 ##### `agrag.retrieval.fusion.fuse`
 
 ```python
-fuse(results_by_method:dict[str, list[SearchResult]], *, rrf_k:int = 60) -> list[SearchResult]
+fuse(results_by_method:dict[str, list[SearchResult]], *, rrf_k:int = 60, tracer:Tracer | None = None) -> list[SearchResult]
 ```
 
 Combine every method's ranked results into one deduplicated list.
@@ -21206,6 +21238,7 @@ every SearchResult it receives already carries a live id.
   method name.
 - **rrf_k** (<code>[int](#int)</code>) – The RRF constant; higher values flatten the influence
   of rank position.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the fusion span. None opens no recorded span.
 
 **Returns:**
 
@@ -21233,7 +21266,7 @@ MAX_MERGE_HOPS = 32
 ##### `agrag.retrieval.identity.resolve_entity`
 
 ```python
-resolve_entity(graph_store:GraphStore, entity_id:UUID) -> Entity
+resolve_entity(graph_store:GraphStore, entity_id:UUID, *, tracer:Tracer | None = None) -> Entity
 ```
 
 Return the live Entity behind an id, following merged_into.
@@ -21251,6 +21284,7 @@ than a relationship, so the chain is walked one hop per query.
   chain live.
 - **entity_id** (<code>[UUID](#uuid.UUID)</code>) – The id a retrieval method found, which may or
   may not still be live.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the resolution span. None opens no recorded span.
 
 **Returns:**
 
@@ -21317,7 +21351,7 @@ Chunks and other non-entity result items are skipped.
 ###### `agrag.retrieval.methods.traversal.find_entity`
 
 ```python
-find_entity(name:str, *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, settings:RetrievalSettings, entity_labels:Sequence[str], filters:SearchFilters | None = None) -> SearchResult | None
+find_entity(name:str, *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, settings:RetrievalSettings, entity_labels:Sequence[str], filters:SearchFilters | None = None, tracer:Tracer | None = None) -> SearchResult | None
 ```
 
 Resolve a named entity to its top search hit, or None.
@@ -21345,6 +21379,8 @@ into traversal seeds.
   label override. An entity that exists only outside this
   scope resolves to None, the same as one that does not
   exist.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the root span and flows to the entity retriever.
+  None opens no recorded span.
 
 **Returns:**
 
@@ -21353,7 +21389,7 @@ into traversal seeds.
 ###### `agrag.retrieval.methods.traversal.list_relationship_types`
 
 ```python
-list_relationship_types(seed:SearchResult, *, graph_store:GraphStore, relation_type_filter:str | None = None, direction:TraversalDirection = 'both', filters:SearchFilters | None = None) -> list[str]
+list_relationship_types(seed:SearchResult, *, graph_store:GraphStore, relation_type_filter:str | None = None, direction:TraversalDirection = 'both', filters:SearchFilters | None = None, tracer:Tracer | None = None) -> list[str]
 ```
 
 List the relationship types directly attached to a resolved entity.
@@ -21369,6 +21405,7 @@ before the query runs.
 - **relation_type_filter** (<code>[str](#str) | None</code>) – Only report this type, if present.
 - **direction** (<code>[TraversalDirection](#agrag.cypher.relations.TraversalDirection)</code>) – Which way to inspect relationships, relative to the seed.
 - **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Scope that limits which relationship types are visible.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the root span. None opens no recorded span.
 
 **Returns:**
 
@@ -21383,7 +21420,7 @@ logger = logging.getLogger(__name__)
 ###### `agrag.retrieval.methods.traversal.traverse`
 
 ```python
-traverse(seed:SearchResult, *, graph_store:GraphStore, settings:RetrievalSettings, relation_type:str | None = None, direction:TraversalDirection = 'both', depth:int = 1, limit:int = 10, community_expand:bool = False, community_top_k:int = 3, filters:SearchFilters | None = None) -> list[SearchResult]
+traverse(seed:SearchResult, *, graph_store:GraphStore, settings:RetrievalSettings, relation_type:str | None = None, direction:TraversalDirection = 'both', depth:int = 1, limit:int = 10, community_expand:bool = False, community_top_k:int = 3, filters:SearchFilters | None = None, tracer:Tracer | None = None) -> list[SearchResult]
 ```
 
 Expand one resolved entity into its neighbours.
@@ -21412,6 +21449,8 @@ Expand one resolved entity into its neighbours.
   is refused without querying the graph. `properties`
   `document_ids`, and `labels` constrain returned
   neighbour nodes.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the root span and flows to the BFS retriever and
+  community expansion. None opens no recorded span.
 
 **Returns:**
 
@@ -21434,7 +21473,7 @@ Shared vector search helper for GraphStore and VectorStore.
 ###### `agrag.retrieval.methods.vector.vector_search`
 
 ```python
-vector_search(query:str, *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, collection:str, labels:Sequence[str], limit:int, filters:SearchFilters | None, settings:RetrievalSettings, query_vector:Sequence[float] | None = None) -> list[VectorHit]
+vector_search(query:str, *, embedder:Embedder, graph_store:GraphStore, vector_store:VectorStore | None, collection:str, labels:Sequence[str], limit:int, filters:SearchFilters | None, settings:RetrievalSettings, query_vector:Sequence[float] | None = None, tracer:Tracer | None = None) -> list[VectorHit]
 ```
 
 Embed query and search on whichever store is configured.
@@ -21468,6 +21507,7 @@ receive an uncommitted job's node or vector.
   so they are not sent as node property filters.
 - **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings)</code>) – Supplies hybrid_alpha for the VectorStore path.
 - **query_vector** (<code>[Sequence](#collections.abc.Sequence)\[[float](#float)\] | None</code>) – Precomputed query embedding. None embeds `query`.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the search span. None opens no recorded span.
 
 **Returns:**
 
@@ -21636,7 +21676,7 @@ Cross-encoder reranker using sentence-transformers.
 ###### `agrag.retrieval.rerank.cross_encoder.cross_encoder_rerank`
 
 ```python
-cross_encoder_rerank(query:str, results:list[SearchResult], *, model:str = 'cross-encoder/ms-marco-MiniLM-L-6-v2', min_score:float | None = None) -> list[SearchResult]
+cross_encoder_rerank(query:str, results:list[SearchResult], *, model:str = 'cross-encoder/ms-marco-MiniLM-L-6-v2', min_score:float | None = None, tracer:Tracer | None = None) -> list[SearchResult]
 ```
 
 Rerank results using a cross-encoder model.
@@ -21650,6 +21690,9 @@ loop for other concurrent search() calls. Concurrent first loads of the
 same model share one in-flight construction behind a per-model lock, so
 only one instance (and one download) occurs.
 
+Without the extra, the results are returned unchanged: the span records
+the ImportError and sets `agrag.skipped`, and its status stays UNSET.
+
 **Parameters:**
 
 - **query** (<code>[str](#str)</code>) – The natural-language query text.
@@ -21658,6 +21701,7 @@ only one instance (and one download) occurs.
   Callers pass RetrievalSettings.cross_encoder_model.
 - **min_score** (<code>[float](#float) | None</code>) – Optional minimum score threshold. Results below this
   are dropped.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the rerank spans. None opens no recorded span.
 
 **Returns:**
 
@@ -21674,7 +21718,7 @@ Node distance reranker: reorder by graph proximity to seeds.
 ###### `agrag.retrieval.rerank.node_distance.node_distance_rerank`
 
 ```python
-node_distance_rerank(results:list[SearchResult], *, graph_store:GraphStore, seed_ids:list[UUID]) -> list[SearchResult]
+node_distance_rerank(results:list[SearchResult], *, graph_store:GraphStore, seed_ids:list[UUID], tracer:Tracer | None = None) -> list[SearchResult]
 ```
 
 Rerank results by graph proximity to seed entity ids.
@@ -21693,6 +21737,7 @@ at the end with a high distance penalty.
   are the query's direct hits, not the whole candidate list:
   a candidate that is its own seed measures distance zero,
   so seeding with every candidate leaves the order unchanged.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the rerank span. None opens no recorded span.
 
 **Returns:**
 
@@ -21715,10 +21760,21 @@ Hydration helpers for materialized resolved entities.
 ##### `agrag.retrieval.resolved_entities.hydrate_resolved_entities`
 
 ```python
-hydrate_resolved_entities(graph_store:GraphStore, ids:list[UUID]) -> dict[UUID, ResolvedEntity]
+hydrate_resolved_entities(graph_store:GraphStore, ids:list[UUID], *, tracer:Tracer | None = None) -> dict[UUID, ResolvedEntity]
 ```
 
 Hydrate resolved entities by vector-hit identifiers.
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where the resolved entities live.
+- **ids** (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – The vector-hit ids to hydrate.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the hydration span. None opens no recorded span.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[UUID](#uuid.UUID), [ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity)\]</code> – The hydrated resolved entities by id; an empty dict when `ids` is
+- <code>[dict](#dict)\[[UUID](#uuid.UUID), [ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity)\]</code> – empty or nothing parsed.
 
 ##### `agrag.retrieval.resolved_entities.parse_resolved_entity_node`
 
@@ -21798,7 +21854,7 @@ BFS retriever: graph traversal from seed entity ids.
 ###### `agrag.retrieval.retrievers.bfs.BFSRetriever`
 
 ```python
-BFSRetriever(*, graph_store:GraphStore, settings:RetrievalSettings | None = None) -> None
+BFSRetriever(*, graph_store:GraphStore, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
@@ -21823,6 +21879,8 @@ Degree-capped by RetrievalSettings.traversal_limit.
 - **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – The graph store to traverse.
 - **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
   environment.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the retriever and its children's spans. None
+  opens no recorded span.
 
 ####### `agrag.retrieval.retrievers.bfs.BFSRetriever.name`
 
@@ -21898,7 +21956,8 @@ VectorStore path searches `chunk_collection`.
 - **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional VectorStore for hybrid search.
 - **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
   environment.
-- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Optional tracer for retrieval spans.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the retriever and its children's spans. None
+  opens no recorded span.
 
 ####### `agrag.retrieval.retrievers.chunk.ChunkRetriever.name`
 
@@ -21937,7 +21996,7 @@ Community retriever: dense vector search over community reports.
 ###### `agrag.retrieval.retrievers.community.CommunityRetriever`
 
 ```python
-CommunityRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None) -> None
+CommunityRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
@@ -21951,6 +22010,15 @@ Dense search over community reports, for direct thematic questions.
 **Attributes:**
 
 - [**name**](#agrag.retrieval.retrievers.community.CommunityRetriever.name) –
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where community nodes live.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Produces query vectors.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional VectorStore for hybrid search.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from environment.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the retriever and its children's spans. None
+  opens no recorded span.
 
 ####### `agrag.retrieval.retrievers.community.CommunityRetriever.name`
 
@@ -21984,7 +22052,7 @@ Entity retriever: dense vector search over entities.
 ###### `agrag.retrieval.retrievers.entity.EntityRetriever`
 
 ```python
-EntityRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None) -> None
+EntityRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
@@ -22017,6 +22085,8 @@ filter when the caller sets one, otherwise `entity_labels`.
   environment.
 - **entity_labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – The schema entity labels native search runs
   against. None uses settings.entity_labels.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the retriever and its children's spans. None
+  opens no recorded span.
 
 ####### `agrag.retrieval.retrievers.entity.EntityRetriever.name`
 
@@ -22153,7 +22223,7 @@ Retrieval's public entry point, independent of Graph.
 ##### `agrag.retrieval.search_engine.SearchEngine`
 
 ```python
-SearchEngine(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, graph_schema:GraphSchema | None = None) -> None
+SearchEngine(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, graph_schema:GraphSchema | None = None, tracer:Tracer | None = None) -> None
 ```
 
 Retrieval's public entry point, independent of Graph.
@@ -22161,6 +22231,12 @@ Retrieval's public entry point, independent of Graph.
 Fans a query out to every method a Recipe names, fuses the
 results, and optionally reranks them. Constructed from its own
 stores; does not depend on a Graph instance existing.
+
+A `tracer` opens the retrieval spans and flows to every
+retriever and free function the engine calls. It is *not* pushed
+into `graph_store`, `embedder` or `vector_store`: pass the
+same tracer to those when you build them, so their adapter spans
+nest under these retrieval spans.
 
 **Functions:**
 
@@ -22198,6 +22274,9 @@ stores; does not depend on a Graph instance existing.
 - **graph_schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema) | None</code>) – The graph's declared schema, ground truth for
   native entity labels and for generated Cypher. None uses
   `GENERIC`.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the search span and flows to every retriever
+  and free function the engine calls. None opens no
+  recorded span.
 
 **Raises:**
 
@@ -22524,11 +22603,44 @@ traversal_limit: int = 50
 
 #### `agrag.retrieval.tracing`
 
-OpenTelemetry helpers for retrieval results.
+Span helpers shared by the retrieval spans.
+
+Every retrieval span that returns a list records the results the same way, so a
+trace answers "what came back" without a second lookup.
 
 **Functions:**
 
+- [**filters_json**](#agrag.retrieval.tracing.filters_json) – Return the scope as JSON, an empty scope when `filters` is None.
 - [**record_chunks**](#agrag.retrieval.tracing.record_chunks) – Record hydrated chunks as OpenTelemetry-safe attributes.
+- [**record_results**](#agrag.retrieval.tracing.record_results) – Write the results onto `span`.
+- [**result_text**](#agrag.retrieval.tracing.result_text) – Return the text a result stands for.
+- [**retrieval_span**](#agrag.retrieval.tracing.retrieval_span) – Open a `RETRIEVER` span that records the query and the scope.
+
+**Attributes:**
+
+- [**MAX_DOCUMENT_ATTRIBUTES**](#agrag.retrieval.tracing.MAX_DOCUMENT_ATTRIBUTES) –
+
+##### `agrag.retrieval.tracing.MAX_DOCUMENT_ATTRIBUTES`
+
+```python
+MAX_DOCUMENT_ATTRIBUTES = 20
+```
+
+##### `agrag.retrieval.tracing.filters_json`
+
+```python
+filters_json(filters:SearchFilters | None) -> str
+```
+
+Return the scope as JSON, an empty scope when `filters` is None.
+
+**Parameters:**
+
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – The scope a search or retriever ran with, or None.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The scope as JSON, never None, so a span always records it.
 
 ##### `agrag.retrieval.tracing.record_chunks`
 
@@ -22546,6 +22658,69 @@ Record hydrated chunks as OpenTelemetry-safe attributes.
 **Returns:**
 
 - <code>None</code> – None.
+
+##### `agrag.retrieval.tracing.record_results`
+
+```python
+record_results(span:Span, results:Sequence[SearchResult]) -> None
+```
+
+Write the results onto `span`.
+
+Full lists go in array attributes, one attribute per array, so the SDK's
+per-span attribute limit does not cut a long list. The first
+`MAX_DOCUMENT_ATTRIBUTES` results also use the OpenInference
+`retrieval.documents.N.*` names, which viewers draw as a retrieval panel.
+
+**Parameters:**
+
+- **span** (<code>[Span](#opentelemetry.trace.Span)</code>) – The span that returned `results`. No-op when it is not
+  recording.
+- **results** (<code>[Sequence](#collections.abc.Sequence)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code>) – The results the span's wrapped call returned, in order.
+
+##### `agrag.retrieval.tracing.result_text`
+
+```python
+result_text(result:SearchResult) -> str
+```
+
+Return the text a result stands for.
+
+Entities, resolved entities and communities give their embedding text,
+chunks their text, relations `TYPE(source_id, target_id)`, and scalar
+query rows JSON.
+
+**Parameters:**
+
+- **result** (<code>[SearchResult](#agrag.common.data_models.search_result.SearchResult)</code>) – The result to render.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The text the result's item stands for.
+
+##### `agrag.retrieval.tracing.retrieval_span`
+
+```python
+retrieval_span(tracer:Tracer | None, name:str, *, query:str, filters:SearchFilters | None, attributes:dict[str, Any] | None = None) -> Iterator[Span]
+```
+
+Open a `RETRIEVER` span that records the query and the scope.
+
+Use it for retriever spans and for root spans that return
+`SearchResult`s. The caller calls `record_results` on the yielded span
+before it exits.
+
+**Parameters:**
+
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – The caller's tracer, or None for a no-op tracer.
+- **name** (<code>[str](#str)</code>) – The span name, in the `agrag.retrieval.*` namespace.
+- **query** (<code>[str](#str)</code>) – The natural-language query, or the seed's text.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – The scope the wrapped call runs under, always recorded.
+- **attributes** (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – Extra cheap attributes known before the call starts.
+
+**Yields:**
+
+- <code>[Span](#opentelemetry.trace.Span)</code> – The open span, for `record_results` and any later attributes.
 
 ### `agrag.vectordb`
 

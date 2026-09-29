@@ -15,7 +15,7 @@ from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
-from agrag.retrieval.tracing import record_chunks
+from agrag.retrieval.tracing import record_chunks, record_results, retrieval_span
 from agrag.vectordb.base import VectorStore
 
 
@@ -49,13 +49,14 @@ class ChunkRetriever(Retriever):
             vector_store: Optional VectorStore for hybrid search.
             settings: Retrieval configuration; defaults from
                 environment.
-            tracer: Optional tracer for retrieval spans.
+            tracer: Opens the retriever and its children's spans. None
+                opens no recorded span.
         """
         self._graph_store = graph_store
         self._embedder = embedder
         self._vector_store = vector_store
         self._settings = settings or RetrievalSettings()
-        self._tracer = get_tracer(tracer)
+        self._tracer = tracer
 
     async def retrieve(
         self,
@@ -77,43 +78,66 @@ class ChunkRetriever(Retriever):
             carries its parent chunk in ``SearchResult.parent``.
         """
         effective_limit = limit if limit is not None else self._settings.chunk_top_k
-        if effective_limit <= 0:
-            return []
-        hits = await vector_search(
-            query,
-            embedder=self._embedder,
-            graph_store=self._graph_store,
-            vector_store=self._vector_store,
-            collection=self._settings.chunk_collection,
-            labels=[CHUNK_LABEL],
-            limit=effective_limit,
+        with retrieval_span(
+            self._tracer,
+            "agrag.retrieval.chunk",
+            query=query,
             filters=filters,
-            settings=self._settings,
-        )
-        if not hits:
-            return []
-        ids = [str(h.id) for h in hits]
-        try:
-            rows = await self._graph_store.execute_read(
-                hydrate_chunks_by_id_query(), {"ids": ids, "job_id": None}
+            attributes={"agrag.limit": effective_limit},
+        ) as span:
+            if effective_limit <= 0:
+                record_results(span, [])
+                return []
+            hits = await vector_search(
+                query,
+                embedder=self._embedder,
+                graph_store=self._graph_store,
+                vector_store=self._vector_store,
+                collection=self._settings.chunk_collection,
+                labels=[CHUNK_LABEL],
+                limit=effective_limit,
+                filters=filters,
+                settings=self._settings,
+                tracer=self._tracer,
             )
-        except Exception:
-            return []
-        by_id: dict[str, Chunk] = {}
-        for row in rows:
-            try:
-                node = row.get("n") if isinstance(row, dict) and "n" in row else row
-                chunk = self._parse_chunk_node(node)
-                if chunk is not None:
-                    by_id[str(chunk.id)] = chunk
-            except Exception:
-                continue
-        parents = await self._hydrate_parents(list(by_id.values()))
-        results: list[SearchResult] = []
-        for hit in hits:
-            try:
-                chunk = by_id.get(str(hit.id))
-                if chunk is not None:
+            if not hits:
+                record_results(span, [])
+                return []
+            ids = [str(h.id) for h in hits]
+            with get_tracer(self._tracer).start_as_current_span(
+                "agrag.retrieval.hydrate_chunks",
+                attributes={"agrag.requested_count": len(hits)},
+            ) as hydrate:
+                try:
+                    rows = await self._graph_store.execute_read(
+                        hydrate_chunks_by_id_query(), {"ids": ids, "job_id": None}
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    record_swallowed_exception(exc)
+                    record_results(span, [])
+                    return []
+                by_id: dict[str, Chunk] = {}
+                for row in rows:
+                    try:
+                        node = (
+                            row.get("n")
+                            if isinstance(row, dict) and "n" in row
+                            else row
+                        )
+                        chunk = self._parse_chunk_node(node)
+                        if chunk is not None:
+                            by_id[str(chunk.id)] = chunk
+                    except Exception:
+                        continue
+                if hydrate.is_recording():
+                    hydrate.set_attribute("agrag.hydrated_count", len(by_id))
+            parents = await self._hydrate_parents(list(by_id.values()))
+            results: list[SearchResult] = []
+            for hit in hits:
+                try:
+                    chunk = by_id.get(str(hit.id))
+                    if chunk is None:
+                        continue
                     parent = parents.get(str(chunk.parent_id))
                     if chunk.parent_id is not None and parent is None:
                         continue
@@ -125,9 +149,10 @@ class ChunkRetriever(Retriever):
                             parent=parent,
                         )
                     )
-            except Exception:
-                continue
-        return results
+                except Exception:
+                    continue
+            record_results(span, results)
+            return results
 
     async def _hydrate_parents(self, chunks: list[Chunk]) -> dict[str, Chunk]:
         """Load the distinct parents of child chunks with one query.
@@ -138,7 +163,7 @@ class ChunkRetriever(Retriever):
         parent_ids = sorted({str(c.parent_id) for c in chunks if c.parent_id})
         if not parent_ids:
             return {}
-        with self._tracer.start_as_current_span(
+        with get_tracer(self._tracer).start_as_current_span(
             "agrag.retrieval.hydrate_parents",
             kind=SpanKind.INTERNAL,
             attributes={"agrag.parent_count": len(parent_ids)},
