@@ -1,0 +1,188 @@
+---
+sidebar_position: 2
+title: Run the benchmarks
+---
+
+# Run the benchmarks
+
+Run a benchmark on one dataset, read its record, and decide whether to commit it. See [Benchmarks](./index.mdx) for why the module works this way. Each dataset adds its own page for the details of its questions and graph schema. In the commands below, `<domain>` stands for the name of a dataset domain.
+
+## Prerequisites
+
+1. Install Docker. The harness uses `docker compose` to start Neo4j.
+2. Install all dependencies and extras:
+
+   ```bash
+   make sync
+   ```
+
+   The agent needs the `agents` extra, and `make sync` installs it.
+3. Create a `.env` file in the repository root. Set the model endpoint:
+
+   ```bash
+   LLM_BASE_URL=https://your-endpoint.example.com/v1
+   LLM_API_KEY=your-api-key
+   LLM_MODEL_ID=your-model-name
+   ```
+
+4. Optional: give the agent or the judge its own model. The agent reads `AGENT_LLM_*` and the judge reads `EVAL_JUDGE_*`. Both fall back to the `LLM_*` values. See `.env.example` for the variable names. Without `EVAL_JUDGE_*`, the agent model grades its own answers.
+5. For a full run, set the Hugging Face dataset repo that receives the trace, and log in with `hf auth login` or set `HF_TOKEN`:
+
+   ```bash
+   BENCH_TRACE_REPO=your-name/agrag-bench-traces
+   ```
+
+   The harness creates the repo as private when it does not exist.
+
+## The Neo4j services
+
+Set `BENCH_NEO4J_PASSWORD` in the environment to a password of at least 8 characters. The harness also reads the repo-root `.env` file, but Compose does not, so keep the variable in your shell. The harness gives it to the services and uses it to connect. Every compose command needs it, including `make bench-clean`. A volume keeps the password it was created with, so remove the volumes with `make bench-clean` before you change it.
+
+The file `docker/docker-compose.benchmarks.yml` defines one Neo4j service for each corpus. Each service binds its Bolt port to `127.0.0.1` and uses a named volume, `agrag-bench-<service>`. You do not start these services yourself. The harness starts the service of a corpus before ingest and stops it after the questions. A stopped service keeps its volume, and the volume is the ingest cache.
+
+## Check the cost first
+
+Run a dry run before you spend model calls. It loads the dataset, counts the chunks, and prints an estimate of the calls and tokens. It calls no model. The estimate uses measured costs per chunk and per question, so a real run can cost more or less.
+
+```bash
+make bench-dry DOMAIN=<domain> MODE=lite
+```
+
+Set `MODE=full` for the full set. The output looks like this:
+
+```text
+chunks {'corpus-id': 1200}
+LLM calls (estimate) 2400
+tokens (estimate) 3000000
+cap 3600 calls, 4500000 tokens
+```
+
+## Run the lite set
+
+```bash
+make bench-lite DOMAIN=<domain>
+```
+
+The harness ingests each corpus, answers each question, grades each answer, and writes a record and a trace. The last line names the record:
+
+```text
+wrote benchmarks/results/lite/<run id>/record.json
+```
+
+## Run the full set
+
+```bash
+make bench DOMAIN=<domain>
+```
+
+A full run refuses to start without `BENCH_TRACE_REPO`. It then prints the estimate and asks `Continue? [y/N]`. Type `y` to start. To skip the prompt, call the command directly with `--yes`:
+
+```bash
+uv run python -m benchmarks run <domain> --mode full --yes
+```
+
+A run without a terminal, such as one inside a script, declines the prompt. Use `--yes` there.
+
+Two options change how a run answers:
+
+- `--concurrency N` sets how many questions run at once. The default is 2.
+- `--question-timeout SECONDS` sets the time limit for one question. The default is 900. A question that times out scores 0 and gets the flag `timeout`.
+
+## Spend caps
+
+Each domain and mode has a spend cap: the most LLM calls and tokens that the estimate of a run may reach. The run stops before it starts when the estimate is above the cap. It also stops when the domain and mode have no cap.
+
+The cap checks the estimate only. It does not stop a run that costs more than estimated, so read the usage in the record after each run.
+
+To replace the cap for one run, pass both numbers:
+
+```bash
+uv run python -m benchmarks run <domain> --mode full --max-llm-calls 5000 --max-tokens 6000000
+```
+
+The flags work on `dry-run` too. The record states that the cap was overridden.
+
+## Read a record
+
+A record is the file `record.json` in the run directory. Print a table of all committed records with:
+
+```bash
+uv run python -m benchmarks report
+```
+
+The table shows the newest record for each domain, mode, agent model, judge model, and chunking. Add `--all` to list every record. Add `--domain <domain>` to show one domain.
+
+The main fields of `record.json` are:
+
+| Field | Meaning |
+|---|---|
+| `code` | The git commit, the `agrag/` tree hash, the version, `git_dirty`, and the hash of `uv.lock` |
+| `models` | The agent, judge, extractor, and embedder |
+| `corpora` | For each corpus: the chunk count, the graph counts, `ingest_cache_hit`, and the ingest usage |
+| `usage` | Calls and tokens in total and by path, `usage_complete`, `spend_cap`, and the wall time |
+| `scores.aggregate` | The mean and the question count of each metric |
+| `scores.by_group` | The same, for each question group |
+| `questions` | For each question: the id, `status`, `flags`, the scores, the call count, and the retrieved chunk ids |
+
+A question with `status` set to `agent_failure` got no usable answer. It scores 0 on every metric. A provider or network error that survives three retries aborts the run and writes no record.
+
+## Read a trace
+
+A trace is the file `trace.jsonl.gz`. Each line is one batch of spans in OpenTelemetry JSON. For a lite run, the file sits beside the record. For a full run, download it from the repo and revision in the `trace` field of the record.
+
+```bash
+zcat benchmarks/results/lite/<run id>/trace.jsonl.gz | head -n 1
+```
+
+The harness opens three spans of its own. Each one holds the `agrag` spans of its work:
+
+| Span | Attribute | Covers |
+|---|---|---|
+| `benchmark.ingest` | `benchmark.corpus_id` | The ingest of one corpus |
+| `benchmark.question` | `benchmark.question_id` | The agent run for one question |
+| `benchmark.grade` | none | The judge calls for one answer |
+
+To find the prompt and response of a call, look for the `agrag.llm.request` spans. See the [trace span reference](../reference/trace-spans.mdx) for the span names and attributes. A trace holds source text, so follow `benchmarks/results/NOTICE` when you share it.
+
+## Where a run goes
+
+A run lands in `benchmarks/results/<mode>/<run id>/` only when the git tree is clean and every model call has a token count. Any other run goes to `reports/benchmarks/<mode>/<run id>/`, and git ignores that folder. The command prints `not committed: the tree is dirty or usage is incomplete` for such a run.
+
+The clean check ignores `benchmarks/results/`, so a run that you did not commit yet does not block the next run. Commit your changes before you run, and a dirty run becomes a clean run.
+
+## Rerun and use the ingest cache
+
+The harness stores a marker in each corpus graph. The marker holds a key made from the corpus documents, the graph schema, the extractor model, the embedder model, the chunking, and the committed `agrag/` tree hash. On the next run, a matching key skips ingest, and the record shows `ingest_cache_hit` as `true` with the ingest usage of the original run. A different key removes the graph and ingests again.
+
+The key uses the committed `agrag/` tree, so a run with uncommitted changes never uses the cache. It always removes the graph and ingests again. Commit your changes to reuse a graph.
+
+To delete every benchmark graph and volume:
+
+```bash
+make bench-clean
+```
+
+To delete one corpus, name its compose service:
+
+```bash
+uv run python -m benchmarks clean --corpus <service>
+```
+
+## Commit or discard a run
+
+To keep a run that landed in `benchmarks/results`, commit its folder:
+
+```bash
+git add benchmarks/results/<mode>/<run id>
+git commit -m "Add <domain> <mode> benchmark run"
+```
+
+Before you commit a trace, check `benchmarks/results/NOTICE` for the terms of the dataset.
+
+To discard a run, delete its folder:
+
+```bash
+rm -r benchmarks/results/<mode>/<run id>
+```
+
+Delete a folder under `reports/benchmarks/` the same way. For a full run that already uploaded its trace, also delete the folder `runs/<run id>` in the Hugging Face repo.

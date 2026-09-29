@@ -110,6 +110,9 @@ dev = [
 docs = [
   "griffe2md>=1.5.0",
 ]
+benchmarks = [
+  "huggingface_hub>=0.30",
+]
 
 [tool.ruff]
 target-version = "py311"

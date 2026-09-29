@@ -1,0 +1,7 @@
+Benchmark run traces in this folder contain the full text of every model request
+and response. That text includes passages of the datasets below, so each trace is
+subject to the terms of the dataset it was made from. Records hold ids and scores
+only.
+
+Each dataset adds one line here when it is added to the harness:
+<dataset> | <license> | <terms and source>

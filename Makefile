@@ -1,4 +1,4 @@
-.PHONY: test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
+.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
 
 export UV_LOCKED = 1
 
@@ -15,6 +15,10 @@ help:
 	@echo "  make test-eval-resolution - Score entity resolution on the gold set (requires an LLM key)"
 	@echo "  make test-eval-trajectory - Score agent trajectories on the tiny corpus (requires Neo4j and an LLM key)"
 	@echo "  make test-all         - Run unit, integration, and e2e tests in order"
+	@echo "  make bench-lite DOMAIN=<name> - Run a benchmark on its lite set (requires Docker, Neo4j and an LLM key)"
+	@echo "  make bench DOMAIN=<name> - Run a benchmark on its full set; asks first (same requirements)"
+	@echo "  make bench-dry DOMAIN=<name> MODE=lite|full - Bound calls and tokens without a model"
+	@echo "  make bench-clean      - Delete the benchmark graphs and volumes"
 	@echo "  make test-cov-map     - Run all suites with JUnit files and per-test coverage contexts"
 	@echo "  make dev-services-up  - Start local Neo4j/Qdrant/Weaviate/Milvus for integration tests"
 	@echo "  make dev-services-down - Stop and remove local backend services and their data"
@@ -160,6 +164,22 @@ test-cov-map-suites:
 
 test-all: test test-integration test-e2e
 
+# Benchmark runs are manual, cost real model calls, and never run in CI. See
+# docs/docs/benchmarks/run-benchmarks.mdx.
+MODE ?= lite
+
+bench-lite:
+	uv run python -m benchmarks run $(DOMAIN) --mode lite
+
+bench:
+	uv run python -m benchmarks run $(DOMAIN) --mode full
+
+bench-dry:
+	uv run python -m benchmarks dry-run $(DOMAIN) --mode $(MODE)
+
+bench-clean:
+	uv run python -m benchmarks clean
+
 dev-services-up:
 	docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420
 
@@ -172,7 +192,7 @@ cov-report:
 cov: test cov-report
 
 lint-typing:
-	uv run ty check agrag/ tests
+	uv run ty check agrag/ benchmarks/ tests
 
 lint-style:
 	uv run ruff check .
