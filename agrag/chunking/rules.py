@@ -2,7 +2,7 @@
 
 from fnmatch import fnmatchcase
 
-from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
+from pydantic import BaseModel, ConfigDict, SerializeAsAny
 
 from agrag.chunking.base import Chunker, fingerprint_of
 from agrag.chunking.docling import DoclingChunker
@@ -26,9 +26,9 @@ class RuleMatch(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    loader_names: list[str] | None = None
-    source_formats: list[SourceFormat] | None = None
-    families: list[DocumentFamily] | None = None
+    loader_names: tuple[str, ...] | None = None
+    source_formats: tuple[SourceFormat, ...] | None = None
+    families: tuple[DocumentFamily, ...] | None = None
     uri_glob: str | None = None
 
     def matches(self, document: Document) -> bool:
@@ -73,7 +73,7 @@ class Chunking(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    rules: list[ChunkingRule] = Field(default_factory=list)
+    rules: tuple[ChunkingRule, ...] = ()
     fallback: SerializeAsAny[Chunker]
 
     def select(self, document: Document) -> tuple[int | None, Chunker]:
@@ -108,11 +108,11 @@ class Chunking(BaseModel):
 
 
 DEFAULT_CHUNKING = Chunking(
-    rules=[
+    rules=(
         ChunkingRule(
             match=RuleMatch(loader_names=["docling"]), chunker=DoclingChunker()
-        )
-    ],
+        ),
+    ),
     fallback=RecursiveChunker(
         tokenizer="character", chunk_size=1024, min_characters_per_chunk=24
     ),

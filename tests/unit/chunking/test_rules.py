@@ -158,6 +158,20 @@ class TestFingerprint:
             == 3
         )
 
+    def test_settings_collections_are_immutable(self) -> None:
+        """Rule settings cannot change after their fingerprint is recorded."""
+        chunking = Chunking(
+            rules=[
+                ChunkingRule(match=RuleMatch(loader_names=["text"]), chunker=_TOKEN)
+            ],
+            fallback=_FALLBACK,
+        )
+
+        with pytest.raises(AttributeError):
+            chunking.rules.append(chunking.rules[0])
+        with pytest.raises(AttributeError):
+            chunking.rules[0].match.loader_names.append("docling")
+
 
 class TestDefaultChunking:
     """DEFAULT_CHUNKING lists its rules as plain data."""

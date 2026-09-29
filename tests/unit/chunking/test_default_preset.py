@@ -1,6 +1,7 @@
 """Golden test: DEFAULT_CHUNKING gives the chunks the pre-contract chunker gave.
 
-``tests/fixtures/chunking/golden_default.json`` holds documents and the chunks that
+``tests/unit/chunking/fixtures/golden_default.json`` holds documents and the chunks
+that
 the earlier hardcoded character chunker made for them: ids, offsets, text, line
 numbers, headings. The default preset must reproduce every field except the two
 chunker fields, which are new.
@@ -16,9 +17,9 @@ from agrag.common.data_models.document import Document, HeadingRef
 
 
 _GOLDEN = json.loads(
-    (
-        Path(__file__).parents[2] / "fixtures" / "chunking" / "golden_default.json"
-    ).read_text(encoding="utf-8")
+    (Path(__file__).parent / "fixtures" / "golden_default.json").read_text(
+        encoding="utf-8"
+    )
 )
 
 

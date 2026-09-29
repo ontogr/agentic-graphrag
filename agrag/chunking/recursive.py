@@ -21,7 +21,7 @@ class SplitLevel(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    delimiters: list[str] | None = None
+    delimiters: tuple[str, ...] | None = None
     whitespace: bool = False
     include_delim: Literal["prev", "next"] | None = "prev"
 
@@ -40,7 +40,7 @@ class RecursiveChunker(SpanChunker):
     chunk_size: int = Field(default=256, gt=0)
     tokenizer: str = DEFAULT_TOKENIZER
     min_characters_per_chunk: int = Field(default=24, gt=0)
-    levels: list[SplitLevel] | None = None
+    levels: tuple[SplitLevel, ...] | None = None
 
     @property
     def strategy(self) -> str:
@@ -53,7 +53,11 @@ class RecursiveChunker(SpanChunker):
             rules["rules"] = RecursiveRules(
                 levels=[
                     RecursiveLevel(
-                        delimiters=level.delimiters,
+                        delimiters=(
+                            list(level.delimiters)
+                            if level.delimiters is not None
+                            else None
+                        ),
                         whitespace=level.whitespace,
                         include_delim=level.include_delim,
                     )
