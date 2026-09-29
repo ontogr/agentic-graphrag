@@ -1,10 +1,12 @@
 """End-to-end retrieval tracing against a real Neo4j.
 
 One real tracer is given to the graph store, the embedder and the engine, so
-every exported span shares one trace id and no adapter span is an orphan. The
-span tree is written to the test output directory as JSON, like the other
-tracing suites. Run against the Docker Compose Neo4j from
-``docker/docker-compose.ci.yml`` (``make dev-services-up``).
+each search or traversal call forms one connected span tree and no adapter
+span is an orphan within it. Seeding and teardown writes run outside any
+retrieval span, so they root their own traces and are excluded from the
+per-call assertions. The span tree is written to the test output directory
+as JSON, like the other tracing suites. Run against the Docker Compose Neo4j
+from ``docker/docker-compose.ci.yml`` (``make dev-services-up``).
 """
 
 import importlib.util
@@ -12,6 +14,7 @@ import json
 import os
 from collections.abc import AsyncGenerator, Sequence
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -26,6 +29,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
@@ -109,7 +113,7 @@ class TestSearchTracingEndToEnd:
         self.exporter = exporter
         self.tracer = provider.get_tracer("test")
 
-        self.store = build_graph_store("neo4j")
+        self.store = build_graph_store("neo4j", tracer=self.tracer)
         await self.store.connect()
         self.label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         self.chunk_ids: list[UUID] = []
@@ -233,6 +237,32 @@ class TestSearchTracingEndToEnd:
         assert len(roots) == 1, f"expected one root, got {len(roots)}"
         return roots[0]
 
+    async def _search_tree(
+        self,
+        query: str,
+        recipe: Any,
+        name: str,
+        filters: SearchFilters | None = None,
+        expect_results: bool = True,
+    ) -> tuple[list[SearchResult], ReadableSpan, tuple[ReadableSpan, ...]]:
+        """Run one search in isolation and return its results, root and spans.
+
+        The exporter is cleared first so seeding and teardown spans cannot
+        leak into the tree; the ``agrag.retrieval.search`` span is then the
+        only root, and ``_one_tree`` validates the whole tree. Pass
+        ``expect_results=False`` when the filters cannot match the seed data
+        but the spans must exist regardless.
+        """
+        self.exporter.clear()
+        results = await self.engine.search(query, recipe, filters=filters)
+        if expect_results:
+            assert results, "expected results from the search"
+        spans = self.exporter.get_finished_spans()
+        self._write_tree(spans, name)
+        root = self._one_tree(spans)
+        assert root.name == "agrag.retrieval.search"
+        return results, root, spans
+
     def _has_retrieval_ancestor(
         self, span: ReadableSpan, by_id: dict[int, ReadableSpan]
     ) -> bool:
@@ -254,13 +284,9 @@ class TestSearchTracingEndToEnd:
         await self._seed_entities(["Alice", "Bob"])
         await self._seed_chunks(["Alice works at Acme Corp"])
 
-        results = await self.engine.search("Alice", HYBRID)
-
-        assert results, "expected results from the hybrid search"
-        spans = self.exporter.get_finished_spans()
-        self._write_tree(spans, "hybrid_search_tracing")
-        root = self._one_tree(spans)
-        assert root.name == "agrag.retrieval.search"
+        results, root, spans = await self._search_tree(
+            "Alice", HYBRID, "hybrid_search_tracing"
+        )
         attributes = root.attributes
         assert attributes is not None
         assert list(attributes["agrag.result_ids"]) == [
@@ -268,8 +294,15 @@ class TestSearchTracingEndToEnd:
         ]
         assert len(attributes["agrag.result_texts"]) == len(results)
         result_texts = attributes["agrag.result_texts"]
-        assert isinstance(result_texts, list)
-        assert str(result_texts[0]) == results[0].item.embedding_text
+        assert isinstance(result_texts, Sequence)
+        assert list(result_texts) == [
+            str(
+                result.item.embedding_text
+                if isinstance(result.item, Entity)
+                else result.item.text
+            )
+            for result in results
+        ]
 
         by_id = {span.context.span_id: span for span in spans}
         # The three sibling retrievers ran (entity, chunk, and any others the
@@ -297,10 +330,9 @@ class TestSearchTracingEndToEnd:
         await self._seed_entities(["Alice"])
         await self._seed_chunks(["Alice works at Acme Corp"])
 
-        results = await self.engine.search("Alice", HYBRID)
-
-        spans = self.exporter.get_finished_spans()
-        root = self._one_tree(spans)
+        results, root, _ = await self._search_tree(
+            "Alice", HYBRID, "flattened_documents_tracing"
+        )
         attributes = root.attributes
         assert attributes is not None
         count = min(len(results), 20)
@@ -315,17 +347,16 @@ class TestSearchTracingEndToEnd:
         await self._seed_entities(["Alice"])
         await self._seed_chunks(["Alice works at Acme Corp"])
 
-        await self.engine.search(
-            "Alice", HYBRID, filters=SearchFilters(document_ids=["doc-1"])
+        _, root, spans = await self._search_tree(
+            "Alice",
+            HYBRID,
+            "scoped_search_tracing",
+            filters=SearchFilters(document_ids=["doc-1"]),
+            expect_results=False,
         )
-
-        spans = self.exporter.get_finished_spans()
-        self._write_tree(spans, "scoped_search_tracing")
-        self._one_tree(spans)
-        root = next(span for span in spans if span.name == "agrag.retrieval.search")
         root_attributes = root.attributes
         assert root_attributes is not None
-        assert '"document_ids": ["doc-1"]' in str(root_attributes["agrag.filters"])
+        assert '"document_ids":["doc-1"]' in str(root_attributes["agrag.filters"])
         for name in ("agrag.retrieval.entity", "agrag.retrieval.chunk"):
             retriever = next(span for span in spans if span.name == name)
             retriever_attributes = retriever.attributes
@@ -334,42 +365,49 @@ class TestSearchTracingEndToEnd:
 
     async def test_traversal_entry_points_are_connected_trees(self) -> None:
         """find_entity, traverse and list_relationship_types each connect."""
-        entities = await self._seed_entities(["Ada", "Grace"])
-        ada, grace = entities[0], entities[1]
-        await self.store.upsert_relations(
-            [
-                RelationRecord(
-                    id=uuid4(),
-                    type="KNOWS",
-                    start_id=ada.id,
-                    end_id=grace.id,
-                    properties={},
-                )
-            ]
-        )
-        resolved = await find_entity(
-            "Ada",
-            graph_store=self.store,
-            embedder=self.embedder,
-            vector_store=None,
-            settings=self.settings,
-            entity_labels=[self.label],
-            tracer=self.tracer,
-        )
-        assert resolved is not None
+        # One harness span parents the seeding writes and the three entry
+        # points, so the exporter holds a single tree despite the parentless
+        # seeding spans a bare call sequence would produce.
+        self.exporter.clear()
+        with self.tracer.start_as_current_span("test-harness"):
+            entities = await self._seed_entities(["Ada", "Grace"])
+            ada, grace = entities[0], entities[1]
+            await self.store.upsert_relations(
+                [
+                    RelationRecord(
+                        id=uuid4(),
+                        type="KNOWS",
+                        start_id=ada.id,
+                        end_id=grace.id,
+                        properties={},
+                    )
+                ]
+            )
+            resolved = await find_entity(
+                "Ada",
+                graph_store=self.store,
+                embedder=self.embedder,
+                vector_store=None,
+                settings=self.settings,
+                entity_labels=[self.label],
+                tracer=self.tracer,
+            )
+            assert resolved is not None
 
-        neighbours = await traverse(
-            resolved,
-            graph_store=self.store,
-            settings=self.settings,
-            tracer=self.tracer,
-        )
-        types = await list_relationship_types(
-            resolved, graph_store=self.store, tracer=self.tracer
-        )
+            neighbours = await traverse(
+                resolved,
+                graph_store=self.store,
+                settings=self.settings,
+                tracer=self.tracer,
+            )
+            types = await list_relationship_types(
+                resolved, graph_store=self.store, tracer=self.tracer
+            )
 
         assert isinstance(neighbours, list)
         assert isinstance(types, list)
+        # Read the exporter after the harness span ends, so it is exported
+        # too and shows up as the single root.
         spans = self.exporter.get_finished_spans()
         self._write_tree(spans, "traversal_tracing")
         self._one_tree(spans)
@@ -382,17 +420,23 @@ class TestSearchTracingEndToEnd:
 
     async def test_untraced_engine_produces_no_spans(self) -> None:
         """tracer=None everywhere exports nothing and matches results."""
+        untraced_store = build_graph_store("neo4j")
+        await untraced_store.connect()
         untraced_engine = SearchEngine(
-            graph_store=self.store,
+            graph_store=untraced_store,
             embedder=self.embedder,
             settings=self.settings,
             graph_schema=self.schema,
         )
         await self._seed_entities(["Alice"])
         await self._seed_chunks(["Alice works at Acme Corp"])
-
-        untraced_results = await untraced_engine.search("Alice", HYBRID)
+        self.exporter.clear()
+        try:
+            untraced_results = await untraced_engine.search("Alice", HYBRID)
+        finally:
+            await untraced_store.close()
         assert self.exporter.get_finished_spans() == ()
+        self.exporter.clear()
 
         traced_results = await self.engine.search("Alice", HYBRID)
 
