@@ -22538,6 +22538,15 @@ record_chunks(span:Span, chunks:Sequence[Chunk]) -> None
 
 Record hydrated chunks as OpenTelemetry-safe attributes.
 
+**Parameters:**
+
+- **span** (<code>[Span](#opentelemetry.trace.Span)</code>) – The active retrieval span.
+- **chunks** (<code>[Sequence](#collections.abc.Sequence)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code>) – Parent chunks attached to child results.
+
+**Returns:**
+
+- <code>None</code> – None.
+
 ### `agrag.vectordb`
 
 Vector storage backends and the build shortcut.
