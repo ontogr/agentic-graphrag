@@ -92,6 +92,23 @@ result = await graph.add(source="session.jsonl", loader=ChatLoader())
 
 `ChatLoader` is not registered for any extension, because `.jsonl` belongs to the record loader. You must pass `loader=ChatLoader()`, and the source must be one file. See [Ingest documents](./ingest-documents.mdx) for the file format.
 
+## Search small chunks and read large ones
+
+`ParentChildChunker` cuts a document into large parent chunks, then cuts each parent into small child chunks. Extraction runs on the parents. Only the children are embedded and searched. A search hit is a child with its parent attached.
+
+```python
+from agrag.chunking import Chunking, ParentChildChunker, RecursiveChunker, SentenceChunker
+
+chunking = Chunking(
+    fallback=ParentChildChunker(
+        parent=RecursiveChunker(chunk_size=1024),
+        child=SentenceChunker(chunk_size=128),
+    )
+)
+```
+
+The trade-off: extraction makes fewer calls, because parents are large and few, and a small child matches a query more closely. The agent reads more text for each hit, because it sees the whole parent. Entities link to parents through `MENTIONED_IN`. `Chunk.level` is `1` for a parent and `0` for a child, `Chunk.parent_id` names the parent, and indexes count from 0 in each level. A child never crosses a parent boundary, even with overlap.
+
 ## Tune the Docling chunker
 
 `DoclingChunker` splits PDF and Office documents along the structure that Docling found. Its settings:
