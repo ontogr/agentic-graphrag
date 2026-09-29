@@ -264,7 +264,8 @@ async def _ingest_corpus(
     """Start the corpus service, ingest unless the cache matches, build the system.
 
     A marker with another key, or no marker, means the graph may not match the
-    corpus, so the service is removed and rebuilt before ingest.
+    corpus, so the service is removed and rebuilt before ingest. A run from a
+    dirty tree never uses the cache, because the key names only committed code.
 
     ``serving`` receives the open store and the system as they come to exist.
 
@@ -278,7 +279,7 @@ async def _ingest_corpus(
     store = serving.store = env.open_store(settings, tracer)
     await store.connect()
     marker = await cache.read_marker(store)
-    hit = marker is not None and marker.key == key
+    hit = not env.code.git_dirty and marker is not None and marker.key == key
     if not hit:
         serving.store = None
         await store.close()

@@ -111,6 +111,18 @@ class TestRunner:
         assert not any(c.ingest_cache_hit for c in record.corpora)
         assert commands.verbs().count("down") == 2
 
+    async def test_dirty_tree_never_uses_the_cache(self, tmp_path):
+        """Dirty tree never uses the cache."""
+        behaviour = Behaviour()
+        env, _ = make_environment(tmp_path, behaviour, code=make_code(dirty=True))
+        await run("fake", DOMAIN, "lite", options(), env)
+        behaviour.ingests.clear()
+
+        record, _ = await run("fake", DOMAIN, "lite", options(), env)
+
+        assert behaviour.ingests == ["c1", "c2"]
+        assert not any(c.ingest_cache_hit for c in record.corpora)
+
     async def test_failed_ingest_closes_the_store_and_stops_the_service(self, tmp_path):
         """Failed ingest closes the store and stops the service."""
         behaviour = Behaviour()

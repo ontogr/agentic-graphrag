@@ -154,7 +154,7 @@ The clean check ignores `benchmarks/results/`, so a run that you did not commit 
 
 The harness stores a marker in each corpus graph. The marker holds a key made from the corpus documents, the graph schema, the extractor model, the embedder model, the chunking, and the committed `agrag/` tree hash. On the next run, a matching key skips ingest, and the record shows `ingest_cache_hit` as `true` with the ingest usage of the original run. A different key removes the graph and ingests again.
 
-The key uses the committed `agrag/` tree. If you change files in `agrag/` and do not commit, the key does not change and the old graph is reused. Delete the graphs first in that case.
+The key uses the committed `agrag/` tree, so a run with uncommitted changes never uses the cache. It always removes the graph and ingests again. Commit your changes to reuse a graph.
 
 To delete every benchmark graph and volume:
 
