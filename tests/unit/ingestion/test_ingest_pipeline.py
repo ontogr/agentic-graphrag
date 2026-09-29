@@ -290,6 +290,107 @@ class TestIngestMatchesAdd:
         assert core_result.merge == add_result.merge
 
 
+class TestParentChildLevels:
+    """Extraction runs on parents, embedding on children."""
+
+    def _family(self) -> tuple[Document, Chunk, Chunk]:
+        document = _doc(key="pc")
+        parent = Chunk(
+            document_id=Document.node_id_for(document_key="pc"),
+            index=0,
+            text="parent text",
+            provenance=TextProvenance(char_start=0, char_end=11),
+            level=1,
+        )
+        child = Chunk(
+            document_id=parent.document_id,
+            index=0,
+            text="child",
+            provenance=TextProvenance(char_start=0, char_end=5),
+            parent_id=parent.id,
+        )
+        return document, parent, child
+
+    async def test_extractor_sees_only_the_parent(self) -> None:
+        """A child chunk is never sent to the extractor."""
+        seen: list[str] = []
+
+        class _Recorder(Extractor):
+            async def extract(
+                self, chunk: Chunk, schema: GraphSchema
+            ) -> ExtractionResult:
+                seen.append(chunk.text)
+                return ExtractionResult(entities=[], relations=[], extractor_name="r")
+
+        _, parent, child = self._family()
+
+        await extract_chunks(
+            [parent, child],
+            start_index=0,
+            extractor=_Recorder(),
+            schema=GENERIC,
+            error_policy=ErrorPolicy.RAISE,
+        )
+
+        assert seen == ["parent text"]
+
+    async def test_only_the_child_is_embedded_and_processed_count_is_parents(
+        self,
+    ) -> None:
+        """The parent gets no embedding; chunks_processed counts parents."""
+        store, calls = _store()
+        document, parent, child = self._family()
+        embedded: list[str] = []
+
+        class _Recorder(_ZeroEmbedder):
+            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+                embedded.extend(texts)
+                return await super().embed(texts)
+
+        entities, relations, failures = await extract_chunks(
+            [parent, child],
+            start_index=0,
+            extractor=_NoopExtractor(),
+            schema=GENERIC,
+            error_policy=ErrorPolicy.RAISE,
+        )
+        result = await ingest_chunks(
+            [parent, child],
+            [document],
+            entities,
+            relations,
+            failures,
+            graph_store=store,
+            embedder=_Recorder(),
+            vector_store=None,
+            graph_schema=GENERIC,
+            retrieval_settings=RetrievalSettings(),
+            error_policy=ErrorPolicy.RAISE,
+            ingestion=IngestStats(documents=1),
+        )
+
+        assert embedded == ["child"]
+        assert parent.embedding is None
+        assert child.embedding is not None
+        assert result.extraction.chunks_processed == 1
+        part_of = [
+            rec
+            for batch in calls["relations"]
+            for rec in batch
+            if rec.type == "PART_OF"
+        ]
+        assert {rec.end_id for rec in part_of} == {parent.id, child.id}
+        chunk_records = [
+            node
+            for label, nodes in calls["nodes"]
+            if label == "Chunk"
+            for node in nodes
+        ]
+        by_id = {node.id: node.properties for node in chunk_records}
+        assert by_id[child.id]["parent_id"] == str(parent.id)
+        assert by_id[parent.id]["level"] == 1
+
+
 class TestExtractChunks:
     """extract_chunks() remaps relation indices across batch calls."""
 

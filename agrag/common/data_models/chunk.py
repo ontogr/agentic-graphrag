@@ -36,6 +36,10 @@ class Chunk(DataPoint):
             chunk written before chunkers were recorded.
         chunker_hash: The fingerprint of the settings of the chunker that made this
             chunk. ``None`` for a chunk written before chunkers were recorded.
+        level: ``1`` for a parent chunk, ``0`` for every other chunk. A parent
+            chunk is the unit of extraction. A child chunk is the unit of search.
+        parent_id: The id of the parent chunk of a child chunk. ``None`` for a
+            parent and for a chunk that has no parent.
     """
 
     id: UUID | None = None
@@ -47,7 +51,18 @@ class Chunk(DataPoint):
     content_kind: Literal["text", "table_row", "code", "heading"] = "text"
     chunker: str | None = None
     chunker_hash: str | None = None
+    level: int = 0
+    parent_id: UUID | None = None
     embedding: list[float] | None = None
+
+    @model_validator(mode="after")
+    def _check_level(self) -> "Chunk":
+        """Allow levels 0 and 1, and a parent id only on a level 0 chunk."""
+        if self.level not in (0, 1):
+            raise ValueError(f"level must be 0 or 1, got {self.level}")
+        if self.level == 1 and self.parent_id is not None:
+            raise ValueError("a parent chunk (level 1) cannot have a parent_id")
+        return self
 
     @model_validator(mode="after")
     def _resolve_id(self) -> "Chunk":
@@ -57,6 +72,7 @@ class Chunk(DataPoint):
                 document_id=self.document_id,
                 provenance=self.provenance,
                 index=self.index,
+                level=self.level,
             )
         return self
 
@@ -69,6 +85,7 @@ class Chunk(DataPoint):
         provenance: TextProvenance | PageProvenance,
         index: int,
         chunker_hash: str | None = None,
+        level: int = 0,
     ) -> UUID:
         """Compute the chunk id.
 
@@ -90,19 +107,25 @@ class Chunk(DataPoint):
             index: The position of the chunk within its document.
             chunker_hash: The fingerprint of the chunker. Only a docling chunk uses
                 it; a text chunk id ignores it.
+            level: The chunk level. A parent chunk (level 1) adds a level part, so a
+                parent and a child with the same span get different ids. The id of a
+                level 0 chunk does not change.
 
         Returns:
             The chunk id.
         """
         version_suffix = f":{version_id}" if version_id is not None else ""
+        level_suffix = f":L{level}" if level != 0 else ""
         if isinstance(provenance, TextProvenance):
             key = (
                 f"Chunk:{document_id}{version_suffix}:"
-                f"{provenance.char_start}:{provenance.char_end}"
+                f"{provenance.char_start}:{provenance.char_end}{level_suffix}"
             )
         else:
             hash_part = f"{chunker_hash}:" if chunker_hash is not None else ""
-            key = f"Chunk:{document_id}{version_suffix}:{hash_part}{index}"
+            key = (
+                f"Chunk:{document_id}{version_suffix}:{hash_part}{index}{level_suffix}"
+            )
         return uuid5(NAMESPACE_OID, key)
 
     def to_node_record(self) -> NodeRecord:
@@ -130,6 +153,10 @@ class Chunk(DataPoint):
             properties["chunker"] = self.chunker
         if self.chunker_hash is not None:
             properties["chunker_hash"] = self.chunker_hash
+        if self.level != 0:
+            properties["level"] = self.level
+        if self.parent_id is not None:
+            properties["parent_id"] = str(self.parent_id)
         if self.embedding is not None:
             properties["embedding"] = self.embedding
         return NodeRecord(id=self.id, labels=[CHUNK_LABEL], properties=properties)

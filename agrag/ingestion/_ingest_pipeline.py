@@ -115,7 +115,8 @@ async def extract_chunks(
     would.
 
     Args:
-        chunks: The chunks to extract from, in order.
+        chunks: The chunks to extract from, in order. A child chunk (one with a
+            ``parent_id``) is skipped, since its parent carries the same text.
         start_index: The running entity count before ``chunks``.
         extractor: Runs against each chunk.
         schema: The entity/relation types extraction is validated against.
@@ -133,6 +134,8 @@ async def extract_chunks(
     failures: list[StageFailure] = []
     resolved_tracer = get_tracer(tracer)
     for chunk in chunks:
+        if chunk.parent_id is not None:
+            continue
         offset = start_index + len(entities)
         # The relation-remapping loop below stays inside this same `with`
         # block, not just the extract() call -- a relation-index failure
@@ -842,7 +845,11 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             with resolved_tracer.start_as_current_span("agrag.storage.embed_chunks"):
                 storage_failures.extend(
                     await _embed_and_upsert_chunks(
-                        [chunk for chunk in chunks if chunk.id in embeddable_ids],
+                        [
+                            chunk
+                            for chunk in chunks
+                            if chunk.id in embeddable_ids and chunk.level == 0
+                        ],
                         embedder=embedder,
                         graph_store=graph_store,
                         error_policy=error_policy,
@@ -937,7 +944,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     # Assemble final AddResult
     extraction_failures_capped = cap_failures(list(extraction_failures))
     extraction = ExtractionStats(
-        chunks_processed=len(chunks),
+        chunks_processed=sum(chunk.parent_id is None for chunk in chunks),
         entities_extracted=len(entities),
         relations_extracted=len(relations),
         failures=extraction_failures_capped.items,

@@ -1359,6 +1359,7 @@ for each document, and `DEFAULT_CHUNKING` is the preset that `Graph` uses.
 - [**base**](#agrag.chunking.base) – The Chunker contract: how a Document becomes Chunks, and how that is recorded.
 - [**docling**](#agrag.chunking.docling) – Docling-native chunking.
 - [**heading**](#agrag.chunking.heading) – The heading-aware strategy: sections packed to a token budget.
+- [**parent_child**](#agrag.chunking.parent_child) – The parent-child strategy: large parents to extract, small children to search.
 - [**recursive**](#agrag.chunking.recursive) – The recursive strategy: split on the coarsest delimiter that fits the budget.
 - [**rules**](#agrag.chunking.rules) – Chunking rules: which chunker a document gets, as data.
 - [**sentence**](#agrag.chunking.sentence) – The sentence strategy: whole sentences packed up to a token budget.
@@ -1373,6 +1374,7 @@ for each document, and `DEFAULT_CHUNKING` is the preset that `Graph` uses.
 - [**ChunkingRule**](#agrag.chunking.ChunkingRule) – A match and the chunker for the documents it matches.
 - [**DoclingChunker**](#agrag.chunking.DoclingChunker) – Splits a parsed docling document with docling's hybrid chunker.
 - [**HeadingChunker**](#agrag.chunking.HeadingChunker) – Cuts a document into sections at its headings and packs them to a budget.
+- [**ParentChildChunker**](#agrag.chunking.ParentChildChunker) – Cuts a document into parent chunks and cuts each parent into child chunks.
 - [**RecursiveChunker**](#agrag.chunking.RecursiveChunker) – Splits on paragraph, sentence and word boundaries, coarsest first.
 - [**RuleMatch**](#agrag.chunking.RuleMatch) – The documents a rule applies to.
 - [**SentenceChunker**](#agrag.chunking.SentenceChunker) – Packs whole sentences into chunks of at most `chunk_size` tokens.
@@ -1860,6 +1862,121 @@ The strategy name, `"heading"`.
 ```python
 tokenizer: str = DEFAULT_TOKENIZER
 ```
+
+#### `agrag.chunking.ParentChildChunker`
+
+Bases: <code>[Chunker](#agrag.chunking.base.Chunker)</code>
+
+Cuts a document into parent chunks and cuts each parent into child chunks.
+
+Extraction runs on the parents, which have `level=1`. The children have
+`level=0` and a `parent_id`, and only the children are embedded and searched.
+A search hit returns the child with its parent attached.
+
+A child never crosses a parent boundary, because the child strategy cuts each
+parent alone. A parent that the child strategy leaves without a piece gets one
+child with the span of the parent. The chunker returns all parents, then all
+children. Indexes count from 0 at each level.
+
+**Attributes:**
+
+- [**parent**](#agrag.chunking.ParentChildChunker.parent) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[SpanChunker](#agrag.chunking.base.SpanChunker)\]</code>) – The strategy that cuts the document into parents.
+- [**child**](#agrag.chunking.ParentChildChunker.child) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[SpanChunker](#agrag.chunking.base.SpanChunker)\]</code>) – The strategy that cuts each parent into children.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.ParentChildChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.ParentChildChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.ParentChildChunker.model_copy) – Copy the chunker, validating any changed setting.
+- [**model_post_init**](#agrag.chunking.ParentChildChunker.model_post_init) – Compute the fingerprint once, after the settings are validated.
+- [**settings**](#agrag.chunking.ParentChildChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+
+##### `agrag.chunking.ParentChildChunker.child`
+
+```python
+child: SerializeAsAny[SpanChunker] = Field(default_factory=_default_child)
+```
+
+##### `agrag.chunking.ParentChildChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+##### `agrag.chunking.ParentChildChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+##### `agrag.chunking.ParentChildChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+##### `agrag.chunking.ParentChildChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
+##### `agrag.chunking.ParentChildChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Compute the fingerprint once, after the settings are validated.
+
+##### `agrag.chunking.ParentChildChunker.parent`
+
+```python
+parent: SerializeAsAny[SpanChunker] = Field(default_factory=_default_parent)
+```
+
+##### `agrag.chunking.ParentChildChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+##### `agrag.chunking.ParentChildChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"parent-child"`.
 
 #### `agrag.chunking.RecursiveChunker`
 
@@ -3076,6 +3193,129 @@ The strategy name, `"heading"`.
 tokenizer: str = DEFAULT_TOKENIZER
 ```
 
+#### `agrag.chunking.parent_child`
+
+The parent-child strategy: large parents to extract, small children to search.
+
+**Classes:**
+
+- [**ParentChildChunker**](#agrag.chunking.parent_child.ParentChildChunker) – Cuts a document into parent chunks and cuts each parent into child chunks.
+
+##### `agrag.chunking.parent_child.ParentChildChunker`
+
+Bases: <code>[Chunker](#agrag.chunking.base.Chunker)</code>
+
+Cuts a document into parent chunks and cuts each parent into child chunks.
+
+Extraction runs on the parents, which have `level=1`. The children have
+`level=0` and a `parent_id`, and only the children are embedded and searched.
+A search hit returns the child with its parent attached.
+
+A child never crosses a parent boundary, because the child strategy cuts each
+parent alone. A parent that the child strategy leaves without a piece gets one
+child with the span of the parent. The chunker returns all parents, then all
+children. Indexes count from 0 at each level.
+
+**Attributes:**
+
+- [**parent**](#agrag.chunking.parent_child.ParentChildChunker.parent) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[SpanChunker](#agrag.chunking.base.SpanChunker)\]</code>) – The strategy that cuts the document into parents.
+- [**child**](#agrag.chunking.parent_child.ParentChildChunker.child) (<code>[SerializeAsAny](#pydantic.SerializeAsAny)\[[SpanChunker](#agrag.chunking.base.SpanChunker)\]</code>) – The strategy that cuts each parent into children.
+
+**Functions:**
+
+- [**chunk**](#agrag.chunking.parent_child.ParentChildChunker.chunk) – Split a document into chunks.
+- [**fingerprint**](#agrag.chunking.parent_child.ParentChildChunker.fingerprint) – Return the hash of `settings()`, 16 hex characters.
+- [**model_copy**](#agrag.chunking.parent_child.ParentChildChunker.model_copy) – Copy the chunker, validating any changed setting.
+- [**model_post_init**](#agrag.chunking.parent_child.ParentChildChunker.model_post_init) – Compute the fingerprint once, after the settings are validated.
+- [**settings**](#agrag.chunking.parent_child.ParentChildChunker.settings) – Return the strategy name and every setting as JSON-safe data.
+
+###### `agrag.chunking.parent_child.ParentChildChunker.child`
+
+```python
+child: SerializeAsAny[SpanChunker] = Field(default_factory=_default_child)
+```
+
+###### `agrag.chunking.parent_child.ParentChildChunker.chunk`
+
+```python
+chunk(document:Document) -> list[Chunk]
+```
+
+Split a document into chunks.
+
+Every chunk has non-empty text, indexes run from 0 without gaps, and a chunk
+with text provenance has text equal to `document.text` at its offsets.
+
+**Parameters:**
+
+- **document** (<code>[Document](#agrag.common.data_models.document.Document)</code>) – The document to split.
+
+**Returns:**
+
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
+- <code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+
+**Raises:**
+
+- <code>[ChunkingError](#agrag.chunking.base.ChunkingError)</code> – The strategy returned chunks that break the contract.
+
+###### `agrag.chunking.parent_child.ParentChildChunker.fingerprint`
+
+```python
+fingerprint() -> str
+```
+
+Return the hash of `settings()`, 16 hex characters.
+
+###### `agrag.chunking.parent_child.ParentChildChunker.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.chunking.parent_child.ParentChildChunker.model_copy`
+
+```python
+model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
+```
+
+Copy the chunker, validating any changed setting.
+
+A plain copy would keep the fingerprint and the splitter of the original,
+so a copy with changes is built again from its settings.
+
+###### `agrag.chunking.parent_child.ParentChildChunker.model_post_init`
+
+```python
+model_post_init(context:Any) -> None
+```
+
+Compute the fingerprint once, after the settings are validated.
+
+###### `agrag.chunking.parent_child.ParentChildChunker.parent`
+
+```python
+parent: SerializeAsAny[SpanChunker] = Field(default_factory=_default_parent)
+```
+
+###### `agrag.chunking.parent_child.ParentChildChunker.settings`
+
+```python
+settings() -> dict[str, Any]
+```
+
+Return the strategy name and every setting as JSON-safe data.
+
+A setting that is itself a chunker appears as that chunker's settings.
+
+###### `agrag.chunking.parent_child.ParentChildChunker.strategy`
+
+```python
+strategy: str
+```
+
+The strategy name, `"parent-child"`.
+
 #### `agrag.chunking.recursive`
 
 The recursive strategy: split on the coarsest delimiter that fits the budget.
@@ -3953,6 +4193,10 @@ One retrieval-sized piece of a Document.
   chunk written before chunkers were recorded.
 - [**chunker_hash**](#agrag.common.data_models.chunk.Chunk.chunker_hash) (<code>[str](#str) | None</code>) – The fingerprint of the settings of the chunker that made this
   chunk. `None` for a chunk written before chunkers were recorded.
+- [**level**](#agrag.common.data_models.chunk.Chunk.level) (<code>[int](#int)</code>) – `1` for a parent chunk, `0` for every other chunk. A parent
+  chunk is the unit of extraction. A child chunk is the unit of search.
+- [**parent_id**](#agrag.common.data_models.chunk.Chunk.parent_id) (<code>[UUID](#uuid.UUID) | None</code>) – The id of the parent chunk of a child chunk. `None` for a
+  parent and for a chunk that has no parent.
 
 **Functions:**
 
@@ -4010,7 +4254,7 @@ id: UUID | None = None
 ####### `agrag.common.data_models.chunk.Chunk.id_for`
 
 ```python
-id_for(*, document_id:UUID, version_id:UUID | None = None, provenance:TextProvenance | PageProvenance, index:int, chunker_hash:str | None = None) -> UUID
+id_for(*, document_id:UUID, version_id:UUID | None = None, provenance:TextProvenance | PageProvenance, index:int, chunker_hash:str | None = None, level:int = 0) -> UUID
 ```
 
 Compute the chunk id.
@@ -4034,6 +4278,9 @@ source.
 - **index** (<code>[int](#int)</code>) – The position of the chunk within its document.
 - **chunker_hash** (<code>[str](#str) | None</code>) – The fingerprint of the chunker. Only a docling chunk uses
   it; a text chunk id ignores it.
+- **level** (<code>[int](#int)</code>) – The chunk level. A parent chunk (level 1) adds a level part, so a
+  parent and a child with the same span get different ids. The id of a
+  level 0 chunk does not change.
 
 **Returns:**
 
@@ -4045,10 +4292,22 @@ source.
 index: int = 0
 ```
 
+####### `agrag.common.data_models.chunk.Chunk.level`
+
+```python
+level: int = 0
+```
+
 ####### `agrag.common.data_models.chunk.Chunk.metadata`
 
 ```python
 metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+####### `agrag.common.data_models.chunk.Chunk.parent_id`
+
+```python
+parent_id: UUID | None = None
 ```
 
 ####### `agrag.common.data_models.chunk.Chunk.provenance`

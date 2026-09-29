@@ -129,10 +129,14 @@ class Chunker(BaseModel, ABC):
 
     def _check(self, document: Document, chunks: list[Chunk]) -> None:
         """Raise ChunkingError when chunks break the contract."""
-        previous_start = 0
+        previous_start: dict[int, int] = {}
+        counts: dict[int, int] = {}
+        parent_spans: dict[object, tuple[int, int]] = {}
         for position, chunk in enumerate(chunks):
-            if chunk.index != position:
+            expected = counts.get(chunk.level, 0)
+            if chunk.index != expected:
                 raise self._error(document, position, f"index is {chunk.index}")
+            counts[chunk.level] = expected + 1
             if not chunk.text:
                 raise self._error(document, position, "text is empty")
             provenance = chunk.provenance
@@ -143,13 +147,23 @@ class Chunker(BaseModel, ABC):
                 raise self._error(
                     document, position, f"span {start}:{end} is outside the text"
                 )
-            if start < previous_start:
+            if start < previous_start.get(chunk.level, 0):
                 raise self._error(document, position, "span is out of order")
             if chunk.text != document.text[start:end]:
                 raise self._error(
                     document, position, "text differs from the source at its span"
                 )
-            previous_start = start
+            previous_start[chunk.level] = start
+            if chunk.level == 1:
+                parent_spans[chunk.id] = (start, end)
+            elif chunk.parent_id is not None:
+                parent = parent_spans.get(chunk.parent_id)
+                if parent is None:
+                    raise self._error(
+                        document, position, "parent is missing or comes later"
+                    )
+                if not (parent[0] <= start and end <= parent[1]):
+                    raise self._error(document, position, "span is outside its parent")
 
     def _error(self, document: Document, index: int, reason: str) -> ChunkingError:
         return ChunkingError(

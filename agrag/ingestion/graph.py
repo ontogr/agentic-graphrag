@@ -758,7 +758,7 @@ class Graph:
                 )
                 extraction_failures_capped = cap_failures(list(extraction_failures))
                 extraction = ExtractionStats(
-                    chunks_processed=len(chunks),
+                    chunks_processed=sum(c.parent_id is None for c in chunks),
                     entities_extracted=len(entities),
                     relations_extracted=len(relations),
                     failures=extraction_failures_capped.items,

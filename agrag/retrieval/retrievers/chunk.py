@@ -168,6 +168,10 @@ class ChunkRetriever(Retriever):
                 content_kind=props.get("content_kind", "text"),
                 chunker=props.get("chunker"),
                 chunker_hash=props.get("chunker_hash"),
+                level=props.get("level", 0),
+                parent_id=UUID(str(props["parent_id"]))
+                if props.get("parent_id")
+                else None,
             )
             if embedding is not None:
                 chunk.embedding = list(embedding)

@@ -7,6 +7,7 @@ for each document, and ``DEFAULT_CHUNKING`` is the preset that ``Graph`` uses.
 from agrag.chunking.base import Chunker, ChunkingError
 from agrag.chunking.docling import DoclingChunker
 from agrag.chunking.heading import HeadingChunker
+from agrag.chunking.parent_child import ParentChildChunker
 from agrag.chunking.recursive import RecursiveChunker, SplitLevel
 from agrag.chunking.rules import DEFAULT_CHUNKING, Chunking, ChunkingRule, RuleMatch
 from agrag.chunking.sentence import SentenceChunker
@@ -22,6 +23,7 @@ __all__ = [
     "ChunkingRule",
     "DoclingChunker",
     "HeadingChunker",
+    "ParentChildChunker",
     "RecursiveChunker",
     "RuleMatch",
     "SentenceChunker",
