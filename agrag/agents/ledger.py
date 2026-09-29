@@ -11,10 +11,6 @@ from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 
 
-# Longest chunk text shown to the agent. The default chunker makes chunks of at most
-# 1024 characters, so this only cuts a chunk from a larger custom chunker.
-_CHUNK_CHARS = 2000
-
 _PREFIX_MAP = {
     "Entity": "E",
     "ResolvedEntity": "E",
@@ -79,10 +75,7 @@ class Ledger:
         if isinstance(item, (Entity, ResolvedEntity)):
             return f"[{key}] Entity: {item.name} ({item.label})"
         if isinstance(item, Chunk):
-            text = item.text
-            if len(text) > _CHUNK_CHARS:
-                text = text[:_CHUNK_CHARS] + "..."
-            return f"[{key}] Chunk: {text}"
+            return f"[{key}] Chunk: {item.text}"
         if isinstance(item, Relation):
             return f"[{key}] Relation: {item.type}({item.source_id}, {item.target_id})"
         if isinstance(item, Community):

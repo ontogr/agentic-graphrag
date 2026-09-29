@@ -65,7 +65,7 @@ def _chunk_result(text: str) -> SearchResult:
 
 
 class TestChunkRendering:
-    """The agent sees the whole chunk, up to a cap."""
+    """The agent sees the whole chunk."""
 
     def test_render_chunk_keeps_text_past_200_characters(self) -> None:
         """A figure late in a chunk stays visible to the agent."""
@@ -73,9 +73,8 @@ class TestChunkRendering:
 
         assert Ledger().render(_chunk_result(text)) == f"[C1] Chunk: {text}"
 
-    def test_render_chunk_cuts_text_over_the_cap(self) -> None:
-        """A chunk over the cap is cut and marked."""
-        rendered = Ledger().render(_chunk_result("y" * 5000))
+    def test_render_chunk_keeps_a_5000_character_chunk_whole(self) -> None:
+        """A large chunk from a custom chunker is not cut."""
+        text = "y" * 5000 + " last words"
 
-        assert rendered.endswith("...")
-        assert len(rendered) < 2100
+        assert Ledger().render(_chunk_result(text)) == f"[C1] Chunk: {text}"
