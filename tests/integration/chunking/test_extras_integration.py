@@ -1,7 +1,7 @@
 """Integration tests for the semantic, neural and code chunkers with their extras.
 
 The code chunker needs only ``tree-sitter-language-pack``. The semantic and neural
-chunkers download a model on first use, so their tests skip when the download fails.
+chunkers download a model on first use.
 """
 
 import pytest
@@ -78,14 +78,6 @@ class TestCodeChunker:
             CodeChunker(language="no-such-language").chunk(make_document(_PYTHON))
 
 
-def _chunk_or_skip(chunker, document):
-    try:
-        return chunker.chunk(document)
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"model download or load failed: {exc}")
-        return []
-
-
 class TestSemanticChunker:
     """Semantic chunks equal their source slices."""
 
@@ -94,7 +86,7 @@ class TestSemanticChunker:
         pytest.importorskip("model2vec")
         document = make_document(_PROSE * 3)
 
-        chunks = _chunk_or_skip(SemanticChunker(threshold=0.5, chunk_size=64), document)
+        chunks = SemanticChunker(threshold=0.5, chunk_size=64).chunk(document)
 
         assert chunks
         _assert_exact(document, chunks)
@@ -109,7 +101,7 @@ class TestNeuralChunker:
         pytest.importorskip("torch")
         document = make_document(_PROSE * 3)
 
-        chunks = _chunk_or_skip(NeuralChunker(), document)
+        chunks = NeuralChunker().chunk(document)
 
         assert chunks
         _assert_exact(document, chunks)
