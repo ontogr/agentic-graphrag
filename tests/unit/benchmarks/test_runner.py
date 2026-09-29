@@ -23,6 +23,8 @@ from benchmarks.harness.trace import upload_trace
 from tests.unit.benchmarks.fakes import (
     DOMAIN,
     Behaviour,
+    FakeStore,
+    FakeSystem,
     llm_span,
     make_code,
     make_environment,
@@ -108,6 +110,52 @@ class TestRunner:
         assert behaviour.ingests == ["c1", "c2"]
         assert not any(c.ingest_cache_hit for c in record.corpora)
         assert commands.verbs().count("down") == 2
+
+    async def test_failed_ingest_closes_the_store_and_stops_the_service(self, tmp_path):
+        """Failed ingest closes the store and stops the service."""
+        behaviour = Behaviour()
+        env, commands = make_environment(tmp_path, behaviour)
+        opened: list[FakeStore] = []
+        open_store = env.open_store
+
+        def tracking_open(settings, tracer):
+            opened.append(open_store(settings, tracer))
+            return opened[-1]
+
+        class BrokenIngest(FakeSystem):
+            async def ingest(self) -> None:
+                raise RuntimeError("ingest failed")
+
+        env.open_store = tracking_open
+        env.make_system = lambda context: BrokenIngest(context, behaviour)
+
+        with pytest.raises(InfrastructureError):
+            await run("fake", DOMAIN, "lite", options(retries=0), env)
+
+        assert commands.verbs()[-1] == "stop"
+        assert all(store.closed for store in opened)
+
+    async def test_failure_before_the_system_exists_closes_the_store(self, tmp_path):
+        """Failure before the system exists closes the store and stops the service."""
+        env, commands = make_environment(tmp_path, Behaviour())
+        opened: list[FakeStore] = []
+        open_store = env.open_store
+
+        def tracking_open(settings, tracer):
+            opened.append(open_store(settings, tracer))
+            return opened[-1]
+
+        def broken(_context):
+            raise RuntimeError("no system")
+
+        env.open_store = tracking_open
+        env.make_system = broken
+
+        with pytest.raises(RuntimeError, match="no system"):
+            await run("fake", DOMAIN, "lite", options(), env)
+
+        assert commands.verbs()[-1] == "stop"
+        assert all(store.closed for store in opened)
 
     async def test_agent_failure_and_timeout_score_zero_and_are_flagged(self, tmp_path):
         """Agent failure and timeout score zero and are flagged."""

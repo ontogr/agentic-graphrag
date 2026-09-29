@@ -237,35 +237,58 @@ async def _answer_question(
     return _Outcome(question, None, time.monotonic() - started, flags)
 
 
+@dataclass
+class _Serving:
+    """What a corpus service holds open, so the caller can release it on failure."""
+
+    store: GraphStore | None = None
+    system: SystemAdapter | None = None
+
+    async def release(self) -> None:
+        """Tear down the system, or close the store when no system exists."""
+        if self.system is not None:
+            await self.system.teardown()
+        elif self.store is not None:
+            await self.store.close()
+
+
 async def _ingest_corpus(
     corpus: Corpus,
     documents: Sequence[Document],
     schema: GraphSchema,
     key: str,
     ctx: _Context,
+    *,
+    serving: _Serving,
 ) -> tuple[SystemAdapter, cache.IngestMarker, bool, GraphStats]:
     """Start the corpus service, ingest unless the cache matches, build the system.
 
     A marker with another key, or no marker, means the graph may not match the
     corpus, so the service is removed and rebuilt before ingest.
 
+    ``serving`` receives the open store and the system as they come to exist.
+
     Returns:
         The system, the ingest marker, whether the cache hit, and the graph counts.
+
     """
     env, tracer = ctx.env, ctx.tracing.tracer
     settings = neo4j_settings(corpus.service)
     env.services.up(corpus.service)
-    store = env.open_store(settings, tracer)
+    store = serving.store = env.open_store(settings, tracer)
     await store.connect()
     marker = await cache.read_marker(store)
     hit = marker is not None and marker.key == key
     if not hit:
+        serving.store = None
         await store.close()
         env.services.remove(corpus.service)
         env.services.up(corpus.service)
-        store = env.open_store(settings, tracer)
+        store = serving.store = env.open_store(settings, tracer)
         await store.connect()
-    system = env.make_system(SystemContext(corpus, schema, store, documents, tracer))
+    system = serving.system = env.make_system(
+        SystemContext(corpus, schema, store, documents, tracer)
+    )
     labels = [entity.label for entity in schema.entities]
     relation_types = [relation.label for relation in schema.relations]
     if marker is not None and hit:
@@ -320,10 +343,11 @@ async def _execute(
             benchmarks_code_sha256=env.code.benchmarks_code_sha256,
             uv_lock_sha256=env.code.uv_lock_sha256,
         )
-        system, marker, hit, stats = await _ingest_corpus(
-            corpus, documents[corpus.id], schema, key, ctx
-        )
+        serving = _Serving()
         try:
+            system, marker, hit, stats = await _ingest_corpus(
+                corpus, documents[corpus.id], schema, key, ctx, serving=serving
+            )
             questions = [q for q in manifest.questions if q.corpus_id == corpus.id]
             outcomes.extend(
                 await _bounded(
@@ -347,7 +371,7 @@ async def _execute(
                 )
             )
         finally:
-            await system.teardown()
+            await serving.release()
             env.services.stop(corpus.service)
     return corpora, list(schemas.values()), outcomes
 
