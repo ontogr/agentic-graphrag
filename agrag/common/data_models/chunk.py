@@ -1,6 +1,7 @@
 """The Chunk model: one retrieval-sized piece of a Document."""
 
 import json
+import re
 from typing import Literal
 from uuid import NAMESPACE_OID, UUID, uuid5
 
@@ -14,6 +15,11 @@ from agrag.common.data_models.provenance import PageProvenance, TextProvenance
 # The fixed system label every Chunk node is written with.
 CHUNK_LABEL = "Chunk"
 """"""
+
+
+def _clean_heading(heading: str) -> str:
+    """Make a heading safe to place in a prompt line."""
+    return re.sub(r"-{3,}", "-", " ".join(heading.split()))
 
 
 class Chunk(DataPoint):
@@ -127,6 +133,27 @@ class Chunk(DataPoint):
                 f"Chunk:{document_id}{version_suffix}:{hash_part}{index}{level_suffix}"
             )
         return uuid5(NAMESPACE_OID, key)
+
+    @property
+    def contextual_text(self) -> str:
+        """The text with its heading path above it, for embedding.
+
+        The stored text and its offsets do not change. A chunk with no heading path
+        returns its text.
+        """
+        label = self.section_label()
+        return self.text if label is None else f"{label}\n\n{self.text}"
+
+    def section_label(self) -> str | None:
+        """Return the heading path as one line, or ``None`` when the path is empty.
+
+        Whitespace runs in a heading become one space, and runs of three or more
+        dashes become one dash, so a heading cannot end the text block of the
+        extraction prompt.
+        """
+        if not self.heading_path:
+            return None
+        return " > ".join(_clean_heading(heading) for heading in self.heading_path)
 
     def to_node_record(self) -> NodeRecord:
         """Return this chunk as a GraphStore write record.

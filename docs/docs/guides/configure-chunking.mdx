@@ -92,6 +92,29 @@ result = await graph.add(source="session.jsonl", loader=ChatLoader())
 
 `ChatLoader` is not registered for any extension, because `.jsonl` belongs to the record loader. You must pass `loader=ChatLoader()`, and the source must be one file. See [Ingest documents](./ingest-documents.mdx) for the file format.
 
+## Add the heading path to extraction and embedding
+
+A chunk from Markdown, AsciiDoc or a PDF has a `heading_path`, the headings above it. Two settings put it where it helps. Both are on by default.
+
+| Setting | Where | Effect |
+|---|---|---|
+| `BAMLExtractor(include_heading_path=True)` | extraction | Sends the path as a `section` line above the text. Offsets still index the chunk text. |
+| `Graph.open(..., embed_heading_path=True)` | embedding | Embeds the path and the text together. The stored chunk text and the vector payload text stay raw. |
+
+Chunks with no heading path are not changed. Query embeddings do not change. Existing chunk embeddings stay as they are until you re-chunk the document with `Graph.update` under a changed chunking. Only `BAMLExtractor` uses the path.
+
+## Use the optional chunkers
+
+Three chunkers need an extra package. You can build and print them without it, and `chunk()` raises `ChunkerMissingExtraError` when the package is missing.
+
+| Chunker | Extra | Install | Cuts |
+|---|---|---|---|
+| `SemanticChunker` | `chunk-semantic` | `uv pip install "agentic-graphrag[chunk-semantic]"` | where the meaning of neighbouring sentences changes |
+| `NeuralChunker` | `chunk-neural` | `uv pip install "agentic-graphrag[chunk-neural]"` | where a token classification model predicts a topic break |
+| `CodeChunker` | `chunk-code` | `uv pip install "agentic-graphrag[chunk-code]"` | along the syntax tree of source code |
+
+`SemanticChunker` and `NeuralChunker` download a model the first time you use them. `CodeChunker` converts the byte offsets of the parser to character offsets, so chunk text equals the source at its offsets for non-ASCII code too.
+
 ## Search small chunks and read large ones
 
 `ParentChildChunker` cuts a document into large parent chunks, then cuts each parent into small child chunks. Extraction runs on the parents. Only the children are embedded and searched. A search hit is a child with its parent attached.

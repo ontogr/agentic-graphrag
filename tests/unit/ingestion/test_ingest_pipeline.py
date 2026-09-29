@@ -391,6 +391,115 @@ class TestParentChildLevels:
         assert by_id[parent.id]["level"] == 1
 
 
+class TestHeadingContextEmbedding:
+    """embed_heading_path decides whether the embedder sees the heading path."""
+
+    async def _run(
+        self, chunk: Chunk, *, embed_heading_path: bool
+    ) -> tuple[list[str], list]:
+        store, _ = _store()
+        writes: list[Any] = []
+        original = store.execute_write.side_effect
+
+        async def record(query: str, parameters: Any = None) -> Any:
+            if parameters and "records" in parameters:
+                writes.extend(parameters["records"])
+            return await original(query, parameters)
+
+        store.execute_write.side_effect = record
+        embedded: list[str] = []
+
+        class _Recorder(_ZeroEmbedder):
+            async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+                embedded.extend(texts)
+                return await super().embed(texts)
+
+        await ingest_chunks(
+            [chunk],
+            [_doc(key="h")],
+            [],
+            [],
+            [],
+            graph_store=store,
+            embedder=_Recorder(),
+            vector_store=None,
+            graph_schema=GENERIC,
+            retrieval_settings=RetrievalSettings(),
+            error_policy=ErrorPolicy.RAISE,
+            ingestion=IngestStats(documents=1),
+            embed_heading_path=embed_heading_path,
+        )
+        return embedded, writes
+
+    def _chunk(self, path: list[str]) -> Chunk:
+        return Chunk(
+            document_id=Document.node_id_for(document_key="h"),
+            text="body text",
+            provenance=TextProvenance(char_start=0, char_end=9),
+            heading_path=path,
+        )
+
+    async def test_flag_on_embeds_the_heading_path_with_the_text(self) -> None:
+        """The embedder gets the contextual text; the guard keeps the raw text."""
+        embedded, writes = await self._run(
+            self._chunk(["A", "B"]), embed_heading_path=True
+        )
+
+        assert embedded == ["A > B\n\nbody text"]
+        assert [w["expected_text"] for w in writes if "vector" in w] == ["body text"]
+
+    async def test_flag_off_embeds_the_raw_text(self) -> None:
+        """Without the flag the embedder sees only the chunk text."""
+        embedded, _ = await self._run(self._chunk(["A"]), embed_heading_path=False)
+
+        assert embedded == ["body text"]
+
+    async def test_chunk_without_headings_embeds_the_raw_text(self) -> None:
+        """No headings, no context, even with the flag on."""
+        embedded, _ = await self._run(self._chunk([]), embed_heading_path=True)
+
+        assert embedded == ["body text"]
+
+    async def test_vector_store_payload_text_stays_raw(self) -> None:
+        """The stored payload text is the chunk text, not the contextual text."""
+        store, _ = _store()
+        original = store.execute_write.side_effect
+
+        async def match_embeddings(query: str, parameters: Any = None) -> Any:
+            records = (parameters or {}).get("records") or []
+            if records and "vector" in records[0]:
+                return [{"id": record["id"]} for record in records]
+            return await original(query, parameters)
+
+        store.execute_write.side_effect = match_embeddings
+        vector_store = AsyncMock()
+        chunk = self._chunk(["A"])
+
+        await ingest_chunks(
+            [chunk],
+            [_doc(key="h")],
+            [],
+            [],
+            [],
+            graph_store=store,
+            embedder=_ZeroEmbedder(),
+            vector_store=vector_store,
+            graph_schema=GENERIC,
+            retrieval_settings=RetrievalSettings(),
+            error_policy=ErrorPolicy.RAISE,
+            ingestion=IngestStats(documents=1),
+            embed_heading_path=True,
+        )
+
+        payloads = [
+            record.payload["text"]
+            for call in vector_store.upsert.await_args_list
+            for record in call.args[1]
+            if record.payload.get("label") == "Chunk"
+        ]
+        assert payloads == ["body text"]
+
+
 class TestExtractChunks:
     """extract_chunks() remaps relation indices across batch calls."""
 
