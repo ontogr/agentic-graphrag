@@ -282,6 +282,9 @@ def code_identity(root: Path = REPO_ROOT) -> CodeIdentity:
     ).splitlines()
     code_hash = hashlib.sha256()
     for name in sorted(code_files):
+        if not (root / name).exists():
+            # The dirty check below already reports a deleted file.
+            continue
         code_hash.update(name.encode())
         code_hash.update(bytes.fromhex(sha256_file(root / name)))
     dirty = _git(root, "status", "--porcelain", "--", ".", ":!benchmarks/results")

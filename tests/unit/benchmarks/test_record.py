@@ -69,6 +69,14 @@ class TestCodeIdentity:
 
         assert code_identity(repo).git_dirty is True
 
+    def test_deleted_tracked_file_is_dirty(self, repo):
+        """A tracked file removed from the worktree does not stop the hash."""
+        (repo / "benchmarks" / "b.py").unlink()
+
+        identity = code_identity(repo)
+
+        assert identity.git_dirty is True
+
     def test_agrag_tree_hash_changes_with_agrag_code_only(self, repo):
         """Agrag tree hash changes with agrag code only."""
         before = code_identity(repo)
