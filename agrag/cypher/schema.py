@@ -249,6 +249,26 @@ def vector_index_query(
     )
 
 
+def vector_index_dimensions_query(
+    label: str, vector_property: str
+) -> tuple[str, dict[str, Any]]:
+    """Build a query that reads the dimension of an existing vector index.
+
+    Args:
+        label: The node label. Must already be validated.
+        vector_property: The vector property name. Must already be validated.
+
+    Returns:
+        The query and its parameters. The query returns one ``dimensions`` row
+        when the index exists and no rows when it does not.
+    """
+    return (
+        "SHOW INDEXES YIELD name, options WHERE name = $name "
+        "RETURN options.indexConfig['vector.dimensions'] AS dimensions",
+        {"name": vector_index_name(label, vector_property)},
+    )
+
+
 def vector_search_query(
     index_name: str, filters: dict[str, Any] | None = None
 ) -> tuple[str, dict[str, Any]]:

@@ -25,6 +25,7 @@ from agrag.cypher.schema import (
     vector_index_name,
     vector_index_query,
 )
+from agrag.embedding.errors import EmbeddingDimensionMismatchError
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
@@ -151,6 +152,34 @@ class TestNeo4jGraphStoreIntegration:
                 await first.execute_write(f"DROP INDEX {index_name} IF EXISTS")
             finally:
                 await asyncio.gather(first.close(), second.close())
+
+    async def test_vector_index_with_other_dimension_raises(self) -> None:
+        """An index kept at another dimension raises instead of passing silently."""
+        label = validate_identifier(f"VectorDim_{uuid4().hex[:8]}")
+        store = build_graph_store("neo4j")
+        await store.connect()
+        try:
+            await store.ensure_vector_index(
+                label=label,
+                vector_property="embedding",
+                dimensions=DIM,
+                distance=Distance.COSINE,
+            )
+
+            with pytest.raises(EmbeddingDimensionMismatchError) as exc_info:
+                await store.ensure_vector_index(
+                    label=label,
+                    vector_property="embedding",
+                    dimensions=DIM + 1,
+                    distance=Distance.COSINE,
+                )
+
+            assert (exc_info.value.expected, exc_info.value.actual) == (DIM, DIM + 1)
+        finally:
+            try:
+                await drop_schema_for(store, label)
+            finally:
+                await store.close()
 
     async def test_schema_cleanup_ignores_constraint_backing_indexes(self) -> None:
         """Schema cleanup preserves the constraint-owned index drop path."""

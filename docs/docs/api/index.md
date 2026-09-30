@@ -11022,6 +11022,7 @@ identifier-validation contract shared by every Cypher builder.
 - [**plain_index_query**](#agrag.cypher.schema.plain_index_query) – Build a CREATE INDEX query on the node `id` property.
 - [**relation_id_constraint_name**](#agrag.cypher.schema.relation_id_constraint_name) – Return the name of the `id` uniqueness constraint for `rel_type`.
 - [**relation_id_constraint_query**](#agrag.cypher.schema.relation_id_constraint_query) – Build a CREATE CONSTRAINT query making `id` unique per relationship type.
+- [**vector_index_dimensions_query**](#agrag.cypher.schema.vector_index_dimensions_query) – Build a query that reads the dimension of an existing vector index.
 - [**vector_index_name**](#agrag.cypher.schema.vector_index_name) – Derive the deterministic name a vector index is created under.
 - [**vector_index_query**](#agrag.cypher.schema.vector_index_query) – Build a CREATE VECTOR INDEX query for native vector search.
 - [**vector_search_query**](#agrag.cypher.schema.vector_search_query) – Build a native vector search query and its filter parameters.
@@ -11200,6 +11201,24 @@ kind-prefixed and length-prefixed rather than a plain concatenation.
 **Returns:**
 
 - <code>[str](#str)</code> – A Cypher query creating the uniqueness constraint if absent.
+
+##### `agrag.cypher.schema.vector_index_dimensions_query`
+
+```python
+vector_index_dimensions_query(label:str, vector_property:str) -> tuple[str, dict[str, Any]]
+```
+
+Build a query that reads the dimension of an existing vector index.
+
+**Parameters:**
+
+- **label** (<code>[str](#str)</code>) – The node label. Must already be validated.
+- **vector_property** (<code>[str](#str)</code>) – The vector property name. Must already be validated.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The query and its parameters. The query returns one `dimensions` row
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – when the index exists and no rows when it does not.
 
 ##### `agrag.cypher.schema.vector_index_name`
 
@@ -15456,8 +15475,14 @@ Create a native vector index if it does not exist.
 
 - **label** (<code>[str](#str)</code>) – The node label to index.
 - **vector_property** (<code>[str](#str)</code>) – The embedding property name.
-- **dimensions** (<code>[int](#int)</code>) – The embedding dimension.
+- **dimensions** (<code>[int](#int)</code>) – The embedding dimension. If the index already exists
+  with a different dimension, this raises.
 - **distance** (<code>[Distance](#agrag.common.data_models.vector_record.Distance)</code>) – The distance metric.
+
+**Raises:**
+
+- <code>[EmbeddingDimensionMismatchError](#EmbeddingDimensionMismatchError)</code> – The index already exists with a
+  different dimension than `dimensions`.
 
 ##### `agrag.graphdb.GraphStore.execute_read`
 
@@ -15787,6 +15812,11 @@ A concurrent creator can commit the same index after this operation
 starts. Neo4j reports that race as an equivalent-schema error, which
 means the requested index already exists.
 
+**Raises:**
+
+- <code>[EmbeddingDimensionMismatchError](#agrag.embedding.errors.EmbeddingDimensionMismatchError)</code> – The index already exists with a
+  different dimension than `dimensions`.
+
 ##### `agrag.graphdb.Neo4jGraphStore.execute_read`
 
 ```python
@@ -16109,8 +16139,14 @@ Create a native vector index if it does not exist.
 
 - **label** (<code>[str](#str)</code>) – The node label to index.
 - **vector_property** (<code>[str](#str)</code>) – The embedding property name.
-- **dimensions** (<code>[int](#int)</code>) – The embedding dimension.
+- **dimensions** (<code>[int](#int)</code>) – The embedding dimension. If the index already exists
+  with a different dimension, this raises.
 - **distance** (<code>[Distance](#agrag.common.data_models.vector_record.Distance)</code>) – The distance metric.
+
+**Raises:**
+
+- <code>[EmbeddingDimensionMismatchError](#EmbeddingDimensionMismatchError)</code> – The index already exists with a
+  different dimension than `dimensions`.
 
 ###### `agrag.graphdb.base.GraphStore.execute_read`
 
@@ -16582,6 +16618,11 @@ Create a native vector index if it does not exist.
 A concurrent creator can commit the same index after this operation
 starts. Neo4j reports that race as an equivalent-schema error, which
 means the requested index already exists.
+
+**Raises:**
+
+- <code>[EmbeddingDimensionMismatchError](#agrag.embedding.errors.EmbeddingDimensionMismatchError)</code> – The index already exists with a
+  different dimension than `dimensions`.
 
 ###### `agrag.graphdb.neo4j.Neo4jGraphStore.execute_read`
 
@@ -17682,6 +17723,12 @@ missing) so the dual writes never hit an absent collection.
 
 **Raises:**
 
+- <code>[EmbeddingDimensionMismatchError](#EmbeddingDimensionMismatchError)</code> – A vector index in graph_store
+  already exists with a different dimension than the embedder
+  produces.
+- <code>[CollectionDimensionMismatchError](#CollectionDimensionMismatchError)</code> – A vector_store collection
+  already exists with a different dimension than the embedder
+  produces.
 - <code>[Exception](#Exception)</code> – Whatever connect(), registration, constraint/index
   setup, or vector-index provisioning raises. graph_store is
   closed first, so a failed open() never leaks a connection.
@@ -18730,6 +18777,12 @@ missing) so the dual writes never hit an absent collection.
 
 **Raises:**
 
+- <code>[EmbeddingDimensionMismatchError](#EmbeddingDimensionMismatchError)</code> – A vector index in graph_store
+  already exists with a different dimension than the embedder
+  produces.
+- <code>[CollectionDimensionMismatchError](#CollectionDimensionMismatchError)</code> – A vector_store collection
+  already exists with a different dimension than the embedder
+  produces.
 - <code>[Exception](#Exception)</code> – Whatever connect(), registration, constraint/index
   setup, or vector-index provisioning raises. graph_store is
   closed first, so a failed open() never leaks a connection.

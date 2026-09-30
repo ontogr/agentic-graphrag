@@ -543,6 +543,12 @@ class Graph:
             A graph connected to graph_store and ready to accept add() calls.
 
         Raises:
+            EmbeddingDimensionMismatchError: A vector index in graph_store
+                already exists with a different dimension than the embedder
+                produces.
+            CollectionDimensionMismatchError: A vector_store collection
+                already exists with a different dimension than the embedder
+                produces.
             Exception: Whatever connect(), registration, constraint/index
                 setup, or vector-index provisioning raises. graph_store is
                 closed first, so a failed open() never leaks a connection.
