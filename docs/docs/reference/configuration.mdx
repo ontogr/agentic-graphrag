@@ -1,0 +1,171 @@
+---
+title: Configuration
+---
+
+# Configuration
+
+agrag reads its settings from environment variables. This page lists every variable, its default, and the settings class that reads it.
+
+## How settings load
+
+Each settings class reads three sources. The first source that has a value wins.
+
+1. An environment variable with the class prefix, for example `NEO4J_URI`.
+2. A `.env` file in the working directory.
+3. The default in the table.
+
+A class ignores variables it does not know. A list or object value is a JSON string.
+
+## Neo4j
+
+Class: `Neo4jSettings`. Prefix: `NEO4J_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `NEO4J_URI` | `bolt://localhost:7687` | The Bolt URI. Use `neo4j+s://` for Aura. A plain `bolt://` or `neo4j://` URI to a non-local host raises `ValueError`. |
+| `NEO4J_USERNAME` | `neo4j` | The database user. |
+| `NEO4J_PASSWORD` | `neo4j` | The database password. |
+| `NEO4J_DATABASE` | `neo4j` | The database name. |
+| `NEO4J_MAX_CONNECTION_LIFETIME` | `240` | Seconds a pooled connection lives. Aura closes idle connections after about five minutes. |
+
+## Vector stores
+
+Each class rejects a plain `http` URL to a non-local host when a credential is set, or when `REQUIRE_TLS` is `true`.
+
+| Variable | Default | Class | Meaning |
+| --- | --- | --- | --- |
+| `QDRANT_URL` | `http://localhost:6333` | `QdrantSettings` | The Qdrant endpoint. |
+| `QDRANT_API_KEY` | empty | `QdrantSettings` | The Qdrant API key. |
+| `QDRANT_REQUIRE_TLS` | `false` | `QdrantSettings` | Reject a plain `http` URL to a non-local host. |
+| `WEAVIATE_MODE` | `custom` | `WeaviateSettings` | `cloud` for Weaviate Cloud, `custom` for a self-hosted instance. |
+| `WEAVIATE_URL` | `http://localhost:8080` | `WeaviateSettings` | The Weaviate endpoint. |
+| `WEAVIATE_API_KEY` | empty | `WeaviateSettings` | The Weaviate API key. |
+| `WEAVIATE_GRPC_PORT` | `50051` | `WeaviateSettings` | The gRPC port. Only `custom` mode uses it. |
+| `WEAVIATE_REQUIRE_TLS` | `false` | `WeaviateSettings` | Reject a plain `http` URL to a non-local host. |
+| `MILVUS_URI` | `http://localhost:19530` | `MilvusSettings` | The Milvus endpoint. |
+| `MILVUS_TOKEN` | empty | `MilvusSettings` | The Milvus token. |
+| `MILVUS_REQUIRE_TLS` | `false` | `MilvusSettings` | Reject a plain `http` URI to a non-local host. |
+
+## Embeddings
+
+Class: `EmbeddingSettings`. Prefix: `EMBEDDING_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EMBEDDING_MODEL` | `ibm-granite/granite-embedding-small-english-r2` | The sentence-transformers model name or path. |
+| `EMBEDDING_DEVICE` | none | The device, such as `cpu` or `cuda`. None lets sentence-transformers choose. |
+| `EMBEDDING_NORMALIZE` | `true` | Whether to L2-normalize the vectors. |
+| `EMBEDDING_BATCH_SIZE` | `32` | Texts encoded per call. |
+| `EMBEDDING_CACHE_FOLDER` | none | Where sentence-transformers caches downloaded models. |
+
+## LLM clients
+
+Three roles call an LLM: extraction, the agent, and the evaluation judge. You can set one endpoint for all three with the shared variables, or set a role's own variables.
+
+### Shared variables
+
+| Variable | Default | Read by |
+| --- | --- | --- |
+| `LLM_BASE_URL` | none | `from_openai_compatible_env()` of the three roles. Required for extraction. |
+| `LLM_API_KEY` | none | The same three methods. |
+| `LLM_MODEL_ID` | none | The same three methods. Required for extraction and for the judge. |
+
+### Extraction
+
+Class: `ExtractionLLMSettings`. Prefix: `EXTRACTION_LLM_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EXTRACTION_LLM_CLIENTS` | required | A JSON list of client objects (see below). |
+| `EXTRACTION_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. Ignored with one client. |
+| `EXTRACTION_LLM_RETRY` | see below | A JSON object with `max_retries` (`3`), `delay_ms` (`200`), `multiplier` (`1.5`), and `max_delay_ms` (`10000`). |
+
+`ExtractionLLMSettings.from_openai_compatible_env()` builds one `openai-generic` client from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. It raises `RuntimeError` when `LLM_BASE_URL` or `LLM_MODEL_ID` is missing.
+
+### Agent
+
+Class: `AgentLLMSettings`. Prefix: `AGENT_LLM_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AGENT_LLM_CLIENTS` | required | A JSON list of client objects. |
+| `AGENT_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. Ignored with one client. |
+| `AGENT_LLM_BASE_URL` | `LLM_BASE_URL` | Read by `from_openai_compatible_env()`. |
+| `AGENT_LLM_API_KEY` | `LLM_API_KEY` | Read by `from_openai_compatible_env()`. |
+| `AGENT_LLM_MODEL_ID` | `LLM_MODEL_ID`, then `gpt-4o-mini` | Read by `from_openai_compatible_env()`. |
+
+### Evaluation judge
+
+Class: `EvalJudgeSettings`. Prefix: `EVAL_JUDGE_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EVAL_JUDGE_CLIENT` | required | A JSON client object. Only direct construction reads it. |
+| `EVAL_JUDGE_TEMPERATURE` | `0.0` | The sampling temperature. An empty value sends none. |
+| `EVAL_JUDGE_BASE_URL` | `LLM_BASE_URL` | Read by `from_openai_compatible_env()`. |
+| `EVAL_JUDGE_API_KEY` | `LLM_API_KEY` | Read by `from_openai_compatible_env()`. |
+| `EVAL_JUDGE_MODEL_ID` | `LLM_MODEL_ID` | Read by `from_openai_compatible_env()`. There is no default model. |
+
+### Client object
+
+Each entry in a `*_CLIENTS` list has these keys.
+
+| Key | Meaning |
+| --- | --- |
+| `name` | A unique name for the client. |
+| `provider` | One of `anthropic`, `aws-bedrock`, `google-ai`, `vertex-ai`, `openai`, `openai-responses`, `azure-openai`, `openai-generic`. |
+| `model` | The model identifier the provider expects. |
+| `api_key` | The API key, when the provider needs one directly. |
+| `base_url` | A custom endpoint. Required for `openai-generic`. |
+| `options` | Provider fields with no common shape, such as an Azure deployment id. |
+
+```dotenv
+EXTRACTION_LLM_CLIENTS=[{"name": "c", "provider": "openai-generic", "model": "your-model", "base_url": "https://your-endpoint.example.com/v1", "api_key": "your-key"}]
+```
+
+## Agent loop
+
+Class: `AgentSettings`. Prefix: `AGENT_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AGENT_RECURSION_LIMIT` | `50` | The maximum LangGraph steps before the loop stops. |
+| `AGENT_MAX_RESEARCH_ATTEMPTS` | `3` | How many times the planner can send the researcher back after an `INSUFFICIENT` verdict. |
+
+## Retrieval
+
+Class: `RetrievalSettings`. Prefix: `RETRIEVAL_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `RETRIEVAL_ENTITY_COLLECTION` | `agrag_entities` | The vector-store collection for entity search. |
+| `RETRIEVAL_RESOLVED_ENTITY_COLLECTION` | `agrag_resolved_entities` | The collection for resolved-entity search. |
+| `RETRIEVAL_CHUNK_COLLECTION` | `agrag_chunks` | The collection for chunk search. |
+| `RETRIEVAL_COMMUNITY_COLLECTION` | `agrag_communities` | The collection for community search. |
+| `RETRIEVAL_ENTITY_LABELS` | `[]` | A JSON list of graph labels for native entity search when no vector store is set. |
+| `RETRIEVAL_ENTITY_TOP_K` | `10` | Results per entity search. |
+| `RETRIEVAL_RESOLVED_ENTITY_TOP_K` | `10` | Results per resolved-entity search. |
+| `RETRIEVAL_CHUNK_TOP_K` | `10` | Results per chunk search. |
+| `RETRIEVAL_COMMUNITY_TOP_K` | `5` | Results per community search. |
+| `RETRIEVAL_HYBRID_ALPHA` | `0.5` | The dense-to-keyword blend for hybrid search, from 0 to 1. Vector-store search only. |
+| `RETRIEVAL_TRAVERSAL_DEPTH` | `2` | The maximum hops of a graph expansion. |
+| `RETRIEVAL_TRAVERSAL_LIMIT` | `50` | The maximum nodes a graph expansion returns. |
+| `RETRIEVAL_RRF_K` | `60` | The reciprocal-rank-fusion constant. |
+| `RETRIEVAL_RERANKER_MIN_SCORE` | none | Drop results below this score after reranking. None keeps all. |
+| `RETRIEVAL_NODE_DISTANCE_SEED_TOP_K` | `3` | How many top entity hits seed the node-distance reranker. |
+| `RETRIEVAL_CROSS_ENCODER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | The cross-encoder for reranking. |
+| `RETRIEVAL_TEXT2CYPHER_TIMEOUT_SECONDS` | `10.0` | The server-side timeout for a generated query. None uses the server default. |
+| `RETRIEVAL_TEXT2CYPHER_MAX_ROWS` | `1000` | The maximum rows a generated query returns. |
+
+## Ingestion
+
+Class: `CutoverJobSettings`. Prefix: `CUTOVER_JOB_`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CUTOVER_JOB_LEASE_TTL_SECONDS` | `60` | Seconds a worker's lease on a document stays valid before another worker can take it. Must be greater than zero. |
+
+## Related
+
+- How-to: [Configure storage backends](../guides/configure-storage-backends.mdx).
+- Reference: [Core API](../api/index.md).

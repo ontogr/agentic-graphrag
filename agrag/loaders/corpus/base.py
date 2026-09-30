@@ -17,8 +17,7 @@ class Loader(ABC):
     Attributes:
         extensions: The file extensions this loader claims, each with a leading dot.
         mime_types: The MIME types this loader claims. Empty when the loader relies on
-        the
-            extension alone.
+            the extension alone.
         family: The document family this loader produces.
         extra: The optional package extra required to use this loader. ``None`` for core
             loaders. The registry raises ``MissingExtraError`` when this extra is not
@@ -46,7 +45,7 @@ class Loader(ABC):
             stream: The open binary stream for the source, positioned at the start.
             opts: The read options for this call.
             start_at: The record index to resume from. Prose loaders ignore this
-            argument.
+                argument.
 
         Yields:
             One Document per unit the source contains, in a fixed order.

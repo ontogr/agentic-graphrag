@@ -91,12 +91,13 @@ repos:
         exclude: '(^tests/.*/fixtures/)'
       - id: docs-api
         name: docs-api (griffe2md)
-        entry: "bash -c 'DOCS_GRIPPE2MD=griffe2md make docs-api'"
+        # The link script uses only stdlib and runs in this isolated Python env.
+        entry: "bash -c 'DOCS_GRIPPE2MD=griffe2md DOCS_PYTHON=python make docs-api'"
         # Keep the docs generator and its chunker available in pre-commit.ci.
         language: python
         additional_dependencies: ["griffe2md==1.5.0", "chonkie==1.7.0"]
         pass_filenames: false
-        files: '^(agrag/.*\.py|pyproject\.toml|uv\.lock|Makefile|docs/docs/api/index\.md)$'
+        files: '^(agrag/.*\.py|pyproject\.toml|uv\.lock|Makefile|\.github/scripts/docs_api_links\.py|docs/docs/api/(?!index\.md$).*\.md)$'
 
 ci:
   autofix_prs: true

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 480" width="1500" height="480" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif">
+<defs>
+<filter id="sh" x="-5%" y="-5%" width="110%" height="120%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.18"/></filter>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#0f172a" flood-opacity="0.15"/></filter>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#0f172a"/></marker>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#b91c1c"/></marker>
+<marker id="arg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#166534"/></marker>
+</defs>
+<rect x="0" y="0" width="1500" height="480" rx="28" fill="#ffffff"/>
+<g transform="translate(0 -70)">
+<g filter="url(#shadow)"><rect x="40" y="230" width="140" height="100" rx="10" fill="#ffffff" stroke="#475569" stroke-width="1.8"/></g>
+<text x="110.0" y="277.0" font-size="22" font-weight="700" fill="#0f172a" text-anchor="middle" >Question</text>
+<text x="110.0" y="296.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >from the user</text>
+<g filter="url(#shadow)"><rect x="250" y="230" width="210" height="100" rx="10" fill="#ffffff" stroke="#3730a3" stroke-width="1.8"/></g>
+<text x="355.0" y="277.0" font-size="22" font-weight="700" fill="#0f172a" text-anchor="middle" >Planner</text>
+<text x="355.0" y="296.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >splits into sub-questions</text>
+<g filter="url(#shadow)"><rect x="580" y="230" width="290" height="100" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="725.0" y="277.0" font-size="22" font-weight="700" fill="#0f172a" text-anchor="middle" >Researcher</text>
+<text x="725.0" y="296.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >searches the graph with tools</text>
+<g filter="url(#shadow)"><rect x="990" y="230" width="220" height="100" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="1100.0" y="277.0" font-size="22" font-weight="700" fill="#0f172a" text-anchor="middle" >Verifier</text>
+<text x="1100.0" y="296.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >checks the evidence</text>
+<g filter="url(#shadow)"><rect x="1310" y="230" width="160" height="100" rx="10" fill="#ffffff" stroke="#166534" stroke-width="1.8"/></g>
+<text x="1390.0" y="277.0" font-size="22" font-weight="700" fill="#0f172a" text-anchor="middle" >Answer</text>
+<text x="1390.0" y="296.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >cites keys E1 C1 V1</text>
+<line x1="180" y1="280" x2="248" y2="280" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<line x1="460" y1="280" x2="578" y2="280" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<text x="519" y="266" font-size="13" font-weight="600" fill="#334155" text-anchor="middle" >sub-questions</text>
+<line x1="870" y1="280" x2="988" y2="280" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<text x="929" y="266" font-size="13" font-weight="600" fill="#334155" text-anchor="middle" >findings</text>
+<line x1="1210" y1="280" x2="1308" y2="280" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<text x="1259" y="266" font-size="14" font-weight="700" fill="#166534" text-anchor="middle" >PASS</text>
+<path d="M1100 228 V150 H725 V226" fill="none" stroke="#6d3fc0" stroke-width="2.6" marker-end="url(#ar)"/>
+<text x="912" y="136" font-size="15" font-weight="700" fill="#6d3fc0" text-anchor="middle" >INSUFFICIENT with retries left: search again (up to 3 times)</text>
+<g filter="url(#shadow)"><rect x="505" y="372" width="440" height="116" rx="12" fill="#f0fdfa" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="725" y="398" font-size="15" font-weight="700" fill="#0b7285" text-anchor="middle" >Researcher tools</text>
+<g filter="url(#shadow)"><rect x="521" y="410" width="120" height="30" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="581.0" y="430.5" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle" >Entity</text>
+<g filter="url(#shadow)"><rect x="651" y="410" width="120" height="30" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="711.0" y="430.5" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle" >Chunk</text>
+<g filter="url(#shadow)"><rect x="781" y="410" width="148" height="30" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="855.0" y="430.5" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle" >Community</text>
+<g filter="url(#shadow)"><rect x="565" y="448" width="150" height="30" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="640.0" y="468.5" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle" >Text-to-Cypher</text>
+<g filter="url(#shadow)"><rect x="725" y="448" width="170" height="30" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="810.0" y="468.5" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle" >Graph expansion</text>
+<path d="M725 332 V370" fill="none" stroke="#0b7285" stroke-width="2" marker-end="url(#ar)"/>
+<path d="M1100 332 V430 H1390 V334" fill="none" stroke="#b91c1c" stroke-width="2.4" marker-end="url(#arr)" stroke-dasharray="7 5"/>
+<text x="1245" y="462" font-size="15" font-weight="700" fill="#991b1b" text-anchor="middle" >CONTRADICTORY, or no retries left:</text>
+<text x="1245" y="484" font-size="15" font-weight="400" fill="#7f1d1d" text-anchor="middle" >the answer states the conflict or the gap</text>
+</g>
+</svg>

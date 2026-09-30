@@ -13,6 +13,7 @@ than returning raw concatenated evidence, and that every run returns its own
 """
 
 import importlib.util
+import subprocess
 import sys
 import types
 from typing import Any
@@ -27,6 +28,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
+from agrag import agents
 from agrag.agents import AgentMissingExtraError
 from agrag.agents.build import _RunScopedAgent, _SimpleAgent, build_agent
 from agrag.agents.ledger import Ledger
@@ -82,6 +84,31 @@ def _engine() -> MagicMock:
 
 class TestBuildAgent:
     """Tests agent construction and per-invocation agent wrappers."""
+
+    def test_build_agent_is_exported_from_package(self) -> None:
+        """The agent builder is available from the package API."""
+        assert agents.build_agent is build_agent
+
+    def test_importing_package_does_not_load_optional_agent_modules(self) -> None:
+        """Importing the package does not import optional LangChain modules."""
+        code = (
+            "import sys\n"
+            "sys.modules['langchain'] = None\n"
+            "sys.modules['langchain_core'] = None\n"
+            "sys.modules['langgraph'] = None\n"
+            "import agrag.agents\n"
+            "assert 'agrag.agents.build' not in sys.modules\n"
+            "print('ok')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "ok" in result.stdout
 
     async def test_simple_agent_wraps_search_and_model_in_run_span(self) -> None:
         """The fallback run span is active for search and model work."""
