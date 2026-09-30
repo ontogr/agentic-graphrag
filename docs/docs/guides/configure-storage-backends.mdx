@@ -8,6 +8,10 @@ title: Configure storage backends
 This guide sets up an embedder, a vector store, and a graph store. Use it
 before you store or search embeddings.
 
+## Before you start
+
+Each code block on this page is complete. It opens and closes its own connections. Blocks that use a vector store read the `QDRANT_*` settings, and blocks that use the graph store read the `NEO4J_*` settings. See the [Quickstart](/get-started/quickstart) for a Neo4j database.
+
 ## Install
 
 Install the core package. Then install one extra for each backend you use.
@@ -27,19 +31,27 @@ must install the `neo4j` extra to use `GraphStore`.
 ## Set up the embedder
 
 `build_embedder` takes a sentence-transformers model name. It returns a
-ready-to-use embedder. The default model is `ibm-granite/granite-embedding-
-small-english-r2`.
+ready-to-use embedder. The default model is `ibm-granite/granite-embedding-small-english-r2`.
 
 ```python
+import asyncio
+
 from agrag.embedding import build_embedder
 
-embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
-vectors = await embedder.embed(["first passage", "second passage"])
-print(embedder.dimensions)  # the vector length this model produces
+
+async def main() -> None:
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    vectors = await embedder.embed(["first passage", "second passage"])
+    print(await embedder.dimensions())  # the vector length this model produces
+
+
+asyncio.run(main())
 ```
 
 To use a different model, or to set the device or batch size, build a
 `SentenceTransformerEmbedder` yourself. Pass its own `EmbeddingSettings`.
+
+{/* pmd-metadata: notest */}
 
 ```python
 from agrag.embedding import EmbeddingSettings, SentenceTransformerEmbedder
@@ -66,14 +78,26 @@ Set these variables instead of passing `EmbeddingSettings` fields in code.
 environment variables.
 
 ```python
-from agrag.vectordb import build_vector_store
-from agrag.common.data_models.vector_record import Distance
+import asyncio
 
-store = build_vector_store("qdrant")
-await store.initialize()
-await store.ensure_collection(
-    "chunks", dimensions=embedder.dimensions, distance=Distance.COSINE, hybrid=True
-)
+from agrag.common.data_models.vector_record import Distance
+from agrag.embedding import build_embedder
+from agrag.vectordb import build_vector_store
+
+
+async def main() -> None:
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    store = build_vector_store("qdrant")
+    await store.initialize()
+    await store.ensure_collection(
+        "guide_example",
+        dimensions=await embedder.dimensions(),
+        distance=Distance.COSINE,
+        hybrid=True,
+    )
+
+
+asyncio.run(main())
 ```
 
 Set `dimensions` to the value your embedder produces. `ensure_collection`
@@ -82,6 +106,8 @@ different dimension. Pass `hybrid=True` to search the collection with
 `hybrid_search` later. Leave it out if you only need `search`.
 
 For full control, build a backend class yourself with its own settings.
+
+{/* pmd-metadata: notest */}
 
 ```python
 from agrag.vectordb.qdrant import QdrantVectorStore
@@ -118,25 +144,77 @@ that wants every remote connection encrypted.
 Write vectors with `upsert`. Each record needs an id, a vector, and a payload.
 
 ```python
-from uuid import uuid4
-from agrag.common.data_models.vector_record import VectorRecord
+import asyncio
 
-record = VectorRecord(
-    id=uuid4(), vector=vectors[0], payload={"text": "first passage"}
-)
-await store.upsert("chunks", [record])
+from uuid import uuid4
+
+from agrag.common.data_models.vector_record import Distance, VectorRecord
+from agrag.embedding import build_embedder
+from agrag.vectordb import build_vector_store
+
+
+async def main() -> None:
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    vectors = await embedder.embed(["first passage", "second passage"])
+    store = build_vector_store("qdrant")
+    await store.initialize()
+    await store.ensure_collection(
+        "guide_example",
+        dimensions=await embedder.dimensions(),
+        distance=Distance.COSINE,
+        hybrid=True,
+    )
+
+    record = VectorRecord(
+        id=uuid4(), vector=vectors[0], payload={"text": "first passage"}
+    )
+    await store.upsert("guide_example", [record])
+
+
+asyncio.run(main())
 ```
 
 Search by vector alone with `search`. Search by vector and keyword together
 with `hybrid_search`.
 
 ```python
-hits = await store.search("chunks", query_vector=vectors[0], limit=5)
-hits = await store.hybrid_search(
-    "chunks", query_vector=vectors[0], query_text="sepsis management", limit=5,
-)
-for hit in hits:
-    print(hit.id, hit.score, hit.payload)
+import asyncio
+
+from uuid import uuid4
+
+from agrag.common.data_models.vector_record import Distance, VectorRecord
+from agrag.embedding import build_embedder
+from agrag.vectordb import build_vector_store
+
+
+async def main() -> None:
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    vectors = await embedder.embed(["sepsis management protocol"])
+    store = build_vector_store("qdrant")
+    await store.initialize()
+    await store.ensure_collection(
+        "guide_example",
+        dimensions=await embedder.dimensions(),
+        distance=Distance.COSINE,
+        hybrid=True,
+    )
+    await store.upsert(
+        "guide_example",
+        [VectorRecord(id=uuid4(), vector=vectors[0], payload={"text": "sepsis"})],
+    )
+
+    hits = await store.search("guide_example", query_vector=vectors[0], limit=5)
+    hits = await store.hybrid_search(
+        "guide_example",
+        query_vector=vectors[0],
+        query_text="sepsis management",
+        limit=5,
+    )
+    for hit in hits:
+        print(hit.id, hit.score, hit.payload)
+
+
+asyncio.run(main())
 ```
 
 ## Set up a graph store
@@ -145,11 +223,19 @@ Build a `Neo4jGraphStore` with `Neo4jSettings`. Call `connect` before you use
 it.
 
 ```python
+import asyncio
+
 from agrag.graphdb.neo4j import Neo4jGraphStore
 from agrag.graphdb.settings import Neo4jSettings
 
-store = Neo4jGraphStore(settings=Neo4jSettings())
-await store.connect()
+
+async def main() -> None:
+    store = Neo4jGraphStore(settings=Neo4jSettings())
+    await store.connect()
+    await store.close()
+
+
+asyncio.run(main())
 ```
 
 ### Set graph store credentials with environment variables
@@ -173,16 +259,31 @@ properties map. Call `setup_constraints` after your first write of a label,
 so Neo4j knows which labels to constrain.
 
 ```python
-from uuid import uuid4
-from agrag.common.data_models.graph_record import NodeRecord
+import asyncio
 
-node = NodeRecord(
-    id=uuid4(),
-    labels=["Chunk"],
-    properties={"text": "first passage", "embedding": vectors[0]},
-)
-await store.upsert_nodes("Chunk", [node])
-await store.setup_constraints()
+from uuid import uuid4
+
+from agrag.common.data_models.graph_record import NodeRecord
+from agrag.graphdb.neo4j import Neo4jGraphStore
+from agrag.graphdb.settings import Neo4jSettings
+
+
+async def main() -> None:
+    store = Neo4jGraphStore(settings=Neo4jSettings())
+    await store.connect()
+    try:
+        node = NodeRecord(
+            id=uuid4(),
+            labels=["Note"],
+            properties={"text": "first passage"},
+        )
+        await store.upsert_nodes("Note", [node])
+        await store.setup_constraints()
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
 ```
 
 A node can carry more than one label. List every label the node should have in
@@ -191,12 +292,30 @@ Records with different label sets in the same call are grouped and written
 separately.
 
 ```python
-tagged_node = NodeRecord(
-    id=uuid4(),
-    labels=["Chunk", "Entity"],
-    properties={"text": "sepsis protocol"},
-)
-await store.upsert_nodes("Chunk", [tagged_node])
+import asyncio
+
+from uuid import uuid4
+
+from agrag.common.data_models.graph_record import NodeRecord
+from agrag.graphdb.neo4j import Neo4jGraphStore
+from agrag.graphdb.settings import Neo4jSettings
+
+
+async def main() -> None:
+    store = Neo4jGraphStore(settings=Neo4jSettings())
+    await store.connect()
+    try:
+        tagged_node = NodeRecord(
+            id=uuid4(),
+            labels=["Note", "Draft"],
+            properties={"text": "sepsis protocol"},
+        )
+        await store.upsert_nodes("Note", [tagged_node])
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
 ```
 
 Labels only ever accumulate. If a later upsert of the same node id lists
@@ -208,14 +327,32 @@ fewer labels, the labels already on the node are kept, not removed.
 `failures` for records that did not write. The rest of the call still lands.
 
 ```python
-nodes = [
-    NodeRecord(id=uuid4(), labels=["Chunk"], properties={"text": "example"})
-]
-result = await store.upsert_nodes("Chunk", nodes)
-if result.failures:
-    for failure in result.failures:
-        print(f"{failure.id} failed: {failure.error_message}")
-print(f"{result.written} of {len(nodes)} nodes written")
+import asyncio
+
+from uuid import uuid4
+
+from agrag.common.data_models.graph_record import NodeRecord
+from agrag.graphdb.neo4j import Neo4jGraphStore
+from agrag.graphdb.settings import Neo4jSettings
+
+
+async def main() -> None:
+    store = Neo4jGraphStore(settings=Neo4jSettings())
+    await store.connect()
+    try:
+        nodes = [
+            NodeRecord(id=uuid4(), labels=["Note"], properties={"text": "example"})
+        ]
+        result = await store.upsert_nodes("Note", nodes)
+        if result.failures:
+            for failure in result.failures:
+                print(f"{failure.id} failed: {failure.error_message}")
+        print(f"{result.written} of {len(nodes)} nodes written")
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
 ```
 
 A connectivity or authentication failure still raises instead of returning a
@@ -228,15 +365,43 @@ You can search vectors stored as node properties, without a separate vector
 store. First create a vector index on the property. Then search it.
 
 ```python
-await store.ensure_vector_index(
-    label="Chunk",
-    vector_property="embedding",
-    dimensions=embedder.dimensions,
-    distance=Distance.COSINE,
-)
-hits = await store.vector_search(
-    label="Chunk", vector_property="embedding", query_vector=vectors[0], limit=5
-)
+import asyncio
+
+from uuid import uuid4
+
+from agrag.common.data_models.graph_record import NodeRecord
+from agrag.common.data_models.vector_record import Distance
+from agrag.embedding import build_embedder
+from agrag.graphdb.neo4j import Neo4jGraphStore
+from agrag.graphdb.settings import Neo4jSettings
+
+
+async def main() -> None:
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    vectors = await embedder.embed(["first passage"])
+    store = Neo4jGraphStore(settings=Neo4jSettings())
+    await store.connect()
+    try:
+        node = NodeRecord(
+            id=uuid4(),
+            labels=["Note"],
+            properties={"text": "first passage", "embedding": vectors[0]},
+        )
+        await store.upsert_nodes("Note", [node])
+        await store.ensure_vector_index(
+            label="Note",
+            vector_property="embedding",
+            dimensions=await embedder.dimensions(),
+            distance=Distance.COSINE,
+        )
+        hits = await store.vector_search(
+            label="Note", vector_property="embedding", query_vector=vectors[0], limit=5
+        )
+    finally:
+        await store.close()
+
+
+asyncio.run(main())
 ```
 
 `vector_search` returns the same hit type `VectorStore.search` returns. Code
@@ -259,17 +424,30 @@ failure can leave old community vectors in the collection and is reported
 to the caller.
 
 ```python
+import asyncio
+
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
 from agrag.vectordb import build_vector_store
 
-vector_store = build_vector_store("qdrant")
-graph = await Graph.open(
-    schema=schema,
-    graph_store=graph_store,
-    embedder=embedder,
-    extractor=extractor,
-    vector_store=vector_store,
-)
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    vector_store = build_vector_store("qdrant")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+        vector_store=vector_store,
+    )
+    await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
 A `SearchEngine` pointed at the same `vector_store` then searches the same

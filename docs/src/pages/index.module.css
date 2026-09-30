@@ -1,0 +1,338 @@
+.hero {
+  padding: 4rem 0 3.5rem;
+  text-align: center;
+  background:
+    radial-gradient(75rem 30rem at 50% -8rem, rgba(18, 96, 247, 0.09), transparent 65%),
+    linear-gradient(180deg, var(--ifm-background-surface-color) 0%, var(--ifm-background-color) 100%);
+}
+
+.heroInner {
+  position: relative;
+}
+
+.title {
+  max-width: 44rem;
+  margin: 0 auto 1rem;
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  line-height: 1.1;
+}
+
+.accent {
+  color: var(--ifm-color-primary);
+}
+
+.pitch {
+  max-width: 38rem;
+  margin: 0 auto 1.75rem;
+  font-size: 1.15rem;
+  color: var(--ifm-color-content-secondary);
+}
+
+.install {
+  max-width: 26rem;
+  margin: 0 auto 1.5rem;
+  overflow: hidden;
+  text-align: left;
+  border: 1px solid var(--ifm-toc-border-color);
+  border-radius: 10px;
+  box-shadow: var(--ifm-global-shadow-lw);
+}
+
+.terminalBar {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--ifm-toc-border-color);
+  background: var(--ifm-background-surface-color);
+}
+
+.dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+}
+
+/* The navbar's signature cyan -> blue gradient, reused as terminal dots. */
+.dotCyan {
+  background: #19dbf5;
+}
+
+.dotMid {
+  background: #3ba0f0;
+}
+
+.dotBlue {
+  background: #1260f7;
+}
+
+.install > div {
+  margin-bottom: 0;
+  border-radius: 0;
+}
+
+.install pre {
+  border-radius: 0;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+}
+
+.facts {
+  margin: 0 0 3rem;
+  font-size: 0.9rem;
+  color: var(--ifm-color-content-secondary);
+}
+
+.pipeline {
+  overflow-x: auto;
+  padding: 0.25rem 0 1rem;
+}
+
+.pipelineNote {
+  max-width: 38rem;
+  margin: 0 auto;
+  font-size: 0.95rem;
+  color: var(--ifm-color-content-secondary);
+}
+
+.lane {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 46rem;
+  padding: 0.5rem 0;
+}
+
+.laneLabel {
+  flex: none;
+  width: 4rem;
+  margin-right: 1.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: right;
+  text-transform: uppercase;
+  color: var(--ifm-color-content-secondary);
+}
+
+.steps {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  flex: none;
+  font-size: 0.92rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chip {
+  padding: 0.5rem 0.85rem;
+  border: 1.5px solid var(--agrag-diagram-node-stroke);
+  border-radius: 10px;
+  background: var(--agrag-diagram-node-fill);
+}
+
+.stepEnd .chip {
+  border-color: var(--ifm-color-primary);
+  background: var(--ifm-color-primary);
+  color: var(--ifm-background-color);
+  font-weight: 600;
+}
+
+.arrow {
+  flex: none;
+  width: 1.35rem;
+  height: 0.75rem;
+  margin: 0 0.2rem;
+  color: var(--agrag-diagram-node-stroke);
+}
+
+.arrowLine,
+.arrowHead {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* One authored moment: the two lanes settle in left to right on load. */
+.step,
+.laneLabel {
+  animation: settle 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.lane:nth-child(2) .step {
+  animation-delay: calc(0.15s + var(--i, 0) * 0.05s);
+}
+
+.lane:nth-child(1) .step {
+  animation-delay: calc(var(--i, 0) * 0.05s);
+}
+
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step,
+  .laneLabel {
+    animation: none;
+  }
+}
+
+.section {
+  padding: 3rem 0;
+}
+
+.h2 {
+  margin-bottom: 0.5rem;
+}
+
+.featureTitle {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+}
+
+@media (max-width: 996px) {
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sectionTitle {
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.example {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  text-align: left;
+}
+
+@media (max-width: 996px) {
+  .example {
+    grid-template-columns: 1fr;
+  }
+}
+
+.exampleCol {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.exampleCol > div {
+  margin-bottom: 0;
+}
+
+.output {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  font-size: 90%;
+  line-height: 1.6;
+  color: var(--ifm-color-content-secondary);
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-toc-border-color);
+  border-top: 0;
+  border-bottom-left-radius: var(--ifm-global-radius);
+  border-bottom-right-radius: var(--ifm-global-radius);
+  overflow-x: auto;
+}
+
+.exampleNote {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  color: var(--ifm-color-content-secondary);
+}
+
+.exampleCta {
+  margin: 2rem 0 0;
+  text-align: center;
+  color: var(--ifm-color-content-secondary);
+}
+
+.card {
+  display: block;
+  padding: 1.5rem;
+  border: 1px solid var(--ifm-toc-border-color);
+  border-radius: var(--ifm-global-radius);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.card:hover {
+  border-color: var(--ifm-color-primary);
+  box-shadow: var(--ifm-global-shadow-lw);
+  color: inherit;
+  text-decoration: none;
+}
+
+.card h3 {
+  margin-bottom: 0.25rem;
+  color: var(--ifm-color-primary);
+}
+
+.card p {
+  margin: 0;
+  color: var(--ifm-color-content-secondary);
+}
+
+.ctaPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  align-items: center;
+  padding: 2.5rem 2rem;
+  border: 1px solid var(--ifm-toc-border-color);
+  border-radius: 16px;
+  background: var(--agrag-diagram-node-fill);
+}
+
+/* Wide content keeps a readable width on small screens and scrolls sideways. */
+@media (max-width: 480px) {
+  .hero {
+    padding: 2.5rem 0 2rem;
+  }
+
+  .buttons a {
+    width: 100%;
+  }
+}

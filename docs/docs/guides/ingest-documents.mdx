@@ -5,17 +5,11 @@ title: Ingest documents
 
 # Ingest documents
 
-Add files, directories, raw text, or prebuilt `Document` objects to a `Graph`
-with `Graph.add`. This guide covers the ingestion entrypoint only. See the
-[API Reference](/api) for every parameter.
+Add files, directories, raw text, or prebuilt `Document` objects to a `Graph` with `Graph.add`. This guide covers the ingestion entrypoint only. See the [API Reference](/api) for every parameter.
 
-## Install
+## Before you start
 
-Install the core package:
-
-```bash
-uv pip install agentic-graphrag
-```
+This guide assumes that you finished the [Quickstart](/get-started/quickstart): you have a Neo4j database, its `NEO4J_*` settings in a `.env` file, and the `neo4j`, `extract`, and `embed-local` extras installed. Each code block on this page is complete. It opens its own graph and closes it at the end.
 
 For PDF, DOCX, PPTX, image, and XML support, install the docling extra:
 
@@ -25,31 +19,81 @@ uv pip install "agentic-graphrag[docling]"
 
 ## Add a single file
 
-Open a graph and add one file by path. `Graph.open` is async and needs no
-external service.
+`Graph.open` connects to Neo4j and creates the constraints and indexes that the graph needs. `Graph.add` then loads, chunks, extracts, and stores the file.
 
 ```python
 import asyncio
-from agrag.ingestion import Graph
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-async def main():
-    graph = await Graph.open()
-    result = await graph.add(source="path/to/file.pdf")
-    print(result.ingestion.documents)  # number of documents ingested
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "notes.md"
+            path.write_text("# Notes\n\nAda Lovelace wrote the first published program.\n")
+            result = await graph.add(source=str(path))
+            print(result.ingestion.documents)
+    finally:
+        await graph_store.close()
+
 
 asyncio.run(main())
 ```
 
-Every later snippet on this page continues inside that same `async def
-main(): ...` body, using the `graph` opened above, and still runs through
-`asyncio.run(main())`.
+## Add many files
 
 Add a directory, a glob, or a list of paths the same way:
 
 ```python
-result = await graph.add(source="./corpus")            # every supported file
-result = await graph.add(source="./corpus/**/*.md")     # glob pattern
-result = await graph.add(source=["a.txt", "b.pdf"])     # explicit list
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "a.txt").write_text("Charles Babbage designed the Analytical Engine.")
+            (root / "b.md").write_text("# Engine\n\nThe engine was never finished.")
+            result = await graph.add(source=folder)  # every supported file
+            print(result.ingestion.documents)
+            result = await graph.add(source=f"{folder}/**/*.md")  # glob pattern
+            print(result.ingestion.documents)
+            result = await graph.add(source=[root / "a.txt", root / "b.md"])  # explicit list
+            print(result.ingestion.documents)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
 `Graph.add` accepts exactly one of `source`, `text`, or `documents`.
@@ -59,39 +103,88 @@ result = await graph.add(source=["a.txt", "b.pdf"])     # explicit list
 Pass a string to ingest prose as a single document:
 
 ```python
-result = await graph.add(text="Raw prose to index as one document.")
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        result = await graph.add(text="Raw prose to index as one document.")
+        print(result.ingestion.documents)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
 ## Add prebuilt documents
 
-Pass `Document` objects you already built (for example, documents returned by a
-loader or reconstructed from storage) to `documents`. A `Document` carries its
-source metadata, so every field is required:
+Pass `Document` objects you already built (for example, documents returned by a loader or reconstructed from storage) to `documents`. A `Document` carries its source metadata, so every field is required:
 
 ```python
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+import hashlib
+
 from agrag.common.data_models.document import (
     Document,
     DocumentFamily,
     SourceFormat,
 )
 
-text = "Prebuilt document text."
-doc = Document(
-    text=text,
-    title="Prebuilt",
-    uri="memory://prebuilt",
-    source_format=SourceFormat.TXT,
-    family=DocumentFamily.PROSE,
-    content_hash="replace-with-a-real-sha256",
-    loader_name="text",
-    char_count=len(text),
-)
-result = await graph.add(documents=[doc])
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        text = "Prebuilt document text."
+        doc = Document(
+            text=text,
+            title="Prebuilt",
+            uri="memory://prebuilt",
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash=hashlib.sha256(text.encode()).hexdigest(),
+            loader_name="text",
+            char_count=len(text),
+        )
+        result = await graph.add(documents=[doc])
+        print(result.ingestion.documents)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
-For most callers, `source=` or `text=` is simpler; reach for `documents=` when
-you already hold `Document` objects.
+For most callers, `source=` or `text=` is simpler. Use `documents=` when you already hold `Document` objects.
 
 ## Choose how documents are chunked
 
@@ -99,88 +192,219 @@ you already hold `Document` objects.
 
 ## Add a chat file
 
-`ChatLoader` reads a file of chat messages as one document. Use `.jsonl` or `.ndjson` with one JSON object per line, or `.json` with an array of objects. Each message needs a non-empty string `role` and a string `content`. It can also have an `id`, which must be unique in the file.
+`ChatLoader` reads a file of chat messages as one document. Use `.jsonl` or `.ndjson` with one JSON object on each line, or `.json` with an array of objects. Each message needs a non-empty string `role` and a string `content`. It can also have an `id`, which must be unique in the file.
 
 ```json
 {"role": "user", "content": "Hi there", "id": 1}
 {"role": "assistant", "content": "Hello! How can I help?", "id": 2}
 ```
 
-The document text has one `[role] content` block for each message, with a blank line between blocks. `Document.turns` records the role, the id and the character span of each block. Pass the loader for one file:
+The document text has one `[role] content` block for each message, with a blank line between blocks. `Document.turns` records the role, the id, and the character span of each block. Pass the loader for one file:
 
 ```python
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
 from agrag.loaders.corpus import ChatLoader
 
-result = await graph.add(source="session.jsonl", loader=ChatLoader())
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "session.jsonl"
+            path.write_text(
+                '{"role": "user", "content": "Hi there", "id": 1}\n'
+                '{"role": "assistant", "content": "Hello! How can I help?", "id": 2}\n'
+            )
+            result = await graph.add(source=str(path), loader=ChatLoader())
+            print(result.ingestion.documents)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
 To cut the document between turns, use `TurnWindowChunker` as [Configure chunking](./configure-chunking.mdx) shows.
 
 ## Handle errors per source
 
-Use `error_policy` to control what happens when a source fails to load. The
-policy applies per source, not per run, so one bad file does not stop the rest.
+Use `error_policy` to control what happens when a source fails to load. The policy applies to each source, not to the whole run, so one bad file does not stop the rest.
 
 ```python
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
 from agrag.loaders.corpus.types import ErrorPolicy
 
-result = await graph.add(source="./corpus", error_policy=ErrorPolicy.SKIP)
-print(result.ingestion.skipped, result.ingestion.quarantined)
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        with TemporaryDirectory() as folder:
+            (Path(folder) / "good.txt").write_text("Ada Lovelace was born in London.")
+            (Path(folder) / "unknown.xyz").write_text("No loader claims this extension.")
+            result = await graph.add(source=folder, error_policy=ErrorPolicy.SKIP)
+            print(result.ingestion.skipped, result.ingestion.quarantined)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
-- `ErrorPolicy.RAISE` — stop and raise on the first failure (default).
-- `ErrorPolicy.SKIP` — drop the failing source and continue.
-- `ErrorPolicy.QUARANTINE` — isolate the failing source and continue.
+- `ErrorPolicy.RAISE` stops and raises on the first failure. This is the default.
+- `ErrorPolicy.SKIP` drops the failing source and continues.
+- `ErrorPolicy.QUARANTINE` sets the failing source aside and continues.
 
 Read the outcome from the returned `AddResult`:
 
 ```python
-print(result.ingestion.documents)  # count of documents ingested
-print(result.ingestion.sources)    # count of sources processed
-print(result.ingestion.skipped)    # count of skipped sources
-print(result.ingestion.quarantined)  # count of quarantined sources
-print(result.ingestion.quarantined_items)  # one StageFailure per quarantined source
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+from agrag.loaders.corpus.types import ErrorPolicy
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        with TemporaryDirectory() as folder:
+            (Path(folder) / "good.txt").write_text("Ada Lovelace was born in London.")
+            (Path(folder) / "unknown.xyz").write_text("No loader claims this extension.")
+            result = await graph.add(source=folder, error_policy=ErrorPolicy.QUARANTINE)
+            print(result.ingestion.documents)  # count of documents ingested
+            print(result.ingestion.sources)  # count of sources processed
+            print(result.ingestion.skipped)  # count of skipped sources
+            print(result.ingestion.quarantined)  # count of quarantined sources
+            for item in result.ingestion.quarantined_items:  # one StageFailure per source
+                print(item.item_id, item.error_message)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
-An unknown format raises `UnsupportedFormatError`; a format that needs docling
-without the extra installed raises `MissingExtraError`. With `SKIP` or
-`QUARANTINE`, the policy handles those sources instead of stopping the run.
+An unknown format raises `UnsupportedFormatError`. A format that needs docling, without the extra installed, raises `MissingExtraError`. With `SKIP` or `QUARANTINE`, the policy handles those sources instead of stopping the run.
 
 ## Track progress
 
-Pass `on_progress` to receive a `LoadStats` callback after each batch. Use it
-to log or stream status without blocking ingestion:
+Pass `on_progress` to receive an `AddResult` after each batch. Use it to log or stream status without blocking ingestion:
 
 ```python
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
 from agrag.ingestion import Graph
-from agrag.loaders.corpus.types import LoadStats
+from agrag.ingestion.extract import GlinerExtractor
+from agrag.ingestion.reports.add_result import AddResult
 
-def report(stats: LoadStats) -> None:
-    print(f"loaded {stats.documents} documents from {stats.sources} sources so far")
 
-result = await graph.add(source="./corpus", on_progress=report)
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        def report(result: AddResult) -> None:
+            print(f"loaded {result.ingestion.documents} documents so far")
+
+
+        with TemporaryDirectory() as folder:
+            (Path(folder) / "a.txt").write_text("Charles Babbage designed the Analytical Engine.")
+            result = await graph.add(source=folder, on_progress=report)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
 ## Update or delete a document
 
-Use `Graph.update` to ingest new content under the same stable `document_key`.
-If the content hash and the chunker settings are unchanged, the operation does
-not re-chunk or rewrite the document.
+Every document has a stable `document_key`. `result.chunking.matches[i].document_key` gives the key of each document that an `add` call handled. Use `Graph.update` to ingest new content under the same key. If the content hash and the chunker settings are unchanged, the operation does not re-chunk or rewrite the document.
+
+Use `Graph.delete_document` to remove a document from current retrieval. The graph keeps its chunks and extracted entities for provenance.
 
 ```python
-result = await graph.update("memory://manual", text="Revised document text")
-print(result.no_op)
-print(result.chunks_closed)
-```
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-Use `Graph.delete_document` to remove a document from current retrieval without
-deleting its chunks or extracted entities. The graph keeps those records for
-provenance.
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
 
-```python
-result = await graph.delete_document("memory://manual")
-print(result.chunks_closed)
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        result = await graph.add(text="Original document text.", return_chunks=True)
+        key = result.chunking.matches[0].document_key
+
+        result = await graph.update(key, text="Revised document text")
+        print(result.no_op, result.chunks_closed)
+
+        result = await graph.delete_document(key)
+        print(result.chunks_closed)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
 ## Crash safety
@@ -231,4 +455,5 @@ more), build `Document` objects through the lower-level loaders with
 
 ## Next steps
 
-See the [API Reference](/api) for every parameter.
+- See the [API Reference](/api) for every parameter.
+- Change how documents are split in [Configure chunking](./configure-chunking.mdx).

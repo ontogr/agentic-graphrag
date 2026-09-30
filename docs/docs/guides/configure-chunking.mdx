@@ -5,7 +5,7 @@ title: Configure chunking
 
 # Configure chunking
 
-Choose how `agrag` splits each document into chunks, see which chunker made each chunk, and change the choice for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`. Snippets that use `await` run inside an `async def main()` body, as on that page. `Graph.open(...)` stands for the call that you make there, with the other arguments that your graph needs.
+Choose how `agrag` splits each document into chunks, see which chunker made each chunk, and change the choice for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`. Each code block on this page is complete. Blocks that add documents open their own graph and close it at the end.
 
 ## Print the default rules
 
@@ -24,8 +24,15 @@ The default sends documents from the `docling` loader to the Docling chunker. Al
 Pass `chunking` to `Graph.open`. This example cuts Markdown files into windows of 200 tokens and keeps the recursive chunker for all other files.
 
 ```python
+import asyncio
+
 from agrag.chunking import Chunking, ChunkingRule, RecursiveChunker, RuleMatch, TokenChunker
 from agrag.common.data_models.document import SourceFormat
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
 
 chunking = Chunking(
     rules=[
@@ -36,7 +43,24 @@ chunking = Chunking(
     ],
     fallback=RecursiveChunker(chunk_size=512),
 )
-graph = await Graph.open(..., chunking=chunking)
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+        chunking=chunking,
+    )
+    try:
+        print(graph is not None)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
 A rule matches on these keys. All keys are optional. A document must match every key that you set. A list key matches if the document equals any item in the list.
@@ -66,7 +90,11 @@ A rule matches on these keys. All keys are optional. A document must match every
 `HeadingChunker` starts a new chunk at every heading up to `split_level` (default 2). A section within `chunk_size` tokens is one chunk, and small sibling sections stay apart. A larger section is cut at its deeper headings, and the parts are packed to the budget. A part that is still too large goes to `fallback`, and those chunks have the chunker name `heading:recursive`.
 
 ```python
-HeadingChunker(chunk_size=400, split_level=2, fallback=RecursiveChunker(chunk_size=400))
+from agrag.chunking import HeadingChunker, RecursiveChunker
+
+chunker = HeadingChunker(
+    chunk_size=400, split_level=2, fallback=RecursiveChunker(chunk_size=400)
+)
 ```
 
 Only the Markdown and AsciiDoc loaders fill `heading_outline`. For a document with no outline, the chunker uses `fallback` for the whole text and names the chunks `heading:recursive`.
@@ -80,14 +108,53 @@ Tokens are counted for each turn alone, so the blank line between turns does not
 Turns come from `Document.turns`. The `ChatLoader` fills them. Route chat documents with a rule on the loader name:
 
 ```python
-from agrag.chunking import ChunkingRule, RuleMatch, TurnWindowChunker
-from agrag.loaders.corpus import ChatLoader
+import asyncio
 
-rule = ChunkingRule(
-    match=RuleMatch(loader_names=["chat"]),
-    chunker=TurnWindowChunker(chunk_size=300, turn_overlap=1),
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from agrag.chunking import Chunking, ChunkingRule, RecursiveChunker, RuleMatch, TurnWindowChunker
+from agrag.loaders.corpus import ChatLoader
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+chunking = Chunking(
+    rules=[
+        ChunkingRule(
+            match=RuleMatch(loader_names=["chat"]),
+            chunker=TurnWindowChunker(chunk_size=300, turn_overlap=1),
+        )
+    ],
+    fallback=RecursiveChunker(chunk_size=512),
 )
-result = await graph.add(source="session.jsonl", loader=ChatLoader())
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+        chunking=chunking,
+    )
+    try:
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "session.jsonl"
+            path.write_text(
+                '{"role": "user", "content": "Hi there", "id": 1}\n'
+                '{"role": "assistant", "content": "Hello! How can I help?", "id": 2}\n'
+            )
+            result = await graph.add(source=str(path), loader=ChatLoader())
+            print(result.ingestion.documents)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
 `ChatLoader` is not registered for any extension, because `.jsonl` belongs to the record loader. You must pass `loader=ChatLoader()`, and the source must be one file. See [Ingest documents](./ingest-documents.mdx) for the file format.
@@ -149,7 +216,7 @@ Each chunk has the headings above it in `heading_path`. The chunk text is the bo
 
 ## Set the size and the tokenizer
 
-`chunk_size` counts units of the `tokenizer`. The default tokenizer is `o200k_base`, which loads offline. Use `tokenizer="character"` to count characters.
+`chunk_size` counts units of the `tokenizer`. Each chunker class counts tokens with `o200k_base` by default, which loads offline. Use `tokenizer="character"` to count characters. The fallback in `DEFAULT_CHUNKING` is the exception: it sets `tokenizer="character"`, so its `chunk_size` of 1024 counts characters.
 
 Overlapping chunks keep exact spans. Neighbouring chunks share text, and each chunk text still equals the source text at its offsets.
 
@@ -158,10 +225,42 @@ Overlapping chunks keep exact spans. Neighbouring chunks share text, and each ch
 Each chunk stores the name of its chunker and a hash of the chunker settings.
 
 ```python
-result = await graph.add(source="./corpus", return_chunks=True)
-print(result.chunks[0].chunker, result.chunks[0].chunker_hash)
-print(result.chunking.chunks_by_strategy)   # {"recursive": 12, "token": 40}
-print(result.chunking.documents_by_rule)    # {"rule 0": 3, "fallback": 5}
+import asyncio
+
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from agrag.chunking import Chunking, RecursiveChunker
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+chunking = Chunking(fallback=RecursiveChunker(chunk_size=512))
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+        chunking=chunking,
+    )
+    try:
+        with TemporaryDirectory() as folder:
+            (Path(folder) / "a.txt").write_text("Charles Babbage designed the Analytical Engine.")
+            result = await graph.add(source=folder, return_chunks=True)
+            print(result.chunks[0].chunker, result.chunks[0].chunker_hash)
+            print(result.chunking.chunks_by_strategy)  # {"recursive": 1}
+            print(result.chunking.documents_by_rule)  # {"fallback": 1}
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
 `result.chunking.matches` lists the rule and chunker for each document.
@@ -171,10 +270,49 @@ print(result.chunking.documents_by_rule)    # {"rule 0": 3, "fallback": 5}
 `Graph.add` does not close the old chunks of a document that the graph already holds, so do not call it again to re-chunk. Open the graph with the new `chunking` and call `Graph.update` with the `document_key` of the document. For a file source, `result.chunking.matches[i].document_key` gives the key.
 
 ```python
-graph = await Graph.open(..., chunking=new_chunking)
-key = result.chunking.matches[0].document_key
-result = await graph.update(key, source="./corpus/guide.md")
-print(result.no_op, result.chunks_closed)
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from agrag.chunking import Chunking, RecursiveChunker, SentenceChunker
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def open_graph(graph_store, chunking):
+    return await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+        chunking=chunking,
+    )
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    try:
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "guide.md"
+            path.write_text("# Guide\n\nAda Lovelace wrote the first program.")
+            graph = await open_graph(
+                graph_store, Chunking(fallback=RecursiveChunker(chunk_size=512))
+            )
+            result = await graph.add(source=str(path))
+
+            new_chunking = Chunking(fallback=SentenceChunker(chunk_size=3))
+            graph = await open_graph(graph_store, new_chunking)
+            key = result.chunking.matches[0].document_key
+            result = await graph.update(key, source=str(path))
+            print(result.no_op, result.chunks_closed)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
 `update` re-chunks when the content changed or when the settings of the chunker for that document changed. It does nothing when both are the same. Chunks that you added before `agrag` recorded chunkers count as unchanged.
@@ -184,13 +322,40 @@ print(result.no_op, result.chunks_closed)
 Chunk offsets index the text after normalization. Pass `read_options` to `Graph.add` or `Graph.update` to change the normalization.
 
 ```python
+import asyncio
+
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 from agrag.common.data_models.normalization import Normalization
 from agrag.loaders.corpus.types import ReadOptions
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
 
-raw = ReadOptions(
-    normalization=Normalization(bom="keep", newline="keep", unicode_form="none")
-)
-await graph.add(source="./corpus", read_options=raw)
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        raw = ReadOptions(
+            normalization=Normalization(bom="keep", newline="keep", unicode_form="none")
+        )
+        with TemporaryDirectory() as folder:
+            (Path(folder) / "a.txt").write_text("Charles Babbage designed the Analytical Engine.")
+            await graph.add(source=folder, read_options=raw)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
 The default removes the byte-order mark, changes line endings to LF, and applies NFKC. With the settings above, the text of a chunk equals the text in the file at its offsets. Each `Document` records its setting in `Document.normalization`.
