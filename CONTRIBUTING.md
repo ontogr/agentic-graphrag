@@ -59,6 +59,10 @@ cd docs && npm run serve   # serves docs/build/ at http://localhost:3000/agentic
 
 Pushing to `main` with changes under `docs/`, `agrag/`, or `pyproject.toml` builds and deploys automatically via `.github/workflows/docs.yml`.
 
+- Every Python block in the docs must run. `make docs-test` runs them (needs Neo4j; see the Makefile). Mark a block that cannot run with `notest`.
+- Blocks that need an LLM endpoint use a `python fixture:llm_env` fence and run only when `LLM_BASE_URL` and `LLM_API_KEY` are set.
+- The landing page is `docs/src/pages/index.js`.
+
 ## Setup Commands
 
 | Command | Description |
