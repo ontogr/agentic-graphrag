@@ -1,0 +1,621 @@
+{
+  "chunking": {
+    "fingerprint": "20409d9e11faaf1c",
+    "settings": {
+      "fallback": {
+        "chunk_size": 1000,
+        "levels": null,
+        "min_characters_per_chunk": 24,
+        "strategy": "recursive",
+        "tokenizer": "o200k_base"
+      },
+      "rules": []
+    }
+  },
+  "code": {
+    "agrag_tree": "5cf9eca59c03c987ecc95ef656c6c45570eafcb1",
+    "agrag_version": "0.0.4",
+    "benchmarks_code_sha256": "1247a14ff031907aa406a47051a96a4c1f2d88b09a420cac921cf19c9fed1179",
+    "git_commit": "38f75987fb3be4bd28d85661148438bf0ffb62f3",
+    "git_describe": "v0.0.4-6-g38f7598",
+    "git_dirty": false,
+    "uv_lock_sha256": "bdbcdf33569b046aea13f0955d19ba49391a83b7f3c982102dd7765e07da0f3e"
+  },
+  "config": {
+    "agent": {
+      "max_research_attempts": 3,
+      "recursion_limit": 50
+    },
+    "concurrency": 4,
+    "judge_samples": 1,
+    "question_timeout_s": 900.0,
+    "seed": 42,
+    "sha256": "e88cf14dd9b471f7171e6208abef26b4231bd7fad37fca049ca292f2914169fe"
+  },
+  "corpora": [
+    {
+      "cache_key": "96fed884775091e55667000053a8355f34b5c03bf3f77ac1db9e70fadef7e040",
+      "chunks": 25,
+      "corpus_id": "novel-25646",
+      "corpus_tokens": 23209,
+      "empty_extractions": 0,
+      "graph": {
+        "entities_by_label": {
+          "Concept": 67,
+          "Date": 4,
+          "Event": 1,
+          "Group": 10,
+          "Object": 218,
+          "Person": 56,
+          "Place": 28,
+          "Quantity": 23,
+          "Work": 10
+        },
+        "relations_by_type": {
+          "CREATED_BY": 3,
+          "DESCRIBES": 8,
+          "HAS_QUANTITY": 2,
+          "INTERACTS_WITH": 2,
+          "LOCATED_IN": 3,
+          "MEMBER_OF": 1,
+          "OWNS": 1,
+          "PART_OF": 41,
+          "RELATED_TO": 3,
+          "TRAVELS_TO": 1,
+          "USES": 8
+        }
+      },
+      "ingest_cache_hit": false,
+      "ingest_usage": {
+        "input_tokens": 2428435,
+        "llm_calls": 150,
+        "output_tokens": 161202
+      },
+      "n_documents": 1,
+      "service": "graphrag-novel-25646"
+    },
+    {
+      "cache_key": "e08169b54bab2fe1bbcfc6f1a04123609451f593eb2fc9637ad13b4d0cf84ba6",
+      "chunks": 19,
+      "corpus_id": "medical-lite",
+      "corpus_tokens": 17042,
+      "empty_extractions": 0,
+      "graph": {
+        "entities_by_label": {
+          "Anatomy": 63,
+          "Biomarker": 3,
+          "Cancer": 41,
+          "FollowUp": 5,
+          "GuideRef": 13,
+          "Procedure": 26,
+          "Recommendation": 10,
+          "RiskFactor": 50,
+          "Specialist": 27,
+          "Stage": 7,
+          "Symptom": 79,
+          "Test": 23,
+          "Treatment": 40
+        },
+        "relations_by_type": {
+          "APPLIES_TO": 5,
+          "ARISES_IN": 7,
+          "DIAGNOSED_BY": 4,
+          "HAS_RISK_FACTOR": 5,
+          "HAS_SIDE_EFFECT": 9,
+          "HAS_SYMPTOM": 11,
+          "PART_OF": 20,
+          "PERFORMED_BY": 11,
+          "SEE_GUIDE": 3,
+          "SUBTYPE_OF": 6,
+          "TREATED_BY": 8
+        }
+      },
+      "ingest_cache_hit": false,
+      "ingest_usage": {
+        "input_tokens": 4753959,
+        "llm_calls": 300,
+        "output_tokens": 268057
+      },
+      "n_documents": 3,
+      "service": "graphrag-medical-lite"
+    }
+  ],
+  "created_at": "2026-09-30T19:15:18+00:00",
+  "dataset": {
+    "manifest_sha256": "b243284b803062488018591f626f9955617d176ab649d1cc982e7a5ed29f3763",
+    "n_questions": 10,
+    "name": "graphrag-bench",
+    "question_ids_sha256": "2534dfcff97de8008055a9f1835d87809efc635c51b9b9f74e43d8d69de90f4f",
+    "upstream": {
+      "files": {
+        "Datasets/Corpus/medical.json": "12eff34c994dcf101f83968c832bce15dab3c19176da855706f8c9b5cc208758",
+        "Datasets/Corpus/novel.json": "0e79a0dae5a420e8ee0ecffb04f7ddf8d441a4d868fbbe5a011baa2196b9702f",
+        "Datasets/Questions/medical_questions.json": "9af76a619e24d84f5509ba10274fbba465e901140a34c4429821f68686f0277b",
+        "Datasets/Questions/novel_questions.json": "90214823709fc5ff5858e1688c4efd56d64995ebbbcc70f6ab9e8953cc7dc43f"
+      },
+      "medical_lite_segment": {
+        "end": 81651,
+        "sha256": "2d33350f72e147e8dba02c9e730d6c9c918f04e2747814eed82f2f8bfddcfcaa",
+        "start": 0
+      },
+      "repo": "GraphRAG-Bench/GraphRAG-Bench",
+      "revision": "dc3a111e77dbaf8bbaf51ef331f3cfc9b1b5c546"
+    }
+  },
+  "domain": "graphrag_general",
+  "mode": "lite",
+  "models": {
+    "agent": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic"
+    },
+    "embedder": {
+      "model": "ibm-granite/granite-embedding-small-english-r2"
+    },
+    "extractor": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic"
+    },
+    "judge": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic",
+      "temperature": 0.0
+    }
+  },
+  "questions": [
+    {
+      "corpus_id": "novel-25646",
+      "flags": [],
+      "group": "Complex Reasoning",
+      "id": "novel:Novel-8cc0478d",
+      "latency_s": 59.6405,
+      "llm_calls": 15,
+      "retrieved_chunk_ids": [
+        "2b48ed62-5e23-5a56-8fa7-049868f6c181",
+        "8d0ef96e-43c9-59ea-9e45-c62c34f2b12c",
+        "cdde18ad-a34b-5fcc-9927-7b0a46f3c23a",
+        "817358dc-a44d-5d2d-9dc4-1f6a17da8e5c",
+        "e1c83c08-76bc-5f45-afd7-c9308589ad9f",
+        "c4a22adf-a143-5265-bb20-21d8ac4b5a15",
+        "8fabb270-5a2e-5860-852d-b7d8ec16d0e3",
+        "5d3cbf33-a9ee-5ba4-a8f5-c9eab3749b87",
+        "4828c15c-9389-591d-beeb-1f7fe7a1e894",
+        "d44090b3-7e2a-55d4-9959-06b0da234a09",
+        "49e8d194-e56e-5a20-8c4c-6d584c33e23d",
+        "9514b325-216b-5a2b-b9e0-049f26696647",
+        "84323e40-7d20-50b9-aec6-46dc00affec5"
+      ],
+      "scores": {
+        "context_recall": 1.0,
+        "correctness": 1.0,
+        "faithfulness": 1.0,
+        "official_accuracy": 0.5217,
+        "rouge_l": 0.1661
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "novel-25646",
+      "flags": [],
+      "group": "Creative Generation",
+      "id": "novel:Novel-0c5272d1",
+      "latency_s": 40.2516,
+      "llm_calls": 17,
+      "retrieved_chunk_ids": [
+        "8d0ef96e-43c9-59ea-9e45-c62c34f2b12c",
+        "8fabb270-5a2e-5860-852d-b7d8ec16d0e3",
+        "e1c83c08-76bc-5f45-afd7-c9308589ad9f",
+        "63a9b3fd-083e-556e-a836-93dd0ee96bb3",
+        "cdde18ad-a34b-5fcc-9927-7b0a46f3c23a",
+        "2b48ed62-5e23-5a56-8fa7-049868f6c181",
+        "4828c15c-9389-591d-beeb-1f7fe7a1e894",
+        "d29d566b-5906-5fac-bbdc-631400697723",
+        "340e4b6e-bb69-53b4-a5ab-c01161559cfd",
+        "84323e40-7d20-50b9-aec6-46dc00affec5",
+        "817358dc-a44d-5d2d-9dc4-1f6a17da8e5c",
+        "9514b325-216b-5a2b-b9e0-049f26696647",
+        "49e8d194-e56e-5a20-8c4c-6d584c33e23d",
+        "fd3dd902-811c-59d2-b1bc-b24498a28bce",
+        "3801b65d-7c39-581c-b382-0921c2e723f4"
+      ],
+      "scores": {
+        "context_recall": 1.0,
+        "correctness": 1.0,
+        "faithfulness": 1.0,
+        "official_accuracy": 0.3626,
+        "rouge_l": 0.1266
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "novel-25646",
+      "flags": [],
+      "group": "Fact Retrieval",
+      "id": "novel:Novel-c8928151",
+      "latency_s": 18.8525,
+      "llm_calls": 7,
+      "retrieved_chunk_ids": [
+        "340e4b6e-bb69-53b4-a5ab-c01161559cfd",
+        "4828c15c-9389-591d-beeb-1f7fe7a1e894",
+        "9514b325-216b-5a2b-b9e0-049f26696647",
+        "fd3dd902-811c-59d2-b1bc-b24498a28bce",
+        "ddcab70c-2e8a-5c1d-9d2a-43d7f0a7b71f",
+        "b018654b-bc03-539c-8ba7-17c69e668432",
+        "c0d496a5-040d-524c-9b92-78db7d9dd005",
+        "c58592b6-6eeb-500e-9d62-9cbe3ed005be",
+        "817358dc-a44d-5d2d-9dc4-1f6a17da8e5c",
+        "d29d566b-5906-5fac-bbdc-631400697723"
+      ],
+      "scores": {
+        "context_recall": 1.0,
+        "correctness": 1.0,
+        "faithfulness": 1.0,
+        "official_accuracy": 0.4492,
+        "rouge_l": 0.1034
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "novel-25646",
+      "flags": [],
+      "group": "Fact Retrieval",
+      "id": "novel:Novel-71646b3e",
+      "latency_s": 27.629,
+      "llm_calls": 10,
+      "retrieved_chunk_ids": [
+        "63a9b3fd-083e-556e-a836-93dd0ee96bb3",
+        "e1c83c08-76bc-5f45-afd7-c9308589ad9f",
+        "49e8d194-e56e-5a20-8c4c-6d584c33e23d",
+        "c4a22adf-a143-5265-bb20-21d8ac4b5a15",
+        "5d3cbf33-a9ee-5ba4-a8f5-c9eab3749b87",
+        "8d0ef96e-43c9-59ea-9e45-c62c34f2b12c",
+        "3801b65d-7c39-581c-b382-0921c2e723f4",
+        "817358dc-a44d-5d2d-9dc4-1f6a17da8e5c",
+        "4828c15c-9389-591d-beeb-1f7fe7a1e894",
+        "ddcab70c-2e8a-5c1d-9d2a-43d7f0a7b71f"
+      ],
+      "scores": {
+        "context_recall": 1.0,
+        "correctness": 1.0,
+        "faithfulness": 1.0,
+        "official_accuracy": 0.4921,
+        "rouge_l": 0.1644
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "novel-25646",
+      "flags": [],
+      "group": "Contextual Summarize",
+      "id": "novel:Novel-1f8fc3b0",
+      "latency_s": 68.6987,
+      "llm_calls": 15,
+      "retrieved_chunk_ids": [
+        "2b48ed62-5e23-5a56-8fa7-049868f6c181",
+        "c4a22adf-a143-5265-bb20-21d8ac4b5a15",
+        "340e4b6e-bb69-53b4-a5ab-c01161559cfd",
+        "cdde18ad-a34b-5fcc-9927-7b0a46f3c23a",
+        "e1c83c08-76bc-5f45-afd7-c9308589ad9f",
+        "da2b536f-0eb8-5189-8c95-a55df443b39e",
+        "817358dc-a44d-5d2d-9dc4-1f6a17da8e5c",
+        "fd3dd902-811c-59d2-b1bc-b24498a28bce",
+        "84323e40-7d20-50b9-aec6-46dc00affec5",
+        "c0d496a5-040d-524c-9b92-78db7d9dd005",
+        "9514b325-216b-5a2b-b9e0-049f26696647"
+      ],
+      "scores": {
+        "context_recall": 1.0,
+        "correctness": 1.0,
+        "faithfulness": 1.0,
+        "official_accuracy": 0.4674,
+        "rouge_l": 0.1273
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "medical-lite",
+      "flags": [],
+      "group": "Contextual Summarize",
+      "id": "medical:Medical-6baf8bff",
+      "latency_s": 122.6004,
+      "llm_calls": 31,
+      "retrieved_chunk_ids": [
+        "24eb19dc-fbc8-5b55-ad14-c126eb09a42d",
+        "6037a64d-e549-5069-b3be-93e5f3495af2",
+        "67e95072-a23b-5008-8215-dd92226428e1",
+        "ec240d9a-3fdd-5048-b2df-6a5bf59c326a",
+        "72fd877a-80cf-5ae5-8ded-e51e4ef74830",
+        "33137384-a2a6-5d1e-a142-9616d31b48c5",
+        "b53203d2-3f7c-5145-bbf9-b2afc698a8c6",
+        "72e0f1a7-ee2b-58cd-8424-0c40fd756ed9",
+        "3cf90bea-ccde-5859-b51b-fdce33d3de11",
+        "fe002d3d-b549-5381-85eb-1bc3b2ca1889",
+        "b6829c7b-b763-5e28-9dd1-b6659d76ce60",
+        "87f5ead6-50a0-5b30-9587-203820199972",
+        "5847b021-ef5a-5087-902c-48a313a6a5c6"
+      ],
+      "scores": {
+        "context_recall": 1.0,
+        "correctness": 1.0,
+        "faithfulness": 1.0,
+        "official_accuracy": 0.9917,
+        "rouge_l": 0.2308
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "medical-lite",
+      "flags": [],
+      "group": "Complex Reasoning",
+      "id": "medical:Medical-a9a52704",
+      "latency_s": 35.6309,
+      "llm_calls": 14,
+      "retrieved_chunk_ids": [
+        "24eb19dc-fbc8-5b55-ad14-c126eb09a42d",
+        "6037a64d-e549-5069-b3be-93e5f3495af2",
+        "89329eb3-759c-510f-9c48-b778c7526661",
+        "ec240d9a-3fdd-5048-b2df-6a5bf59c326a",
+        "33137384-a2a6-5d1e-a142-9616d31b48c5",
+        "5847b021-ef5a-5087-902c-48a313a6a5c6",
+        "67e95072-a23b-5008-8215-dd92226428e1"
+      ],
+      "scores": {
+        "context_recall": 1.0,
+        "correctness": 1.0,
+        "faithfulness": 1.0,
+        "official_accuracy": 0.7407,
+        "rouge_l": 0.28
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "medical-lite",
+      "flags": [],
+      "group": "Fact Retrieval",
+      "id": "medical:Medical-8fe8663f",
+      "latency_s": 136.5841,
+      "llm_calls": 29,
+      "retrieved_chunk_ids": [
+        "ec240d9a-3fdd-5048-b2df-6a5bf59c326a",
+        "67e95072-a23b-5008-8215-dd92226428e1",
+        "33137384-a2a6-5d1e-a142-9616d31b48c5",
+        "3cf90bea-ccde-5859-b51b-fdce33d3de11",
+        "72fd877a-80cf-5ae5-8ded-e51e4ef74830",
+        "72e0f1a7-ee2b-58cd-8424-0c40fd756ed9",
+        "b6829c7b-b763-5e28-9dd1-b6659d76ce60"
+      ],
+      "scores": {
+        "context_recall": 1.0,
+        "correctness": 1.0,
+        "faithfulness": 1.0,
+        "official_accuracy": 0.7785,
+        "rouge_l": 0.1224
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "medical-lite",
+      "flags": [],
+      "group": "Fact Retrieval",
+      "id": "medical:Medical-338ef222",
+      "latency_s": 25.0714,
+      "llm_calls": 7,
+      "retrieved_chunk_ids": [
+        "b1ed2406-870e-5442-a7fe-9befcc4ecdbf",
+        "17b05550-d899-5359-9a56-85a198f306c3",
+        "b882ce5d-3983-55a1-9227-720bde043f6a",
+        "f549a3f3-68b3-5ad6-a437-c16360e02a5c",
+        "3cf90bea-ccde-5859-b51b-fdce33d3de11"
+      ],
+      "scores": {
+        "context_recall": 1.0,
+        "correctness": 1.0,
+        "faithfulness": 1.0,
+        "official_accuracy": 0.4321,
+        "rouge_l": 0.2286
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "medical-lite",
+      "flags": [],
+      "group": "Creative Generation",
+      "id": "medical:Medical-2e1ccbe9",
+      "latency_s": 118.2052,
+      "llm_calls": 29,
+      "retrieved_chunk_ids": [
+        "17b05550-d899-5359-9a56-85a198f306c3",
+        "b1ed2406-870e-5442-a7fe-9befcc4ecdbf",
+        "b882ce5d-3983-55a1-9227-720bde043f6a",
+        "f549a3f3-68b3-5ad6-a437-c16360e02a5c",
+        "3cf90bea-ccde-5859-b51b-fdce33d3de11",
+        "87f5ead6-50a0-5b30-9587-203820199972",
+        "6037a64d-e549-5069-b3be-93e5f3495af2",
+        "fe002d3d-b549-5381-85eb-1bc3b2ca1889",
+        "ec240d9a-3fdd-5048-b2df-6a5bf59c326a",
+        "72e0f1a7-ee2b-58cd-8424-0c40fd756ed9",
+        "67e95072-a23b-5008-8215-dd92226428e1",
+        "24eb19dc-fbc8-5b55-ad14-c126eb09a42d",
+        "281bd5ef-8490-58b7-b611-40e84f2edb00"
+      ],
+      "scores": {
+        "context_recall": 1.0,
+        "correctness": 1.0,
+        "faithfulness": 1.0,
+        "official_accuracy": 0.6978,
+        "rouge_l": 0.1411
+      },
+      "status": "ok"
+    }
+  ],
+  "run_id": "20260930T191518Z-graphrag_general-lite-agrag-145236",
+  "schema_version": 1,
+  "schemas": [
+    {
+      "name": "graphrag-novel",
+      "sha256": "759a3ba1d169b92f1f19a4b299bc485ef08c476f851138b3e460e0c9fc9115b5",
+      "version": "1"
+    },
+    {
+      "name": "graphrag-medical",
+      "sha256": "363dccacc6235668f20c517682b880076bf212f66d8a1974ebc5ffa52322831c",
+      "version": "1"
+    }
+  ],
+  "scores": {
+    "aggregate": {
+      "context_recall": {
+        "mean": 1.0,
+        "n": 10
+      },
+      "correctness": {
+        "mean": 1.0,
+        "n": 10
+      },
+      "faithfulness": {
+        "mean": 1.0,
+        "n": 10
+      },
+      "official_accuracy": {
+        "mean": 0.5934,
+        "n": 10
+      },
+      "rouge_l": {
+        "mean": 0.1691,
+        "n": 10
+      }
+    },
+    "by_group": {
+      "Complex Reasoning": {
+        "context_recall": {
+          "mean": 1.0,
+          "n": 2
+        },
+        "correctness": {
+          "mean": 1.0,
+          "n": 2
+        },
+        "faithfulness": {
+          "mean": 1.0,
+          "n": 2
+        },
+        "official_accuracy": {
+          "mean": 0.6312,
+          "n": 2
+        },
+        "rouge_l": {
+          "mean": 0.223,
+          "n": 2
+        }
+      },
+      "Contextual Summarize": {
+        "context_recall": {
+          "mean": 1.0,
+          "n": 2
+        },
+        "correctness": {
+          "mean": 1.0,
+          "n": 2
+        },
+        "faithfulness": {
+          "mean": 1.0,
+          "n": 2
+        },
+        "official_accuracy": {
+          "mean": 0.7296,
+          "n": 2
+        },
+        "rouge_l": {
+          "mean": 0.1791,
+          "n": 2
+        }
+      },
+      "Creative Generation": {
+        "context_recall": {
+          "mean": 1.0,
+          "n": 2
+        },
+        "correctness": {
+          "mean": 1.0,
+          "n": 2
+        },
+        "faithfulness": {
+          "mean": 1.0,
+          "n": 2
+        },
+        "official_accuracy": {
+          "mean": 0.5302,
+          "n": 2
+        },
+        "rouge_l": {
+          "mean": 0.1339,
+          "n": 2
+        }
+      },
+      "Fact Retrieval": {
+        "context_recall": {
+          "mean": 1.0,
+          "n": 4
+        },
+        "correctness": {
+          "mean": 1.0,
+          "n": 4
+        },
+        "faithfulness": {
+          "mean": 1.0,
+          "n": 4
+        },
+        "official_accuracy": {
+          "mean": 0.538,
+          "n": 4
+        },
+        "rouge_l": {
+          "mean": 0.1547,
+          "n": 4
+        }
+      }
+    }
+  },
+  "system": "agrag",
+  "trace": {
+    "path": "trace.jsonl.gz",
+    "repo": null,
+    "revision": null,
+    "sha256": "7cfc9c613fafdcc40c8249f7281ac9750e1af09004d5bbaabe80ce6fbf41c4c2"
+  },
+  "usage": {
+    "by_path": {
+      "agent": {
+        "input_tokens": 1018054,
+        "llm_calls": 174,
+        "output_tokens": 24439
+      },
+      "extraction": {
+        "input_tokens": 83840,
+        "llm_calls": 44,
+        "output_tokens": 131536
+      },
+      "judge": {
+        "input_tokens": 251472,
+        "llm_calls": 100,
+        "output_tokens": 24437
+      },
+      "other": {
+        "input_tokens": 7098554,
+        "llm_calls": 406,
+        "output_tokens": 297723
+      }
+    },
+    "cost_usd": null,
+    "input_tokens": 8451920,
+    "llm_calls": 724,
+    "output_tokens": 478135,
+    "spend_cap": {
+      "llm_calls": 1550,
+      "overridden": false,
+      "tokens": 11000000
+    },
+    "usage_complete": true,
+    "wall_seconds": 4393.8425
+  }
+}
