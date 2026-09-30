@@ -1,6 +1,7 @@
 """agrag as a system under test."""
 
 import importlib.util
+import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
+from agrag.cypher.entities import hydrate_chunks_by_id_query
 from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
 from agrag.embedding.settings import EmbeddingSettings
 from agrag.eval import ChatModelJudge, EvalJudgeSettings, final_answer
@@ -171,9 +173,9 @@ class AgragSystem:
             raise AgentFailureError(str(error)) from error
         if not text.strip():
             raise AgentFailureError("empty answer")
-        return self._with_citations(text, result)
+        return await self._with_citations(text, result)
 
-    def _with_citations(self, text: str, result: dict) -> SystemAnswer:
+    async def _with_citations(self, text: str, result: dict) -> SystemAnswer:
         """Resolve the citation keys in the answer through the run's ledger."""
         ledger = result["ledger"]
         chunks: list[CitedChunk] = []
@@ -204,9 +206,38 @@ class AgragSystem:
             text=text,
             cited_chunks=chunks,
             non_chunk_citations=other,
-            cited_source_chunk_ids=source_ids,
+            source_chunks=await self._chunks_by_id(source_ids),
             raw=result,
         )
+
+    async def _chunks_by_id(self, ids: Sequence[str]) -> list[CitedChunk]:
+        """Read the document and offsets of stored chunks. A missing id is skipped."""
+        if not ids:
+            return []
+        rows = await self._store.execute_read(
+            hydrate_chunks_by_id_query(),
+            {"ids": list(dict.fromkeys(ids)), "job_id": None},
+        )
+        chunks = []
+        for row in rows:
+            props = row.get("n", row)
+            provenance = props.get("provenance")
+            if isinstance(provenance, str):
+                provenance = json.loads(provenance)
+            has_offsets = isinstance(provenance, dict) and provenance.get("kind") == (
+                "text"
+            )
+            uri = self._uri_by_document_id.get(
+                UUID(props["document_id"]), props["document_id"]
+            )
+            chunks.append(
+                CitedChunk(
+                    uri=uri,
+                    char_start=provenance["char_start"] if has_offsets else None,
+                    char_end=provenance["char_end"] if has_offsets else None,
+                )
+            )
+        return chunks
 
     async def teardown(self) -> None:
         """Close the graph store."""

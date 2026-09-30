@@ -53,7 +53,10 @@ COST_MODEL: CostModel | None = CostModel(
     judge_tokens_per_call=2_000,
 )
 
-SPEND_CAPS: dict[tuple[str, str], SpendCap] = {}
+SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
+    ("legal", "lite"): SpendCap(llm_calls=1_200, tokens=7_500_000),
+    ("legal", "full"): SpendCap(llm_calls=12_100, tokens=81_000_000),
+}
 
 # About 1000 tokens per chunk, counted with the tokenizer agrag uses elsewhere.
 BENCH_CHUNKING = Chunking(

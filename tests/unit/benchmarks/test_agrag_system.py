@@ -4,7 +4,8 @@ The agent is replaced at the ``build_agent`` boundary with one that returns a
 canned run and a real ledger. Nothing calls a model or a database.
 """
 
-from unittest.mock import MagicMock
+import json
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -41,7 +42,7 @@ QUESTION = BenchmarkQuestion(
 
 def _system(document: Document) -> AgragSystem:
     return AgragSystem(
-        store=MagicMock(),
+        store=AsyncMock(),
         schema=SCHEMA,
         chunking=Chunking(fallback=RecursiveChunker(chunk_size=100)),
         documents=[document],
@@ -77,6 +78,17 @@ class TestAgragSystem:
         system = _system(document)
         document_id = Document.node_id_for(document_key=document.resolved_document_key)
         source = uuid4()
+        system._store.execute_read.return_value = [
+            {
+                "n": {
+                    "id": str(source),
+                    "document_id": str(document_id),
+                    "provenance": json.dumps(
+                        {"kind": "text", "char_start": 20, "char_end": 40}
+                    ),
+                }
+            }
+        ]
         ledger = Ledger()
         cited = ledger.cite(
             SearchResult(
@@ -115,7 +127,9 @@ class TestAgragSystem:
             11,
         )
         assert answer.non_chunk_citations == 1
-        assert answer.cited_source_chunk_ids == [str(source)]
+        assert [(c.uri, c.char_start, c.char_end) for c in answer.source_chunks] == [
+            ("corpus/doc.txt", 20, 40)
+        ]
         assert uncited not in answer.text
         assert [m.content for m in seen["payload"]["messages"]] == [
             m["content"] for m in QUESTION.messages

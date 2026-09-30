@@ -38,14 +38,15 @@ class SystemAnswer:
         text: The answer text.
         cited_chunks: The chunks the answer cites.
         non_chunk_citations: The number of citations that are not chunks.
-        cited_source_chunk_ids: The chunk ids behind cited entities and relations.
+        source_chunks: The chunks that cited entities and relations were extracted
+            from.
         raw: The system's own result, for graders that need more than the text.
     """
 
     text: str
     cited_chunks: list[CitedChunk] = field(default_factory=list)
     non_chunk_citations: int = 0
-    cited_source_chunk_ids: list[str] = field(default_factory=list)
+    source_chunks: list[CitedChunk] = field(default_factory=list)
     raw: Any = None
 
 

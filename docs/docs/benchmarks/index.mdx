@@ -17,7 +17,7 @@ A benchmark run costs real model calls, so it never runs in CI. You start each r
 
 Each dataset covers one domain. The module plans five:
 
-- **Legal contracts.** [LegalBench-RAG](https://github.com/zeroentropy-ai/legalbenchrag) ([paper](https://arxiv.org/abs/2408.10343)) questions over contract text, where the answer is a passage that the agent must find and cite.
+- **Legal contracts.** [LegalBench-RAG](https://github.com/zeroentropy-ai/legalbenchrag) ([paper](https://arxiv.org/abs/2408.10343)) questions over contract text, where the answer is a passage that the agent must find and cite. See the [Legal benchmark](./legal.mdx).
 - **Novels and medical guidelines.** [GraphRAG-Bench](https://github.com/GraphRAG-Bench/GraphRAG-Benchmark) ([paper](https://arxiv.org/abs/2506.05690)) questions over long fiction and clinical guideline documents, which test multi-step reasoning across a graph.
 - **Financial filings.** [FinanceBench](https://github.com/patronus-ai/financebench) ([paper](https://arxiv.org/abs/2311.11944)) questions over company filings, which mix text with numbers.
 - **Long conversations.** [BEAM](https://github.com/mohammadtavakoli78/BEAM) ([paper](https://arxiv.org/abs/2510.27246)) questions over long chat histories, which test memory across many turns.
@@ -86,3 +86,5 @@ Judged metrics run once for each answer. The record holds no estimate of the noi
 ## How to read the usage numbers
 
 The record counts calls and tokens from the spans of the trace. Extraction calls are exact: each span is one provider request. Agent and judge counts are a lower bound. A span of the agent or the judge is one LangChain call, and LangChain and the provider SDKs retry below that span. A retry is a real request that the count does not show.
+
+A request that the provider rejects, such as an HTTP 500 that `agrag` then retries, has no token counts. It counts as one call with no tokens and does not make usage incomplete.
