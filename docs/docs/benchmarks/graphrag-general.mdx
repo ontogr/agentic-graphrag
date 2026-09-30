@@ -1,0 +1,122 @@
+---
+sidebar_position: 4
+title: GraphRAG-Bench
+---
+
+# GraphRAG-Bench
+
+This page describes the GraphRAG-Bench benchmark: the questions, the two graph schemas, how `agrag` answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
+
+## The dataset
+
+[GraphRAG-Bench](https://github.com/GraphRAG-Bench/GraphRAG-Benchmark) ([paper](https://arxiv.org/abs/2506.05690)) asks questions about long texts. It has two corpora, and each has its own question file:
+
+| Corpus | Text | Questions in the benchmark |
+|---|---|---|
+| Novel | 20 Project Gutenberg books. Most are not novels: they include a children's health primer, a magazine issue, a play, a diary, and essays. | 2,010 |
+| Medical | 44 extracts from the NCCN Guidelines for Patients, one booklet or chapter for each cancer type. | 2,062 |
+
+Each question has a question type, a gold answer, and a list of evidence sentences:
+
+- **Fact Retrieval.** One fact from the text.
+- **Complex Reasoning.** An answer that joins several facts.
+- **Contextual Summarize.** A summary of one topic.
+- **Creative Generation.** A writing task that uses facts from the text, such as a news article or a discharge summary.
+
+The harness reads the text and the questions from the Hugging Face dataset [`GraphRAG-Bench/GraphRAG-Bench`](https://huggingface.co/datasets/GraphRAG-Bench/GraphRAG-Bench) at a pinned revision. It checks the hash of every file and every document before it uses them. The text is kept exactly as the dataset gives it. A novel is one document. A Medical extract is one document, and the harness finds the extracts by splitting the Medical text on its newlines.
+
+### Lite and full
+
+| Set | Questions | Corpora | Tokens |
+|---|---|---|---|
+| Lite | 10 | 2: the novel `Novel-25646`, and the first 3 Medical extracts (basal cell skin cancer, adrenal tumors, squamous cell skin cancer) | 40,251 |
+| Full | 250 | 5: the whole Medical text and 4 novels | 443,524 |
+
+Each set has all four question types. Lite has 4 Fact Retrieval questions and 2 of each other type. Full has 130 Medical questions and 120 Novel questions, sampled with a fixed seed in proportion to the question types of each corpus. Every lite question is also in the full set.
+
+The two corpora never share a graph. Each corpus is ingested alone into its own Neo4j service, so a question about a novel cannot find text from another book. The novel `Novel-25646` is in both sets and uses one service for both.
+
+The lite questions rest on the body text. None asks about the Gutenberg credits or the contents page.
+
+Three Medical extracts occur twice in the Medical text, which is 5.4% of its tokens. The harness keeps them, because the benchmark does, and gives each extract its own document uri. Lite has none of them.
+
+## The graph schemas
+
+Each corpus has its own schema. See `benchmarks/schemas/graphrag_general.py`.
+
+- **Novel:** 9 entity types (`Person`, `Group`, `Place`, `Object`, `Concept`, `Work`, `Event`, `Quantity`, `Date`) and 14 relation types, including `PART_OF`, `LOCATED_IN`, `CAUSES`, and a general `RELATED_TO`. The types are general because most of the books are not fiction.
+- **Medical:** 13 entity types (such as `Cancer`, `Anatomy`, `Test`, `Procedure`, `Treatment`, `RiskFactor`, `Symptom`, `Stage`, `Biomarker`, `Recommendation`) and 16 relation types (such as `TREATED_BY`, `DIAGNOSED_BY`, `HAS_RISK_FACTOR`, `RECOMMENDS`).
+
+Every entity type has a `description` property, because `agrag` embeds an entity as its name and description. A schema that fits the corpus helps `agrag`, so these numbers do not compare with systems that use another schema.
+
+## How answers are scored
+
+Each question gets five scores from 0 to 1.
+
+- **`correctness`.** A judge model compares the answer with the gold answer.
+- **`faithfulness`.** A judge model checks the claims of the answer against the text that the agent retrieved. A claim that the text does not mention counts as faithful. Only a claim that the text contradicts lowers the score.
+- **`context_recall`.** A judge model checks whether the retrieved text covers the evidence sentences of the question.
+- **`rouge_l`.** The ROUGE-L F-measure of the answer against the gold answer, as the benchmark computes it. The benchmark reports it for Fact Retrieval and Complex Reasoning only, so read it in those two groups. The record holds it for every question.
+- **`official_accuracy`.** The accuracy score of the benchmark: 0.75 times an F1 over atomic statements, plus 0.25 times the similarity of the answer and gold answer embeddings. The F1 comes from a judge model that splits the answer and the gold answer into statements and then classifies them as supported, unsupported, or missing. The code is ported from the benchmark's scorer, which is under the MIT license, with its prompts and arithmetic unchanged.
+
+The port differs from the scorer in these ways:
+
+- The judge is the judge model of the run, not the scorer's OpenAI model.
+- The embedder is the embedder of the run (`ibm-granite/granite-embedding-small-english-r2`), not the scorer's BGE model. The embedding term therefore does not compare with published numbers.
+- The harness removes a code fence from around a judge reply before it reads the JSON. A reply that still does not parse takes the scorer's fallback, and the question gets the flag `parse_error`.
+
+The embedding term sets a floor. An answer that is wrong or empty still scores about 0.2, because unrelated texts have a similar embedding. Read `official_accuracy` next to `correctness`.
+
+The evidence sentences are paraphrases that a language model wrote, and few are quotes from the text. Most of the evidence for Creative Generation is invented content for the role-play. The benchmark therefore has no character spans to match, and `context_recall` is only as good as the judge's reading of a paraphrase.
+
+The judge is the same model as the agent by default, so the judged scores are biased upward. See [Benchmarks](./index.mdx#who-grades-the-answers).
+
+## Results of the lite run
+
+The run used `gemma4:31b` for extraction, the agent, and the judge, on one clean commit, with the default chunking of about 1,000 tokens.
+
+| Group | Questions | `correctness` | `faithfulness` | `context_recall` | `official_accuracy` | `rouge_l` |
+|---|---|---|---|---|---|---|
+| All | 10 | 1.00 | 1.00 | 1.00 | 0.59 | 0.17 |
+| Fact Retrieval | 4 | 1.00 | 1.00 | 1.00 | 0.54 | 0.16 |
+| Complex Reasoning | 2 | 1.00 | 1.00 | 1.00 | 0.63 | 0.22 |
+| Contextual Summarize | 2 | 1.00 | 1.00 | 1.00 | 0.73 | 0.18 |
+| Creative Generation | 2 | 1.00 | 1.00 | 1.00 | 0.53 | 0.13 |
+| Novel corpus | 5 | 1.00 | 1.00 | 1.00 | 0.46 | 0.14 |
+| Medical corpus | 5 | 1.00 | 1.00 | 1.00 | 0.73 | 0.20 |
+
+Read the table with care.
+
+- The three judged scores are 1.0 on all 10 questions. They do not tell the questions apart. The judge is the agent model, and `faithfulness` and `context_recall` are lenient by design. `official_accuracy` and `rouge_l` vary, so use them to compare runs.
+- Each run has 10 questions, and each question type has 2 to 4. One question moves a group score by 0.25 to 0.5. A lite run shows that the pipeline works. It does not rank systems.
+- The gold answers are short sentences, and the agent writes longer answers. That is why ROUGE-L is low even when `correctness` is 1.0.
+
+The graphs were small. The novel graph has 417 entities and 73 relations from 25 chunks. The Medical graph has 387 entities and 89 relations from 19 chunks. No chunk gave an empty extraction, and no question failed or carries a flag.
+
+Print the record with:
+
+```bash
+uv run python -m benchmarks report --domain graphrag_general
+```
+
+## Cost and time
+
+| Phase | Model calls | Tokens |
+|---|---|---|
+| Ingest of the novel | 150 | 2.6M |
+| Ingest of the Medical extracts | 300 | 5.0M |
+| Agent, 10 questions | 174 | 1.0M |
+| Judge, 10 questions | 100 | 0.28M |
+| Total | 724 | 8.9M |
+
+The run took about 73 minutes. Ingest took about 90% of it: 23 minutes for the novel and 43 minutes for the Medical extracts. `agrag` reads the chunks one call at a time and resolves duplicate entities once per document against the whole graph, so ingest time grows faster than the text. Answering took 90 seconds for the 5 novel questions and 144 seconds for the 5 Medical questions, and grading took about 100 seconds. A question took 7 to 31 agent calls.
+
+The dry-run estimate for this run was 1,008 calls and 7.3M tokens. The run used fewer calls and 22% more tokens, so the estimate is not an upper bound. The spend cap of 11M tokens held.
+
+The dry run for the full set estimates 20,937 calls and 119M tokens, with 258 chunks in the Medical corpus alone. Nobody has measured a run of that size. Run `make bench-dry DOMAIN=graphrag_general MODE=full` and read the estimate before you start one.
+
+## Terms of use
+
+The GraphRAG-Bench code is under the MIT license. The dataset card states no license for the data. The Medical text comes from the NCCN Guidelines for Patients, which carry this notice: they "may not be reproduced in any form for any purpose without the express written permission of NCCN". The Novel text comes from Project Gutenberg, and these books are in the public domain in the United States.
+
+A trace holds passages of these texts, so read `benchmarks/results/NOTICE` before you share one.
