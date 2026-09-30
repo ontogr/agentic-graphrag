@@ -265,17 +265,17 @@ docs-build: docs-api
 # CI runs the pages in three shards, each on its own runner with its own Neo4j and
 # Qdrant. Set DOCS_SHARD=1, 2 or 3 to run one shard. Shards hold whole pages, because
 # blocks of one page run in file order and can read what an earlier block wrote.
-# Shards 1 and 2 list their pages. Shard 3 runs every other page, so a new page
-# always runs somewhere. The lists balance measured run time (about 170 seconds each).
-DOCS_ALL_PAGES := $(sort $(wildcard docs/docs/get-started/*.mdx docs/docs/guides/*.mdx))
-DOCS_SHARD_1 := docs/docs/guides/configure-storage-backends.mdx \
-	docs/docs/get-started/quickstart.mdx \
-	docs/docs/guides/retrieve-and-answer.mdx
-DOCS_SHARD_2 := docs/docs/guides/ingest-documents.mdx \
-	docs/docs/guides/extract-and-resolve.mdx \
+# Shards 1 and 2 list their pages. Shard 3 runs both docs folders except those pages,
+# so a new page always runs somewhere. The lists balance measured run time (about 45
+# seconds each) and spread the pages that need an LLM key.
+DOCS_SHARD_1 := docs/docs/guides/ingest-documents.mdx \
 	docs/docs/guides/update-and-delete-documents.mdx \
-	docs/docs/guides/troubleshoot-common-errors.mdx
-DOCS_SHARD_3 := $(filter-out $(DOCS_SHARD_1) $(DOCS_SHARD_2),$(DOCS_ALL_PAGES))
+	docs/docs/guides/retrieve-and-answer.mdx
+DOCS_SHARD_2 := docs/docs/guides/configure-chunking.mdx \
+	docs/docs/guides/configure-storage-backends.mdx \
+	docs/docs/get-started/quickstart.mdx
+DOCS_SHARD_3 := docs/docs/get-started docs/docs/guides \
+	$(addprefix --ignore=,$(DOCS_SHARD_1) $(DOCS_SHARD_2))
 DOCS_TEST_PATHS ?= $(if $(DOCS_SHARD),$(DOCS_SHARD_$(DOCS_SHARD)),docs/docs/get-started docs/docs/guides)
 
 docs-test:

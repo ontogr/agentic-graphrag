@@ -7,7 +7,13 @@ import asyncio
 import os
 
 import pytest
+import sentence_transformers  # noqa: F401
+import torch  # noqa: F401
 
+# Each doc block runs in a forked child. Importing the heavy libraries here lets every
+# child inherit them, instead of loading them again.
+import agrag.embedding  # noqa: F401
+import agrag.ingestion  # noqa: F401
 from agrag.graphdb import build_graph_store
 
 
