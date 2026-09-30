@@ -357,7 +357,10 @@ class Neo4jGraphStore(GraphStore):
                     # Lazy import: a clean install must raise
                     # GraphStoreMissingExtraError, not ImportError, when neo4j is
                     # absent.
-                    from neo4j import AsyncGraphDatabase  # noqa: PLC0415
+                    from neo4j import (  # noqa: PLC0415
+                        AsyncGraphDatabase,
+                        NotificationDisabledClassification,
+                    )
                 except ImportError as exc:
                     raise GraphStoreMissingExtraError("neo4j") from exc
                 self._driver = AsyncGraphDatabase.driver(
@@ -367,6 +370,14 @@ class Neo4jGraphStore(GraphStore):
                         self._settings.password.get_secret_value(),
                     ),
                     max_connection_lifetime=self._settings.max_connection_lifetime,
+                    # The store probes labels and property keys that a new
+                    # database does not have yet. The server reports each probe
+                    # as UNRECOGNIZED, which is expected noise. Other
+                    # classifications, such as PERFORMANCE and DEPRECATION,
+                    # still reach the neo4j.notifications logger.
+                    notifications_disabled_classifications=[
+                        NotificationDisabledClassification.UNRECOGNIZED
+                    ],
                 )
         return self._driver
 
