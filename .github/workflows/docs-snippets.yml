@@ -109,11 +109,11 @@ jobs:
         run: docker compose -f docker/docker-compose.ci.yml down -v
 
   # One status for all shards. It runs even when a shard fails, because GitHub counts a
-  # skipped job as passing.
+  # skipped job as passing. It does not run for a cancelled workflow.
   result:
     name: Run docs code blocks
     needs: snippets
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
