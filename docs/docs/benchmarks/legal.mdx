@@ -37,13 +37,13 @@ One schema covers all four sources: privacy policies, non-disclosure agreements,
 
 ## How answers are scored
 
-Each question gets five scores from 0 to 1.
+Each question gets five primary scores from 0 to 1.
 
 - **Precision and recall.** These follow the scorer of LegalBench-RAG. Precision is the share of the retrieved characters that lie inside a gold span. Recall is the share of the gold characters that a retrieved span covers. A retrieved span matches a gold span when they are in the same document and overlap. The retrieved spans are the chunks that the answer cites.
 - **Expanded precision and recall.** These add the chunks that the cited entities and relations were extracted from.
 - **Correctness.** A judge model compares the answer with the gold spans, joined by a newline.
 
-A question with no chunk citation scores 0 for precision and recall and carries the flag `no_chunk_citation`. The record also stores `non_chunk_citation_share`, the share of citations that point to an entity, relation, or community and so have no span.
+A question with no chunk citation scores 0 for precision and recall and carries the flag `no_chunk_citation`. The record also stores the auxiliary metric `non_chunk_citation_share`, the share of citations that point to an entity, relation, or community and so have no span.
 
 The benchmark scores a fixed number of retrieved snippets. `agrag` has no such number: it cites what the agent chose to use. These scores therefore do not compare with the published precision at k of other systems. The source average of the paper gives each of the four sources the same weight; the group rows in the record give the per-source values.
 
