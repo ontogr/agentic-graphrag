@@ -526,7 +526,7 @@ class TestEntityRetriever:
     async def test_unwrappable_row_falls_through_to_resolve_entity(self) -> None:
         """A row whose 'n' value parses to nothing is skipped, not fatal.
 
-        _parse_entity_node's own {"n": ...} unwrapping means retrying the
+        parse_entity_node's own {"n": ...} unwrapping means retrying the
         raw row after the wrapped node fails still yields None here, so the
         hit falls through to per-hit resolve_entity instead of being dropped.
         """

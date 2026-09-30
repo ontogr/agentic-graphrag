@@ -13599,7 +13599,7 @@ Graph storage backends and the build shortcut.
 - [**base**](#agrag.graphdb.base) – The GraphStore abstraction and its build shortcut helpers.
 - [**errors**](#agrag.graphdb.errors) – Errors that the graph-store layer raises.
 - [**neo4j**](#agrag.graphdb.neo4j) – Neo4j graph-store backend.
-- [**serialize**](#agrag.graphdb.serialize) – Convert graph records into Neo4j-driver-friendly parameters.
+- [**serialize**](#agrag.graphdb.serialize) – Convert graph records to driver parameters and graph node rows to models.
 - [**settings**](#agrag.graphdb.settings) – Settings for the Neo4j graph-store backend.
 
 **Classes:**
@@ -15000,11 +15000,12 @@ reaches `_VECTOR_SEARCH_MAX_K`.
 
 #### `agrag.graphdb.serialize`
 
-Convert graph records into Neo4j-driver-friendly parameters.
+Convert graph records to driver parameters and graph node rows to models.
 
 **Functions:**
 
 - [**node_params**](#agrag.graphdb.serialize.node_params) – Build the `$records` entry for a node upsert.
+- [**parse_entity_node**](#agrag.graphdb.serialize.parse_entity_node) – Parse a GraphStore node row into an Entity.
 - [**relation_params**](#agrag.graphdb.serialize.relation_params) – Build the `$records` entry for a relationship upsert.
 
 ##### `agrag.graphdb.serialize.node_params`
@@ -15031,6 +15032,16 @@ rows.
 
 - <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict with `id` (string), `properties` (converted, without
 - <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – the pending tag), and `pending_job_id` (the tag, or None).
+
+##### `agrag.graphdb.serialize.parse_entity_node`
+
+```python
+parse_entity_node(node:object) -> Entity | None
+```
+
+Parse a GraphStore node row into an Entity.
+
+Handles both neo4j Node objects and plain dict mocks used in unit tests.
 
 ##### `agrag.graphdb.serialize.relation_params`
 

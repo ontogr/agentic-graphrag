@@ -15,6 +15,7 @@ from agrag.cypher.relations import entities_in_documents_query
 from agrag.cypher.resolution_read import fetch_active_resolved_member_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.serialize import parse_entity_node
 from agrag.observability import get_tracer, record_swallowed_exception
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.identity import resolve_entity
@@ -197,9 +198,6 @@ class EntityRetriever(Retriever):
                         rows = await self._graph_store.execute_read(
                             hydrate_entities_by_id_query(), {"ids": ids, "job_id": None}
                         )
-                        from agrag.ingestion._ingest_pipeline import (  # noqa: PLC0415
-                            _parse_entity_node,
-                        )
 
                         for row in rows:
                             try:
@@ -208,9 +206,9 @@ class EntityRetriever(Retriever):
                                     if isinstance(row, dict) and "n" in row
                                     else row
                                 )
-                                ent = _parse_entity_node(node)
+                                ent = parse_entity_node(node)
                                 if ent is None:
-                                    ent = _parse_entity_node(row)  # type: ignore[arg-type]
+                                    ent = parse_entity_node(row)  # type: ignore[arg-type]
                                 if ent is not None:
                                     entities_by_id[str(ent.id)] = ent
                             except Exception:
