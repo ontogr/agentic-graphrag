@@ -12,3 +12,7 @@ CUAD | CC BY 4.0 | https://www.atticusprojectai.org/cuad
 MAUD | license not verified | https://github.com/TheAtticusProject/maud
 FinanceBench annotations | CC BY-NC 4.0 | https://huggingface.co/datasets/PatronusAI/financebench
 FinanceBench filings | public SEC filings and issuer press releases; copyright stays with the issuers | https://github.com/patronus-ai/financebench
+GraphRAG-Bench code | MIT | https://github.com/GraphRAG-Bench/GraphRAG-Benchmark
+GraphRAG-Bench data | no license stated | https://huggingface.co/datasets/GraphRAG-Bench/GraphRAG-Bench
+NCCN Guidelines for Patients (GraphRAG-Bench Medical corpus) | all rights reserved | The text says it "may not be reproduced in any form for any purpose without the express written permission of NCCN". https://www.nccn.org/patientresources/patient-resources/guidelines-for-patients
+Project Gutenberg texts (GraphRAG-Bench Novel corpus) | public domain in the United States | https://www.gutenberg.org

@@ -2,8 +2,10 @@
 
 from benchmarks.datasets.base import DOMAINS
 from benchmarks.datasets.financial import DOMAIN as FINANCIAL
+from benchmarks.datasets.graphrag_general import DOMAIN as GRAPHRAG_GENERAL
 from benchmarks.datasets.legal import DOMAIN as LEGAL
 
 
 DOMAINS["legal"] = LEGAL
 DOMAINS["financial"] = FINANCIAL
+DOMAINS["graphrag_general"] = GRAPHRAG_GENERAL
