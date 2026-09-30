@@ -330,9 +330,9 @@ Use the `writing-diataxis-docs` skill before writing user-facing docs.
 - User-facing documentation is a Docusaurus site at `docs/`, served at
   `ontogr.github.io/agentic-graphrag`. Guides live as Markdown/MDX under
   `docs/docs/`.
-- `docs/docs/api/index.md` is generated from `agrag` docstrings via
-  `griffe2md`; run `make docs-api` to regenerate it, never edit it by hand.
-  `make docs-dev` and `make docs-build` regenerate it automatically.
+- `docs/docs/api/index.md` is the hand-written Core API page. The other pages in `docs/docs/api/` are
+  generated from `agrag` docstrings via `griffe2md`; run `make docs-api` to regenerate them, never edit
+  them by hand. `make docs-dev` and `make docs-build` regenerate them automatically.
 - The 88-character line limit is a Python rule (Ruff line length, docstrings,
   and comments). Do not hard-wrap prose in Markdown/MDX docs pages, `AGENTS.md`,
   `CLAUDE.md`, `CONTRIBUTING.md`, or PR/issue descriptions to 88 characters; write
@@ -373,8 +373,8 @@ Generated/excluded paths:
 
 - Do not edit `agrag/llm/baml_client/` manually.
 - Do not include generated BAML files in manual cleanup or formatting work.
-- Do not edit `docs/docs/api/index.md` manually; regenerate it with
-  `make docs-api`.
+- Do not edit the generated pages in `docs/docs/api/` manually; regenerate them with
+  `make docs-api`. `docs/docs/api/index.md` is hand-written.
 
 ## Workflow expectations
 

@@ -139,23 +139,18 @@ jobs:
       - name: Check for docs staleness
         id: docs-check
         run: |
-          if git diff --exit-code HEAD -- docs/docs/api/index.md > /dev/null; then
-            if ! git ls-files --others --exclude-standard -- docs/docs/api/index.md | grep -q .; then
-              echo "stale=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
+          git add -N docs/docs/api
+          if git diff --quiet HEAD -- docs/docs/api; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           echo "stale=true" >> "$GITHUB_OUTPUT"
-          if git ls-files --error-unmatch docs/docs/api/index.md > /dev/null 2>&1; then
-            git diff HEAD -- docs/docs/api/index.md | head -c 6500 > /tmp/docs.diff || true
-          else
-            diff -u /dev/null docs/docs/api/index.md | head -c 6500 > /tmp/docs.diff || true
-          fi
+          git diff HEAD -- docs/docs/api | head -c 6500 > /tmp/docs.diff || true
           cat /tmp/docs.diff || true
       - name: Fail on stale docs
         if: steps.docs-check.outputs.stale == 'true'
         run: |
-          echo "::error::docs/docs/api/index.md is stale. Run 'make docs-api' locally and commit."
+          echo "::error::The pages in docs/docs/api are stale. Run 'make docs-api' locally and commit."
           exit 1
   docs-comment:
     name: docs-api comment

@@ -42,7 +42,7 @@ uv run pre-commit install
 ## Docs
 
 - The docs website is at `docs/`, served at `ontogr.github.io/agentic-graphrag`. Guides live as Markdown/MDX under `docs/docs/`.
-- `docs/docs/api/index.md` is generated from `agrag`'s docstrings via `griffe2md`,
+- The API reference has two parts. `docs/docs/api/index.md` is the hand-written Core API page. The other pages in `docs/docs/api/` are generated from the docstrings of `agrag` with `griffe2md`; run `make docs-api` to regenerate them and do not edit them by hand. `make docs-dev` and `make docs-build` regenerate them automatically.
 
 ```bash
 make docs-install  # once, or after docs/package.json changes

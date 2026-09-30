@@ -10,6 +10,7 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "Makefile"
+      - ".github/scripts/docs_api_links.py"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
