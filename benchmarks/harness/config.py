@@ -56,6 +56,8 @@ COST_MODEL: CostModel | None = CostModel(
 SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
     ("legal", "lite"): SpendCap(llm_calls=1_200, tokens=7_500_000),
     ("legal", "full"): SpendCap(llm_calls=12_100, tokens=81_000_000),
+    ("financial", "lite"): SpendCap(llm_calls=4_000, tokens=47_100_000),
+    ("financial", "full"): SpendCap(llm_calls=16_000, tokens=170_000_000),
 }
 
 # About 1000 tokens per chunk, counted with the tokenizer agrag uses elsewhere.
