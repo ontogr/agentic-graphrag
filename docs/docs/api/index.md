@@ -22,7 +22,7 @@ The top-level `agrag` package exports nothing. Import each name from the package
 | Extractors | `from agrag.ingestion import GlinerExtractor, BAMLExtractor, EscalatingExtractor` | Read one chunk and return entities and relations. GLiNER runs locally. BAML calls an LLM. The escalating extractor runs GLiNER first and calls the LLM for weak chunks. |
 | `ErrorPolicy` | `from agrag.loaders import ErrorPolicy` | The action for a source that fails: `RAISE`, `SKIP`, or `QUARANTINE`. See [agrag.loaders](loaders.md). |
 | `SearchEngine`, `RetrievalSettings` | `from agrag.retrieval import SearchEngine, RetrievalSettings` | Runs retrieval recipes over the graph. See [agrag.retrieval](retrieval.md). |
-| `build_agent` | `from agrag.agents.build import build_agent` | Builds the planner, researcher, and verifier agent. Needs the `agents` extra. See [agrag.agents](agents.md). |
+| `build_agent` | `from agrag.agents import build_agent` | Builds the planner, researcher, and verifier agent. Accessing it needs the `agents` extra. See [agrag.agents](agents.md). |
 | `get_tracer` | `from agrag.observability import get_tracer` | Returns the tracer you pass, or a no-op tracer. See [agrag.observability](observability.md). |
 
 ## Tracing

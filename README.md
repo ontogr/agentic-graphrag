@@ -275,11 +275,10 @@ Save this script as `build_graph.py`. It needs no LLM key.
 ```python
 import asyncio
 
-from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
+from agrag.common.data_models import EntityType, GraphSchema, RelationType
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
-from agrag.ingestion import Graph
-from agrag.ingestion.extract import GlinerExtractor
+from agrag.ingestion import GlinerExtractor, Graph
 
 schema = GraphSchema(
     name="company-facts",
@@ -350,8 +349,7 @@ This step needs an OpenAI-compatible LLM endpoint. Add `LLM_BASE_URL`, `LLM_API_
 ```python
 import asyncio
 
-from agrag.agents.build import build_agent
-from agrag.agents.settings import AgentLLMSettings
+from agrag.agents import AgentLLMSettings, build_agent
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
 from agrag.retrieval import SearchEngine
