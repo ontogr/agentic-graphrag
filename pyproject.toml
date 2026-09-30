@@ -231,9 +231,11 @@ signature_crossrefs = true
 # thoughts/ holds vendored reference repos and research notes, not this project's
 # own prose (see the matching [tool.ruff] extend-exclude). benchmarks/fixtures/ holds
 # question ids and quotes from public datasets, misspellings included.
+# benchmarks/results/ holds run records, whose ids and hashes look like words.
 extend-exclude = [
   "tests/**/fixtures/**",
   "benchmarks/fixtures/**",
+  "benchmarks/results/**",
   "thoughts/**",
   "agrag/llm/baml_client/**",
 ]
