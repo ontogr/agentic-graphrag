@@ -79,7 +79,7 @@ class _OrthogonalEmbedder(Embedder):
     """Embedder giving each distinct text its own orthogonal unit vector."""
 
     model = "orthogonal"
-    _DIMENSIONS = 64
+    _DIMENSIONS = 4
 
     def __init__(self) -> None:
         """Start with an empty text-to-slot map."""

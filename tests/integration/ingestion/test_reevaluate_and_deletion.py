@@ -47,21 +47,35 @@ class _FixedEmbedder(Embedder):
         return [[0.1] * 4 for _ in texts]
 
 
-class _HashEmbedder(Embedder):
-    """Embedder mapping each distinct text to its own one-hot vector."""
+class _KeywordEmbedder(Embedder):
+    """Embedder giving each probe keyword its own one-hot vector.
 
-    model = "hash"
+    Every graph in one Neo4j database shares the chunk and resolved-entity
+    vector indexes, so this embedder keeps the 4 dimensions the other tests
+    use. The four probe names map to four orthogonal vectors, so the
+    embedding tier never matches them. Other text gets one shared vector.
+    """
+
+    model = "keyword"
+    _KEYWORDS = ("Quasar", "Nebula", "Pulsar", "Galaxy")
 
     async def dimensions(self) -> int:
         """Return the one-hot dimension."""
-        return 16
+        return len(self._KEYWORDS)
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """Return a stable one-hot vector per distinct text."""
+        """Return the one-hot vector of the first probe keyword in each text."""
         vectors = []
         for text in texts:
-            index = int(hashlib.sha256(text.encode()).hexdigest(), 16) % 16
-            vectors.append([1.0 if i == index else 0.0 for i in range(16)])
+            slot = next(
+                (i for i, word in enumerate(self._KEYWORDS) if word in text), None
+            )
+            if slot is None:
+                vectors.append([0.5] * len(self._KEYWORDS))
+            else:
+                vectors.append(
+                    [1.0 if i == slot else 0.0 for i in range(len(self._KEYWORDS))]
+                )
         return vectors
 
 
@@ -211,7 +225,7 @@ class TestDeletionPruningIntegration:
         graph = await Graph.open(
             schema=GENERIC,
             graph_store=store,
-            embedder=_HashEmbedder(),
+            embedder=_KeywordEmbedder(),
             extractor=_ProbeExtractor(probe_names, survivor_name),
         )
         doc_key = f"pruneprobe://{suffix}-doc"
