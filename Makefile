@@ -229,7 +229,7 @@ wheel-test: build
 	rm -rf .wheelenv
 	uv venv .wheelenv
 	uv pip install --python .wheelenv/bin/python dist/*.whl
-	cd /tmp && "$(CURDIR)/.wheelenv/bin/python" -c "import agrag; print(agrag.__version__)"
+	cd /tmp && "$(CURDIR)/.wheelenv/bin/python" -c "import agrag, agrag.agents, agrag.chunking, agrag.common.data_models, agrag.embedding, agrag.graphdb, agrag.ingestion, agrag.loaders, agrag.retrieval, agrag.vectordb; print(agrag.__version__)"
 
 clean:
 	rm -rf .coverage coverage.xml htmlcov dist build .wheelenv *.egg-info pytest-results.xml pytest-integration-results*.xml

@@ -17,6 +17,7 @@ Agentic GraphRAG: graph-based RAG with agentic reasoning.
 - [**eval**](#agrag.eval) – Public evaluation metrics for agrag, built on DeepEval and AgentEvals.
 - [**graphdb**](#agrag.graphdb) – Graph storage backends and the build shortcut.
 - [**ingestion**](#agrag.ingestion) – The ingestion package.
+- [**loaders**](#agrag.loaders) – Document loaders: turn files, directories and raw text into Documents.
 - [**observability**](#agrag.observability) – OpenTelemetry wiring for the ingestion layer.
 - [**retrieval**](#agrag.retrieval) – Retrieval package: search engine, fusion, reranking, and retrievers.
 - [**vectordb**](#agrag.vectordb) – Vector storage backends and the build shortcut.
@@ -24,6 +25,9 @@ Agentic GraphRAG: graph-based RAG with agentic reasoning.
 ### `agrag.agents`
 
 Agentic layer: planner/researcher/verifier over SearchEngine.
+
+`build_agent` lives in `agrag.agents.build` and is not re-exported here: it needs
+the `agents` extra to import, and this package must import on a base install.
 
 **Modules:**
 
@@ -43,7 +47,77 @@ Agentic layer: planner/researcher/verifier over SearchEngine.
 
 **Classes:**
 
+- [**AgentLLMSettings**](#agrag.agents.AgentLLMSettings) – LLM client config for the agent's own reasoning turns.
 - [**AgentMissingExtraError**](#agrag.agents.AgentMissingExtraError) – Agent tracing needs a package extra that is not installed.
+- [**AgentRunResult**](#agrag.agents.AgentRunResult) – Result of one agent run.
+- [**AgentSettings**](#agrag.agents.AgentSettings) – Configuration for the agent loop itself.
+- [**Ledger**](#agrag.agents.Ledger) – Assigns and tracks stable citation keys for one agent run.
+
+#### `agrag.agents.AgentLLMSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+LLM client config for the agent's own reasoning turns.
+
+Mirrors ExtractionLLMSettings for the agent role: same shape,
+same from_openai_compatible_env() convention, because the
+agent's model and the extraction model are configured the same
+way even though the agent calls its model through LangChain,
+not BAML.
+
+**Attributes:**
+
+- [**clients**](#agrag.agents.AgentLLMSettings.clients) (<code>[list](#list)\[[LLMClientConfig](#agrag.llm.client_config.LLMClientConfig)\]</code>) – The LLM client(s) to use. One element for a single
+  provider; more than one composed per strategy through
+  agent middleware.
+- [**strategy**](#agrag.agents.AgentLLMSettings.strategy) (<code>[Literal](#typing.Literal)['single', 'fallback', 'round_robin']</code>) – How to compose multiple clients. `"fallback"`
+  tries the other clients in order when a model call fails;
+  `"round_robin"` rotates across all clients per call.
+  Ignored with one client.
+
+Env prefix: `AGENT_LLM_`.
+
+**Functions:**
+
+- [**from_openai_compatible_env**](#agrag.agents.AgentLLMSettings.from_openai_compatible_env) – Build settings from OpenAI-compatible env vars.
+
+##### `agrag.agents.AgentLLMSettings.clients`
+
+```python
+clients: list[LLMClientConfig]
+```
+
+##### `agrag.agents.AgentLLMSettings.from_openai_compatible_env`
+
+```python
+from_openai_compatible_env() -> AgentLLMSettings
+```
+
+Build settings from OpenAI-compatible env vars.
+
+Loads `.env` first, then reads `AGENT_LLM_BASE_URL`,
+`AGENT_LLM_API_KEY`, and `AGENT_LLM_MODEL_ID`. When the
+agent-specific variables are unset, the shared `LLM_*`
+convenience variables used by the extraction role stand in, so
+one `.env` can configure every LLM-backed role. The model
+name defaults to `gpt-4o-mini` when neither variable names
+one.
+
+**Returns:**
+
+- <code>[AgentLLMSettings](#agrag.agents.settings.AgentLLMSettings)</code> – AgentLLMSettings with one openai-generic client.
+
+##### `agrag.agents.AgentLLMSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='AGENT_LLM_', env_file='.env', extra='ignore')
+```
+
+##### `agrag.agents.AgentLLMSettings.strategy`
+
+```python
+strategy: Literal['single', 'fallback', 'round_robin'] = 'single'
+```
 
 #### `agrag.agents.AgentMissingExtraError`
 
@@ -64,6 +138,154 @@ Agent tracing needs a package extra that is not installed.
 ```python
 extra = extra
 ```
+
+#### `agrag.agents.AgentRunResult`
+
+Bases: <code>[TypedDict](#typing.TypedDict)</code>
+
+Result of one agent run.
+
+The deep-agent path also passes through the other keys of the LangGraph
+state at runtime; only the keys below are part of the contract.
+
+**Attributes:**
+
+- [**messages**](#agrag.agents.AgentRunResult.messages) (<code>[list](#list)\[[Any](#typing.Any)\]</code>) – The conversation, ending with the assistant's answer.
+- [**ledger**](#agrag.agents.AgentRunResult.ledger) (<code>[Ledger](#agrag.agents.ledger.Ledger)</code>) – Citation keys assigned during this run. Use
+  `ledger.resolve(key)` to get the evidence behind a key.
+
+##### `agrag.agents.AgentRunResult.ledger`
+
+```python
+ledger: Ledger
+```
+
+##### `agrag.agents.AgentRunResult.messages`
+
+```python
+messages: list[Any]
+```
+
+#### `agrag.agents.AgentSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+Configuration for the agent loop itself.
+
+**Attributes:**
+
+- [**recursion_limit**](#agrag.agents.AgentSettings.recursion_limit) (<code>[int](#int)</code>) – The maximum LangGraph step count before
+  the loop stops and reports incomplete progress.
+  Env: `AGENT_RECURSION_LIMIT`.
+- [**max_research_attempts**](#agrag.agents.AgentSettings.max_research_attempts) (<code>[int](#int)</code>) – The maximum number of times the
+  planner may re-delegate to the researcher after
+  receiving `INSUFFICIENT` from the verifier. The
+  planner's initial decomposition into sub-questions is
+  not bounded by this field; the LangGraph recursion
+  limit remains the backstop for that pass.
+  Env: `AGENT_MAX_RESEARCH_ATTEMPTS`.
+
+Env prefix: `AGENT_`.
+
+##### `agrag.agents.AgentSettings.max_research_attempts`
+
+```python
+max_research_attempts: int = 3
+```
+
+##### `agrag.agents.AgentSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='AGENT_', env_file='.env', extra='ignore')
+```
+
+##### `agrag.agents.AgentSettings.recursion_limit`
+
+```python
+recursion_limit: int = 50
+```
+
+#### `agrag.agents.Ledger`
+
+```python
+Ledger() -> None
+```
+
+Assigns and tracks stable citation keys for one agent run.
+
+A key (E1, R1, C1 for entities, relations, and chunks) is
+assigned the first time this run encounters that item, by
+SearchResult.identity_key, and never reassigned within the run.
+The agent is shown rendered evidence carrying these keys, never
+raw SearchResults. A chunk result that has a parent shows the parent text under
+the first child's key. Later children of that parent show their own text and
+name the first key.
+
+**Functions:**
+
+- [**cite**](#agrag.agents.Ledger.cite) – Return this result's citation key, assigning one if new.
+- [**render**](#agrag.agents.Ledger.render) – Return the markdown-with-key text the agent sees.
+- [**resolve**](#agrag.agents.Ledger.resolve) – Return the SearchResult behind a citation key.
+
+**Attributes:**
+
+- [**keys**](#agrag.agents.Ledger.keys) (<code>[list](#list)\[[str](#str)\]</code>) – Return all citation keys assigned so far.
+
+##### `agrag.agents.Ledger.cite`
+
+```python
+cite(result:SearchResult) -> str
+```
+
+Return this result's citation key, assigning one if new.
+
+**Parameters:**
+
+- **result** (<code>[SearchResult](#agrag.common.data_models.search_result.SearchResult)</code>) – The SearchResult to assign a key to.
+
+**Returns:**
+
+- <code>[str](#str)</code> – The citation key (e.g. `E1`, `C3`).
+
+##### `agrag.agents.Ledger.keys`
+
+```python
+keys: list[str]
+```
+
+Return all citation keys assigned so far.
+
+##### `agrag.agents.Ledger.render`
+
+```python
+render(result:SearchResult) -> str
+```
+
+Return the markdown-with-key text the agent sees.
+
+**Parameters:**
+
+- **result** (<code>[SearchResult](#agrag.common.data_models.search_result.SearchResult)</code>) – The SearchResult to render.
+
+**Returns:**
+
+- <code>[str](#str)</code> – Markdown text with the citation key and item summary.
+
+##### `agrag.agents.Ledger.resolve`
+
+```python
+resolve(key:str) -> SearchResult | None
+```
+
+Return the SearchResult behind a citation key.
+
+**Parameters:**
+
+- **key** (<code>[str](#str)</code>) – The citation key to look up.
+
+**Returns:**
+
+- <code>[SearchResult](#agrag.common.data_models.search_result.SearchResult) | None</code> – The SearchResult, or None if the key is unknown.
 
 #### `agrag.agents.build`
 
@@ -5058,6 +5280,1571 @@ Shared data models used by agrag components.
 - [**search_result**](#agrag.common.data_models.search_result) – One retrieved item, tagged with source and relevance score.
 - [**stage_failure**](#agrag.common.data_models.stage_failure) – Per-stage failure record and its per-call cap.
 - [**vector_record**](#agrag.common.data_models.vector_record) – Vector storage record shapes shared by VectorStore and GraphStore.
+
+**Classes:**
+
+- [**Chunk**](#agrag.common.data_models.Chunk) – One retrieval-sized piece of a Document.
+- [**Community**](#agrag.common.data_models.Community) – A cluster of entities detected by hierarchical Leiden, with an LLM report.
+- [**Distance**](#agrag.common.data_models.Distance) – A distance metric a vector index compares embeddings with.
+- [**Document**](#agrag.common.data_models.Document) – One unit of source text, before chunking.
+- [**DocumentFamily**](#agrag.common.data_models.DocumentFamily) – The shape of a document's source.
+- [**Entity**](#agrag.common.data_models.Entity) – A permanent mention-level node, never destroyed once written.
+- [**EntityType**](#agrag.common.data_models.EntityType) – One kind of entity a schema recognizes.
+- [**GraphSchema**](#agrag.common.data_models.GraphSchema) – A versioned contract of entity and relation types.
+- [**NodeRecord**](#agrag.common.data_models.NodeRecord) – One graph node, ready to write.
+- [**Normalization**](#agrag.common.data_models.Normalization) – How a loader turned source bytes into `Document.text`.
+- [**PageProvenance**](#agrag.common.data_models.PageProvenance) – The location of a chunk across one or more pages.
+- [**Relation**](#agrag.common.data_models.Relation) – A resolved relationship between two Entity nodes.
+- [**RelationRecord**](#agrag.common.data_models.RelationRecord) – One graph relationship, ready to write.
+- [**RelationType**](#agrag.common.data_models.RelationType) – One kind of relation a schema recognizes.
+- [**ResolvedEntity**](#agrag.common.data_models.ResolvedEntity) – A materialized cluster of entities that refer to the same thing.
+- [**SearchResult**](#agrag.common.data_models.SearchResult) – One retrieved item, tagged with where it came from.
+- [**SourceFormat**](#agrag.common.data_models.SourceFormat) – A source format that a loader can read.
+- [**TextProvenance**](#agrag.common.data_models.TextProvenance) – The location of a chunk inside flattened document text.
+- [**VectorRecord**](#agrag.common.data_models.VectorRecord) – One vector and its payload, ready to write to a collection or index.
+
+**Attributes:**
+
+- [**GENERIC**](#agrag.common.data_models.GENERIC) –
+
+##### `agrag.common.data_models.Chunk`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+One retrieval-sized piece of a Document.
+
+**Attributes:**
+
+- [**document_id**](#agrag.common.data_models.Chunk.document_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the persisted Document graph node this chunk
+  belongs to (see `Document.node_id_for`). Stable across content
+  versions of the same logical document; per-version identity lives
+  in `Chunk.id` instead.
+- [**index**](#agrag.common.data_models.Chunk.index) (<code>[int](#int)</code>) – The position of the chunk within its document, from 0.
+- [**text**](#agrag.common.data_models.Chunk.text) (<code>[str](#str)</code>) – The chunk text.
+- [**provenance**](#agrag.common.data_models.Chunk.provenance) (<code>[TextProvenance](#agrag.common.data_models.provenance.TextProvenance) | [PageProvenance](#agrag.common.data_models.provenance.PageProvenance)</code>) – The location of this chunk in its source. The shape of this
+  value depends on which chunker made the chunk.
+- [**heading_path**](#agrag.common.data_models.Chunk.heading_path) (<code>[list](#list)\[[str](#str)\]</code>) – The headings that contain this chunk, from outermost to innermost.
+  Empty for a docling chunk and for a chunk with no heading above it.
+- [**content_kind**](#agrag.common.data_models.Chunk.content_kind) (<code>[Literal](#typing.Literal)['text', 'table_row', 'code', 'heading']</code>) – The kind of content in this chunk. A text chunker always sets
+  `"text"`. A docling chunk can also be `"table_row"`.
+- [**chunker**](#agrag.common.data_models.Chunk.chunker) (<code>[str](#str) | None</code>) – The strategy name of the chunker that made this chunk. `None` for a
+  chunk written before chunkers were recorded.
+- [**chunker_hash**](#agrag.common.data_models.Chunk.chunker_hash) (<code>[str](#str) | None</code>) – The fingerprint of the settings of the chunker that made this
+  chunk. `None` for a chunk written before chunkers were recorded.
+- [**level**](#agrag.common.data_models.Chunk.level) (<code>[int](#int)</code>) – `1` for a parent chunk, `0` for every other chunk. A parent
+  chunk is the unit of extraction. A child chunk is the unit of search.
+- [**parent_id**](#agrag.common.data_models.Chunk.parent_id) (<code>[UUID](#uuid.UUID) | None</code>) – The id of the parent chunk of a child chunk. `None` for a
+  parent and for a chunk that has no parent.
+
+**Functions:**
+
+- [**id_for**](#agrag.common.data_models.Chunk.id_for) – Compute the chunk id.
+- [**section_label**](#agrag.common.data_models.Chunk.section_label) – Return the heading path as one line, or `None` when the path is empty.
+- [**to_node_record**](#agrag.common.data_models.Chunk.to_node_record) – Return this chunk as a GraphStore write record.
+
+###### `agrag.common.data_models.Chunk.chunker`
+
+```python
+chunker: str | None = None
+```
+
+###### `agrag.common.data_models.Chunk.chunker_hash`
+
+```python
+chunker_hash: str | None = None
+```
+
+###### `agrag.common.data_models.Chunk.content_kind`
+
+```python
+content_kind: Literal['text', 'table_row', 'code', 'heading'] = 'text'
+```
+
+###### `agrag.common.data_models.Chunk.contextual_text`
+
+```python
+contextual_text: str
+```
+
+The text with its heading path above it, for embedding.
+
+The stored text and its offsets do not change. A chunk with no heading path
+returns its text.
+
+###### `agrag.common.data_models.Chunk.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+###### `agrag.common.data_models.Chunk.document_id`
+
+```python
+document_id: UUID
+```
+
+###### `agrag.common.data_models.Chunk.embedding`
+
+```python
+embedding: list[float] | None = None
+```
+
+###### `agrag.common.data_models.Chunk.heading_path`
+
+```python
+heading_path: list[str] = Field(default_factory=list)
+```
+
+###### `agrag.common.data_models.Chunk.id`
+
+```python
+id: UUID | None = None
+```
+
+###### `agrag.common.data_models.Chunk.id_for`
+
+```python
+id_for(*, document_id:UUID, version_id:UUID | None = None, provenance:TextProvenance | PageProvenance, index:int, chunker_hash:str | None = None, level:int = 0) -> UUID
+```
+
+Compute the chunk id.
+
+For a text chunk, the id comes from the document id and the character span. A
+change in chunk size shifts the span, so it also changes the id. When supplied,
+`version_id` makes the id distinct for each version of a document.
+
+For a docling chunk, the id comes from the document id, the chunker hash and
+the chunk index instead. The hash keeps a re-chunk with new settings from
+overwriting chunk N of the earlier settings. Docling parsing is not always the
+same between runs, so this id is not stable across a re-parse of the same
+source.
+
+**Parameters:**
+
+- **document_id** (<code>[UUID](#uuid.UUID)</code>) – The id of the parent Document.
+- **version_id** (<code>[UUID](#uuid.UUID) | None</code>) – Optional id for the parent document version.
+- **provenance** (<code>[TextProvenance](#agrag.common.data_models.provenance.TextProvenance) | [PageProvenance](#agrag.common.data_models.provenance.PageProvenance)</code>) – The provenance of the chunk. Its type picks which id rule
+  applies.
+- **index** (<code>[int](#int)</code>) – The position of the chunk within its document.
+- **chunker_hash** (<code>[str](#str) | None</code>) – The fingerprint of the chunker. Only a docling chunk uses
+  it; a text chunk id ignores it.
+- **level** (<code>[int](#int)</code>) – The chunk level. A parent chunk (level 1) adds a level part, so a
+  parent and a child with the same span get different ids. The id of a
+  level 0 chunk does not change.
+
+**Returns:**
+
+- <code>[UUID](#uuid.UUID)</code> – The chunk id.
+
+###### `agrag.common.data_models.Chunk.index`
+
+```python
+index: int = 0
+```
+
+###### `agrag.common.data_models.Chunk.level`
+
+```python
+level: int = 0
+```
+
+###### `agrag.common.data_models.Chunk.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+###### `agrag.common.data_models.Chunk.parent_id`
+
+```python
+parent_id: UUID | None = None
+```
+
+###### `agrag.common.data_models.Chunk.provenance`
+
+```python
+provenance: TextProvenance | PageProvenance = Field(discriminator='kind')
+```
+
+###### `agrag.common.data_models.Chunk.section_label`
+
+```python
+section_label() -> str | None
+```
+
+Return the heading path as one line, or `None` when the path is empty.
+
+Whitespace runs in a heading become one space, and runs of three or more
+dashes become one dash, so a heading cannot end the text block of the
+extraction prompt.
+
+###### `agrag.common.data_models.Chunk.text`
+
+```python
+text: str
+```
+
+###### `agrag.common.data_models.Chunk.to_node_record`
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this chunk as a GraphStore write record.
+
+Provenance is flattened to a plain JSON-safe dict via model_dump —
+GraphStore's own serialize.node_params only converts UUIDs and walks
+containers.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – id is None.
+
+##### `agrag.common.data_models.Community`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+A cluster of entities detected by hierarchical Leiden, with an LLM report.
+
+**Attributes:**
+
+- [**title**](#agrag.common.data_models.Community.title) (<code>[str](#str)</code>) – A short, human-readable name for the community.
+- [**summary**](#agrag.common.data_models.Community.summary) (<code>[str](#str)</code>) – A prose summary of what the community is about.
+- [**rating**](#agrag.common.data_models.Community.rating) (<code>[float](#float)</code>) – An importance rating for this community, 0-10.
+- [**rating_explanation**](#agrag.common.data_models.Community.rating_explanation) (<code>[str](#str)</code>) – One sentence explaining the rating.
+- [**findings**](#agrag.common.data_models.Community.findings) (<code>[list](#list)\[[str](#str)\]</code>) – Distinct factual claims the report supports.
+- [**member_ids**](#agrag.common.data_models.Community.member_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of every Entity in this community, ordered by
+  internal weighted degree descending (see compute_communities) --
+  the highest-centrality, most representative members first.
+- [**internal_weight**](#agrag.common.data_models.Community.internal_weight) (<code>[float](#float)</code>) – Total weight of edges where both endpoints are
+  members of this community. A free-to-compute (no extra query,
+  no new dependency) importance signal, used in place of raw
+  member count to decide which communities get a real LLM report
+  -- a small but densely-attested community can matter more than
+  a larger sparse one.
+- [**embedding**](#agrag.common.data_models.Community.embedding) (<code>[list](#list)\[[float](#float)\] | None</code>) – The community's dense vector, computed from title and
+  summary. None before the report/embedding stage runs.
+
+**Functions:**
+
+- [**to_node_record**](#agrag.common.data_models.Community.to_node_record) – Return this community as a GraphStore write record.
+
+###### `agrag.common.data_models.Community.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+###### `agrag.common.data_models.Community.embedding`
+
+```python
+embedding: list[float] | None = None
+```
+
+###### `agrag.common.data_models.Community.embedding_text`
+
+```python
+embedding_text: str
+```
+
+Return the text this community's embedding is computed from.
+
+###### `agrag.common.data_models.Community.findings`
+
+```python
+findings: list[str] = Field(default_factory=list)
+```
+
+###### `agrag.common.data_models.Community.id`
+
+```python
+id: UUID
+```
+
+###### `agrag.common.data_models.Community.internal_weight`
+
+```python
+internal_weight: float = Field(default=0.0, ge=0.0)
+```
+
+###### `agrag.common.data_models.Community.member_ids`
+
+```python
+member_ids: list[UUID] = Field(default_factory=list)
+```
+
+###### `agrag.common.data_models.Community.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+###### `agrag.common.data_models.Community.rating`
+
+```python
+rating: float = Field(ge=0.0, le=10.0)
+```
+
+###### `agrag.common.data_models.Community.rating_explanation`
+
+```python
+rating_explanation: str
+```
+
+###### `agrag.common.data_models.Community.summary`
+
+```python
+summary: str
+```
+
+###### `agrag.common.data_models.Community.title`
+
+```python
+title: str
+```
+
+###### `agrag.common.data_models.Community.to_node_record`
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this community as a GraphStore write record.
+
+##### `agrag.common.data_models.Distance`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+A distance metric a vector index compares embeddings with.
+
+**Attributes:**
+
+- [**COSINE**](#agrag.common.data_models.Distance.COSINE) – Cosine similarity. The default for most embedding models.
+- [**EUCLID**](#agrag.common.data_models.Distance.EUCLID) – Euclidean (L2) distance.
+- [**DOT**](#agrag.common.data_models.Distance.DOT) – Dot product.
+
+###### `agrag.common.data_models.Distance.COSINE`
+
+```python
+COSINE = 'Cosine'
+```
+
+###### `agrag.common.data_models.Distance.DOT`
+
+```python
+DOT = 'Dot'
+```
+
+###### `agrag.common.data_models.Distance.EUCLID`
+
+```python
+EUCLID = 'Euclid'
+```
+
+##### `agrag.common.data_models.Document`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+One unit of source text, before chunking.
+
+A prose source, such as a Markdown file, makes one Document. A record source,
+such as a CSV file, makes one Document per row.
+
+The way the system computes `content_hash` depends on the loader. A text
+loader hashes the decoded text. A docling loader hashes the raw source bytes
+instead of the parsed output, because docling's parsed output can change
+between docling versions and between runs on different hardware.
+
+The system computes `id` from `content_hash` and `record_id` unless the caller
+passes `id` directly. A record-family document without `record_id` also mixes
+in `record_index` plus `source_hash`, or `uri` when `source_hash` is not
+set. Pass `id` only when rebuilding a document from stored data.
+
+**Attributes:**
+
+- [**text**](#agrag.common.data_models.Document.text) (<code>[str](#str)</code>) – The document text. For a docling source, this holds docling's Markdown
+  export. The chunker never reads this field for a docling source; see the
+  `Chunk` model for docling chunk content instead.
+- [**title**](#agrag.common.data_models.Document.title) (<code>[str](#str)</code>) – The document title.
+- [**uri**](#agrag.common.data_models.Document.uri) (<code>[str](#str)</code>) – The location of the source. This value is not part of the document id.
+- [**source_format**](#agrag.common.data_models.Document.source_format) (<code>[SourceFormat](#agrag.common.data_models.document.SourceFormat)</code>) – The format the loader used to read this document.
+- [**family**](#agrag.common.data_models.Document.family) (<code>[DocumentFamily](#agrag.common.data_models.document.DocumentFamily)</code>) – The shape of the source: one document per file, or one document per
+  record.
+- [**content_hash**](#agrag.common.data_models.Document.content_hash) (<code>[str](#str)</code>) – The hash that forms the document id.
+- [**loader_name**](#agrag.common.data_models.Document.loader_name) (<code>[str](#str)</code>) – The name of the loader that produced this document, for example
+  `"text"` or `"docling"`.
+- [**loader_version**](#agrag.common.data_models.Document.loader_version) (<code>[str](#str) | None</code>) – The version of the loader package. Does not affect the
+  document id.
+- [**encoding**](#agrag.common.data_models.Document.encoding) (<code>[str](#str) | None</code>) – The text encoding. Text loaders set this field; other loaders
+  leave it empty.
+- [**source_hash**](#agrag.common.data_models.Document.source_hash) (<code>[str](#str) | None</code>) – The hash of the whole source file. Record-family documents set
+  this field.
+- [**char_count**](#agrag.common.data_models.Document.char_count) (<code>[int](#int)</code>) – The number of characters in `text`.
+- [**line_count**](#agrag.common.data_models.Document.line_count) (<code>[int](#int) | None</code>) – The number of lines in `text`. Some loaders do not set this field.
+- [**record_index**](#agrag.common.data_models.Document.record_index) (<code>[int](#int) | None</code>) – The 0-based row number in the source. Record-family documents
+  set this field.
+- [**record_id**](#agrag.common.data_models.Document.record_id) (<code>[str](#str) | None</code>) – The value from the configured id column. Record-family documents
+  set this field only when the caller configures an id column.
+- [**raw_record**](#agrag.common.data_models.Document.raw_record) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\] | None</code>) – The original record data. A loader sets this field only when the
+  caller asks for it.
+- [**heading_outline**](#agrag.common.data_models.Document.heading_outline) (<code>[list](#list)\[[HeadingRef](#agrag.common.data_models.document.HeadingRef)\]</code>) – The headings in the document, with their offsets. A text
+  loader sets this field for a prose document.
+- [**document_key**](#agrag.common.data_models.Document.document_key) (<code>[str](#str) | None</code>) – The stable identifier for this document's persisted graph node.
+  Independent of `id`, which changes with every content edit. Defaults to
+  `uri` when not supplied.
+- [**turns**](#agrag.common.data_models.Document.turns) (<code>[list](#list)\[[TurnRef](#agrag.common.data_models.document.TurnRef)\]</code>) – The speaker turns of a chat document, in order. A chat loader sets this
+  field. Turn spans index `text` and do not overlap.
+- [**normalization**](#agrag.common.data_models.Document.normalization) (<code>[Normalization](#agrag.common.data_models.normalization.Normalization) | None</code>) – How the loader normalized `text`. `None` for a document
+  that no text loader made, such as a docling document or one built by hand.
+
+**Functions:**
+
+- [**id_for**](#agrag.common.data_models.Document.id_for) – Compute the document id.
+- [**node_id_for**](#agrag.common.data_models.Document.node_id_for) – Compute the persisted Document graph node's id.
+- [**to_node_record**](#agrag.common.data_models.Document.to_node_record) – Return this document as a GraphStore write record for its graph node.
+
+###### `agrag.common.data_models.Document.char_count`
+
+```python
+char_count: int
+```
+
+###### `agrag.common.data_models.Document.content_hash`
+
+```python
+content_hash: str
+```
+
+###### `agrag.common.data_models.Document.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+###### `agrag.common.data_models.Document.document_key`
+
+```python
+document_key: str | None = None
+```
+
+###### `agrag.common.data_models.Document.encoding`
+
+```python
+encoding: str | None = None
+```
+
+###### `agrag.common.data_models.Document.family`
+
+```python
+family: DocumentFamily
+```
+
+###### `agrag.common.data_models.Document.heading_outline`
+
+```python
+heading_outline: list[HeadingRef] = Field(default_factory=list)
+```
+
+###### `agrag.common.data_models.Document.id`
+
+```python
+id: UUID | None = None
+```
+
+###### `agrag.common.data_models.Document.id_for`
+
+```python
+id_for(*, content_hash:str, record_id:str | None = None, record_index:int | None = None, source_hash:str | None = None, uri:str | None = None) -> UUID
+```
+
+Compute the document id.
+
+A record id, when given, wins over the content hash. Without a record id,
+a record-family document (`record_index` is not `None`) mixes in its
+source hash and row index, so two rows with identical text but no
+configured id column still get distinct ids. When the source hash is not
+available, this falls back to `uri` so that two different sources still
+do not collide.
+
+**Parameters:**
+
+- **content_hash** (<code>[str](#str)</code>) – The document's content hash.
+- **record_id** (<code>[str](#str) | None</code>) – The value from the configured id column, when the source has one.
+- **record_index** (<code>[int](#int) | None</code>) – The 0-based row number, for a record-family document.
+- **source_hash** (<code>[str](#str) | None</code>) – The hash of the whole source file, for a record-family
+  document.
+- **uri** (<code>[str](#str) | None</code>) – The document's source location, used in place of `source_hash`
+  when the caller does not supply one.
+
+**Returns:**
+
+- <code>[UUID](#uuid.UUID)</code> – The document id.
+
+###### `agrag.common.data_models.Document.line_count`
+
+```python
+line_count: int | None = None
+```
+
+###### `agrag.common.data_models.Document.loader_name`
+
+```python
+loader_name: str
+```
+
+###### `agrag.common.data_models.Document.loader_version`
+
+```python
+loader_version: str | None = None
+```
+
+###### `agrag.common.data_models.Document.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+###### `agrag.common.data_models.Document.node_id_for`
+
+```python
+node_id_for(*, document_key:str) -> UUID
+```
+
+Compute the persisted Document graph node's id.
+
+Distinct from `id_for()`: this id is keyed on `document_key`, not the
+content hash, so it stays the same across content changes to the same
+logical document. Conflating the two ids would give every content version
+of a document its own graph node instead of one node with a changing
+content hash.
+
+**Parameters:**
+
+- **document_key** (<code>[str](#str)</code>) – The document's stable key.
+
+**Returns:**
+
+- <code>[UUID](#uuid.UUID)</code> – The Document graph node id.
+
+###### `agrag.common.data_models.Document.normalization`
+
+```python
+normalization: Normalization | None = None
+```
+
+###### `agrag.common.data_models.Document.raw_record`
+
+```python
+raw_record: dict[str, Any] | None = None
+```
+
+###### `agrag.common.data_models.Document.record_id`
+
+```python
+record_id: str | None = None
+```
+
+###### `agrag.common.data_models.Document.record_index`
+
+```python
+record_index: int | None = None
+```
+
+###### `agrag.common.data_models.Document.resolved_document_key`
+
+```python
+resolved_document_key: str
+```
+
+The document key, guaranteed non-`None` once construction succeeds.
+
+`document_key` is typed as optional because callers may omit it and let
+`_resolve_document_key` default it to `uri`, but every constructed
+`Document` has a non-`None` document key by the time callers see it. Use
+this property instead of `document_key` where a non-optional value is
+required, such as computing the persisted Document node's id.
+
+**Raises:**
+
+- <code>[RuntimeError](#RuntimeError)</code> – `document_key` is still `None`, which means a validator
+  was bypassed, for example via `model_construct`.
+
+###### `agrag.common.data_models.Document.resolved_id`
+
+```python
+resolved_id: UUID
+```
+
+The document id, guaranteed non-`None` once construction succeeds.
+
+`id` is typed as optional because callers may omit it and let
+`_resolve_id` derive it, but every constructed `Document` has a
+non-`None` id by the time callers see it. Use this property instead of
+`id` where a non-optional value is required, such as building a `Chunk`.
+
+**Raises:**
+
+- <code>[RuntimeError](#RuntimeError)</code> – `id` is still `None`, which means a validator was
+  bypassed, for example via `model_construct`.
+
+###### `agrag.common.data_models.Document.source_format`
+
+```python
+source_format: SourceFormat
+```
+
+###### `agrag.common.data_models.Document.source_hash`
+
+```python
+source_hash: str | None = None
+```
+
+###### `agrag.common.data_models.Document.text`
+
+```python
+text: str
+```
+
+###### `agrag.common.data_models.Document.title`
+
+```python
+title: str
+```
+
+###### `agrag.common.data_models.Document.to_node_record`
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this document as a GraphStore write record for its graph node.
+
+The record excludes `text`: the persisted node exists for traversal and
+the update no-op check, not to duplicate the document body already held
+per-chunk.
+
+###### `agrag.common.data_models.Document.turns`
+
+```python
+turns: list[TurnRef] = Field(default_factory=list)
+```
+
+###### `agrag.common.data_models.Document.uri`
+
+```python
+uri: str
+```
+
+##### `agrag.common.data_models.DocumentFamily`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+The shape of a document's source.
+
+**Attributes:**
+
+- [**PROSE**](#agrag.common.data_models.DocumentFamily.PROSE) – One source file makes one document.
+- [**RECORD**](#agrag.common.data_models.DocumentFamily.RECORD) – One source file makes many documents, one per record.
+
+###### `agrag.common.data_models.DocumentFamily.PROSE`
+
+```python
+PROSE = 'prose'
+```
+
+###### `agrag.common.data_models.DocumentFamily.RECORD`
+
+```python
+RECORD = 'record'
+```
+
+##### `agrag.common.data_models.Entity`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+A permanent mention-level node, never destroyed once written.
+
+Each Entity is one raw record: exact-match accumulation only folds a
+new mention into the existing node for its normalized name. Fuzzy,
+embedding, and LLM matches never absorb a node; they persist as
+MATCHES edges with a derived ResolvedEntity instead, so both raw
+records and their relationships survive resolution.
+
+**Attributes:**
+
+- [**label**](#agrag.common.data_models.Entity.label) (<code>[str](#str)</code>) – The EntityType label this entity was resolved as.
+- [**name**](#agrag.common.data_models.Entity.name) (<code>[str](#str)</code>) – The canonical resolved surface form — field-resolved the same
+  way any property is, but kept as its own field rather than
+  inside properties, since every entity has one regardless of
+  EntityType.properties' schema, and it is what gets embedded
+  (embedding_text).
+- [**properties**](#agrag.common.data_models.Entity.properties) (<code>[dict](#dict)\[[str](#str), [object](#object)\]</code>) – Field-resolved property values, keyed by the schema's
+  declared property names (e.g. "dosage", "description" — whatever
+  EntityType.properties for this label declares). Never holds name.
+- [**embedding**](#agrag.common.data_models.Entity.embedding) (<code>[list](#list)\[[float](#float)\] | None</code>) – The entity's dense vector, once populated by the storage
+  stage. None before that point.
+- [**merged_from**](#agrag.common.data_models.Entity.merged_from) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of entities accumulated by exact-name matching.
+- [**merge_count**](#agrag.common.data_models.Entity.merge_count) (<code>[int](#int)</code>) – The total number of source mentions and absorbed
+  entities this entity's data was assembled from. Starts at 1.
+- [**source_chunk_ids**](#agrag.common.data_models.Entity.source_chunk_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of every Chunk a mention contributing to this
+  entity's data came from. Each also backs one MENTIONED_IN edge
+  from that Chunk to this Entity.
+
+**Functions:**
+
+- [**to_node_record**](#agrag.common.data_models.Entity.to_node_record) – Return this entity as a GraphStore write record.
+
+###### `agrag.common.data_models.Entity.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+###### `agrag.common.data_models.Entity.embedding`
+
+```python
+embedding: list[float] | None = None
+```
+
+###### `agrag.common.data_models.Entity.embedding_text`
+
+```python
+embedding_text: str
+```
+
+Return the text this entity's embedding is computed from.
+
+Name alone, or name plus a "description" property when the schema
+declares one — decided once, here, so every embedding call site
+(resolution's future embedding tier, storage-stage population,
+Graph.consolidate()) embeds the same text for the same entity.
+
+###### `agrag.common.data_models.Entity.id`
+
+```python
+id: UUID
+```
+
+###### `agrag.common.data_models.Entity.label`
+
+```python
+label: str
+```
+
+###### `agrag.common.data_models.Entity.merge_count`
+
+```python
+merge_count: int = 1
+```
+
+###### `agrag.common.data_models.Entity.merge_key`
+
+```python
+merge_key: str
+```
+
+Return this entity's global exact-match lookup key.
+
+(label, normalized name) — the same identity ExactMatch already uses
+in-batch, applied to a persisted store lookup. A derived value, not
+stored redundantly anywhere else on this model; to_node_record()
+computes it fresh from label/name every write, so it can never drift
+from what the fields it's derived from actually say.
+
+###### `agrag.common.data_models.Entity.merged_from`
+
+```python
+merged_from: list[UUID] = Field(default_factory=list)
+```
+
+###### `agrag.common.data_models.Entity.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+###### `agrag.common.data_models.Entity.name`
+
+```python
+name: str
+```
+
+###### `agrag.common.data_models.Entity.properties`
+
+```python
+properties: dict[str, object] = Field(default_factory=dict)
+```
+
+###### `agrag.common.data_models.Entity.source_chunk_ids`
+
+```python
+source_chunk_ids: list[UUID] = Field(default_factory=list)
+```
+
+###### `agrag.common.data_models.Entity.to_node_record`
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this entity as a GraphStore write record.
+
+Name, merge_key, merged_from, merge_count, and source_chunk_ids are
+flattened into properties as plain JSON-safe values; GraphStore has
+no reason to know these fields are special.
+
+##### `agrag.common.data_models.EntityType`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One kind of entity a schema recognizes.
+
+**Attributes:**
+
+- [**label**](#agrag.common.data_models.EntityType.label) (<code>[str](#str)</code>) – The node label used in the extraction prompt and the graph.
+- [**description**](#agrag.common.data_models.EntityType.description) (<code>[str](#str)</code>) – Guidance fed to the extractor prompt or schema builder.
+- [**properties**](#agrag.common.data_models.EntityType.properties) (<code>[dict](#dict)\[[str](#str), [str](#str)\]</code>) – Property names mapped to a type name, such as `"str"` or
+  `"date"`. `label` and `text` are rejected, since both are
+  vector payload keys retrieval filtering and keyword search use.
+- [**subtypes**](#agrag.common.data_models.EntityType.subtypes) (<code>[list](#list)\[[str](#str)\]</code>) – Labels that narrow this type. Empty when this type has no subtypes.
+
+###### `agrag.common.data_models.EntityType.description`
+
+```python
+description: str
+```
+
+###### `agrag.common.data_models.EntityType.label`
+
+```python
+label: str
+```
+
+###### `agrag.common.data_models.EntityType.properties`
+
+```python
+properties: dict[str, str] = Field(default_factory=dict)
+```
+
+###### `agrag.common.data_models.EntityType.subtypes`
+
+```python
+subtypes: list[str] = Field(default_factory=list)
+```
+
+##### `agrag.common.data_models.GENERIC`
+
+```python
+GENERIC = GraphSchema(name='generic', version='1', entities=[EntityType(label='Person', description='A named individual.'), EntityType(label='Organization', description='A company or institution.'), EntityType(label='Location', description='A place or geographic area.'), EntityType(label='Event', description='A named occurrence at a time or place.'), EntityType(label='Product', description='A named product, service, or work.')], relations=[RelationType(label='RELATED_TO', description='A generic relationship between two entities.', patterns=[(src, tgt) for src in _GENERIC_LABELS for tgt in _GENERIC_LABELS])])
+```
+
+##### `agrag.common.data_models.GraphSchema`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+A versioned contract of entity and relation types.
+
+Every extraction call is validated against a GraphSchema; there is no schema-free
+extraction path. Round-trip with `model_dump(mode="json")`/`model_validate()`.
+A schema declaring an entity property name the vector payload reserves fails that
+validation, so a payload written before the check existed must be migrated before
+it loads again. See `EntityType.properties`.
+
+**Attributes:**
+
+- [**name**](#agrag.common.data_models.GraphSchema.name) (<code>[str](#str)</code>) – A short, unique name for this schema.
+- [**version**](#agrag.common.data_models.GraphSchema.version) (<code>[str](#str)</code>) – The schema version. Bump when types or patterns change.
+- [**entities**](#agrag.common.data_models.GraphSchema.entities) (<code>[list](#list)\[[EntityType](#agrag.common.data_models.graph_schema.EntityType)\]</code>) – The entity types this schema recognizes.
+- [**relations**](#agrag.common.data_models.GraphSchema.relations) (<code>[list](#list)\[[RelationType](#agrag.common.data_models.graph_schema.RelationType)\]</code>) – The relation types this schema recognizes.
+
+**Functions:**
+
+- [**to_compact_summary**](#agrag.common.data_models.GraphSchema.to_compact_summary) – Serialize only entity labels and relation patterns for a prompt.
+- [**to_prompt_description**](#agrag.common.data_models.GraphSchema.to_prompt_description) – Serialize this schema in full for an LLM prompt.
+
+###### `agrag.common.data_models.GraphSchema.entities`
+
+```python
+entities: list[EntityType]
+```
+
+###### `agrag.common.data_models.GraphSchema.name`
+
+```python
+name: str
+```
+
+###### `agrag.common.data_models.GraphSchema.relations`
+
+```python
+relations: list[RelationType]
+```
+
+###### `agrag.common.data_models.GraphSchema.to_compact_summary`
+
+```python
+to_compact_summary() -> str
+```
+
+Serialize only entity labels and relation patterns for a prompt.
+
+Descriptions, properties, and subtypes are omitted, so this is the
+shape to inject where prompt space is tight.
+:meth:`to_prompt_description` carries the same labels with their
+full detail.
+
+**Returns:**
+
+- <code>[str](#str)</code> – A plain-text summary of entity labels and valid relation
+- <code>[str](#str)</code> – patterns.
+
+###### `agrag.common.data_models.GraphSchema.to_prompt_description`
+
+```python
+to_prompt_description() -> str
+```
+
+Serialize this schema in full for an LLM prompt.
+
+Every entity type's label, description, declared properties, and
+subtypes are listed, followed by every relation type's label,
+description, and valid (source, target) patterns. Use
+:meth:`to_compact_summary` instead when prompt space is tight.
+
+**Returns:**
+
+- <code>[str](#str)</code> – A plain-text schema description, one fact per line.
+
+###### `agrag.common.data_models.GraphSchema.version`
+
+```python
+version: str
+```
+
+##### `agrag.common.data_models.NodeRecord`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One graph node, ready to write.
+
+**Attributes:**
+
+- [**id**](#agrag.common.data_models.NodeRecord.id) (<code>[UUID](#uuid.UUID)</code>) – The node id.
+- [**labels**](#agrag.common.data_models.NodeRecord.labels) (<code>[list](#list)\[[str](#str)\]</code>) – The node's labels. A node carries every label listed here;
+  `GraphStore.upsert_nodes` groups records by their full label set
+  within a batch, since Cypher requires labels to be literal in the
+  query rather than a runtime parameter.
+- [**properties**](#agrag.common.data_models.NodeRecord.properties) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – The node's properties, including an embedding vector under
+  whatever key `GraphStore.ensure_vector_index` was configured
+  with, if native vector search is in use.
+
+**Functions:**
+
+- [**reject_pending_tag**](#agrag.common.data_models.NodeRecord.reject_pending_tag) – Reject the job-owned tag in external graph records.
+
+###### `agrag.common.data_models.NodeRecord.id`
+
+```python
+id: UUID
+```
+
+###### `agrag.common.data_models.NodeRecord.labels`
+
+```python
+labels: list[str] = Field(min_length=1)
+```
+
+###### `agrag.common.data_models.NodeRecord.properties`
+
+```python
+properties: dict[str, Any]
+```
+
+###### `agrag.common.data_models.NodeRecord.reject_pending_tag`
+
+```python
+reject_pending_tag(properties:dict[str, Any]) -> dict[str, Any]
+```
+
+Reject the job-owned tag in external graph records.
+
+##### `agrag.common.data_models.Normalization`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+How a loader turned source bytes into `Document.text`.
+
+Provenance offsets index the normalized text. A caller who needs offsets into
+the raw source chooses `Normalization(bom="keep", newline="keep", unicode_form="none")`.
+
+**Attributes:**
+
+- [**bom**](#agrag.common.data_models.Normalization.bom) (<code>[Literal](#typing.Literal)['strip', 'keep']</code>) – `"strip"` removes a leading byte-order mark. `"keep"` leaves it.
+- [**newline**](#agrag.common.data_models.Normalization.newline) (<code>[Literal](#typing.Literal)['lf', 'keep']</code>) – `"lf"` turns CRLF and CR into LF. `"keep"` leaves them.
+- [**unicode_form**](#agrag.common.data_models.Normalization.unicode_form) (<code>[Literal](#typing.Literal)['NFKC', 'NFC', 'NFD', 'NFKD', 'none']</code>) – The Unicode normalization form to apply, or `"none"`.
+
+###### `agrag.common.data_models.Normalization.bom`
+
+```python
+bom: Literal['strip', 'keep'] = 'strip'
+```
+
+###### `agrag.common.data_models.Normalization.model_config`
+
+```python
+model_config = ConfigDict(frozen=True, extra='forbid')
+```
+
+###### `agrag.common.data_models.Normalization.newline`
+
+```python
+newline: Literal['lf', 'keep'] = 'lf'
+```
+
+###### `agrag.common.data_models.Normalization.unicode_form`
+
+```python
+unicode_form: Literal['NFKC', 'NFC', 'NFD', 'NFKD', 'none'] = 'NFKC'
+```
+
+##### `agrag.common.data_models.PageProvenance`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The location of a chunk across one or more pages.
+
+A chunk can start on one page and end on the next page. Each entry in `page_spans`
+covers one page.
+
+**Attributes:**
+
+- [**kind**](#agrag.common.data_models.PageProvenance.kind) (<code>[Literal](#typing.Literal)['page']</code>) – The literal tag `"page"`. Marks this as page provenance.
+- [**page_spans**](#agrag.common.data_models.PageProvenance.page_spans) (<code>[list](#list)\[[PageSpan](#agrag.common.data_models.provenance.PageSpan)\]</code>) – The page spans for this chunk. Has more than one entry when
+  the chunk crosses a page boundary.
+
+###### `agrag.common.data_models.PageProvenance.kind`
+
+```python
+kind: Literal['page'] = 'page'
+```
+
+###### `agrag.common.data_models.PageProvenance.page_spans`
+
+```python
+page_spans: list[PageSpan]
+```
+
+##### `agrag.common.data_models.Relation`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+A resolved relationship between two Entity nodes.
+
+**Attributes:**
+
+- [**type**](#agrag.common.data_models.Relation.type) (<code>[str](#str)</code>) – The RelationType label this relationship was resolved as.
+- [**source_id**](#agrag.common.data_models.Relation.source_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the source Entity.
+- [**target_id**](#agrag.common.data_models.Relation.target_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the target Entity.
+- [**properties**](#agrag.common.data_models.Relation.properties) (<code>[dict](#dict)\[[str](#str), [object](#object)\]</code>) – Field-resolved property values.
+- [**source_chunk_ids**](#agrag.common.data_models.Relation.source_chunk_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of every Chunk a mention contributing to this
+  relationship came from. A relationship attested by more than one
+  source has more than one id here, rather than existing as
+  parallel edges.
+
+**Functions:**
+
+- [**to_relation_record**](#agrag.common.data_models.Relation.to_relation_record) – Return this relationship as a GraphStore write record.
+
+###### `agrag.common.data_models.Relation.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+###### `agrag.common.data_models.Relation.id`
+
+```python
+id: UUID
+```
+
+###### `agrag.common.data_models.Relation.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+###### `agrag.common.data_models.Relation.properties`
+
+```python
+properties: dict[str, object] = Field(default_factory=dict)
+```
+
+###### `agrag.common.data_models.Relation.source_chunk_ids`
+
+```python
+source_chunk_ids: list[UUID] = Field(default_factory=list)
+```
+
+###### `agrag.common.data_models.Relation.source_id`
+
+```python
+source_id: UUID
+```
+
+###### `agrag.common.data_models.Relation.target_id`
+
+```python
+target_id: UUID
+```
+
+###### `agrag.common.data_models.Relation.to_relation_record`
+
+```python
+to_relation_record() -> RelationRecord
+```
+
+Return this relationship as a GraphStore write record.
+
+###### `agrag.common.data_models.Relation.type`
+
+```python
+type: str
+```
+
+##### `agrag.common.data_models.RelationRecord`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One graph relationship, ready to write.
+
+**Attributes:**
+
+- [**id**](#agrag.common.data_models.RelationRecord.id) (<code>[UUID](#uuid.UUID)</code>) – The relationship id.
+- [**type**](#agrag.common.data_models.RelationRecord.type) (<code>[str](#str)</code>) – The relationship type.
+- [**start_id**](#agrag.common.data_models.RelationRecord.start_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the start node.
+- [**end_id**](#agrag.common.data_models.RelationRecord.end_id) (<code>[UUID](#uuid.UUID)</code>) – The id of the end node.
+- [**properties**](#agrag.common.data_models.RelationRecord.properties) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – The relationship's properties.
+
+**Functions:**
+
+- [**reject_pending_tag**](#agrag.common.data_models.RelationRecord.reject_pending_tag) – Reject the job-owned tag in external graph records.
+
+###### `agrag.common.data_models.RelationRecord.end_id`
+
+```python
+end_id: UUID
+```
+
+###### `agrag.common.data_models.RelationRecord.id`
+
+```python
+id: UUID
+```
+
+###### `agrag.common.data_models.RelationRecord.properties`
+
+```python
+properties: dict[str, Any]
+```
+
+###### `agrag.common.data_models.RelationRecord.reject_pending_tag`
+
+```python
+reject_pending_tag(properties:dict[str, Any]) -> dict[str, Any]
+```
+
+Reject the job-owned tag in external graph records.
+
+###### `agrag.common.data_models.RelationRecord.start_id`
+
+```python
+start_id: UUID
+```
+
+###### `agrag.common.data_models.RelationRecord.type`
+
+```python
+type: str
+```
+
+##### `agrag.common.data_models.RelationType`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One kind of relation a schema recognizes.
+
+**Attributes:**
+
+- [**label**](#agrag.common.data_models.RelationType.label) (<code>[str](#str)</code>) – The relation label used in the extraction prompt and the graph.
+- [**description**](#agrag.common.data_models.RelationType.description) (<code>[str](#str)</code>) – Guidance fed to the extractor prompt or schema builder.
+- [**patterns**](#agrag.common.data_models.RelationType.patterns) (<code>[list](#list)\[[tuple](#tuple)\[[str](#str), [str](#str)\]\]</code>) – Valid (source_label, target_label) pairs for this relation. An
+  extraction whose triple is not in this list is dropped at normalize time.
+
+###### `agrag.common.data_models.RelationType.description`
+
+```python
+description: str
+```
+
+###### `agrag.common.data_models.RelationType.label`
+
+```python
+label: str
+```
+
+###### `agrag.common.data_models.RelationType.patterns`
+
+```python
+patterns: list[tuple[str, str]]
+```
+
+##### `agrag.common.data_models.ResolvedEntity`
+
+Bases: <code>[DataPoint](#agrag.common.data_models.data_point.DataPoint)</code>
+
+A materialized cluster of entities that refer to the same thing.
+
+**Functions:**
+
+- [**to_node_record**](#agrag.common.data_models.ResolvedEntity.to_node_record) – Return this resolved entity as a graph write record.
+
+**Attributes:**
+
+- [**created_at**](#agrag.common.data_models.ResolvedEntity.created_at) (<code>[datetime](#datetime.datetime)</code>) –
+- [**embedding**](#agrag.common.data_models.ResolvedEntity.embedding) (<code>[list](#list)\[[float](#float)\] | None</code>) –
+- [**embedding_text**](#agrag.common.data_models.ResolvedEntity.embedding_text) (<code>[str](#str)</code>) – Return the text used to embed this resolved entity.
+- [**id**](#agrag.common.data_models.ResolvedEntity.id) (<code>[UUID](#uuid.UUID)</code>) –
+- [**label**](#agrag.common.data_models.ResolvedEntity.label) (<code>[str](#str)</code>) –
+- [**member_ids**](#agrag.common.data_models.ResolvedEntity.member_ids) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) –
+- [**metadata**](#agrag.common.data_models.ResolvedEntity.metadata) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) –
+- [**name**](#agrag.common.data_models.ResolvedEntity.name) (<code>[str](#str)</code>) –
+- [**properties**](#agrag.common.data_models.ResolvedEntity.properties) (<code>[dict](#dict)\[[str](#str), [object](#object)\]</code>) –
+- [**vector_sync_error**](#agrag.common.data_models.ResolvedEntity.vector_sync_error) (<code>[str](#str) | None</code>) –
+- [**vector_sync_status**](#agrag.common.data_models.ResolvedEntity.vector_sync_status) (<code>[Literal](#typing.Literal)['pending', 'synced', 'failed']</code>) –
+
+###### `agrag.common.data_models.ResolvedEntity.created_at`
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+###### `agrag.common.data_models.ResolvedEntity.embedding`
+
+```python
+embedding: list[float] | None = None
+```
+
+###### `agrag.common.data_models.ResolvedEntity.embedding_text`
+
+```python
+embedding_text: str
+```
+
+Return the text used to embed this resolved entity.
+
+###### `agrag.common.data_models.ResolvedEntity.id`
+
+```python
+id: UUID
+```
+
+###### `agrag.common.data_models.ResolvedEntity.label`
+
+```python
+label: str
+```
+
+###### `agrag.common.data_models.ResolvedEntity.member_ids`
+
+```python
+member_ids: list[UUID] = Field(default_factory=list)
+```
+
+###### `agrag.common.data_models.ResolvedEntity.metadata`
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+###### `agrag.common.data_models.ResolvedEntity.name`
+
+```python
+name: str
+```
+
+###### `agrag.common.data_models.ResolvedEntity.properties`
+
+```python
+properties: dict[str, object] = Field(default_factory=dict)
+```
+
+###### `agrag.common.data_models.ResolvedEntity.to_node_record`
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this resolved entity as a graph write record.
+
+###### `agrag.common.data_models.ResolvedEntity.vector_sync_error`
+
+```python
+vector_sync_error: str | None = None
+```
+
+###### `agrag.common.data_models.ResolvedEntity.vector_sync_status`
+
+```python
+vector_sync_status: Literal['pending', 'synced', 'failed'] = 'pending'
+```
+
+##### `agrag.common.data_models.SearchResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One retrieved item, tagged with where it came from.
+
+**Attributes:**
+
+- [**item**](#agrag.common.data_models.SearchResult.item) (<code>[Union](#typing.Union)\[[Entity](#agrag.common.data_models.entity.Entity), [ResolvedEntity](#agrag.common.data_models.resolved_entity.ResolvedEntity), [Relation](#agrag.common.data_models.relation.Relation), [Chunk](#agrag.common.data_models.chunk.Chunk), [Community](#agrag.common.data_models.community.Community), [QueryValue](#agrag.common.data_models.query_value.QueryValue)\]</code>) – The retrieved Entity, ResolvedEntity, Relation, Chunk, or
+  Community, or scalar query value, already resolved through any
+  merged_into chain.
+- [**score**](#agrag.common.data_models.SearchResult.score) (<code>[float](#float)</code>) – The method's own relevance score. Not comparable
+  across methods until Fusion normalizes it.
+- [**method**](#agrag.common.data_models.SearchResult.method) (<code>[str](#str)</code>) – The name of the retrieval method that produced
+  this result.
+- [**parent**](#agrag.common.data_models.SearchResult.parent) (<code>[Chunk](#agrag.common.data_models.chunk.Chunk) | None</code>) – The parent chunk of a child chunk result, so a caller can show the
+  larger passage. `None` for every other result.
+
+###### `agrag.common.data_models.SearchResult.identity_key`
+
+```python
+identity_key: tuple[str, UUID]
+```
+
+Return the (type, id) key Fusion deduplicates on.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – The item has no id, so it cannot be
+  deduplicated.
+
+###### `agrag.common.data_models.SearchResult.item`
+
+```python
+item: Union[Entity, ResolvedEntity, Relation, Chunk, Community, QueryValue]
+```
+
+###### `agrag.common.data_models.SearchResult.method`
+
+```python
+method: str
+```
+
+###### `agrag.common.data_models.SearchResult.parent`
+
+```python
+parent: Chunk | None = None
+```
+
+###### `agrag.common.data_models.SearchResult.score`
+
+```python
+score: float
+```
+
+##### `agrag.common.data_models.SourceFormat`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+A source format that a loader can read.
+
+The field that holds this value is named `source_format`, not `format`.
+`format`
+is a Python builtin, and this project's lint rules reject builtin names for fields.
+
+**Attributes:**
+
+- [**ASCIIDOC**](#agrag.common.data_models.SourceFormat.ASCIIDOC) –
+- [**CSV**](#agrag.common.data_models.SourceFormat.CSV) –
+- [**DOCX**](#agrag.common.data_models.SourceFormat.DOCX) –
+- [**HTML**](#agrag.common.data_models.SourceFormat.HTML) –
+- [**IMAGE**](#agrag.common.data_models.SourceFormat.IMAGE) –
+- [**JSON**](#agrag.common.data_models.SourceFormat.JSON) –
+- [**JSONL**](#agrag.common.data_models.SourceFormat.JSONL) –
+- [**LOG**](#agrag.common.data_models.SourceFormat.LOG) –
+- [**MARKDOWN**](#agrag.common.data_models.SourceFormat.MARKDOWN) –
+- [**PDF**](#agrag.common.data_models.SourceFormat.PDF) –
+- [**PPTX**](#agrag.common.data_models.SourceFormat.PPTX) –
+- [**TSV**](#agrag.common.data_models.SourceFormat.TSV) –
+- [**TXT**](#agrag.common.data_models.SourceFormat.TXT) –
+- [**XML**](#agrag.common.data_models.SourceFormat.XML) –
+
+###### `agrag.common.data_models.SourceFormat.ASCIIDOC`
+
+```python
+ASCIIDOC = 'asciidoc'
+```
+
+###### `agrag.common.data_models.SourceFormat.CSV`
+
+```python
+CSV = 'csv'
+```
+
+###### `agrag.common.data_models.SourceFormat.DOCX`
+
+```python
+DOCX = 'docx'
+```
+
+###### `agrag.common.data_models.SourceFormat.HTML`
+
+```python
+HTML = 'html'
+```
+
+###### `agrag.common.data_models.SourceFormat.IMAGE`
+
+```python
+IMAGE = 'image'
+```
+
+###### `agrag.common.data_models.SourceFormat.JSON`
+
+```python
+JSON = 'json'
+```
+
+###### `agrag.common.data_models.SourceFormat.JSONL`
+
+```python
+JSONL = 'jsonl'
+```
+
+###### `agrag.common.data_models.SourceFormat.LOG`
+
+```python
+LOG = 'log'
+```
+
+###### `agrag.common.data_models.SourceFormat.MARKDOWN`
+
+```python
+MARKDOWN = 'markdown'
+```
+
+###### `agrag.common.data_models.SourceFormat.PDF`
+
+```python
+PDF = 'pdf'
+```
+
+###### `agrag.common.data_models.SourceFormat.PPTX`
+
+```python
+PPTX = 'pptx'
+```
+
+###### `agrag.common.data_models.SourceFormat.TSV`
+
+```python
+TSV = 'tsv'
+```
+
+###### `agrag.common.data_models.SourceFormat.TXT`
+
+```python
+TXT = 'txt'
+```
+
+###### `agrag.common.data_models.SourceFormat.XML`
+
+```python
+XML = 'xml'
+```
+
+##### `agrag.common.data_models.TextProvenance`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+The location of a chunk inside flattened document text.
+
+The offsets index the normalized text in `Document.text`, not the raw source.
+See `Normalization`.
+
+**Attributes:**
+
+- [**kind**](#agrag.common.data_models.TextProvenance.kind) (<code>[Literal](#typing.Literal)['text']</code>) – The literal tag `"text"`. Marks this as text provenance.
+- [**char_start**](#agrag.common.data_models.TextProvenance.char_start) (<code>[int](#int)</code>) – The start character offset in the document text.
+- [**char_end**](#agrag.common.data_models.TextProvenance.char_end) (<code>[int](#int)</code>) – The end character offset in the document text.
+- [**line_start**](#agrag.common.data_models.TextProvenance.line_start) (<code>[int](#int) | None</code>) – The start line number. Empty when the loader does not track lines.
+- [**line_end**](#agrag.common.data_models.TextProvenance.line_end) (<code>[int](#int) | None</code>) – The end line number. Empty when the loader does not track lines.
+
+###### `agrag.common.data_models.TextProvenance.char_end`
+
+```python
+char_end: int
+```
+
+###### `agrag.common.data_models.TextProvenance.char_start`
+
+```python
+char_start: int
+```
+
+###### `agrag.common.data_models.TextProvenance.kind`
+
+```python
+kind: Literal['text'] = 'text'
+```
+
+###### `agrag.common.data_models.TextProvenance.line_end`
+
+```python
+line_end: int | None = None
+```
+
+###### `agrag.common.data_models.TextProvenance.line_start`
+
+```python
+line_start: int | None = None
+```
+
+##### `agrag.common.data_models.VectorRecord`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+One vector and its payload, ready to write to a collection or index.
+
+The collection or index name is a call argument on the store, not a field
+here, so one record type can target any collection.
+
+**Attributes:**
+
+- [**id**](#agrag.common.data_models.VectorRecord.id) (<code>[UUID](#uuid.UUID)</code>) – The record id. Callers set this to the id of the domain object the
+  vector represents.
+- [**vector**](#agrag.common.data_models.VectorRecord.vector) (<code>[list](#list)\[[float](#float)\]</code>) – The dense embedding.
+- [**payload**](#agrag.common.data_models.VectorRecord.payload) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – Fields stored alongside the vector, such as the source text or
+  a chunk id. Read back unchanged by `search`/`hybrid_search`.
+
+###### `agrag.common.data_models.VectorRecord.id`
+
+```python
+id: UUID
+```
+
+###### `agrag.common.data_models.VectorRecord.payload`
+
+```python
+payload: dict[str, Any]
+```
+
+###### `agrag.common.data_models.VectorRecord.vector`
+
+```python
+vector: list[float]
+```
 
 ##### `agrag.common.data_models.chunk`
 
@@ -15151,7 +16938,476 @@ The ingestion package.
 
 **Classes:**
 
+- [**AddResult**](#agrag.ingestion.AddResult) – Graph.add()'s return type — one summary per pipeline stage.
+- [**BAMLExtractor**](#agrag.ingestion.BAMLExtractor) – Extracts with an LLM, via a BAML function and a runtime ClientRegistry.
+- [**CommunityDetectionReport**](#agrag.ingestion.CommunityDetectionReport) – Report from Graph.detect_communities().
+- [**ConsolidationReport**](#agrag.ingestion.ConsolidationReport) – Report from Graph.consolidate().
+- [**EscalatingExtractor**](#agrag.ingestion.EscalatingExtractor) – Runs a cheap primary extractor first, escalating per chunk when it's weak.
+- [**ExtractionLLMSettings**](#agrag.ingestion.ExtractionLLMSettings) – Env-backed LLM client config for the extraction role.
+- [**Extractor**](#agrag.ingestion.Extractor) – Reads one Chunk and produces the entities and relations it contains.
+- [**ExtractorMissingExtraError**](#agrag.ingestion.ExtractorMissingExtraError) – An Extractor needs a package extra that is not installed.
+- [**GlinerExtractor**](#agrag.ingestion.GlinerExtractor) – Extracts locally with a GLiNER2.5 model. No network call.
 - [**Graph**](#agrag.ingestion.Graph) – A knowledge graph that a caller can open and add content to.
+- [**ReevaluationReport**](#agrag.ingestion.ReevaluationReport) – Report from Graph.reevaluate().
+- [**UpdateResult**](#agrag.ingestion.UpdateResult) – Summary of an update or soft deletion.
+
+#### `agrag.ingestion.AddResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Graph.add()'s return type — one summary per pipeline stage.
+
+**Attributes:**
+
+- [**ingestion**](#agrag.ingestion.AddResult.ingestion) (<code>[IngestStats](#agrag.ingestion.stats.IngestStats)</code>) – Ingestion-stage results.
+- [**chunking**](#agrag.ingestion.AddResult.chunking) (<code>[ChunkingStats](#agrag.ingestion.stats.ChunkingStats)</code>) – The chunker each document got and the chunks it made.
+- [**extraction**](#agrag.ingestion.AddResult.extraction) (<code>[ExtractionStats](#agrag.ingestion.stats.ExtractionStats)</code>) – Extractor output across every chunk this call
+  processed.
+- [**resolution**](#agrag.ingestion.AddResult.resolution) (<code>[ResolutionStats](#agrag.ingestion.stats.ResolutionStats)</code>) – Resolution's tier-by-tier match counts.
+- [**merge**](#agrag.ingestion.AddResult.merge) (<code>[MergeStats](#agrag.ingestion.stats.MergeStats)</code>) – What merge mechanics did with resolution's groups.
+- [**storage**](#agrag.ingestion.AddResult.storage) (<code>[StorageStats](#agrag.ingestion.stats.StorageStats)</code>) – What made it to GraphStore, and what didn't.
+- [**chunks**](#agrag.ingestion.AddResult.chunks) (<code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code>) – Every Chunk this call produced. Empty unless
+  return_chunks=True — holding full chunk text for a large
+  corpus is a real memory cost most callers don't need paid
+  for.
+
+##### `agrag.ingestion.AddResult.chunking`
+
+```python
+chunking: ChunkingStats = Field(default_factory=ChunkingStats)
+```
+
+##### `agrag.ingestion.AddResult.chunks`
+
+```python
+chunks: list[Chunk] = Field(default_factory=list)
+```
+
+##### `agrag.ingestion.AddResult.documents`
+
+```python
+documents: int
+```
+
+Proxy to ingestion.documents for backward compatibility.
+
+##### `agrag.ingestion.AddResult.extraction`
+
+```python
+extraction: ExtractionStats = Field(default_factory=ExtractionStats)
+```
+
+##### `agrag.ingestion.AddResult.ingestion`
+
+```python
+ingestion: IngestStats = Field(default_factory=IngestStats)
+```
+
+##### `agrag.ingestion.AddResult.merge`
+
+```python
+merge: MergeStats = Field(default_factory=MergeStats)
+```
+
+##### `agrag.ingestion.AddResult.quarantined`
+
+```python
+quarantined: int
+```
+
+Proxy to ingestion.quarantined for backward compatibility.
+
+##### `agrag.ingestion.AddResult.quarantined_items`
+
+```python
+quarantined_items: list[StageFailure]
+```
+
+Proxy to ingestion.quarantined_items for backward compatibility.
+
+##### `agrag.ingestion.AddResult.resolution`
+
+```python
+resolution: ResolutionStats = Field(default_factory=ResolutionStats)
+```
+
+##### `agrag.ingestion.AddResult.skipped`
+
+```python
+skipped: int
+```
+
+Proxy to ingestion.skipped for backward compatibility.
+
+##### `agrag.ingestion.AddResult.sources`
+
+```python
+sources: int
+```
+
+Proxy to ingestion.sources for backward compatibility.
+
+##### `agrag.ingestion.AddResult.storage`
+
+```python
+storage: StorageStats = Field(default_factory=StorageStats)
+```
+
+#### `agrag.ingestion.BAMLExtractor`
+
+```python
+BAMLExtractor(*, settings:ExtractionLLMSettings | None = None, client:object | None = None, tracer:Tracer | None = None, include_heading_path:bool = True) -> None
+```
+
+Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
+
+Extracts with an LLM, via a BAML function and a runtime ClientRegistry.
+
+**Functions:**
+
+- [**extract**](#agrag.ingestion.BAMLExtractor.extract) – Extract with an LLM call through the configured ClientRegistry.
+
+**Attributes:**
+
+- [**settings**](#agrag.ingestion.BAMLExtractor.settings) –
+
+**Parameters:**
+
+- **settings** (<code>[ExtractionLLMSettings](#agrag.ingestion.extract.ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`,
+  loaded from the environment/`.env`. Ignored when `client`
+  is given: an injected client also disables `settings.retry`,
+  since a caller building its own client is assumed to own its
+  own retry behavior too.
+- **client** (<code>[object](#object) | None</code>) – An already-built BAML client object exposing
+  `ExtractEntitiesAndRelations`. Tests inject a fake here.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens `agrag.extraction.baml` and the nested
+  `agrag.llm.call` spans. `None` opens no recorded span.
+- **include_heading_path** (<code>[bool](#bool)</code>) – Whether to give the model the heading path of the
+  chunk as a separate `section` line above the text. Offsets still
+  index `chunk.text`. Only this extractor uses heading context.
+
+##### `agrag.ingestion.BAMLExtractor.extract`
+
+```python
+extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+```
+
+Extract with an LLM call through the configured ClientRegistry.
+
+**Raises:**
+
+- <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `llm` package extra is not
+  installed.
+- <code>[ValueError](#ValueError)</code> – `chunk.id` is `None`.
+
+##### `agrag.ingestion.BAMLExtractor.settings`
+
+```python
+settings = settings
+```
+
+#### `agrag.ingestion.CommunityDetectionReport`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Report from Graph.detect_communities().
+
+**Attributes:**
+
+- [**communities**](#agrag.ingestion.CommunityDetectionReport.communities) (<code>[list](#list)\[[Community](#agrag.common.data_models.community.Community)\]</code>) – The communities this call found, whether applied or not.
+- [**applied**](#agrag.ingestion.CommunityDetectionReport.applied) (<code>[bool](#bool)</code>) – Whether the communities were written.
+- [**failures**](#agrag.ingestion.CommunityDetectionReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Failures generating an applied community's LLM report or
+  embedding its report text. A failed community still gets
+  written, with a heuristic report or a missing embedding in
+  place of the failed step. Always empty when apply is False.
+
+##### `agrag.ingestion.CommunityDetectionReport.applied`
+
+```python
+applied: bool = False
+```
+
+##### `agrag.ingestion.CommunityDetectionReport.communities`
+
+```python
+communities: list[Community] = Field(default_factory=list)
+```
+
+##### `agrag.ingestion.CommunityDetectionReport.failures`
+
+```python
+failures: list[StageFailure] = Field(default_factory=list)
+```
+
+#### `agrag.ingestion.ConsolidationReport`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Report from Graph.consolidate().
+
+**Attributes:**
+
+- [**would_match**](#agrag.ingestion.ConsolidationReport.would_match) (<code>[list](#list)\[[MatchDecision](#agrag.ingestion.materialize.MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
+- [**applied**](#agrag.ingestion.ConsolidationReport.applied) (<code>[bool](#bool)</code>) – Whether the matches were materialized.
+- [**failures**](#agrag.ingestion.ConsolidationReport.failures) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
+  Always empty when apply is False.
+- [**ambiguous_count**](#agrag.ingestion.ConsolidationReport.ambiguous_count) (<code>[int](#int)</code>) – LLM verdicts that came back uncertain. These
+  pairs never merge.
+
+##### `agrag.ingestion.ConsolidationReport.ambiguous_count`
+
+```python
+ambiguous_count: int = 0
+```
+
+##### `agrag.ingestion.ConsolidationReport.applied`
+
+```python
+applied: bool = False
+```
+
+##### `agrag.ingestion.ConsolidationReport.failures`
+
+```python
+failures: list[StageFailure] = Field(default_factory=list)
+```
+
+##### `agrag.ingestion.ConsolidationReport.would_match`
+
+```python
+would_match: list[MatchDecision] = Field(default_factory=list)
+```
+
+#### `agrag.ingestion.EscalatingExtractor`
+
+```python
+EscalatingExtractor(primary:Extractor, escalate_to:Extractor, *, min_confidence:float = 0.5, min_chunk_words:int = 8, tracer:Tracer | None = None) -> None
+```
+
+Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
+
+Runs a cheap primary extractor first, escalating per chunk when it's weak.
+
+**Functions:**
+
+- [**extract**](#agrag.ingestion.EscalatingExtractor.extract) – Extract with the primary extractor, escalating when it's weak.
+
+**Attributes:**
+
+- [**escalate_to**](#agrag.ingestion.EscalatingExtractor.escalate_to) –
+- [**min_chunk_words**](#agrag.ingestion.EscalatingExtractor.min_chunk_words) –
+- [**min_confidence**](#agrag.ingestion.EscalatingExtractor.min_confidence) –
+- [**primary**](#agrag.ingestion.EscalatingExtractor.primary) –
+
+**Parameters:**
+
+- **primary** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs first, for every chunk.
+- **escalate_to** (<code>[Extractor](#agrag.ingestion.extract.Extractor)</code>) – Runs instead of, never in addition to, the primary's
+  result, when escalation triggers. Merging both extractors'
+  output would mean reconciling overlapping spans between them,
+  which is what entity resolution is for, not extraction.
+- **min_confidence** (<code>[float](#float)</code>) – Escalate when the primary's mean entity confidence
+  falls below this, among entities that report a confidence.
+- **min_chunk_words** (<code>[int](#int)</code>) – Below this word count, a zero-entity result from
+  the primary is treated as plausibly correct, not a miss.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the `agrag.extraction.escalating` span. `None`
+  opens no recorded span.
+
+##### `agrag.ingestion.EscalatingExtractor.escalate_to`
+
+```python
+escalate_to = escalate_to
+```
+
+##### `agrag.ingestion.EscalatingExtractor.extract`
+
+```python
+extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+```
+
+Extract with the primary extractor, escalating when it's weak.
+
+Returns escalate_to's result outright when escalation triggers, never
+a combination of both extractors' results.
+
+##### `agrag.ingestion.EscalatingExtractor.min_chunk_words`
+
+```python
+min_chunk_words = min_chunk_words
+```
+
+##### `agrag.ingestion.EscalatingExtractor.min_confidence`
+
+```python
+min_confidence = min_confidence
+```
+
+##### `agrag.ingestion.EscalatingExtractor.primary`
+
+```python
+primary = primary
+```
+
+#### `agrag.ingestion.ExtractionLLMSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+Env-backed LLM client config for the extraction role.
+
+**Attributes:**
+
+- [**clients**](#agrag.ingestion.ExtractionLLMSettings.clients) (<code>[list](#list)\[[LLMClientConfig](#agrag.llm.client_config.LLMClientConfig)\]</code>) – The LLM client(s) to use. One element for a single provider;
+  more than one composed per `strategy`.
+- [**strategy**](#agrag.ingestion.ExtractionLLMSettings.strategy) (<code>[Literal](#typing.Literal)['single', 'fallback', 'round_robin']</code>) – How to compose multiple clients. Ignored with one client.
+- [**retry**](#agrag.ingestion.ExtractionLLMSettings.retry) (<code>[RetryConfig](#agrag.llm.client_config.RetryConfig)</code>) – Retry settings applied to the extraction LLM call.
+
+Env prefix: `EXTRACTION_LLM_`.
+
+**Functions:**
+
+- [**from_openai_compatible_env**](#agrag.ingestion.ExtractionLLMSettings.from_openai_compatible_env) – Build settings from a generic OpenAI-compatible endpoint.
+
+##### `agrag.ingestion.ExtractionLLMSettings.clients`
+
+```python
+clients: list[LLMClientConfig]
+```
+
+##### `agrag.ingestion.ExtractionLLMSettings.from_openai_compatible_env`
+
+```python
+from_openai_compatible_env() -> ExtractionLLMSettings
+```
+
+Build settings from a generic OpenAI-compatible endpoint.
+
+Reads `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` from the
+environment or `.env`, so the model name is never hardcoded. Raises
+`RuntimeError` when the required variables are not all set.
+
+**Returns:**
+
+- <code>[ExtractionLLMSettings](#agrag.ingestion.extract.ExtractionLLMSettings)</code> – Settings pointing at one `openai-generic` client.
+
+##### `agrag.ingestion.ExtractionLLMSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='EXTRACTION_LLM_', env_file='.env', extra='ignore')
+```
+
+##### `agrag.ingestion.ExtractionLLMSettings.retry`
+
+```python
+retry: RetryConfig = Field(default_factory=RetryConfig)
+```
+
+##### `agrag.ingestion.ExtractionLLMSettings.strategy`
+
+```python
+strategy: Literal['single', 'fallback', 'round_robin'] = 'single'
+```
+
+#### `agrag.ingestion.Extractor`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+Reads one Chunk and produces the entities and relations it contains.
+
+**Functions:**
+
+- [**extract**](#agrag.ingestion.Extractor.extract) – Extract entities and relations from one chunk.
+
+##### `agrag.ingestion.Extractor.extract`
+
+```python
+extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+```
+
+Extract entities and relations from one chunk.
+
+**Parameters:**
+
+- **chunk** (<code>[Chunk](#agrag.common.data_models.chunk.Chunk)</code>) – The chunk to read. Only `chunk.text` and `chunk.id` are used.
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The entity/relation types to extract. Every returned entity's
+  `label` and relation's `label` must be declared in this schema.
+
+**Returns:**
+
+- <code>[ExtractionResult](#agrag.common.data_models.extraction.ExtractionResult)</code> – The entities and relations this call found, in extraction order.
+
+#### `agrag.ingestion.ExtractorMissingExtraError`
+
+```python
+ExtractorMissingExtraError(component:str, extra:str) -> None
+```
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+An Extractor needs a package extra that is not installed.
+
+**Attributes:**
+
+- [**component**](#agrag.ingestion.ExtractorMissingExtraError.component) – The class name that needs the extra.
+- [**extra**](#agrag.ingestion.ExtractorMissingExtraError.extra) – The package extra to install.
+
+##### `agrag.ingestion.ExtractorMissingExtraError.component`
+
+```python
+component = component
+```
+
+##### `agrag.ingestion.ExtractorMissingExtraError.extra`
+
+```python
+extra = extra
+```
+
+#### `agrag.ingestion.GlinerExtractor`
+
+```python
+GlinerExtractor(*, model_name:str = 'fastino/gliner2.5-small-v1', model:object | None = None, tracer:Tracer | None = None) -> None
+```
+
+Bases: <code>[Extractor](#agrag.ingestion.extract.Extractor)</code>
+
+Extracts locally with a GLiNER2.5 model. No network call.
+
+**Functions:**
+
+- [**extract**](#agrag.ingestion.GlinerExtractor.extract) – Extract with the local GLiNER2.5 model.
+
+**Attributes:**
+
+- [**model_name**](#agrag.ingestion.GlinerExtractor.model_name) –
+
+**Parameters:**
+
+- **model_name** (<code>[str](#str)</code>) – The checkpoint to load if `model` is not given.
+- **model** (<code>[object](#object) | None</code>) – An already-built GLiNER2.5 model. Tests inject a fake here
+  to avoid a real model download.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens `agrag.extraction.gliner` and
+  `agrag.extraction.model_load` spans. `None` opens no
+  recorded span.
+
+##### `agrag.ingestion.GlinerExtractor.extract`
+
+```python
+extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
+```
+
+Extract with the local GLiNER2.5 model.
+
+**Raises:**
+
+- <code>[ExtractorMissingExtraError](#agrag.ingestion.extract.ExtractorMissingExtraError)</code> – The `extract` package extra is not
+  installed.
+- <code>[ValueError](#ValueError)</code> – `chunk.id` is `None`.
+
+##### `agrag.ingestion.GlinerExtractor.model_name`
+
+```python
+model_name = model_name
+```
 
 #### `agrag.ingestion.Graph`
 
@@ -15520,6 +17776,97 @@ The fresh-content path shares `ingest_chunks()` with
 for the same input.
 
 </details>
+
+#### `agrag.ingestion.ReevaluationReport`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Report from Graph.reevaluate().
+
+**Attributes:**
+
+- [**entities_reevaluated**](#agrag.ingestion.ReevaluationReport.entities_reevaluated) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Input entity ids reevaluated, deduped with
+  input order preserved.
+- [**matches_added**](#agrag.ingestion.ReevaluationReport.matches_added) (<code>[list](#list)\[[MatchDecision](#agrag.ingestion.materialize.MatchDecision)\]</code>) – Confirmed matches with no active edge, now written.
+- [**matches_removed**](#agrag.ingestion.ReevaluationReport.matches_removed) (<code>[list](#list)\[[UUID](#uuid.UUID)\]</code>) – Ids of active match edges the resolver did not
+  confirm, now deactivated.
+- [**unchanged_count**](#agrag.ingestion.ReevaluationReport.unchanged_count) (<code>[int](#int)</code>) – Input entities with no incident added or removed
+  edge.
+
+##### `agrag.ingestion.ReevaluationReport.entities_reevaluated`
+
+```python
+entities_reevaluated: list[UUID] = Field(default_factory=list)
+```
+
+##### `agrag.ingestion.ReevaluationReport.matches_added`
+
+```python
+matches_added: list[MatchDecision] = Field(default_factory=list)
+```
+
+##### `agrag.ingestion.ReevaluationReport.matches_removed`
+
+```python
+matches_removed: list[UUID] = Field(default_factory=list)
+```
+
+##### `agrag.ingestion.ReevaluationReport.unchanged_count`
+
+```python
+unchanged_count: int = 0
+```
+
+#### `agrag.ingestion.UpdateResult`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Summary of an update or soft deletion.
+
+**Attributes:**
+
+- [**document_key**](#agrag.ingestion.UpdateResult.document_key) (<code>[str](#str)</code>) – Stable identity used for the document node.
+- [**no_op**](#agrag.ingestion.UpdateResult.no_op) (<code>[bool](#bool)</code>) – Whether no graph changes were needed.
+- [**previous_content_hash**](#agrag.ingestion.UpdateResult.previous_content_hash) (<code>[str](#str) | None</code>) – Hash stored before the operation, if present.
+- [**new_content_hash**](#agrag.ingestion.UpdateResult.new_content_hash) (<code>[str](#str) | None</code>) – Hash written by an update, or `None` on deletion.
+- [**chunks_closed**](#agrag.ingestion.UpdateResult.chunks_closed) (<code>[int](#int)</code>) – Number of open PART_OF edges closed.
+- [**add_result**](#agrag.ingestion.UpdateResult.add_result) (<code>[AddResult](#agrag.ingestion.reports.add_result.AddResult) | None</code>) – Ingestion details for changed content, if any.
+
+##### `agrag.ingestion.UpdateResult.add_result`
+
+```python
+add_result: AddResult | None = None
+```
+
+##### `agrag.ingestion.UpdateResult.chunks_closed`
+
+```python
+chunks_closed: int = 0
+```
+
+##### `agrag.ingestion.UpdateResult.document_key`
+
+```python
+document_key: str
+```
+
+##### `agrag.ingestion.UpdateResult.new_content_hash`
+
+```python
+new_content_hash: str | None = None
+```
+
+##### `agrag.ingestion.UpdateResult.no_op`
+
+```python
+no_op: bool
+```
+
+##### `agrag.ingestion.UpdateResult.previous_content_hash`
+
+```python
+previous_content_hash: str | None = None
+```
 
 #### `agrag.ingestion.community`
 
@@ -20765,6 +23112,1580 @@ nodes_written: int = 0
 relationships_written: int = 0
 ```
 
+### `agrag.loaders`
+
+Document loaders: turn files, directories and raw text into Documents.
+
+The docling loader needs the `docling` extra and lives in `agrag.loaders.docling`.
+
+**Modules:**
+
+- [**corpus**](#agrag.loaders.corpus) – The corpus loaders package.
+- [**docling**](#agrag.loaders.docling) – The docling loader package.
+- [**registry**](#agrag.loaders.registry) – The extension-to-loader registry.
+
+**Classes:**
+
+- [**DecodeError**](#agrag.loaders.DecodeError) – The source bytes do not decode to text.
+- [**DocumentConversionError**](#agrag.loaders.DocumentConversionError) – A loader could not parse or convert a source's content.
+- [**DocumentTooLargeError**](#agrag.loaders.DocumentTooLargeError) – A prose source is larger than the configured byte limit.
+- [**ErrorPolicy**](#agrag.loaders.ErrorPolicy) – The action to take when one source in a batch fails.
+- [**IngestResult**](#agrag.loaders.IngestResult) – The result of one ingest call.
+- [**IngestionError**](#agrag.loaders.IngestionError) – The base class for every ingestion error.
+- [**LoadStats**](#agrag.loaders.LoadStats) – Running tally of a corpus walk.
+- [**LoaderRegistry**](#agrag.loaders.LoaderRegistry) – Maps a source extension to the loader that reads it.
+- [**MalformedRecordError**](#agrag.loaders.MalformedRecordError) – One record in a record-family source does not parse.
+- [**MissingExtraError**](#agrag.loaders.MissingExtraError) – A loader exists for this format, but its package extra is not installed.
+- [**ReadOptions**](#agrag.loaders.ReadOptions) – Per-source reader configuration.
+- [**UnsupportedFormatError**](#agrag.loaders.UnsupportedFormatError) – No registered loader can read this source's format.
+
+#### `agrag.loaders.DecodeError`
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+The source bytes do not decode to text.
+
+#### `agrag.loaders.DocumentConversionError`
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+A loader could not parse or convert a source's content.
+
+#### `agrag.loaders.DocumentTooLargeError`
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+A prose source is larger than the configured byte limit.
+
+#### `agrag.loaders.ErrorPolicy`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+The action to take when one source in a batch fails.
+
+RAISE: Stop the whole run with the first error.
+SKIP: Drop the failing source and count it.
+QUARANTINE: Set the failing source aside for review and count it.
+
+**Attributes:**
+
+- [**QUARANTINE**](#agrag.loaders.ErrorPolicy.QUARANTINE) –
+- [**RAISE**](#agrag.loaders.ErrorPolicy.RAISE) –
+- [**SKIP**](#agrag.loaders.ErrorPolicy.SKIP) –
+
+##### `agrag.loaders.ErrorPolicy.QUARANTINE`
+
+```python
+QUARANTINE = 'quarantine'
+```
+
+##### `agrag.loaders.ErrorPolicy.RAISE`
+
+```python
+RAISE = 'raise'
+```
+
+##### `agrag.loaders.ErrorPolicy.SKIP`
+
+```python
+SKIP = 'skip'
+```
+
+#### `agrag.loaders.IngestResult`
+
+```python
+IngestResult(documents:int = 0, sources:int = 0, skipped:int = 0, quarantined:int = 0, quarantined_items:list[tuple[str, str]] = list(), chunks:list[Chunk] = list()) -> None
+```
+
+The result of one ingest call.
+
+**Attributes:**
+
+- [**documents**](#agrag.loaders.IngestResult.documents) (<code>[int](#int)</code>) – The number of documents the call produced.
+- [**sources**](#agrag.loaders.IngestResult.sources) (<code>[int](#int)</code>) – The number of sources the call read.
+- [**skipped**](#agrag.loaders.IngestResult.skipped) (<code>[int](#int)</code>) – The number of sources the call skipped.
+- [**quarantined**](#agrag.loaders.IngestResult.quarantined) (<code>[int](#int)</code>) – The number of sources the call moved to quarantine.
+- [**quarantined_items**](#agrag.loaders.IngestResult.quarantined_items) (<code>[list](#list)\[[tuple](#tuple)\[[str](#str), [str](#str)\]\]</code>) – The uri and reason for each quarantined source.
+- [**chunks**](#agrag.loaders.IngestResult.chunks) (<code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code>) – The chunks the call produced, in document then chunk order.
+
+##### `agrag.loaders.IngestResult.chunks`
+
+```python
+chunks: list[Chunk] = field(default_factory=list)
+```
+
+##### `agrag.loaders.IngestResult.documents`
+
+```python
+documents: int = 0
+```
+
+##### `agrag.loaders.IngestResult.quarantined`
+
+```python
+quarantined: int = 0
+```
+
+##### `agrag.loaders.IngestResult.quarantined_items`
+
+```python
+quarantined_items: list[tuple[str, str]] = field(default_factory=list)
+```
+
+##### `agrag.loaders.IngestResult.skipped`
+
+```python
+skipped: int = 0
+```
+
+##### `agrag.loaders.IngestResult.sources`
+
+```python
+sources: int = 0
+```
+
+#### `agrag.loaders.IngestionError`
+
+Bases: <code>[Exception](#Exception)</code>
+
+The base class for every ingestion error.
+
+#### `agrag.loaders.LoadStats`
+
+```python
+LoadStats(documents:int = 0, sources:int = 0, bytes_read:int = 0, skipped:int = 0, quarantined:int = 0, quarantined_items:list[StageFailure] = list()) -> None
+```
+
+Running tally of a corpus walk.
+
+**Attributes:**
+
+- [**documents**](#agrag.loaders.LoadStats.documents) (<code>[int](#int)</code>) – The number of documents read so far.
+- [**sources**](#agrag.loaders.LoadStats.sources) (<code>[int](#int)</code>) – The number of sources read so far.
+- [**bytes_read**](#agrag.loaders.LoadStats.bytes_read) (<code>[int](#int)</code>) – The number of bytes read so far.
+- [**skipped**](#agrag.loaders.LoadStats.skipped) (<code>[int](#int)</code>) – The number of sources skipped so far.
+- [**quarantined**](#agrag.loaders.LoadStats.quarantined) (<code>[int](#int)</code>) – The number of sources quarantined so far.
+- [**quarantined_items**](#agrag.loaders.LoadStats.quarantined_items) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – One StageFailure per quarantined source so far.
+
+##### `agrag.loaders.LoadStats.bytes_read`
+
+```python
+bytes_read: int = 0
+```
+
+##### `agrag.loaders.LoadStats.documents`
+
+```python
+documents: int = 0
+```
+
+##### `agrag.loaders.LoadStats.quarantined`
+
+```python
+quarantined: int = 0
+```
+
+##### `agrag.loaders.LoadStats.quarantined_items`
+
+```python
+quarantined_items: list[StageFailure] = field(default_factory=list)
+```
+
+##### `agrag.loaders.LoadStats.skipped`
+
+```python
+skipped: int = 0
+```
+
+##### `agrag.loaders.LoadStats.sources`
+
+```python
+sources: int = 0
+```
+
+#### `agrag.loaders.LoaderRegistry`
+
+```python
+LoaderRegistry() -> None
+```
+
+Maps a source extension to the loader that reads it.
+
+The registry picks a loader by file extension first. When more than one loader
+claims
+the same extension, the loader registered with `prefer=True` wins; when several
+loaders
+are preferred, the last preferred registration wins.
+
+**Attributes:**
+
+- [**\_by_extension**](#agrag.loaders.LoaderRegistry._by_extension) (<code>[dict](#dict)\[[str](#str), [list](#list)\[[\_Entry](#agrag.loaders.corpus.registry._Entry)\]\]</code>) – The registered loaders for each extension, in registration order.
+
+**Functions:**
+
+- [**for_source**](#agrag.loaders.LoaderRegistry.for_source) – Return the default loader for a source.
+- [**register**](#agrag.loaders.LoaderRegistry.register) – Add a loader to the registry.
+
+##### `agrag.loaders.LoaderRegistry.for_source`
+
+```python
+for_source(source:SourceRef) -> Loader
+```
+
+Return the default loader for a source.
+
+**Parameters:**
+
+- **source** (<code>[SourceRef](#agrag.loaders.corpus.types.SourceRef)</code>) – The source to find a loader for.
+
+**Returns:**
+
+- <code>[Loader](#agrag.loaders.corpus.base.Loader)</code> – The registered loader with the highest precedence for the source's
+- <code>[Loader](#agrag.loaders.corpus.base.Loader)</code> – extension.
+
+When the top-precedence loader needs a package extra that is not installed,
+the first non-preferred loader for the extension whose extra (if any) is
+installed is used instead, so an optional loader's absence falls back to the
+core reader rather than always failing the source.
+
+**Raises:**
+
+- <code>[UnsupportedFormatError](#agrag.loaders.corpus.errors.UnsupportedFormatError)</code> – No loader claims the source's extension.
+- <code>[MissingExtraError](#agrag.loaders.corpus.errors.MissingExtraError)</code> – A loader is mapped to the extension, but its package
+
+##### `agrag.loaders.LoaderRegistry.register`
+
+```python
+register(loader:Loader, *, prefer:bool = False, extensions:set[str] | frozenset[str] | None = None) -> None
+```
+
+Add a loader to the registry.
+
+Registering the same loader for the same extension more than once is a no-op, so
+importing a package that registers loaders repeatedly stays safe.
+
+**Parameters:**
+
+- **loader** (<code>[Loader](#agrag.loaders.corpus.base.Loader)</code>) – The loader to register.
+- **prefer** (<code>[bool](#bool)</code>) – Set this to True to make the loader the default for its extensions.
+  Leave it False to register the loader only as an explicit, named option.
+- **extensions** (<code>[set](#set)\[[str](#str)\] | [frozenset](#frozenset)\[[str](#str)\] | None</code>) – Only register `loader` for these extensions. Defaults to every
+  extension the loader advertises. A caller that wants different
+  precedence per
+  extension registers the same loader twice with different `extensions`
+  sets.
+
+#### `agrag.loaders.MalformedRecordError`
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+One record in a record-family source does not parse.
+
+#### `agrag.loaders.MissingExtraError`
+
+```python
+MissingExtraError(extension:str, extra:str) -> None
+```
+
+Bases: <code>[UnsupportedFormatError](#agrag.loaders.corpus.errors.UnsupportedFormatError)</code>
+
+A loader exists for this format, but its package extra is not installed.
+
+This class extends `UnsupportedFormatError` on purpose. An error policy can then
+treat
+a missing extra the same way it treats an unsupported format, instead of always
+stopping
+the whole batch.
+
+**Attributes:**
+
+- [**extension**](#agrag.loaders.MissingExtraError.extension) – The file extension that needs the extra.
+- [**extra**](#agrag.loaders.MissingExtraError.extra) – The name of the package extra to install.
+
+##### `agrag.loaders.MissingExtraError.extension`
+
+```python
+extension = extension
+```
+
+##### `agrag.loaders.MissingExtraError.extra`
+
+```python
+extra = extra
+```
+
+#### `agrag.loaders.ReadOptions`
+
+```python
+ReadOptions(encoding:str | None = None, max_document_bytes:int = 32 * 1024 * 1024, store_text:bool = True, store_raw_record:bool = False, on_error:ErrorPolicy = ErrorPolicy.RAISE, text_column:str | None = None, id_column:str | None = None, title_column:str | None = None, json_mode:JsonMode = JsonMode.AUTO, csv_mode:CsvMode = CsvMode.ROWS, csv_delimiter:str | None = None, html_selector:str | None = None, normalization:Normalization = Normalization()) -> None
+```
+
+Per-source reader configuration.
+
+Frozen so it is safe to share across worker processes.
+
+**Attributes:**
+
+- [**encoding**](#agrag.loaders.ReadOptions.encoding) (<code>[str](#str) | None</code>) – The text encoding to use. `None` lets the decoder detect it.
+- [**max_document_bytes**](#agrag.loaders.ReadOptions.max_document_bytes) (<code>[int](#int)</code>) – The largest prose source the loader will read.
+- [**store_text**](#agrag.loaders.ReadOptions.store_text) (<code>[bool](#bool)</code>) – When false, the document text is an empty string.
+- [**store_raw_record**](#agrag.loaders.ReadOptions.store_raw_record) (<code>[bool](#bool)</code>) – When true, a record document keeps its raw row data.
+- [**on_error**](#agrag.loaders.ReadOptions.on_error) (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – The error policy to apply inside the reader.
+- [**text_column**](#agrag.loaders.ReadOptions.text_column) (<code>[str](#str) | None</code>) – The column that holds document text. Required for record sources.
+- [**id_column**](#agrag.loaders.ReadOptions.id_column) (<code>[str](#str) | None</code>) – The column whose value becomes the document id.
+- [**title_column**](#agrag.loaders.ReadOptions.title_column) (<code>[str](#str) | None</code>) – The column whose value becomes the document title.
+- [**json_mode**](#agrag.loaders.ReadOptions.json_mode) (<code>[JsonMode](#agrag.loaders.corpus.types.JsonMode)</code>) – The JSON reading mode.
+- [**csv_mode**](#agrag.loaders.ReadOptions.csv_mode) (<code>[CsvMode](#agrag.loaders.corpus.types.CsvMode)</code>) – The CSV reading mode.
+- [**csv_delimiter**](#agrag.loaders.ReadOptions.csv_delimiter) (<code>[str](#str) | None</code>) – The column separator. `None` infers it from the extension.
+- [**html_selector**](#agrag.loaders.ReadOptions.html_selector) (<code>[str](#str) | None</code>) – The CSS selector for the main content of an HTML source.
+- [**normalization**](#agrag.loaders.ReadOptions.normalization) (<code>[Normalization](#agrag.common.data_models.normalization.Normalization)</code>) – How to normalize decoded text: byte-order mark, newline form
+  and Unicode form. The default removes the mark, uses LF and applies NFKC.
+  Chunk offsets index the normalized text.
+
+##### `agrag.loaders.ReadOptions.csv_delimiter`
+
+```python
+csv_delimiter: str | None = None
+```
+
+##### `agrag.loaders.ReadOptions.csv_mode`
+
+```python
+csv_mode: CsvMode = CsvMode.ROWS
+```
+
+##### `agrag.loaders.ReadOptions.encoding`
+
+```python
+encoding: str | None = None
+```
+
+##### `agrag.loaders.ReadOptions.html_selector`
+
+```python
+html_selector: str | None = None
+```
+
+##### `agrag.loaders.ReadOptions.id_column`
+
+```python
+id_column: str | None = None
+```
+
+##### `agrag.loaders.ReadOptions.json_mode`
+
+```python
+json_mode: JsonMode = JsonMode.AUTO
+```
+
+##### `agrag.loaders.ReadOptions.max_document_bytes`
+
+```python
+max_document_bytes: int = 32 * 1024 * 1024
+```
+
+##### `agrag.loaders.ReadOptions.normalization`
+
+```python
+normalization: Normalization = field(default_factory=Normalization)
+```
+
+##### `agrag.loaders.ReadOptions.on_error`
+
+```python
+on_error: ErrorPolicy = ErrorPolicy.RAISE
+```
+
+##### `agrag.loaders.ReadOptions.store_raw_record`
+
+```python
+store_raw_record: bool = False
+```
+
+##### `agrag.loaders.ReadOptions.store_text`
+
+```python
+store_text: bool = True
+```
+
+##### `agrag.loaders.ReadOptions.text_column`
+
+```python
+text_column: str | None = None
+```
+
+##### `agrag.loaders.ReadOptions.title_column`
+
+```python
+title_column: str | None = None
+```
+
+#### `agrag.loaders.UnsupportedFormatError`
+
+```python
+UnsupportedFormatError(extension:str) -> None
+```
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+No registered loader can read this source's format.
+
+**Attributes:**
+
+- [**extension**](#agrag.loaders.UnsupportedFormatError.extension) – The file extension that no loader claims.
+
+##### `agrag.loaders.UnsupportedFormatError.extension`
+
+```python
+extension = extension
+```
+
+#### `agrag.loaders.corpus`
+
+The corpus loaders package.
+
+Importing this package registers every core loader with the module-level `registry`
+singleton. The docling extra registers itself on top of this when installed.
+
+**Modules:**
+
+- [**base**](#agrag.loaders.corpus.base) – The Loader interface: reads one source and yields Document objects.
+- [**decode**](#agrag.loaders.corpus.decode) – The four-step decode pipeline for source bytes.
+- [**errors**](#agrag.loaders.corpus.errors) – Errors that the ingestion layer raises.
+- [**registry**](#agrag.loaders.corpus.registry) – The extension-to-loader registry.
+- [**types**](#agrag.loaders.corpus.types) – Plumbing types for the corpus loaders.
+
+##### `agrag.loaders.corpus.base`
+
+The Loader interface: reads one source and yields Document objects.
+
+**Classes:**
+
+- [**Loader**](#agrag.loaders.corpus.base.Loader) – Reads one source and yields Document objects.
+- [**ProseLoader**](#agrag.loaders.corpus.base.ProseLoader) – A loader that makes one Document per source.
+- [**RecordLoader**](#agrag.loaders.corpus.base.RecordLoader) – A loader that makes one Document per record in a source.
+
+###### `agrag.loaders.corpus.base.Loader`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+Reads one source and yields Document objects.
+
+A Loader keeps no state between calls, so a worker process can reuse one instance
+across many sources.
+
+**Attributes:**
+
+- [**extensions**](#agrag.loaders.corpus.base.Loader.extensions) (<code>[frozenset](#frozenset)\[[str](#str)\]</code>) – The file extensions this loader claims, each with a leading dot.
+- [**mime_types**](#agrag.loaders.corpus.base.Loader.mime_types) (<code>[frozenset](#frozenset)\[[str](#str)\]</code>) – The MIME types this loader claims. Empty when the loader relies on
+- [**family**](#agrag.loaders.corpus.base.Loader.family) (<code>[DocumentFamily](#agrag.common.data_models.document.DocumentFamily)</code>) – The document family this loader produces.
+- [**extra**](#agrag.loaders.corpus.base.Loader.extra) (<code>[str](#str) | None</code>) – The optional package extra required to use this loader. `None` for core
+  loaders. The registry raises `MissingExtraError` when this extra is not
+  installed.
+
+**Functions:**
+
+- [**load**](#agrag.loaders.corpus.base.Loader.load) – Yield documents read from one source.
+
+####### `agrag.loaders.corpus.base.Loader.extensions`
+
+```python
+extensions: frozenset[str]
+```
+
+####### `agrag.loaders.corpus.base.Loader.extra`
+
+```python
+extra: str | None = None
+```
+
+####### `agrag.loaders.corpus.base.Loader.family`
+
+```python
+family: DocumentFamily
+```
+
+####### `agrag.loaders.corpus.base.Loader.load`
+
+```python
+load(source:SourceRef, stream:BinaryIO, opts:ReadOptions, *, start_at:int = 0) -> Iterator[Document]
+```
+
+Yield documents read from one source.
+
+**Parameters:**
+
+- **source** (<code>[SourceRef](#agrag.loaders.corpus.types.SourceRef)</code>) – The source to read.
+- **stream** (<code>[BinaryIO](#typing.BinaryIO)</code>) – The open binary stream for the source, positioned at the start.
+- **opts** (<code>[ReadOptions](#agrag.loaders.corpus.types.ReadOptions)</code>) – The read options for this call.
+- **start_at** (<code>[int](#int)</code>) – The record index to resume from. Prose loaders ignore this
+
+**Yields:**
+
+- <code>[Document](#agrag.common.data_models.document.Document)</code> – One Document per unit the source contains, in a fixed order.
+
+####### `agrag.loaders.corpus.base.Loader.mime_types`
+
+```python
+mime_types: frozenset[str] = frozenset()
+```
+
+###### `agrag.loaders.corpus.base.ProseLoader`
+
+Bases: <code>[Loader](#agrag.loaders.corpus.base.Loader)</code>
+
+A loader that makes one Document per source.
+
+Concrete readers reject a source larger than the configured byte limit when the
+source's byte size is known upfront (`SourceRef.byte_size` is not `None`).
+
+**Functions:**
+
+- [**load**](#agrag.loaders.corpus.base.ProseLoader.load) – Yield documents read from one source.
+
+**Attributes:**
+
+- [**extensions**](#agrag.loaders.corpus.base.ProseLoader.extensions) (<code>[frozenset](#frozenset)\[[str](#str)\]</code>) –
+- [**extra**](#agrag.loaders.corpus.base.ProseLoader.extra) (<code>[str](#str) | None</code>) –
+- [**family**](#agrag.loaders.corpus.base.ProseLoader.family) –
+- [**mime_types**](#agrag.loaders.corpus.base.ProseLoader.mime_types) (<code>[frozenset](#frozenset)\[[str](#str)\]</code>) –
+
+####### `agrag.loaders.corpus.base.ProseLoader.extensions`
+
+```python
+extensions: frozenset[str]
+```
+
+####### `agrag.loaders.corpus.base.ProseLoader.extra`
+
+```python
+extra: str | None = None
+```
+
+####### `agrag.loaders.corpus.base.ProseLoader.family`
+
+```python
+family = DocumentFamily.PROSE
+```
+
+####### `agrag.loaders.corpus.base.ProseLoader.load`
+
+```python
+load(source:SourceRef, stream:BinaryIO, opts:ReadOptions, *, start_at:int = 0) -> Iterator[Document]
+```
+
+Yield documents read from one source.
+
+**Parameters:**
+
+- **source** (<code>[SourceRef](#agrag.loaders.corpus.types.SourceRef)</code>) – The source to read.
+- **stream** (<code>[BinaryIO](#typing.BinaryIO)</code>) – The open binary stream for the source, positioned at the start.
+- **opts** (<code>[ReadOptions](#agrag.loaders.corpus.types.ReadOptions)</code>) – The read options for this call.
+- **start_at** (<code>[int](#int)</code>) – The record index to resume from. Prose loaders ignore this
+
+**Yields:**
+
+- <code>[Document](#agrag.common.data_models.document.Document)</code> – One Document per unit the source contains, in a fixed order.
+
+####### `agrag.loaders.corpus.base.ProseLoader.mime_types`
+
+```python
+mime_types: frozenset[str] = frozenset()
+```
+
+###### `agrag.loaders.corpus.base.RecordLoader`
+
+Bases: <code>[Loader](#agrag.loaders.corpus.base.Loader)</code>
+
+A loader that makes one Document per record in a source.
+
+Concrete readers read and decode the whole source into memory up front, up
+to `opts.max_document_bytes`; that byte limit is what bounds memory use,
+not incremental reads from disk. Whether records are parsed incrementally
+from there is format-dependent: the CSV and JSONL readers parse and yield
+one record at a time, so a malformed record later in the source surfaces
+only after earlier records have already been yielded. The JSON reader
+parses the whole source up front, so a malformed source fails before any
+record is yielded.
+
+**Functions:**
+
+- [**load**](#agrag.loaders.corpus.base.RecordLoader.load) – Yield documents read from one source.
+
+**Attributes:**
+
+- [**extensions**](#agrag.loaders.corpus.base.RecordLoader.extensions) (<code>[frozenset](#frozenset)\[[str](#str)\]</code>) –
+- [**extra**](#agrag.loaders.corpus.base.RecordLoader.extra) (<code>[str](#str) | None</code>) –
+- [**family**](#agrag.loaders.corpus.base.RecordLoader.family) –
+- [**mime_types**](#agrag.loaders.corpus.base.RecordLoader.mime_types) (<code>[frozenset](#frozenset)\[[str](#str)\]</code>) –
+
+####### `agrag.loaders.corpus.base.RecordLoader.extensions`
+
+```python
+extensions: frozenset[str]
+```
+
+####### `agrag.loaders.corpus.base.RecordLoader.extra`
+
+```python
+extra: str | None = None
+```
+
+####### `agrag.loaders.corpus.base.RecordLoader.family`
+
+```python
+family = DocumentFamily.RECORD
+```
+
+####### `agrag.loaders.corpus.base.RecordLoader.load`
+
+```python
+load(source:SourceRef, stream:BinaryIO, opts:ReadOptions, *, start_at:int = 0) -> Iterator[Document]
+```
+
+Yield documents read from one source.
+
+**Parameters:**
+
+- **source** (<code>[SourceRef](#agrag.loaders.corpus.types.SourceRef)</code>) – The source to read.
+- **stream** (<code>[BinaryIO](#typing.BinaryIO)</code>) – The open binary stream for the source, positioned at the start.
+- **opts** (<code>[ReadOptions](#agrag.loaders.corpus.types.ReadOptions)</code>) – The read options for this call.
+- **start_at** (<code>[int](#int)</code>) – The record index to resume from. Prose loaders ignore this
+
+**Yields:**
+
+- <code>[Document](#agrag.common.data_models.document.Document)</code> – One Document per unit the source contains, in a fixed order.
+
+####### `agrag.loaders.corpus.base.RecordLoader.mime_types`
+
+```python
+mime_types: frozenset[str] = frozenset()
+```
+
+##### `agrag.loaders.corpus.decode`
+
+The four-step decode pipeline for source bytes.
+
+Every text loader shares this pipeline. It runs, in order: encoding detection via
+charset-normalizer, byte-order-mark handling, newline normalization, and Unicode
+normalization. `ReadOptions.normalization` sets the last three steps. It raises
+`DecodeError` on failure rather than silently emitting mojibake.
+
+**Functions:**
+
+- [**decode_text**](#agrag.loaders.corpus.decode.decode_text) – Decode raw source bytes into normalized text.
+
+###### `agrag.loaders.corpus.decode.decode_text`
+
+```python
+decode_text(raw:bytes, opts:ReadOptions) -> DecodedText
+```
+
+Decode raw source bytes into normalized text.
+
+This function detects the encoding, applies `opts.normalization` and hashes the
+result. It raises `DecodeError` instead of returning garbled text.
+
+**Parameters:**
+
+- **raw** (<code>[bytes](#bytes)</code>) – The raw source bytes.
+- **opts** (<code>[ReadOptions](#agrag.loaders.corpus.types.ReadOptions)</code>) – The read options. `opts.encoding` forces a specific codec when set.
+
+**Returns:**
+
+- <code>[DecodedText](#agrag.loaders.corpus.types.DecodedText)</code> – The decoded text with its encoding and hash.
+
+**Raises:**
+
+- <code>[DecodeError](#agrag.loaders.corpus.errors.DecodeError)</code> – The bytes do not decode under the forced encoding, or detection
+
+##### `agrag.loaders.corpus.errors`
+
+Errors that the ingestion layer raises.
+
+**Classes:**
+
+- [**DecodeError**](#agrag.loaders.corpus.errors.DecodeError) – The source bytes do not decode to text.
+- [**DocumentConversionError**](#agrag.loaders.corpus.errors.DocumentConversionError) – A loader could not parse or convert a source's content.
+- [**DocumentTooLargeError**](#agrag.loaders.corpus.errors.DocumentTooLargeError) – A prose source is larger than the configured byte limit.
+- [**IngestionError**](#agrag.loaders.corpus.errors.IngestionError) – The base class for every ingestion error.
+- [**MalformedRecordError**](#agrag.loaders.corpus.errors.MalformedRecordError) – One record in a record-family source does not parse.
+- [**MissingExtraError**](#agrag.loaders.corpus.errors.MissingExtraError) – A loader exists for this format, but its package extra is not installed.
+- [**UnsupportedFormatError**](#agrag.loaders.corpus.errors.UnsupportedFormatError) – No registered loader can read this source's format.
+
+###### `agrag.loaders.corpus.errors.DecodeError`
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+The source bytes do not decode to text.
+
+###### `agrag.loaders.corpus.errors.DocumentConversionError`
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+A loader could not parse or convert a source's content.
+
+###### `agrag.loaders.corpus.errors.DocumentTooLargeError`
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+A prose source is larger than the configured byte limit.
+
+###### `agrag.loaders.corpus.errors.IngestionError`
+
+Bases: <code>[Exception](#Exception)</code>
+
+The base class for every ingestion error.
+
+###### `agrag.loaders.corpus.errors.MalformedRecordError`
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+One record in a record-family source does not parse.
+
+###### `agrag.loaders.corpus.errors.MissingExtraError`
+
+```python
+MissingExtraError(extension:str, extra:str) -> None
+```
+
+Bases: <code>[UnsupportedFormatError](#agrag.loaders.corpus.errors.UnsupportedFormatError)</code>
+
+A loader exists for this format, but its package extra is not installed.
+
+This class extends `UnsupportedFormatError` on purpose. An error policy can then
+treat
+a missing extra the same way it treats an unsupported format, instead of always
+stopping
+the whole batch.
+
+**Attributes:**
+
+- [**extension**](#agrag.loaders.corpus.errors.MissingExtraError.extension) – The file extension that needs the extra.
+- [**extra**](#agrag.loaders.corpus.errors.MissingExtraError.extra) – The name of the package extra to install.
+
+####### `agrag.loaders.corpus.errors.MissingExtraError.extension`
+
+```python
+extension = extension
+```
+
+####### `agrag.loaders.corpus.errors.MissingExtraError.extra`
+
+```python
+extra = extra
+```
+
+###### `agrag.loaders.corpus.errors.UnsupportedFormatError`
+
+```python
+UnsupportedFormatError(extension:str) -> None
+```
+
+Bases: <code>[IngestionError](#agrag.loaders.corpus.errors.IngestionError)</code>
+
+No registered loader can read this source's format.
+
+**Attributes:**
+
+- [**extension**](#agrag.loaders.corpus.errors.UnsupportedFormatError.extension) – The file extension that no loader claims.
+
+####### `agrag.loaders.corpus.errors.UnsupportedFormatError.extension`
+
+```python
+extension = extension
+```
+
+##### `agrag.loaders.corpus.registry`
+
+The extension-to-loader registry.
+
+**Classes:**
+
+- [**LoaderRegistry**](#agrag.loaders.corpus.registry.LoaderRegistry) – Maps a source extension to the loader that reads it.
+
+###### `agrag.loaders.corpus.registry.LoaderRegistry`
+
+```python
+LoaderRegistry() -> None
+```
+
+Maps a source extension to the loader that reads it.
+
+The registry picks a loader by file extension first. When more than one loader
+claims
+the same extension, the loader registered with `prefer=True` wins; when several
+loaders
+are preferred, the last preferred registration wins.
+
+**Attributes:**
+
+- [**\_by_extension**](#agrag.loaders.corpus.registry.LoaderRegistry._by_extension) (<code>[dict](#dict)\[[str](#str), [list](#list)\[[\_Entry](#agrag.loaders.corpus.registry._Entry)\]\]</code>) – The registered loaders for each extension, in registration order.
+
+**Functions:**
+
+- [**for_source**](#agrag.loaders.corpus.registry.LoaderRegistry.for_source) – Return the default loader for a source.
+- [**register**](#agrag.loaders.corpus.registry.LoaderRegistry.register) – Add a loader to the registry.
+
+####### `agrag.loaders.corpus.registry.LoaderRegistry.for_source`
+
+```python
+for_source(source:SourceRef) -> Loader
+```
+
+Return the default loader for a source.
+
+**Parameters:**
+
+- **source** (<code>[SourceRef](#agrag.loaders.corpus.types.SourceRef)</code>) – The source to find a loader for.
+
+**Returns:**
+
+- <code>[Loader](#agrag.loaders.corpus.base.Loader)</code> – The registered loader with the highest precedence for the source's
+- <code>[Loader](#agrag.loaders.corpus.base.Loader)</code> – extension.
+
+When the top-precedence loader needs a package extra that is not installed,
+the first non-preferred loader for the extension whose extra (if any) is
+installed is used instead, so an optional loader's absence falls back to the
+core reader rather than always failing the source.
+
+**Raises:**
+
+- <code>[UnsupportedFormatError](#agrag.loaders.corpus.errors.UnsupportedFormatError)</code> – No loader claims the source's extension.
+- <code>[MissingExtraError](#agrag.loaders.corpus.errors.MissingExtraError)</code> – A loader is mapped to the extension, but its package
+
+####### `agrag.loaders.corpus.registry.LoaderRegistry.register`
+
+```python
+register(loader:Loader, *, prefer:bool = False, extensions:set[str] | frozenset[str] | None = None) -> None
+```
+
+Add a loader to the registry.
+
+Registering the same loader for the same extension more than once is a no-op, so
+importing a package that registers loaders repeatedly stays safe.
+
+**Parameters:**
+
+- **loader** (<code>[Loader](#agrag.loaders.corpus.base.Loader)</code>) – The loader to register.
+- **prefer** (<code>[bool](#bool)</code>) – Set this to True to make the loader the default for its extensions.
+  Leave it False to register the loader only as an explicit, named option.
+- **extensions** (<code>[set](#set)\[[str](#str)\] | [frozenset](#frozenset)\[[str](#str)\] | None</code>) – Only register `loader` for these extensions. Defaults to every
+  extension the loader advertises. A caller that wants different
+  precedence per
+  extension registers the same loader twice with different `extensions`
+  sets.
+
+##### `agrag.loaders.corpus.types`
+
+Plumbing types for the corpus loaders.
+
+These types support the loader, decode, and walk machinery. They are feature-local to
+`agrag.loaders.corpus` and are not domain models.
+
+**Classes:**
+
+- [**CsvMode**](#agrag.loaders.corpus.types.CsvMode) – How to read a CSV or TSV source.
+- [**DecodedText**](#agrag.loaders.corpus.types.DecodedText) – Output of the four-step decode pipeline.
+- [**ErrorPolicy**](#agrag.loaders.corpus.types.ErrorPolicy) – The action to take when one source in a batch fails.
+- [**IngestResult**](#agrag.loaders.corpus.types.IngestResult) – The result of one ingest call.
+- [**JsonMode**](#agrag.loaders.corpus.types.JsonMode) – How to read a JSON source.
+- [**LoadStats**](#agrag.loaders.corpus.types.LoadStats) – Running tally of a corpus walk.
+- [**LoaderCursor**](#agrag.loaders.corpus.types.LoaderCursor) – Resume point for a corpus walk.
+- [**ReadOptions**](#agrag.loaders.corpus.types.ReadOptions) – Per-source reader configuration.
+- [**SourceRef**](#agrag.loaders.corpus.types.SourceRef) – A locatable input, before any bytes are read.
+
+###### `agrag.loaders.corpus.types.CsvMode`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+How to read a CSV or TSV source.
+
+ROWS: Read one document per row.
+TABLE: Read the whole table as one document.
+
+**Attributes:**
+
+- [**ROWS**](#agrag.loaders.corpus.types.CsvMode.ROWS) –
+- [**TABLE**](#agrag.loaders.corpus.types.CsvMode.TABLE) –
+
+####### `agrag.loaders.corpus.types.CsvMode.ROWS`
+
+```python
+ROWS = 'rows'
+```
+
+####### `agrag.loaders.corpus.types.CsvMode.TABLE`
+
+```python
+TABLE = 'table'
+```
+
+###### `agrag.loaders.corpus.types.DecodedText`
+
+```python
+DecodedText(text:str, encoding:str, had_bom:bool, content_hash:str, char_count:int, line_count:int) -> None
+```
+
+Output of the four-step decode pipeline.
+
+**Attributes:**
+
+- [**text**](#agrag.loaders.corpus.types.DecodedText.text) (<code>[str](#str)</code>) – The decoded text, normalized as `ReadOptions.normalization` says.
+- [**encoding**](#agrag.loaders.corpus.types.DecodedText.encoding) (<code>[str](#str)</code>) – The encoding used to decode the bytes.
+- [**had_bom**](#agrag.loaders.corpus.types.DecodedText.had_bom) (<code>[bool](#bool)</code>) – Whether the source started with a byte-order mark.
+- [**content_hash**](#agrag.loaders.corpus.types.DecodedText.content_hash) (<code>[str](#str)</code>) – The sha256 hash of the normalized text.
+- [**char_count**](#agrag.loaders.corpus.types.DecodedText.char_count) (<code>[int](#int)</code>) – The number of characters in `text`.
+- [**line_count**](#agrag.loaders.corpus.types.DecodedText.line_count) (<code>[int](#int)</code>) – The number of lines in `text`.
+
+####### `agrag.loaders.corpus.types.DecodedText.char_count`
+
+```python
+char_count: int
+```
+
+####### `agrag.loaders.corpus.types.DecodedText.content_hash`
+
+```python
+content_hash: str
+```
+
+####### `agrag.loaders.corpus.types.DecodedText.encoding`
+
+```python
+encoding: str
+```
+
+####### `agrag.loaders.corpus.types.DecodedText.had_bom`
+
+```python
+had_bom: bool
+```
+
+####### `agrag.loaders.corpus.types.DecodedText.line_count`
+
+```python
+line_count: int
+```
+
+####### `agrag.loaders.corpus.types.DecodedText.text`
+
+```python
+text: str
+```
+
+###### `agrag.loaders.corpus.types.ErrorPolicy`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+The action to take when one source in a batch fails.
+
+RAISE: Stop the whole run with the first error.
+SKIP: Drop the failing source and count it.
+QUARANTINE: Set the failing source aside for review and count it.
+
+**Attributes:**
+
+- [**QUARANTINE**](#agrag.loaders.corpus.types.ErrorPolicy.QUARANTINE) –
+- [**RAISE**](#agrag.loaders.corpus.types.ErrorPolicy.RAISE) –
+- [**SKIP**](#agrag.loaders.corpus.types.ErrorPolicy.SKIP) –
+
+####### `agrag.loaders.corpus.types.ErrorPolicy.QUARANTINE`
+
+```python
+QUARANTINE = 'quarantine'
+```
+
+####### `agrag.loaders.corpus.types.ErrorPolicy.RAISE`
+
+```python
+RAISE = 'raise'
+```
+
+####### `agrag.loaders.corpus.types.ErrorPolicy.SKIP`
+
+```python
+SKIP = 'skip'
+```
+
+###### `agrag.loaders.corpus.types.IngestResult`
+
+```python
+IngestResult(documents:int = 0, sources:int = 0, skipped:int = 0, quarantined:int = 0, quarantined_items:list[tuple[str, str]] = list(), chunks:list[Chunk] = list()) -> None
+```
+
+The result of one ingest call.
+
+**Attributes:**
+
+- [**documents**](#agrag.loaders.corpus.types.IngestResult.documents) (<code>[int](#int)</code>) – The number of documents the call produced.
+- [**sources**](#agrag.loaders.corpus.types.IngestResult.sources) (<code>[int](#int)</code>) – The number of sources the call read.
+- [**skipped**](#agrag.loaders.corpus.types.IngestResult.skipped) (<code>[int](#int)</code>) – The number of sources the call skipped.
+- [**quarantined**](#agrag.loaders.corpus.types.IngestResult.quarantined) (<code>[int](#int)</code>) – The number of sources the call moved to quarantine.
+- [**quarantined_items**](#agrag.loaders.corpus.types.IngestResult.quarantined_items) (<code>[list](#list)\[[tuple](#tuple)\[[str](#str), [str](#str)\]\]</code>) – The uri and reason for each quarantined source.
+- [**chunks**](#agrag.loaders.corpus.types.IngestResult.chunks) (<code>[list](#list)\[[Chunk](#agrag.common.data_models.chunk.Chunk)\]</code>) – The chunks the call produced, in document then chunk order.
+
+####### `agrag.loaders.corpus.types.IngestResult.chunks`
+
+```python
+chunks: list[Chunk] = field(default_factory=list)
+```
+
+####### `agrag.loaders.corpus.types.IngestResult.documents`
+
+```python
+documents: int = 0
+```
+
+####### `agrag.loaders.corpus.types.IngestResult.quarantined`
+
+```python
+quarantined: int = 0
+```
+
+####### `agrag.loaders.corpus.types.IngestResult.quarantined_items`
+
+```python
+quarantined_items: list[tuple[str, str]] = field(default_factory=list)
+```
+
+####### `agrag.loaders.corpus.types.IngestResult.skipped`
+
+```python
+skipped: int = 0
+```
+
+####### `agrag.loaders.corpus.types.IngestResult.sources`
+
+```python
+sources: int = 0
+```
+
+###### `agrag.loaders.corpus.types.JsonMode`
+
+Bases: <code>[StrEnum](#enum.StrEnum)</code>
+
+How to read a JSON source.
+
+AUTO: Read an array as records and an object as one document.
+RECORDS: Read a top-level array as one document per element.
+DOCUMENT: Read a top-level array as one document that holds the whole array.
+
+**Attributes:**
+
+- [**AUTO**](#agrag.loaders.corpus.types.JsonMode.AUTO) –
+- [**DOCUMENT**](#agrag.loaders.corpus.types.JsonMode.DOCUMENT) –
+- [**RECORDS**](#agrag.loaders.corpus.types.JsonMode.RECORDS) –
+
+####### `agrag.loaders.corpus.types.JsonMode.AUTO`
+
+```python
+AUTO = 'auto'
+```
+
+####### `agrag.loaders.corpus.types.JsonMode.DOCUMENT`
+
+```python
+DOCUMENT = 'document'
+```
+
+####### `agrag.loaders.corpus.types.JsonMode.RECORDS`
+
+```python
+RECORDS = 'records'
+```
+
+###### `agrag.loaders.corpus.types.LoadStats`
+
+```python
+LoadStats(documents:int = 0, sources:int = 0, bytes_read:int = 0, skipped:int = 0, quarantined:int = 0, quarantined_items:list[StageFailure] = list()) -> None
+```
+
+Running tally of a corpus walk.
+
+**Attributes:**
+
+- [**documents**](#agrag.loaders.corpus.types.LoadStats.documents) (<code>[int](#int)</code>) – The number of documents read so far.
+- [**sources**](#agrag.loaders.corpus.types.LoadStats.sources) (<code>[int](#int)</code>) – The number of sources read so far.
+- [**bytes_read**](#agrag.loaders.corpus.types.LoadStats.bytes_read) (<code>[int](#int)</code>) – The number of bytes read so far.
+- [**skipped**](#agrag.loaders.corpus.types.LoadStats.skipped) (<code>[int](#int)</code>) – The number of sources skipped so far.
+- [**quarantined**](#agrag.loaders.corpus.types.LoadStats.quarantined) (<code>[int](#int)</code>) – The number of sources quarantined so far.
+- [**quarantined_items**](#agrag.loaders.corpus.types.LoadStats.quarantined_items) (<code>[list](#list)\[[StageFailure](#agrag.common.data_models.stage_failure.StageFailure)\]</code>) – One StageFailure per quarantined source so far.
+
+####### `agrag.loaders.corpus.types.LoadStats.bytes_read`
+
+```python
+bytes_read: int = 0
+```
+
+####### `agrag.loaders.corpus.types.LoadStats.documents`
+
+```python
+documents: int = 0
+```
+
+####### `agrag.loaders.corpus.types.LoadStats.quarantined`
+
+```python
+quarantined: int = 0
+```
+
+####### `agrag.loaders.corpus.types.LoadStats.quarantined_items`
+
+```python
+quarantined_items: list[StageFailure] = field(default_factory=list)
+```
+
+####### `agrag.loaders.corpus.types.LoadStats.skipped`
+
+```python
+skipped: int = 0
+```
+
+####### `agrag.loaders.corpus.types.LoadStats.sources`
+
+```python
+sources: int = 0
+```
+
+###### `agrag.loaders.corpus.types.LoaderCursor`
+
+```python
+LoaderCursor(uri:str | None = None, record_index:int | None = None) -> None
+```
+
+Resume point for a corpus walk.
+
+Ordering is deterministic, so a cursor is replayable.
+
+**Attributes:**
+
+- [**uri**](#agrag.loaders.corpus.types.LoaderCursor.uri) (<code>[str](#str) | None</code>) – The source to resume after. `None` means start at the beginning.
+- [**record_index**](#agrag.loaders.corpus.types.LoaderCursor.record_index) (<code>[int](#int) | None</code>) – The record to resume after within the source. `None` means the
+
+####### `agrag.loaders.corpus.types.LoaderCursor.record_index`
+
+```python
+record_index: int | None = None
+```
+
+####### `agrag.loaders.corpus.types.LoaderCursor.uri`
+
+```python
+uri: str | None = None
+```
+
+###### `agrag.loaders.corpus.types.ReadOptions`
+
+```python
+ReadOptions(encoding:str | None = None, max_document_bytes:int = 32 * 1024 * 1024, store_text:bool = True, store_raw_record:bool = False, on_error:ErrorPolicy = ErrorPolicy.RAISE, text_column:str | None = None, id_column:str | None = None, title_column:str | None = None, json_mode:JsonMode = JsonMode.AUTO, csv_mode:CsvMode = CsvMode.ROWS, csv_delimiter:str | None = None, html_selector:str | None = None, normalization:Normalization = Normalization()) -> None
+```
+
+Per-source reader configuration.
+
+Frozen so it is safe to share across worker processes.
+
+**Attributes:**
+
+- [**encoding**](#agrag.loaders.corpus.types.ReadOptions.encoding) (<code>[str](#str) | None</code>) – The text encoding to use. `None` lets the decoder detect it.
+- [**max_document_bytes**](#agrag.loaders.corpus.types.ReadOptions.max_document_bytes) (<code>[int](#int)</code>) – The largest prose source the loader will read.
+- [**store_text**](#agrag.loaders.corpus.types.ReadOptions.store_text) (<code>[bool](#bool)</code>) – When false, the document text is an empty string.
+- [**store_raw_record**](#agrag.loaders.corpus.types.ReadOptions.store_raw_record) (<code>[bool](#bool)</code>) – When true, a record document keeps its raw row data.
+- [**on_error**](#agrag.loaders.corpus.types.ReadOptions.on_error) (<code>[ErrorPolicy](#agrag.loaders.corpus.types.ErrorPolicy)</code>) – The error policy to apply inside the reader.
+- [**text_column**](#agrag.loaders.corpus.types.ReadOptions.text_column) (<code>[str](#str) | None</code>) – The column that holds document text. Required for record sources.
+- [**id_column**](#agrag.loaders.corpus.types.ReadOptions.id_column) (<code>[str](#str) | None</code>) – The column whose value becomes the document id.
+- [**title_column**](#agrag.loaders.corpus.types.ReadOptions.title_column) (<code>[str](#str) | None</code>) – The column whose value becomes the document title.
+- [**json_mode**](#agrag.loaders.corpus.types.ReadOptions.json_mode) (<code>[JsonMode](#agrag.loaders.corpus.types.JsonMode)</code>) – The JSON reading mode.
+- [**csv_mode**](#agrag.loaders.corpus.types.ReadOptions.csv_mode) (<code>[CsvMode](#agrag.loaders.corpus.types.CsvMode)</code>) – The CSV reading mode.
+- [**csv_delimiter**](#agrag.loaders.corpus.types.ReadOptions.csv_delimiter) (<code>[str](#str) | None</code>) – The column separator. `None` infers it from the extension.
+- [**html_selector**](#agrag.loaders.corpus.types.ReadOptions.html_selector) (<code>[str](#str) | None</code>) – The CSS selector for the main content of an HTML source.
+- [**normalization**](#agrag.loaders.corpus.types.ReadOptions.normalization) (<code>[Normalization](#agrag.common.data_models.normalization.Normalization)</code>) – How to normalize decoded text: byte-order mark, newline form
+  and Unicode form. The default removes the mark, uses LF and applies NFKC.
+  Chunk offsets index the normalized text.
+
+####### `agrag.loaders.corpus.types.ReadOptions.csv_delimiter`
+
+```python
+csv_delimiter: str | None = None
+```
+
+####### `agrag.loaders.corpus.types.ReadOptions.csv_mode`
+
+```python
+csv_mode: CsvMode = CsvMode.ROWS
+```
+
+####### `agrag.loaders.corpus.types.ReadOptions.encoding`
+
+```python
+encoding: str | None = None
+```
+
+####### `agrag.loaders.corpus.types.ReadOptions.html_selector`
+
+```python
+html_selector: str | None = None
+```
+
+####### `agrag.loaders.corpus.types.ReadOptions.id_column`
+
+```python
+id_column: str | None = None
+```
+
+####### `agrag.loaders.corpus.types.ReadOptions.json_mode`
+
+```python
+json_mode: JsonMode = JsonMode.AUTO
+```
+
+####### `agrag.loaders.corpus.types.ReadOptions.max_document_bytes`
+
+```python
+max_document_bytes: int = 32 * 1024 * 1024
+```
+
+####### `agrag.loaders.corpus.types.ReadOptions.normalization`
+
+```python
+normalization: Normalization = field(default_factory=Normalization)
+```
+
+####### `agrag.loaders.corpus.types.ReadOptions.on_error`
+
+```python
+on_error: ErrorPolicy = ErrorPolicy.RAISE
+```
+
+####### `agrag.loaders.corpus.types.ReadOptions.store_raw_record`
+
+```python
+store_raw_record: bool = False
+```
+
+####### `agrag.loaders.corpus.types.ReadOptions.store_text`
+
+```python
+store_text: bool = True
+```
+
+####### `agrag.loaders.corpus.types.ReadOptions.text_column`
+
+```python
+text_column: str | None = None
+```
+
+####### `agrag.loaders.corpus.types.ReadOptions.title_column`
+
+```python
+title_column: str | None = None
+```
+
+###### `agrag.loaders.corpus.types.SourceRef`
+
+```python
+SourceRef(uri:str, extension:str, byte_size:int | None = None, mime_type:str | None = None, modified_at:datetime | None = None) -> None
+```
+
+A locatable input, before any bytes are read.
+
+**Attributes:**
+
+- [**uri**](#agrag.loaders.corpus.types.SourceRef.uri) (<code>[str](#str)</code>) – The location of the source, as the caller gave it.
+- [**extension**](#agrag.loaders.corpus.types.SourceRef.extension) (<code>[str](#str)</code>) – The lowercased file extension, with its leading dot.
+- [**byte_size**](#agrag.loaders.corpus.types.SourceRef.byte_size) (<code>[int](#int) | None</code>) – The size of the source in bytes. `None` when the backend cannot
+- [**mime_type**](#agrag.loaders.corpus.types.SourceRef.mime_type) (<code>[str](#str) | None</code>) – The detected MIME type, when the loader can detect one.
+- [**modified_at**](#agrag.loaders.corpus.types.SourceRef.modified_at) (<code>[datetime](#datetime.datetime) | None</code>) – The last-modified time of the source, when the backend reports it.
+
+####### `agrag.loaders.corpus.types.SourceRef.byte_size`
+
+```python
+byte_size: int | None = None
+```
+
+####### `agrag.loaders.corpus.types.SourceRef.extension`
+
+```python
+extension: str
+```
+
+####### `agrag.loaders.corpus.types.SourceRef.mime_type`
+
+```python
+mime_type: str | None = None
+```
+
+####### `agrag.loaders.corpus.types.SourceRef.modified_at`
+
+```python
+modified_at: datetime | None = None
+```
+
+####### `agrag.loaders.corpus.types.SourceRef.uri`
+
+```python
+uri: str
+```
+
+#### `agrag.loaders.docling`
+
+The docling loader package.
+
+Importing this package registers `DoclingLoader` with the corpus registry. The core
+loaders win by default for Markdown, HTML, and CSV; docling wins for PDF, DOCX, PPTX,
+images, AsciiDoc, and XML.
+
+**Modules:**
+
+- [**loader**](#agrag.loaders.docling.loader) – Docling-backed loader for PDF, DOCX, PPTX, and image sources.
+
+**Classes:**
+
+- [**DoclingLoader**](#agrag.loaders.docling.DoclingLoader) – Reads documents with the docling library.
+
+##### `agrag.loaders.docling.DoclingLoader`
+
+Bases: <code>[ProseLoader](#agrag.loaders.corpus.base.ProseLoader)</code>
+
+Reads documents with the docling library.
+
+This loader registers for the PDF, DOCX, PPTX, and image formats, plus the Markdown,
+HTML, CSV, AsciiDoc, and XML formats it can also parse. It wins by default only for
+the
+formats no core loader claims.
+
+**Attributes:**
+
+- [**extensions**](#agrag.loaders.docling.DoclingLoader.extensions) – Every format docling can read.
+- [**extra**](#agrag.loaders.docling.DoclingLoader.extra) – The package extra required to use this loader.
+
+**Functions:**
+
+- [**load**](#agrag.loaders.docling.DoclingLoader.load) – Yield one prose Document parsed by docling.
+
+###### `agrag.loaders.docling.DoclingLoader.extensions`
+
+```python
+extensions = frozenset(_DOCLING_FORMATS.keys())
+```
+
+###### `agrag.loaders.docling.DoclingLoader.extra`
+
+```python
+extra = 'docling'
+```
+
+###### `agrag.loaders.docling.DoclingLoader.family`
+
+```python
+family = DocumentFamily.PROSE
+```
+
+###### `agrag.loaders.docling.DoclingLoader.load`
+
+```python
+load(source:SourceRef, stream:BinaryIO, opts:ReadOptions, *, start_at:int = 0) -> Iterator[Document]
+```
+
+Yield one prose Document parsed by docling.
+
+The content hash comes from the raw source bytes, not from docling's parsed
+output,
+because the parsed output can change between docling versions and runs.
+
+**Parameters:**
+
+- **source** (<code>[SourceRef](#agrag.loaders.corpus.types.SourceRef)</code>) – The source to read.
+- **stream** (<code>[BinaryIO](#typing.BinaryIO)</code>) – The open binary stream for the source.
+- **opts** (<code>[ReadOptions](#agrag.loaders.corpus.types.ReadOptions)</code>) – The read options.
+- **start_at** (<code>[int](#int)</code>) – Ignored by prose loaders.
+
+**Yields:**
+
+- <code>[Document](#agrag.common.data_models.document.Document)</code> – One Document holding docling's Markdown export of the source.
+
+**Raises:**
+
+- <code>[MissingExtraError](#agrag.loaders.corpus.errors.MissingExtraError)</code> – The docling extra is not installed.
+- <code>[DocumentTooLargeError](#agrag.loaders.corpus.errors.DocumentTooLargeError)</code> – The source is larger than the configured byte
+  limit.
+- <code>[DocumentConversionError](#agrag.loaders.corpus.errors.DocumentConversionError)</code> – Docling could not parse or convert the source.
+- <code>[ValueError](#ValueError)</code> – `opts.max_document_bytes` is not a positive integer.
+
+###### `agrag.loaders.docling.DoclingLoader.mime_types`
+
+```python
+mime_types: frozenset[str] = frozenset()
+```
+
+##### `agrag.loaders.docling.loader`
+
+Docling-backed loader for PDF, DOCX, PPTX, and image sources.
+
+Importing this module does not import the docling library. The loader imports docling
+inside `load` so that the rest of the package works without the `docling` extra
+installed. The registry raises `MissingExtraError` when a source needs this loader but
+the extra is missing.
+
+**Classes:**
+
+- [**DoclingLoader**](#agrag.loaders.docling.loader.DoclingLoader) – Reads documents with the docling library.
+
+###### `agrag.loaders.docling.loader.DoclingLoader`
+
+Bases: <code>[ProseLoader](#agrag.loaders.corpus.base.ProseLoader)</code>
+
+Reads documents with the docling library.
+
+This loader registers for the PDF, DOCX, PPTX, and image formats, plus the Markdown,
+HTML, CSV, AsciiDoc, and XML formats it can also parse. It wins by default only for
+the
+formats no core loader claims.
+
+**Attributes:**
+
+- [**extensions**](#agrag.loaders.docling.loader.DoclingLoader.extensions) – Every format docling can read.
+- [**extra**](#agrag.loaders.docling.loader.DoclingLoader.extra) – The package extra required to use this loader.
+
+**Functions:**
+
+- [**load**](#agrag.loaders.docling.loader.DoclingLoader.load) – Yield one prose Document parsed by docling.
+
+####### `agrag.loaders.docling.loader.DoclingLoader.extensions`
+
+```python
+extensions = frozenset(_DOCLING_FORMATS.keys())
+```
+
+####### `agrag.loaders.docling.loader.DoclingLoader.extra`
+
+```python
+extra = 'docling'
+```
+
+####### `agrag.loaders.docling.loader.DoclingLoader.family`
+
+```python
+family = DocumentFamily.PROSE
+```
+
+####### `agrag.loaders.docling.loader.DoclingLoader.load`
+
+```python
+load(source:SourceRef, stream:BinaryIO, opts:ReadOptions, *, start_at:int = 0) -> Iterator[Document]
+```
+
+Yield one prose Document parsed by docling.
+
+The content hash comes from the raw source bytes, not from docling's parsed
+output,
+because the parsed output can change between docling versions and runs.
+
+**Parameters:**
+
+- **source** (<code>[SourceRef](#agrag.loaders.corpus.types.SourceRef)</code>) – The source to read.
+- **stream** (<code>[BinaryIO](#typing.BinaryIO)</code>) – The open binary stream for the source.
+- **opts** (<code>[ReadOptions](#agrag.loaders.corpus.types.ReadOptions)</code>) – The read options.
+- **start_at** (<code>[int](#int)</code>) – Ignored by prose loaders.
+
+**Yields:**
+
+- <code>[Document](#agrag.common.data_models.document.Document)</code> – One Document holding docling's Markdown export of the source.
+
+**Raises:**
+
+- <code>[MissingExtraError](#agrag.loaders.corpus.errors.MissingExtraError)</code> – The docling extra is not installed.
+- <code>[DocumentTooLargeError](#agrag.loaders.corpus.errors.DocumentTooLargeError)</code> – The source is larger than the configured byte
+  limit.
+- <code>[DocumentConversionError](#agrag.loaders.corpus.errors.DocumentConversionError)</code> – Docling could not parse or convert the source.
+- <code>[ValueError](#ValueError)</code> – `opts.max_document_bytes` is not a positive integer.
+
+####### `agrag.loaders.docling.loader.DoclingLoader.mime_types`
+
+```python
+mime_types: frozenset[str] = frozenset()
+```
+
+#### `agrag.loaders.registry`
+
+The extension-to-loader registry.
+
+**Classes:**
+
+- [**LoaderRegistry**](#agrag.loaders.registry.LoaderRegistry) – Maps a source extension to the loader that reads it.
+
+##### `agrag.loaders.registry.LoaderRegistry`
+
+```python
+LoaderRegistry() -> None
+```
+
+Maps a source extension to the loader that reads it.
+
+The registry picks a loader by file extension first. When more than one loader
+claims
+the same extension, the loader registered with `prefer=True` wins; when several
+loaders
+are preferred, the last preferred registration wins.
+
+**Attributes:**
+
+- [**\_by_extension**](#agrag.loaders.registry.LoaderRegistry._by_extension) (<code>[dict](#dict)\[[str](#str), [list](#list)\[[\_Entry](#agrag.loaders.corpus.registry._Entry)\]\]</code>) – The registered loaders for each extension, in registration order.
+
+**Functions:**
+
+- [**for_source**](#agrag.loaders.registry.LoaderRegistry.for_source) – Return the default loader for a source.
+- [**register**](#agrag.loaders.registry.LoaderRegistry.register) – Add a loader to the registry.
+
+###### `agrag.loaders.registry.LoaderRegistry.for_source`
+
+```python
+for_source(source:SourceRef) -> Loader
+```
+
+Return the default loader for a source.
+
+**Parameters:**
+
+- **source** (<code>[SourceRef](#agrag.loaders.corpus.types.SourceRef)</code>) – The source to find a loader for.
+
+**Returns:**
+
+- <code>[Loader](#agrag.loaders.corpus.base.Loader)</code> – The registered loader with the highest precedence for the source's
+- <code>[Loader](#agrag.loaders.corpus.base.Loader)</code> – extension.
+
+When the top-precedence loader needs a package extra that is not installed,
+the first non-preferred loader for the extension whose extra (if any) is
+installed is used instead, so an optional loader's absence falls back to the
+core reader rather than always failing the source.
+
+**Raises:**
+
+- <code>[UnsupportedFormatError](#agrag.loaders.corpus.errors.UnsupportedFormatError)</code> – No loader claims the source's extension.
+- <code>[MissingExtraError](#agrag.loaders.corpus.errors.MissingExtraError)</code> – A loader is mapped to the extension, but its package
+
+###### `agrag.loaders.registry.LoaderRegistry.register`
+
+```python
+register(loader:Loader, *, prefer:bool = False, extensions:set[str] | frozenset[str] | None = None) -> None
+```
+
+Add a loader to the registry.
+
+Registering the same loader for the same extension more than once is a no-op, so
+importing a package that registers loaders repeatedly stays safe.
+
+**Parameters:**
+
+- **loader** (<code>[Loader](#agrag.loaders.corpus.base.Loader)</code>) – The loader to register.
+- **prefer** (<code>[bool](#bool)</code>) – Set this to True to make the loader the default for its extensions.
+  Leave it False to register the loader only as an explicit, named option.
+- **extensions** (<code>[set](#set)\[[str](#str)\] | [frozenset](#frozenset)\[[str](#str)\] | None</code>) – Only register `loader` for these extensions. Defaults to every
+  extension the loader advertises. A caller that wants different
+  precedence per
+  extension registers the same loader twice with different `extensions`
+  sets.
+
 ### `agrag.observability`
 
 OpenTelemetry wiring for the ingestion layer.
@@ -20923,6 +24844,1044 @@ Retrieval package: search engine, fusion, reranking, and retrievers.
 - [**search_engine**](#agrag.retrieval.search_engine) – Retrieval's public entry point, independent of Graph.
 - [**settings**](#agrag.retrieval.settings) – Env-backed configuration for retrieval methods and fusion.
 - [**tracing**](#agrag.retrieval.tracing) – Span helpers shared by the retrieval spans.
+
+**Classes:**
+
+- [**AllRetrievalMethodsFailedError**](#agrag.retrieval.AllRetrievalMethodsFailedError) – Every retrieval method a Recipe named failed.
+- [**BFSRetriever**](#agrag.retrieval.BFSRetriever) – Graph traversal from seed entity ids.
+- [**ChunkRetriever**](#agrag.retrieval.ChunkRetriever) – Dense chunk search via vector similarity.
+- [**CommunityRetriever**](#agrag.retrieval.CommunityRetriever) – Dense search over community reports, for direct thematic questions.
+- [**EntityRetriever**](#agrag.retrieval.EntityRetriever) – Dense entity search via vector similarity.
+- [**Recipe**](#agrag.retrieval.Recipe) – A named configuration of what SearchEngine runs for a query.
+- [**RetrievalError**](#agrag.retrieval.RetrievalError) – The base class for every retrieval error.
+- [**RetrievalSettings**](#agrag.retrieval.RetrievalSettings) – Configuration for retrieval methods and fusion.
+- [**Retriever**](#agrag.retrieval.Retriever) – One retrieval method: given a query, return SearchResults.
+- [**ScopeDeniedError**](#agrag.retrieval.ScopeDeniedError) – A request asked for data outside the caller's permitted scope.
+- [**SearchEngine**](#agrag.retrieval.SearchEngine) – Retrieval's public entry point, independent of Graph.
+- [**SearchFilters**](#agrag.retrieval.SearchFilters) – Constraints applied across every retrieval method in one call.
+- [**Text2CypherRetriever**](#agrag.retrieval.Text2CypherRetriever) – Let the agent ask structured questions via generated Cypher.
+- [**UnknownRecipeMethodError**](#agrag.retrieval.UnknownRecipeMethodError) – A Recipe named a method SearchEngine does not know how to run.
+
+**Attributes:**
+
+- [**CHUNK**](#agrag.retrieval.CHUNK) –
+- [**ENTITY**](#agrag.retrieval.ENTITY) –
+- [**GRAPH_EXPAND**](#agrag.retrieval.GRAPH_EXPAND) –
+- [**HYBRID**](#agrag.retrieval.HYBRID) –
+- [**HYBRID_RERANKED**](#agrag.retrieval.HYBRID_RERANKED) –
+- [**TEXT2CYPHER**](#agrag.retrieval.TEXT2CYPHER) –
+- [**THEMATIC**](#agrag.retrieval.THEMATIC) –
+
+#### `agrag.retrieval.AllRetrievalMethodsFailedError`
+
+```python
+AllRetrievalMethodsFailedError(failures:dict[str, BaseException]) -> None
+```
+
+Bases: <code>[RetrievalError](#agrag.retrieval.errors.RetrievalError)</code>
+
+Every retrieval method a Recipe named failed.
+
+Raised instead of returning an empty result list so a total
+retrieval outage is not mistaken for a query with no matches.
+
+**Attributes:**
+
+- [**failures**](#agrag.retrieval.AllRetrievalMethodsFailedError.failures) – Each failed method name mapped to the exception it
+  raised.
+
+##### `agrag.retrieval.AllRetrievalMethodsFailedError.failures`
+
+```python
+failures = failures
+```
+
+#### `agrag.retrieval.BFSRetriever`
+
+```python
+BFSRetriever(*, graph_store:GraphStore, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
+```
+
+Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
+
+Graph traversal from seed entity ids.
+
+Takes seed entity ids (from a prior EntityRetriever call, or
+supplied directly), runs bfs_expand_query, and hydrates the
+returned entities through resolve_entity and relations directly.
+Degree-capped by RetrievalSettings.traversal_limit.
+
+**Functions:**
+
+- [**retrieve**](#agrag.retrieval.BFSRetriever.retrieve) – Run BFS expansion from seed entity ids.
+
+**Attributes:**
+
+- [**name**](#agrag.retrieval.BFSRetriever.name) –
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – The graph store to traverse.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
+  environment.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the retriever and its children's spans. None
+  opens no recorded span.
+
+##### `agrag.retrieval.BFSRetriever.name`
+
+```python
+name = 'bfs'
+```
+
+##### `agrag.retrieval.BFSRetriever.retrieve`
+
+```python
+retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None, seed_ids:list[UUID] | None = None, depth:int | None = None, direction:TraversalDirection = 'both') -> list[SearchResult]
+```
+
+Run BFS expansion from seed entity ids.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language query text (unused for BFS,
+  kept for interface consistency).
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied to traversal. relation_types
+  restrict which relationships the traversal crosses;
+  property filters, document_ids, and labels restrict
+  returned neighbor nodes.
+- **limit** (<code>[int](#int) | None</code>) – Maximum results. None uses traversal_limit.
+- **seed_ids** (<code>[list](#list)\[[UUID](#uuid.UUID)\] | None</code>) – The entity ids to expand from. If None, BFS
+  returns empty.
+- **depth** (<code>[int](#int) | None</code>) – BFS hops. None uses
+  RetrievalSettings.traversal_depth.
+- **direction** (<code>[TraversalDirection](#agrag.cypher.relations.TraversalDirection)</code>) – Which way a hop walks each relationship,
+  relative to the seed entity. Defaults to `"both"`.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – SearchResults with entities and relations found via BFS.
+
+#### `agrag.retrieval.CHUNK`
+
+```python
+CHUNK = Recipe(methods=['chunk'], limit=10)
+```
+
+#### `agrag.retrieval.ChunkRetriever`
+
+```python
+ChunkRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
+```
+
+Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
+
+Dense chunk search via vector similarity.
+
+Chunks are never tombstoned, so no merged_into resolution is
+needed. Embeds the query, searches via the GraphStore-native or
+VectorStore path, then hydrates each hit into a Chunk. The native
+path searches the `Chunk` vector index ingestion provisions; the
+VectorStore path searches `chunk_collection`.
+
+**Functions:**
+
+- [**retrieve**](#agrag.retrieval.ChunkRetriever.retrieve) – Run chunk search and return hydrated results.
+
+**Attributes:**
+
+- [**name**](#agrag.retrieval.ChunkRetriever.name) –
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Backs chunk search when vector_store is
+  absent.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Produces query vectors.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional VectorStore for hybrid search.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
+  environment.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the retriever and its children's spans. None
+  opens no recorded span.
+
+##### `agrag.retrieval.ChunkRetriever.name`
+
+```python
+name = 'chunk'
+```
+
+##### `agrag.retrieval.ChunkRetriever.retrieve`
+
+```python
+retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None) -> list[SearchResult]
+```
+
+Run chunk search and return hydrated results.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language query text.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied to the search.
+- **limit** (<code>[int](#int) | None</code>) – Maximum results. None uses settings.chunk_top_k.
+  Zero or negative returns no results without searching.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Ranked SearchResults with hydrated Chunk items. A child chunk result
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – carries its parent chunk in `SearchResult.parent`.
+
+#### `agrag.retrieval.CommunityRetriever`
+
+```python
+CommunityRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
+```
+
+Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
+
+Dense search over community reports, for direct thematic questions.
+
+**Functions:**
+
+- [**retrieve**](#agrag.retrieval.CommunityRetriever.retrieve) – Run community-report search and return hydrated results.
+
+**Attributes:**
+
+- [**name**](#agrag.retrieval.CommunityRetriever.name) –
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where community nodes live.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Produces query vectors.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional VectorStore for hybrid search.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from environment.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the retriever and its children's spans. None
+  opens no recorded span.
+
+##### `agrag.retrieval.CommunityRetriever.name`
+
+```python
+name = 'community'
+```
+
+##### `agrag.retrieval.CommunityRetriever.retrieve`
+
+```python
+retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None) -> list[SearchResult]
+```
+
+Run community-report search and return hydrated results.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language query text.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied to the search.
+- **limit** (<code>[int](#int) | None</code>) – Maximum results. None uses settings.community_top_k.
+  Zero or negative returns no results without searching.
+
+#### `agrag.retrieval.ENTITY`
+
+```python
+ENTITY = Recipe(methods=['entity'], limit=10)
+```
+
+#### `agrag.retrieval.EntityRetriever`
+
+```python
+EntityRetriever(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, tracer:Tracer | None = None) -> None
+```
+
+Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
+
+Dense entity search via vector similarity.
+
+Embeds the query, searches via the GraphStore-native or
+VectorStore path, then resolves every hit through
+`resolve_entity` so the caller can trust `item.id` is live.
+
+The native path searches one vector index per entity label, so it
+needs the labels ingestion provisioned indexes for: the label
+filter when the caller sets one, otherwise `entity_labels`.
+
+**Functions:**
+
+- [**retrieve**](#agrag.retrieval.EntityRetriever.retrieve) – Run entity search and return hydrated results.
+
+**Attributes:**
+
+- [**name**](#agrag.retrieval.EntityRetriever.name) –
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Backs entity search when vector_store is
+  absent.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Produces query vectors.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional VectorStore for hybrid search.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
+  environment.
+- **entity_labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – The schema entity labels native search runs
+  against. None uses settings.entity_labels.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the retriever and its children's spans. None
+  opens no recorded span.
+
+##### `agrag.retrieval.EntityRetriever.name`
+
+```python
+name = 'entity'
+```
+
+##### `agrag.retrieval.EntityRetriever.retrieve`
+
+```python
+retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None) -> list[SearchResult]
+```
+
+Run entity search and return hydrated results.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language query text.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied to the search.
+- **limit** (<code>[int](#int) | None</code>) – Maximum results. None uses settings.entity_top_k.
+  Zero or negative returns no results without searching.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Ranked SearchResults with resolved entity ids.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – Native search was selected and neither the
+  filter nor the configuration names an entity label.
+
+#### `agrag.retrieval.GRAPH_EXPAND`
+
+```python
+GRAPH_EXPAND = Recipe(methods=['entity'], bfs=True, limit=20, community_expand=True)
+```
+
+#### `agrag.retrieval.HYBRID`
+
+```python
+HYBRID = Recipe(methods=['entity', 'chunk'], limit=10)
+```
+
+#### `agrag.retrieval.HYBRID_RERANKED`
+
+```python
+HYBRID_RERANKED = Recipe(methods=['entity', 'chunk'], reranker='cross_encoder', limit=10, community_expand=True)
+```
+
+#### `agrag.retrieval.Recipe`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+A named configuration of what SearchEngine runs for a query.
+
+**Attributes:**
+
+- [**methods**](#agrag.retrieval.Recipe.methods) (<code>[list](#list)\[[str](#str)\]</code>) – Which retrieval methods to fan out to
+  concurrently, by name.
+- [**bfs**](#agrag.retrieval.Recipe.bfs) (<code>[bool](#bool)</code>) – Whether to run a BFS expansion after methods
+  complete, seeded from their entity results. BFS
+  needs seed ids methods produce, so it cannot run
+  concurrently with them.
+- [**bfs_depth**](#agrag.retrieval.Recipe.bfs_depth) (<code>[int](#int) | None</code>) – Traversal depth when bfs is true. None uses
+  RetrievalSettings.traversal_depth.
+- [**reranker**](#agrag.retrieval.Recipe.reranker) (<code>[Literal](#typing.Literal)['cross_encoder', 'node_distance'] | None</code>) – The optional Rerank pass to run after Fusion.
+  None skips reranking.
+- [**min_score**](#agrag.retrieval.Recipe.min_score) (<code>[float](#float) | None</code>) – Results the reranker scores below this are dropped.
+  None uses RetrievalSettings.reranker_min_score, so a caller
+  can tighten the floor for one call without touching the
+  configured default.
+- [**limit**](#agrag.retrieval.Recipe.limit) (<code>[int](#int)</code>) – The maximum number of results SearchEngine
+  returns.
+- [**community_expand**](#agrag.retrieval.Recipe.community_expand) (<code>[bool](#bool)</code>) – Whether to fetch and fuse in overlapping
+  communities' reports after BFS.
+- [**community_top_k**](#agrag.retrieval.Recipe.community_top_k) (<code>[int](#int)</code>) – How many communities community_context
+  returns, and (when reranker is cross_encoder) how many
+  are reserved a slot after rerank.
+
+##### `agrag.retrieval.Recipe.bfs`
+
+```python
+bfs: bool = False
+```
+
+##### `agrag.retrieval.Recipe.bfs_depth`
+
+```python
+bfs_depth: int | None = None
+```
+
+##### `agrag.retrieval.Recipe.community_expand`
+
+```python
+community_expand: bool = False
+```
+
+##### `agrag.retrieval.Recipe.community_top_k`
+
+```python
+community_top_k: int = 3
+```
+
+##### `agrag.retrieval.Recipe.limit`
+
+```python
+limit: int = 10
+```
+
+##### `agrag.retrieval.Recipe.methods`
+
+```python
+methods: list[str]
+```
+
+##### `agrag.retrieval.Recipe.min_score`
+
+```python
+min_score: float | None = None
+```
+
+##### `agrag.retrieval.Recipe.reranker`
+
+```python
+reranker: Literal['cross_encoder', 'node_distance'] | None = None
+```
+
+#### `agrag.retrieval.RetrievalError`
+
+Bases: <code>[Exception](#Exception)</code>
+
+The base class for every retrieval error.
+
+#### `agrag.retrieval.RetrievalSettings`
+
+Bases: <code>[BaseSettings](#pydantic_settings.BaseSettings)</code>
+
+Configuration for retrieval methods and fusion.
+
+**Attributes:**
+
+- [**entity_collection**](#agrag.retrieval.RetrievalSettings.entity_collection) (<code>[str](#str)</code>) – The VectorStore collection name for entity
+  search. Only read when a VectorStore is configured on
+  SearchEngine; ignored on the GraphStore-native path.
+- [**resolved_entity_collection**](#agrag.retrieval.RetrievalSettings.resolved_entity_collection) (<code>[str](#str)</code>) – The VectorStore collection name for
+  materialized resolved-entity search. Same condition as
+  entity_collection.
+- [**chunk_collection**](#agrag.retrieval.RetrievalSettings.chunk_collection) (<code>[str](#str)</code>) – The VectorStore collection name for chunk
+  search. Same condition as entity_collection.
+- [**entity_labels**](#agrag.retrieval.RetrievalSettings.entity_labels) (<code>[list](#list)\[[str](#str)\]</code>) – The graph labels native entity search runs
+  against, one vector index each. These are the schema's
+  entity labels, never a VectorStore collection name. Only
+  read when no VectorStore is configured and the caller
+  passes no label filter.
+- [**node_distance_seed_top_k**](#agrag.retrieval.RetrievalSettings.node_distance_seed_top_k) (<code>[int](#int)</code>) – How many of the highest-ranked
+  entity hits seed the node-distance reranker. Candidates
+  are ordered by graph distance to those seeds.
+- [**entity_top_k**](#agrag.retrieval.RetrievalSettings.entity_top_k) (<code>[int](#int)</code>) – Results requested per entity search call.
+- [**resolved_entity_top_k**](#agrag.retrieval.RetrievalSettings.resolved_entity_top_k) (<code>[int](#int)</code>) – Results requested per resolved-entity search
+  call.
+- [**chunk_top_k**](#agrag.retrieval.RetrievalSettings.chunk_top_k) (<code>[int](#int)</code>) – Results requested per chunk search call.
+- [**hybrid_alpha**](#agrag.retrieval.RetrievalSettings.hybrid_alpha) (<code>[float](#float)</code>) – Dense-versus-keyword blend for hybrid search,
+  0 to 1. Only meaningful on the VectorStore path;
+  GraphStore-native search is dense-only and ignores this.
+- [**traversal_depth**](#agrag.retrieval.RetrievalSettings.traversal_depth) (<code>[int](#int)</code>) – Maximum BFS hops from a seed entity.
+- [**traversal_limit**](#agrag.retrieval.RetrievalSettings.traversal_limit) (<code>[int](#int)</code>) – Maximum nodes a BFS expansion can return.
+- [**rrf_k**](#agrag.retrieval.RetrievalSettings.rrf_k) (<code>[int](#int)</code>) – The RRF constant controlling how much rank position
+  matters.
+- [**reranker_min_score**](#agrag.retrieval.RetrievalSettings.reranker_min_score) (<code>[float](#float) | None</code>) – Results scoring below this after rerank
+  are dropped. None disables the threshold.
+- [**text2cypher_timeout_seconds**](#agrag.retrieval.RetrievalSettings.text2cypher_timeout_seconds) (<code>[float](#float) | None</code>) – Server-side transaction timeout
+  applied to generated read queries. The database terminates
+  a generated query that runs longer, so a pathological
+  query cannot hold server resources indefinitely. None
+  uses the server's default timeout.
+- [**text2cypher_max_rows**](#agrag.retrieval.RetrievalSettings.text2cypher_max_rows) (<code>[int](#int)</code>) – Maximum rows a generated read query may
+  return. Appended as a LIMIT clause when the generated
+  query declares none of its own.
+- [**cross_encoder_model**](#agrag.retrieval.RetrievalSettings.cross_encoder_model) (<code>[str](#str)</code>) – The sentence-transformers CrossEncoder model
+  used for cross_encoder reranking. Env:
+  RETRIEVAL_CROSS_ENCODER_MODEL.
+- [**community_collection**](#agrag.retrieval.RetrievalSettings.community_collection) (<code>[str](#str)</code>) – The VectorStore collection name for community
+  search. Same condition as entity_collection/chunk_collection:
+  only read when a VectorStore is configured.
+- [**community_top_k**](#agrag.retrieval.RetrievalSettings.community_top_k) (<code>[int](#int)</code>) – Results requested per community search call when
+  the caller passes no explicit limit -- the same role
+  entity_top_k/chunk_top_k play for their retrievers. Distinct
+  from Recipe.community_top_k (enrichment-budget/reserved-slice
+  size): same name, different class, different job.
+
+Env prefix: `RETRIEVAL_`.
+
+##### `agrag.retrieval.RetrievalSettings.chunk_collection`
+
+```python
+chunk_collection: str = 'agrag_chunks'
+```
+
+##### `agrag.retrieval.RetrievalSettings.chunk_top_k`
+
+```python
+chunk_top_k: int = 10
+```
+
+##### `agrag.retrieval.RetrievalSettings.community_collection`
+
+```python
+community_collection: str = 'agrag_communities'
+```
+
+##### `agrag.retrieval.RetrievalSettings.community_top_k`
+
+```python
+community_top_k: int = 5
+```
+
+##### `agrag.retrieval.RetrievalSettings.cross_encoder_model`
+
+```python
+cross_encoder_model: str = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
+```
+
+##### `agrag.retrieval.RetrievalSettings.entity_collection`
+
+```python
+entity_collection: str = 'agrag_entities'
+```
+
+##### `agrag.retrieval.RetrievalSettings.entity_labels`
+
+```python
+entity_labels: list[str] = []
+```
+
+##### `agrag.retrieval.RetrievalSettings.entity_top_k`
+
+```python
+entity_top_k: int = 10
+```
+
+##### `agrag.retrieval.RetrievalSettings.hybrid_alpha`
+
+```python
+hybrid_alpha: float = 0.5
+```
+
+##### `agrag.retrieval.RetrievalSettings.model_config`
+
+```python
+model_config = SettingsConfigDict(env_prefix='RETRIEVAL_', env_file='.env', extra='ignore')
+```
+
+##### `agrag.retrieval.RetrievalSettings.node_distance_seed_top_k`
+
+```python
+node_distance_seed_top_k: int = 3
+```
+
+##### `agrag.retrieval.RetrievalSettings.reranker_min_score`
+
+```python
+reranker_min_score: float | None = None
+```
+
+##### `agrag.retrieval.RetrievalSettings.resolved_entity_collection`
+
+```python
+resolved_entity_collection: str = 'agrag_resolved_entities'
+```
+
+##### `agrag.retrieval.RetrievalSettings.resolved_entity_top_k`
+
+```python
+resolved_entity_top_k: int = 10
+```
+
+##### `agrag.retrieval.RetrievalSettings.rrf_k`
+
+```python
+rrf_k: int = 60
+```
+
+##### `agrag.retrieval.RetrievalSettings.text2cypher_max_rows`
+
+```python
+text2cypher_max_rows: int = 1000
+```
+
+##### `agrag.retrieval.RetrievalSettings.text2cypher_timeout_seconds`
+
+```python
+text2cypher_timeout_seconds: float | None = 10.0
+```
+
+##### `agrag.retrieval.RetrievalSettings.traversal_depth`
+
+```python
+traversal_depth: int = 2
+```
+
+##### `agrag.retrieval.RetrievalSettings.traversal_limit`
+
+```python
+traversal_limit: int = 50
+```
+
+#### `agrag.retrieval.Retriever`
+
+Bases: <code>[ABC](#abc.ABC)</code>
+
+One retrieval method: given a query, return SearchResults.
+
+Subclasses own exactly one strategy (dense entity search, chunk
+search, BFS expansion). SearchEngine fans a query out to every
+Retriever a Recipe names and hands the combined output to Fusion.
+
+**Functions:**
+
+- [**retrieve**](#agrag.retrieval.Retriever.retrieve) – Run this retrieval method and return hydrated results.
+
+**Attributes:**
+
+- [**name**](#agrag.retrieval.Retriever.name) (<code>[str](#str)</code>) –
+
+##### `agrag.retrieval.Retriever.name`
+
+```python
+name: str
+```
+
+##### `agrag.retrieval.Retriever.retrieve`
+
+```python
+retrieve(query:str, *, filters:SearchFilters | None = None, limit:int = 10) -> list[SearchResult]
+```
+
+Run this retrieval method and return hydrated results.
+
+#### `agrag.retrieval.ScopeDeniedError`
+
+Bases: <code>[RetrievalError](#agrag.retrieval.errors.RetrievalError)</code>
+
+A request asked for data outside the caller's permitted scope.
+
+The caller's scope is an authorization boundary the requesting
+layer can narrow but never widen. Raised instead of searching the
+wider scope or silently running the request unrestricted, so a
+caller can report the refusal rather than answer from data it was
+never allowed to see.
+
+#### `agrag.retrieval.SearchEngine`
+
+```python
+SearchEngine(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, graph_schema:GraphSchema | None = None, tracer:Tracer | None = None) -> None
+```
+
+Retrieval's public entry point, independent of Graph.
+
+Fans a query out to every method a Recipe names, fuses the
+results, and optionally reranks them. Constructed from its own
+stores; does not depend on a Graph instance existing.
+
+A `tracer` opens the retrieval spans and flows to every
+retriever and free function the engine calls. It is *not* pushed
+into `graph_store`, `embedder` or `vector_store`: pass the
+same tracer to those when you build them, so their adapter spans
+nest under these retrieval spans.
+
+**Functions:**
+
+- [**find_entity**](#agrag.retrieval.SearchEngine.find_entity) – Resolve a named entity to its top search hit, or None.
+- [**list_relationship_types**](#agrag.retrieval.SearchEngine.list_relationship_types) – List the relationship types directly attached to an entity.
+- [**search**](#agrag.retrieval.SearchEngine.search) – Run recipe's methods, fuse, expand, and optionally rerank.
+- [**traverse**](#agrag.retrieval.SearchEngine.traverse) – Expand one resolved entity into its neighbours.
+
+**Attributes:**
+
+- [**graph_schema**](#agrag.retrieval.SearchEngine.graph_schema) (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The schema retrieval is grounded in, GENERIC when none was given.
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Always required; backs entity/chunk search
+  when vector_store is absent, and always backs BFS.
+- **embedder** (<code>[Embedder](#agrag.embedding.base.Embedder)</code>) – Produces query vectors for dense and hybrid
+  search.
+- **vector_store** (<code>[VectorStore](#agrag.vectordb.base.VectorStore) | None</code>) – Optional. When set, entity, chunk, and
+  community search run hybrid_search there instead of
+  GraphStore's native search. `Graph.open(vector_store=...)`
+  provisions the collections and dual-writes every embedding
+  this package ingests, so the two paths see the same data;
+  pointing SearchEngine at a store no Graph writes to gets an
+  empty result set, not an error.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
+  environment.
+- **entity_labels** (<code>[Sequence](#collections.abc.Sequence)\[[str](#str)\] | None</code>) – The entity labels native entity search runs
+  against, one vector index each, as provisioned by
+  `Graph.open`. Retained as a checked input only: it must
+  name exactly the labels graph_schema declares, since the
+  schema is what native search and generated Cypher both
+  read. Omit it and let the schema drive both. Ignored when
+  a vector_store is configured.
+- **graph_schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema) | None</code>) – The graph's declared schema, ground truth for
+  native entity labels and for generated Cypher. None uses
+  `GENERIC`.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the search span and flows to every retriever
+  and free function the engine calls. None opens no
+  recorded span.
+
+**Raises:**
+
+- <code>[ValueError](#ValueError)</code> – entity_labels does not name exactly the labels
+  graph_schema declares.
+
+##### `agrag.retrieval.SearchEngine.find_entity`
+
+```python
+find_entity(name:str, *, filters:SearchFilters | None = None) -> SearchResult | None
+```
+
+Resolve a named entity to its top search hit, or None.
+
+Searches this engine's configured entity_labels by default. A
+filters.labels value, when set, overrides which labels are
+searched rather than narrowing within entity_labels -- the same
+EntityRetriever behavior search()'s own entity search already
+relies on.
+
+**Parameters:**
+
+- **name** (<code>[str](#str)</code>) – The entity name (or description) to resolve.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Scope to resolve within. An entity that exists
+  only outside it resolves to None, the same as one that
+  does not exist.
+
+**Returns:**
+
+- <code>[SearchResult](#agrag.common.data_models.search_result.SearchResult) | None</code> – The top-ranked SearchResult, or None when nothing matched.
+
+##### `agrag.retrieval.SearchEngine.graph_schema`
+
+```python
+graph_schema: GraphSchema
+```
+
+The schema retrieval is grounded in, GENERIC when none was given.
+
+##### `agrag.retrieval.SearchEngine.list_relationship_types`
+
+```python
+list_relationship_types(seed:SearchResult, *, relation_type_filter:str | None = None, direction:TraversalDirection = 'both', filters:SearchFilters | None = None) -> list[str]
+```
+
+List the relationship types directly attached to an entity.
+
+Depth-1 only: it reports what is attached to the seed, never
+what lies past it.
+
+**Parameters:**
+
+- **seed** (<code>[SearchResult](#agrag.common.data_models.search_result.SearchResult)</code>) – The resolved entity to read attached types from,
+  normally from :meth:`find_entity`.
+- **relation_type_filter** (<code>[str](#str) | None</code>) – Only report this type, if present.
+- **direction** (<code>[TraversalDirection](#agrag.cypher.relations.TraversalDirection)</code>) – Which way to inspect relationships, relative to the
+  seed entity.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Scope that limits visible relationship types.
+
+**Returns:**
+
+- <code>[list](#list)\[[str](#str)\]</code> – The distinct attached relationship type names.
+
+##### `agrag.retrieval.SearchEngine.search`
+
+```python
+search(query:str, recipe:Recipe, *, filters:SearchFilters | None = None) -> list[SearchResult]
+```
+
+Run recipe's methods, fuse, expand, and optionally rerank.
+
+Runs recipe.methods concurrently and fuses their output
+first. When recipe.bfs is set, BFS runs as a second,
+sequential step seeded from the fused entity results. BFS
+results are fused into the same list a second time before
+reranking.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language query text.
+- **recipe** (<code>[Recipe](#agrag.retrieval.recipes.Recipe)</code>) – Which methods to run, whether to expand via BFS
+  afterward, and which reranker, if any, follows.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Constraints applied identically to every method.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – Up to recipe.limit results, ranked highest-relevance
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – first.
+
+**Raises:**
+
+- <code>[AllRetrievalMethodsFailedError](#agrag.retrieval.errors.AllRetrievalMethodsFailedError)</code> – Every method the recipe
+  names failed. A method failing while others succeed
+  is logged and its results are simply absent.
+- <code>[UnknownRecipeMethodError](#agrag.retrieval.errors.UnknownRecipeMethodError)</code> – The recipe names one or more
+  methods that are not in the retriever registry. A
+  misspelled method name is a configuration error and
+  is reported instead of silently returning no
+  results.
+
+##### `agrag.retrieval.SearchEngine.traverse`
+
+```python
+traverse(seed:SearchResult, *, relation_type:str | None = None, direction:TraversalDirection = 'both', depth:int = 1, limit:int = 10, community_expand:bool = False, community_top_k:int = 3, filters:SearchFilters | None = None) -> list[SearchResult]
+```
+
+Expand one resolved entity into its neighbours.
+
+**Parameters:**
+
+- **seed** (<code>[SearchResult](#agrag.common.data_models.search_result.SearchResult)</code>) – The resolved entity to expand from, normally from
+  :meth:`find_entity`.
+- **relation_type** (<code>[str](#str) | None</code>) – Restrict the traversal to this one
+  relationship type.
+- **direction** (<code>[TraversalDirection](#agrag.cypher.relations.TraversalDirection)</code>) – Which way a hop walks each relationship,
+  relative to the seed entity.
+- **depth** (<code>[int](#int)</code>) – Maximum hops.
+- **limit** (<code>[int](#int)</code>) – Maximum neighbours returned.
+- **community_expand** (<code>[bool](#bool)</code>) – Also fuse in the reports of communities
+  overlapping the seed.
+- **community_top_k** (<code>[int](#int)</code>) – Maximum community reports to add when
+  `community_expand` is set.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Scope for the traversal. Its `relation_types` is
+  an allowlist a `relation_type` argument cannot widen;
+  its `properties`, `document_ids`, and `labels`
+  constrain returned neighbour nodes.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – The neighbouring entities, deduplicated, highest-ranked
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – first, with any requested community reports fused in.
+
+**Raises:**
+
+- <code>[ScopeDeniedError](#agrag.retrieval.errors.ScopeDeniedError)</code> – relation_type names a type the caller's
+  scope does not permit.
+
+#### `agrag.retrieval.SearchFilters`
+
+Bases: <code>[BaseModel](#pydantic.BaseModel)</code>
+
+Constraints applied across every retrieval method in one call.
+
+**Attributes:**
+
+- [**labels**](#agrag.retrieval.SearchFilters.labels) (<code>[list](#list)\[[str](#str)\]</code>) – Entity labels a result must have, when searching
+  entities.
+- [**relation_types**](#agrag.retrieval.SearchFilters.relation_types) (<code>[list](#list)\[[str](#str)\]</code>) – Relation types a traversal may cross.
+- [**document_ids**](#agrag.retrieval.SearchFilters.document_ids) (<code>[list](#list)\[[str](#str)\]</code>) – Restrict results to entities and chunks from these
+  source documents.
+- [**properties**](#agrag.retrieval.SearchFilters.properties) (<code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code>) – Exact-match property filters, applied
+  identically to vector-store payload filters and Cypher
+  WHERE clauses.
+
+**Functions:**
+
+- [**to_cypher_where**](#agrag.retrieval.SearchFilters.to_cypher_where) – Return a parameterized WHERE clause fragment.
+- [**to_payload_filter**](#agrag.retrieval.SearchFilters.to_payload_filter) – Return a flat-dict filter for VectorStore search calls.
+- [**to_property_filter**](#agrag.retrieval.SearchFilters.to_property_filter) – Return a flat-dict filter over node properties only.
+
+##### `agrag.retrieval.SearchFilters.document_ids`
+
+```python
+document_ids: list[str] = Field(default_factory=list)
+```
+
+##### `agrag.retrieval.SearchFilters.labels`
+
+```python
+labels: list[str] = Field(default_factory=list)
+```
+
+##### `agrag.retrieval.SearchFilters.properties`
+
+```python
+properties: dict[str, Any] = Field(default_factory=dict)
+```
+
+##### `agrag.retrieval.SearchFilters.relation_types`
+
+```python
+relation_types: list[str] = Field(default_factory=list)
+```
+
+##### `agrag.retrieval.SearchFilters.to_cypher_where`
+
+```python
+to_cypher_where(node_var:str = 'node') -> tuple[str, dict[str, Any]]
+```
+
+Return a parameterized WHERE clause fragment.
+
+Labels are emitted as native Cypher node labels (`node:Label`)
+rather than property filters, since Neo4j represents entity types
+as labels on nodes. Document-id and property filters go through
+`filter_clause` as before.
+
+**Parameters:**
+
+- **node_var** (<code>[str](#str)</code>) – The Cypher variable bound to the node.
+
+**Returns:**
+
+- <code>[tuple](#tuple)\[[str](#str), [dict](#dict)\[[str](#str), [Any](#typing.Any)\]\]</code> – The WHERE clause text and parameters dict.
+
+##### `agrag.retrieval.SearchFilters.to_payload_filter`
+
+```python
+to_payload_filter() -> dict[str, Any]
+```
+
+Return a flat-dict filter for VectorStore search calls.
+
+Labels become a `label` payload key, which is how a
+VectorStore records the graph label a record came from. A
+GraphStore holds labels on the node itself, not as a property,
+so the native path uses `to_property_filter` instead and
+selects labels by the index it searches.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict suitable for VectorStore.search/hybrid_search
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – filters parameter.
+
+##### `agrag.retrieval.SearchFilters.to_property_filter`
+
+```python
+to_property_filter() -> dict[str, Any]
+```
+
+Return a flat-dict filter over node properties only.
+
+Excludes `labels`, which are node labels rather than
+properties on every graph backend this project supports.
+
+**Returns:**
+
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – A dict of property name to expected value, where a list
+- <code>[dict](#dict)\[[str](#str), [Any](#typing.Any)\]</code> – value means any of.
+
+#### `agrag.retrieval.TEXT2CYPHER`
+
+```python
+TEXT2CYPHER = Recipe(methods=['text2cypher'], limit=10)
+```
+
+#### `agrag.retrieval.THEMATIC`
+
+```python
+THEMATIC = Recipe(methods=['community'], limit=5)
+```
+
+#### `agrag.retrieval.Text2CypherRetriever`
+
+```python
+Text2CypherRetriever(*, graph_store:GraphStore, schema:GraphSchema, settings:RetrievalSettings | None = None, tracer:Tracer | None = None) -> None
+```
+
+Bases: <code>[Retriever](#agrag.retrieval.retrievers.base.Retriever)</code>
+
+Let the agent ask structured questions via generated Cypher.
+
+Calls a BAML function to generate a read-only Cypher query
+against the graph's declared schema, runs reject_write_cypher as a
+safety pre-filter, then bounds the query with a row limit and a
+server-side transaction timeout before EXPLAIN and execution. A
+query that fails to plan or to execute is regenerated once, carrying
+a bounded, sanitized diagnostic of the failure. Rows that carry an
+entity id are resolved through resolve_entity before becoming a
+SearchResult; relationship and chunk rows are parsed directly, under
+the prompt's own aliases or any alias the model chose instead.
+Scalar rows (for example counts or property values) become cited
+`QueryValue` results so direct-query answers are not lost.
+
+**Functions:**
+
+- [**retrieve**](#agrag.retrieval.Text2CypherRetriever.retrieve) – Generate and execute a Cypher query for the question.
+
+**Attributes:**
+
+- [**name**](#agrag.retrieval.Text2CypherRetriever.name) –
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag.graphdb.base.GraphStore)</code>) – Where the generated query runs.
+- **schema** (<code>[GraphSchema](#agrag.common.data_models.graph_schema.GraphSchema)</code>) – The graph's declared schema. Generation is grounded in
+  this schema's labels and relation patterns, so a query the
+  graph cannot answer is not generated.
+- **settings** (<code>[RetrievalSettings](#agrag.retrieval.settings.RetrievalSettings) | None</code>) – Retrieval configuration; defaults from
+  environment.
+- **tracer** (<code>[Tracer](#opentelemetry.trace.Tracer) | None</code>) – Opens the generation span and the BAML call spans.
+
+##### `agrag.retrieval.Text2CypherRetriever.name`
+
+```python
+name = 'text2cypher'
+```
+
+##### `agrag.retrieval.Text2CypherRetriever.retrieve`
+
+```python
+retrieve(query:str, *, filters:SearchFilters | None = None, limit:int = 10) -> list[SearchResult]
+```
+
+Generate and execute a Cypher query for the question.
+
+A query that fails to plan or to execute is regenerated once, with a
+bounded, sanitized diagnostic of the first failure attached to the
+generation call. A failure at any stage of the second attempt, or a
+query rejected by the write gate, returns no results rather than
+raising.
+
+**Parameters:**
+
+- **query** (<code>[str](#str)</code>) – The natural-language question.
+- **filters** (<code>[SearchFilters](#agrag.retrieval.filters.SearchFilters) | None</code>) – Ignored; text2cypher applies its own filters.
+- **limit** (<code>[int](#int)</code>) – Maximum results to return.
+
+**Returns:**
+
+- <code>[list](#list)\[[SearchResult](#agrag.common.data_models.search_result.SearchResult)\]</code> – SearchResults from the generated query: entity results
+  resolved through `resolve_entity`; relation, chunk, and
+  scalar rows parsed directly.
+
+#### `agrag.retrieval.UnknownRecipeMethodError`
+
+```python
+UnknownRecipeMethodError(unknown:list[str], known:list[str]) -> None
+```
+
+Bases: <code>[RetrievalError](#agrag.retrieval.errors.RetrievalError)</code>
+
+A Recipe named a method SearchEngine does not know how to run.
+
+A misspelled method name is a configuration error and must be
+raised at search time so an empty successful search cannot
+silently hide a typo.
+
+**Attributes:**
+
+- [**unknown**](#agrag.retrieval.UnknownRecipeMethodError.unknown) – The method names the recipe listed that are not in
+  the retriever registry.
+- [**known**](#agrag.retrieval.UnknownRecipeMethodError.known) – The method names this SearchEngine can run.
+
+##### `agrag.retrieval.UnknownRecipeMethodError.known`
+
+```python
+known = list(known)
+```
+
+##### `agrag.retrieval.UnknownRecipeMethodError.unknown`
+
+```python
+unknown = list(unknown)
+```
 
 #### `agrag.retrieval.community_context`
 
@@ -22428,7 +27387,7 @@ Expand one resolved entity into its neighbours.
 
 **Raises:**
 
-- <code>[ScopeDeniedError](#ScopeDeniedError)</code> – relation_type names a type the caller's
+- <code>[ScopeDeniedError](#agrag.retrieval.errors.ScopeDeniedError)</code> – relation_type names a type the caller's
   scope does not permit.
 
 ##### `agrag.retrieval.search_engine.logger`
