@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "agentic-graphrag"
-version = "0.0.3"
+version = "0.0.4"
 description = "Agentic GraphRAG: graph-based retrieval-augmented generation with agentic reasoning."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -43,7 +43,7 @@ embed-local = ["sentence-transformers>=5"]
 qdrant = ["qdrant-client>=1.12", "fastembed>=0.4"]
 weaviate = ["weaviate-client>=4.9"]
 milvus = ["pymilvus>=3.0.0,<4"]
-neo4j = ["neo4j>=5.0"]
+neo4j = ["neo4j>=5.22"]
 observability = [
   "opentelemetry-sdk>=1.20",
   "opentelemetry-exporter-otlp>=1.20",

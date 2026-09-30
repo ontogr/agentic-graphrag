@@ -7,7 +7,7 @@ from opentelemetry.trace import Tracer
 from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.relations import TraversalDirection, bfs_expand_query
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion._ingest_pipeline import _parse_entity_node
+from agrag.graphdb.serialize import parse_entity_node
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.identity import resolve_entity
 from agrag.retrieval.retrievers.base import Retriever
@@ -126,7 +126,7 @@ class BFSRetriever(Retriever):
                     if isinstance(row, dict) and "neighbor" in row
                     else row
                 )
-                entity = _parse_entity_node(neighbor)
+                entity = parse_entity_node(neighbor)
                 if entity is None:
                     continue
 

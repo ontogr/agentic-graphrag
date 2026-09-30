@@ -168,7 +168,7 @@ class TestDeactivateMatch:
             [{"removed_resolved_entity_ids": [str(stale_id)]}],
         ]
         monkeypatch.setattr(
-            "agrag.ingestion._ingest_pipeline._parse_entity_node", lambda node: node
+            "agrag.ingestion.materialize.parse_entity_node", lambda node: node
         )
 
         result = await deactivate_match_and_rematerialize(
@@ -196,7 +196,7 @@ class TestDeactivateMatch:
             ],
         ]
         monkeypatch.setattr(
-            "agrag.ingestion._ingest_pipeline._parse_entity_node", lambda node: node
+            "agrag.ingestion.materialize.parse_entity_node", lambda node: node
         )
         recreated = ResolvedEntity(
             id=uuid4(), label="Person", name="Ada", member_ids=[first.id, second.id]
@@ -240,7 +240,7 @@ class TestDeactivateMatch:
         store = _store()
         store.current_transaction.execute_read.return_value = [{"a": first, "b": first}]
         monkeypatch.setattr(
-            "agrag.ingestion._ingest_pipeline._parse_entity_node", lambda node: node
+            "agrag.ingestion.materialize.parse_entity_node", lambda node: node
         )
 
         with pytest.raises(ValueError, match="invalid endpoints"):
@@ -259,7 +259,7 @@ class TestDeactivateMatch:
         ]
         store.current_transaction.execute_write.return_value = []
         monkeypatch.setattr(
-            "agrag.ingestion._ingest_pipeline._parse_entity_node", lambda node: node
+            "agrag.ingestion.materialize.parse_entity_node", lambda node: node
         )
 
         with pytest.raises(ValueError, match="does not exist"):

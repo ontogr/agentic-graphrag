@@ -56,7 +56,7 @@ class TestBFSRetriever:
 
         # The entity should be resolved via resolve_entity.
         # With the mock, it may or may not resolve depending on
-        # whether _parse_entity_node succeeds.
+        # whether parse_entity_node succeeds.
         assert isinstance(results, list)
 
     async def test_labels_restrict_neighbors_without_query_parameters(self) -> None:

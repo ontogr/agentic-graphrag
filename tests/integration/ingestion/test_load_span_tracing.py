@@ -40,11 +40,11 @@ class _MockEmbedder(Embedder):
 
     async def dimensions(self) -> int:
         """Return fixed dimensions."""
-        return 3
+        return 4
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return a constant vector for each input text."""
-        return [[1.0, 2.0, 3.0] for _ in texts]
+        return [[1.0, 2.0, 3.0, 4.0] for _ in texts]
 
 
 class _MockExtractor(Extractor):

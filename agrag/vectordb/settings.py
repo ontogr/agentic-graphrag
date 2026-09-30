@@ -27,7 +27,7 @@ class QdrantSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="QDRANT_", env_file=".env", extra="ignore"
+        env_prefix="QDRANT_", env_file=".env", extra="ignore", hide_input_in_errors=True
     )
 
     url: str = "http://localhost:6333"
@@ -73,7 +73,10 @@ class WeaviateSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="WEAVIATE_", env_file=".env", extra="ignore"
+        env_prefix="WEAVIATE_",
+        env_file=".env",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     mode: Literal["cloud", "custom"] = "custom"
@@ -114,7 +117,7 @@ class MilvusSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="MILVUS_", env_file=".env", extra="ignore"
+        env_prefix="MILVUS_", env_file=".env", extra="ignore", hide_input_in_errors=True
     )
 
     uri: str = "http://localhost:19530"

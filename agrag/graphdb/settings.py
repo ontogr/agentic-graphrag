@@ -27,7 +27,7 @@ class Neo4jSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="NEO4J_", env_file=".env", extra="ignore"
+        env_prefix="NEO4J_", env_file=".env", extra="ignore", hide_input_in_errors=True
     )
 
     uri: str = "bolt://localhost:7687"

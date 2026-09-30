@@ -13,6 +13,7 @@ from agrag.cypher.entities import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.serialize import parse_entity_node
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.settings import RetrievalSettings
@@ -227,8 +228,6 @@ class GraphCandidateSource(CandidateSource):
         any name containing ":" (e.g. "Star Trek: Voyager"), so this fetches
         the actual nodes instead.
         """
-        from agrag.ingestion._ingest_pipeline import _parse_entity_node  # noqa: PLC0415
-
         ids = [str(hit.id) for hit in hits]
         try:
             rows = await self.graph_store.execute_read(
@@ -240,9 +239,9 @@ class GraphCandidateSource(CandidateSource):
         for row in rows:
             try:
                 node = row.get("n") if isinstance(row, dict) and "n" in row else row
-                entity = _parse_entity_node(node)
+                entity = parse_entity_node(node)
                 if entity is None:
-                    entity = _parse_entity_node(row)  # type: ignore[arg-type]
+                    entity = parse_entity_node(row)  # type: ignore[arg-type]
                 if entity is not None and entity.label == label:
                     entities.append(entity)
             except Exception:

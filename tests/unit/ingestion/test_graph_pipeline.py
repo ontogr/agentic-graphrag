@@ -43,6 +43,7 @@ from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.errors import GraphStoreDataIntegrityError
+from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._ingest_pipeline import (
     _delete_vectors,
     _embed_and_upsert_chunks,
@@ -50,7 +51,6 @@ from agrag.ingestion._ingest_pipeline import (
     _extract_merged_into,
     _global_exact_match,
     _global_relation_lookup,
-    _parse_entity_node,
     _resolve_tombstone_chain,
     _upsert_vectors,
 )
@@ -372,7 +372,7 @@ def _tombstone_row(
 
 
 class TestParseEntityNode:
-    """Tests for _parse_entity_node."""
+    """Tests for parse_entity_node."""
 
     def test_parses_labels_properties_form(self) -> None:
         """Labels+properties mock is parsed."""
@@ -392,7 +392,7 @@ class TestParseEntityNode:
                 "age": "30",
             },
         }
-        ent = _parse_entity_node(node)
+        ent = parse_entity_node(node)
         assert ent is not None
         assert ent.label == "Person"
         assert ent.name == "Alice"
@@ -413,7 +413,7 @@ class TestParseEntityNode:
             "created_at": "2020-01-01T00:00:00+00:00",
             "labels": ["Person"],
         }
-        ent = _parse_entity_node(node)
+        ent = parse_entity_node(node)
         assert ent is not None
         assert ent.label == "Person"
         assert ent.name == "Bob"
@@ -438,7 +438,7 @@ class TestParseEntityNode:
                     }
                 )
 
-        ent = _parse_entity_node(MockNode())
+        ent = parse_entity_node(MockNode())
         assert ent is not None
         assert ent.label == "Person"
 
@@ -457,7 +457,7 @@ class TestParseEntityNode:
                 "created_at": "2020-01-01T00:00:00+00:00",
             },
         }
-        ent = _parse_entity_node({"n": inner})
+        ent = parse_entity_node({"n": inner})
         assert ent is not None
         assert ent.name == "Dave"
 
@@ -476,16 +476,16 @@ class TestParseEntityNode:
                 "created_at": "2020-01-01T00:00:00+00:00",
             },
         }
-        ent = _parse_entity_node(node)
+        ent = parse_entity_node(node)
         assert ent is not None
         assert ent.label == "Person"
 
     def test_missing_label_and_id_returns_none(self) -> None:
         """No label and no id yields None."""
         node = {"labels": [], "properties": {"name": "x"}}
-        assert _parse_entity_node(node) is None
+        assert parse_entity_node(node) is None
         assert (
-            _parse_entity_node({"id": None, "labels": ["Person"], "properties": {}})
+            parse_entity_node({"id": None, "labels": ["Person"], "properties": {}})
             is None
         )
 
@@ -506,7 +506,7 @@ class TestParseEntityNode:
                 "custom": "keep",
             },
         }
-        ent = _parse_entity_node(node)
+        ent = parse_entity_node(node)
         assert ent is not None
         assert "custom" in ent.properties
         assert "embedding" not in ent.properties
@@ -527,7 +527,7 @@ class TestParseEntityNode:
                 "created_at": "bad-date",
             },
         }
-        ent = _parse_entity_node(node)
+        ent = parse_entity_node(node)
         assert ent is not None
         assert ent.name == "Grace"
 
@@ -545,14 +545,14 @@ class TestParseEntityNode:
                 "created_at": "2020-01-01T00:00:00+00:00",
             },
         }
-        ent = _parse_entity_node(node)
+        ent = parse_entity_node(node)
         assert ent is not None
         assert ent.name == "heidi"
 
     def test_exception_returns_none(self) -> None:
         """Any exception yields None."""
-        assert _parse_entity_node(None) is None  # type: ignore[arg-type]
-        assert _parse_entity_node(object()) is None
+        assert parse_entity_node(None) is None  # type: ignore[arg-type]
+        assert parse_entity_node(object()) is None
 
 
 class TestGlobalExactMatch:

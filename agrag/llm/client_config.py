@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 LLMProvider = Literal[
@@ -32,6 +32,8 @@ class LLMClientConfig(BaseModel):
             (Azure's ``resource_name``/``deployment_id``, Vertex's ``project``,
             Bedrock's ``region``).
     """
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     name: str
     provider: LLMProvider

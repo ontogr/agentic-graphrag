@@ -6,10 +6,12 @@ token) is present, or when ``require_tls=True`` is set even without a
 credential, while allowing plaintext localhost and encrypted remote
 connections. Also covers WeaviateSettings defaulting to ``mode="custom"``
 so its default URL (a local Docker host) is reachable, rather than
-defaulting to the cloud connector.
+defaulting to the cloud connector. Also covers validation errors leaving out
+the configured credential.
 """
 
 import pytest
+from pydantic import ValidationError
 
 from agrag.vectordb.settings import MilvusSettings, QdrantSettings, WeaviateSettings
 
@@ -93,3 +95,22 @@ class TestMilvusEncryptedRemoteConnection:
         """require_tls=True rejects a remote plaintext URI even with no token."""
         with pytest.raises(ValueError, match="unencrypted"):
             MilvusSettings(uri="http://example.com:19530", require_tls=True)
+
+
+@pytest.mark.parametrize(
+    ("settings_class", "fields"),
+    [
+        (QdrantSettings, {"url": "http://example.com", "api_key": "cred-9d4b"}),
+        (WeaviateSettings, {"url": "http://example.com", "api_key": "cred-9d4b"}),
+        (MilvusSettings, {"uri": "http://example.com", "token": "cred-9d4b"}),
+    ],
+)
+def test_validation_error_omits_the_credential(
+    settings_class: type[QdrantSettings | WeaviateSettings | MilvusSettings],
+    fields: dict[str, str],
+) -> None:
+    """The message leaves out the api_key or token passed to the settings."""
+    with pytest.raises(ValidationError) as exc_info:
+        settings_class(**fields)
+
+    assert "cred-9d4b" not in str(exc_info.value)
