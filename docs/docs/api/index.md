@@ -110,7 +110,7 @@ one.
 ##### `agrag.agents.AgentLLMSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='AGENT_LLM_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='AGENT_LLM_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ##### `agrag.agents.AgentLLMSettings.strategy`
@@ -196,7 +196,7 @@ max_research_attempts: int = 3
 ##### `agrag.agents.AgentSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='AGENT_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='AGENT_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ##### `agrag.agents.AgentSettings.recursion_limit`
@@ -960,7 +960,7 @@ one.
 ###### `agrag.agents.settings.AgentLLMSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='AGENT_LLM_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='AGENT_LLM_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ###### `agrag.agents.settings.AgentLLMSettings.strategy`
@@ -999,7 +999,7 @@ max_research_attempts: int = 3
 ###### `agrag.agents.settings.AgentSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='AGENT_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='AGENT_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ###### `agrag.agents.settings.AgentSettings.recursion_limit`
@@ -11426,7 +11426,7 @@ model: str = 'ibm-granite/granite-embedding-small-english-r2'
 ##### `agrag.embedding.EmbeddingSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='EMBEDDING_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='EMBEDDING_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ##### `agrag.embedding.EmbeddingSettings.normalize`
@@ -12212,7 +12212,7 @@ model: str = 'ibm-granite/granite-embedding-small-english-r2'
 ###### `agrag.embedding.settings.EmbeddingSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='EMBEDDING_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='EMBEDDING_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ###### `agrag.embedding.settings.EmbeddingSettings.normalize`
@@ -12736,7 +12736,7 @@ biases scores upward. There is no default model.
 ##### `agrag.eval.EvalJudgeSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='EVAL_JUDGE_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='EVAL_JUDGE_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ##### `agrag.eval.EvalJudgeSettings.temperature`
@@ -14659,7 +14659,7 @@ biases scores upward. There is no default model.
 ###### `agrag.eval.settings.EvalJudgeSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='EVAL_JUDGE_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='EVAL_JUDGE_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ###### `agrag.eval.settings.EvalJudgeSettings.temperature`
@@ -16028,7 +16028,7 @@ max_connection_lifetime: int = 240
 ##### `agrag.graphdb.Neo4jSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='NEO4J_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='NEO4J_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ##### `agrag.graphdb.Neo4jSettings.password`
@@ -16898,7 +16898,7 @@ max_connection_lifetime: int = 240
 ###### `agrag.graphdb.settings.Neo4jSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='NEO4J_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='NEO4J_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ###### `agrag.graphdb.settings.Neo4jSettings.password`
@@ -17292,7 +17292,7 @@ environment or `.env`, so the model name is never hardcoded. Raises
 ##### `agrag.ingestion.ExtractionLLMSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='EXTRACTION_LLM_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='EXTRACTION_LLM_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ##### `agrag.ingestion.ExtractionLLMSettings.retry`
@@ -18326,7 +18326,7 @@ environment or `.env`, so the model name is never hardcoded. Raises
 ###### `agrag.ingestion.extract.ExtractionLLMSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='EXTRACTION_LLM_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='EXTRACTION_LLM_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ###### `agrag.ingestion.extract.ExtractionLLMSettings.retry`
@@ -22301,7 +22301,7 @@ lease_ttl_seconds: int = Field(default=60, gt=0)
 ###### `agrag.ingestion.settings.CutoverJobSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='CUTOVER_JOB_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='CUTOVER_JOB_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 #### `agrag.ingestion.stats`
@@ -25369,7 +25369,7 @@ hybrid_alpha: float = 0.5
 ##### `agrag.retrieval.RetrievalSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='RETRIEVAL_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='RETRIEVAL_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ##### `agrag.retrieval.RetrievalSettings.node_distance_seed_top_k`
@@ -27520,7 +27520,7 @@ hybrid_alpha: float = 0.5
 ###### `agrag.retrieval.settings.RetrievalSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='RETRIEVAL_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='RETRIEVAL_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ###### `agrag.retrieval.settings.RetrievalSettings.node_distance_seed_top_k`
@@ -27781,7 +27781,7 @@ Milvus connection configuration.
 ##### `agrag.vectordb.MilvusSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='MILVUS_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='MILVUS_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ##### `agrag.vectordb.MilvusSettings.require_tls`
@@ -28121,7 +28121,7 @@ api_key: str = ''
 ##### `agrag.vectordb.QdrantSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='QDRANT_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='QDRANT_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ##### `agrag.vectordb.QdrantSettings.require_tls`
@@ -28771,7 +28771,7 @@ mode: Literal['cloud', 'custom'] = 'custom'
 ##### `agrag.vectordb.WeaviateSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='WEAVIATE_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='WEAVIATE_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ##### `agrag.vectordb.WeaviateSettings.require_tls`
@@ -30039,7 +30039,7 @@ Milvus connection configuration.
 ###### `agrag.vectordb.settings.MilvusSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='MILVUS_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='MILVUS_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ###### `agrag.vectordb.settings.MilvusSettings.require_tls`
@@ -30091,7 +30091,7 @@ api_key: str = ''
 ###### `agrag.vectordb.settings.QdrantSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='QDRANT_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='QDRANT_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ###### `agrag.vectordb.settings.QdrantSettings.require_tls`
@@ -30157,7 +30157,7 @@ mode: Literal['cloud', 'custom'] = 'custom'
 ###### `agrag.vectordb.settings.WeaviateSettings.model_config`
 
 ```python
-model_config = SettingsConfigDict(env_prefix='WEAVIATE_', env_file='.env', extra='ignore')
+model_config = SettingsConfigDict(env_prefix='WEAVIATE_', env_file='.env', extra='ignore', hide_input_in_errors=True)
 ```
 
 ###### `agrag.vectordb.settings.WeaviateSettings.require_tls`

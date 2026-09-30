@@ -19,7 +19,9 @@ class _JudgeEnvVariables(BaseSettings):
     below.
     """
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", extra="ignore", hide_input_in_errors=True
+    )
 
     eval_judge_base_url: str | None = Field(
         default=None, validation_alias="EVAL_JUDGE_BASE_URL"
@@ -64,7 +66,10 @@ class EvalJudgeSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="EVAL_JUDGE_", env_file=".env", extra="ignore"
+        env_prefix="EVAL_JUDGE_",
+        env_file=".env",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     client: LLMClientConfig

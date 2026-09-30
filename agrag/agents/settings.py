@@ -30,7 +30,10 @@ class AgentLLMSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="AGENT_LLM_", env_file=".env", extra="ignore"
+        env_prefix="AGENT_LLM_",
+        env_file=".env",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     clients: list[LLMClientConfig]
@@ -99,7 +102,7 @@ class AgentSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="AGENT_", env_file=".env", extra="ignore"
+        env_prefix="AGENT_", env_file=".env", extra="ignore", hide_input_in_errors=True
     )
 
     recursion_limit: int = 50
