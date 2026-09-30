@@ -5,3 +5,8 @@ only.
 
 Each dataset adds one line here when it is added to the harness:
 <dataset> | <license> | <terms and source>
+LegalBench-RAG | MIT | https://github.com/zeroentropy-ai/legalbenchrag
+PrivacyQA | MIT | https://github.com/AbhilashaRavichander/PrivacyQA_EMNLP
+ContractNLI | CC BY 4.0 | https://stanfordnlp.github.io/contract-nli/
+CUAD | CC BY 4.0 | https://www.atticusprojectai.org/cuad
+MAUD | license not verified | https://github.com/TheAtticusProject/maud

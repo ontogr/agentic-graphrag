@@ -229,5 +229,11 @@ signature_crossrefs = true
 # Fixtures under tests/**/fixtures/ hold deliberately non-UTF-8 bytes (latin-1,
 # UTF-16 with BOM) and intentional odd words that exercise decode edge cases.
 # thoughts/ holds vendored reference repos and research notes, not this project's
-# own prose (see the matching [tool.ruff] extend-exclude).
-extend-exclude = ["tests/**/fixtures/**", "thoughts/**", "agrag/llm/baml_client/**"]
+# own prose (see the matching [tool.ruff] extend-exclude). benchmarks/fixtures/ holds
+# question ids and quotes from public datasets, misspellings included.
+extend-exclude = [
+  "tests/**/fixtures/**",
+  "benchmarks/fixtures/**",
+  "thoughts/**",
+  "agrag/llm/baml_client/**",
+]

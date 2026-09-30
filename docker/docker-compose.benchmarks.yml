@@ -8,9 +8,11 @@
 # must be set, at least 8 characters, when any compose command runs. A domain adds its services here
 # and to SERVICE_PORTS.
 #
-# | Service | Corpus                                       | Bolt port |
-# |---------|----------------------------------------------|-----------|
-# | fake    | local checks of the harness, no real dataset | 7700      |
+# | Service    | Corpus                                       | Bolt port |
+# |------------|----------------------------------------------|-----------|
+# | fake       | local checks of the harness, no real dataset | 7700      |
+# | legal-lite | LegalBench-RAG mini, lite                    | 7701      |
+# | legal-full | LegalBench-RAG mini, full                    | 7702      |
 
 name: agrag-bench
 
@@ -34,6 +36,24 @@ services:
     volumes:
       - agrag-bench-fake:/data
 
+  legal-lite:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7701:7687"
+    volumes:
+      - agrag-bench-legal-lite:/data
+
+  legal-full:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7702:7687"
+    volumes:
+      - agrag-bench-legal-full:/data
+
 volumes:
   agrag-bench-fake:
     name: agrag-bench-fake
+  agrag-bench-legal-lite:
+    name: agrag-bench-legal-lite
+  agrag-bench-legal-full:
+    name: agrag-bench-legal-full

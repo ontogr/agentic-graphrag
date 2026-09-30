@@ -1,0 +1,2876 @@
+{
+ "name": "legalbench-rag-mini",
+ "domain": "legal",
+ "mode": "full",
+ "upstream": {
+  "repo": "awinml/legalbench-rag",
+  "revision": "0263f7b2a9fb811f984ead05a0aa0d796a456124",
+  "benchmark_files_sha256": "991d965c4e33873cd4db2cfc6e06786a2f313d6d9d310c798e69efde02e0906c"
+ },
+ "corpora": [
+  {
+   "id": "legal-full",
+   "service": "legal-full",
+   "schema_name": "legal",
+   "documents": [
+    {
+     "id": "contractnli/ExcelerateStandardNDAFormat.txt",
+     "uri": "contractnli/ExcelerateStandardNDAFormat.txt",
+     "sha256": "48730c8d5d8e8a3c67cf301b8da0a8cfc26652834cc3d8091c8f95e7b87000be",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/ExcelerateStandardNDAFormat.txt"
+    },
+    {
+     "id": "contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
+     "uri": "contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
+     "sha256": "2a748cb1888853a0f5bf6dccc7f8b2e0c2fc0ec303e3349ae24af04181485c58",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/HNBA-2017-18-Confidentiality-Agreement.txt"
+    },
+    {
+     "id": "contractnli/Kenway-NDA-Form-Blank.txt",
+     "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+     "sha256": "3dff6905cdc6ba5263a025b509f5c989ad4a3108a3ca726c753f1f9bf8072fb6",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/Kenway-NDA-Form-Blank.txt"
+    },
+    {
+     "id": "contractnli/SE_NDCA_and_PRE-QUAL_PACKAGE_March-2016.txt",
+     "uri": "contractnli/SE_NDCA_and_PRE-QUAL_PACKAGE_March-2016.txt",
+     "sha256": "9f6d27e0a294d79ea1bb094e82f4a675f1a646852aca18a8a96cee7946002089",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/SE_NDCA_and_PRE-QUAL_PACKAGE_March-2016.txt"
+    },
+    {
+     "id": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+     "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+     "sha256": "17f0b67c57a587044cc00aa7b9dfc258cd199f809b8fa5c19acddceb873b8517",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt"
+    },
+    {
+     "id": "cuad/DYNAMEXINC_06_06_1996-EX-10.4-TRANSPORTATION SERVICES AGREEMENT.txt",
+     "uri": "cuad/DYNAMEXINC_06_06_1996-EX-10.4-TRANSPORTATION SERVICES AGREEMENT.txt",
+     "sha256": "b78b65221c6ae786e6c1274ca932d7a5ffef078da4d94d0b6617db6028764e96",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/DYNAMEXINC_06_06_1996-EX-10.4-TRANSPORTATION SERVICES AGREEMENT.txt"
+    },
+    {
+     "id": "cuad/HealthcareIntegratedTechnologiesInc_20190812_8-K_EX-10.1_11776966_EX-10.1_Reseller Agreement.txt",
+     "uri": "cuad/HealthcareIntegratedTechnologiesInc_20190812_8-K_EX-10.1_11776966_EX-10.1_Reseller Agreement.txt",
+     "sha256": "d172327b68fd725ed5c08ba20640023bb56b6e0904d75c65d53bb4acc97092d8",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/HealthcareIntegratedTechnologiesInc_20190812_8-K_EX-10.1_11776966_EX-10.1_Reseller Agreement.txt"
+    },
+    {
+     "id": "cuad/IGENEBIOTECHNOLOGYINC_05_13_2003-EX-1-JOINT VENTURE AGREEMENT.txt",
+     "uri": "cuad/IGENEBIOTECHNOLOGYINC_05_13_2003-EX-1-JOINT VENTURE AGREEMENT.txt",
+     "sha256": "3413f2b63169639f157ba60f663245197e24310c269c443267db6af0e4707708",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/IGENEBIOTECHNOLOGYINC_05_13_2003-EX-1-JOINT VENTURE AGREEMENT.txt"
+    },
+    {
+     "id": "cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt",
+     "uri": "cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt",
+     "sha256": "92a552b93eee815071993af2c822aa2133f5588b3bf6dcec3de7e07bfa542d6a",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt"
+    },
+    {
+     "id": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+     "uri": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+     "sha256": "2fac2af5a9219ca22702929af105a9cb5fbfb2982f3d2a1a73800591a21c72cc",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt"
+    },
+    {
+     "id": "cuad/PenntexMidstreamPartnersLp_20150416_S-1A_EX-10.4_9042833_EX-10.4_Transportation Agreement.txt",
+     "uri": "cuad/PenntexMidstreamPartnersLp_20150416_S-1A_EX-10.4_9042833_EX-10.4_Transportation Agreement.txt",
+     "sha256": "d06674177f876cf4fc26cc68646a264f2462529ab949abdbe96372468fa7a6de",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/PenntexMidstreamPartnersLp_20150416_S-1A_EX-10.4_9042833_EX-10.4_Transportation Agreement.txt"
+    },
+    {
+     "id": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+     "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+     "sha256": "39e427ae5a36d611f9e27e5575e6766a6515e7bde3b2bf403e800abb24c84a43",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt"
+    },
+    {
+     "id": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+     "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+     "sha256": "67f1e353c04151fd847a866305528b0fafeebe8a416a755a4ef8ce638616133a",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt"
+    },
+    {
+     "id": "privacy_qa/Keep.txt",
+     "uri": "privacy_qa/Keep.txt",
+     "sha256": "e2b4782b7611593798332c228b084ee72ed2fa81c5170818116b9092dfa7d8d2",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/privacy_qa/Keep.txt"
+    },
+    {
+     "id": "privacy_qa/Viber Messenger.txt",
+     "uri": "privacy_qa/Viber Messenger.txt",
+     "sha256": "6c92fa4cadaef3b1f37d0d34ea81cbccfcf3576d321e63fb916c24e64e100767",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/privacy_qa/Viber Messenger.txt"
+    }
+   ],
+   "n_tokens": 223766
+  }
+ ],
+ "questions": [
+  {
+   "id": "privacy_qa:d7216916",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; how is my data used?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       6878,
+       7943
+      ],
+      "answer": "(a)Make our service available: We use your Registration and Account information to (i) register you for the App and create your User Account for Viber; (ii) create your profile and make it visible; (iii) process your payments; (iv) create your Viber ID; (v) provide customer service, give you information about your account, and respond to your requests; (vi) personalize your experience by providing content (such as games) on the Service, including targeted advertising of Viber services and other 3rd party services that we believe may be of most interest to you; personalization may include automated decisions about what you will view and when, but be assure that it will not have legal effects on you (vii) indicate which of your contacts is already a Viber member and notify you when your contacts become active on the Service (viii) display the name of the contact as it appears in your address book when a call is received on the Service, and (ix) sync your contacts with Viber running on Windows, MacOS, Linux, Android tablets, iPads and Windows Tablets.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       8203,
+       8969
+      ],
+      "answer": "(b) Improve our Services:We use call log information and usage information (as described above) to better understand network behavior and trends (numbers of messages and calls made by users, typical destinations, call lengths, network type, etc), detect potential outages and technical issues (this helps us notice things like a drop in call volume in a certain geography, a shift in call length, a change in typical networks, etc) to improve our Services.\n(c) Provide Interesting Offerings to You and others: As part of value added services provided by us or by a third party within Viber, we may use your information to continuously optimize and personalize those services and send you personal updates about new offerings which we believe you will find relevant.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       9578,
+       10216
+      ],
+      "answer": "You will be asked to allow the use of your location data before Viber provides you specific location services offerings, and you may also adjust your phone preferences to disable the use of your location data at any time.\n(d) Process Your Payments: We may use your Information like your name and phone number to process your payments for our Services through a secured third-party service provider and, on an aggregate basis to determine charges for our phone carriers and other service providers.\n(e)Prevent Fraud & Spam; enforcement of law: We really want Viber to be free of spam and fraudulent content so that you feel safe and free.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       10771,
+       10918
+      ],
+      "answer": "If your account has been blocked you can contact our support.\nWe may use your information and call log information to comply with applicable laws.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       12995,
+       13336
+      ],
+      "answer": "The purpose of this practice is to provide joint content and a better service from us and the group, and allow you to enjoy from the Rakuten ecosystem benefits, as well as for fraud prevention and personalization of the services,and any other purpose described in the privacy policy of the other Rakuten group company providing the service.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:58624fcb",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; how is any information collected by viber shared with other parties?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       11655,
+       15357
+      ],
+      "answer": "We may keep activity data on a non-identifiable basis to improve our services.\nYour posts on public accounts and communities may remain available if you do not delete them.\nYour data is kept safe with us, but we do share your personal information with third parties we trust in order to provide you with our services, as follows:\n(a)The Viber Corporate Family:We may share the information we collect about you with the Viber corporate family, including our parent company, Rakuten Inc., and its and our affiliates and subsidiaries (To learn more about Rakuten Inc., which is a publicly traded company in Japan, please follow this link:http://global.rakuten.com/corp/about/).\nThe information may be disclosed to: (i) provide joint content and our services (eg, registration, coordination of membership accounts between the Viber corporate family, transactions, analytics and customer support); (ii) help detect and prevent potentially illegal acts, violations of our policies, fraud and/or data security breaches.\nThe information provided in your registration, if you link your email to the Viber account, will be shared with Rakuten group to create the Rakuten account and/or to link your Rakuten account with your Viber account.\nData about your use of the Viber Service and Rakuten group services will also be shared to the joint account.\nThe purpose of this practice is to provide joint content and a better service from us and the group, and allow you to enjoy from the Rakuten ecosystem benefits, as well as for fraud prevention and personalization of the services,and any other purpose described in the privacy policy of the other Rakuten group company providing the service.\nYou can choose to delink your Viber account from the Rakuten account at any time by editing your profile on the app.\n(b) App Providers and Other Third-Parties:We may disclose your information to service providers and other third-parties under contract who help with providing you and others our Services on our behalf or other services provided by third-parties via our Services (such as, but not limited to, fraud and spam investigations, payment processing, site analytics and operations, providing special partnership features in our service either on an aggregate non identifiable basis, or using a unique identifier which is not attributable to you).\nThey are required to secure the data they receive.\n(c) Advertising partners: to enable the limited advertisements on our service, we may share a unique advertising identifier that is not attributable to you, with our third party advertising partners, and advertising service providers, along with certain technical data about you (your language preference, country, city, and device data), based on our legitimate interest.\nThis includes partners managing our advertising placements and also advertisers themselves and their agencies or third parties managing their advertising demands.\nYour unique advertising identifier is created by your mobile devices operating system and you can change it or choose not to share it at any time.\nIf you want to know more, read our Cookies and Tracking Technologies Policy.\n(d) Legal and Law Enforcement: We may disclose your information to law enforcement, governmental agencies, or authorized third-parties, in response to a verified request relating to terror acts, criminal investigations or alleged illegal activity or any other activity that may expose us, you, or any other Viber user to legal liability.\n(e)Change of Control  New Owners: We may share your information with another business entity, if we plan to merge with or be acquired by that business, or are involved in a transaction with similar financial effect.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:cb9bb451",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; can i submit a request to have my data deleted?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       773,
+       900
+      ],
+      "answer": "If for some reason, the message, wasnt delivered to its destination within up to 2 weeks, it will be deleted from our servers.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       7943,
+       8080
+      ],
+      "answer": "If you deactivate your Viber account, it will delete the address book from our servers (more about this below), quickly and permanently.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       17121,
+       17244
+      ],
+      "answer": "It will be removed from our services but may remain on local devices of some users (assuming they have chosen to save it).\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:8f3852c2",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; how long do you retain meta data?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       10918,
+       11474
+      ],
+      "answer": "(f) Communicate With You: As part of the Viber family, we want to keep in touch with you.\nWe use your information to contact you (via message or other means) to maintain the App, including your Viber Out User Account, to comply with your stated communication preferences or to provide updates about other Viber services.\nData Retention: Unless otherwise specified, we retain information as long as it is necessary and relevant for us to achieve the purposes referred to above or to enable us to comply with our legal data protection retention obligations.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:4031047a",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; will viber comply to government information request?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       14579,
+       14726
+      ],
+      "answer": "Your unique advertising identifier is created by your mobile devices operating system and you can change it or choose not to share it at any time.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:805f656c",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Keep\"'s privacy policy; what information will this app have access to of mine?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       926,
+       1042
+      ],
+      "answer": "We need your age, height and weight to calculate your consumption of calorie when you complete each training class.\n"
+     },
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       2271,
+       2472
+      ],
+      "answer": "You must register for a Keep account in order to use Keep.\nTo register, you may need to provide certain Personal Information, such as you name, mobile phone number, password, exercise goal and status.\n"
+     },
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       2730,
+       4004
+      ],
+      "answer": "Using Keep App.We collect information from and about you through your use of Keep App.\nFor example, we may collect Personal Information with Keep via the following:\nInformation you make available to us when you open a Keep account, as set out above;\nAny information included in your publicly visible Keep profile, which may include your profile ID, name and photo;\nInformation you make available to us via your use of Keep  for example, via: a) Your sharing of your contact list with Keep in the Recommended Friends function in order to connect with other Keep users; b) Making purchases within Keep, including your credit card or bank details and information about the purchases that you make;\nInformation we collect in the course of you using Keep  such as certain location data and log data; and\nInformation you provide through your communications with our customer support team.\nPurchases via Keep.\nWhen you make purchases through Keep, you may need to provide certain Personal Information to complete the purchase, such as your credit card information, bank account information.\nWhere the payment is processed by a third-party payment service provider, we do not collect or store such Personal Information, though we may receive summary information about transactions.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:452a13fd",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Keep\"'s privacy policy; will biological data like heart rate, blood pressure, etc. be collected via the app?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       926,
+       1042
+      ],
+      "answer": "We need your age, height and weight to calculate your consumption of calorie when you complete each training class.\n"
+     },
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       5177,
+       6139
+      ],
+      "answer": "Please read the Privacy Policies of those platforms, as your activity published on those platforms will no longer be governed by this Privacy Policy.\nWe will share personal information if we have a good-faith belief that access, use, preservation, or disclosure of the information is reasonably necessary to a) meet any applicable law, regulation, legal process, or enforceable governmental request, or b) detect, prevent, or otherwise address fraud, security, or technical issues, or c) protect against harm to the rights, property or safety of Keep, our users, or the public as required or permitted by law.\nTo provide you with a better experience through improving our products, services, content, and advertising or otherwise where you have consented, we may share the personal information with our affiliate companies and with joint venture partners and third-party service providers, contractors and agents, and use it consistent with this Privacy Policy.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:d7afe05b",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Keep\"'s privacy policy; are my statistics kept private?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       4004,
+       4242
+      ],
+      "answer": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\n"
+     },
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       5074,
+       5177
+      ],
+      "answer": "You may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:026dcebd",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Keep\"'s privacy policy; how safe is my account information on this app?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       7939,
+       8997
+      ],
+      "answer": "You can also remove or delete content from your account or entirely delete your whole Keep account.\nIf any content you cannot remove or delete by yourself, please kindly reach us via support@gotokeep.com .\nIn some cases, we retain data for limited periods when it needs to be kept for legitimate business or legal purposes or to be protected from accidental or malicious deletion, there may be delays between when you delete something and when copies are deleted from our active and backup systems.\nWe use a variety of security measures, including encryption and authentication tools, to help protect your information.\nWe use secure servers when you place orders.\nAll credit card information you supply is transmitted via Secure Socket Layer (SSL) technology and then encrypted within our databases.\nHowever, like other companies, we cannot guarantee 100% the security or confidentiality of the information you provide to us.\nWe maintain server around the world and your information may be processed on servers located outside of the country where you live.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:7e576f86",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; is it keep my phone numbers undisclosed?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       1864,
+       2107
+      ],
+      "answer": "A copy of the phone numbers and names of all your contacts (whether theyre Viber members or not  but only name and phone number) will be collected andstored on our servers in order for us to be able to enable you and your contacts to connect.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:ae5fd21a",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; what personal information will be required for me to set up an account?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       1412,
+       2508
+      ],
+      "answer": "(a) Registration and Account Information:When you use our various Services you voluntarily give us personal information (eg, name, email, birth date, age, phone number and, when necessary, billing information) and you are not anonymous to us.\nThat means your name and photo (if you choose to provide them) will be visible to other Viber users.\nWhen you install the Viber App, youll also be asked to allow us access to your mobile devices address book.\nA copy of the phone numbers and names of all your contacts (whether theyre Viber members or not  but only name and phone number) will be collected andstored on our servers in order for us to be able to enable you and your contacts to connect.\n(b) Social Media Information:If you sign in to your Viber account through third-party social media sites like Facebook, Twitter or VK, you agree to give us on-going access to your personal information on such sites (eg, your public profile, friend list, accounts you follow or who follow you, your email address, birthday, work history, education history, interests, current city, and video viewing).\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:5d951bd5",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; is the messages sent through it are safe?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       23339,
+       23705
+      ],
+      "answer": "Any links to Western Union services will be governed by the applicable local Western Unions privacy policyand terms of use.\nBack-Up: When you back-up your Viber conversations, they are kept on your devices service according to operating systems (Google/ iOS / desktop operating system) terms and policies and are no longer protected by Vibers end to end encryption.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       23805,
+       24370
+      ],
+      "answer": "We maintain technical, physical, and administrative security measures to protect the security of your personal information against loss, misuse, unauthorized access, disclosure, or alteration.\nSome of the safeguards we use include firewalls, data encryption, physical access controls to our data centers and information access authorization controls.\nWe need your help too: it is your responsibility to make sure that your personal information is accurate and that your password(s) and account registration information are secure and not shared with third-parties.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:1361873e",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; do you keep a record of our text ?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       500,
+       900
+      ],
+      "answer": "First of all, we want you to be assured that we do not read or listen to the content of your messages and/or calls made privately via Viber and we do not store those messages once they have been delivered to their destination (which on average takes less than one second).\nIf for some reason, the message, wasnt delivered to its destination within up to 2 weeks, it will be deleted from our servers.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       2742,
+       3245
+      ],
+      "answer": "(c) Activity Information:While using the Viber Services, we will collect, and other users can see, your connection status, whether you have received and seen messages sent to you, if you are currently on another call, and information related to the calls and messages you have sent and received such as length of the call, who called who, who messaged who, and at what time; if you do not want people to know that youre online or that youve seen messages, you can change these options in your settings.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:724d3510",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; are my video calls recorded?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       500,
+       900
+      ],
+      "answer": "First of all, we want you to be assured that we do not read or listen to the content of your messages and/or calls made privately via Viber and we do not store those messages once they have been delivered to their destination (which on average takes less than one second).\nIf for some reason, the message, wasnt delivered to its destination within up to 2 weeks, it will be deleted from our servers.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       2742,
+       3245
+      ],
+      "answer": "(c) Activity Information:While using the Viber Services, we will collect, and other users can see, your connection status, whether you have received and seen messages sent to you, if you are currently on another call, and information related to the calls and messages you have sent and received such as length of the call, who called who, who messaged who, and at what time; if you do not want people to know that youre online or that youve seen messages, you can change these options in your settings.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:cc5d02b8",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Keep\"'s privacy policy; can the app access my location?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       2980,
+       3095
+      ],
+      "answer": "Any information included in your publicly visible Keep profile, which may include your profile ID, name and photo;\n"
+     },
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       3633,
+       3814
+      ],
+      "answer": "When you make purchases through Keep, you may need to provide certain Personal Information to complete the purchase, such as your credit card information, bank account information.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:564fd056",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; does the app offer a password service where i am required to input a password when i want to access it?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       5388,
+       5565
+      ],
+      "answer": "If you want to useViber Out, youll need to create a Viber Account by selecting a password, and providing certain personal information (eg, name, email and billing information).\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       5943,
+       6196
+      ],
+      "answer": "Linking your email to Viber and Rakuten group: When you select to connect your email to your Viber account, we will use information you provided in the registration process (eg, name, email, password, phone number), as well as your IP address to do so.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       23705,
+       23805
+      ],
+      "answer": "We know that security is important to our users and we care about the security of your information.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:a44913ef",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; are my message encrypted on viber?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       900,
+       1218
+      ],
+      "answer": "Note that chats with bots and Public Accounts, and communities are not end-to-end encrypted, but we do encrypt such messages when sent to the Viber servers and when sent from the Viber servers to the third party (the Public Account owner and/or additional third party tool (eg CRM solution) integrated by such owner).\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       23463,
+       23705
+      ],
+      "answer": "Back-Up: When you back-up your Viber conversations, they are kept on your devices service according to operating systems (Google/ iOS / desktop operating system) terms and policies and are no longer protected by Vibers end to end encryption.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       23805,
+       24370
+      ],
+      "answer": "We maintain technical, physical, and administrative security measures to protect the security of your personal information against loss, misuse, unauthorized access, disclosure, or alteration.\nSome of the safeguards we use include firewalls, data encryption, physical access controls to our data centers and information access authorization controls.\nWe need your help too: it is your responsibility to make sure that your personal information is accurate and that your password(s) and account registration information are secure and not shared with third-parties.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:50c9bd24",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Keep\"'s privacy policy; do you use my data to modify the app"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       1077,
+       1462
+      ],
+      "answer": "We use your information to ensure our services are working as intended, such as troubleshooting issues reported from you.\nDevelop new services.\nWe value your every uploaded training information as it is crucial for us to better understand which training class is more helpful to you.\nWith adequate data support, we will create and update more popular training classes for you to take.\n"
+     },
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       1484,
+       1720
+      ],
+      "answer": "We use the information we collect to customize our services for you.\nFor example, we may provide you with advanced training classes with your updated weight and body measurement in aims to help you achieve your training goals smoothly.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:3e77d38c",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; can any 3rd party see my conversations?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       500,
+       773
+      ],
+      "answer": "First of all, we want you to be assured that we do not read or listen to the content of your messages and/or calls made privately via Viber and we do not store those messages once they have been delivered to their destination (which on average takes less than one second).\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:fdf155d3",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Keep\"'s privacy policy; do you keep and upload my activity to your database"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       1221,
+       1361
+      ],
+      "answer": "We value your every uploaded training information as it is crucial for us to better understand which training class is more helpful to you.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:f93ee792",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; does viber have any affiliation with the advertisement industry?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       13453,
+       14416
+      ],
+      "answer": "(b) App Providers and Other Third-Parties:We may disclose your information to service providers and other third-parties under contract who help with providing you and others our Services on our behalf or other services provided by third-parties via our Services (such as, but not limited to, fraud and spam investigations, payment processing, site analytics and operations, providing special partnership features in our service either on an aggregate non identifiable basis, or using a unique identifier which is not attributable to you).\nThey are required to secure the data they receive.\n(c) Advertising partners: to enable the limited advertisements on our service, we may share a unique advertising identifier that is not attributable to you, with our third party advertising partners, and advertising service providers, along with certain technical data about you (your language preference, country, city, and device data), based on our legitimate interest.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:440fda49",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; will my personal details be shared with third party  companies?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       11655,
+       14803
+      ],
+      "answer": "We may keep activity data on a non-identifiable basis to improve our services.\nYour posts on public accounts and communities may remain available if you do not delete them.\nYour data is kept safe with us, but we do share your personal information with third parties we trust in order to provide you with our services, as follows:\n(a)The Viber Corporate Family:We may share the information we collect about you with the Viber corporate family, including our parent company, Rakuten Inc., and its and our affiliates and subsidiaries (To learn more about Rakuten Inc., which is a publicly traded company in Japan, please follow this link:http://global.rakuten.com/corp/about/).\nThe information may be disclosed to: (i) provide joint content and our services (eg, registration, coordination of membership accounts between the Viber corporate family, transactions, analytics and customer support); (ii) help detect and prevent potentially illegal acts, violations of our policies, fraud and/or data security breaches.\nThe information provided in your registration, if you link your email to the Viber account, will be shared with Rakuten group to create the Rakuten account and/or to link your Rakuten account with your Viber account.\nData about your use of the Viber Service and Rakuten group services will also be shared to the joint account.\nThe purpose of this practice is to provide joint content and a better service from us and the group, and allow you to enjoy from the Rakuten ecosystem benefits, as well as for fraud prevention and personalization of the services,and any other purpose described in the privacy policy of the other Rakuten group company providing the service.\nYou can choose to delink your Viber account from the Rakuten account at any time by editing your profile on the app.\n(b) App Providers and Other Third-Parties:We may disclose your information to service providers and other third-parties under contract who help with providing you and others our Services on our behalf or other services provided by third-parties via our Services (such as, but not limited to, fraud and spam investigations, payment processing, site analytics and operations, providing special partnership features in our service either on an aggregate non identifiable basis, or using a unique identifier which is not attributable to you).\nThey are required to secure the data they receive.\n(c) Advertising partners: to enable the limited advertisements on our service, we may share a unique advertising identifier that is not attributable to you, with our third party advertising partners, and advertising service providers, along with certain technical data about you (your language preference, country, city, and device data), based on our legitimate interest.\nThis includes partners managing our advertising placements and also advertisers themselves and their agencies or third parties managing their advertising demands.\nYour unique advertising identifier is created by your mobile devices operating system and you can change it or choose not to share it at any time.\nIf you want to know more, read our Cookies and Tracking Technologies Policy.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:9c91b3ab",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; can my call log be subpoenaed?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       14579,
+       14726
+      ],
+      "answer": "Your unique advertising identifier is created by your mobile devices operating system and you can change it or choose not to share it at any time.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:57d091ce",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Keep\"'s privacy policy; will the personal info i share with this app to sign up be shared with other companies, etc?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       4004,
+       4517
+      ],
+      "answer": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\n"
+     },
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       4807,
+       5177
+      ],
+      "answer": "We will not disclose or transfer your personal information to any non-affiliated third parties, unless:\nYou may choose to share certain information.\nIn order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:c96be584",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Keep\"'s privacy policy; will my workout data be given to anyone else or shared with anyone (i.e. insurance companies)?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       4004,
+       4911
+      ],
+      "answer": "Where we or our affiliate companies process your payments as a payment service provider, or where we fulfill any purchases you have made on Keep, we may collect, use and store your Personal Information in order to fulfill such purchases.\nLocation Data, Log Data and your device.Keep automatically collects Log Data from your device to enable and assist Keeps functionalities.\nIn addition, you may also permit Keep to access other content and data on your device  for example, your contact list and photo storage.\nOther than consented by you, we commit that we will not sell your personal information to any other third parties for their processing for any purposes.\nWe will ask for your explicit consent to share any sensitive personal information such as race, religion, sexual orientation, or health.\nWe will not disclose or transfer your personal information to any non-affiliated third parties, unless:\n"
+     },
+     {
+      "uri": "privacy_qa/Keep.txt",
+      "span": [
+       4956,
+       5177
+      ],
+      "answer": "In order to participate in certain features, you may have to adjust your Privacy settings and share more information.\nYou may also choose to share your activity on other platforms, such as Facebook, Twitter or Instagram.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:15378f01",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Kenway's Non-Disclosure Agreement; Does the document mention that some obligations of the Agreement may survive the termination of the Agreement?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       10289,
+       10403
+      ],
+      "answer": "The provisions of this Agreement shall continue to apply to any documents and materials retained by the Recipient."
+     },
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       13679,
+       13900
+      ],
+      "answer": "The obligations of each Party shall, notwithstanding any earlier termination of negotiations or discussions between the Parties in relation to the Purpose, continue for a period of 2 years from the date of this Agreement."
+     },
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       14063,
+       14179
+      ],
+      "answer": "6.3 Termination of this Agreement shall not affect any accrued rights or remedies to which either Party is entitled."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:78d9a7c7",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Kenway's Non-Disclosure Agreement; Does the document permit the Receiving Party to retain some Confidential Information even after its return or destruction?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       9379,
+       9439
+      ],
+      "answer": "At the request of the Disclosing Party, the Recipient shall:"
+     },
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       9808,
+       10289
+      ],
+      "answer": "(c) certify in writing to the Disclosing Party that it has complied with the requirements of this Clause, provided that a Recipient may retain documents and materials containing, reflecting, incorporating, or based on the Disclosing Party's Confidential Information to the extent required by law or any applicable governmental or regulatory authority and to the extent reasonable to permit the Recipient to keep evidence that it has performed its obligations under this Agreement. "
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:aecaeb70",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Kenway's Non-Disclosure Agreement; Does the document require the Receiving Party to notify the Disclosing Party if they are required by law, regulation, or judicial process to disclose any Confidential Information?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       7381,
+       8083
+      ],
+      "answer": "2.3 A Party may disclose Confidential Information to the extent such Confidential Information is required to be disclosed by law, by any governmental or other regulatory authority (including, without limitation any relevant securities exchange) or by a Court or other authority of competent jurisdiction provided that, to the extent it is legally permitted to do so, it gives the other Party as much notice of this disclosure as possible and, where notice of disclosure is not prohibited and is given in accordance with this Clause 2.3 , it takes into account the reasonable requests of the other Party in relation to the content of this disclosure, to the extent that it is legally permitted to do so."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:5ad6499b",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Excelerate's Non-Disclosure Agreement; Does the document permit the Receiving Party to create a copy of some Confidential Information under certain circumstances?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/ExcelerateStandardNDAFormat.txt",
+      "span": [
+       5572,
+       5852
+      ],
+      "answer": "8. Upon written request of a Party who has disclosed Proprietary Information to a receiving Party, the receiving Party shall promptly return all Proprietary Information except that one copy may be retained by legal counsel of the receiving Party as evidence of what was disclosed."
+     },
+     {
+      "uri": "contractnli/ExcelerateStandardNDAFormat.txt",
+      "span": [
+       6723,
+       7213
+      ],
+      "answer": "b. Notwithstanding the termination of this agreement, the supplied data must be maintained and protected in accordance with its provisions for three (3) years following the termination of this agreement. At the conclusion of this agreement/contract for which data is exchanged, proprietary data shall be returned to the provider or destroyed with a certification to that effect provided to the other party, except the one (1) copy retained by legal counsel as provided in paragraph 8 above."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:c59e2d09",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Kenway's Non-Disclosure Agreement; Does the document allow the Receiving Party to share some Confidential Information with their employees?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       4259,
+       4364
+      ],
+      "answer": "“Representative”: means employees, agents, officers, advisers and other representatives of the Recipient."
+     },
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       6525,
+       6710
+      ],
+      "answer": "The Recipient may disclose the Disclosing Party's Confidential Information to those of its Representatives who need to know this Confidential Information for the Purpose, provided that:"
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:6bd43610",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider HNBA's Confidentiality Agreement; Does the document specify whether the Receiving Party is required to destroy or return Confidential Information upon the termination of the Agreement?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
+      "span": [
+       7152,
+       7325
+      ],
+      "answer": "1. Once the purpose of the disclosure is achieved, the HNBA will instruct the Board Member to destroy all Confidential Information supplied to the Board Member by the HNBA. "
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:9df95be8",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Excelerate's Non-Disclosure Agreement; Does the document require that all Confidential Information be expressly identified by the Disclosing Party?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/ExcelerateStandardNDAFormat.txt",
+      "span": [
+       3334,
+       3573
+      ],
+      "answer": "When a writing contains Proprietary Information the writing will, prior to disclosure to the receiving Party, be marked by the disclosing Party with a suitable legend (such as \"Proprietary Information\") to indicate its Proprietary status. "
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:8a612abd",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Kenway's Non-Disclosure Agreement; Does the document permit the Receiving Party to create a copy of some Confidential Information under certain circumstances?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       5360,
+       5520
+      ],
+      "answer": "The Recipient shall keep the Disclosing Party's Confidential Information confidential and, except with the prior written consent of the Disclosing Party, shall:"
+     },
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       5761,
+       5990
+      ],
+      "answer": "(c) not copy, reduce to writing or otherwise record the Confidential Information except as strictly necessary for the Purpose (and any such copies, reductions to writing and records shall be the property of the Disclosing Party);"
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:33e921f0",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Agreement between SE_NDCA and PRE-QUAL PACKAGE; Does the document specify whether the Receiving Party is required to destroy or return Confidential Information upon the termination of the Agreement?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/SE_NDCA_and_PRE-QUAL_PACKAGE_March-2016.txt",
+      "span": [
+       6193,
+       6796
+      ],
+      "answer": "Promptly following any decision by the Receiving Party not to continue discussions with respect to the Transactions, and at any other time upon the Disclosing Party’s written request, the Receiving Party shall return or destroy, at the Receiving Party’s option, all written Confidential Information of the Disclosing Party, including that portion of such Confidential Information that may be found in analyses, compilations, studies or other documents prepared by, or for, the Receiving Party, and the Receiving Party and its Agents shall not retain any copies of such written Confidential Information. "
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:e90a15d3",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Kenway's Non-Disclosure Agreement; Does the document state that Confidential Information shall only include technical information?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       1313,
+       2119
+      ],
+      "answer": "“Confidential Information:” means all confidential information (however recorded, preserved or disclosed) disclosed by a Party or its Representatives to the other Party and that Party's Representatives including but not limited to: the fact that discussions and negotiations are taking place concerning the Purpose and the status of those discussions and negotiations; any information that would be regarded as confidential by a reasonable business person relating to:\n(a) the business, affairs, customers, clients, suppliers, plans, intentions, or market opportunities of the Disclosing Party or of the Disclosing Party's Group;\n(b) the operations, processes, product information, know-how, designs, specifications, trade secrets or software of the Disclosing Party or of the Disclosing Party's Group; and"
+     },
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       3815,
+       4138
+      ],
+      "answer": "“Purpose”: means the exchange of Confidential Information, trade secrets, know-how and samples in order to evaluate and pursue the objective of one or more potential business arrangements with respect to Kenway’s potential to supply the Company with information, products and/or designs that are proprietary to the Company."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:473ccaef",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Agreement between SE_NDCA and PRE-QUAL PACKAGE; Does the document indicate that the Agreement does not grant the Receiving Party any rights to the Confidential Information?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/SE_NDCA_and_PRE-QUAL_PACKAGE_March-2016.txt",
+      "span": [
+       8959,
+       9155
+      ],
+      "answer": "It is understood that nothing contained in this Agreement shall be construed as granting or conferring rights by license or otherwise in any Confidential Information disclosed to Receiving Party. "
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:8a3a0270",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Kenway's Non-Disclosure Agreement; Does the document allow verbally conveyed information to be considered as Confidential Information?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       1313,
+       1781
+      ],
+      "answer": "“Confidential Information:” means all confidential information (however recorded, preserved or disclosed) disclosed by a Party or its Representatives to the other Party and that Party's Representatives including but not limited to: the fact that discussions and negotiations are taking place concerning the Purpose and the status of those discussions and negotiations; any information that would be regarded as confidential by a reasonable business person relating to:"
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:d1ce8ac8",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Excelerate's Non-Disclosure Agreement; Does the document allow the Receiving Party to acquire information similar to the Confidential Information from a third party?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/ExcelerateStandardNDAFormat.txt",
+      "span": [
+       3823,
+       3900
+      ],
+      "answer": "6. The conditions of Paragraph 4 hereof shall not apply to information which:"
+     },
+     {
+      "uri": "contractnli/ExcelerateStandardNDAFormat.txt",
+      "span": [
+       4231,
+       4238
+      ],
+      "answer": "b. Was "
+     },
+     {
+      "uri": "contractnli/ExcelerateStandardNDAFormat.txt",
+      "span": [
+       4330,
+       4559
+      ],
+      "answer": "(ii) is later received by the receiving Party from a third party, unless the receiving Party knows or has reason to know of an obligation of secrecy of the third party to the disclosing Party with respect to such information; or "
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:f5d4f334",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Agreement between SE_NDCA and PRE-QUAL PACKAGE; Does the document allow verbally conveyed information to be considered as Confidential Information?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/SE_NDCA_and_PRE-QUAL_PACKAGE_March-2016.txt",
+      "span": [
+       1368,
+       2399
+      ],
+      "answer": "“Confidential Information” shall mean all information, regardless of the form in which it is communicated or maintained (whether oral, written, electronic or visual) and whether prepared by Company or otherwise, which is disclosed to Counterparty, regardless of whether such information is disclosed intentionally or inadvertently, before or after the execution of this Agreement, in connection with the Transaction and including all records, reports, analyses, notes, memoranda, documentation, knowledge, data, specifications, diagrams, statistics, systems or software, manuals, business plans, operational information or practices, processes (whether or not patented, patentable or reduced to practice), customer lists, concepts, ideas, policies, contractual arrangements with, and information about, the Company’s suppliers, distributors and customers, the existence of the discussions between the Parties concerning the Transaction, or other information that are based on, contain or reflect any such Confidential Information. "
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:e37259d5",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Kenway's Non-Disclosure Agreement; Does the document restrict the use of Confidential Information to the purposes stated in the Agreement?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       5360,
+       5607
+      ],
+      "answer": "The Recipient shall keep the Disclosing Party's Confidential Information confidential and, except with the prior written consent of the Disclosing Party, shall:\n(a) not use or exploit the Confidential Information in any way except for the Purpose;"
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:3b9c6290",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider HNBA's Confidentiality Agreement; Does the document allow the Receiving Party to share some Confidential Information with third parties, including consultants, agents, and professional advisors?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
+      "span": [
+       4549,
+       5668
+      ],
+      "answer": "The Board Member will not use or disclose Confidential Information to any third party for any purpose other than the performance of his or her duties as a Board Member of the HNBA unless and until the HNBA expressly authorizes the disclosure in writing. Board Member specifically agrees not to use any personally identifiable information provided by or on behalf of the HNBA, its contractors, affiliates, vendors, sponsors or employees, for any direct marketing and not to transfer such information to any third party.\n2. The Board Member agrees to restrict dissemination of Confidential Information to those persons employed by the Board Member (or the Board Member’s employer) who require access to the Confidential Information so as to assist the Board Member in carrying out his or her duties to the HNBA and then only if such personnel has a clear understanding of the confidentiality obligations imposed by this agreement and also agrees to maintain the confidentiality of the Confidential Information in accordance with the terms hereof by signing this Agreement before any Confidential Information is disclosed."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:0b16b2e8",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider HNBA's Confidentiality Agreement; Does the document mention that some obligations of the Agreement may survive the termination of the Agreement?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
+      "span": [
+       7634,
+       7830
+      ],
+      "answer": "Termination or expiration of this Agreement shall not relieve the Board Member of any obligation with respect to the Confidential Information disclosed or developed hereunder prior to termination."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:7a8053d4",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider HNBA's Confidentiality Agreement; Does the document permit the Receiving Party to retain some Confidential Information even after its return or destruction?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
+      "span": [
+       7325,
+       7452
+      ],
+      "answer": "The HNBA will keep a copy in its files for a period of two (2) years after the completion of each Candidate’s specific request."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:b4ae3310",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Agreement between SE_NDCA and PRE-QUAL PACKAGE; Does the document mention that some obligations of the Agreement may survive the termination of the Agreement?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/SE_NDCA_and_PRE-QUAL_PACKAGE_March-2016.txt",
+      "span": [
+       7207,
+       7725
+      ],
+      "answer": "The Receiving Party shall not be deemed to have retained or failed to destroy any Confidential Information which is an Imaged Document if such Confidential Information is deleted from local hard drives so long as no attempt is made to recover such Confidential Information from servers or back-up sources, provided that any such retained Confidential Information in an Imaged Document form shall remain subject to the disclosure and use restrictions set forth herein, notwithstanding any termination of this Agreement."
+     },
+     {
+      "uri": "contractnli/SE_NDCA_and_PRE-QUAL_PACKAGE_March-2016.txt",
+      "span": [
+       10548,
+       10722
+      ],
+      "answer": "However, the obligations contained herein shall remain in effect for a period of five (5) years from the date the Confidential Information was disclosed under this Agreement."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:d0d32a49",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Excelerate's Non-Disclosure Agreement; Does the document mention that some obligations of the Agreement may survive the termination of the Agreement?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/ExcelerateStandardNDAFormat.txt",
+      "span": [
+       6407,
+       6927
+      ],
+      "answer": "a. This Agreement shall terminate at the end of the period of years as provided for in paragraph 4 above, or upon the delivery of written notice of termination by a Party to the other Party; however, the obligations of a receiving Party pursuant to Paragraph 4 shall remain in effect for the term specified therein.\nb. Notwithstanding the termination of this agreement, the supplied data must be maintained and protected in accordance with its provisions for three (3) years following the termination of this agreement. "
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:5698383f",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider HNBA's Confidentiality Agreement; Does the document require that all Confidential Information be expressly identified by the Disclosing Party?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
+      "span": [
+       1498,
+       3494
+      ],
+      "answer": "1. The term “Confidential Information” shall include:\n(a) All information that is delivered by or on behalf of the HNBA to the Board Member in written, graphic or electronic form and that is marked “confidential” or “proprietary;”\n(a) Any information, whether in oral, written, graphic, electronic, machine readable or any other form, that is provided to the Board Member by or on behalf of the HNBA in connection with the Board Member’s performance of his or her duties as an HNBA Board Member and that is not otherwise readily available to the public, including membership lists, financial reports, personnel evaluations, program plans and reports, memoranda, e-mail and communications related to HNBA business – whether originated by an HNBA member or not, and communications that may be protected by the Attorney-Client Privilege or the Attorney Work Product Doctrine;\n(c) Written and spoken information provided to the Board Member in the performance of his or her duty to evaluate prospective nominees for judicial or executive office who have requested the support of the HNBA, including but not limited to (1) completed questionnaires and any other data furnished by the candidate or third parties to the HNBA; (ii) confidential information gathered by the Board Member or told to the Board Member during any investigation or evaluation of any candidate being considered for endorsement; (iii) conversation, colloquy, deliberations, evaluations, and conclusions concerning a prospective nominee expressed during the evaluation or consideration of the candidates’ qualifications or endorsement request; and (iv) the decision of any committee or the Board of Governors concerning whether a prospective nominee is qualified for appointment; and\n(b) Any personally identifiable information including, but not limited to, name, address, telephone number, date of birth, social security number, e-mail address or any combination thereof provided by or on behalf of the HNBA to the Board Member."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:d7645353",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Excelerate's Non-Disclosure Agreement; Does the document require the Receiving Party to notify the Disclosing Party if they are required by law, regulation, or judicial process to disclose any Confidential Information?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/ExcelerateStandardNDAFormat.txt",
+      "span": [
+       4770,
+       5571
+      ],
+      "answer": "7. Notwithstanding anything to the contrary in Paragraph 4 hereof, Proprietary Information may be disclosed by a receiving Party to those of its employees and consultants who require knowledge thereof in connection with their duties in conducting the aforesaid purpose of this Agreement and who are obligated by written agreement to hold such Proprietary Information in confidence and restrict its use consistent with the receiving Party's obligations under this Agreement; and Proprietary Information may be disclosed to a legislative, judicial, or regulatory body requiring its disclosure, provided that, prior to such disclosure, the receiving Party has notified the disclosing Party of the requirement with an opportunity for the disclosing Party to object or seek an appropriate protective order."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:15a4da99",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider HNBA's Confidentiality Agreement; Does the document indicate that the Agreement does not grant the Receiving Party any rights to the Confidential Information?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
+      "span": [
+       4270,
+       4549
+      ],
+      "answer": "1. The Board Member agrees that the Confidential Information he or she receives shall be used solely for the benefit of the HNBA Board Work, and that all rights to the proprietary and novel features contained in the Confidential Information are reserved by the disclosing Party. "
+     },
+     {
+      "uri": "contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
+      "span": [
+       6966,
+       7151
+      ],
+      "answer": "6. The Board Member agrees that no license under any patent, copyright or other intellectual property right is granted by implication or otherwise to Board Members under this Agreement."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:3ea3b73f",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider HNBA's Confidentiality Agreement; Does the document allow the Receiving Party to share some Confidential Information with their employees?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
+      "span": [
+       5068,
+       5668
+      ],
+      "answer": "2. The Board Member agrees to restrict dissemination of Confidential Information to those persons employed by the Board Member (or the Board Member’s employer) who require access to the Confidential Information so as to assist the Board Member in carrying out his or her duties to the HNBA and then only if such personnel has a clear understanding of the confidentiality obligations imposed by this agreement and also agrees to maintain the confidentiality of the Confidential Information in accordance with the terms hereof by signing this Agreement before any Confidential Information is disclosed."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:5fddc5f3",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Excelerate's Non-Disclosure Agreement; Does the document specify whether the Receiving Party is required to destroy or return Confidential Information upon the termination of the Agreement?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/ExcelerateStandardNDAFormat.txt",
+      "span": [
+       6927,
+       7213
+      ],
+      "answer": "At the conclusion of this agreement/contract for which data is exchanged, proprietary data shall be returned to the provider or destroyed with a certification to that effect provided to the other party, except the one (1) copy retained by legal counsel as provided in paragraph 8 above."
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:a670514b",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Merger Agreement between 'UNITED BANKSHARES, INC.' and 'COMMUNITY BANKERS TRUST CORPORATION'; What is the Definition of \"Material Adverse Effect\""
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       11632,
+       14568
+      ],
+      "answer": "“Material Adverse Effect” means, with respect to United or CBTC, any event, change, effect, development, state of facts, condition, circumstances or occurrence that, individually or in the aggregate, (i) is material and adverse to the financial position, results of operations or business of United and its Subsidiaries taken as a whole or CBTC and its Subsidiaries taken as a whole, respectively, or (ii) would materially impair the ability of either United or CBTC to perform its respective obligations under this Agreement or otherwise materially threaten or materially impede the consummation of the Merger and the other transactions contemplated by this Agreement; provided that Material Adverse Effect shall not include the impact of (a) changes in tax, banking and similar laws of general applicability or interpretations thereof by courts or Governmental Authorities (including the Pandemic Measures), except to the extent that such changes have a disproportionate impact on United or CBTC, as the case may be, relative to the overall effects on the banking industry, (b) changes in GAAP or regulatory accounting requirements applicable to banks and their holding companies generally, except to the extent that such changes have a disproportionate impact on United or CBTC, as the case may be, relative to the overall effects on the banking industry, (c) changes in economic conditions affecting financial institutions generally, including changes in market interest rates, credit availability and liquidity, and price levels or trading volumes in securities markets except to the extent that such changes have a disproportionate impact on United or CBTC, as the case may be, relative to the overall effects on the banking industry, (d) any modifications or changes to valuation policies and practices in connection with the Merger in accordance with GAAP, (e) actions and omissions of United or CBTC taken with the prior written consent of the other in contemplation of the transactions contemplated hereby, (f) any outbreak or escalation of hostilities or war (whether or not declared) or any act of terrorism, any earthquakes, hurricanes, tornados or other natural disasters, or any national or global epidemic, pandemic or disease outbreak (including the Pandemic), or the material worsening of such conditions threatened or existing as of the date of this Agreement (including any such changes arising out of the Pandemic or any Pandemic Measures), (g) failure of United or CBTC to meet any internal financial forecasts or any earnings projections (whether made by United or CBTC or any other Person), (h) the public disclosure of this Agreement and the impact thereof on relationships with customers or employees, or (i) the effects of compliance with this Agreement on the operating performance of the parties, including, expenses incurred by the parties in consummating the transactions contemplated by this Agreement.  "
+     },
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       15044,
+       15559
+      ],
+      "answer": "“Pandemic” means any outbreaks, epidemics or pandemics relating to COVID-19, or any variants or mutations thereof, or any other viruses, and the governmental and other responses thereto. \n\n\n“Pandemic Measures” means any quarantine, “shelter in place,” “stay at home,” workforce reduction, social distancing, shutdown, closure, sequester or other laws, directives, policies, guidelines or recommendations promulgated by any Governmental Authority, in each case, in connection with or in response to the Pandemic. \n\n\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:9d7afbad",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; I want information about the Limitations on Antitrust Efforts"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       174845,
+       174872
+      ],
+      "answer": "6.1 Regulatory Matters. \n\n\n"
+     },
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       180438,
+       181489
+      ],
+      "answer": "(d) Notwithstanding the foregoing, nothing contained herein shall be deemed to require Parent or any of its Subsidiaries to take any action, or commit to take any action, or agree to any condition or restriction, in connection with obtaining the foregoing permits, consents, approvals and authorizations of Governmental Entities that would reasonably be likely, in each case following the Effective Time (but regardless when the action, condition or restriction is to be taken or implemented), to have a Material Adverse Effect on Parent (measured on a scale relative to the Company) or a Material Adverse Effect on the Company or materially restrict or impose a material burden on Parent or any of its Subsidiaries (including, after the Effective Time, the Company and its Subsidiaries) in connection with the transactions contemplated hereby or with respect to the business or operation of Parent or any of its Subsidiaries (including, after the Effective Time, the Company and its Subsidiaries) (a “Materially Burdensome Regulatory Condition”). \n\n\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:f8b7b93a",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; What happens during a Breach of No-Shop clause"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       200147,
+       200211
+      ],
+      "answer": "6.9 No Solicitation; Change in Company Board Recommendation. \n\n\n"
+     },
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       231216,
+       231266
+      ],
+      "answer": "8.1 Termination. This Agreement may be terminated "
+     },
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       234523,
+       234732
+      ],
+      "answer": "(c) No Company Recommendation – by Parent, at any time prior to such time as the Company Shareholder Approval is obtained, in the event (i) the Company shall have breached in any material respect Section 6.9; "
+     },
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       239462,
+       239488
+      ],
+      "answer": "8.3 Fees and Expenses. \n\n\n"
+     },
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       239893,
+       240489
+      ],
+      "answer": "(b) Company Termination Fee. (i) In the event that this Agreement is terminated by the Company pursuant to Section 8.1(d) (Company Superior Proposal) or Parent pursuant to Section 8.1(c) (No Company Recommendation), then the Company shall pay Parent a fee, in immediately available funds, in the amount of $12,000,000 (the “Company Termination Fee”) by wire transfer to an account specified by Parent promptly, but in any event prior to or concurrently with a termination pursuant to Section 8.1(d) or no later than two (2) Business Days after the date of termination pursuant to Section 8.1(c). "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:bee79eff",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Merger Agreement between 'UNITED BANKSHARES, INC.' and 'COMMUNITY BANKERS TRUST CORPORATION'; What about the Fiduciary exception to the No-Shop Clause"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       149504,
+       149532
+      ],
+      "answer": "7.05 Acquisition Proposals. "
+     },
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       150505,
+       151285
+      ],
+      "answer": "Notwithstanding the foregoing, nothing contained in this Section 7.05 shall prohibit CBTC, prior to the CBTC Meeting and subject to compliance with the other terms of this Section 7.05, from furnishing nonpublic information to, or entering into discussions or negotiations with, any Person that makes an unsolicited, bona fide written Acquisition Proposal with respect to CBTC or any of its Significant Subsidiaries (that did not result from a breach of this Section 7.05), if, and only to the extent that (i) the CBTC Board concludes in good faith, after consultation with and based upon the advice of outside legal counsel, that the failure to take such actions would be reasonably likely to constitute a breach of its fiduciary duties to its shareholders under applicable law, "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:01e441b3",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Merger Agreement between 'UNITED BANKSHARES, INC.' and 'COMMUNITY BANKERS TRUST CORPORATION'; Where is the No-Shop Clause"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       149504,
+       152876
+      ],
+      "answer": "7.05 Acquisition Proposals. CBTC agrees that it shall not, and shall cause its Subsidiaries and its officers, directors, agents, advisors and affiliates not to, solicit or encourage inquiries or proposals with respect to, or engage in any negotiations concerning, or provide any confidential information to, or have any discussions with any person relating to, any Acquisition Proposal. CBTC shall immediately cease and cause to be terminated any activities, discussions or negotiations conducted prior to the date of this Agreement with any parties other than United with respect to any of the foregoing and shall use its reasonable best efforts to enforce any confidentiality or similar agreement relating to an Acquisition Proposal. CBTC shall inform United promptly of all relevant details of any inquiries or contacts by third parties relating to the possible disposition of the business or the capital stock of CBTC or any merger, change or control or other business combination involving CBTC. Notwithstanding the foregoing, nothing contained in this Section 7.05 shall prohibit CBTC, prior to the CBTC Meeting and subject to compliance with the other terms of this Section 7.05, from furnishing nonpublic information to, or entering into discussions or negotiations with, any Person that makes an unsolicited, bona fide written Acquisition Proposal with respect to CBTC or any of its Significant Subsidiaries (that did not result from a breach of this Section 7.05), if, and only to the extent that (i) the CBTC Board concludes in good faith, after consultation with and based upon the advice of outside legal counsel, that the failure to take such actions would be reasonably likely to constitute a breach of its fiduciary duties to its shareholders under applicable law, (ii) before taking such actions, CBTC receives from such Person an executed confidentiality agreement providing for reasonable protection of confidential information, which confidentiality agreement shall not provide such person or entity with any exclusive right to negotiate with CBTC and shall contain terms and conditions no less favorable to CBTC with respect to confidentiality than the Confidentiality Agreement, and (iii) the CBTC Board concludes in good faith, after consultation with its outside legal counsel and financial advisors, that the Acquisition Proposal constitutes or is reasonably likely to result in a Superior Proposal. CBTC shall promptly notify United in writing of CBTC’s receipt of any such Acquisition Proposal or inquiry, the material terms and conditions thereof, the identity of the Person making such Acquisition Proposal or inquiry, and shall keep United reasonably informed on a prompt basis, of the status and material terms of any such Acquisition Proposal and the status of discussions or negotiations with respect thereto, including any material amendments or proposed amendments as to price and other material terms thereof. CBTC agrees that it and its Subsidiaries will not enter into a confidentiality or other agreement with any Person subsequent to the date of this Agreement that would prohibit CBTC from providing any information to United in accordance with this Section 7.05. CBTC agrees that any violation of the restrictions set forth in this Section 7.05 by any representative of CBTC shall be deemed a breach of this Section 7.05 by CBTC. "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:3588c1f0",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; What is the Definition of \"Superior Proposal\""
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       207389,
+       209365
+      ],
+      "answer": "As used in this Agreement, “Company Acquisition Proposal” means a tender or exchange offer, proposal for a merger, consolidation, sale of assets or other business combination involving the Company or any of its Subsidiaries or any proposal or offer to acquire in any manner more than 15% of the voting power in, or more than 15% of the fair market value of the business, assets or deposits of, the Company or any of its Subsidiaries or any public announcement of a proposed plan or intention to do any of the foregoing or any agreements to engage in any of the foregoing, other than the transactions contemplated by this Agreement and any sale of whole loans and securitizations in the ordinary course. As used in this Agreement, “Company Superior Proposal” means an unsolicited bona fide written Company Acquisition Proposal that the Company Board concludes in good faith to be more favorable from a financial point of view to its shareholders than the Merger and the other transactions contemplated hereby and to be reasonably capable of being consummated on the terms proposed, (i) after receiving the advice of its financial advisors (who shall be a nationally recognized investment banking or financial advisory firm), (ii) after taking into account the likelihood of consummation of such transaction on the terms set forth therein and (iii) after taking into account all legal (with the advice of counsel), financial (including the financing terms of any such proposal), regulatory and other aspects of such proposal (including any expense reimbursement provisions and conditions to closing) and any other relevant factors permitted under applicable Law, and after taking into account any amendment or modification to this Agreement agreed to by Parent; provided that for purposes of the definition of “Company Superior Proposal,” the references to “more than 15%” in the definition of Company Acquisition Proposal shall be deemed to be references to “at least 50%.” \n\n\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:a4e4171f",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; What about the Fiduciary exception to the No-Shop Clause"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       200147,
+       200211
+      ],
+      "answer": "6.9 No Solicitation; Change in Company Board Recommendation. \n\n\n"
+     },
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       200901,
+       204122
+      ],
+      "answer": "(b) Notwithstanding anything to the contrary contained in this Agreement, if at any time after the date hereof and prior to, but not after, obtaining the Company Shareholder Approval the Company receives an unsolicited bona fide Company Acquisition Proposal and the Company Board concludes in good faith that such Company Acquisition Proposal constitutes, or is reasonably expected to result in, a Company Superior Proposal, then the Company and the Company Board may, and may permit its Subsidiaries and its and its Subsidiaries’ representatives to, furnish or cause to be furnished nonpublic information and participate in such negotiations or discussions to the extent that the Company Board concludes in good faith (after consultation with outside legal counsel) that failure to take such actions would reasonably be expected to result in a violation of its fiduciary duties under applicable Law; provided that prior to providing any nonpublic information permitted to be provided pursuant to the foregoing proviso or engaging in any negotiations, it shall have entered into a confidentiality agreement with such third party on terms no less restrictive in the aggregate to the counterparty than those contained in the Confidentiality Agreement and which expressly permits the Company to comply with its obligations pursuant to this Section 6.9. Subject to the foregoing and Section 6.9(c) below, the Company will immediately cease and cause to be terminated any activities, discussions or negotiations conducted on or before the date of this Agreement with any persons other than Parent with respect to any Company Acquisition Proposal and will use its reasonable best efforts, subject to applicable Law, to (i) enforce any confidentiality or similar agreement relating to a Company Acquisition Proposal and (ii) within ten (10) Business Days after the date hereof, request and confirm the return or destruction of any confidential information provided to any Person (other than Parent and its Affiliates) pursuant to any such confidentiality or similar agreement. The Company will promptly (and in any event within twenty-four (24) hours) advise Parent following receipt of any Company Acquisition Proposal, of any discussions or negotiations that are sought to be initiated or continued or any request for nonpublic information or inquiry that would reasonably be expected to lead to any Company Acquisition Proposal and the substance thereof (including the identity of the Person making such Company Acquisition Proposal), and will keep Parent promptly apprised of any related developments, discussions and negotiations (including the terms and conditions of any such request, inquiry or Company Acquisition Proposal, or all amendments or proposed amendments thereto) on a current basis (it being understood that no such communications to Parent shall be deemed a Company Adverse Change of Recommendation). The Company agrees that it shall contemporaneously provide to Parent any confidential or nonpublic information concerning the Company or any of its Subsidiaries that may be provided to any other Person in connection with any Company Acquisition Proposal which has not previously been provided to Parent.   "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:86a56d38",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; What are the Ordinary course of business covenants"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       159220,
+       159689
+      ],
+      "answer": "5.1 Conduct of Businesses Prior to the Effective Time. Except as Previously Disclosed, as expressly contemplated by or permitted by this Agreement, as required by applicable Law, or with the prior written consent of Parent, during the period from the date of this Agreement to the Effective Time, (a) the Company shall, and shall cause each of its Subsidiaries to, (i) conduct its business in the ordinary course consistent with past practice in all material respects, "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:9f22f470",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Merger Agreement between 'UNITED BANKSHARES, INC.' and 'COMMUNITY BANKERS TRUST CORPORATION'; Information about the Closing Condition: Compliance with Covenants"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       179735,
+       179776
+      ],
+      "answer": "8.03 Conditions to Obligation of United. "
+     },
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       180597,
+       180977
+      ],
+      "answer": "(b) Performance of Obligations of CBTC. CBTC shall have performed in all material respects all obligations required to be performed by it under this Agreement at or prior to the Effective Time, and United shall have received a certificate, dated the Effective Date, signed on behalf of CBTC by the Chief Executive Officer and the Chief Financial Officer of CBTC to such effect.   "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:4eed111e",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Merger Agreement between 'UNITED BANKSHARES, INC.' and 'COMMUNITY BANKERS TRUST CORPORATION'; Information about the Fiduciary Termination Right Triggers for termination"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       182114,
+       182199
+      ],
+      "answer": "9.01 Termination. This Agreement may be terminated, and the Merger may be abandoned: "
+     },
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       186693,
+       187024
+      ],
+      "answer": "(h) Superior Proposal. (i) By CBTC, if the CBTC Board so determines by a vote of the majority of the members of its entire board, at any time prior to the CBTC Meeting, in order to concurrently enter into an agreement with respect to an Acquisition Proposal that was received and considered by CBTC in compliance with Section 7.05 "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:0e139f37",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; Where is the Closing Conditions: Regulatory Approvals clause"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       174845,
+       174872
+      ],
+      "answer": "6.1 Regulatory Matters. \n\n\n"
+     },
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       175898,
+       176583
+      ],
+      "answer": "(b) The parties shall reasonably cooperate with each other and use their respective commercially reasonable efforts to promptly prepare all necessary documentation, to effect all applications, notices, petitions and filings, to obtain as promptly as practicable all permits, consents, approvals and authorizations of all third parties and Governmental Entities that are necessary or advisable to consummate the Merger, the Bank Merger and the other transactions contemplated by this Agreement as soon as reasonably practicable, and to comply with the terms and conditions of all such permits, consents, approvals, and authorizations of all such third parties or Governmental Entities. "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:2480920b",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Merger Agreement between 'UNITED BANKSHARES, INC.' and 'COMMUNITY BANKERS TRUST CORPORATION'; What is the Definition of \"Knowledge\""
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       51543,
+       51598
+      ],
+      "answer": "For purposes of this Agreement, “knowledge” shall mean "
+     },
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       51770,
+       51921
+      ],
+      "answer": "(ii) with respect to CBTC, actual knowledge of Rex L. Smith III, Bruce E. Thomas, Jeff R. Cantrell, John M. Oakey, III and William E. Saunders, Jr. \n\n\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:2f4cd527",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; Information about the Closing Condition: Compliance with Covenants"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       223324,
+       223533
+      ],
+      "answer": "7.2 Conditions to Obligations of Parent. The obligation of Parent to effect the Merger is also subject to the satisfaction, or waiver by Parent, at or prior to the Effective Time, of the following conditions: "
+     },
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       225445,
+       225822
+      ],
+      "answer": "(b) Performance of Obligations of Company. The Company shall have performed in all material respects all obligations required to be performed by it under this Agreement at or prior to the Effective Time; and Parent shall have received a certificate signed on behalf of the Company by the Chief Executive Officer or the Chief Financial Officer of the Company to such effect. \n\n\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:70c7eb9d",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Merger Agreement between 'UNITED BANKSHARES, INC.' and 'COMMUNITY BANKERS TRUST CORPORATION'; What is the Type of Consideration"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       26621,
+       27265
+      ],
+      "answer": "4.01 Merger Consideration. Subject to the provisions of this Agreement, at the Effective Time, automatically by virtue of the Merger and without any action on the part of any Person: (a) Merger Consideration. Each issued and outstanding share of CBTC Common Stock (other than shares of CBTC Common Stock held by United and its Subsidiaries, in each case except for shares held by them in a fiduciary capacity or as a result of debts previously contracted) shall be converted into the right to receive, subject to the limitations set forth in this Agreement, 0.3173 shares (“Exchange Ratio”) of United Common Stock (the “Merger Consideration”). "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:e9043f51",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Merger Agreement between 'UNITED BANKSHARES, INC.' and 'COMMUNITY BANKERS TRUST CORPORATION'; What are the Ordinary course of business covenants"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       39637,
+       40753
+      ],
+      "answer": "5.01 Forbearances of CBTC. From the date hereof until the Effective Time, except as expressly contemplated by this Agreement or Previously Disclosed, without the prior written consent of United (which consent shall not be unreasonably withheld, delayed or conditioned), CBTC will not, and will cause each of its Subsidiaries not to: (a) Ordinary Course. Conduct the business of CBTC and its Subsidiaries other than in the ordinary course, fail to use reasonable efforts to preserve intact their business organizations and assets and maintain their rights, franchises and existing relations with customers, suppliers, employees and business associates, make any capital expenditure in excess of $500,000 in the aggregate or take any action reasonably likely to have an adverse effect upon CBTC’s ability to perform any of its material obligations under this Agreement. For purposes of this Agreement, the term “ordinary course,” with respect to either party, shall take into account the commercially reasonable actions taken by such party and its Subsidiaries in response to the Pandemic and the Pandemic Measures.   "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:105021d7",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; Where is the Specific Performance clause"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       255141,
+       255543
+      ],
+      "answer": "9.11 Specific Performance. The parties agree that irreparable damage would occur in the event that any of the provisions of this Agreement were not performed in accordance with their specific terms. It is accordingly agreed that the parties shall be entitled to seek specific performance of the terms hereof, this being in addition to any other remedies to which they are entitled at Law or equity. \n\n\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:63aa10b3",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; What is the Definition of \"Material Adverse Effect\""
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       58500,
+       61255
+      ],
+      "answer": "As used in this Agreement, the term “Material Adverse Effect” means, with respect to any party, a material adverse effect on (a) the business, assets or deposit liabilities, properties, operations, condition (financial or otherwise), or results of operations of such party and its Subsidiaries, taken as a whole or (b) the ability of such party to consummate the transactions contemplated by this Agreement on a timely basis and in any event on or before the End Date; provided, however, that, with respect to clause (a) only, a Material Adverse Effect shall not be deemed to include Effects to the extent arising out of, relating to or resulting from (A) changes after the date hereof in applicable GAAP or regulatory accounting requirements generally affecting other companies in the banking industries in which such party and its Subsidiaries operate, (B) changes after the date hereof in Laws of general applicability to companies of similar size in the banking industries in which such party and its Subsidiaries operate or interpretations thereof, (C) changes after the date hereof in global, national or regional political conditions or general economic or market conditions (including changes in prevailing interest rates, credit availability and liquidity, currency exchange rates, and price levels or trading volumes in the United States or foreign securities markets) affecting financial institutions generally, (D) changes after the date hereof in the credit markets, any downgrades in the credit markets, or adverse credit events resulting in deterioration in the credit markets generally and not specifically relating to such party or its Subsidiaries, (E) a decline in the trading price of a party’s common stock or a failure, in and of itself, to meet earnings projections, but not, in either case, including any underlying causes thereof, (F) the entry into or announcement of this Agreement or the transactions contemplated hereby or the consummation of the transactions contemplated hereby, (G) any outbreak or escalation of hostilities, declared or undeclared acts of war or terrorism or (H) actions or omissions taken with the prior written consent of the other party or expressly required by this Agreement; provided, further, that any Effect attributable to or resulting from any of the changes, events, conditions or trends described in clauses (A), (B), (C), (D), (E) and (G) may constitute, and may be taken into account in determining the occurrence of, a Material Adverse Effect if and only to the extent they have a disproportionate adverse impact on such party and its Subsidiaries, taken as a whole, as compared to other companies of similar size in the banking industry in which such party and its Subsidiaries operate. \n\n\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:4809743c",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Merger Agreement between 'UNITED BANKSHARES, INC.' and 'COMMUNITY BANKERS TRUST CORPORATION'; Where is the Closing Conditions: Regulatory Approvals clause"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       154624,
+       155519
+      ],
+      "answer": "7.08 Regulatory Applications. (a) United and CBTC and their respective Subsidiaries and affiliates, as applicable, (a) shall cooperate and use their respective reasonable best efforts to prepare all documentation, to effect all filings and to obtain all permits, consents, approvals and authorizations of all third parties and Governmental Authorities necessary to consummate the transactions contemplated by this Agreement and (b) covenant and agree that none of the information supplied or to be supplied by such party and any of its Subsidiaries and affiliates, as applicable, for inclusion in any filings with Governmental Authorities will, at the respective time such filing is made be false or misleading with respect to any material fact, or omit to state any material fact necessary to make the statements therein, in light of the circumstances under which they are made not misleading. "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:89ff830b",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; Where is the No-Shop Clause"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       200147,
+       200869
+      ],
+      "answer": "6.9 No Solicitation; Change in Company Board Recommendation. \n\n\n(a) The Company agrees that none of it or any of its Subsidiaries or any of their respective officers, directors and employees will, and will cause its and its Subsidiaries’ officers, directors, agents, representatives, advisors and Affiliates not to, initiate, solicit, encourage or knowingly facilitate any inquiries or the making of proposals with respect to, or engage in any negotiations concerning, or provide any confidential or nonpublic information or data to, or have any discussions with, any Person relating to, any Company Acquisition Proposal or otherwise facilitate any effort to attempt or make or implement a Company Acquisition Proposal.   "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:c7ff70c8",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Merger Agreement between 'UNITED BANKSHARES, INC.' and 'COMMUNITY BANKERS TRUST CORPORATION'; I want information about the Limitations on Antitrust Efforts"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       155773,
+       156343
+      ],
+      "answer": "provided that United shall not be required to agree to any condition or restriction or take any action or commit to take any action if such agreements or the taking of such action would, in the reasonable good faith judgment of the United Board, be materially financially burdensome to the business, operations, financial condition or results of operations of United or CBTC such that, had such condition or requirement been known, United would not, in its reasonable good faith judgment, have entered into this Agreement (a “Materially Burdensome Regulatory Condition”)"
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:628bf5c5",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; Information about the Fiduciary Termination Right Triggers for termination"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       231216,
+       231479
+      ],
+      "answer": "8.1 Termination. This Agreement may be terminated at any time prior to the Effective Time, whether before or after approval of the matters presented in connection with the Merger by the shareholders of the Company or Parent (except as otherwise set forth below): "
+     },
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       235974,
+       236416
+      ],
+      "answer": "(d) Company Superior Proposal—by the Company, prior to such time as the Company Shareholder Approval is obtained, in order to enter into a definitive agreement providing for a Company Superior Proposal; provided that (i) the Company is not in material breach of any of the terms of this Agreement, and (ii) the Company Termination Fee is paid to Parent in advance of or concurrently with such termination in accordance with Section 8.3(b);   "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:5dd86799",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; Is there a Tail provision for acquisition proposals"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       239462,
+       239488
+      ],
+      "answer": "8.3 Fees and Expenses. \n\n\n"
+     },
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       240489,
+       241779
+      ],
+      "answer": "(ii) In the event that any Person shall have made a Company Acquisition Proposal, which proposal has been publicly announced, disclosed or proposed and not withdrawn, and: (1) thereafter this Agreement is terminated: (a) by either party pursuant to Section 8.1(b)(ii) (Delay), or Section 8.1(b)(iv) (No Shareholder Approval); or (b) by Parent pursuant to Section 8.1(b)(iii) (Breach); and (2) within twelve (12) months after such termination of this Agreement, a Company Acquisition Proposal shall have been consummated or any definitive agreement with respect to a Company Acquisition Proposal shall have been entered into (provided that for purposes of the foregoing, the term “Company Acquisition Proposal” shall have the meaning assigned to such term in Section 6.9(d) except that the references to “more than 15%” in the definition of Company Acquisition Proposal shall be deemed to be references to “at least 50%”); then the Company shall pay Parent the Company Termination Fee by wire transfer to an account specified by Parent prior to the earlier of the execution of a definitive agreement with respect to, or the consummation of, such Company Acquisition Proposal. In no event shall the Company be obligated to pay Parent the Company Termination Fee on more than one occasion. \n\n\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:db0b6be2",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; What is the Type of Consideration"
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       12534,
+       13342
+      ],
+      "answer": "1.4 Conversion of Stock At the Effective Time, by virtue of the Merger and without any action on the part of the Company or Parent or the shareholders of any of the foregoing: \n\n\n(a) Company Common Stock. Each share of Company Common Stock excluding Treasury Shares, issued and outstanding immediately prior to the Effective Time shall be converted into the right to receive a number of shares of Parent Common Stock equal to the Exchange Ratio, subject to any adjustments pursuant to Sections 1.4(f)(ii) and 8.1(e) (the “Merger Consideration”) and subject to the payment of any cash in lieu of fractional shares pursuant to Section 2.2(f). At the Effective Time, all shares of Company Common Stock shall no longer be outstanding and shall automatically be cancelled and retired and shall cease to exist. \n\n\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:b42b07ea",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Acquisition Agreement between Parent \"Columbia Banking System, Inc.\" and Target \"Bank of Commerce Holdings\"; What is the Definition of \"Knowledge\""
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+      "span": [
+       248043,
+       248226
+      ],
+      "answer": "the phrase “Knowledge of the Company” means the actual knowledge, after reasonable inquiry, of any of the Company’s officers listed on Section 9.4 of the Company Disclosure Schedule, "
+     }
+    ]
+   }
+  },
+  {
+   "id": "maud:1eaf9173",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Merger Agreement between 'UNITED BANKSHARES, INC.' and 'COMMUNITY BANKERS TRUST CORPORATION'; What is the Definition of \"Superior Proposal\""
+    }
+   ],
+   "group": "maud",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       4833,
+       5274
+      ],
+      "answer": "“Acquisition Proposal” means any tender or exchange offer, proposal for a merger, consolidation or other business combination involving CBTC or any of its Significant Subsidiaries or any proposal or offer to acquire equity interests representing 24.99% or more of the voting power of, or at least 24.99% of the assets or deposits of, CBTC or any of its Significant Subsidiaries, other than the transactions contemplated by this Agreement.   "
+     },
+     {
+      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+      "span": [
+       186693,
+       187448
+      ],
+      "answer": "(h) Superior Proposal. (i) By CBTC, if the CBTC Board so determines by a vote of the majority of the members of its entire board, at any time prior to the CBTC Meeting, in order to concurrently enter into an agreement with respect to an Acquisition Proposal that was received and considered by CBTC in compliance with Section 7.05 and (A) that would, if consummated, result in a transaction that is more favorable to CBTC’s shareholders from a financial point of view than the Merger and (B) is fully financed or reasonably capable of being fully financed and reasonably likely to receive all required approvals of Governmental Authorities on a timely basis and otherwise reasonably capable of being completed on the terms proposed (a “Superior Proposal”)"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:011de28f",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Strategic Alliance Agreement between Information System Associates, Inc. and Rubicon Software Group plc; What is the governing law for this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       36019,
+       36116
+      ],
+      "answer": "This Agreement shall be governed by and interpreted under the laws of the State of Florida, USA,."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:8813a3fc",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Strategic Alliance Agreement between Information System Associates, Inc. and Rubicon Software Group plc; Is there a non-compete clause in this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       20426,
+       21063
+      ],
+      "answer": "During the period beginning on the Effective Date and ending on the later of (i) the end of the Initial Term and (ii) the date falling two  years after completion of the most recent services provided by Rubicon under clause 7 (the \"Non-Competition Period\") and in the ISA Geographic  Area, as defined below, Rubicon agrees not to in any capacity, engage or have a financial interest in any ISA Competing Business, as defined  below, or provide managerial, supervisory, administrative, or financial services relating to any ISA Competing Business, including making available  any information or funding to any such ISA Competing Business."
+     },
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       21989,
+       22639
+      ],
+      "answer": "During the period beginning on the Effective Date and ending on the later of (i) the end of the Initial Term and (ii) the date falling two  years after completion of the most recent services provided by Rubicon under clause 7 (the \"Non-Competition Period\")  and in the Rubicon  Geographic Area, as defined below, ISA agrees not to in any capacity, engage or have a financial interest in any Rubicon Competing Business, as  defined below, or provide managerial, supervisory, administrative, or financial services relating to any Rubicon Competing Business, including  making available any information or funding to any such Rubicon Competing Business."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:4ba703cb",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Strategic Alliance Agreement between Information System Associates, Inc. and Rubicon Software Group plc; How is intellectual property ownership assigned in this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       14401,
+       14603
+      ],
+      "answer": "As regards Intellectual Property created by Rubicon, Rubicon acknowledges and agrees that those Works, as defined below,  shall belong exclusively to ISA subject to payment in accordance with clause 4.2"
+     },
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       14605,
+       15442
+      ],
+      "answer": "Works means, collectively, any work product (of any type),  software, developments, processes, improvements, and all works of authorship, in whole or in part, whether patentable or not and whether  copyrightable or not created as services provided directly to ISA or on behalf of ISA by Rubicon, which (i) are conceived or made by Rubicon, its  employees, contractors, consultants or agents during the Term and relate directly to the business in which ISA and Rubicon(during the Term by ISA) are, had been or were proposing to be engaged in; or (ii) are conceived or made by Rubicon, its employees, contractors, consultants or  agents during or after the Term and are made through the use of any ISA Confidential Information, or which result from any work performed by  Rubicon, its employees, contractors, consultants or agents for ISA."
+     },
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       15667,
+       16433
+      ],
+      "answer": "Rubicon shall make full and prompt disclosure to ISA of all Works as they are made (whether or not conceived or made jointly  with others). To the extent copyrightable, all Works shall be deemed to be \"works for hire\" and ISA shall be deemed to be the author thereof under  the U.S. Copyright Act. With respect to Works that do not constitute \"works for hire,\"  Rubicon, its employees, contractors, consultants and  agents do hereby assign to ISA or its designee all of their respective right, title and interest in and to such Works and all related patents, patent  applications, copyrights and copyright applications and does hereby agree that these obligations are binding upon their respective assigns,  executors, administrators and other legal representatives."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:8c983039",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Endorsement Agreement between ABG-Shaq, LLC and Papa John's International, Inc.; Is there an anti-assignment clause in this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+      "span": [
+       34757,
+       35166
+      ],
+      "answer": "In the event PAPA JOHN'S wishes to sub-contract any or all of the operation of the Products or its related business hereunder (e.g., design of the Products, advertising of the Products, creation of Products, etc.) to any third party (e.g., ad agencies, photographers, videographers, producers, crew, etc.) (each, a \"Sub-Contractor\"), the same may only be done if and after ABG has given its Approval therefor."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:4d7339c2",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Strategic Alliance Agreement between Information System Associates, Inc. and Rubicon Software Group plc; Are there any services to be provided after the termination of this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       12612,
+       12792
+      ],
+      "answer": "Each Party shall retain the financial records relating to all payments owed and/or paid under this Agreement for a period of six  years from the date such payment obligation arose."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:c7d57874",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Promotion Agreement between Depomed, Inc. and King Pharmaceuticals, Inc. for Glumetza; Is there a covenant not to sue included in this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt",
+      "span": [
+       64934,
+       65583
+      ],
+      "answer": "King recognizes Depomed's title to the Depomed Trademarks, and shall not at any time, during or after the Term, do or knowingly suffer to be done any act or thing which will in any way impair the rights of Depomed in or to the Depomed Trademarks. King acknowledges and agrees that it shall not acquire and shall not claim any title to the Depomed Trademarks adverse to Depomed by virtue of the rights granted under this Agreement or through King's use of the Depomed Trademarks, it being the intention of the parties that all goodwill and improved reputation generated by King and use of the Depomed Trademarks shall inure to the benefit of Depomed."
+     },
+     {
+      "uri": "cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt",
+      "span": [
+       66237,
+       66474
+      ],
+      "answer": "Depomed recognizes King's title to the King Trademarks, and shall not at any time, during or after the Term, do or knowingly suffer to be done any act or thing which will in any way impair the rights of King in or to the King Trademarks."
+     },
+     {
+      "uri": "cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt",
+      "span": [
+       66571,
+       66967
+      ],
+      "answer": "Depomed acknowledges and agrees that it shall not acquire and shall not claim any title to the King Trademarks adverse to King by virtue of the rights granted under this Agreement or through Depomed's use of the King Trademarks, it being the intention of the parties that all goodwill and improved reputation generated by Depomed and use of the King Trademarks shall inure to the benefit of King."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:9fbd2d0e",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Strategic Alliance Agreement between Information System Associates, Inc. and Rubicon Software Group plc; What is the renewal term for this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       18727,
+       19214
+      ],
+      "answer": "Unless terminated sooner, the term of this Agreement shall begin on the Effective Date and continue for three (3) years  thereafter (the \"Initial Term\") and shall automatically renew for additional one (1) year terms on the terms and conditions set forth herein (each a  \"Renewal Term\" and collectively, the \"Term\") unless either party gives the other Party Notice of its intention to terminate this Agreement ninety  (90) days before the end of the Initial Term or Renewal Term, if any."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:80c6b5c7",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Endorsement Agreement between ABG-Shaq, LLC and Papa John's International, Inc.; Are the licenses granted under this contract non-transferable?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+      "span": [
+       3851,
+       4268
+      ],
+      "answer": "In consideration of the remuneration to be paid to ABG pursuant hereto and subject to the conditions and limitations contained herein, ABG grants to PAPA JOHN'S the non-transferrable, non-assignable, non-sublicensable, indivisible right and license solely during the Term of the Agreement and within the Territory to use the Celebrity Endorsement, in each instance, subject to ABG's Approval (as hereinafter defined)."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:ab1dfe39",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Endorsement Agreement between ABG-Shaq, LLC and Papa John's International, Inc.; Is there a non-disparagement clause in this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+      "span": [
+       13350,
+       13670
+      ],
+      "answer": "PAPA JOHN'S shall not, during the Term or at any time thereafter: (I) defame or disparage CELEBRITY or the Personality Rights (or any portion thereof), nor shall PAPA JOHN'S place the CELEBRITY or the Personality Rights (or any portion thereof) in a negative light, whether in connection with this Agreement or otherwise"
+     },
+     {
+      "uri": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+      "span": [
+       61086,
+       61257
+      ],
+      "answer": "All Parties agree not to disparage or make derogatory comments, verbal or written, regarding the other Party during the Term of the Agreement, and for one year thereafter."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:3fd37041",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Marketing and Transportation Services Agreement between Purolator Courier Ltd. and Parcelway Courier Systems Canada Ltd. (Dynamex Inc.); What is the expiration date of this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/DYNAMEXINC_06_06_1996-EX-10.4-TRANSPORTATION SERVICES AGREEMENT.txt",
+      "span": [
+       3307,
+       3509
+      ],
+      "answer": "This Agreement shall be effective from the date first above written and         shall continue indefinitely until terminated by either Party in          accordance with the provisions of this Agreement."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:b89c05e7",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Marketing and Transportation Services Agreement between Purolator Courier Ltd. and Parcelway Courier Systems Canada Ltd. (Dynamex Inc.); Is there a cap on liability under this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/DYNAMEXINC_06_06_1996-EX-10.4-TRANSPORTATION SERVICES AGREEMENT.txt",
+      "span": [
+       16459,
+       16927
+      ],
+      "answer": "Such liability shall not exceed the        other Party's contractual liability to its customers. The Parties        acknowledge that their contract of carriage with their customers provides        that liability for loss, damage or delay, including liability for        consequential loss, is limited to Four Dollars and Forty One Cents        ($4.41) per kilogram or Two Dollars ($2.00) per pound unless a higher        value has been declared for insurance purposes."
+     },
+     {
+      "uri": "cuad/DYNAMEXINC_06_06_1996-EX-10.4-TRANSPORTATION SERVICES AGREEMENT.txt",
+      "span": [
+       18885,
+       19079
+      ],
+      "answer": "Notwithstanding anything contained herein to the contrary, the        indemnifying party's liability to the other hereunder shall not        exceed the insurance coverage set out in Section 9.0."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:46e001d4",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Promotion Agreement between Depomed, Inc. and King Pharmaceuticals, Inc. for Glumetza; What are the audit rights under this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt",
+      "span": [
+       101415,
+       102455
+      ],
+      "answer": "Upon 30 days prior written notice, such records shall be made available by the audited party for audit by an independent certified public accounting firm designated by the other party and reasonably acceptable to the party whose records are to be examined. The auditor will only examine such books and records during business hours but not more than once each fiscal year while this Agreement remains in effect and for three years thereafter in order to verify expenses, Net Sales, Depomed Net Sales, PDEs or Details completed, or payments due under this Agreement. The fees and expenses of the auditor performing such verification examination shall be borne by the party conducting the verification; provided, however, that if any verification reveals that the audited party has reported incorrectly, and the amount of such discrepancy is at least five percent of the aggregate amount that should have been reported for the period examined, then the audited party shall pay the entire amount of the fees and expenses for such verification."
+     },
+     {
+      "uri": "cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt",
+      "span": [
+       102461,
+       103212
+      ],
+      "answer": "Each party shall have the right, upon five business days' prior written notice, to audit all applicable records of the other party (other than records described in Section 7.2(a)) for the purpose of determining the audited party's compliance with the obligations set forth in this Agreement, including with respect to training programs and certifications and records reports for the Samples. The audit will be conducted during normal business hours, at convenient times. Any such audit may be conducted no more than once each fiscal year. The fees and expenses of the auditing party shall be borne by such party. This right to audit shall extend throughout the term of this Agreement and for one year after expiration or termination of this Agreement."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:45aaa0bf",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Promotion Agreement between Depomed, Inc. and King Pharmaceuticals, Inc. for Glumetza; Does this contract include an exclusivity agreement?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt",
+      "span": [
+       144427,
+       144889
+      ],
+      "answer": "Depomed agrees to grant and hereby grants to King an exclusive option (exercisable at King's sole discretion by providing written notice of intent at any time, but in no event later than 180 days after the Effective Date) to obtain an exclusive license in the Territory to certain of Depomed's proprietary drug delivery technology in combination with both metformin hydrochloride and any other active pharmaceutical ingredients (a \"Combination Product License\")."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:6d9302de",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Gas Transportation Agreement between PennTex North Louisiana Operating, LLC and MRD Operating LLC; What is the governing law for this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/PenntexMidstreamPartnersLp_20150416_S-1A_EX-10.4_9042833_EX-10.4_Transportation Agreement.txt",
+      "span": [
+       44720,
+       44931
+      ],
+      "answer": "This Agreement is entered into in the State of Texas and shall be governed, interpreted and construed in accordance with the laws of the State of Texas without regard to the conflicts of laws provisions thereof."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:a47945e2",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Gas Transportation Agreement between PennTex North Louisiana Operating, LLC and MRD Operating LLC; Does this contract include any volume restrictions?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/PenntexMidstreamPartnersLp_20150416_S-1A_EX-10.4_9042833_EX-10.4_Transportation Agreement.txt",
+      "span": [
+       17043,
+       17661
+      ],
+      "answer": "For each Day during the Term, (i) Transporter agrees to provide Firm Service on the Transportation System for Customer Gas delivered to the Transportation System in a quantity not to exceed Customer's Firm Service Gas for such Day, and Interruptible Service for all quantities in excess of Customer's Firm Service Gas for such Day, and deliver to Customer, or for the account of Customer, at the applicable Points of Delivery, Equivalent Quantities of Customer Gas received at the Points of Receipt, and (ii) Customer, or its designee, shall accept such Equivalent Quantities of Customer Gas at the Points of Delivery."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:c01d4827",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Endorsement Agreement between ABG-Shaq, LLC and Papa John's International, Inc.; Is there a cap on liability under this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+      "span": [
+       58826,
+       59464
+      ],
+      "answer": "TO THE MAXIMUM EXTENT PERMISSIBLE UNDER APPLICABLE LAW, NEITHER ABG NOR AUTHENTIC BRANDS GROUP LLC NOR CELEBRITY SHALL BE LIABLE TO PAPA JOHN'S FOR ANY CONSEQUENTIAL, INCIDENTAL, PUNITIVE, EXEMPLARY, OR SPECIAL DAMAGES, REGARDLESS OF THE FORM OR ACTION, WHETHER IN CONTRACT OR IN TORT, EVEN IF ABG OR AUTHENTIC BRANDS GROUP LLC HAS BEEN ADVISED OF THE POSSIBLITY OF SUCH DAMAGES OR LOSSES. IN NO EVENT SHALL ABG'S, AUTHENTIC BRANDS GROUP LLC'S, AND CELEBRITY'S TOTAL LIABILITY UNDER THIS AGREEMENT EXCEED THE AMOUNTS ACTUALLY RECEIVED BY ABG (EXCLUSIVE OF REIUMBURSEMENT OF EXPENSES) HEREUNDER, REGARDLESS OF THE NUMBER OR TYPE OF CLAIMS."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:58621788",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Marketing and Transportation Services Agreement between Purolator Courier Ltd. and Parcelway Courier Systems Canada Ltd. (Dynamex Inc.); Does this contract include an exclusivity agreement?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/DYNAMEXINC_06_06_1996-EX-10.4-TRANSPORTATION SERVICES AGREEMENT.txt",
+      "span": [
+       7970,
+       8101
+      ],
+      "answer": "Dynamex agrees not to provide sameday delivery services for any other        provider of next day or multiple day courier services."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:204dbcd4",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Endorsement Agreement between ABG-Shaq, LLC and Papa John's International, Inc.; Is there a minimum commitment required under this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+      "span": [
+       17729,
+       18366
+      ],
+      "answer": "At least eight (8) \"Service Days\", including but not limited to:\n\n1. Production days. Up to four (4) production days (defined as a maximum of eight (8) consecutive hours each), with PAPA JOHN'S creative agency.\n\n2. Personal appearances. CELEBRITY shall appear at least (each of the following not to exceed six (6) consecutive hours):\n\n(A) One (1) day engaging with franchisees and team members at company-wide event(s);\n\n(B) One (1) day visiting Papa John's Pizza stores, date and locations to be mutually agreed upon by the Parties; and\n\n(C) One (1) day at a community event, date and location to be mutually agreed upon by the Parties."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:cbcb14f8",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Endorsement Agreement between ABG-Shaq, LLC and Papa John's International, Inc.; Are there any services to be provided after the termination of this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+      "span": [
+       47413,
+       48223
+      ],
+      "answer": "Upon expiration or termination of this Agreement by PAPA JOHN'S (but not in the event of termination by ABG), and subject to PAPA JOHN'S ongoing compliance with the terms and conditions of this Agreement, PAPA JOHN'S shall have the following rights to use the Celebrity Endorsement solely as follows: (i) for a period of six (6) months following the effective date of expiration or termination, PAPA JOHN'S shall have the right to continue to use, display and distribute copies of Materials which bear the Celebrity Endorsement and which were printed and published, or irrevocably booked for publication or display with a third party, prior to the effective date of expiration or termination; and (ii) PAPA JOHN'S shall have the right, without restriction, to the in-house, non-commercial use of any Materials."
+     },
+     {
+      "uri": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+      "span": [
+       51519,
+       52259
+      ],
+      "answer": "If this Agreement is terminated by ABG for any of the reasons provided in Section 7.B. above, then CELEBRITY shall be entitled to immediately vest in all of the RSUs for the eighteen (18) months following the effective date of termination (including, without limitation, any balance of unvested RSUs that were due to vest as of the effective date of termination, in addition to any and all of the RSUs that would have vested during the next eighteen (18) months but for the termination); provided, however, that in the event there is less than eighteen (18) months remaining in the Term as of the effective date of such termination, then any and all of the balance of the RSUs shall vest immediately as of the effective date of termination."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:73d0c734",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Gas Transportation Agreement between PennTex North Louisiana Operating, LLC and MRD Operating LLC; What is the renewal term for this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/PenntexMidstreamPartnersLp_20150416_S-1A_EX-10.4_9042833_EX-10.4_Transportation Agreement.txt",
+      "span": [
+       49279,
+       49722
+      ],
+      "answer": "This Agreement shall commence on the Effective Date and continue in full force and effect until the end of the fifteenth (15th) Contract Year, and shall continue in full force and effect thereafter until terminated by either Party by providing thirty (30) calendar days' prior written notice of termination to the other Party (such fifteen (15) Contract Year period, as may be further extended as provided herein is referred to as the \"Term\")."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:e32f6926",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Walabot HOME Reseller Agreement between Vayyar Imaging Ltd. and Inde Living Holdings, Inc.; What is the renewal term for this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/HealthcareIntegratedTechnologiesInc_20190812_8-K_EX-10.1_11776966_EX-10.1_Reseller Agreement.txt",
+      "span": [
+       13434,
+       13592
+      ],
+      "answer": "Thereafter, this Agreement shall automatically be renewed for successive 1-year terms (each a \"Renewal Term\", and together with the Initial Term, the \"Term\")."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:db04ebe1",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Endorsement Agreement between ABG-Shaq, LLC and Papa John's International, Inc.; Is there a covenant not to sue included in this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+      "span": [
+       15881,
+       16680
+      ],
+      "answer": "PAPA JOHN'S shall not, during the Term or at any time thereafter, attack or challenge, or lend assistance to any third party in connection with an attack or challenge, of any right, title or interest of ABG in and to any Personality Rights (including, without limitation, copyrights, trademarks and/or patents), whether by way of: (i) an application for and/or an opposition against any intellectual property rights relating to the Personality Rights, (ii) adoption and/or application for and/or registration of any intellectual property rights (including, without limitation, domain names, business names, and social media accounts) that are confusingly similar to, that dilute, or that infringe, any of the Personality Rights, or (iii) any lawsuit, cancellation proceeding or action, or otherwise."
+     },
+     {
+      "uri": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+      "span": [
+       41345,
+       41917
+      ],
+      "answer": "Each party acknowledges and agrees that (i) all copyrights and trademarks used in connection herewith that are owned by a party shall be and remain the sole and complete property of such party; (ii) the other party shall not at any time acquire or claim any right, title or interest of any nature whatsoever in any such copyright or trademark by virtue of this Agreement; (iii) the other party shall not contest or assist others to contest the validity of all such copyrights and trademarks; and (iv) it will not incur or create any expenses chargeable to the other party."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:04efa2e8",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Gas Transportation Agreement between PennTex North Louisiana Operating, LLC and MRD Operating LLC; What are the audit rights under this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/PenntexMidstreamPartnersLp_20150416_S-1A_EX-10.4_9042833_EX-10.4_Transportation Agreement.txt",
+      "span": [
+       30799,
+       31257
+      ],
+      "answer": "Each Party or its designated representatives shall, upon reasonable notice to the other Party, have the right, no more frequently than two (2) times per twelve (12) consecutive calendar Months, at its own expense, at reasonable times and during normal business hours, to examine the books and records of such other Party to the extent necessary to verify the accuracy of any statement, charge, computation, or demand made under or pursuant to this Agreement."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:a577f0a2",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Gas Transportation Agreement between PennTex North Louisiana Operating, LLC and MRD Operating LLC; Is there uncapped liability under this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/PenntexMidstreamPartnersLp_20150416_S-1A_EX-10.4_9042833_EX-10.4_Transportation Agreement.txt",
+      "span": [
+       39668,
+       40153
+      ],
+      "answer": "NO PARTY SHALL BE LIABLE FOR CONSEQUENTIAL, INCIDENTAL, PUNITIVE, EXEMPLARY OR INDIRECT DAMAGES, LOST PROFITS OR OTHER BUSINESS INTERRUPTION DAMAGES, BY STATUTE, IN TORT OR CONTRACT, OR OTHERWISE; PROVIDED, HOWEVER, THAT THIS LIMITATION SHALL NOT LIMIT A PARTY'S RIGHT TO RECOVERY HEREUNDER FOR ANY SUCH DAMAGES TO THE EXTENT SUCH PARTY IS REQUIRED TO PAY SUCH DAMAGES TO A THIRD PARTY IN CONNECTION WITH A MATTER FOR WHICH SUCH PARTY IS OTHERWISE ENTITLED TO INDEMNIFICATION HEREUNDER"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:95fd13ae",
+   "corpus_id": "legal-full",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Joint Venture Agreement between Tate & Lyle Fermentation Products Ltd. and Igene Biotechnology, Inc. for Astaxanthin Production; Is there an anti-assignment clause in this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/IGENEBIOTECHNOLOGYINC_05_13_2003-EX-1-JOINT VENTURE AGREEMENT.txt",
+      "span": [
+       53872,
+       54724
+      ],
+      "answer": "Except as permitted pursuant to Article 13.1 hereof, neither Party shall assign or transfer this Agreement, or any and all related rights and obligations in the Joint Venture or all rights and all obligations in any related agreements, without the prior written consent of the other Party, which consent may not be unreasonably withheld or delayed; provided, however, any Party may assign any or all of its interests in this Agreement or the Operating Company to a wholly-owned subsidiary (which shall at all times remain a wholly-owned subsidiary, and such subsidiary may be a partnership, limited liability company, or corporation) or commonly-owned affiliate of Igene or T&L, as the case may be, provided that the ultimate parent company (e.g. Igene or T&L, as the case may be) shall guarantee such subsidiary's or affiliate's performance hereunder."
+     }
+    ]
+   }
+  }
+ ]
+}

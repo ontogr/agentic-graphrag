@@ -1,0 +1,366 @@
+{
+ "name": "legalbench-rag-mini",
+ "domain": "legal",
+ "mode": "lite",
+ "upstream": {
+  "repo": "awinml/legalbench-rag",
+  "revision": "0263f7b2a9fb811f984ead05a0aa0d796a456124",
+  "benchmark_files_sha256": "991d965c4e33873cd4db2cfc6e06786a2f313d6d9d310c798e69efde02e0906c"
+ },
+ "corpora": [
+  {
+   "id": "legal-lite",
+   "service": "legal-lite",
+   "schema_name": "legal",
+   "documents": [
+    {
+     "id": "contractnli/Kenway-NDA-Form-Blank.txt",
+     "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+     "sha256": "3dff6905cdc6ba5263a025b509f5c989ad4a3108a3ca726c753f1f9bf8072fb6",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/Kenway-NDA-Form-Blank.txt"
+    },
+    {
+     "id": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+     "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+     "sha256": "17f0b67c57a587044cc00aa7b9dfc258cd199f809b8fa5c19acddceb873b8517",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt"
+    },
+    {
+     "id": "privacy_qa/Viber Messenger.txt",
+     "uri": "privacy_qa/Viber Messenger.txt",
+     "sha256": "6c92fa4cadaef3b1f37d0d34ea81cbccfcf3576d321e63fb916c24e64e100767",
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/privacy_qa/Viber Messenger.txt"
+    }
+   ],
+   "n_tokens": 18638
+  }
+ ],
+ "questions": [
+  {
+   "id": "privacy_qa:d7216916",
+   "corpus_id": "legal-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; how is my data used?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       6878,
+       7943
+      ],
+      "answer": "(a)Make our service available: We use your Registration and Account information to (i) register you for the App and create your User Account for Viber; (ii) create your profile and make it visible; (iii) process your payments; (iv) create your Viber ID; (v) provide customer service, give you information about your account, and respond to your requests; (vi) personalize your experience by providing content (such as games) on the Service, including targeted advertising of Viber services and other 3rd party services that we believe may be of most interest to you; personalization may include automated decisions about what you will view and when, but be assure that it will not have legal effects on you (vii) indicate which of your contacts is already a Viber member and notify you when your contacts become active on the Service (viii) display the name of the contact as it appears in your address book when a call is received on the Service, and (ix) sync your contacts with Viber running on Windows, MacOS, Linux, Android tablets, iPads and Windows Tablets.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       8203,
+       8969
+      ],
+      "answer": "(b) Improve our Services:We use call log information and usage information (as described above) to better understand network behavior and trends (numbers of messages and calls made by users, typical destinations, call lengths, network type, etc), detect potential outages and technical issues (this helps us notice things like a drop in call volume in a certain geography, a shift in call length, a change in typical networks, etc) to improve our Services.\n(c) Provide Interesting Offerings to You and others: As part of value added services provided by us or by a third party within Viber, we may use your information to continuously optimize and personalize those services and send you personal updates about new offerings which we believe you will find relevant.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       9578,
+       10216
+      ],
+      "answer": "You will be asked to allow the use of your location data before Viber provides you specific location services offerings, and you may also adjust your phone preferences to disable the use of your location data at any time.\n(d) Process Your Payments: We may use your Information like your name and phone number to process your payments for our Services through a secured third-party service provider and, on an aggregate basis to determine charges for our phone carriers and other service providers.\n(e)Prevent Fraud & Spam; enforcement of law: We really want Viber to be free of spam and fraudulent content so that you feel safe and free.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       10771,
+       10918
+      ],
+      "answer": "If your account has been blocked you can contact our support.\nWe may use your information and call log information to comply with applicable laws.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       12995,
+       13336
+      ],
+      "answer": "The purpose of this practice is to provide joint content and a better service from us and the group, and allow you to enjoy from the Rakuten ecosystem benefits, as well as for fraud prevention and personalization of the services,and any other purpose described in the privacy policy of the other Rakuten group company providing the service.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:8f3852c2",
+   "corpus_id": "legal-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; how long do you retain meta data?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       10918,
+       11474
+      ],
+      "answer": "(f) Communicate With You: As part of the Viber family, we want to keep in touch with you.\nWe use your information to contact you (via message or other means) to maintain the App, including your Viber Out User Account, to comply with your stated communication preferences or to provide updates about other Viber services.\nData Retention: Unless otherwise specified, we retain information as long as it is necessary and relevant for us to achieve the purposes referred to above or to enable us to comply with our legal data protection retention obligations.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:15378f01",
+   "corpus_id": "legal-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Kenway's Non-Disclosure Agreement; Does the document mention that some obligations of the Agreement may survive the termination of the Agreement?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       10289,
+       10403
+      ],
+      "answer": "The provisions of this Agreement shall continue to apply to any documents and materials retained by the Recipient."
+     },
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       13679,
+       13900
+      ],
+      "answer": "The obligations of each Party shall, notwithstanding any earlier termination of negotiations or discussions between the Parties in relation to the Purpose, continue for a period of 2 years from the date of this Agreement."
+     },
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       14063,
+       14179
+      ],
+      "answer": "6.3 Termination of this Agreement shall not affect any accrued rights or remedies to which either Party is entitled."
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:aecaeb70",
+   "corpus_id": "legal-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Kenway's Non-Disclosure Agreement; Does the document require the Receiving Party to notify the Disclosing Party if they are required by law, regulation, or judicial process to disclose any Confidential Information?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       7381,
+       8083
+      ],
+      "answer": "2.3 A Party may disclose Confidential Information to the extent such Confidential Information is required to be disclosed by law, by any governmental or other regulatory authority (including, without limitation any relevant securities exchange) or by a Court or other authority of competent jurisdiction provided that, to the extent it is legally permitted to do so, it gives the other Party as much notice of this disclosure as possible and, where notice of disclosure is not prohibited and is given in accordance with this Clause 2.3 , it takes into account the reasonable requests of the other Party in relation to the content of this disclosure, to the extent that it is legally permitted to do so."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:011de28f",
+   "corpus_id": "legal-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Strategic Alliance Agreement between Information System Associates, Inc. and Rubicon Software Group plc; What is the governing law for this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       36019,
+       36116
+      ],
+      "answer": "This Agreement shall be governed by and interpreted under the laws of the State of Florida, USA,."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:8813a3fc",
+   "corpus_id": "legal-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Strategic Alliance Agreement between Information System Associates, Inc. and Rubicon Software Group plc; Is there a non-compete clause in this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       20426,
+       21063
+      ],
+      "answer": "During the period beginning on the Effective Date and ending on the later of (i) the end of the Initial Term and (ii) the date falling two  years after completion of the most recent services provided by Rubicon under clause 7 (the \"Non-Competition Period\") and in the ISA Geographic  Area, as defined below, Rubicon agrees not to in any capacity, engage or have a financial interest in any ISA Competing Business, as defined  below, or provide managerial, supervisory, administrative, or financial services relating to any ISA Competing Business, including making available  any information or funding to any such ISA Competing Business."
+     },
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       21989,
+       22639
+      ],
+      "answer": "During the period beginning on the Effective Date and ending on the later of (i) the end of the Initial Term and (ii) the date falling two  years after completion of the most recent services provided by Rubicon under clause 7 (the \"Non-Competition Period\")  and in the Rubicon  Geographic Area, as defined below, ISA agrees not to in any capacity, engage or have a financial interest in any Rubicon Competing Business, as  defined below, or provide managerial, supervisory, administrative, or financial services relating to any Rubicon Competing Business, including  making available any information or funding to any such Rubicon Competing Business."
+     }
+    ]
+   }
+  },
+  {
+   "id": "cuad:4ba703cb",
+   "corpus_id": "legal-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider the Strategic Alliance Agreement between Information System Associates, Inc. and Rubicon Software Group plc; How is intellectual property ownership assigned in this contract?"
+    }
+   ],
+   "group": "cuad",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       14401,
+       14603
+      ],
+      "answer": "As regards Intellectual Property created by Rubicon, Rubicon acknowledges and agrees that those Works, as defined below,  shall belong exclusively to ISA subject to payment in accordance with clause 4.2"
+     },
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       14605,
+       15442
+      ],
+      "answer": "Works means, collectively, any work product (of any type),  software, developments, processes, improvements, and all works of authorship, in whole or in part, whether patentable or not and whether  copyrightable or not created as services provided directly to ISA or on behalf of ISA by Rubicon, which (i) are conceived or made by Rubicon, its  employees, contractors, consultants or agents during the Term and relate directly to the business in which ISA and Rubicon(during the Term by ISA) are, had been or were proposing to be engaged in; or (ii) are conceived or made by Rubicon, its employees, contractors, consultants or  agents during or after the Term and are made through the use of any ISA Confidential Information, or which result from any work performed by  Rubicon, its employees, contractors, consultants or agents for ISA."
+     },
+     {
+      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+      "span": [
+       15667,
+       16433
+      ],
+      "answer": "Rubicon shall make full and prompt disclosure to ISA of all Works as they are made (whether or not conceived or made jointly  with others). To the extent copyrightable, all Works shall be deemed to be \"works for hire\" and ISA shall be deemed to be the author thereof under  the U.S. Copyright Act. With respect to Works that do not constitute \"works for hire,\"  Rubicon, its employees, contractors, consultants and  agents do hereby assign to ISA or its designee all of their respective right, title and interest in and to such Works and all related patents, patent  applications, copyrights and copyright applications and does hereby agree that these obligations are binding upon their respective assigns,  executors, administrators and other legal representatives."
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:58624fcb",
+   "corpus_id": "legal-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; how is any information collected by viber shared with other parties?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       11655,
+       15357
+      ],
+      "answer": "We may keep activity data on a non-identifiable basis to improve our services.\nYour posts on public accounts and communities may remain available if you do not delete them.\nYour data is kept safe with us, but we do share your personal information with third parties we trust in order to provide you with our services, as follows:\n(a)The Viber Corporate Family:We may share the information we collect about you with the Viber corporate family, including our parent company, Rakuten Inc., and its and our affiliates and subsidiaries (To learn more about Rakuten Inc., which is a publicly traded company in Japan, please follow this link:http://global.rakuten.com/corp/about/).\nThe information may be disclosed to: (i) provide joint content and our services (eg, registration, coordination of membership accounts between the Viber corporate family, transactions, analytics and customer support); (ii) help detect and prevent potentially illegal acts, violations of our policies, fraud and/or data security breaches.\nThe information provided in your registration, if you link your email to the Viber account, will be shared with Rakuten group to create the Rakuten account and/or to link your Rakuten account with your Viber account.\nData about your use of the Viber Service and Rakuten group services will also be shared to the joint account.\nThe purpose of this practice is to provide joint content and a better service from us and the group, and allow you to enjoy from the Rakuten ecosystem benefits, as well as for fraud prevention and personalization of the services,and any other purpose described in the privacy policy of the other Rakuten group company providing the service.\nYou can choose to delink your Viber account from the Rakuten account at any time by editing your profile on the app.\n(b) App Providers and Other Third-Parties:We may disclose your information to service providers and other third-parties under contract who help with providing you and others our Services on our behalf or other services provided by third-parties via our Services (such as, but not limited to, fraud and spam investigations, payment processing, site analytics and operations, providing special partnership features in our service either on an aggregate non identifiable basis, or using a unique identifier which is not attributable to you).\nThey are required to secure the data they receive.\n(c) Advertising partners: to enable the limited advertisements on our service, we may share a unique advertising identifier that is not attributable to you, with our third party advertising partners, and advertising service providers, along with certain technical data about you (your language preference, country, city, and device data), based on our legitimate interest.\nThis includes partners managing our advertising placements and also advertisers themselves and their agencies or third parties managing their advertising demands.\nYour unique advertising identifier is created by your mobile devices operating system and you can change it or choose not to share it at any time.\nIf you want to know more, read our Cookies and Tracking Technologies Policy.\n(d) Legal and Law Enforcement: We may disclose your information to law enforcement, governmental agencies, or authorized third-parties, in response to a verified request relating to terror acts, criminal investigations or alleged illegal activity or any other activity that may expose us, you, or any other Viber user to legal liability.\n(e)Change of Control  New Owners: We may share your information with another business entity, if we plan to merge with or be acquired by that business, or are involved in a transaction with similar financial effect.\n"
+     }
+    ]
+   }
+  },
+  {
+   "id": "contractnli:78d9a7c7",
+   "corpus_id": "legal-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider Kenway's Non-Disclosure Agreement; Does the document permit the Receiving Party to retain some Confidential Information even after its return or destruction?"
+    }
+   ],
+   "group": "contractnli",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       9379,
+       9439
+      ],
+      "answer": "At the request of the Disclosing Party, the Recipient shall:"
+     },
+     {
+      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
+      "span": [
+       9808,
+       10289
+      ],
+      "answer": "(c) certify in writing to the Disclosing Party that it has complied with the requirements of this Clause, provided that a Recipient may retain documents and materials containing, reflecting, incorporating, or based on the Disclosing Party's Confidential Information to the extent required by law or any applicable governmental or regulatory authority and to the extent reasonable to permit the Recipient to keep evidence that it has performed its obligations under this Agreement. "
+     }
+    ]
+   }
+  },
+  {
+   "id": "privacy_qa:cb9bb451",
+   "corpus_id": "legal-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Consider \"Viber Messenger\"'s privacy policy; can i submit a request to have my data deleted?"
+    }
+   ],
+   "group": "privacy_qa",
+   "reference": {
+    "snippets": [
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       773,
+       900
+      ],
+      "answer": "If for some reason, the message, wasnt delivered to its destination within up to 2 weeks, it will be deleted from our servers.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       7943,
+       8080
+      ],
+      "answer": "If you deactivate your Viber account, it will delete the address book from our servers (more about this below), quickly and permanently.\n"
+     },
+     {
+      "uri": "privacy_qa/Viber Messenger.txt",
+      "span": [
+       17121,
+       17244
+      ],
+      "answer": "It will be removed from our services but may remain on local devices of some users (assuming they have chosen to save it).\n"
+     }
+    ]
+   }
+  }
+ ]
+}

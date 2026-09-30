@@ -68,6 +68,7 @@ repos:
     rev: v1.50.2
     hooks:
       - id: typos
+        args: [--force-exclude]
         exclude: agrag/llm/baml_client/
 
   - repo: local
