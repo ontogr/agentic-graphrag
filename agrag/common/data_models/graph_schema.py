@@ -181,3 +181,9 @@ GENERIC = GraphSchema(
         ),
     ],
 )
+"""A ready-made schema for open-domain text.
+
+It declares five entity types (``Person``, ``Organization``, ``Location``,
+``Event``, and ``Product``) and one relation, ``RELATED_TO``, allowed between any
+two of them. Use it to try agrag without writing a schema.
+"""

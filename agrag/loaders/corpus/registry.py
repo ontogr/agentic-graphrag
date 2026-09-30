@@ -79,8 +79,7 @@ class LoaderRegistry:
         Raises:
             UnsupportedFormatError: No loader claims the source's extension.
             MissingExtraError: A loader is mapped to the extension, but its package
-            extra
-                failed to import, and no fallback loader is available either.
+                extra failed to import, and no fallback loader is available either.
         """
         entries = self._by_extension.get(source.extension)
         if not entries:

@@ -25,8 +25,7 @@ class SourceRef:
         uri: The location of the source, as the caller gave it.
         extension: The lowercased file extension, with its leading dot.
         byte_size: The size of the source in bytes. ``None`` when the backend cannot
-        cheaply
-            stat the source.
+            cheaply stat the source.
         mime_type: The detected MIME type, when the loader can detect one.
         modified_at: The last-modified time of the source, when the backend reports it.
     """
@@ -62,14 +61,18 @@ class DecodedText:
 class ErrorPolicy(StrEnum):
     """The action to take when one source in a batch fails.
 
-    RAISE: Stop the whole run with the first error.
-    SKIP: Drop the failing source and count it.
-    QUARANTINE: Set the failing source aside for review and count it.
+    The policy applies to each source separately. ``RAISE`` is the default of
+    ``Graph.add``.
     """
 
     RAISE = "raise"
+    """Stop the whole run and raise the first error."""
+
     SKIP = "skip"
+    """Drop the failing source and count it in ``skipped``."""
+
     QUARANTINE = "quarantine"
+    """Set the failing source aside and record it in ``quarantined_items``."""
 
 
 class JsonMode(StrEnum):
@@ -147,7 +150,7 @@ class LoaderCursor:
     Attributes:
         uri: The source to resume after. ``None`` means start at the beginning.
         record_index: The record to resume after within the source. ``None`` means the
-        start.
+            start.
     """
 
     uri: str | None = None

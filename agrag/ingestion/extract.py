@@ -252,7 +252,14 @@ class ExtractorMissingExtraError(IngestionError):
 
 
 class Extractor(ABC):
-    """Reads one Chunk and produces the entities and relations it contains."""
+    """Reads one chunk and returns the entities and relations it contains.
+
+    Subclass it to plug in your own extraction. ``Graph`` awaits ``extract`` once
+    for each chunk that extraction runs on. The built-in extractors are
+    ``GlinerExtractor`` (a local model), ``BAMLExtractor`` (an LLM call), and
+    ``EscalatingExtractor`` (a cheap extractor first, a stronger one when the
+    result is weak).
+    """
 
     @abstractmethod
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
@@ -321,7 +328,14 @@ class ExtractionLLMSettings(BaseSettings):
 
 
 class GlinerExtractor(Extractor):
-    """Extracts locally with a GLiNER2.5 model. No network call."""
+    """Extracts entities and relations with a local GLiNER2.5 model.
+
+    The model runs in this process, so extraction needs no LLM key. It loads on
+    first use and one load serves concurrent calls. The first load downloads the
+    weights from Hugging Face unless ``model`` is passed. GLiNER reports entity
+    spans and types, so extracted entities carry no property values. Needs the
+    ``extract`` extra.
+    """
 
     def __init__(
         self,
@@ -551,7 +565,14 @@ class GlinerExtractor(Extractor):
 
 
 class BAMLExtractor(Extractor):
-    """Extracts with an LLM, via a BAML function and a runtime ClientRegistry."""
+    """Extracts entities and relations with an LLM through a typed BAML function.
+
+    The extractor calls ``ExtractEntitiesAndRelations`` on the clients in
+    ``ExtractionLLMSettings`` and retries failed calls with the settings' backoff.
+    The response type comes from the graph schema, so the model can return only
+    declared labels and property keys, and it can fill entity properties. Needs
+    the ``llm`` extra and a reachable LLM endpoint.
+    """
 
     def __init__(
         self,
@@ -767,7 +788,14 @@ class BAMLExtractor(Extractor):
 
 
 class EscalatingExtractor(Extractor):
-    """Runs a cheap primary extractor first, escalating per chunk when it's weak."""
+    """Runs a cheap extractor on every chunk and a stronger one on weak results.
+
+    The primary extractor runs first. A chunk escalates when the primary finds no
+    entities in a chunk of at least ``min_chunk_words`` words, or when the mean
+    entity confidence is below ``min_confidence``. An escalated chunk gets the
+    ``escalate_to`` result alone; the two results are never combined. A common
+    pairing is ``GlinerExtractor`` as primary and ``BAMLExtractor`` as fallback.
+    """
 
     def __init__(
         self,

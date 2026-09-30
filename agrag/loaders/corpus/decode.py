@@ -40,8 +40,7 @@ def decode_text(raw: bytes, opts: ReadOptions) -> DecodedText:
 
     Raises:
         DecodeError: The bytes do not decode under the forced encoding, or detection
-        fails
-            and the latin-1 fallback is unavailable.
+            fails and the latin-1 fallback is unavailable.
     """
     had_bom = _had_bom(raw)
 
