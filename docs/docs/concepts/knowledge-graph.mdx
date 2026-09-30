@@ -34,8 +34,8 @@ The graph has five kinds of node:
 1. **Document.** One node for each logical document. Its `document_key` stays the same when the content changes. It holds the source location, the title and the current content hash.
 2. **Chunk.** One retrieval-sized piece of text. It holds the text, its location in the source, the headings above it, and the chunker that made it.
 3. **Entity.** One node for each name and type, such as the person "Ada Lovelace". Its label is the type from your schema. The same name with two types makes two entities. It records which chunks mention it.
-4. **ResolvedEntity.** A group of entities that the resolver decided are the same thing. It exists only for groups of two or more.
-5. **Community.** A group of related entities. It holds a title, a summary, a rating and findings.
+4. **[ResolvedEntity](./resolved-entities.mdx).** A group of entities that the resolver decided are the same thing. It exists only for groups of two or more.
+5. **[Community](./communities.mdx).** A group of related entities. It holds a title, a summary, a rating and findings.
 
 The edges connect them:
 
@@ -43,7 +43,7 @@ The edges connect them:
 - `NEXT_CHUNK` joins two neighbouring chunks of one document.
 - `MENTIONED_IN` joins a chunk to each entity it mentions.
 - A schema relation joins two entities, for example `WORKED_WITH`. Only the patterns that your schema allows can exist.
-- `MATCHES` joins two entities that the resolver matched.
+- `MATCHES` joins two entities that the resolver matched. See [Matching and resolved entities](./resolved-entities.mdx).
 - `RESOLVED_AS` joins an entity to its resolved entity.
 - `MEMBER_OF` joins an entity to its community.
 

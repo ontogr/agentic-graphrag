@@ -42,13 +42,13 @@ The ingestion flow has five stages:
 
 1. **Load.** A loader reads each source and makes documents.
 2. **Chunk.** A chunker splits each document into chunks. It records where each chunk came from.
-3. **Extract.** An extractor finds entities and relations in each chunk.
-4. **Resolve.** The resolver decides which mentions name the same thing.
+3. **[Extract](./extraction.mdx).** An extractor finds entities and relations in each chunk.
+4. **[Resolve](./resolution.mdx).** The resolver decides which mentions name the same thing.
 5. **Store.** The graph store keeps documents, chunks, entities and relations. An embedder adds vectors.
 
 The query flow has four steps:
 
-1. The planner splits the question into sub-questions.
+1. The planner splits the question into sub-questions. The [Agent loop](./agent-loop.mdx) page describes the planner, the researcher and the verifier.
 2. The researcher searches the graph and the chunks.
 3. The verifier checks whether the evidence answers each sub-question.
 4. The planner writes the answer and cites its evidence.
@@ -62,7 +62,7 @@ A note says that Ada Lovelace worked with Charles Babbage in London on the Analy
 <details>
 <summary>Design choices</summary>
 
-**Why a graph store and a vector store?** The graph keeps structure and provenance. A vector index finds similar text fast. Neo4j has a native vector index, so the second store is optional. Add Qdrant, Weaviate or Milvus when you want a dedicated search service.
+**Why a graph store and a vector store?** The [Graph storage](./graph-storage.mdx) page compares them. The graph keeps structure and provenance. A vector index finds similar text fast. Neo4j has a native vector index, so the second store is optional. Add Qdrant, Weaviate or Milvus when you want a dedicated search service.
 
 **Why must you pass in the components?** `Graph.open` takes the store, the embedder, the extractor and the schema as arguments. The library has no global settings for them. Two graphs in one process can use different stores. A test can pass a fake.
 
