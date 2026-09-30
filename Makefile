@@ -36,7 +36,7 @@ help:
 	@echo "  make security         - Run all security scans"
 	@echo "  make build            - Build sdist and wheel into dist/"
 	@echo "  make wheel-test       - Install the built wheel in a clean env and import it"
-	@echo "  make docs-api         - Regenerate docs/docs/api/index.md from docstrings"
+	@echo "  make docs-api         - Regenerate the per-package API pages in docs/docs/api/ from docstrings"
 	@echo "  make docs-install     - Install the Docusaurus site's npm dependencies"
 	@echo "  make docs-dev         - Run the Docusaurus dev server"
 	@echo "  make docs-build       - Regenerate the API reference and build the docs site"
@@ -241,12 +241,18 @@ clean:
 
 # Overridable so the pre-commit hook can use its isolated docs environment.
 DOCS_GRIPPE2MD ?= uv run --group docs griffe2md
+DOCS_PYTHON ?= uv run python
+DOCS_API_PKGS ?= agents chunking common embedding eval graphdb ingestion loaders observability retrieval vectordb
 
 docs-api:
 	mkdir -p docs/docs/api
-	{ printf '%s\n' '---' 'title: API Reference' 'sidebar_position: 2' 'sidebar_class_name: agrag-hidden' '---' ''; \
-	  $(DOCS_GRIPPE2MD) agrag -f; } > docs/docs/api/index.md.tmp
-	mv docs/docs/api/index.md.tmp docs/docs/api/index.md
+	rm -f $(filter-out docs/docs/api/index.md,$(wildcard docs/docs/api/*.md))
+	i=2; for p in $(DOCS_API_PKGS); do \
+	  { printf '%s\n' '---' "title: agrag.$$p" "sidebar_position: $$i" '---' ''; \
+	    PYTHONPATH=. $(DOCS_GRIPPE2MD) agrag.$$p -f; } > docs/docs/api/$$p.md.tmp \
+	    && mv docs/docs/api/$$p.md.tmp docs/docs/api/$$p.md || exit 1; \
+	  i=$$((i+1)); done
+	$(DOCS_PYTHON) .github/scripts/docs_api_links.py docs/docs/api
 
 docs-install:
 	cd docs && npm ci
