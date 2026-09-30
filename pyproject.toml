@@ -244,3 +244,8 @@ extend-exclude = [
   "thoughts/**",
   "agrag/llm/baml_client/**",
 ]
+
+[tool.typos.default.extend-words]
+# The HealthBench grader prompt in benchmarks/grading/healthbench.py is kept word
+# for word, including this misspelling.
+critera = "critera"
