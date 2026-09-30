@@ -24,7 +24,7 @@ from agrag.common.data_models.stage_failure import StageFailure  # noqa: F401
 from agrag.cypher.entities import hydrate_entities_by_id_query, validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
-from agrag.ingestion._ingest_pipeline import _parse_entity_node
+from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion.community import (
     CommunityDetectionMissingExtraError,
     compute_communities,
@@ -454,7 +454,7 @@ class TestCommunityDetectionIntegration:
         entities_by_id = {
             ent.id: ent
             for row in rows
-            if (ent := _parse_entity_node(row.get("n", row))) is not None  # type: ignore[arg-type]
+            if (ent := parse_entity_node(row.get("n", row))) is not None  # type: ignore[arg-type]
         }
         # Patch LLM to count calls and verify truncation.
         batch_size = 1

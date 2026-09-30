@@ -15,7 +15,10 @@ class CutoverJobSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="CUTOVER_JOB_", env_file=".env", extra="ignore"
+        env_prefix="CUTOVER_JOB_",
+        env_file=".env",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     lease_ttl_seconds: int = Field(default=60, gt=0)

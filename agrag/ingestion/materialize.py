@@ -30,6 +30,7 @@ from agrag.cypher.resolution_write import (
     upsert_matches_query,
 )
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion.merge import compute_merge
 from agrag.ingestion.resolve.resolver import ResolvedMatch
 
@@ -261,14 +262,10 @@ async def write_matches_and_materialize(
             },
         )
         if component_rows:
-            from agrag.ingestion._ingest_pipeline import (  # noqa: PLC0415
-                _parse_entity_node,
-            )
-
             persisted_members = {
                 entity.id: entity
                 for row in component_rows
-                if (entity := _parse_entity_node(row.get("member"))) is not None
+                if (entity := parse_entity_node(row.get("member"))) is not None
             }
             if persisted_members:
                 members = sorted(
@@ -331,8 +328,6 @@ async def deactivate_match_and_rematerialize(
     tracer: Tracer | None = None,
 ) -> DeactivationResult:
     """Deactivate a match and return its replacements and deleted derived IDs."""
-    from agrag.ingestion._ingest_pipeline import _parse_entity_node  # noqa: PLC0415
-
     async with graph_store.transaction() as transaction:
         endpoint_rows = await transaction.execute_read(
             fetch_match_endpoints_query(), {"match_id": str(match_id)}
@@ -342,7 +337,7 @@ async def deactivate_match_and_rematerialize(
         endpoints: list[UUID] = []
         for row in endpoint_rows:
             for key in ("a", "b"):
-                entity = _parse_entity_node(row.get(key))
+                entity = parse_entity_node(row.get(key))
                 if entity is not None:
                     endpoints.append(entity.id)
         if len(set(endpoints)) != 2:
@@ -360,7 +355,7 @@ async def deactivate_match_and_rematerialize(
         )
         by_seed: dict[str, list[Entity]] = defaultdict(list)
         for row in component_rows:
-            entity = _parse_entity_node(row.get("member"))
+            entity = parse_entity_node(row.get("member"))
             if entity is not None:
                 by_seed[str(row["seed_id"])].append(entity)
         components = {
@@ -470,7 +465,6 @@ async def prune_orphaned_entities(
     candidate id, never with a graph-wide scan.
     """
     from agrag.cypher.entities import hydrate_entities_by_id_query  # noqa: PLC0415
-    from agrag.ingestion._ingest_pipeline import _parse_entity_node  # noqa: PLC0415
 
     unique_ids = list(dict.fromkeys(candidate_entity_ids))
     empty = PruningResult(
@@ -525,7 +519,7 @@ async def prune_orphaned_entities(
             entity
             for row in hydrate_rows
             if (
-                entity := _parse_entity_node(
+                entity := parse_entity_node(
                     row.get("member", row.get("n", row))
                     if isinstance(row, dict)
                     else row

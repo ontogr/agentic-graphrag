@@ -378,8 +378,7 @@ def fetch_entity_neighbors_query() -> str:
     """
     return (
         "UNWIND $ids AS entity_id "
-        "CALL { "
-        "WITH entity_id "
+        "CALL (entity_id) { "
         "MATCH (n:"
         f"{NODE_IDENTITY_LABEL} {{id: entity_id}})-[r]-(m:{NODE_IDENTITY_LABEL}) "
         "WHERE NOT type(r) IN $exclude_types "

@@ -9,6 +9,7 @@ from unittest import mock
 from uuid import uuid4
 
 import pytest
+from neo4j import NotificationDisabledClassification
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
@@ -129,6 +130,19 @@ class TestConnectClose:
             )
         assert build_calls == 1
         assert first is second
+
+    async def test_driver_disables_only_unrecognized_notifications(self) -> None:
+        """The driver drops UNRECOGNIZED notifications and keeps every other one."""
+        store = Neo4jGraphStore(settings=Neo4jSettings())
+        with mock.patch(
+            "neo4j.AsyncGraphDatabase.driver", return_value=MockDriver()
+        ) as build:
+            await store._ensure_driver()
+        kwargs = build.call_args.kwargs
+        assert kwargs["notifications_disabled_classifications"] == [
+            NotificationDisabledClassification.UNRECOGNIZED
+        ]
+        assert "notifications_min_severity" not in kwargs
 
 
 class TestUpsertNodes:

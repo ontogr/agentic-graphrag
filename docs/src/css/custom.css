@@ -89,3 +89,82 @@ h3 {
 
   --docusaurus-highlighted-code-line-bg: rgba(90, 164, 255, 0.15);
 }
+
+/* Mermaid: the built-in neutral and dark themes set text and line contrast in each
+   colour mode. These rules tint only the node shapes with the brand palette. */
+:root {
+  --agrag-diagram-node-fill: #e8effe;
+  --agrag-diagram-node-stroke: #1260f7;
+}
+
+[data-theme="dark"] {
+  --agrag-diagram-node-fill: #13263e;
+  --agrag-diagram-node-stroke: #5aa4ff;
+}
+
+.docusaurus-mermaid-container svg .node rect,
+.docusaurus-mermaid-container svg .node polygon,
+.docusaurus-mermaid-container svg .node circle,
+.docusaurus-mermaid-container svg .node ellipse,
+.docusaurus-mermaid-container svg .node path,
+.docusaurus-mermaid-container svg rect.actor,
+.docusaurus-mermaid-container svg .statediagram-state rect {
+  fill: var(--agrag-diagram-node-fill) !important;
+  stroke: var(--agrag-diagram-node-stroke) !important;
+}
+
+/* Edge labels sit on the page background in both colour modes. */
+.docusaurus-mermaid-container svg .edgeLabel,
+.docusaurus-mermaid-container svg .edgeLabel p,
+.docusaurus-mermaid-container svg .edgeLabel rect,
+.docusaurus-mermaid-container svg .labelBkg {
+  background-color: var(--ifm-background-color) !important;
+  fill: var(--ifm-background-color) !important;
+}
+
+/* Collapsible sections. Docusaurus renders <details> as an "alert" block. */
+details.alert {
+  --ifm-alert-background-color: var(--ifm-background-surface-color);
+  --ifm-alert-border-color: var(--ifm-toc-border-color);
+  --ifm-alert-foreground-color: var(--ifm-font-color-base);
+  --docusaurus-details-decoration-color: var(--ifm-color-primary);
+  border: 1px solid var(--ifm-toc-border-color);
+  border-radius: var(--ifm-global-radius);
+  padding: 0;
+  box-shadow: none;
+}
+
+details.alert > summary {
+  padding: 0.75rem 1rem 0.75rem 2rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+details.alert > summary::before {
+  top: 1.05rem;
+  left: 0.85rem;
+}
+
+details.alert > summary:hover {
+  color: var(--ifm-color-primary);
+}
+
+details.alert[open] > summary {
+  border-bottom: 1px solid var(--ifm-toc-border-color);
+}
+
+details.alert > div,
+details.alert > div > div {
+  padding: 0.75rem 1rem;
+}
+
+/* The theme draws its own divider above the content. The summary border replaces it. */
+details.alert [class*="collapsibleContent"] {
+  border-top: 0;
+  margin-top: 0;
+}
+
+/* A category's own landing page opens from the category link, so it is not listed twice. */
+.menu__list-item.agrag-hidden {
+  display: none;
+}

@@ -8,7 +8,7 @@ from opentelemetry.trace import Tracer
 from agrag.common.data_models.entity import Entity
 from agrag.cypher.entities import resolve_merged_into_query
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion._ingest_pipeline import _parse_entity_node
+from agrag.graphdb.serialize import parse_entity_node
 from agrag.observability import get_tracer
 
 
@@ -76,7 +76,7 @@ async def resolve_entity(
             node, pointer = _row_node_and_pointer(rows[0])
 
             if pointer is None:
-                entity = _parse_entity_node(node)
+                entity = parse_entity_node(node)
                 if entity is None:
                     raise ValueError(
                         f"Entity {current_id} not found or could not be parsed."

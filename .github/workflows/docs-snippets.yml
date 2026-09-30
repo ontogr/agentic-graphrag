@@ -1,0 +1,99 @@
+name: Docs snippets
+
+# Runs every Python block in the docs. Blocks that need an LLM run only on pushes
+# to main, the weekly schedule, and manual runs. Pull requests never receive the
+# LLM secrets, so those blocks skip there.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/**"
+      - "agrag/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Makefile"
+      - ".github/workflows/docs-snippets.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "agrag/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Makefile"
+      - ".github/workflows/docs-snippets.yml"
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  FORCE_COLOR: "1"
+
+jobs:
+  snippets:
+    name: Run docs code blocks
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      UV_PYTHON: "3.12"
+      # Fixed, throwaway credentials scoped to this job's own Docker network.
+      NEO4J_URI: bolt://localhost:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ci-test-password
+      NEO4J_DATABASE: neo4j
+      QDRANT_URL: http://localhost:6333
+      QDRANT_API_KEY: ci-test-qdrant-key
+      BAML_LOG: "off"
+      # Empty on pull requests, so blocks that need an LLM skip there.
+      LLM_BASE_URL: ${{ github.event_name != 'pull_request' && secrets.LLM_BASE_URL || '' }}
+      LLM_API_KEY: ${{ github.event_name != 'pull_request' && secrets.LLM_API_KEY || '' }}
+      LLM_MODEL_ID: ${{ github.event_name != 'pull_request' && secrets.LLM_MODEL_ID || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # Started without --wait so the image pull overlaps with the setup below.
+      - name: Start Neo4j and Qdrant
+        run: docker compose -f docker/docker-compose.ci.yml up -d neo4j qdrant
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - run: make sync
+
+      - name: Wait for Neo4j and Qdrant
+        run: docker compose -f docker/docker-compose.ci.yml up -d --wait --wait-timeout 420 neo4j qdrant
+
+      - name: Run docs code blocks
+        run: |
+          # Blocks that need an LLM must skip on pull requests, so the variables are removed
+          # rather than left as empty strings.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            unset LLM_BASE_URL LLM_API_KEY LLM_MODEL_ID
+          fi
+          make docs-test
+
+      - name: Collect service logs
+        if: failure()
+        run: docker compose -f docker/docker-compose.ci.yml logs neo4j qdrant
+
+      - name: Stop services
+        if: always()
+        run: docker compose -f docker/docker-compose.ci.yml down -v

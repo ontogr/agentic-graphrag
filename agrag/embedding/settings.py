@@ -22,7 +22,10 @@ class EmbeddingSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="EMBEDDING_", env_file=".env", extra="ignore"
+        env_prefix="EMBEDDING_",
+        env_file=".env",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     model: str = "ibm-granite/granite-embedding-small-english-r2"

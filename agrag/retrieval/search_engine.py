@@ -86,9 +86,12 @@ class SearchEngine:
                 community search run hybrid_search there instead of
                 GraphStore's native search. ``Graph.open(vector_store=...)``
                 provisions the collections and dual-writes every embedding
-                this package ingests, so the two paths see the same data;
-                pointing SearchEngine at a store no Graph writes to gets an
-                empty result set, not an error.
+                this package ingests, so the two paths see the same data.
+                Point it at a store that ``Graph.open`` provisioned: a
+                missing collection makes each method that reads it fail, and
+                ``search`` raises ``AllRetrievalMethodsFailedError`` when
+                every method fails. Collections that exist but hold no
+                records return no hits.
             settings: Retrieval configuration; defaults from
                 environment.
             entity_labels: The entity labels native entity search runs

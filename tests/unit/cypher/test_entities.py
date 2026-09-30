@@ -12,6 +12,7 @@ import pytest
 
 from agrag.cypher.entities import (
     clear_property_query,
+    fetch_entity_neighbors_query,
     filter_clause,
     is_safe_identifier,
     upsert_node_query,
@@ -127,3 +128,13 @@ class TestGuardedPropertyWrites:
         query = clear_property_query("embedding")
         assert "RETURN n.id AS id" in query
         assert "REMOVE n.embedding" in query
+
+
+class TestFetchEntityNeighborsQuery:
+    """fetch_entity_neighbors_query scopes its subquery to the entity id."""
+
+    def test_subquery_uses_variable_scope_clause(self) -> None:
+        """The subquery imports entity_id with CALL (entity_id), not a WITH import."""
+        query = fetch_entity_neighbors_query()
+        assert "CALL (entity_id) {" in query
+        assert "WITH entity_id" not in query

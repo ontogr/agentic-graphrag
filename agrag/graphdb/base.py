@@ -217,8 +217,13 @@ class GraphStore(ABC):
         Args:
             label: The node label to index.
             vector_property: The embedding property name.
-            dimensions: The embedding dimension.
+            dimensions: The embedding dimension. If the index already exists
+                with a different dimension, this raises.
             distance: The distance metric.
+
+        Raises:
+            EmbeddingDimensionMismatchError: The index already exists with a
+                different dimension than ``dimensions``.
         """
 
     @abstractmethod

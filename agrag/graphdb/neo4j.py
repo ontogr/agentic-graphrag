@@ -38,10 +38,12 @@ from agrag.cypher.schema import (
     node_id_constraint_query,
     relation_id_constraint_name,
     relation_id_constraint_query,
+    vector_index_dimensions_query,
     vector_index_name,
     vector_index_query,
     vector_search_query,
 )
+from agrag.embedding.errors import EmbeddingDimensionMismatchError
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.errors import (
     GraphStoreConstraintViolationError,
@@ -357,7 +359,10 @@ class Neo4jGraphStore(GraphStore):
                     # Lazy import: a clean install must raise
                     # GraphStoreMissingExtraError, not ImportError, when neo4j is
                     # absent.
-                    from neo4j import AsyncGraphDatabase  # noqa: PLC0415
+                    from neo4j import (  # noqa: PLC0415
+                        AsyncGraphDatabase,
+                        NotificationDisabledClassification,
+                    )
                 except ImportError as exc:
                     raise GraphStoreMissingExtraError("neo4j") from exc
                 self._driver = AsyncGraphDatabase.driver(
@@ -367,6 +372,14 @@ class Neo4jGraphStore(GraphStore):
                         self._settings.password.get_secret_value(),
                     ),
                     max_connection_lifetime=self._settings.max_connection_lifetime,
+                    # The store probes labels and property keys that a new
+                    # database does not have yet. The server reports each probe
+                    # as UNRECOGNIZED, which is expected noise. Other
+                    # classifications, such as PERFORMANCE and DEPRECATION,
+                    # still reach the neo4j.notifications logger.
+                    notifications_disabled_classifications=[
+                        NotificationDisabledClassification.UNRECOGNIZED
+                    ],
                 )
         return self._driver
 
@@ -861,6 +874,10 @@ class Neo4jGraphStore(GraphStore):
         A concurrent creator can commit the same index after this operation
         starts. Neo4j reports that race as an equivalent-schema error, which
         means the requested index already exists.
+
+        Raises:
+            EmbeddingDimensionMismatchError: The index already exists with a
+                different dimension than ``dimensions``.
         """
         from neo4j.exceptions import ClientError  # noqa: PLC0415
 
@@ -874,6 +891,16 @@ class Neo4jGraphStore(GraphStore):
         except ClientError as exc:
             if exc.code != _EQUIVALENT_SCHEMA_RULE_ERROR:
                 raise
+        # CREATE ... IF NOT EXISTS keeps an existing index of the same name as
+        # it is, so a wrong-size embedder would otherwise write vectors the
+        # index never returns.
+        rows = await self.execute_read(
+            *vector_index_dimensions_query(label, vector_property)
+        )
+        if rows and rows[0]["dimensions"] != dimensions:
+            raise EmbeddingDimensionMismatchError(
+                expected=rows[0]["dimensions"], actual=dimensions
+            )
 
     async def vector_search(
         self,

@@ -40,11 +40,11 @@ from agrag.cypher.relations import entities_in_documents_query
 from agrag.cypher.resolution_read import fetch_active_matches_among_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._document_lifecycle import find_document
 from agrag.ingestion._ingest_pipeline import (
     _delete_vectors,
-    _parse_entity_node,
     _synthetic_entity_mention,
     _upsert_vectors,
     _vector_record,
@@ -543,6 +543,12 @@ class Graph:
             A graph connected to graph_store and ready to accept add() calls.
 
         Raises:
+            EmbeddingDimensionMismatchError: A vector index in graph_store
+                already exists with a different dimension than the embedder
+                produces.
+            CollectionDimensionMismatchError: A vector_store collection
+                already exists with a different dimension than the embedder
+                produces.
             Exception: Whatever connect(), registration, constraint/index
                 setup, or vector-index provisioning raises. graph_store is
                 closed first, so a failed open() never leaks a connection.
@@ -1456,7 +1462,7 @@ class Graph:
                 break
             for row in rows:
                 node = row.get("n") if isinstance(row, dict) and "n" in row else row
-                ent = _parse_entity_node(node)
+                ent = parse_entity_node(node)
                 if ent is not None:
                     # Skip tombstoned nodes with merged_into.
                     # Check node for merged_into property.
@@ -1479,7 +1485,7 @@ class Graph:
                     entities.append(ent)
                 else:
                     # Try parsing row directly if node was wrapped differently
-                    ent2 = _parse_entity_node(row)
+                    ent2 = parse_entity_node(row)
                     if ent2 is not None:
                         entities.append(ent2)
             if len(rows) < limit:
@@ -1506,7 +1512,7 @@ class Graph:
         entities_by_id: dict[UUID, Entity] = {}
         for row in rows:
             node = row.get("n", row) if isinstance(row, dict) else row
-            entity = _parse_entity_node(node)
+            entity = parse_entity_node(node)
             if entity is not None:
                 entities_by_id[entity.id] = entity
         missing = [e for e in unique_ids if e not in entities_by_id]
@@ -1983,7 +1989,7 @@ class Graph:
                             ent.id: ent
                             for row in rows
                             if (
-                                ent := _parse_entity_node(row.get("n", row))  # type: ignore[arg-type]
+                                ent := parse_entity_node(row.get("n", row))  # type: ignore[arg-type]
                             )
                             is not None
                         }

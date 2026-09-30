@@ -16,6 +16,12 @@ uv sync --extra docling --extra llm --extra agents --extra eval --extra neo4j --
 docker compose -f docker/docker-compose.ci.yml up -d neo4j
 ```
 
+The compose file sets the Neo4j password to `ci-test-password`, but `agrag` defaults to the password `neo4j`. Add this line to your `.env` file, or the script fails to sign in:
+
+```text
+NEO4J_PASSWORD=ci-test-password
+```
+
 ## Prepare the dataset
 
 1. Make a folder with this layout:

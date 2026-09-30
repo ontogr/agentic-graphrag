@@ -1,4 +1,4 @@
-.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build
+.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build docs-test
 
 export UV_LOCKED = 1
 
@@ -40,6 +40,7 @@ help:
 	@echo "  make docs-install     - Install the Docusaurus site's npm dependencies"
 	@echo "  make docs-dev         - Run the Docusaurus dev server"
 	@echo "  make docs-build       - Regenerate the API reference and build the docs site"
+	@echo "  make docs-test        - Run the Python code blocks in the docs"
 	@echo "  make clean            - Clean build artifacts and cache"
 	@echo "  make sync-docs-pins   - Sync docs-api hook pins from uv.lock"
 
@@ -229,7 +230,7 @@ wheel-test: build
 	rm -rf .wheelenv
 	uv venv .wheelenv
 	uv pip install --python .wheelenv/bin/python dist/*.whl
-	cd /tmp && "$(CURDIR)/.wheelenv/bin/python" -c "import agrag; print(agrag.__version__)"
+	cd /tmp && "$(CURDIR)/.wheelenv/bin/python" -c "import agrag, agrag.agents, agrag.chunking, agrag.common.data_models, agrag.embedding, agrag.graphdb, agrag.ingestion, agrag.loaders, agrag.retrieval, agrag.vectordb; print(agrag.__version__)"
 
 clean:
 	rm -rf .coverage coverage.xml htmlcov dist build .wheelenv *.egg-info pytest-results.xml pytest-integration-results*.xml
@@ -243,7 +244,7 @@ DOCS_GRIPPE2MD ?= uv run --group docs griffe2md
 
 docs-api:
 	mkdir -p docs/docs/api
-	{ printf '%s\n' '---' 'title: API Reference' 'sidebar_position: 2' '---' ''; \
+	{ printf '%s\n' '---' 'title: API Reference' 'sidebar_position: 2' 'sidebar_class_name: agrag-hidden' '---' ''; \
 	  $(DOCS_GRIPPE2MD) agrag -f; } > docs/docs/api/index.md.tmp
 	mv docs/docs/api/index.md.tmp docs/docs/api/index.md
 
@@ -255,3 +256,11 @@ docs-dev: docs-api
 
 docs-build: docs-api
 	cd docs && npm run build
+
+# The docs tests need a Neo4j reachable through NEO4J_* (see docker/docker-compose.ci.yml).
+# The generated API pages hold docstring examples that are not self-contained, so they never run.
+DOCS_TEST_PATHS ?= docs/docs/get-started docs/docs/guides
+
+docs-test:
+	uv run --group docs pytest --markdown-docs $(DOCS_TEST_PATHS) \
+		--ignore=docs/docs/api -p no:deepeval -p no:cacheprovider -o addopts="" --forked -q

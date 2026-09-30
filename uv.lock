@@ -53,7 +53,7 @@ wheels = [
 
 [[package]]
 name = "agentic-graphrag"
-version = "0.0.2"
+version = "0.0.4"
 source = { editable = "." }
 dependencies = [
     { name = "charset-normalizer" },
@@ -153,6 +153,8 @@ dev = [
 ]
 docs = [
     { name = "griffe2md" },
+    { name = "pytest-forked" },
+    { name = "pytest-markdown-docs" },
 ]
 
 [package.metadata]
@@ -175,7 +177,7 @@ requires-dist = [
     { name = "langchain-openai", marker = "extra == 'eval'", specifier = ">=1.0" },
     { name = "langgraph", marker = "extra == 'agents'", specifier = ">=1.2" },
     { name = "markdown-it-py", specifier = ">=3.0" },
-    { name = "neo4j", marker = "extra == 'neo4j'", specifier = ">=5.0" },
+    { name = "neo4j", marker = "extra == 'neo4j'", specifier = ">=5.22" },
     { name = "openinference-instrumentation-langchain", marker = "extra == 'eval'", specifier = ">=0.1.76,<0.2" },
     { name = "openinference-instrumentation-langchain", marker = "extra == 'observability'", specifier = ">=0.1.76,<0.2" },
     { name = "openinference-semantic-conventions" },
@@ -218,7 +220,11 @@ dev = [
     { name = "ty", specifier = ">=0.0.32" },
     { name = "typos", specifier = ">=1.50.2" },
 ]
-docs = [{ name = "griffe2md", specifier = ">=1.5.0" }]
+docs = [
+    { name = "griffe2md", specifier = ">=1.5.0" },
+    { name = "pytest-forked", specifier = ">=1.6.0" },
+    { name = "pytest-markdown-docs", specifier = ">=0.9.2" },
+]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -2564,14 +2570,14 @@ wheels = [
 
 [[package]]
 name = "markdown-it-py"
-version = "4.2.0"
+version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mdurl" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/06/ff/7841249c247aa650a76b9ee4bbaeae59370dc8bfd2f6c01f3630c35eb134/markdown_it_py-4.2.0.tar.gz", hash = "sha256:04a21681d6fbb623de53f6f364d352309d4094dd4194040a10fd51833e418d49", size = 82454, upload-time = "2026-05-07T12:08:28.36Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/38/71/3b932df36c1a044d397a1f92d1cf91ee0a503d91e470cbd670aa66b07ed0/markdown-it-py-3.0.0.tar.gz", hash = "sha256:e3f60a94fa066dc52ec76661e37c851cb232d92f9886b15cb560aaada2df8feb", size = 74596, upload-time = "2023-06-03T06:41:14.443Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b3/81/4da04ced5a082363ecfa159c010d200ecbd959ae410c10c0264a38cac0f5/markdown_it_py-4.2.0-py3-none-any.whl", hash = "sha256:9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a", size = 91687, upload-time = "2026-05-07T12:08:27.182Z" },
+    { url = "https://files.pythonhosted.org/packages/42/d7/1ec15b46af6af88f19b8e5ffea08fa375d433c998b8a7639e76935c14f1f/markdown_it_py-3.0.0-py3-none-any.whl", hash = "sha256:355216845c60bd96232cd8d8c40e8f9765cc86f46880e43a8fd22dc1a1a8cab1", size = 87528, upload-time = "2023-06-03T06:41:11.019Z" },
 ]
 
 [[package]]
@@ -4824,6 +4830,31 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b1/51/a849f96e117386044471c8ec2bd6cfebacda285da9525c9106aeb28da671/pytest_cov-7.1.0.tar.gz", hash = "sha256:30674f2b5f6351aa09702a9c8c364f6a01c27aae0c1366ae8016160d1efc56b2", size = 55592, upload-time = "2026-03-21T20:11:16.284Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl", hash = "sha256:a0461110b7865f9a271aa1b51e516c9a95de9d696734a2f71e3e78f46e1d4678", size = 22876, upload-time = "2026-03-21T20:11:14.438Z" },
+]
+
+[[package]]
+name = "pytest-forked"
+version = "1.7.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/99/92/98bd460b998f9ec053acba2e3efbbca12a9a408ec8648bd55abd2df784f0/pytest_forked-1.7.5.tar.gz", hash = "sha256:00f2bee51612f29b8e6b81eed2c3b2975e824c2693394f5bdaf7a1369078ba5f", size = 12981, upload-time = "2026-08-08T12:05:12.374Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/f1/46d32fe4b9aae09fe397e768ff376d9b6bdbb4f11faaa727f163c3457b43/pytest_forked-1.7.5-py3-none-any.whl", hash = "sha256:e9f3475fa0a42927f5e370d721de9c2d785616a06a4c506712d6cb8055e37c84", size = 6317, upload-time = "2026-08-08T12:05:11.086Z" },
+]
+
+[[package]]
+name = "pytest-markdown-docs"
+version = "0.9.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "markdown-it-py" },
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/59/c7/6953e9e25d90d038600e65b05265693aef7ae2a2b67e0f170d65f4f16c24/pytest_markdown_docs-0.9.2.tar.gz", hash = "sha256:bf7510fdeec90d3e98ac924561c01de8dbaf4c3ad34f2418ed2b0b12e5a3f4f5", size = 10929, upload-time = "2026-03-23T12:35:04.804Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0c/b9/c3df11997d29e69b3f8edae1e903bf44eaf4774ccf4c5b6ddcebde88931c/pytest_markdown_docs-0.9.2-py3-none-any.whl", hash = "sha256:9c05a5bee48214cb36583d4a5131d3a23b327a8d82c92ae860106053fd7d1f9e", size = 13536, upload-time = "2026-03-23T12:35:03.862Z" },
 ]
 
 [[package]]
