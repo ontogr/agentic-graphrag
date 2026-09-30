@@ -4,7 +4,8 @@ The harness installs one in-memory exporter around a whole run. Calls and tokens
 come only from spans of the OpenInference ``LLM`` kind; parent spans carry no
 tokens, so nothing counts twice. A BAML span is one provider request. An agent or
 judge span is one LangChain call and can cover several HTTP requests, so agent
-and judge call counts are a lower bound.
+and judge call counts are a lower bound. A span with an error status and no token
+counts is a failed request: it counts as a call and adds no tokens.
 """
 
 from collections import defaultdict
@@ -18,7 +19,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
-from opentelemetry.trace import Tracer
+from opentelemetry.trace import StatusCode, Tracer
 
 from benchmarks.harness.record import PathUsage
 from benchmarks.harness.trace import GzipJsonlSpanExporter
@@ -199,7 +200,10 @@ def summarize(spans: Sequence[ReadableSpan]) -> UsageSummary:
 
         prompt = attributes.get(SpanAttributes.LLM_TOKEN_COUNT_PROMPT)
         completion = attributes.get(SpanAttributes.LLM_TOKEN_COUNT_COMPLETION)
-        if prompt is None or completion is None:
+        # A request the provider rejected has no tokens to count. It still counts as
+        # a call.
+        failed = span.status.status_code == StatusCode.ERROR
+        if (prompt is None or completion is None) and not failed:
             complete = False
         path = next((p for a in chain if (p := _path_of(a.name))), "other")
         for usage in (total, by_path[path]):

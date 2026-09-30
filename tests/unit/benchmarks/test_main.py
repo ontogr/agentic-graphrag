@@ -16,3 +16,12 @@ class TestMain:
 
         assert exit_info.value.code == 2
         assert "--concurrency" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("value", ["0", "-5"])
+    def test_rejects_non_positive_chunk_size(self, value, capsys):
+        """Rejects a chunk size that no text can fit."""
+        with pytest.raises(SystemExit) as exit_info:
+            main(["dry-run", "fake", "--mode", "lite", "--chunk-size", value])
+
+        assert exit_info.value.code == 2
+        assert "--chunk-size" in capsys.readouterr().err

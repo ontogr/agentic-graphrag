@@ -3,7 +3,11 @@
 The spans are real SDK spans made through the harness's own provider.
 """
 
+import gzip
 import threading
+
+import pytest
+from opentelemetry.trace import Status, StatusCode
 
 from benchmarks.harness.record import PathUsage, read_trace
 from benchmarks.harness.usage import (
@@ -88,6 +92,21 @@ class TestSummarize:
         tracing.close()
 
         assert summarize(_spans(tracing)).usage_complete is False
+
+    def test_a_failed_request_counts_as_a_call_and_keeps_usage_complete(self, tmp_path):
+        """A rejected request has no tokens, so it counts once and adds none."""
+        tracing = start_tracing(tmp_path / "t.jsonl.gz")
+        with tracing.tracer.start_as_current_span(
+            "llm", attributes={"openinference.span.kind": "LLM"}
+        ) as span:
+            span.set_status(Status(StatusCode.ERROR, "500"))
+        llm_span(tracing.tracer, prompt=10, completion=5)
+        tracing.close()
+
+        summary = summarize(_spans(tracing))
+
+        assert summary.usage_complete is True
+        assert summary.total == PathUsage(llm_calls=2, input_tokens=10, output_tokens=5)
 
     def test_counts_empty_extractions_per_corpus(self, tmp_path):
         """Counts empty extractions per corpus."""
@@ -175,3 +194,18 @@ class TestTraceFile:
         tracing.close()
 
         assert len(read_trace(path)) == 800
+
+    def test_a_trace_can_be_read_before_the_run_ends(self, tmp_path):
+        """Every span exported so far is readable while the writer is still open."""
+        path = tmp_path / "t.jsonl.gz"
+        tracing = start_tracing(path)
+        for _ in range(3):
+            llm_span(tracing.tracer)
+
+        with gzip.open(path, "rt") as handle, pytest.raises(EOFError):
+            lines = []
+            for line in handle:
+                lines.append(line)
+
+        assert len(lines) == 3
+        tracing.close()
