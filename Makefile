@@ -242,6 +242,7 @@ clean:
 # Overridable so the pre-commit hook can use its isolated docs environment.
 DOCS_GRIPPE2MD ?= uv run --group docs griffe2md
 DOCS_PYTHON ?= uv run python
+# Community APIs live in agrag.ingestion.community, not agrag.communities.
 DOCS_API_PKGS ?= agents chunking common embedding eval graphdb ingestion loaders observability retrieval vectordb
 
 docs-api:

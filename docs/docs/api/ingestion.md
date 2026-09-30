@@ -153,6 +153,20 @@ The response type comes from the graph schema, so the model can return only
 declared labels and property keys, and it can fill entity properties. Needs
 the `llm` extra and a reachable LLM endpoint.
 
+**Parameters:**
+
+- **settings** (<code>[ExtractionLLMSettings](#agrag-ingestion-extract-ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`,
+  loaded from the environment or `.env`. Ignored when `client` is
+  given; an injected client also disables `settings.retry` because
+  its caller owns retry behavior.
+- **client** (<code>object | None</code>) – An already-built BAML client exposing
+  `ExtractEntitiesAndRelations`.
+- **tracer** (<code>Tracer | None</code>) – Opens `agrag.extraction.baml` and `agrag.llm.call` spans.
+  `None` opens no recorded span.
+- **include_heading_path** (<code>bool</code>) – Whether to pass the chunk's heading path as a
+  separate `section` line. Offsets still index `chunk.text`; only
+  this extractor uses heading context.
+
 **Functions:**
 
 - [**extract**](#agrag-ingestion-BAMLExtractor-extract) – Extract with an LLM call through the configured ClientRegistry.
@@ -161,21 +175,6 @@ the `llm` extra and a reachable LLM endpoint.
 
 - [**settings**](#agrag-ingestion-BAMLExtractor-settings) –
 
-**Parameters:**
-
-- **settings** (<code>[ExtractionLLMSettings](#agrag-ingestion-extract-ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`,
-  loaded from the environment/`.env`. Ignored when `client`
-  is given: an injected client also disables `settings.retry`,
-  since a caller building its own client is assumed to own its
-  own retry behavior too.
-- **client** (<code>object | None</code>) – An already-built BAML client object exposing
-  `ExtractEntitiesAndRelations`. Tests inject a fake here.
-- **tracer** (<code>Tracer | None</code>) – Opens `agrag.extraction.baml` and the nested
-  `agrag.llm.call` spans. `None` opens no recorded span.
-- **include_heading_path** (<code>bool</code>) – Whether to give the model the heading path of the
-  chunk as a separate `section` line above the text. Offsets still
-  index `chunk.text`. Only this extractor uses heading context.
-
 #### `agrag.ingestion.BAMLExtractor.extract` \{#agrag-ingestion-BAMLExtractor-extract}
 
 ```python
@@ -183,6 +182,15 @@ extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
 ```
 
 Extract with an LLM call through the configured ClientRegistry.
+
+**Parameters:**
+
+- **chunk** (<code>[Chunk](common.md#agrag-common-data_models-chunk-Chunk)</code>) – The chunk to read. Only `chunk.text` and `chunk.id` are used.
+- **schema** (<code>[GraphSchema](common.md#agrag-common-data_models-graph_schema-GraphSchema)</code>) – The entity and relation types to extract.
+
+**Returns:**
+
+- <code>[ExtractionResult](common.md#agrag-common-data_models-extraction-ExtractionResult)</code> – The normalized entities and relations found in the chunk.
 
 **Raises:**
 
@@ -284,6 +292,18 @@ entity confidence is below `min_confidence`. An escalated chunk gets the
 `escalate_to` result alone; the two results are never combined. A common
 pairing is `GlinerExtractor` as primary and `BAMLExtractor` as fallback.
 
+**Parameters:**
+
+- **primary** (<code>[Extractor](#agrag-ingestion-extract-Extractor)</code>) – Extractor that runs on every chunk.
+- **escalate_to** (<code>[Extractor](#agrag-ingestion-extract-Extractor)</code>) – Extractor that replaces the primary result when escalation
+  triggers.
+- **min_confidence** (<code>float</code>) – Escalate when the primary's mean reported confidence is
+  below this value.
+- **min_chunk_words** (<code>int</code>) – Treat an empty primary result as weak only when the
+  chunk has at least this many words.
+- **tracer** (<code>Tracer | None</code>) – Opens the `agrag.extraction.escalating` span. `None` opens
+  no recorded span.
+
 **Functions:**
 
 - [**extract**](#agrag-ingestion-EscalatingExtractor-extract) – Extract with the primary extractor, escalating when it's weak.
@@ -294,20 +314,6 @@ pairing is `GlinerExtractor` as primary and `BAMLExtractor` as fallback.
 - [**min_chunk_words**](#agrag-ingestion-EscalatingExtractor-min_chunk_words) –
 - [**min_confidence**](#agrag-ingestion-EscalatingExtractor-min_confidence) –
 - [**primary**](#agrag-ingestion-EscalatingExtractor-primary) –
-
-**Parameters:**
-
-- **primary** (<code>[Extractor](#agrag-ingestion-extract-Extractor)</code>) – Runs first, for every chunk.
-- **escalate_to** (<code>[Extractor](#agrag-ingestion-extract-Extractor)</code>) – Runs instead of, never in addition to, the primary's
-  result, when escalation triggers. Merging both extractors'
-  output would mean reconciling overlapping spans between them,
-  which is what entity resolution is for, not extraction.
-- **min_confidence** (<code>float</code>) – Escalate when the primary's mean entity confidence
-  falls below this, among entities that report a confidence.
-- **min_chunk_words** (<code>int</code>) – Below this word count, a zero-entity result from
-  the primary is treated as plausibly correct, not a miss.
-- **tracer** (<code>Tracer | None</code>) – Opens the `agrag.extraction.escalating` span. `None`
-  opens no recorded span.
 
 #### `agrag.ingestion.EscalatingExtractor.escalate_to` \{#agrag-ingestion-EscalatingExtractor-escalate_to}
 
@@ -323,8 +329,14 @@ extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
 
 Extract with the primary extractor, escalating when it's weak.
 
-Returns escalate_to's result outright when escalation triggers, never
-a combination of both extractors' results.
+**Parameters:**
+
+- **chunk** (<code>[Chunk](common.md#agrag-common-data_models-chunk-Chunk)</code>) – The chunk to read.
+- **schema** (<code>[GraphSchema](common.md#agrag-common-data_models-graph_schema-GraphSchema)</code>) – The entity and relation types to extract.
+
+**Returns:**
+
+- <code>[ExtractionResult](common.md#agrag-common-data_models-extraction-ExtractionResult)</code> – The primary result, or the escalation result when escalation triggers.
 
 #### `agrag.ingestion.EscalatingExtractor.min_chunk_words` \{#agrag-ingestion-EscalatingExtractor-min_chunk_words}
 
@@ -409,11 +421,16 @@ Bases: <code>ABC</code>
 
 Reads one chunk and returns the entities and relations it contains.
 
-Subclass it to plug in your own extraction. `Graph` awaits `extract` once
-for each chunk that extraction runs on. The built-in extractors are
-`GlinerExtractor` (a local model), `BAMLExtractor` (an LLM call), and
-`EscalatingExtractor` (a cheap extractor first, a stronger one when the
-result is weak).
+<details class="note" open markdown="1">
+<summary>Note</summary>
+
+Subclass this class to provide custom extraction. `Graph` awaits
+`extract` once for each chunk. The built-in extractors are
+`GlinerExtractor` (a local model), `BAMLExtractor` (an LLM call),
+and `EscalatingExtractor` (a cheap extractor first, a stronger one
+when the result is weak).
+
+</details>
 
 **Functions:**
 
@@ -480,6 +497,14 @@ weights from Hugging Face unless `model` is passed. GLiNER reports entity
 spans and types, so extracted entities carry no property values. Needs the
 `extract` extra.
 
+**Parameters:**
+
+- **model_name** (<code>str</code>) – Checkpoint to load when `model` is not provided.
+- **model** (<code>object | None</code>) – An already-built GLiNER2.5 model.
+- **tracer** (<code>Tracer | None</code>) – Opens `agrag.extraction.gliner` and
+  `agrag.extraction.model_load` spans. `None` opens no recorded
+  span.
+
 **Functions:**
 
 - [**extract**](#agrag-ingestion-GlinerExtractor-extract) – Extract with the local GLiNER2.5 model.
@@ -488,15 +513,6 @@ spans and types, so extracted entities carry no property values. Needs the
 
 - [**model_name**](#agrag-ingestion-GlinerExtractor-model_name) –
 
-**Parameters:**
-
-- **model_name** (<code>str</code>) – The checkpoint to load if `model` is not given.
-- **model** (<code>object | None</code>) – An already-built GLiNER2.5 model. Tests inject a fake here
-  to avoid a real model download.
-- **tracer** (<code>Tracer | None</code>) – Opens `agrag.extraction.gliner` and
-  `agrag.extraction.model_load` spans. `None` opens no
-  recorded span.
-
 #### `agrag.ingestion.GlinerExtractor.extract` \{#agrag-ingestion-GlinerExtractor-extract}
 
 ```python
@@ -504,6 +520,15 @@ extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
 ```
 
 Extract with the local GLiNER2.5 model.
+
+**Parameters:**
+
+- **chunk** (<code>[Chunk](common.md#agrag-common-data_models-chunk-Chunk)</code>) – The chunk to read. Only `chunk.text` and `chunk.id` are used.
+- **schema** (<code>[GraphSchema](common.md#agrag-common-data_models-graph_schema-GraphSchema)</code>) – The entity and relation types to extract.
+
+**Returns:**
+
+- <code>[ExtractionResult](common.md#agrag-common-data_models-extraction-ExtractionResult)</code> – The normalized entities and relations found in the chunk.
 
 **Raises:**
 
@@ -1289,6 +1314,20 @@ The response type comes from the graph schema, so the model can return only
 declared labels and property keys, and it can fill entity properties. Needs
 the `llm` extra and a reachable LLM endpoint.
 
+**Parameters:**
+
+- **settings** (<code>[ExtractionLLMSettings](#agrag-ingestion-extract-ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`,
+  loaded from the environment or `.env`. Ignored when `client` is
+  given; an injected client also disables `settings.retry` because
+  its caller owns retry behavior.
+- **client** (<code>object | None</code>) – An already-built BAML client exposing
+  `ExtractEntitiesAndRelations`.
+- **tracer** (<code>Tracer | None</code>) – Opens `agrag.extraction.baml` and `agrag.llm.call` spans.
+  `None` opens no recorded span.
+- **include_heading_path** (<code>bool</code>) – Whether to pass the chunk's heading path as a
+  separate `section` line. Offsets still index `chunk.text`; only
+  this extractor uses heading context.
+
 **Functions:**
 
 - [**extract**](#agrag-ingestion-extract-BAMLExtractor-extract) – Extract with an LLM call through the configured ClientRegistry.
@@ -1297,21 +1336,6 @@ the `llm` extra and a reachable LLM endpoint.
 
 - [**settings**](#agrag-ingestion-extract-BAMLExtractor-settings) –
 
-**Parameters:**
-
-- **settings** (<code>[ExtractionLLMSettings](#agrag-ingestion-extract-ExtractionLLMSettings) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`,
-  loaded from the environment/`.env`. Ignored when `client`
-  is given: an injected client also disables `settings.retry`,
-  since a caller building its own client is assumed to own its
-  own retry behavior too.
-- **client** (<code>object | None</code>) – An already-built BAML client object exposing
-  `ExtractEntitiesAndRelations`. Tests inject a fake here.
-- **tracer** (<code>Tracer | None</code>) – Opens `agrag.extraction.baml` and the nested
-  `agrag.llm.call` spans. `None` opens no recorded span.
-- **include_heading_path** (<code>bool</code>) – Whether to give the model the heading path of the
-  chunk as a separate `section` line above the text. Offsets still
-  index `chunk.text`. Only this extractor uses heading context.
-
 ##### `agrag.ingestion.extract.BAMLExtractor.extract` \{#agrag-ingestion-extract-BAMLExtractor-extract}
 
 ```python
@@ -1319,6 +1343,15 @@ extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
 ```
 
 Extract with an LLM call through the configured ClientRegistry.
+
+**Parameters:**
+
+- **chunk** (<code>[Chunk](common.md#agrag-common-data_models-chunk-Chunk)</code>) – The chunk to read. Only `chunk.text` and `chunk.id` are used.
+- **schema** (<code>[GraphSchema](common.md#agrag-common-data_models-graph_schema-GraphSchema)</code>) – The entity and relation types to extract.
+
+**Returns:**
+
+- <code>[ExtractionResult](common.md#agrag-common-data_models-extraction-ExtractionResult)</code> – The normalized entities and relations found in the chunk.
 
 **Raises:**
 
@@ -1348,6 +1381,18 @@ entity confidence is below `min_confidence`. An escalated chunk gets the
 `escalate_to` result alone; the two results are never combined. A common
 pairing is `GlinerExtractor` as primary and `BAMLExtractor` as fallback.
 
+**Parameters:**
+
+- **primary** (<code>[Extractor](#agrag-ingestion-extract-Extractor)</code>) – Extractor that runs on every chunk.
+- **escalate_to** (<code>[Extractor](#agrag-ingestion-extract-Extractor)</code>) – Extractor that replaces the primary result when escalation
+  triggers.
+- **min_confidence** (<code>float</code>) – Escalate when the primary's mean reported confidence is
+  below this value.
+- **min_chunk_words** (<code>int</code>) – Treat an empty primary result as weak only when the
+  chunk has at least this many words.
+- **tracer** (<code>Tracer | None</code>) – Opens the `agrag.extraction.escalating` span. `None` opens
+  no recorded span.
+
 **Functions:**
 
 - [**extract**](#agrag-ingestion-extract-EscalatingExtractor-extract) – Extract with the primary extractor, escalating when it's weak.
@@ -1358,20 +1403,6 @@ pairing is `GlinerExtractor` as primary and `BAMLExtractor` as fallback.
 - [**min_chunk_words**](#agrag-ingestion-extract-EscalatingExtractor-min_chunk_words) –
 - [**min_confidence**](#agrag-ingestion-extract-EscalatingExtractor-min_confidence) –
 - [**primary**](#agrag-ingestion-extract-EscalatingExtractor-primary) –
-
-**Parameters:**
-
-- **primary** (<code>[Extractor](#agrag-ingestion-extract-Extractor)</code>) – Runs first, for every chunk.
-- **escalate_to** (<code>[Extractor](#agrag-ingestion-extract-Extractor)</code>) – Runs instead of, never in addition to, the primary's
-  result, when escalation triggers. Merging both extractors'
-  output would mean reconciling overlapping spans between them,
-  which is what entity resolution is for, not extraction.
-- **min_confidence** (<code>float</code>) – Escalate when the primary's mean entity confidence
-  falls below this, among entities that report a confidence.
-- **min_chunk_words** (<code>int</code>) – Below this word count, a zero-entity result from
-  the primary is treated as plausibly correct, not a miss.
-- **tracer** (<code>Tracer | None</code>) – Opens the `agrag.extraction.escalating` span. `None`
-  opens no recorded span.
 
 ##### `agrag.ingestion.extract.EscalatingExtractor.escalate_to` \{#agrag-ingestion-extract-EscalatingExtractor-escalate_to}
 
@@ -1387,8 +1418,14 @@ extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
 
 Extract with the primary extractor, escalating when it's weak.
 
-Returns escalate_to's result outright when escalation triggers, never
-a combination of both extractors' results.
+**Parameters:**
+
+- **chunk** (<code>[Chunk](common.md#agrag-common-data_models-chunk-Chunk)</code>) – The chunk to read.
+- **schema** (<code>[GraphSchema](common.md#agrag-common-data_models-graph_schema-GraphSchema)</code>) – The entity and relation types to extract.
+
+**Returns:**
+
+- <code>[ExtractionResult](common.md#agrag-common-data_models-extraction-ExtractionResult)</code> – The primary result, or the escalation result when escalation triggers.
 
 ##### `agrag.ingestion.extract.EscalatingExtractor.min_chunk_words` \{#agrag-ingestion-extract-EscalatingExtractor-min_chunk_words}
 
@@ -1473,11 +1510,16 @@ Bases: <code>ABC</code>
 
 Reads one chunk and returns the entities and relations it contains.
 
-Subclass it to plug in your own extraction. `Graph` awaits `extract` once
-for each chunk that extraction runs on. The built-in extractors are
-`GlinerExtractor` (a local model), `BAMLExtractor` (an LLM call), and
-`EscalatingExtractor` (a cheap extractor first, a stronger one when the
-result is weak).
+<details class="note" open markdown="1">
+<summary>Note</summary>
+
+Subclass this class to provide custom extraction. `Graph` awaits
+`extract` once for each chunk. The built-in extractors are
+`GlinerExtractor` (a local model), `BAMLExtractor` (an LLM call),
+and `EscalatingExtractor` (a cheap extractor first, a stronger one
+when the result is weak).
+
+</details>
 
 **Functions:**
 
@@ -1544,6 +1586,14 @@ weights from Hugging Face unless `model` is passed. GLiNER reports entity
 spans and types, so extracted entities carry no property values. Needs the
 `extract` extra.
 
+**Parameters:**
+
+- **model_name** (<code>str</code>) – Checkpoint to load when `model` is not provided.
+- **model** (<code>object | None</code>) – An already-built GLiNER2.5 model.
+- **tracer** (<code>Tracer | None</code>) – Opens `agrag.extraction.gliner` and
+  `agrag.extraction.model_load` spans. `None` opens no recorded
+  span.
+
 **Functions:**
 
 - [**extract**](#agrag-ingestion-extract-GlinerExtractor-extract) – Extract with the local GLiNER2.5 model.
@@ -1552,15 +1602,6 @@ spans and types, so extracted entities carry no property values. Needs the
 
 - [**model_name**](#agrag-ingestion-extract-GlinerExtractor-model_name) –
 
-**Parameters:**
-
-- **model_name** (<code>str</code>) – The checkpoint to load if `model` is not given.
-- **model** (<code>object | None</code>) – An already-built GLiNER2.5 model. Tests inject a fake here
-  to avoid a real model download.
-- **tracer** (<code>Tracer | None</code>) – Opens `agrag.extraction.gliner` and
-  `agrag.extraction.model_load` spans. `None` opens no
-  recorded span.
-
 ##### `agrag.ingestion.extract.GlinerExtractor.extract` \{#agrag-ingestion-extract-GlinerExtractor-extract}
 
 ```python
@@ -1568,6 +1609,15 @@ extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
 ```
 
 Extract with the local GLiNER2.5 model.
+
+**Parameters:**
+
+- **chunk** (<code>[Chunk](common.md#agrag-common-data_models-chunk-Chunk)</code>) – The chunk to read. Only `chunk.text` and `chunk.id` are used.
+- **schema** (<code>[GraphSchema](common.md#agrag-common-data_models-graph_schema-GraphSchema)</code>) – The entity and relation types to extract.
+
+**Returns:**
+
+- <code>[ExtractionResult](common.md#agrag-common-data_models-extraction-ExtractionResult)</code> – The normalized entities and relations found in the chunk.
 
 **Raises:**
 

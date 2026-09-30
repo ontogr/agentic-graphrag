@@ -254,11 +254,12 @@ class ExtractorMissingExtraError(IngestionError):
 class Extractor(ABC):
     """Reads one chunk and returns the entities and relations it contains.
 
-    Subclass it to plug in your own extraction. ``Graph`` awaits ``extract`` once
-    for each chunk that extraction runs on. The built-in extractors are
-    ``GlinerExtractor`` (a local model), ``BAMLExtractor`` (an LLM call), and
-    ``EscalatingExtractor`` (a cheap extractor first, a stronger one when the
-    result is weak).
+    Note:
+        Subclass this class to provide custom extraction. ``Graph`` awaits
+        ``extract`` once for each chunk. The built-in extractors are
+        ``GlinerExtractor`` (a local model), ``BAMLExtractor`` (an LLM call),
+        and ``EscalatingExtractor`` (a cheap extractor first, a stronger one
+        when the result is weak).
     """
 
     @abstractmethod
@@ -335,6 +336,13 @@ class GlinerExtractor(Extractor):
     weights from Hugging Face unless ``model`` is passed. GLiNER reports entity
     spans and types, so extracted entities carry no property values. Needs the
     ``extract`` extra.
+
+    Args:
+        model_name: Checkpoint to load when ``model`` is not provided.
+        model: An already-built GLiNER2.5 model.
+        tracer: Opens ``agrag.extraction.gliner`` and
+            ``agrag.extraction.model_load`` spans. ``None`` opens no recorded
+            span.
     """
 
     def __init__(
@@ -344,16 +352,7 @@ class GlinerExtractor(Extractor):
         model: object | None = None,
         tracer: Tracer | None = None,
     ) -> None:
-        """Create an extractor with a model name or an already-built model.
-
-        Args:
-            model_name: The checkpoint to load if ``model`` is not given.
-            model: An already-built GLiNER2.5 model. Tests inject a fake here
-                to avoid a real model download.
-            tracer: Opens ``agrag.extraction.gliner`` and
-                ``agrag.extraction.model_load`` spans. ``None`` opens no
-                recorded span.
-        """
+        """Create an extractor with a model name or an already-built model."""
         self.model_name = model_name
         self._model = model
         self._tracer = tracer
@@ -361,6 +360,13 @@ class GlinerExtractor(Extractor):
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
         """Extract with the local GLiNER2.5 model.
+
+        Args:
+            chunk: The chunk to read. Only ``chunk.text`` and ``chunk.id`` are used.
+            schema: The entity and relation types to extract.
+
+        Returns:
+            The normalized entities and relations found in the chunk.
 
         Raises:
             ExtractorMissingExtraError: The ``extract`` package extra is not
@@ -572,6 +578,19 @@ class BAMLExtractor(Extractor):
     The response type comes from the graph schema, so the model can return only
     declared labels and property keys, and it can fill entity properties. Needs
     the ``llm`` extra and a reachable LLM endpoint.
+
+    Args:
+        settings: LLM client config. Defaults to ``ExtractionLLMSettings()``,
+            loaded from the environment or ``.env``. Ignored when ``client`` is
+            given; an injected client also disables ``settings.retry`` because
+            its caller owns retry behavior.
+        client: An already-built BAML client exposing
+            ``ExtractEntitiesAndRelations``.
+        tracer: Opens ``agrag.extraction.baml`` and ``agrag.llm.call`` spans.
+            ``None`` opens no recorded span.
+        include_heading_path: Whether to pass the chunk's heading path as a
+            separate ``section`` line. Offsets still index ``chunk.text``; only
+            this extractor uses heading context.
     """
 
     def __init__(
@@ -582,22 +601,7 @@ class BAMLExtractor(Extractor):
         tracer: Tracer | None = None,
         include_heading_path: bool = True,
     ) -> None:
-        """Create an extractor from settings or an already-built BAML client.
-
-        Args:
-            settings: LLM client config. Defaults to ``ExtractionLLMSettings()``,
-                loaded from the environment/``.env``. Ignored when ``client``
-                is given: an injected client also disables ``settings.retry``,
-                since a caller building its own client is assumed to own its
-                own retry behavior too.
-            client: An already-built BAML client object exposing
-                ``ExtractEntitiesAndRelations``. Tests inject a fake here.
-            tracer: Opens ``agrag.extraction.baml`` and the nested
-                ``agrag.llm.call`` spans. ``None`` opens no recorded span.
-            include_heading_path: Whether to give the model the heading path of the
-                chunk as a separate ``section`` line above the text. Offsets still
-                index ``chunk.text``. Only this extractor uses heading context.
-        """
+        """Create an extractor from settings or an already-built BAML client."""
         self.settings = settings
         self._client = client
         self._tracer = tracer
@@ -605,6 +609,13 @@ class BAMLExtractor(Extractor):
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
         """Extract with an LLM call through the configured ClientRegistry.
+
+        Args:
+            chunk: The chunk to read. Only ``chunk.text`` and ``chunk.id`` are used.
+            schema: The entity and relation types to extract.
+
+        Returns:
+            The normalized entities and relations found in the chunk.
 
         Raises:
             ExtractorMissingExtraError: The ``llm`` package extra is not
@@ -795,6 +806,17 @@ class EscalatingExtractor(Extractor):
     entity confidence is below ``min_confidence``. An escalated chunk gets the
     ``escalate_to`` result alone; the two results are never combined. A common
     pairing is ``GlinerExtractor`` as primary and ``BAMLExtractor`` as fallback.
+
+    Args:
+        primary: Extractor that runs on every chunk.
+        escalate_to: Extractor that replaces the primary result when escalation
+            triggers.
+        min_confidence: Escalate when the primary's mean reported confidence is
+            below this value.
+        min_chunk_words: Treat an empty primary result as weak only when the
+            chunk has at least this many words.
+        tracer: Opens the ``agrag.extraction.escalating`` span. ``None`` opens
+            no recorded span.
     """
 
     def __init__(
@@ -806,21 +828,7 @@ class EscalatingExtractor(Extractor):
         min_chunk_words: int = 8,
         tracer: Tracer | None = None,
     ) -> None:
-        """Create an extractor that escalates from a primary to a stronger one.
-
-        Args:
-            primary: Runs first, for every chunk.
-            escalate_to: Runs instead of, never in addition to, the primary's
-                result, when escalation triggers. Merging both extractors'
-                output would mean reconciling overlapping spans between them,
-                which is what entity resolution is for, not extraction.
-            min_confidence: Escalate when the primary's mean entity confidence
-                falls below this, among entities that report a confidence.
-            min_chunk_words: Below this word count, a zero-entity result from
-                the primary is treated as plausibly correct, not a miss.
-            tracer: Opens the ``agrag.extraction.escalating`` span. ``None``
-                opens no recorded span.
-        """
+        """Create an extractor that escalates from a primary to a stronger one."""
         self.primary = primary
         self.escalate_to = escalate_to
         self.min_confidence = min_confidence
@@ -830,8 +838,12 @@ class EscalatingExtractor(Extractor):
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
         """Extract with the primary extractor, escalating when it's weak.
 
-        Returns escalate_to's result outright when escalation triggers, never
-        a combination of both extractors' results.
+        Args:
+            chunk: The chunk to read.
+            schema: The entity and relation types to extract.
+
+        Returns:
+            The primary result, or the escalation result when escalation triggers.
         """
         with get_tracer(self._tracer).start_as_current_span(
             "agrag.extraction.escalating",
