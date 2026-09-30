@@ -9,41 +9,56 @@ This guide shows how to use `SearchEngine` to retrieve entities and chunks from 
 
 ## Prerequisites
 
-Install the retrieval and agent extras:
+Install the storage, embedding, and extraction extras. The agent layer needs the `agents` extra:
 
 ```bash
-pip install 'agentic-graphrag[neo4j,llm]'
+pip install 'agentic-graphrag[neo4j,extract,embed-local]'
 # For the agent layer:
 pip install 'agentic-graphrag[agents]'
 ```
 
+Each code block on this page is complete. It opens a graph with the `GENERIC` schema, adds two sentences, and closes the graph at the end. The agent examples read `LLM_BASE_URL`, `LLM_MODEL_ID`, and `LLM_API_KEY` from the environment or from `.env`.
+
 ## Direct SearchEngine Usage
+
+`SearchEngine` searches entity labels that exist in your graph. The example below ingests its data with the `GENERIC` schema, so `GENERIC` labels match. If you ingested with another schema, pass that schema's labels in `entity_labels`.
 
 ```python
 import asyncio
-from agrag.common.data_models.graph_schema import GENERIC
-from agrag.graphdb.neo4j import Neo4jGraphStore, Neo4jSettings
-from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
-from agrag.retrieval.search_engine import SearchEngine
+
 from agrag.retrieval.recipes import HYBRID
+from agrag.retrieval.search_engine import SearchEngine
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
 
-async def main():
-    graph_store = Neo4jGraphStore(settings=Neo4jSettings())
-    embedder = SentenceTransformerEmbedder()
 
-    engine = SearchEngine(
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    graph = await Graph.open(
+        schema=GENERIC,
         graph_store=graph_store,
         embedder=embedder,
-        entity_labels=[entity.label for entity in GENERIC.entities],
+        extractor=GlinerExtractor(),
     )
+    try:
+        await graph.add(text="Aspirin treats headaches. Ibuprofen also treats headaches.")
+        engine = SearchEngine(
+            graph_store=graph_store,
+            embedder=embedder,
+            entity_labels=[entity.label for entity in GENERIC.entities],
+        )
 
-    results = await engine.search(
-        "What treats headaches?",
-        HYBRID,
-    )
+        results = await engine.search("What treats headaches?", HYBRID)
 
-    for result in results:
-        print(f"{result.item} (score={result.score:.3f})")
+        for result in results:
+            print(f"{result.item} (score={result.score:.3f})")
+    finally:
+        await graph_store.close()
+
 
 asyncio.run(main())
 ```
@@ -54,37 +69,51 @@ When you chunk with `ParentChildChunker`, a chunk search returns child chunks. E
 
 ## Using build_agent
 
+{/* pmd-metadata: fixture:llm_env */}
+
 ```python
 import asyncio
+
 from agrag.agents.build import build_agent
 from agrag.agents.settings import AgentLLMSettings
-from agrag.common.data_models.graph_schema import GENERIC
-from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
-from agrag.graphdb.neo4j import Neo4jGraphStore, Neo4jSettings
 from agrag.retrieval.search_engine import SearchEngine
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
 
-async def main():
-    graph_store = Neo4jGraphStore(settings=Neo4jSettings())
-    embedder = SentenceTransformerEmbedder()
-    engine = SearchEngine(
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    graph = await Graph.open(
+        schema=GENERIC,
         graph_store=graph_store,
         embedder=embedder,
+        extractor=GlinerExtractor(),
     )
+    try:
+        await graph.add(text="Aspirin treats headaches. Ibuprofen also treats headaches.")
+        engine = SearchEngine(graph_store=graph_store, embedder=embedder)
 
-    agent = build_agent(
-        engine=engine,
-        llm_settings=AgentLLMSettings.from_openai_compatible_env(),
-        graph_schema=GENERIC,
-    )
+        agent = build_agent(
+            engine=engine,
+            llm_settings=AgentLLMSettings.from_openai_compatible_env(),
+            graph_schema=GENERIC,
+        )
 
-    result = await agent.ainvoke({
-        "messages": [
-            {"role": "user", "content": "What treats headaches?"}
-        ]
-    })
+        result = await agent.ainvoke({
+            "messages": [
+                {"role": "user", "content": "What treats headaches?"}
+            ]
+        })
 
-    last_message = result["messages"][-1]
-    print(last_message["content"] if isinstance(last_message, dict) else last_message.content)
+        last_message = result["messages"][-1]
+        print(last_message["content"] if isinstance(last_message, dict) else last_message.content)
+    finally:
+        await graph_store.close()
+
 
 asyncio.run(main())
 ```
@@ -98,14 +127,45 @@ The deep-agent path returns LangChain message objects, so the last message's tex
 By default, the agent's tools search the whole graph. Pass `SearchFilters` to
 limit every tool search by document set, tenant, or label:
 
-```python
-from agrag.retrieval.filters import SearchFilters
+{/* pmd-metadata: fixture:llm_env */}
 
-agent = build_agent(
-    engine=engine,
-    llm_settings=AgentLLMSettings.from_openai_compatible_env(),
-    filters=SearchFilters(document_ids=["doc-1", "doc-2"]),
-)
+```python
+import asyncio
+
+from agrag.agents.build import build_agent
+from agrag.agents.settings import AgentLLMSettings
+from agrag.retrieval.filters import SearchFilters
+from agrag.retrieval.search_engine import SearchEngine
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=embedder,
+        extractor=GlinerExtractor(),
+    )
+    try:
+        await graph.add(text="Aspirin treats headaches. Ibuprofen also treats headaches.")
+        engine = SearchEngine(graph_store=graph_store, embedder=embedder)
+
+        agent = build_agent(
+            engine=engine,
+            llm_settings=AgentLLMSettings.from_openai_compatible_env(),
+            filters=SearchFilters(document_ids=["doc-1", "doc-2"]),
+        )
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
 Set the filters when your application builds the agent. The tools enforce the
@@ -155,7 +215,7 @@ Relational tools follow relationships between entities:
 | `traverse_from_entity` | Walk outward from an entity, with a fallback to relationship types when the neighbourhood is too wide | `entity`, `relation_type`, `direction`, `depth` |
 | `query_graph_directly` | Ask a structural question in one generated read-only Cypher query; present only for unscoped agents | `query` |
 
-`compute_over_evidence` stands outside the three groups. It computes a count, a sum, or a comparison over numbers the researcher already read from earlier tool results. It never queries the graph. The design rationale for this tool set is recorded in `agrag_agents.md` in the `test-agentic-graphrag` companion repository's `thoughts` notes.
+`compute_over_evidence` stands outside the three groups. It computes a count, a sum, or a comparison over numbers the researcher already read from earlier tool results. It never queries the graph.
 
 ## Available Recipes
 

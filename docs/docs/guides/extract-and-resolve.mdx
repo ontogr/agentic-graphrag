@@ -4,34 +4,46 @@ sidebar_position: 2
 
 # Extract and resolve entities
 
-This guide shows how to extract entities and relations from chunks, and how to
-resolve duplicate mentions into groups.
+This guide shows how to extract entities and relations from chunks, and how to resolve duplicate mentions into groups.
+
+## Before you start
+
+The extraction examples use a chunk of text. The resolution examples use a graph. This guide assumes that you finished the [Quickstart](/get-started/quickstart). Each code block is complete and opens its own connections. The LLM examples read `LLM_BASE_URL`, `LLM_MODEL_ID`, and optionally `LLM_API_KEY` from the environment or from `.env`.
 
 ## Extract with the default schema
 
+`BAMLExtractor` sends the chunk to an LLM and returns typed entities and relations. It needs the `llm` extra:
+
+```bash
+uv pip install "agentic-graphrag[llm]"
+```
+
+{/* pmd-metadata: fixture:llm_env */}
+
 ```python
 import asyncio
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import (
-    ConsoleSpanExporter,
-    SimpleSpanProcessor,
-)
 
+from uuid import uuid4
+
+from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
 
-# One tracer for the whole application. Every component below that takes
-# `tracer=` writes into this trace. Leave it out and no span is recorded.
-provider = TracerProvider()
-provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
-tracer = provider.get_tracer("my-app")
 
+async def main() -> None:
+    text = "Ada Lovelace wrote the first algorithm for the Analytical Engine."
+    chunk = Chunk(
+        id=uuid4(),
+        document_id=uuid4(),
+        text=text,
+        provenance=TextProvenance(char_start=0, char_end=len(text)),
+    )
 
-async def main():
-    # Point at your OpenAI-compatible endpoint via environment variables:
+    # Point at your OpenAI-compatible endpoint with environment variables:
     #   LLM_BASE_URL, LLM_MODEL_ID, and optionally LLM_API_KEY
     settings = ExtractionLLMSettings.from_openai_compatible_env()
-    extractor = BAMLExtractor(settings=settings, tracer=tracer)
+    extractor = BAMLExtractor(settings=settings)
     result = await extractor.extract(chunk, GENERIC)
     print(result.entities)
 
@@ -39,33 +51,48 @@ async def main():
 asyncio.run(main())
 ```
 
-`BAMLExtractor` needs the `llm` extra:
-
-```bash
-pip install "agentic-graphrag[llm]"
-```
+To record what the extractor does, pass a `tracer` to it. See [Trace an agent run](./trace-an-agent-run.mdx).
 
 ## Give the model the section heading
 
 When a chunk has a heading path, `BAMLExtractor` sends it as a separate `section` line above the text block, for example `Guide > Setup`. The prompt says that the line is context only. Character offsets still index the chunk text, because the heading is not part of it. Set `include_heading_path=False` to turn this off:
 
+{/* pmd-metadata: fixture:llm_env */}
+
 ```python
-extractor = BAMLExtractor(settings=settings, include_heading_path=False)
+import asyncio
+
+from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
+
+
+async def main() -> None:
+    settings = ExtractionLLMSettings.from_openai_compatible_env()
+    extractor = BAMLExtractor(settings=settings, include_heading_path=False)
+
+
+asyncio.run(main())
 ```
 
 Only `BAMLExtractor` uses the heading path. The local and escalating extractors read the chunk text only. See [Configure chunking](./configure-chunking.mdx) for the embedding side of this setting.
 
 ## Run locally first, escalating to an LLM
 
+`GlinerExtractor` runs a local model. `EscalatingExtractor` runs it first and calls the LLM only when the local result is weak. It needs both extras:
+
+```bash
+uv pip install "agentic-graphrag[extract,llm]"
+```
+
+{/* pmd-metadata: fixture:llm_env */}
+
 ```python
 import asyncio
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import (
-    ConsoleSpanExporter,
-    SimpleSpanProcessor,
-)
 
+from uuid import uuid4
+
+from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models.provenance import TextProvenance
 from agrag.ingestion.extract import (
     BAMLExtractor,
     EscalatingExtractor,
@@ -73,18 +100,20 @@ from agrag.ingestion.extract import (
     GlinerExtractor,
 )
 
-# A second component of the same application writes into the same trace.
-provider = TracerProvider()
-provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
-tracer = provider.get_tracer("my-app")
 
+async def main() -> None:
+    text = "Ada Lovelace wrote the first algorithm for the Analytical Engine."
+    chunk = Chunk(
+        id=uuid4(),
+        document_id=uuid4(),
+        text=text,
+        provenance=TextProvenance(char_start=0, char_end=len(text)),
+    )
 
-async def main():
     settings = ExtractionLLMSettings.from_openai_compatible_env()
     extractor = EscalatingExtractor(
-        primary=GlinerExtractor(tracer=tracer),
-        escalate_to=BAMLExtractor(settings=settings, tracer=tracer),
-        tracer=tracer,
+        primary=GlinerExtractor(),
+        escalate_to=BAMLExtractor(settings=settings),
     )
     result = await extractor.extract(chunk, GENERIC)
     print(result.entities)
@@ -93,79 +122,136 @@ async def main():
 asyncio.run(main())
 ```
 
-`GlinerExtractor` needs the `extract` extra:
-
-```bash
-pip install "agentic-graphrag[extract]"
-```
-
 ## Configure the LLM provider
 
-Set `EXTRACTION_LLM_CLIENTS` (or a `.env` file) to point at any supported
-provider — Anthropic, OpenAI, Azure OpenAI, AWS Bedrock, Google AI, Vertex AI,
-or a self-hosted OpenAI-compatible endpoint via `openai-generic`.
+Set `EXTRACTION_LLM_CLIENTS` (or a `.env` file) to point at any supported provider: Anthropic, OpenAI, Azure OpenAI, AWS Bedrock, Google AI, Vertex AI, or a self-hosted OpenAI-compatible endpoint through `openai-generic`. The value is a JSON list of client configs:
 
-Alternatively, use `ExtractionLLMSettings.from_openai_compatible_env()` to
-read from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` environment
-variables.
+```text
+EXTRACTION_LLM_CLIENTS=[{"name": "c", "provider": "openai-generic", "model": "your-model-name", "base_url": "https://your-endpoint.example.com/v1", "api_key": "your-api-key"}]
+EXTRACTION_LLM_STRATEGY=single
+```
+
+A strategy of `fallback` or `round_robin` composes more than one client.
+
+Alternatively, use `ExtractionLLMSettings.from_openai_compatible_env()` to read `LLM_BASE_URL`, `LLM_MODEL_ID`, and `LLM_API_KEY`. `LLM_API_KEY` is optional. The call raises `RuntimeError` when `LLM_BASE_URL` or `LLM_MODEL_ID` is missing.
 
 ## Resolution runs inside every write
 
-You never call resolution directly. `graph.add()` resolves every batch
-automatically: exact-name identity groups mentions without evidence, a
-fuzzy fast path merges near-identical names, embedding similarity decides
-the rest, and a capped LLM tier reviews only the ambiguous band. Raw
-entity nodes are permanent. Confirmed non-exact matches persist as
-`MATCHES` edges with a derived resolved node, never by deleting a node.
+You never call resolution directly. `graph.add()` resolves every batch automatically: exact-name identity groups mentions without evidence, a fuzzy fast path merges near-identical names, embedding similarity decides the rest, and a capped LLM tier reviews only the ambiguous band. Raw entity nodes are permanent. Confirmed non-exact matches persist as `MATCHES` edges with a derived resolved node, never by deleting a node.
 
 ```python
-result = await graph.add(text="Ada Lovelace wrote the first algorithm.")
-print(result.resolution.exact_match_hits)
-print(result.resolution.ambiguous_count)
+import asyncio
+
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        result = await graph.add(text="Ada Lovelace wrote the first algorithm.")
+        print(result.resolution.exact_match_hits)
+        print(result.resolution.ambiguous_count)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
-Configure resolution through the settings you pass when you open the
-graph: the schema, the embedder, and the extractor. Inspect every run
-through the resolution stats on the returned `AddResult`.
+`Graph.open` has no resolution settings. Resolution uses the schema, the embedder, and the extractor that you pass to it. Inspect every run through the resolution stats on the returned `AddResult`.
 
 ## Consolidate the whole graph
 
-`consolidate()` runs the same resolution as a full pass over every
-persisted entity of each type. Dry-run first, then apply:
+`consolidate()` runs the same resolution as a full pass over every persisted entity of each type. Dry-run first, then apply:
 
 ```python
-report = await graph.consolidate()
-print([(m.entity_a_id, m.entity_b_id) for m in report.would_match])
-print(report.ambiguous_count)
+import asyncio
 
-applied = await graph.consolidate(apply=True)
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        await graph.add(text="Ada Lovelace wrote the first algorithm.")
+
+        report = await graph.consolidate()
+        print([(m.entity_a_id, m.entity_b_id) for m in report.would_match])
+        print(report.ambiguous_count)
+
+        applied = await graph.consolidate(apply=True)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
-A dry run writes nothing. Applying writes `MATCHES` edges and derived
-resolved nodes, and reports exactly the matches it wrote. LLM review
-calls stay bounded no matter how large the graph grows.
+A dry run writes nothing. Applying writes `MATCHES` edges and derived resolved nodes, and reports exactly the matches it wrote. LLM review calls stay bounded no matter how large the graph grows.
 
 ## Re-evaluate specific entities
 
-`reevaluate()` re-runs the same resolution for entities you name, when
-new evidence lands or a past decision looks wrong. It adds newly
-confirmed matches, deactivates edges the current evidence no longer
-supports, and leaves every entity outside the list untouched:
+`reevaluate()` re-runs the same resolution for entities you name, when new evidence lands or a past decision looks wrong. It adds newly confirmed matches, deactivates edges the current evidence no longer supports, and leaves every entity outside the list untouched:
 
 ```python
-report = await graph.reevaluate([entity_id_a, entity_id_b])
-print(report.matches_added)
-print(report.matches_removed)
+import asyncio
+
+from uuid import UUID
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        await graph.add(text="Ada Lovelace worked with Charles Babbage.")
+        rows = await graph_store.execute_read(
+            "MATCH (e:_AgragNode:Person) RETURN e.id AS id LIMIT 2"
+        )
+        entity_ids = [UUID(str(row["id"])) for row in rows]
+
+        report = await graph.reevaluate(entity_ids)
+        print(report.matches_added)
+        print(report.matches_removed)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
 ```
 
-There is no automatic trigger: a caller that learns something new calls
-`reevaluate()` explicitly.
+There is no automatic trigger: a caller that learns something new calls `reevaluate()` explicitly.
 
-`Resolver.resolve()` also takes an optional `neighbors_by_index` map of
-per-entity neighboring-relationship strings, which batched `LLMVerify`
-verification sends to the model as extra context. `Graph.add()` and
-`Graph.consolidate()` build one automatically from a batch's extracted
-relations and each persisted entity's stored graph edges.
+`Resolver.resolve()` also takes an optional `neighbors_by_index` map of per-entity neighboring-relationship strings, which batched `LLMVerify` verification sends to the model as extra context. `Graph.add()` and `Graph.consolidate()` build one automatically from a batch's extracted relations and each persisted entity's stored graph edges.
 
 ## Define your own schema
 
@@ -186,5 +272,4 @@ schema = GraphSchema(
 
 ## Next steps
 
-- See the [API reference](/api) for every `Extractor`, `Comparator`, and
-  schema field.
+- See the [API reference](/api) for every `Extractor`, `Comparator`, and schema field.
