@@ -21,6 +21,11 @@
 # | graphrag-novel-2544    | GraphRAG-Bench Novel-2544, full              | 7708      |
 # | financial-lite         | FinanceBench, lite                           | 7709      |
 # | financial-full         | FinanceBench, full                           | 7710      |
+# | memory-conv17          | BEAM conversation 17, lite and full          | 7711      |
+# | memory-conv1           | BEAM conversation 1, full                    | 7712      |
+# | memory-conv4           | BEAM conversation 4, full                    | 7713      |
+# | memory-conv6           | BEAM conversation 6, full                    | 7714      |
+# | memory-conv13          | BEAM conversation 13, full                   | 7715      |
 
 name: agrag-bench
 
@@ -71,6 +76,40 @@ services:
       - "127.0.0.1:7710:7687"
     volumes:
       - agrag-bench-financial-full:/data
+  memory-conv17:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7711:7687"
+    volumes:
+      - agrag-bench-memory-conv17:/data
+
+  memory-conv1:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7712:7687"
+    volumes:
+      - agrag-bench-memory-conv1:/data
+
+  memory-conv4:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7713:7687"
+    volumes:
+      - agrag-bench-memory-conv4:/data
+
+  memory-conv6:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7714:7687"
+    volumes:
+      - agrag-bench-memory-conv6:/data
+
+  memory-conv13:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7715:7687"
+    volumes:
+      - agrag-bench-memory-conv13:/data
 
   graphrag-novel-25646:
     <<: *neo4j
@@ -137,3 +176,13 @@ volumes:
     name: agrag-bench-graphrag-novel-41603
   agrag-bench-graphrag-novel-2544:
     name: agrag-bench-graphrag-novel-2544
+  agrag-bench-memory-conv17:
+    name: agrag-bench-memory-conv17
+  agrag-bench-memory-conv1:
+    name: agrag-bench-memory-conv1
+  agrag-bench-memory-conv4:
+    name: agrag-bench-memory-conv4
+  agrag-bench-memory-conv6:
+    name: agrag-bench-memory-conv6
+  agrag-bench-memory-conv13:
+    name: agrag-bench-memory-conv13

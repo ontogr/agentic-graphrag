@@ -16,3 +16,5 @@ GraphRAG-Bench code | MIT | https://github.com/GraphRAG-Bench/GraphRAG-Benchmark
 GraphRAG-Bench data | no license stated | https://huggingface.co/datasets/GraphRAG-Bench/GraphRAG-Bench
 NCCN Guidelines for Patients (GraphRAG-Bench Medical corpus) | all rights reserved | The text says it "may not be reproduced in any form for any purpose without the express written permission of NCCN". https://www.nccn.org/patientresources/patient-resources/guidelines-for-patients
 Project Gutenberg texts (GraphRAG-Bench Novel corpus) | public domain in the United States | https://www.gutenberg.org
+BEAM data | CC BY-SA 4.0 (share-alike applies to adapted text, so to these traces) | https://huggingface.co/datasets/Mohammadta/BEAM
+BEAM code | MIT | https://github.com/mohammadtavakoli78/BEAM
