@@ -40,7 +40,7 @@ class BenchSettings(BaseSettings):
 
 # Bolt ports on the loopback address, one per compose service. A domain adds its
 # services here and in the compose file.
-SERVICE_PORTS: dict[str, int] = {"fake": 7700}
+SERVICE_PORTS: dict[str, int] = {"fake": 7700, "legal-lite": 7701, "legal-full": 7702}
 
 CommandRunner = Callable[[Sequence[str]], None]
 

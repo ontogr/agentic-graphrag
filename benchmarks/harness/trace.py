@@ -19,8 +19,9 @@ from benchmarks.harness.record import TRACE_NAME, TraceRef, sha256_file
 class GzipJsonlSpanExporter(SpanExporter):
     """Writes each exported batch as one line of OTLP protobuf JSON.
 
-    The file is gzipped. Call ``shutdown`` to finish it. Spans end on many threads
-    and a gzip stream is not thread safe, so writes take a lock.
+    The file is gzipped and flushed after each batch, so a run in progress can be
+    read up to its last batch. Call ``shutdown`` to finish it. Spans end on many
+    threads and a gzip stream is not thread safe, so writes take a lock.
     """
 
     def __init__(self, path: Path) -> None:
@@ -35,6 +36,7 @@ class GzipJsonlSpanExporter(SpanExporter):
         line = json.dumps(batch, separators=(",", ":")) + "\n"
         with self._lock:
             self._file.write(line)
+            self._file.flush()
         return SpanExportResult.SUCCESS
 
     def shutdown(self) -> None:

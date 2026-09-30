@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import sys
 
+from agrag.chunking import Chunking, RecursiveChunker
 from benchmarks.datasets.base import DOMAINS
 from benchmarks.harness.config import BENCH_CHUNKING, COST_MODEL
 from benchmarks.harness.dry_run import DryRun, SpendCapError
@@ -32,7 +33,7 @@ def _confirm(bound: DryRun) -> bool:
     return answer.strip().lower() == "y"
 
 
-def _environment() -> RunEnvironment:
+def _environment(chunking: Chunking) -> RunEnvironment:
     """Build the agrag environment from the process environment."""
     settings = AgragSettings.from_env()
     agent = settings.agent.clients[0]
@@ -44,7 +45,7 @@ def _environment() -> RunEnvironment:
         return AgragSystem(
             store=context.store,
             schema=context.schema,
-            chunking=BENCH_CHUNKING,
+            chunking=chunking,
             documents=context.documents,
             settings=settings,
             tracer=context.tracer,
@@ -53,7 +54,7 @@ def _environment() -> RunEnvironment:
     return RunEnvironment(
         system_name="agrag",
         code=code_identity(),
-        chunking=BENCH_CHUNKING,
+        chunking=chunking,
         models={
             "agent": {"model_id": agent.model, "provider": agent.provider},
             "judge": {
@@ -71,6 +72,15 @@ def _environment() -> RunEnvironment:
         trace_repo=BenchSettings().trace_repo,
         cost=COST_MODEL,
         embedder_model=embedder,
+    )
+
+
+def _chunking(args: argparse.Namespace) -> Chunking:
+    """Return the benchmark chunking, or characters-per-chunk chunking if asked."""
+    if args.chunk_size is None:
+        return BENCH_CHUNKING
+    return Chunking(
+        fallback=RecursiveChunker(tokenizer="character", chunk_size=args.chunk_size)
     )
 
 
@@ -109,6 +119,11 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--mode", choices=("lite", "full"), required=True)
         command.add_argument("--max-llm-calls", type=int)
         command.add_argument("--max-tokens", type=int)
+        command.add_argument(
+            "--chunk-size",
+            type=_positive_int,
+            help="Chunk size in characters. The default is about 1000 tokens.",
+        )
 
     run_command = commands.add_parser("run", help="Ingest, answer, grade and record.")
     add_target(run_command)
@@ -147,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
                 domain,
                 args.mode,
                 options,
-                chunking=BENCH_CHUNKING,
+                chunking=_chunking(args),
                 cost=COST_MODEL,
             )
             print(
@@ -158,7 +173,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         record, path = asyncio.run(
-            run(args.domain, domain, args.mode, _options(args), _environment())
+            run(
+                args.domain,
+                domain,
+                args.mode,
+                _options(args),
+                _environment(_chunking(args)),
+            )
         )
     except (SpendCapError, RunRefusedError) as error:
         print(f"refused: {error}", file=sys.stderr)

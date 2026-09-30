@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Benchmark records hold hashes, such as the ingest cache key, and no secrets."
+paths = ['''benchmarks/results/.*/record\.json''']
