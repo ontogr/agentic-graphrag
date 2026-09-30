@@ -1,0 +1,87 @@
+---
+sidebar_position: 3
+title: Legal benchmark
+---
+
+# Legal benchmark
+
+This page describes the Legal benchmark: the questions, the graph schema, how `agrag` answers are scored, and the results of the committed lite runs. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
+
+## The dataset
+
+[LegalBench-RAG](https://github.com/zeroentropy-ai/legalbenchrag) ([paper](https://arxiv.org/abs/2408.10343)) asks a question about one legal document. The gold answer is one or more character spans of that document, so a system must find and cite the right passage. The questions come from four sources:
+
+| Source | Documents | Origin |
+|---|---|---|
+| PrivacyQA | privacy policies | [PrivacyQA](https://github.com/AbhilashaRavichander/PrivacyQA_EMNLP) |
+| ContractNLI | non-disclosure agreements | [ContractNLI](https://stanfordnlp.github.io/contract-nli/) |
+| CUAD | commercial contracts | [CUAD](https://www.atticusprojectai.org/cuad) |
+| MAUD | merger agreements | [MAUD](https://github.com/TheAtticusProject/maud) |
+
+The benchmark keeps its own "mini" sample of 776 questions on 72 documents. The harness reads the questions and documents from a Hugging Face mirror, [`awinml/legalbench-rag`](https://huggingface.co/datasets/awinml/legalbench-rag), at a pinned revision. It checks the hash of every document before it uses it. Every query keeps its official text, including the `Consider ...` prefix that names the document.
+
+### Lite and full
+
+| Set | Questions | Documents | Tokens | Sources |
+|---|---|---|---|---|
+| Lite | 10 | 3 | 18,638 | PrivacyQA 4, ContractNLI 3, CUAD 3 |
+| Full | 100 | 15 | 223,766 | 25 from each of the four sources |
+
+The lite set uses one privacy policy, one non-disclosure agreement, and one strategic alliance agreement. It leaves out MAUD, because a single MAUD document would be most of the ingest cost. Every lite question is also in the full set. The full set keeps the documents with the most questions in each source, and for MAUD the two shortest documents. It drops repeated query strings.
+
+The text of a document is read exactly as the gold offsets count it: a carriage return and line feed pair is one character, and a byte order mark stays as the first character. The harness builds the document text itself and does not use an `agrag` loader, because a loader changes the text and moves every offset. A test checks that each chunk equals the slice of the document at its offsets.
+
+## The graph schema
+
+One schema covers all four sources: privacy policies, non-disclosure agreements, contracts, and merger agreements. It has 11 entity types (such as `Agreement`, `Party`, `DefinedTerm`, `Clause`, `Obligation`, `TimePeriod`, `DataCategory`), 16 relation types (such as `PARTY_TO`, `IMPOSES`, `DEFINES`, `SHARED_WITH`), and 12 clause kinds as subtypes of `Clause`. The clause kinds are a general legal list, not the labels of CUAD, MAUD, or ContractNLI. Read the schema in `benchmarks/schemas/legal.py`.
+
+## How answers are scored
+
+Each question gets five scores from 0 to 1.
+
+- **Precision and recall.** These follow the scorer of LegalBench-RAG. Precision is the share of the retrieved characters that lie inside a gold span. Recall is the share of the gold characters that a retrieved span covers. A retrieved span matches a gold span when they are in the same document and overlap. The retrieved spans are the chunks that the answer cites.
+- **Expanded precision and recall.** These add the chunks that the cited entities and relations were extracted from.
+- **Correctness.** A judge model compares the answer with the gold spans, joined by a newline.
+
+A question with no chunk citation scores 0 for precision and recall and carries the flag `no_chunk_citation`. The record also stores `non_chunk_citation_share`, the share of citations that point to an entity, relation, or community and so have no span.
+
+The benchmark scores a fixed number of retrieved snippets. `agrag` has no such number: it cites what the agent chose to use. These scores therefore do not compare with the published precision at k of other systems. The source average of the paper gives each of the four sources the same weight; the group rows in the record give the per-source values.
+
+Because the judge is the same model as the agent by default, correctness is biased upward. See [Benchmarks](./index.mdx#who-grades-the-answers).
+
+## Results of the lite runs
+
+Both runs used `gemma4:31b` for extraction, the agent, and the judge, on one clean commit. The two runs differ only in the chunk size.
+
+| Chunking | Chunks | Correctness | Precision | Recall | Model calls | Tokens | Wall time |
+|---|---|---|---|---|---|---|---|
+| About 1,000 tokens (default) | 23 | 0.98 | 0.10 | 0.91 | 310 | 3.67M | 26 min |
+| 1,024 characters | 113 | 0.81 | 0.21 | 0.65 | 605 | 2.90M | 47 min |
+
+The chunk size sets the trade between precision and recall. A large chunk holds the whole gold span, so recall is high, but the chunk is far larger than the span, so precision is low. A small chunk is closer to the span size, so precision doubles. Recall and correctness fall, most likely because an answer that spans several small chunks needs all of them, and the agent cites only some. The record does not show which. Two small chunks also had no extracted entity.
+
+Read the numbers with care. Each run has 10 questions, so one question moves a score by 0.1. The judge grades its own model. Neither run is a measure of how `agrag` compares with other systems.
+
+The per-source results are in the records under `benchmarks/results/lite/`. Print them with:
+
+```bash
+uv run python -m benchmarks report --domain legal
+```
+
+## Cost and time
+
+Ingest takes most of the time. `agrag` reads the documents one call at a time, and it resolves duplicate entities once per document against the whole graph. In the default lite run, ingest took about 80% of the wall time, and resolution was the largest part of it. The full set has 15 documents and 272 chunks at the default chunking. Its dry-run estimate is about 8,000 calls and 54 million tokens, so run `make bench-dry DOMAIN=legal MODE=full` and read the estimate before you start it.
+
+To run the second chunking of the table:
+
+```bash
+make bench-dry DOMAIN=legal MODE=lite
+uv run python -m benchmarks run legal --mode lite --chunk-size 1024 \
+  --max-llm-calls 2500 --max-tokens 25000000
+```
+
+The chunk size is in characters. The estimate for 1,024 characters is above the lite spend cap, so the run needs the two override flags, and the record states that it used them.
+
+## Terms of use
+
+The documents and questions keep the licenses of their sources: LegalBench-RAG and PrivacyQA are under the MIT license, and ContractNLI and CUAD are under CC BY 4.0. The license of MAUD is not verified. A trace holds passages of these documents, so read `benchmarks/results/NOTICE` before you share one.
