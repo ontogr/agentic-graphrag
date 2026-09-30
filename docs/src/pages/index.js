@@ -38,6 +38,11 @@ const paths = [
     to: '/get-started/quickstart',
   },
   {
+    title: 'Concepts',
+    body: 'See how the pipeline turns documents into answers.',
+    to: '/concepts/architecture',
+  },
+  {
     title: 'Ingest your own corpus',
     body: 'Chunking, schema-guided extraction, and duplicate resolution over your files.',
     to: '/guides/ingest-documents',
@@ -196,7 +201,7 @@ print(answer.content)`}</CodeBlock>
           </div>
         </section>
         <section className={styles.section}>
-          <div className={`container ${styles.grid}`}>
+          <div className={`container ${styles.grid} ${styles.pathGrid}`}>
             {paths.map(({title, body, to}) => (
               <Link key={title} className={styles.card} to={to}>
                 <h3>{title}</h3>
