@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1028" width="1500" height="1028" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif">
+<defs>
+<filter id="sh" x="-5%" y="-5%" width="110%" height="120%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.18"/></filter>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#0f172a" flood-opacity="0.15"/></filter>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#0f172a"/></marker>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#b91c1c"/></marker>
+<marker id="arg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#166534"/></marker>
+</defs>
+<rect x="0" y="0" width="1500" height="1028" rx="28" fill="#ffffff"/>
+<g filter="url(#sh)"><rect x="30" y="20" width="1370" height="104" rx="16" fill="#ffffff" stroke="#6d3fc0" stroke-width="2"/></g>
+<path d="M30 66 V36 a16 16 0 0 1 16 -16 H1384 a16 16 0 0 1 16 16 V66 z" fill="#6d3fc0"/>
+<g transform="translate(52 31)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h8"/></g>
+<text x="92" y="51" font-size="22" font-weight="700" fill="#ffffff" text-anchor="start" >Sources</text>
+<g filter="url(#shadow)"><rect x="61.0" y="70" width="120" height="40" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="121.0" y="95.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >Text</text>
+<g filter="url(#shadow)"><rect x="193.0" y="70" width="120" height="40" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="253.0" y="95.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >Markdown</text>
+<g filter="url(#shadow)"><rect x="325.0" y="70" width="120" height="40" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="385.0" y="95.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >HTML</text>
+<g filter="url(#shadow)"><rect x="457.0" y="70" width="120" height="40" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="517.0" y="95.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >CSV</text>
+<g filter="url(#shadow)"><rect x="589.0" y="70" width="120" height="40" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="649.0" y="95.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >JSON / JSONL</text>
+<g filter="url(#shadow)"><rect x="721.0" y="70" width="120" height="40" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="781.0" y="95.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >AsciiDoc</text>
+<g filter="url(#shadow)"><rect x="853.0" y="70" width="120" height="40" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="913.0" y="95.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >PDF</text>
+<g filter="url(#shadow)"><rect x="985.0" y="70" width="120" height="40" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="1045.0" y="95.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >DOCX</text>
+<g filter="url(#shadow)"><rect x="1117.0" y="70" width="120" height="40" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="1177.0" y="95.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >PPTX</text>
+<g filter="url(#shadow)"><rect x="1249.0" y="70" width="120" height="40" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="1309.0" y="95.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >Images</text>
+<line x1="715" y1="124" x2="715" y2="158" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="30" y="158" width="1370" height="214" rx="16" fill="#ffffff" stroke="#0b7285" stroke-width="2"/></g>
+<path d="M30 204 V174 a16 16 0 0 1 16 -16 H1384 a16 16 0 0 1 16 16 V204 z" fill="#0b7285"/>
+<g transform="translate(52 169)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></g>
+<text x="92" y="189" font-size="22" font-weight="700" fill="#ffffff" text-anchor="start" >Graph construction</text>
+<text x="1378" y="188" font-size="16" font-weight="400" fill="#ffffff" text-anchor="end" >Graph.add</text>
+<g filter="url(#shadow)"><rect x="56" y="220" width="130" height="52" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="121.0" y="251.5" font-size="18" font-weight="600" fill="#0f172a" text-anchor="middle" >Load</text>
+<g filter="url(#shadow)"><rect x="226" y="220" width="130" height="52" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="291.0" y="251.5" font-size="18" font-weight="600" fill="#0f172a" text-anchor="middle" >Chunk</text>
+<g filter="url(#shadow)"><rect x="396" y="220" width="170" height="52" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="481.0" y="251.5" font-size="18" font-weight="600" fill="#0f172a" text-anchor="middle" >Extract</text>
+<g filter="url(#shadow)"><rect x="766" y="220" width="170" height="52" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="851.0" y="251.5" font-size="18" font-weight="600" fill="#0f172a" text-anchor="middle" >Resolve</text>
+<line x1="186" y1="246" x2="224" y2="246" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<line x1="356" y1="246" x2="394" y2="246" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<line x1="566" y1="246" x2="764" y2="246" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<text x="481" y="298" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >GLiNER runs locally.</text>
+<text x="481" y="317" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >An LLM (BAML) runs only for weak chunks.</text>
+<text x="481" y="336" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >Output is checked against your schema.</text>
+<text x="851" y="298" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >Exact, fuzzy, embedding and LLM-checked tiers.</text>
+<text x="851" y="317" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >It never merges on a guess.</text>
+<rect x="1040" y="216" width="340" height="150" rx="12" fill="#f0fdfa" stroke="#0b7285" stroke-width="1.8" stroke-dasharray="7 5"/>
+<text x="1210" y="238" font-size="15" font-weight="700" fill="#0b7285" text-anchor="middle" >On demand</text>
+<g filter="url(#shadow)"><rect x="1062" y="248" width="296" height="44" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="1210.0" y="275.5" font-size="16" font-weight="600" fill="#0f172a" text-anchor="middle" >Consolidate</text>
+<g filter="url(#shadow)"><rect x="1062" y="302" width="296" height="44" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="1210.0" y="329.5" font-size="16" font-weight="600" fill="#0f172a" text-anchor="middle" >Communities + reports</text>
+<line x1="936" y1="246" x2="1038" y2="246" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)" stroke-dasharray="6 4"/>
+<line x1="400" y1="372" x2="400" y2="412" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<line x1="1050" y1="372" x2="1050" y2="412" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="30" y="414" width="665" height="176" rx="16" fill="#ffffff" stroke="#1565c0" stroke-width="2"/></g>
+<path d="M30 460 V430 a16 16 0 0 1 16 -16 H679 a16 16 0 0 1 16 16 V460 z" fill="#1565c0"/>
+<g transform="translate(52 425)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="3"/><circle cx="19" cy="6" r="3"/><circle cx="12" cy="19" r="3"/><path d="M8 6h8M6.5 8.5l4 8M17.5 8.5l-4 8"/></g>
+<text x="92" y="445" font-size="22" font-weight="700" fill="#ffffff" text-anchor="start" >Neo4j graph store</text>
+<g filter="url(#shadow)"><rect x="52" y="478" width="110" height="42" rx="10" fill="#ffffff" stroke="#1565c0" stroke-width="1.8"/></g>
+<text x="107.0" y="504.5" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle" >Document</text>
+<g filter="url(#shadow)"><rect x="172" y="478" width="90" height="42" rx="10" fill="#ffffff" stroke="#1565c0" stroke-width="1.8"/></g>
+<text x="217.0" y="504.5" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle" >Chunk</text>
+<g filter="url(#shadow)"><rect x="272" y="478" width="90" height="42" rx="10" fill="#ffffff" stroke="#1565c0" stroke-width="1.8"/></g>
+<text x="317.0" y="504.5" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle" >Entity</text>
+<g filter="url(#shadow)"><rect x="372" y="478" width="120" height="42" rx="10" fill="#ffffff" stroke="#1565c0" stroke-width="1.8"/></g>
+<text x="432.0" y="504.5" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle" >Community</text>
+<g filter="url(#shadow)"><rect x="502" y="478" width="150" height="42" rx="10" fill="#ffffff" stroke="#1565c0" stroke-width="1.8"/></g>
+<text x="577.0" y="504.5" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle" >ResolvedEntity</text>
+<text x="362" y="552" font-size="15" font-weight="400" fill="#334155" text-anchor="middle" >Native vector index for dense search</text>
+<g filter="url(#sh)"><rect x="735" y="414" width="665" height="176" rx="16" fill="#ffffff" stroke="#2e7d32" stroke-width="2"/></g>
+<path d="M735 460 V430 a16 16 0 0 1 16 -16 H1384 a16 16 0 0 1 16 16 V460 z" fill="#2e7d32"/>
+<g transform="translate(757 425)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></g>
+<text x="797" y="445" font-size="22" font-weight="700" fill="#ffffff" text-anchor="start" >Vector stores</text>
+<text x="1378" y="444" font-size="16" font-weight="400" fill="#ffffff" text-anchor="end" >optional</text>
+<g filter="url(#shadow)"><rect x="757" y="478" width="130" height="42" rx="10" fill="#ffffff" stroke="#2e7d32" stroke-width="1.8"/></g>
+<text x="822.0" y="504.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >Qdrant</text>
+<g filter="url(#shadow)"><rect x="901" y="478" width="140" height="42" rx="10" fill="#ffffff" stroke="#2e7d32" stroke-width="1.8"/></g>
+<text x="971.0" y="504.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >Weaviate</text>
+<g filter="url(#shadow)"><rect x="1055" y="478" width="170" height="42" rx="10" fill="#ffffff" stroke="#2e7d32" stroke-width="1.8"/></g>
+<text x="1140.0" y="504.5" font-size="15" font-weight="600" fill="#0f172a" text-anchor="middle" >Milvus / Zilliz</text>
+<text x="1067" y="552" font-size="15" font-weight="400" fill="#334155" text-anchor="middle" >Dense and hybrid search</text>
+<line x1="362" y1="590" x2="362" y2="626" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<line x1="1068" y1="590" x2="1068" y2="626" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="30" y="628" width="1370" height="156" rx="16" fill="#ffffff" stroke="#c2410c" stroke-width="2"/></g>
+<path d="M30 674 V644 a16 16 0 0 1 16 -16 H1384 a16 16 0 0 1 16 16 V674 z" fill="#c2410c"/>
+<g transform="translate(52 639)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M15.5 15.5L22 22"/></g>
+<text x="92" y="659" font-size="22" font-weight="700" fill="#ffffff" text-anchor="start" >Retrieval</text>
+<text x="1378" y="658" font-size="16" font-weight="400" fill="#ffffff" text-anchor="end" >SearchEngine + recipes</text>
+<g filter="url(#shadow)"><rect x="110.0" y="690" width="226" height="40" rx="10" fill="#ffffff" stroke="#c2410c" stroke-width="1.8"/></g>
+<text x="223.0" y="715.5" font-size="16" font-weight="600" fill="#0f172a" text-anchor="middle" >Entity</text>
+<g filter="url(#shadow)"><rect x="356.0" y="690" width="226" height="40" rx="10" fill="#ffffff" stroke="#c2410c" stroke-width="1.8"/></g>
+<text x="469.0" y="715.5" font-size="16" font-weight="600" fill="#0f172a" text-anchor="middle" >Chunk</text>
+<g filter="url(#shadow)"><rect x="602.0" y="690" width="226" height="40" rx="10" fill="#ffffff" stroke="#c2410c" stroke-width="1.8"/></g>
+<text x="715.0" y="715.5" font-size="16" font-weight="600" fill="#0f172a" text-anchor="middle" >Community</text>
+<g filter="url(#shadow)"><rect x="848.0" y="690" width="226" height="40" rx="10" fill="#ffffff" stroke="#c2410c" stroke-width="1.8"/></g>
+<text x="961.0" y="715.5" font-size="16" font-weight="600" fill="#0f172a" text-anchor="middle" >Text-to-Cypher</text>
+<g filter="url(#shadow)"><rect x="1094.0" y="690" width="226" height="40" rx="10" fill="#ffffff" stroke="#c2410c" stroke-width="1.8"/></g>
+<text x="1207.0" y="715.5" font-size="16" font-weight="600" fill="#0f172a" text-anchor="middle" >Graph expansion</text>
+<text x="715" y="760" font-size="15" font-weight="400" fill="#334155" text-anchor="middle" >Reciprocal rank fusion, then cross-encoder or node-distance reranking</text>
+<line x1="715" y1="784" x2="715" y2="820" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="30" y="822" width="1370" height="186" rx="16" fill="#ffffff" stroke="#3730a3" stroke-width="2"/></g>
+<path d="M30 868 V838 a16 16 0 0 1 16 -16 H1384 a16 16 0 0 1 16 16 V868 z" fill="#3730a3"/>
+<g transform="translate(52 833)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V3M9 14h.01M15 14h.01M9 18h6"/></g>
+<text x="92" y="853" font-size="22" font-weight="700" fill="#ffffff" text-anchor="start" >Agent</text>
+<text x="1378" y="852" font-size="16" font-weight="400" fill="#ffffff" text-anchor="end" >build_agent</text>
+<g filter="url(#shadow)"><rect x="70" y="884" width="250" height="62" rx="10" fill="#ffffff" stroke="#3730a3" stroke-width="1.8"/></g>
+<text x="195.0" y="912.0" font-size="18" font-weight="700" fill="#0f172a" text-anchor="middle" >Planner</text>
+<text x="195.0" y="931.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >splits the question</text>
+<g filter="url(#shadow)"><rect x="400" y="884" width="250" height="62" rx="10" fill="#ffffff" stroke="#3730a3" stroke-width="1.8"/></g>
+<text x="525.0" y="912.0" font-size="18" font-weight="700" fill="#0f172a" text-anchor="middle" >Researcher</text>
+<text x="525.0" y="931.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >searches the graph</text>
+<g filter="url(#shadow)"><rect x="730" y="884" width="250" height="62" rx="10" fill="#ffffff" stroke="#3730a3" stroke-width="1.8"/></g>
+<text x="855.0" y="912.0" font-size="18" font-weight="700" fill="#0f172a" text-anchor="middle" >Verifier</text>
+<text x="855.0" y="931.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >checks the evidence</text>
+<g filter="url(#shadow)"><rect x="1060" y="884" width="250" height="62" rx="10" fill="#ffffff" stroke="#3730a3" stroke-width="1.8"/></g>
+<text x="1185.0" y="912.0" font-size="18" font-weight="700" fill="#0f172a" text-anchor="middle" >Cited answer</text>
+<text x="1185.0" y="931.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >keys E1, C1, V1</text>
+<line x1="320" y1="915" x2="398" y2="915" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<line x1="650" y1="915" x2="728" y2="915" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<line x1="980" y1="915" x2="1058" y2="915" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<path d="M855 948 V974 H525 V950" fill="none" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<text x="690" y="995" font-size="14" font-weight="600" fill="#3730a3" text-anchor="middle" >gaps: search again (up to 3 tries)</text>
+<g filter="url(#sh)"><rect x="1424" y="20" width="52" height="988" rx="14" fill="#334155"/></g>
+<text transform="translate(1458 514) rotate(-90)" font-size="20" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="1.5">OpenTelemetry spans</text>
+<line x1="1400" y1="72" x2="1424" y2="72" stroke="#334155" stroke-width="3" stroke-dasharray="3 3"/>
+<line x1="1400" y1="265" x2="1424" y2="265" stroke="#334155" stroke-width="3" stroke-dasharray="3 3"/>
+<line x1="1400" y1="502" x2="1424" y2="502" stroke="#334155" stroke-width="3" stroke-dasharray="3 3"/>
+<line x1="1400" y1="706" x2="1424" y2="706" stroke="#334155" stroke-width="3" stroke-dasharray="3 3"/>
+<line x1="1400" y1="915" x2="1424" y2="915" stroke="#334155" stroke-width="3" stroke-dasharray="3 3"/>
+</svg>

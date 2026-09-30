@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 600" width="1500" height="600" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif">
+<defs>
+<filter id="sh" x="-5%" y="-5%" width="110%" height="120%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.18"/></filter>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#0f172a" flood-opacity="0.15"/></filter>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#0f172a"/></marker>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#b91c1c"/></marker>
+<marker id="arg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#166534"/></marker>
+</defs>
+<rect x="0" y="0" width="1500" height="600" rx="28" fill="#ffffff"/>
+<g filter="url(#sh)"><rect x="50" y="28" width="1400" height="84" rx="16" fill="#ffffff" stroke="#2e7d32" stroke-width="2"/></g>
+<path d="M50 70 V44 a16 16 0 0 1 16 -16 H1434 a16 16 0 0 1 16 16 V70 z" fill="#2e7d32"/>
+<text x="76" y="58" font-size="20" font-weight="700" fill="#ffffff" text-anchor="start" >Outcome of a match</text>
+<text x="750" y="96" font-size="17" font-weight="600" fill="#0f172a" text-anchor="middle" >MATCHES edges and a ResolvedEntity. The original entities stay in the graph.</text>
+<polygon points="36,176 1464,196 1464,314 36,334" fill="#eef2ff" />
+<g filter="url(#shadow)"><rect x="50" y="220" width="250" height="70" rx="10" fill="#ffffff" stroke="#475569" stroke-width="1.8"/></g>
+<text x="175.0" y="252.0" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle" >Mentions</text>
+<text x="175.0" y="271.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >same label only</text>
+<g filter="url(#shadow)"><rect x="337" y="220" width="250" height="70" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="462.0" y="252.0" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle" >Exact</text>
+<text x="462.0" y="271.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >merges by key</text>
+<g filter="url(#shadow)"><rect x="624" y="220" width="250" height="70" rx="10" fill="#ffffff" stroke="#1565c0" stroke-width="1.8"/></g>
+<text x="749.0" y="252.0" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle" >Fuzzy</text>
+<text x="749.0" y="271.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >match or unsure</text>
+<g filter="url(#shadow)"><rect x="911" y="220" width="250" height="70" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="1036.0" y="252.0" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle" >Embedding</text>
+<text x="1036.0" y="271.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >similarity zones</text>
+<g filter="url(#shadow)"><rect x="1198" y="220" width="250" height="70" rx="10" fill="#ffffff" stroke="#3730a3" stroke-width="1.8"/></g>
+<text x="1323.0" y="252.0" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle" >LLM check</text>
+<text x="1323.0" y="271.0" font-size="13" font-weight="400" fill="#334155" text-anchor="middle" >capped per label</text>
+<line x1="300" y1="255" x2="335" y2="255" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<line x1="587" y1="255" x2="622" y2="255" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<line x1="874" y1="255" x2="909" y2="255" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<line x1="1161" y1="255" x2="1196" y2="255" stroke="#0f172a" stroke-width="2.4" marker-end="url(#ar)"/>
+<line x1="462.0" y1="218" x2="462.0" y2="116" stroke="#166534" stroke-width="2.4" marker-end="url(#arg)"/>
+<text x="470.0" y="180" font-size="14" font-weight="700" fill="#166534" text-anchor="start" >sure: match</text>
+<line x1="749.0" y1="218" x2="749.0" y2="116" stroke="#166534" stroke-width="2.4" marker-end="url(#arg)"/>
+<text x="757.0" y="180" font-size="14" font-weight="700" fill="#166534" text-anchor="start" >sure: match</text>
+<line x1="1036.0" y1="218" x2="1036.0" y2="116" stroke="#166534" stroke-width="2.4" marker-end="url(#arg)"/>
+<text x="1044.0" y="180" font-size="14" font-weight="700" fill="#166534" text-anchor="start" >sure: match</text>
+<line x1="1323.0" y1="218" x2="1323.0" y2="116" stroke="#166534" stroke-width="2.4" marker-end="url(#arg)"/>
+<text x="1331.0" y="180" font-size="14" font-weight="700" fill="#166534" text-anchor="start" >sure: match</text>
+<g filter="url(#shadow)"><rect x="50" y="340" width="250" height="100" rx="10" fill="#ffffff" stroke="#475569" stroke-width="1.8"/></g>
+<text x="175.0" y="364" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >Only mentions with the same</text>
+<text x="175.0" y="384" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >label are compared.</text>
+<g filter="url(#shadow)"><rect x="337" y="340" width="250" height="100" rx="10" fill="#ffffff" stroke="#0b7285" stroke-width="1.8"/></g>
+<text x="462.0" y="364" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >Equal text after trimming</text>
+<text x="462.0" y="384" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >spaces and ignoring case.</text>
+<g filter="url(#shadow)"><rect x="624" y="340" width="250" height="100" rx="10" fill="#ffffff" stroke="#1565c0" stroke-width="1.8"/></g>
+<text x="749.0" y="364" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >Word order is ignored.</text>
+<text x="749.0" y="384" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >Score 0.97 or more: match.</text>
+<text x="749.0" y="404" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >A lower score is not a rejection.</text>
+<g filter="url(#shadow)"><rect x="911" y="340" width="250" height="100" rx="10" fill="#ffffff" stroke="#6d3fc0" stroke-width="1.8"/></g>
+<text x="1036.0" y="364" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >0.95 or more: match.</text>
+<text x="1036.0" y="384" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >Below 0.80: drop.</text>
+<text x="1036.0" y="404" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >0.80 to 0.95: grouped; a tight</text>
+<text x="1036.0" y="424" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >group is a match.</text>
+<g filter="url(#shadow)"><rect x="1198" y="340" width="250" height="100" rx="10" fill="#ffffff" stroke="#3730a3" stroke-width="1.8"/></g>
+<text x="1323.0" y="364" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >Reads each remaining pair in context.</text>
+<text x="1323.0" y="384" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >Match, no match, or unsure.</text>
+<text x="1323.0" y="404" font-size="14" font-weight="400" fill="#334155" text-anchor="middle" >At most 500 pairs per label.</text>
+<g filter="url(#shadow)"><rect x="50" y="478" width="1400" height="84" rx="14" fill="#fef2f2" stroke="#b91c1c" stroke-width="2.2"/></g>
+<text x="84" y="512" font-size="20" font-weight="700" fill="#991b1b" text-anchor="start" >Unsure means no match.</text>
+<text x="84" y="543" font-size="16" font-weight="400" fill="#7f1d1d" text-anchor="start" >A missed match can be fixed later with Graph.consolidate. A wrong match mixes the facts of two different things.</text>
+<line x1="749.0" y1="440" x2="749.0" y2="476" stroke="#b91c1c" stroke-width="2" marker-end="url(#arr)" stroke-dasharray="5 4"/>
+<line x1="1036.0" y1="440" x2="1036.0" y2="476" stroke="#b91c1c" stroke-width="2" marker-end="url(#arr)" stroke-dasharray="5 4"/>
+<line x1="1323.0" y1="440" x2="1323.0" y2="476" stroke="#b91c1c" stroke-width="2" marker-end="url(#arr)" stroke-dasharray="5 4"/>
+</svg>
