@@ -32,7 +32,7 @@
   margin-bottom: 2.5rem;
 }
 
-/* The banner has its own opaque navy background, so it reads the same in both colour modes. */
+/* The banner has its own opaque white background, so it reads the same in both colour modes. */
 .banner {
   display: block;
   width: 100%;
