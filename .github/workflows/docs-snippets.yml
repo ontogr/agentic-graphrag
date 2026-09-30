@@ -40,10 +40,18 @@ env:
 
 jobs:
   snippets:
-    name: Run docs code blocks
+    name: Docs code blocks (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # The Makefile assigns pages to shards. Each shard has its own Neo4j and Qdrant.
+        shard: [1, 2, 3]
     env:
+      DOCS_SHARD: ${{ matrix.shard }}
+      # Print the slowest blocks, so the Makefile shard lists can be rebalanced.
+      PYTEST_ADDOPTS: --durations=10
       UV_PYTHON: "3.12"
       # Fixed, throwaway credentials scoped to this job's own Docker network.
       NEO4J_URI: bolt://localhost:7687
@@ -53,6 +61,8 @@ jobs:
       QDRANT_URL: http://localhost:6333
       QDRANT_API_KEY: ci-test-qdrant-key
       BAML_LOG: "off"
+      # This job owns its Neo4j service, so the docs fixtures can empty it.
+      DOCS_TEST_ALLOW_NEO4J_RESET: "1"
       # Empty on pull requests, so blocks that need an LLM skip there.
       LLM_BASE_URL: ${{ github.event_name != 'pull_request' && secrets.LLM_BASE_URL || '' }}
       LLM_API_KEY: ${{ github.event_name != 'pull_request' && secrets.LLM_API_KEY || '' }}
@@ -97,3 +107,19 @@ jobs:
       - name: Stop services
         if: always()
         run: docker compose -f docker/docker-compose.ci.yml down -v
+
+  # One status for all shards. It runs even when a shard fails, because GitHub counts a
+  # skipped job as passing. It does not run for a cancelled workflow.
+  result:
+    name: Run docs code blocks
+    needs: snippets
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SHARDS_RESULT: ${{ needs.snippets.result }}
+    steps:
+      - name: Require every shard to pass
+        run: |
+          echo "Shards: $SHARDS_RESULT"
+          test "$SHARDS_RESULT" = "success"

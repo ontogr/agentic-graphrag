@@ -108,6 +108,7 @@ const config = {
         logo: {alt: 'Agentic GraphRAG logo', src: 'img/logo.svg'},
         items: [
           {type: 'docSidebar', sidebarId: 'startSidebar', position: 'left', label: 'Get Started'},
+          {type: 'docSidebar', sidebarId: 'conceptsSidebar', position: 'left', label: 'Concepts'},
           {type: 'docSidebar', sidebarId: 'guidesSidebar', position: 'left', label: 'Guides'},
           {type: 'docSidebar', sidebarId: 'referenceSidebar', position: 'left', label: 'Reference'},
           {type: 'search', position: 'right'},
@@ -130,6 +131,7 @@ const config = {
             title: 'Docs',
             items: [
               {label: 'Introduction', to: '/get-started/introduction'},
+              {label: 'Concepts', to: '/concepts/architecture'},
               {label: 'Guides', to: '/guides/ingest-documents'},
               {label: 'API Reference', to: '/api'},
             ],

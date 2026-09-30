@@ -14,6 +14,39 @@ costs nothing, and `agrag` never installs a global provider: the tracer is the
 one you inject. See [Trace an Agent Run](../guides/trace-an-agent-run.mdx) for
 how to build and pass one.
 
+## How the span families nest
+
+```mermaid
+flowchart TD
+    G[Graph call root] --> X[Extraction spans]
+    G --> J[Cutover job]
+    G --> C[Community spans]
+    J --> R[Resolution spans]
+    J --> M[Merge spans]
+    J --> S[Storage spans]
+    T[Agent tool call] --> Q[Search root]
+    Q --> RT[Retriever spans]
+    X --> L[LLM spans]
+    R --> L
+    C --> L
+    S --> D[Store and embedding spans]
+    RT --> D
+```
+
+*Each box is a span family. An arrow points from a parent span to the spans that nest below it.*
+
+| Box | Span names |
+|---|---|
+| Graph call root | `agrag.ingestion.add`, `update`, `delete_document`, `consolidate`, `detect_communities`, and the other root spans in "Ingestion root spans" |
+| Extraction spans | `agrag.extraction.*` |
+| Cutover job | `agrag.ingestion.cutover_job` and `agrag.ingestion.ingest_chunks` |
+| Resolution, Merge, Storage spans | `agrag.resolution.*`, `agrag.merge.*`, `agrag.storage.*` |
+| Community spans | `agrag.community.*` |
+| LLM spans | `agrag.llm.call`, `agrag.llm.attempt`, `agrag.llm.request` |
+| Agent tool call | The OpenInference `TOOL` span of an agent run |
+| Search root and retriever spans | `agrag.retrieval.search` and the spans in "The retrieval span tree" |
+| Store and embedding spans | `agrag.graphdb.*`, `agrag.vectordb.*`, `agrag.embedding.*`, only when you pass the same tracer to the stores and the embedder |
+
 ## The LLM span tree
 
 Every BAML-backed path produces the same three spans, nested. The `request`
@@ -45,6 +78,128 @@ attempt fails. The `call` span is `ERROR` when the call as a whole fails.
 | `agrag.ingestion.load_document` | `agrag.source_uri`, `agrag.loader_name`, `agrag.normalization` (JSON) |
 | `agrag.ingestion.chunk_document` | `agrag.document_key`, `agrag.chunker.strategy`, `agrag.chunker.hash`, `agrag.chunker.settings` (JSON), `agrag.chunker.rule` (a rule index or `fallback`), `agrag.chunks_produced` |
 | `agrag.storage.embed_chunks` | `agrag.embedding.heading_context` (bool, whether the embedder got the heading path) |
+
+## Ingestion root spans
+
+Every public `Graph` call opens one root span. The spans in the sections below nest under it.
+
+| Span | Opens when | Attributes |
+|---|---|---|
+| `agrag.ingestion.open` | `Graph.open` runs | none |
+| `agrag.ingestion.resume_incomplete_jobs` | `Graph.open` recovers document jobs that an earlier run left unfinished | none |
+| `agrag.ingestion.add` | `Graph.add` runs | none |
+| `agrag.ingestion.update` | `Graph.update` runs | none |
+| `agrag.ingestion.delete_document` | `Graph.delete_document` runs | none |
+| `agrag.ingestion.consolidate` | `Graph.consolidate` runs | none |
+| `agrag.ingestion.detect_communities` | `Graph.detect_communities` runs | none |
+| `agrag.ingestion.reevaluate` | `Graph.reevaluate` runs | `agrag.entity_count` |
+| `agrag.ingestion.deactivate_match` | `Graph.deactivate_match` runs | `agrag.match_id` |
+| `agrag.ingestion.cutover_job` | An add, update, or delete runs as one document job | `agrag.verb`, `agrag.document_key`, `agrag.job_id` |
+| `agrag.ingestion.ingest_chunks` | The shared step that resolves, merges, and stores extracted chunks | none |
+
+## The ingestion span tree
+
+One `add` call with one chunk and the local extractor produces this tree. `load_document` appears only for `source=` input. Store and embedding spans (`agrag.graphdb.*`, `agrag.embedding.*`, and `agrag.vectordb.*` when a vector store is set) nest below the step that calls them.
+
+```text
+agrag.ingestion.add
+  agrag.ingestion.load_document           only with source=
+  agrag.ingestion.chunk_document
+  agrag.extraction.extract_chunk          one per chunk
+    agrag.extraction.gliner               or agrag.extraction.baml, agrag.extraction.escalating
+      agrag.extraction.model_load         first call only
+  agrag.ingestion.cutover_job
+    agrag.ingestion.ingest_chunks
+      agrag.resolution.global_exact_match
+      agrag.resolution.candidate_generation
+      agrag.resolution.resolve
+        agrag.resolution.exact_fuzzy_pass
+        agrag.resolution.embedding_tier
+        agrag.resolution.precluster_tier
+        agrag.resolution.llm_tier         only with boundary pairs
+          agrag.resolution.llm_batch
+      agrag.merge.merge_group             one per entity group
+      agrag.storage.upsert_chunks
+      agrag.storage.upsert_documents
+      agrag.storage.embed_chunks
+      agrag.storage.upsert_relations
+      agrag.storage.upsert_mentioned_in
+      agrag.storage.embed_survivors
+    agrag.merge.materialize_components
+```
+
+## Resolution, merge, and storage spans
+
+| Span | Attributes |
+|---|---|
+| `agrag.resolution.global_exact_match` | `agrag.mention_count`, `agrag.exact_match_hits` |
+| `agrag.resolution.candidate_generation` | `agrag.mention_count`, `agrag.persisted_candidate_count`, `agrag.in_batch_candidate_count` |
+| `agrag.resolution.resolve` | `agrag.entity_count`, `agrag.pair_count`, `agrag.ambiguous_count`, `agrag.failed_llm_requests`, `agrag.cap_truncated_pairs` |
+| `agrag.resolution.exact_fuzzy_pass` | `agrag.pair_count`, `agrag.exact_match_count`, `agrag.fuzzy_fast_path_count`, `agrag.fuzzy_uncertain_count` |
+| `agrag.resolution.embedding_tier` | `agrag.fuzzy_uncertain_count`, `agrag.hard_merge_count`, `agrag.ambiguous_count` |
+| `agrag.resolution.precluster_tier` | `agrag.boundary_pairs_before`, `agrag.auto_merged_count`, `agrag.boundary_pairs_after` |
+| `agrag.resolution.llm_tier` | `agrag.boundary_pair_count`, `agrag.selected_pair_count`, `agrag.cap_truncated_pairs`, `agrag.ambiguous_count`, `agrag.failed_llm_requests` |
+| `agrag.resolution.llm_batch` | `agrag.batch_size`, `agrag.uncertain_count` |
+| `agrag.merge.merge_group` | `agrag.mention_count`, `agrag.conflicts_resolved` |
+| `agrag.merge.materialize_components` | `agrag.component_count` |
+| `agrag.merge.materialize_component` | `agrag.member_count` |
+| `agrag.merge.deactivate_component` | `agrag.match_id` |
+| `agrag.storage.upsert_chunks` | `agrag.record_count`, `agrag.nodes_written` |
+| `agrag.storage.upsert_documents` | `agrag.record_count`, `agrag.nodes_written` |
+| `agrag.storage.upsert_relations` | `agrag.record_count`, `agrag.relationships_written` |
+| `agrag.storage.upsert_mentioned_in` | `agrag.record_count`, `agrag.relationships_written` |
+| `agrag.storage.embed_survivors` | none |
+| `agrag.community.embed_batch` | `agrag.batch_size` |
+
+`agrag.resolution.llm_tier` and `agrag.resolution.llm_batch` open only when boundary pairs reach the model. Like `agrag.resolution.llm_verify`, a failed model call there counts as `agrag.failed_llm_requests` and does not set the span to `ERROR`.
+
+## Graph store spans
+
+The Neo4j store opens these spans. Reads and writes carry the query text and the value of every parameter, except vectors, so a trace shows what each query asked for.
+
+| Span | Attributes |
+|---|---|
+| `agrag.graphdb.build_driver` | none |
+| `agrag.graphdb.execute_read` | `db.system.name`, `db.namespace`, `db.query.text`, `db.query.parameter.<name>` for each non-vector parameter, `agrag.transactional` (inside a transaction) |
+| `agrag.graphdb.execute_write` | the same as `execute_read` |
+| `agrag.graphdb.transaction` | none |
+| `agrag.graphdb.upsert_nodes` | `db.collection.name` (the label), `agrag.record_count`, `agrag.written`, `agrag.failures_count`, `db.operation.batch.size` (only for a write of more than one record) |
+| `agrag.graphdb.upsert_relations` | `agrag.record_count`, `agrag.written`, `agrag.failures_count`, `db.operation.batch.size` (only for a write of more than one record) |
+| `agrag.graphdb.vector_search` | `db.collection.name` (the label), `agrag.limit`, `agrag.k_final`, `agrag.index_missing` (when the index does not exist; the search then returns no hits) |
+
+## Vector store spans
+
+Qdrant, Weaviate, and Milvus open the same names. `db.system.name` is `qdrant`, `weaviate`, or `milvus`. Only Qdrant opens `query_points`, one for each arm of its two-search hybrid query.
+
+| Span | Attributes |
+|---|---|
+| `agrag.vectordb.build_client` | none |
+| `agrag.vectordb.upsert` | `db.collection.name`, `agrag.record_count` |
+| `agrag.vectordb.upsert_batch` | `db.system.name`, `db.collection.name`, `agrag.batch_size` |
+| `agrag.vectordb.search` | `db.system.name`, `db.collection.name`, `agrag.limit` |
+| `agrag.vectordb.hybrid_search` | `db.collection.name`, `agrag.limit`, `agrag.alpha` |
+| `agrag.vectordb.query_points` | `db.system.name`, `db.collection.name`, `agrag.query_arm` (`dense` or `sparse`) |
+| `agrag.vectordb.scroll` | `db.system.name`, `db.collection.name`, `agrag.limit` |
+| `agrag.vectordb.retrieve` | `db.system.name`, `db.collection.name` |
+| `agrag.vectordb.count` | `db.system.name`, `db.collection.name` |
+| `agrag.vectordb.delete` | `db.system.name`, `db.collection.name` |
+
+## Embedding spans
+
+| Span | Attributes |
+|---|---|
+| `agrag.embedding.model_load` | `agrag.model` |
+| `agrag.embedding.encode` | `agrag.text_count`, `agrag.cache_hit_count` (dense embedder) |
+| `agrag.embedding.query_embed` | `agrag.text_count` (keyword embedder for Qdrant hybrid search) |
+
+## Retrieval hydration spans and the agent span
+
+| Span | Attributes |
+|---|---|
+| `agrag.retrieval.hydrate_communities` | `agrag.requested_count`, `agrag.hydrated_count` |
+| `agrag.retrieval.hydrate_resolved_entities` | `agrag.requested_count`, `agrag.hydrated_count` |
+| `agrag.retrieval.community_context` | `agrag.seed_count`, `agrag.top_k` |
+| `agrag.agents.run` | none. Only the simple agent (used when the `agents` extra is not installed) opens it. The full loop opens OpenInference spans instead. |
 
 ## Domain spans by path
 
@@ -221,7 +376,9 @@ change any span, on any path. To record less, scrub attributes in a
 `SpanProcessor` you configure, or run without a tracer.
 
 Two things are never recorded on any span: the request headers, which carry the
-provider key, and the request URL.
+provider key, and the request URL. Graph store spans record the query text and the
+value of every parameter except vectors. A parameter can hold source text or entity
+names.
 
 ## Known limits
 

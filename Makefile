@@ -258,9 +258,27 @@ docs-build: docs-api
 	cd docs && npm run build
 
 # The docs tests need a Neo4j reachable through NEO4J_* (see docker/docker-compose.ci.yml).
+# Some blocks empty that database. They run only when DOCS_TEST_ALLOW_NEO4J_RESET=1,
+# so point NEO4J_URI at a throwaway database before you set it.
 # The generated API pages hold docstring examples that are not self-contained, so they never run.
-DOCS_TEST_PATHS ?= docs/docs/get-started docs/docs/guides
+#
+# CI runs the pages in three shards, each on its own runner with its own Neo4j and
+# Qdrant. Set DOCS_SHARD=1, 2 or 3 to run one shard. Shards hold whole pages, because
+# blocks of one page run in file order and can read what an earlier block wrote.
+# Shards 1 and 2 list their pages. Shard 3 runs both docs folders except those pages,
+# so a new page always runs somewhere. The lists balance measured run time (about 45
+# seconds each) and spread the pages that need an LLM key.
+DOCS_SHARD_1 := docs/docs/guides/ingest-documents.mdx \
+	docs/docs/guides/update-and-delete-documents.mdx \
+	docs/docs/guides/retrieve-and-answer.mdx
+DOCS_SHARD_2 := docs/docs/guides/configure-chunking.mdx \
+	docs/docs/guides/configure-storage-backends.mdx \
+	docs/docs/get-started/quickstart.mdx
+DOCS_SHARD_3 := docs/docs/get-started docs/docs/guides \
+	$(addprefix --ignore=,$(DOCS_SHARD_1) $(DOCS_SHARD_2))
+DOCS_TEST_PATHS ?= $(if $(DOCS_SHARD),$(DOCS_SHARD_$(DOCS_SHARD)),docs/docs/get-started docs/docs/guides)
 
 docs-test:
+	@test -n "$(strip $(DOCS_TEST_PATHS))" || { echo "No docs pages selected. DOCS_SHARD must be 1, 2 or 3."; exit 1; }
 	uv run --group docs pytest --markdown-docs $(DOCS_TEST_PATHS) \
 		--ignore=docs/docs/api -p no:deepeval -p no:cacheprovider -o addopts="" --forked -q
