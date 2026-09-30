@@ -1,0 +1,84 @@
+---
+sidebar_position: 2
+title: Knowledge graph
+description: The node and edge kinds agrag writes to Neo4j, and why it keeps them.
+---
+
+# Knowledge graph
+
+agrag keeps documents, chunks, entities and community summaries in one property graph in Neo4j.
+
+## Why it exists
+
+Every fact in an answer must trace back to text. If the graph held only entities, you could not show where a fact came from. If it held only text, you could not connect facts.
+
+agrag keeps both in one graph. An entity points to the chunks that mention it. A chunk points to the document that holds it. You can walk from an answer back to its source.
+
+## How it works
+
+```mermaid
+flowchart LR
+    D[Document] -->|PART_OF| C[Chunk]
+    C -->|NEXT_CHUNK| C
+    C -->|MENTIONED_IN| E[Entity]
+    E -->|schema relation| E
+    E -->|MATCHES| E
+    E -->|RESOLVED_AS| R[ResolvedEntity]
+    E -->|MEMBER_OF| M[Community]
+```
+
+*Five node kinds and their edges. Entity nodes use your schema's type names as labels.*
+
+The graph has five kinds of node:
+
+1. **Document.** One node for each logical document. Its `document_key` stays the same when the content changes. It holds the source location, the title and the current content hash.
+2. **Chunk.** One retrieval-sized piece of text. It holds the text, its location in the source, the headings above it, and the chunker that made it.
+3. **Entity.** One node for each name and type, such as the person "Ada Lovelace". Its label is the type from your schema. The same name with two types makes two entities. It records which chunks mention it.
+4. **ResolvedEntity.** A group of entities that the resolver decided are the same thing. It exists only for groups of two or more.
+5. **Community.** A group of related entities. It holds a title, a summary, a rating and findings.
+
+The edges connect them:
+
+- `PART_OF` joins a document to each of its chunks. It has a start time and an end time. The edge is open while the chunk belongs to the current version of the document.
+- `NEXT_CHUNK` joins two neighbouring chunks of one document.
+- `MENTIONED_IN` joins a chunk to each entity it mentions.
+- A schema relation joins two entities, for example `WORKED_WITH`. Only the patterns that your schema allows can exist.
+- `MATCHES` joins two entities that the resolver matched.
+- `RESOLVED_AS` joins an entity to its resolved entity.
+- `MEMBER_OF` joins an entity to its community.
+
+## Example
+
+Take a note with two sentences about Ada Lovelace, Charles Babbage and the Analytical Engine. With the `GENERIC` preset, one run gives this graph:
+
+| Kind | Count |
+| --- | --- |
+| Document | 1 |
+| Chunk | 1 |
+| Entity | 5 |
+| `PART_OF` edges | 1 |
+| `MENTIONED_IN` edges | 5 |
+
+The five entities are two people, one place, one product and one event. The preset has one relation type, and the extractor found no relation in this text, so the graph has no relation edge. A stricter schema for your domain gives the extractor more to look for.
+
+<details>
+<summary>Design choices</summary>
+
+**Why are chunks nodes?** A chunk node lets an answer cite its source. It also lets a search step from one chunk to its neighbours.
+
+**Why does `PART_OF` have an end time instead of being deleted?** A changed document closes its old edges and opens new ones. The old chunks stay as history. Search reads only open edges, so a removed document leaves retrieval at once.
+
+**Why does the resolver add a ResolvedEntity instead of merging entities?** A match is a judgement. The original entity nodes stay, so a wrong match loses no information.
+
+**Why is the type the label?** The type is what you filter and index by. Every agrag node also carries an internal marker label, so agrag can find its own nodes in a shared database.
+
+**Why is the parent of a chunk a property and not an edge?** A child chunk stores its parent's id. Search returns the child with its parent attached, so no traversal is needed. The [Chunking](./chunking.mdx) page explains parent and child chunks.
+
+</details>
+
+## Related
+
+- [Ingestion pipeline](./ingestion.mdx) describes how the graph is written.
+- [Chunking](./chunking.mdx) describes how chunks are made.
+- [Update and delete documents](/guides/update-and-delete-documents) shows how versions work.
+- [API reference](/api) lists the models.

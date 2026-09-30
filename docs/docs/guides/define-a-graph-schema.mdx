@@ -1,0 +1,203 @@
+---
+sidebar_position: 7
+title: Define a graph schema
+description: Declare the entity and relation types for your domain and give them to a graph.
+---
+
+# Define a graph schema
+
+Declare the entity types and relation types for your domain. Give the schema to a graph. The extractor then looks only for those types.
+
+## Before you start
+
+- A running Neo4j. Set `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD`. The [Quickstart](/get-started/quickstart) shows how.
+- The extras for local extraction:
+
+```bash
+uv pip install "agentic-graphrag[neo4j,extract,embed-local]"
+```
+
+## 1. Declare the types
+
+An entity type has a label, a description, and optional properties. A relation type has a label, a description, and the pairs of entity labels that it can join. The descriptions go into the extractor prompt, so write them for the extractor.
+
+```python
+from agrag.common.data_models import EntityType, GraphSchema, RelationType
+
+schema = GraphSchema(
+    name="computing-history",
+    version="1",
+    entities=[
+        EntityType(
+            label="Person",
+            description="A named person.",
+            properties={"born": "int"},
+        ),
+        EntityType(label="Machine", description="A named computing machine."),
+        EntityType(label="City", description="A named city."),
+    ],
+    relations=[
+        RelationType(
+            label="DESIGNED",
+            description="A person designed a machine.",
+            patterns=[("Person", "Machine")],
+        ),
+        RelationType(
+            label="WORKED_IN",
+            description="A person worked in a city.",
+            patterns=[("Person", "City")],
+        ),
+    ],
+)
+
+print(schema.to_compact_summary())
+```
+
+The output lists the labels and the valid pairs:
+
+```text
+Entity labels: Person, Machine, City
+Relation types:
+- DESIGNED: (Person, Machine)
+- WORKED_IN: (Person, City)
+```
+
+Raise `version` when you change the types or the patterns.
+
+## 2. Check that the schema is valid
+
+The schema checks itself when you create it. It rejects a relation pattern that names an undeclared entity. It rejects the property names `label` and `text`.
+
+```python
+from agrag.common.data_models import EntityType, GraphSchema, RelationType
+
+try:
+    GraphSchema(
+        name="broken",
+        version="1",
+        entities=[EntityType(label="Person", description="A named person.")],
+        relations=[
+            RelationType(
+                label="OWNS",
+                description="A person owns a product.",
+                patterns=[("Person", "Product")],
+            )
+        ],
+    )
+except ValueError as error:
+    print(error)
+
+try:
+    EntityType(label="Person", description="A named person.", properties={"text": "str"})
+except ValueError as error:
+    print(error)
+```
+
+Each error names the fix. For example: `Relation 'OWNS' pattern target 'Product' is not a declared entity`.
+
+## 3. Open a graph with the schema and add text
+
+This script contains the whole flow. It opens a graph, adds two sentences, and prints what the graph stored.
+
+```python fixture:clean_neo4j
+import asyncio
+
+from agrag.common.data_models import EntityType, GraphSchema, RelationType
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import GlinerExtractor, Graph
+
+schema = GraphSchema(
+    name="computing-history",
+    version="1",
+    entities=[
+        EntityType(
+            label="Person",
+            description="A named person.",
+            properties={"born": "int"},
+        ),
+        EntityType(label="Machine", description="A named computing machine."),
+        EntityType(label="City", description="A named city."),
+    ],
+    relations=[
+        RelationType(
+            label="DESIGNED",
+            description="A person designed a machine.",
+            patterns=[("Person", "Machine")],
+        ),
+        RelationType(
+            label="WORKED_IN",
+            description="A person worked in a city.",
+            patterns=[("Person", "City")],
+        ),
+    ],
+)
+
+TEXT = (
+    "Charles Babbage designed the Analytical Engine in London. "
+    "Ada Lovelace worked in London and wrote notes on the Analytical Engine."
+)
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=schema,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        result = await graph.add(text=TEXT)
+        print("mentions:", result.extraction.entities_extracted)
+        print("relations:", result.extraction.relations_extracted)
+        entities = await graph_store.execute_read(
+            "MATCH (e:_AgragNode) "
+            "WHERE NOT e:Chunk AND NOT e:Document AND NOT e:Community "
+            "AND NOT e:ResolvedEntity "
+            "RETURN labels(e) AS labels, e.name AS name ORDER BY name"
+        )
+        for row in entities:
+            print(row["labels"], row["name"])
+        relations = await graph_store.execute_read(
+            "MATCH (a:_AgragNode)-[r]->(b:_AgragNode) "
+            "WHERE type(r) IN ['DESIGNED', 'WORKED_IN'] "
+            "RETURN a.name AS source, type(r) AS relation, b.name AS target"
+        )
+        for row in relations:
+            print(row["source"], row["relation"], row["target"])
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+Output:
+
+```text
+mentions: 6
+relations: 2
+['_AgragNode', 'Person'] Ada Lovelace
+['_AgragNode', 'Machine'] Analytical Engine
+['_AgragNode', 'Person'] Charles Babbage
+['_AgragNode', 'City'] London
+Charles Babbage DESIGNED Analytical Engine
+Ada Lovelace WORKED_IN London
+```
+
+Six mentions give four entities, because mentions with the same label and text share one node.
+
+## Compare with the generic schema
+
+`GENERIC` has five broad types and one broad relation, `RELATED_TO`. On the same two sentences it found the same six mentions and no relations. It labelled the Analytical Engine a `Product`. The schema above found two relations and labelled it a `Machine`. Specific types and specific relation descriptions give the extractor a clear target.
+
+## Fill properties
+
+The local extractor leaves properties empty. The value of `born` stays unset. To fill properties, use the LLM extractor. The guide [Extract and resolve entities](/guides/extract-and-resolve) shows how to add it as a fallback.
+
+## Related
+
+- Concept: [Extraction](/concepts/extraction)
+- Guide: [Extract and resolve entities](/guides/extract-and-resolve)
+- Reference: [Core API](/api)

@@ -7,6 +7,8 @@ title: Configure chunking
 
 Choose how `agrag` splits each document into chunks, see which chunker made each chunk, and change the choice for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`. Each code block on this page is complete. Blocks that add documents open their own graph and close it at the end.
 
+See [Chunking](/concepts/chunking) for how rules, strategies and provenance work.
+
 ## Print the default rules
 
 A `Graph` holds a `Chunking`: a list of rules and a fallback chunker. The first rule that matches a document picks its chunker. A document that no rule matches gets the fallback.

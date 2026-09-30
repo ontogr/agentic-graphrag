@@ -1,0 +1,173 @@
+---
+title: Update and delete documents
+description: Replace a changed document, remove a document from search, and check what stays in the graph.
+---
+
+# Update and delete documents
+
+Use `Graph.update` to replace a document that changed. Use `Graph.delete_document` to remove a document from search. Both work on a document key, which is the identity of a document across edits.
+
+## Before you start
+
+1. Run Neo4j 5.23 or newer, and set `NEO4J_URI`, `NEO4J_USERNAME` and `NEO4J_PASSWORD`. The [Quickstart](/get-started/quickstart) shows how.
+2. Install the extras that the example uses:
+
+   ```bash
+   uv pip install "agentic-graphrag[neo4j,extract,embed-local]"
+   ```
+
+## Choose a document key
+
+Every document has a `document_key`. `Graph.update` and `Graph.delete_document` find a document by it.
+
+- For a file, the key is the absolute path of the file.
+- For a record, the key is the file path plus the record id or the row number.
+- For `Graph.add(text=...)`, the key comes from a hash of the text. An edit to the text makes a new key, so you cannot update it later.
+
+If you add text that will change, pass a `Document` with a key you choose.
+
+## Add, update and delete a document
+
+This script adds a document with the key `apollo-notes`. It then updates the document with the same text, updates it with new text, and deletes it.
+
+```python
+import asyncio
+import hashlib
+
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+TEXT = "NASA ran the Apollo program. Neil Armstrong commanded Apollo 11."
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        document = Document(
+            text=TEXT,
+            title="Apollo notes",
+            uri="notes://apollo",
+            document_key="apollo-notes",
+            source_format=SourceFormat.TXT,
+            family=DocumentFamily.PROSE,
+            content_hash=hashlib.sha256(TEXT.encode()).hexdigest(),
+            loader_name="manual",
+            char_count=len(TEXT),
+        )
+        await graph.add(documents=[document])
+
+        same = await graph.update("apollo-notes", text=TEXT)
+        print("same text ->", same.no_op)
+
+        changed = await graph.update(
+            "apollo-notes",
+            text="NASA ran the Apollo program. Buzz Aldrin walked on the Moon.",
+        )
+        print("new text ->", changed.no_op, changed.chunks_closed)
+
+        deleted = await graph.delete_document("apollo-notes")
+        print("delete ->", deleted.no_op, deleted.chunks_closed)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+Expected output:
+
+```text
+same text -> True
+new text -> False 1
+delete -> False 1
+```
+
+## Update a document
+
+Call `Graph.update` with the key and the new content. Give exactly one of `text` or `source`. A `source` must be a single file.
+
+```python notest
+result = await graph.update("apollo-notes", text="New text")
+```
+
+Read the result:
+
+- `no_op` is `True` when the content and the chunker settings did not change. agrag then skips chunking, extraction and every write.
+- `chunks_closed` counts the chunks of the old version that agrag closed.
+- `add_result` holds the summary of the new ingestion, as `Graph.add` returns it.
+
+If the key does not exist yet, `Graph.update` adds the content as a new document.
+
+If you change the chunking rules, `Graph.update` chunks the document again, even when its text is the same.
+
+## Delete a document
+
+Call `Graph.delete_document` with the key.
+
+```python notest
+result = await graph.delete_document("apollo-notes")
+```
+
+The call removes the document from search. It does not delete the document node, the chunks or the history. A key that does not exist gives `no_op=True`.
+
+## Check what stays in the graph
+
+After the script above, run this query. It lists the chunks of each document and whether the link to them is open.
+
+```python
+import asyncio
+
+from agrag.graphdb import build_graph_store
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    await graph_store.connect()
+    try:
+        edges = await graph_store.execute_read(
+            "MATCH (d:Document {document_key: 'apollo-notes'})-[p:PART_OF]->(c:Chunk) "
+            "RETURN d.document_key AS key, p.invalid_at IS NULL AS open, "
+            "count(c) AS chunks ORDER BY open"
+        )
+        for edge in edges:
+            print(edge["key"], "open" if edge["open"] else "closed", edge["chunks"])
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+Expected output after the script above:
+
+```text
+apollo-notes closed 2
+```
+
+Both chunks are still in the graph, but no link is open, so search does not return them.
+
+What happens to entities:
+
+- An entity that only the old version mentioned is removed after the update or the delete.
+- An entity that the new version also mentions stays.
+- The document node stays, with the hash of its last content.
+
+## If a call stops halfway
+
+`Graph.update` and `Graph.delete_document` are safe to interrupt. Open the graph again and agrag finishes or undoes the unfinished call. See [Ingestion pipeline](/concepts/ingestion#crash-safety).
+
+## Related
+
+- [Knowledge graph](/concepts/knowledge-graph) explains open and closed links.
+- [Ingest documents](/guides/ingest-documents) shows how to add documents.
+- [API reference](/api) lists every argument.

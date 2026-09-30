@@ -1,0 +1,154 @@
+---
+sidebar_position: 9
+title: Detect communities and read reports
+description: Group connected entities into communities and read the report for each one.
+---
+
+# Detect communities and read reports
+
+Group the connected entities of your graph into communities. Read the report that agrag writes for each community.
+
+## Before you start
+
+- A running Neo4j and the `NEO4J_*` variables. The [Quickstart](/get-started/quickstart) shows how.
+- The extras for local extraction, LLM reports, and community detection:
+
+```bash
+uv pip install "agentic-graphrag[neo4j,extract,embed-local,llm,community]"
+```
+
+- An LLM endpoint for the reports. Set `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. Without them, every community gets a simple report and the call records a failure.
+
+## 1. Add documents and detect communities
+
+Communities are groups of entities that relations connect. The graph needs relations, so this script uses a schema with two relation types. The script adds seven short documents, previews the communities, applies them, and reads the reports back.
+
+```python fixture:llm_env fixture:clean_neo4j
+import asyncio
+
+from agrag.common.data_models import EntityType, GraphSchema, RelationType
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import GlinerExtractor, Graph
+
+schema = GraphSchema(
+    name="computing-history",
+    version="1",
+    entities=[
+        EntityType(label="Person", description="A named person."),
+        EntityType(label="Machine", description="A named computing machine."),
+        EntityType(label="City", description="A named city."),
+    ],
+    relations=[
+        RelationType(
+            label="DESIGNED",
+            description="A person designed a machine.",
+            patterns=[("Person", "Machine")],
+        ),
+        RelationType(
+            label="WORKED_IN",
+            description="A person worked in a city.",
+            patterns=[("Person", "City")],
+        ),
+    ],
+)
+
+DOCUMENTS = [
+    "Charles Babbage designed the Analytical Engine in London.",
+    "Ada Lovelace worked in London and wrote notes on the Analytical Engine.",
+    "Charles Babbage designed the Difference Engine in London.",
+    "Alan Turing designed the Bombe in Bletchley.",
+    "Alan Turing worked in Bletchley.",
+    "Grace Hopper designed the UNIVAC compiler in Philadelphia.",
+    "Grace Hopper worked in Philadelphia.",
+]
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=schema,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        for text in DOCUMENTS:
+            await graph.add(text=text)
+
+        preview = await graph.detect_communities()
+        for community in sorted(preview.communities, key=lambda c: -c.internal_weight):
+            print(
+                "preview:",
+                len(community.member_ids),
+                "members, internal weight",
+                community.internal_weight,
+            )
+
+        report = await graph.detect_communities(apply=True)
+        print("applied:", report.applied, "failures:", len(report.failures))
+        rows = await graph_store.execute_read(
+            "MATCH (c:Community)<-[:MEMBER_OF]-(e) "
+            "RETURN c.title AS title, c.rating AS rating, c.internal_weight AS weight, "
+            "c.summary AS summary, collect(e.name) AS members ORDER BY weight DESC"
+        )
+        for row in rows:
+            print(f"{row['title']} (rating {row['rating']}, weight {row['weight']})")
+            print("  ", row["summary"])
+            print("  ", sorted(row["members"]))
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+## 2. Read the output
+
+The preview lists the groups. A preview has member ids and the internal weight only. It has no title and no summary, because agrag writes reports only when you apply.
+
+```text
+preview: 5 members, internal weight 6.0
+preview: 3 members, internal weight 3.0
+preview: 3 members, internal weight 2.0
+applied: True failures: 0
+```
+
+Then the script prints one block for each community. The group with an internal weight of 6.0 is at or above 5, so an LLM wrote its report. The other two groups get a simple report:
+
+```text
+Early Computing Pioneers (rating 8.0, weight 6.0)
+   This community centers on Charles Babbage and Ada Lovelace, their work in London, and the design of the Difference Engine and Analytical Engine.
+   ['Ada Lovelace', 'Analytical Engine', 'Charles Babbage', 'Difference Engine', 'London']
+Grace Hopper, Philadelphia, UNIVAC compiler (rating 1.5, weight 3.0)
+   A community of 3 entities including Grace Hopper, Philadelphia, UNIVAC compiler.
+   ['Grace Hopper', 'Philadelphia', 'UNIVAC compiler']
+Alan Turing, Bletchley, Bombe (rating 1.0, weight 2.0)
+   A community of 3 entities including Alan Turing, Bletchley, Bombe.
+   ['Alan Turing', 'Bletchley', 'Bombe']
+```
+
+The titles and summaries that an LLM writes differ from run to run. The group members and the internal weights do not, because the clustering uses a fixed seed.
+
+An LLM report can contain a mistake. Check its `findings` against the relations that the graph stores.
+
+## 3. Handle a missing LLM
+
+If the `llm` extra is missing or a call fails, agrag writes the simple report for that community. `report.failures` holds one item for each community that needed the LLM report. The call still ends with `applied` set to `True`.
+
+## 4. Change the grouping
+
+Pass these arguments to `detect_communities`:
+
+- `resolution`: a higher value gives smaller groups. The default is 1.0. On the example graph, 1.0 gives groups of 3, 3, and 5 members, and 5.0 gives groups of 2, 2, 2, and 3 members.
+- `seed`: the random seed. Keep the default for repeatable groups.
+
+The argument `max_cluster_size` does not shrink the groups that agrag keeps. Leave it at the default of 10.
+
+Each call with `apply=True` deletes every earlier community and writes new ones.
+
+## Related
+
+- Concept: [Communities](/concepts/communities)
+- Guide: [Extract and resolve entities](/guides/extract-and-resolve)
+- Reference: [Core API](/api)
