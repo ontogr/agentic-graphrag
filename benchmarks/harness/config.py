@@ -142,6 +142,8 @@ SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
     ("graphrag_general", "full"): SpendCap(llm_calls=31_500, tokens=179_000_000),
     ("memory", "lite"): SpendCap(llm_calls=40, tokens=120_000),
     ("memory", "full"): SpendCap(llm_calls=17_000, tokens=133_900_000),
+    ("healthcare", "lite"): SpendCap(llm_calls=2_750, tokens=29_200_000),
+    ("healthcare", "full"): SpendCap(llm_calls=63_000, tokens=766_500_000),
 }
 
 # About 1000 tokens per chunk, counted with the tokenizer agrag uses elsewhere.

@@ -26,6 +26,8 @@
 # | memory-conv4           | BEAM conversation 4, full                    | 7713      |
 # | memory-conv6           | BEAM conversation 6, full                    | 7714      |
 # | memory-conv13          | BEAM conversation 13, full                   | 7715      |
+# | healthcare-lite        | HealthBench Hard, lite closure               | 7716      |
+# | healthcare-full        | HealthBench Hard, full closure               | 7717      |
 
 name: agrag-bench
 
@@ -152,6 +154,19 @@ services:
       - "127.0.0.1:7708:7687"
     volumes:
       - agrag-bench-graphrag-novel-2544:/data
+  healthcare-lite:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7716:7687"
+    volumes:
+      - agrag-bench-healthcare-lite:/data
+
+  healthcare-full:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7717:7687"
+    volumes:
+      - agrag-bench-healthcare-full:/data
 
 volumes:
   agrag-bench-fake:
@@ -186,3 +201,7 @@ volumes:
     name: agrag-bench-memory-conv6
   agrag-bench-memory-conv13:
     name: agrag-bench-memory-conv13
+  agrag-bench-healthcare-lite:
+    name: agrag-bench-healthcare-lite
+  agrag-bench-healthcare-full:
+    name: agrag-bench-healthcare-full

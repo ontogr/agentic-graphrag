@@ -6,6 +6,7 @@ import sys
 
 from agrag.chunking import Chunking, RecursiveChunker
 from benchmarks.datasets.base import DOMAINS
+from benchmarks.datasets.healthcare_index import INDEX_PATH, build_index, check_index
 from benchmarks.harness.config import BENCH_CHUNKING, COST_MODEL, RUN_LIMITS
 from benchmarks.harness.dry_run import DryRun, SpendCapError
 from benchmarks.harness.record import code_identity
@@ -88,6 +89,18 @@ def _chunking(args: argparse.Namespace) -> Chunking:
     )
 
 
+def _build_index(*, check: bool) -> int:
+    """Build the MedCorp search index, and check it against the fixtures if asked."""
+    rows = build_index()
+    print(f"index {INDEX_PATH}: {rows} passages")
+    if not check:
+        return 0
+    rows, problems = check_index()
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    return 1 if problems else 0
+
+
 def _domain(name: str):
     """Look up a registered domain or exit with the list of known ones."""
     if name not in DOMAINS:
@@ -140,6 +153,14 @@ def _parser() -> argparse.ArgumentParser:
     report_command.add_argument("--domain")
     clean = commands.add_parser("clean", help="Delete corpus graphs and volumes.")
     clean.add_argument("--corpus", help="The service name of one corpus.")
+    healthcare = commands.add_parser("healthcare", help="Healthcare corpus tools.")
+    healthcare_commands = healthcare.add_subparsers(dest="action", required=True)
+    build_index = healthcare_commands.add_parser(
+        "build-index", help="Build the MedCorp search index."
+    )
+    build_index.add_argument(
+        "--check", action="store_true", help="Check the index against the fixtures."
+    )
     return parser
 
 
@@ -154,6 +175,9 @@ def main(argv: list[str] | None = None) -> int:
         for service in [args.corpus] if args.corpus else sorted(SERVICE_PORTS):
             services.remove(service)
         return 0
+
+    if args.command == "healthcare":
+        return _build_index(check=args.check)
 
     domain = _domain(args.domain)
     try:

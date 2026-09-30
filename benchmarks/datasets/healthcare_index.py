@@ -1,0 +1,172 @@
+"""A text-search index of MedCorp, used to rebuild and check the corpus selection.
+
+The benchmark corpus is the set of passages that a BM25 search over StatPearls and
+the 18 textbooks finds for the last user turn of each selected prompt. The fixture
+holds that set, so a run does not need this index. The index rebuilds the set from
+the pinned sources, so you can check the fixture against the search rule.
+"""
+
+import re
+import sqlite3
+from collections.abc import Iterable, Sequence
+from pathlib import Path
+
+from benchmarks.datasets.fetch import CACHE_DIR
+from benchmarks.datasets.healthcare import (
+    SOURCES,
+    HealthcareAdapter,
+    fetch_source_file,
+    iter_rows,
+)
+from benchmarks.models import CorpusManifest, Mode
+
+
+INDEX_PATH = CACHE_DIR / "healthcare" / "medcorp-fts.sqlite"
+EXPECTED_ROWS = 470_823
+MAX_QUERY_TERMS = 40
+BATCH = 5000
+# The number of passages kept for each prompt in each mode.
+CLOSURE_K: dict[Mode, int] = {"lite": 16, "full": 32}
+# fmt: off
+STOP = {
+    "a", "about", "above", "after", "again", "all", "also", "am", "an", "and",
+    "any", "are", "as", "at", "be", "because", "been", "before", "being",
+    "below", "between", "both", "but", "by", "can", "could", "did", "do",
+    "does", "doing", "down", "during", "each", "few", "for", "from",
+    "further", "had", "has", "have", "having", "he", "her", "here", "hers",
+    "him", "his", "how", "i", "if", "in", "into", "is", "it", "its", "just",
+    "me", "more", "most", "my", "no", "nor", "not", "now", "of", "off", "on",
+    "once", "only", "or", "other", "our", "out", "over", "own", "same", "she",
+    "should", "so", "some", "such", "than", "that", "the", "their", "them",
+    "then", "there", "these", "they", "this", "those", "through", "to", "too",
+    "under", "until", "up", "very", "was", "we", "were", "what", "when",
+    "where", "which", "while", "who", "whom", "why", "will", "with", "would",
+    "you", "your", "please", "tell", "give", "help", "need", "want", "know",
+    "like", "get", "got", "make", "one", "two",
+}
+# fmt: on
+
+
+def words(text: str) -> list[str]:
+    """Split a text into lowercase words, keeping digits and inner ``:./-``."""
+    return re.findall(r"[a-z0-9][a-z0-9:./-]*[a-z0-9]|[a-z0-9]", text.lower())
+
+
+def fts_query(text: str) -> str:
+    """Return the search query for a prompt turn.
+
+    The query is the first 40 distinct words of three letters or more that are
+    not stop words, each in quotes, joined with ``OR``. Quotes keep punctuation
+    from being a syntax error.
+    """
+    seen: list[str] = []
+    for word in words(text):
+        if len(word) > 2 and word not in STOP and word not in seen:
+            seen.append(word)
+    return " OR ".join(f'"{word}"' for word in seen[:MAX_QUERY_TERMS])
+
+
+def _source_files(source: str) -> list[str]:
+    """Return the files of a source in the order that the index reads them."""
+    return sorted(SOURCES[source]["files"])
+
+
+def _passages(source: str) -> Iterable[tuple[str, str]]:
+    for file in _source_files(source):
+        for _, passage_id, contents in iter_rows(fetch_source_file(source, file)):
+            yield passage_id, contents
+
+
+def build_index(path: Path = INDEX_PATH) -> int:
+    """Build the index of StatPearls and the textbooks, or finish a partial one.
+
+    A source that is already in the index is skipped.
+
+    Args:
+        path: Where the SQLite file goes.
+
+    Returns:
+        The number of passages in the index.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path)
+    db.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5("
+        "doc_id UNINDEXED, source UNINDEXED, contents, tokenize='porter unicode61')"
+    )
+    done = {row[0] for row in db.execute("SELECT DISTINCT source FROM docs")}
+    for source in ("textbooks", "statpearls"):
+        if source in done:
+            continue
+        batch: list[tuple[str, str, str]] = []
+        for passage_id, contents in _passages(source):
+            batch.append((passage_id, source, contents))
+            if len(batch) == BATCH:
+                db.executemany("INSERT INTO docs VALUES (?,?,?)", batch)
+                db.commit()
+                batch = []
+        db.executemany("INSERT INTO docs VALUES (?,?,?)", batch)
+        db.commit()
+    db.execute("INSERT INTO docs(docs) VALUES ('optimize')")
+    db.commit()
+    count = db.execute("SELECT count(*) FROM docs").fetchone()[0]
+    db.close()
+    return count
+
+
+def closure(db: sqlite3.Connection, turn: str, k: int) -> list[str]:
+    """Return the ids of the best ``k`` passages for a prompt turn, best first."""
+    query = fts_query(turn)
+    if not query:
+        return []
+    rows = db.execute(
+        "SELECT doc_id FROM docs WHERE docs MATCH ? ORDER BY rank LIMIT ?", (query, k)
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
+def check_manifest(
+    db: sqlite3.Connection, manifest: CorpusManifest, k: int
+) -> Sequence[str]:
+    """Return what differs between a manifest's corpus and the search rule.
+
+    Args:
+        db: The open index.
+        manifest: A healthcare manifest.
+        k: The number of passages kept for each question.
+
+    Returns:
+        A message for each difference. The list is empty when the corpus is the
+        union of the best ``k`` passages of every question.
+    """
+    expected: set[str] = set()
+    for question in manifest.questions:
+        expected.update(closure(db, question.query, k))
+    actual = {document.id for document in manifest.corpora[0].documents}
+    problems = []
+    if expected - actual:
+        problems.append(f"{len(expected - actual)} passages are missing")
+    if actual - expected:
+        problems.append(f"{len(actual - expected)} passages are not in any closure")
+    return problems
+
+
+def check_index(path: Path = INDEX_PATH) -> tuple[int, list[str]]:
+    """Check an index against the committed fixtures.
+
+    The index must hold every passage of the pinned sources. The corpus of each
+    fixture must be the union of the best passages for its questions.
+
+    Returns:
+        The number of passages in the index, and a message for each difference.
+    """
+    db = sqlite3.connect(path)
+    rows = db.execute("SELECT count(*) FROM docs").fetchone()[0]
+    problems = []
+    if rows != EXPECTED_ROWS:
+        problems.append(f"the index has {rows} passages, not {EXPECTED_ROWS}")
+    for mode, k in CLOSURE_K.items():
+        manifest = HealthcareAdapter().load(mode)
+        problems += [f"{mode}: {p}" for p in check_manifest(db, manifest, k)]
+    db.close()
+    return rows, problems
