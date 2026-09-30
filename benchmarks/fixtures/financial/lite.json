@@ -1,0 +1,293 @@
+{
+ "name": "financebench",
+ "domain": "financial",
+ "mode": "lite",
+ "upstream": {
+  "repo": "patronus-ai/financebench",
+  "commit": "cc39aeb4afdf33909ee1412188bf89035950c2eb",
+  "questions_file": "data/financebench_open_source.jsonl",
+  "questions_sha256": "a5a2aa673e573e55675fc3c0f9aa38c1cf59d2abc91edb077534f71f10a71877"
+ },
+ "corpora": [
+  {
+   "id": "financial-lite",
+   "service": "financial-lite",
+   "schema_name": "financial",
+   "documents": [
+    {
+     "id": "BOEING_2022_10K",
+     "uri": "BOEING_2022_10K.pdf",
+     "sha256": "09285ff7ee737d3302977104aa05cc53c9dfb0161f3461a89b583dc38b9f2ab6",
+     "source": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BOEING_2022_10K.pdf"
+    },
+    {
+     "id": "AMAZON_2017_10K",
+     "uri": "AMAZON_2017_10K.pdf",
+     "sha256": "f8af08ff6c4147351ec3a6e5e2c74e104678ce68fb0d6d476b1e43f685c09a3f",
+     "source": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/AMAZON_2017_10K.pdf"
+    },
+    {
+     "id": "NETFLIX_2017_10K",
+     "uri": "NETFLIX_2017_10K.pdf",
+     "sha256": "981a69bba010dd1709c74ccec9ca26c61635c02a4f22b76345d26021e88077d6",
+     "source": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/NETFLIX_2017_10K.pdf"
+    }
+   ],
+   "n_tokens": 239544
+  }
+ ],
+ "questions": [
+  {
+   "id": "financebench_id_00517",
+   "corpus_id": "financial-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Are there any product categories / service categories that represent more than 20% of Boeing's revenue for FY2022?"
+    }
+   ],
+   "group": "domain-relevant",
+   "reference": {
+    "answer": "Yes. Boeing has product and service categories that represent more than 20% of Boeing's revenue for FY2022. These categories are Commercial Airplanes which comprises 39% of total revenue, Defence which comprises 35% of total revenue and Services which comprises 26% of total revenue.",
+    "justification": "Commercial Airplanes%=Revenues: Commercial Airplanes/Total revenues*100=25,867/66,608*100=39%. Defence%=Defense, Space & Security/Total revenues*100=23,162/66,608*100=35%. Services%=Global Services/Total revenues*100=17,611/66,608*100=26%.",
+    "doc_name": "BOEING_2022_10K",
+    "question_reasoning": "Logical reasoning (based on numerical reasoning)",
+    "evidence": [
+     {
+      "text": "The Boeing Company and Subsidiaries\nNotes to the Consolidated Financial Statements\nSummary of Business Segment Data\n(Dollars in millions)\n \nYears ended December 31,\n2022\n2021\n2020\nRevenues:\nCommercial Airplanes\n$25,867 \n$19,493 \n$16,162 \nDefense, Space & Security\n23,162 \n26,540 \n26,257 \nGlobal Services\n17,611 \n16,328 \n15,543 \nBoeing Capital\n199 \n272 \n261 \nUnallocated items, eliminations and other\n(231)\n(347)\n(65)\nTotal revenues\n$66,608 \n$62,286 \n$58,158",
+      "page": 61
+     }
+    ],
+    "row_sha256": "8f44288244e7c734350da0e27ef0b769768935a1de347a62d1ae22b4255b2d40"
+   }
+  },
+  {
+   "id": "financebench_id_01091",
+   "corpus_id": "financial-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Has Boeing reported any materially important ongoing legal battles from FY2022?"
+    }
+   ],
+   "group": "domain-relevant",
+   "reference": {
+    "answer": "Yes. Multiple lawsuits have been filed against Boeing resulting from a 2018 Lion Air crash and a 2019 Ethiopian Airlines crash.",
+    "justification": null,
+    "doc_name": "BOEING_2022_10K",
+    "question_reasoning": "Information extraction",
+    "evidence": [
+     {
+      "text": "Multiple legal actions have been filed against us as a result of the October 29, 2018 accident of Lion Air Flight 610 and the March 10, 2019\naccident of Ethiopian Airlines Flight 302.",
+      "page": 112
+     }
+    ],
+    "row_sha256": "ebc2f385407fb94827e633b548ad178cef96277dd4b64d873eab6189f5407e8f"
+   }
+  },
+  {
+   "id": "financebench_id_00678",
+   "corpus_id": "financial-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Does Boeing have an improving gross margin profile as of FY2022? If gross margin is not a useful metric for a company like this, then state that and explain why."
+    }
+   ],
+   "group": "domain-relevant",
+   "reference": {
+    "answer": "Yes. Boeing has an improving gross margin profile as of FY2022. Gross profit improved from $3,017 million in FY2021 to $3,502 million in FY2022. Gross margin % improved from 4.8% in FY2021 to 5.3% in FY2022.",
+    "justification": "Gross margin%=Gross margin/Total revenues*100=3,502/66,608*100=5.3% for 2022 and 3,017/62,286*100=4.8% for 2021.",
+    "doc_name": "BOEING_2022_10K",
+    "question_reasoning": "Numerical reasoning OR information extraction",
+    "evidence": [
+     {
+      "text": "The Boeing Company and Subsidiaries\nConsolidated Statements of Operations\n(Dollars in millions, except per share data)\n \n \n \nYears ended December 31,\n2022\n2021\n2020\nSales of products\n$55,893 \n$51,386 \n$47,142 \nSales of services\n10,715 \n10,900 \n11,016 \nTotal revenues\n66,608 \n62,286 \n58,158 \nCost of products\n(53,969)\n(49,954)\n(54,568)\nCost of services\n(9,109)\n(9,283)\n(9,232)\nBoeing Capital interest expense\n(28)\n(32)\n(43)\nTotal costs and expenses\n(63,106)\n(59,269)\n(63,843)\n3,502 \n3,017 \n(5,685)",
+      "page": 54
+     }
+    ],
+    "row_sha256": "6a29f8d7af87927b93695008d189456490500d67459434dd69f0be71c5b5734c"
+   }
+  },
+  {
+   "id": "financebench_id_01290",
+   "corpus_id": "financial-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Who are the primary customers of Boeing as of FY2022?"
+    }
+   ],
+   "group": "domain-relevant",
+   "reference": {
+    "answer": "Boeing's primary customers as of FY2022 are a limited number of commercial airlines and the US government. The US government accounted for 40% of Boeing's total revenues in FY2022.",
+    "justification": null,
+    "doc_name": "BOEING_2022_10K",
+    "question_reasoning": "Information extraction OR Logical reasoning",
+    "evidence": [
+     {
+      "text": "We derive a significant portion of our revenues from a limited number of commercial airlines.",
+      "page": 7
+     },
+     {
+      "text": "We derive a substantial portion of our revenue from the U.S. government",
+      "page": 9
+     },
+     {
+      "text": "In 2022, 40% of our revenues were earned pursuant to U.S. government contracts",
+      "page": 13
+     }
+    ],
+    "row_sha256": "be79b4c21d594bbd1c2625522eb76c4c3c1c3a6db55188808d013190f5509768"
+   }
+  },
+  {
+   "id": "financebench_id_00464",
+   "corpus_id": "financial-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Is Boeing's business subject to cyclicality?"
+    }
+   ],
+   "group": "novel-generated",
+   "reference": {
+    "answer": "Yes, Boeing's business is subject to cyclicality due to its exposure to the airline industry which is a cyclical industry.",
+    "justification": "A major portion of Boeing's revenue is derived from the sale of aircraft to commercial airlines. The commercial airlines business is cyclical, and subject to significant profit swings.",
+    "doc_name": "BOEING_2022_10K",
+    "question_reasoning": null,
+    "evidence": [
+     {
+      "text": "Historically, the\nairline industry has been cyclical and very competitive and has experienced significant profit swings and constant challenges to be more cost\ncompetitive.",
+      "page": 7
+     }
+    ],
+    "row_sha256": "e85e420a091bc148f7146c7074b4ba2ad3dee59188a1d1bde773d0d60349a647"
+   }
+  },
+  {
+   "id": "financebench_id_00494",
+   "corpus_id": "financial-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What production rate changes is Boeing forecasting for FY2023?"
+    }
+   ],
+   "group": "novel-generated",
+   "reference": {
+    "answer": "Boeing forecasts an increase in the production rates for the 737, 777X and 787 aircrafts in 2023.",
+    "justification": "Boeing plans to gradually increase production rates for the 737 and 787 and to resume production of 777X.",
+    "doc_name": "BOEING_2022_10K",
+    "question_reasoning": null,
+    "evidence": [
+     {
+      "text": "We must minimize disruption caused by production changes, achieve operational stability and implement productivity improvements in order to\nmeet customer demand and maintain our profitability. We have previously announced plans to adjust production rates on several of our\ncommercial aircraft programs. The 787 program is currently producing at low rates and we expect to gradually increase to 5 per month in 2023.\nProduction of the 777X is currently paused and is expected to resume in 2023. The 737 program has experienced operational and supply chain\nchallenges stabilizing production at 31 per month. We plan to gradually increase 737 production rates based on market demand and supply\nchain capacity.",
+      "page": 8
+     }
+    ],
+    "row_sha256": "aaaf44fc70837b33d17fe7b0e49017d2115138c28310501b66523abfab5bb0e4"
+   }
+  },
+  {
+   "id": "financebench_id_00585",
+   "corpus_id": "financial-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How does Boeing's effective tax rate in FY2022 compare to FY2021?"
+    }
+   ],
+   "group": "novel-generated",
+   "reference": {
+    "answer": "Effective tax rate in FY2022 was 0.62%, compared to  -14.76% in FY2021.",
+    "justification": "Effective tax rate=Income tax (expense) benefit/ Loss before income taxes*100=(31)/(5,022)*100=0.62% in 2022 and 743/(5,033)*100=-14.76%.",
+    "doc_name": "BOEING_2022_10K",
+    "question_reasoning": null,
+    "evidence": [
+     {
+      "text": "The Boeing Company and Subsidiaries\nConsolidated Statements of Operations\n(Dollars in millions, except per share data)\n \n \n \nYears ended December 31,\n2022\n2021\n2020\nSales of products\n$55,893 \n$51,386 \n$47,142 \nSales of services\n10,715 \n10,900 \n11,016 \nTotal revenues\n66,608 \n62,286 \n58,158 \nCost of products\n(53,969)\n(49,954)\n(54,568)\nCost of services\n(9,109)\n(9,283)\n(9,232)\nBoeing Capital interest expense\n(28)\n(32)\n(43)\nTotal costs and expenses\n(63,106)\n(59,269)\n(63,843)\n3,502 \n3,017 \n(5,685)\n(Loss)/income from operating investments, net\n(16)\n210 \n9 \nGeneral and administrative expense\n(4,187)\n(4,157)\n(4,817)\nResearch and development expense, net\n(2,852)\n(2,249)\n(2,476)\nGain on dispositions, net\n6 \n277 \n202 \nLoss from operations\n(3,547)\n(2,902)\n(12,767)\nOther income, net\n1,058 \n551 \n447 \nInterest and debt expense\n(2,533)\n(2,682)\n(2,156)\nLoss before income taxes\n(5,022)\n(5,033)\n(14,476)\nIncome tax (expense)/benefit\n(31)\n743 \n2,535",
+      "page": 54
+     }
+    ],
+    "row_sha256": "53ede9bcbbcf3bc87e15c5efac24f49000dc4bf78aae3fa0344c2c73f505bce9"
+   }
+  },
+  {
+   "id": "financebench_id_06655",
+   "corpus_id": "financial-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is Amazon's FY2017 days payable outstanding (DPO)? DPO is defined as: 365 * (average accounts payable between FY2016 and FY2017) / (FY2017 COGS + change in inventory between FY2016 and FY2017). Round your answer to two decimal places. Address the question by using the line items and information shown within the balance sheet and the P&L statement."
+    }
+   ],
+   "group": "metrics-generated",
+   "reference": {
+    "answer": "93.86",
+    "justification": "The metric in question was calculated using other simpler metrics. The various simpler metrics (from the current and, if relevant, previous fiscal year(s)) used were:\n\nMetric 1: Accounts payable. This metric was located in the 10K as a single line item named: Accounts payable.\n\nMetric 2: Inventories. This metric was located in the 10K as a single line item named: Inventories.\n\nMetric 3: Cost of goods sold. This metric was located in the 10K as a single line item named: Cost of sales.",
+    "doc_name": "AMAZON_2017_10K",
+    "question_reasoning": "Numerical reasoning",
+    "evidence": [
+     {
+      "text": "Table of Contents\nAMAZON.COM, INC.\nCONSOLIDATED STATEMENTS OF OPERATIONS\n(in millions, except per share data)\n \n \nYear Ended December 31,\n \n2015\n \n2016\n \n2017\nNet product sales\n$\n79,268 $\n94,665 $\n118,573\nNet service sales\n27,738 \n41,322 \n59,293\nTotal net sales\n107,006 \n135,987 \n177,866\nOperating expenses:\n \n \n \nCost of sales\n71,651 \n88,265 \n111,934\nFulfillment\n13,410 \n17,619 \n25,249\nMarketing\n5,254 \n7,233 \n10,069\nTechnology and content\n12,540 \n16,085 \n22,620\nGeneral and administrative\n1,747 \n2,432 \n3,674\nOther operating expense, net\n171 \n167 \n214\nTotal operating expenses\n104,773 \n131,801 \n173,760\nOperating income\n2,233 \n4,186 \n4,106\nInterest income\n50 \n100 \n202\nInterest expense\n(459) \n(484) \n(848)\nOther income (expense), net\n(256) \n90 \n346\nTotal non-operating income (expense)\n(665) \n(294) \n(300)\nIncome before income taxes\n1,568 \n3,892 \n3,806\nProvision for income taxes\n(950) \n(1,425) \n(769)\nEquity-method investment activity, net of tax\n(22) \n(96) \n(4)\nNet income\n$\n596 $\n2,371 $\n3,033\nBasic earnings per share\n$\n1.28 $\n5.01 $\n6.32\nDiluted earnings per share\n$\n1.25 $\n4.90 $\n6.15\nWeighted-average shares used in computation of earnings per share:\n \n \n \nBasic\n467 \n474 \n480\nDiluted\n477 \n484 \n493\nSee accompanying notes to consolidated financial statements.\n38",
+      "page": 37
+     },
+     {
+      "text": "Table of Contents\nAMAZON.COM, INC.\nCONSOLIDATED BALANCE SHEETS\n(in millions, except per share data)\n \n \nDecember 31,\n \n2016\n \n2017\nASSETS\n \n \nCurrent assets:\n \n \nCash and cash equivalents\n$\n19,334 $\n20,522\nMarketable securities\n6,647 \n10,464\nInventories\n11,461 \n16,047\nAccounts receivable, net and other\n8,339 \n13,164\nTotal current assets\n45,781 \n60,197\nProperty and equipment, net\n29,114 \n48,866\nGoodwill\n3,784 \n13,350\nOther assets\n4,723 \n8,897\nTotal assets\n$\n83,402 $\n131,310\nLIABILITIES AND STOCKHOLDERS EQUITY\n \n \nCurrent liabilities:\n \n \nAccounts payable\n$\n25,309 $\n34,616\nAccrued expenses and other\n13,739 \n18,170\nUnearned revenue\n4,768 \n5,097\nTotal current liabilities\n43,816 \n57,883\nLong-term debt\n7,694 \n24,743\nOther long-term liabilities\n12,607 \n20,975\nCommitments and contingencies (Note 7)\n \nStockholders equity:\n \n \nPreferred stock, $0.01 par value:\n \n \nAuthorized shares 500\n \n \nIssued and outstanding shares none\n \n\nCommon stock, $0.01 par value:\n \n \nAuthorized shares 5,000\n \n \nIssued shares 500 and 507\n \n \nOutstanding shares 477 and 484\n5 \n5\nTreasury stock, at cost\n(1,837) \n(1,837)\nAdditional paid-in capital\n17,186 \n21,389\nAccumulated other comprehensive loss\n(985) \n(484)\nRetained earnings\n4,916 \n8,636\nTotal stockholders equity\n19,285 \n27,709\nTotal liabilities and stockholders equity\n$\n83,402 $\n131,310\nSee accompanying notes to consolidated financial statements.\n40",
+      "page": 39
+     }
+    ],
+    "row_sha256": "1d56aa4db8d48a171fc5eb51a9fc97d92ce9752872b570d0e8367a868cf8e2d5"
+   }
+  },
+  {
+   "id": "financebench_id_08135",
+   "corpus_id": "financial-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is Amazon's year-over-year change in revenue from FY2016 to FY2017 (in units of percents and round to one decimal place)? Calculate what was asked by utilizing the line items clearly shown in the statement of income."
+    }
+   ],
+   "group": "metrics-generated",
+   "reference": {
+    "answer": "30.8%",
+    "justification": "The metric total revenue was directly extracted from the company 10K. The line item name, as seen in the 10K, was: Total net sales. The final step was to execute the desired percent change calculation on total revenue.",
+    "doc_name": "AMAZON_2017_10K",
+    "question_reasoning": "Numerical reasoning",
+    "evidence": [
+     {
+      "text": "Table of Contents\nAMAZON.COM, INC.\nCONSOLIDATED STATEMENTS OF OPERATIONS\n(in millions, except per share data)\n \n \nYear Ended December 31,\n \n2015\n \n2016\n \n2017\nNet product sales\n$\n79,268 $\n94,665 $\n118,573\nNet service sales\n27,738 \n41,322 \n59,293\nTotal net sales\n107,006 \n135,987 \n177,866\nOperating expenses:\n \n \n \nCost of sales\n71,651 \n88,265 \n111,934\nFulfillment\n13,410 \n17,619 \n25,249\nMarketing\n5,254 \n7,233 \n10,069\nTechnology and content\n12,540 \n16,085 \n22,620\nGeneral and administrative\n1,747 \n2,432 \n3,674\nOther operating expense, net\n171 \n167 \n214\nTotal operating expenses\n104,773 \n131,801 \n173,760\nOperating income\n2,233 \n4,186 \n4,106\nInterest income\n50 \n100 \n202\nInterest expense\n(459) \n(484) \n(848)\nOther income (expense), net\n(256) \n90 \n346\nTotal non-operating income (expense)\n(665) \n(294) \n(300)\nIncome before income taxes\n1,568 \n3,892 \n3,806\nProvision for income taxes\n(950) \n(1,425) \n(769)\nEquity-method investment activity, net of tax\n(22) \n(96) \n(4)\nNet income\n$\n596 $\n2,371 $\n3,033\nBasic earnings per share\n$\n1.28 $\n5.01 $\n6.32\nDiluted earnings per share\n$\n1.25 $\n4.90 $\n6.15\nWeighted-average shares used in computation of earnings per share:\n \n \n \nBasic\n467 \n474 \n480\nDiluted\n477 \n484 \n493\nSee accompanying notes to consolidated financial statements.\n38",
+      "page": 37
+     }
+    ],
+    "row_sha256": "365f0321ee349cd18c007be919ab9ca0ded19522029e7b5553f71f6272b217f3"
+   }
+  },
+  {
+   "id": "financebench_id_03282",
+   "corpus_id": "financial-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is Netflix's year end FY2017 total current liabilities (in USD millions)? Base your judgments on the information provided primarily in the balance sheet."
+    }
+   ],
+   "group": "metrics-generated",
+   "reference": {
+    "answer": "$5466.00",
+    "justification": "The metric total current liabilities was directly extracted from the company 10K. The line item name, as seen in the 10K, was: Total current liabilities.",
+    "doc_name": "NETFLIX_2017_10K",
+    "question_reasoning": "Information extraction",
+    "evidence": [
+     {
+      "text": "Table of Contents\nNETFLIX, INC.\nCONSOLIDATED BALANCE SHEETS\n(in thousands, except share and per share data)\n \n \n \nAs of December 31,\n \n \n2017\n \n2016\nAssets\n \n \nCurrent assets:\n \n \nCash and cash equivalents\n $\n2,822,795 $\n1,467,576\nShort-term investments\n \n \n266,206\nCurrent content assets, net\n \n4,310,934 \n3,726,307\nOther current assets\n \n536,245 \n260,202\nTotal current assets\n \n7,669,974 \n5,720,291\nNon-current content assets, net\n \n10,371,055 \n7,274,501\nProperty and equipment, net\n \n319,404 \n250,395\nOther non-current assets\n \n652,309 \n341,423\nTotal assets\n $\n19,012,742 $\n13,586,610\nLiabilities and Stockholders Equity\n \n \nCurrent liabilities:\n \n \nCurrent content liabilities\n $\n4,173,041 $\n3,632,711\nAccounts payable\n \n359,555 \n312,842\nAccrued expenses\n \n315,094 \n197,632\nDeferred revenue\n \n618,622 \n443,472\nTotal current liabilities\n \n5,466,312 \n4,586,657\nNon-current content liabilities\n \n3,329,796 \n2,894,654\nLong-term debt\n \n6,499,432 \n3,364,311\nOther non-current liabilities\n \n135,246 \n61,188\nTotal liabilities\n \n15,430,786 \n10,906,810\nCommitments and contingencies (Note 5)\n \n \nStockholders equity:\n \n \nPreferred stock, $0.001 par value; 10,000,000 shares authorized at December 31, 2017 and 2016; no shares\nissued and outstanding at December 31, 2017 and 2016\n \n \n\nCommon stock, $0.001 par value; 4,990,000,000 shares authorized at December 31, 2017 and December 31,\n2016, respectively; 433,392,686 and 430,054,212 issued and outstanding at December 31, 2017 and\nDecember 31, 2016, respectively\n \n1,871,396 \n1,599,762\nAccumulated other comprehensive loss\n \n(20,557) \n(48,565)\nRetained earnings\n \n1,731,117 \n1,128,603\nTotal stockholders equity\n \n3,581,956 \n2,679,800\nTotal liabilities and stockholders equity\n $\n19,012,742 $\n13,586,610\nSee accompanying notes to consolidated financial statements.\n43",
+      "page": 44
+     }
+    ],
+    "row_sha256": "e1b293dc77571111c47a48ac3e6a5487ee0a8f2106f13c3b0024ad16f64da58e"
+   }
+  }
+ ]
+}
