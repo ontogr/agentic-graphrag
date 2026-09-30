@@ -438,9 +438,6 @@ See the [documentation](https://ontogr.github.io/agentic-graphrag/) for guides a
 
 ## Supported Formats
 
-<details>
-<summary>Formats and loaders</summary>
-
 | Format | Extension(s) | Loader |
 | --- | --- | --- |
 | Plain text and logs | `.txt`, `.log` | Core |
@@ -459,12 +456,7 @@ See the [documentation](https://ontogr.github.io/agentic-graphrag/) for guides a
 
 Core loaders remain the default for Markdown, HTML, CSV, TSV, and JSON records. Docling takes precedence for layout-rich documents and AsciiDoc when installed.
 
-</details>
-
 ## Project Structure
-
-<details>
-<summary>Package layout</summary>
 
 ```text
 agrag/
@@ -487,12 +479,7 @@ tests/
 └── integration/          # live backend tests against Docker services
 ```
 
-</details>
-
 ## Development
-
-<details>
-<summary>Set up a development environment</summary>
 
 ```bash
 git clone https://github.com/ontogr/agentic-graphrag.git
@@ -511,13 +498,13 @@ make test-integration
 make dev-services-down
 ```
 
-</details>
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, test conventions, and pull request guidelines.
 
 ## References
+
+The work below shaped the design of Agentic GraphRAG.
 
 <details>
 <summary>Papers and projects</summary>
