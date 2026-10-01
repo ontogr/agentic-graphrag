@@ -55,12 +55,14 @@ class CorpusDocument(BaseModel):
         sha256: The hash of the fetched bytes, checked on every fetch.
         source: Where the fetch step gets the bytes, such as a pinned URL or a
             Hugging Face path and revision.
+        pages: The zero-based pages of a PDF to ingest, or None for all of them.
     """
 
     id: str
     uri: str
     sha256: str
     source: str
+    pages: list[int] | None = None
 
 
 class Corpus(BaseModel):

@@ -6,7 +6,7 @@ import sys
 
 from agrag.chunking import Chunking, RecursiveChunker
 from benchmarks.datasets.base import DOMAINS
-from benchmarks.harness.config import BENCH_CHUNKING, COST_MODEL
+from benchmarks.harness.config import BENCH_CHUNKING, COST_MODEL, RUN_LIMITS
 from benchmarks.harness.dry_run import DryRun, SpendCapError
 from benchmarks.harness.record import code_identity
 from benchmarks.harness.report import load_records, report
@@ -33,9 +33,10 @@ def _confirm(bound: DryRun) -> bool:
     return answer.strip().lower() == "y"
 
 
-def _environment(chunking: Chunking) -> RunEnvironment:
+def _environment(chunking: Chunking, domain: str, mode: str) -> RunEnvironment:
     """Build the agrag environment from the process environment."""
-    settings = AgragSettings.from_env()
+    limits = RUN_LIMITS.get((domain, mode))
+    settings = AgragSettings.from_env(limits)
     agent = settings.agent.clients[0]
     judge = settings.judge
     extractor = settings.extraction.clients[0]
@@ -65,12 +66,15 @@ def _environment(chunking: Chunking) -> RunEnvironment:
             "extractor": {"model_id": extractor.model, "provider": extractor.provider},
             "embedder": {"model": embedder},
         },
-        agent_config=settings.agent_loop.model_dump(),
+        agent_config={
+            **settings.agent_loop.model_dump(),
+            "max_llm_pairs": settings.max_llm_pairs,
+        },
         make_system=make_system,
         make_judge=settings.make_judge,
         confirm=_confirm,
         trace_repo=BenchSettings().trace_repo,
-        cost=COST_MODEL,
+        cost=limits.cost if limits else COST_MODEL,
         embedder_model=embedder,
     )
 
@@ -153,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
 
     domain = _domain(args.domain)
     try:
+        limits = RUN_LIMITS.get((args.domain, args.mode))
         if args.command == "dry-run":
             options = RunOptions(
                 max_llm_calls=args.max_llm_calls, max_tokens=args.max_tokens
@@ -163,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.mode,
                 options,
                 chunking=_chunking(args),
-                cost=COST_MODEL,
+                cost=limits.cost if limits else COST_MODEL,
             )
             print(
                 f"chunks {plan.bound.chunks}\n"
@@ -178,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
                 domain,
                 args.mode,
                 _options(args),
-                _environment(_chunking(args)),
+                _environment(_chunking(args), args.domain, args.mode),
             )
         )
     except (SpendCapError, RunRefusedError) as error:

@@ -16,22 +16,13 @@ from benchmarks.systems.base import SystemAnswer
 class FinancialGrader(Grader):
     """Scores one answer with agrag's judged metrics, one judge sample each.
 
-    ``correctness``, ``faithfulness`` and ``citation_accuracy`` use the reference
-    answer. ``context_precision`` and ``context_recall`` use the reference answer
-    followed by the evidence texts.
+    ``correctness`` uses the reference answer. ``context_recall`` uses the reference
+    answer followed by the evidence texts.
     """
 
-    metrics = (
-        "correctness",
-        "faithfulness",
-        "citation_accuracy",
-        "context_precision",
-        "context_recall",
-    )
-    # GEval correctness, about four calls for faithfulness, about five for citation
-    # accuracy (one per answer sentence), two for context precision and two for
-    # context recall.
-    judge_calls_per_question = 14
+    metrics = ("correctness", "context_recall")
+    # One GEval call for correctness and about two for context recall.
+    judge_calls_per_question = 3
 
     async def grade(
         self, question: BenchmarkQuestion, answer: SystemAnswer, judge: ChatModelJudge
@@ -44,13 +35,13 @@ class FinancialGrader(Grader):
             question,
             answer,
             reference["answer"],
-            names=("correctness", "faithfulness", "citation_accuracy"),
+            names=("correctness",),
         )
         context = await answer_quality(
             judge,
             question,
             answer,
             f"{reference['answer']}\n{evidence}",
-            names=("context_precision", "context_recall"),
+            names=("context_recall",),
         )
         return Grade(scores={**quality, **context})

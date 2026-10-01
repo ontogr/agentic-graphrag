@@ -53,10 +53,46 @@ COST_MODEL: CostModel | None = CostModel(
     judge_tokens_per_call=2_000,
 )
 
+
+@dataclass(frozen=True)
+class RunLimits:
+    """The limits of a small run, which replace the defaults of agrag.
+
+    Attributes:
+        max_llm_pairs: The most entity pairs per label that resolution sends to
+            the LLM.
+        recursion_limit: The most steps of one agent run.
+        max_research_attempts: The most times the agent repeats its research.
+        cost: The cost model of a run with these limits.
+    """
+
+    max_llm_pairs: int
+    recursion_limit: int
+    max_research_attempts: int
+    cost: CostModel
+
+
+# Not measured yet. These figures follow the Memory and GraphRAG runs, where a
+# resolution call took about 16k tokens and an agent question about 80k to 100k.
+RUN_LIMITS: dict[tuple[str, str], RunLimits] = {
+    ("financial", "lite"): RunLimits(
+        max_llm_pairs=20,
+        recursion_limit=30,
+        max_research_attempts=1,
+        cost=CostModel(
+            calls_per_chunk=5,
+            tokens_per_chunk=60_000,
+            agent_calls_per_question=15,
+            agent_tokens_per_question=100_000,
+            judge_tokens_per_call=2_000,
+        ),
+    ),
+}
+
 SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
     ("legal", "lite"): SpendCap(llm_calls=1_200, tokens=7_500_000),
     ("legal", "full"): SpendCap(llm_calls=12_100, tokens=81_000_000),
-    ("financial", "lite"): SpendCap(llm_calls=4_000, tokens=47_100_000),
+    ("financial", "lite"): SpendCap(llm_calls=100, tokens=1_000_000),
     ("financial", "full"): SpendCap(llm_calls=16_000, tokens=170_000_000),
 }
 

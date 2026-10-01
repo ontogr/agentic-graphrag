@@ -10,6 +10,9 @@ version.
 from collections.abc import Sequence
 from importlib.metadata import version
 from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import pypdfium2
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.graph_schema import GraphSchema
@@ -50,20 +53,42 @@ def convert_pdf(path: Path, uri: str) -> str:
     return document.text
 
 
-def pdf_document(path: Path, *, uri: str, sha256: str) -> Document:
+def select_pages(source: Path, pages: Sequence[int], dest: Path) -> None:
+    """Write the chosen zero-based pages of a PDF, in the order given, to ``dest``."""
+    with pypdfium2.PdfDocument(source) as pdf, pypdfium2.PdfDocument.new() as chosen:
+        chosen.import_pages(pdf, list(pages))
+        chosen.save(dest)
+
+
+def pdf_document(
+    path: Path, *, uri: str, sha256: str, pages: Sequence[int] | None = None
+) -> Document:
     """Build a prose document from a PDF, reusing a cached conversion.
 
     Args:
         path: The downloaded PDF.
         uri: The document uri.
         sha256: The hash of the PDF, which becomes the content hash.
+        pages: The zero-based pages to convert, or None to convert them all.
     """
     docling = version("docling")
-    cached = PDF_CACHE / f"{sha256}.docling-{docling}.md"
+    chosen = "" if pages is None else ".p" + "-".join(map(str, pages))
+    cached = PDF_CACHE / f"{sha256}{chosen}.docling-{docling}.md"
     if cached.exists():
         text = cached.read_text(encoding="utf-8")
-    else:
+    elif pages is None:
         text = convert_pdf(path, uri)
+        cached.write_text(text, encoding="utf-8")
+    else:
+        # Docling stalls on a PDF made of several selected pages, so each page
+        # converts alone.
+        parts = []
+        with TemporaryDirectory() as folder:
+            for page in pages:
+                sliced = Path(folder) / f"{page}.pdf"
+                select_pages(path, [page], sliced)
+                parts.append(convert_pdf(sliced, uri))
+        text = "\n\n".join(parts)
         cached.write_text(text, encoding="utf-8")
     return Document(
         text=text,
@@ -99,7 +124,11 @@ class FinancialAdapter(DatasetAdapter):
             path = fetch_url(
                 entry.source, entry.sha256, PDF_CACHE / f"{entry.sha256}.pdf"
             )
-            documents.append(pdf_document(path, uri=entry.uri, sha256=entry.sha256))
+            documents.append(
+                pdf_document(
+                    path, uri=entry.uri, sha256=entry.sha256, pages=entry.pages
+                )
+            )
         return documents
 
     def schema(self, corpus: Corpus) -> GraphSchema:

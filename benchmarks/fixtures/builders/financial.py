@@ -1,9 +1,9 @@
 """Build the Financial fixtures from the pinned FinanceBench repository.
 
-Lite is ten questions on three 10-K filings. Full is every open-source question on
-eighteen documents: the three lite documents and fifteen more that have the most
-questions per token. Writes ``benchmarks/fixtures/financial/{lite,full}.json``.
-Needs ``pdftotext`` to count tokens.
+Lite is two questions on two pages of one 10-K filing, small enough for a run of
+about fifteen minutes. Full is every open-source question on eighteen whole documents:
+three 10-K filings and fifteen more that have the most questions per token. Writes
+``benchmarks/fixtures/financial/{lite,full}.json``. Needs ``pdftotext`` to count tokens.
 
 Usage:
     uv run python -m benchmarks.fixtures.builders.financial
@@ -27,6 +27,7 @@ from benchmarks.datasets.financial import (
     RAW_URL,
     REPO,
     pdf_url,
+    select_pages,
 )
 from benchmarks.models import (
     BenchmarkQuestion,
@@ -40,24 +41,17 @@ from benchmarks.schemas.financial import FINANCIAL
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "financial"
-LITE_DOCUMENTS = ["BOEING_2022_10K", "AMAZON_2017_10K", "NETFLIX_2017_10K"]
-# The lite questions, in order. The three lite documents hold no other question.
-LITE_IDS = [
-    "financebench_id_00517",
-    "financebench_id_01091",
-    "financebench_id_00678",
-    "financebench_id_01290",
-    "financebench_id_00464",
-    "financebench_id_00494",
-    "financebench_id_00585",
-    "financebench_id_06655",
-    "financebench_id_08135",
-    "financebench_id_03282",
-]
-# The full documents: the lite documents, then fifteen added by descending
+LITE_DOCUMENT = "BOEING_2022_10K"
+# The lite questions, in order: revenue categories from a table, and cyclicality
+# from text. Each has its evidence on its own page, and the pages are zero-based.
+LITE_IDS = ["financebench_id_00517", "financebench_id_00464"]
+LITE_PAGES = [7, 61]
+# The full documents: three 10-K filings, then fifteen added by descending
 # questions per token until the set holds 53 questions.
 FULL_DOCUMENTS = [
-    *LITE_DOCUMENTS,
+    LITE_DOCUMENT,
+    "AMAZON_2017_10K",
+    "NETFLIX_2017_10K",
     "ULTABEAUTY_2023Q4_EARNINGS",
     "FOOTLOCKER_2022_8K_dated-2022-05-20",
     "PEPSICO_2023_8K_dated-2023-05-05",
@@ -115,8 +109,24 @@ def _question(row: dict, corpus_id: str) -> BenchmarkQuestion:
     )
 
 
+def _count_pages(pdf: bytes, pages: list[int], encoder) -> int:
+    """Return the tokens of chosen pages of a PDF."""
+    with tempfile.TemporaryDirectory() as folder:
+        source = Path(folder) / "source.pdf"
+        source.write_bytes(pdf)
+        chosen = Path(folder) / "chosen.pdf"
+        select_pages(source, pages, chosen)
+        return _count(chosen.read_bytes(), encoder)
+
+
 def _manifest(
-    mode: Mode, names: list[str], rows: list[dict], pdfs: dict[str, bytes], encoder
+    mode: Mode,
+    names: list[str],
+    rows: list[dict],
+    pdfs: dict[str, bytes],
+    encoder,
+    *,
+    pages: list[int] | None = None,
 ) -> CorpusManifest:
     corpus_id = f"financial-{mode}"
     documents = [
@@ -125,9 +135,16 @@ def _manifest(
             uri=f"{name}.pdf",
             sha256=hashlib.sha256(pdfs[name]).hexdigest(),
             source=pdf_url(name),
+            pages=pages,
         )
         for name in names
     ]
+    n_tokens = sum(
+        _count(pdfs[n], encoder)
+        if pages is None
+        else _count_pages(pdfs[n], pages, encoder)
+        for n in names
+    )
     return CorpusManifest(
         name=DATASET_NAME,
         domain="financial",
@@ -144,7 +161,7 @@ def _manifest(
                 service=corpus_id,
                 schema_name=FINANCIAL.name,
                 documents=documents,
-                n_tokens=sum(_count(pdfs[n], encoder) for n in names),
+                n_tokens=n_tokens,
             )
         ],
         questions=[_question(row, corpus_id) for row in rows],
@@ -163,24 +180,22 @@ def main() -> None:
         name: [r for r in by_id.values() if r["doc_name"] == name]
         for name in FULL_DOCUMENTS
     }
-    if {r["financebench_id"] for n in LITE_DOCUMENTS for r in rows[n]} != set(LITE_IDS):
-        raise SystemExit("the lite documents hold other questions")
     lite_rows = [by_id[i] for i in LITE_IDS]
     full_rows = sorted(
         (r for name in FULL_DOCUMENTS for r in rows[name]),
         key=lambda r: r["financebench_id"],
     )
-    if (len(lite_rows), len(full_rows)) != (10, 53):
+    if (len(lite_rows), len(full_rows)) != (2, 53):
         raise SystemExit(f"unexpected sizes: {len(lite_rows)}, {len(full_rows)}")
     pdfs = {name: _download(pdf_url(name)) for name in FULL_DOCUMENTS}
     encoder = tiktoken.get_encoding("cl100k_base")
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
-    plans: dict[Mode, tuple[list[str], list[dict]]] = {
-        "lite": (LITE_DOCUMENTS, lite_rows),
-        "full": (FULL_DOCUMENTS, full_rows),
+    plans: dict[Mode, tuple[list[str], list[dict], list[int] | None]] = {
+        "lite": ([LITE_DOCUMENT], lite_rows, LITE_PAGES),
+        "full": (FULL_DOCUMENTS, full_rows, None),
     }
-    for mode, (names, picks) in plans.items():
-        manifest = _manifest(mode, names, picks, pdfs, encoder)
+    for mode, (names, picks, pages) in plans.items():
+        manifest = _manifest(mode, names, picks, pdfs, encoder, pages=pages)
         (FIXTURE_DIR / f"{mode}.json").write_text(
             json.dumps(manifest.model_dump(mode="json"), indent=1, ensure_ascii=False)
             + "\n",

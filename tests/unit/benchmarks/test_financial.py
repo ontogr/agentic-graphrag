@@ -37,24 +37,16 @@ class TestFixtures:
             "metrics-generated": 3,
         }
 
-    def test_lite_has_10_questions_on_3_filings_and_all_question_types(self):
-        """Lite has 10 questions on Boeing, Amazon and Netflix 10-Ks."""
+    def test_lite_has_2_questions_on_2_pages_of_one_filing(self):
+        """Lite has 2 questions on 2 pages of the Boeing 10-K."""
         manifest = FinancialAdapter().load("lite")
 
-        groups = Counter(q.group for q in manifest.questions)
+        (document,) = manifest.corpora[0].documents
 
-        assert len(manifest.questions) == 10
-        assert [d.id for d in manifest.corpora[0].documents] == [
-            "BOEING_2022_10K",
-            "AMAZON_2017_10K",
-            "NETFLIX_2017_10K",
-        ]
-        assert manifest.corpora[0].n_tokens == 239_544
-        assert groups == {
-            "domain-relevant": 4,
-            "novel-generated": 3,
-            "metrics-generated": 3,
-        }
+        assert len(manifest.questions) == 2
+        assert document.id == "BOEING_2022_10K"
+        assert document.pages == [7, 61]
+        assert manifest.corpora[0].n_tokens == 1_280
 
     def test_lite_is_a_subset_of_full_with_the_same_content(self):
         """Every lite question and document is also in full, with the same content."""
@@ -67,7 +59,9 @@ class TestFixtures:
             assert other.messages == question.messages
             assert other.reference == question.reference
             assert other.group == question.group
-        assert full.corpora[0].documents[:3] == lite.corpora[0].documents
+        assert lite.corpora[0].documents[0].sha256 == (
+            full.corpora[0].documents[0].sha256
+        )
 
     def test_every_question_points_at_a_corpus_document_and_holds_evidence(self):
         """A question names its own document, and each evidence item has a page."""
@@ -208,7 +202,7 @@ class TestFinancialGrader:
     async def test_judges_the_answer_and_the_evidence_with_their_own_references(
         self, monkeypatch
     ):
-        """Quality uses the answer. Context metrics add the evidence text."""
+        """Correctness uses the answer. Context recall adds the evidence text."""
         seen = {}
 
         async def fake(judge, question, answer, reference, names=("correctness",)):
@@ -224,8 +218,8 @@ class TestFinancialGrader:
         )
 
         assert seen == {
-            ("correctness", "faithfulness", "citation_accuracy"): "$5466.00",
-            ("context_precision", "context_recall"): "$5466.00\nTotal 5,466\nNote 2",
+            ("correctness",): "$5466.00",
+            ("context_recall",): "$5466.00\nTotal 5,466\nNote 2",
         }
         assert set(grade.scores) == set(FinancialGrader.metrics)
         assert grade.flags == []
