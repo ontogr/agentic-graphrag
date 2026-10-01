@@ -545,7 +545,7 @@ model_name = model_name
 ### `agrag.ingestion.Graph` \{#agrag-ingestion-Graph}
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -599,6 +599,9 @@ by `open()` when missing.
   heading path above its text. The stored text does not change.
   Existing embeddings stay until a document is re-chunked with
   `update()`.
+- **max_llm_pairs** (<code>int</code>) – The most ambiguous entity pairs that resolution sends
+  to the LLM for each label. A lower value bounds the number of
+  verification calls and leaves more pairs undecided.
 
 #### `agrag.ingestion.Graph.add` \{#agrag-ingestion-Graph-add}
 
@@ -772,7 +775,7 @@ previous one's.
 #### `agrag.ingestion.Graph.open` \{#agrag-ingestion-Graph-open}
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -808,6 +811,8 @@ missing) so the dual writes never hit an absent collection.
   __init__.
 - **embed_heading_path** (<code>bool</code>) – Whether chunk embeddings include the heading path;
   see __init__.
+- **max_llm_pairs** (<code>int</code>) – The most ambiguous entity pairs sent to the LLM for each
+  label during resolution; see __init__.
 
 **Returns:**
 
@@ -1648,7 +1653,7 @@ The public Graph API for ingestion.
 #### `agrag.ingestion.graph.Graph` \{#agrag-ingestion-graph-Graph}
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -1702,6 +1707,9 @@ by `open()` when missing.
   heading path above its text. The stored text does not change.
   Existing embeddings stay until a document is re-chunked with
   `update()`.
+- **max_llm_pairs** (<code>int</code>) – The most ambiguous entity pairs that resolution sends
+  to the LLM for each label. A lower value bounds the number of
+  verification calls and leaves more pairs undecided.
 
 ##### `agrag.ingestion.graph.Graph.add` \{#agrag-ingestion-graph-Graph-add}
 
@@ -1875,7 +1883,7 @@ previous one's.
 ##### `agrag.ingestion.graph.Graph.open` \{#agrag-ingestion-graph-Graph-open}
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -1911,6 +1919,8 @@ missing) so the dual writes never hit an absent collection.
   __init__.
 - **embed_heading_path** (<code>bool</code>) – Whether chunk embeddings include the heading path;
   see __init__.
+- **max_llm_pairs** (<code>int</code>) – The most ambiguous entity pairs sent to the LLM for each
+  label during resolution; see __init__.
 
 **Returns:**
 

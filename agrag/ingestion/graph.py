@@ -79,6 +79,7 @@ from agrag.ingestion.resolve import (
     fetch_persisted_neighbors,
     persisted_candidate_indices,
 )
+from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.ingestion.stats import (
@@ -448,6 +449,7 @@ class Graph:
         cutover_settings: CutoverJobSettings | None = None,
         chunking: Chunking = DEFAULT_CHUNKING,
         embed_heading_path: bool = True,
+        max_llm_pairs: int = MAX_LLM_PAIRS,
     ) -> None:
         """Create a graph bound to a schema, store, embedder, and extractor.
 
@@ -478,6 +480,9 @@ class Graph:
                 heading path above its text. The stored text does not change.
                 Existing embeddings stay until a document is re-chunked with
                 ``update()``.
+            max_llm_pairs: The most ambiguous entity pairs that resolution sends
+                to the LLM for each label. A lower value bounds the number of
+                verification calls and leaves more pairs undecided.
         """
         self._schema = schema
         self._graph_store = graph_store
@@ -487,6 +492,7 @@ class Graph:
         self._registry = _corpus_registry
         self._chunking = chunking
         self._embed_heading_path = embed_heading_path
+        self._max_llm_pairs = max_llm_pairs
         self._vector_store = vector_store
         self._retrieval_settings = retrieval_settings or RetrievalSettings()
         self._cutover_settings = cutover_settings or CutoverJobSettings()
@@ -505,6 +511,7 @@ class Graph:
         cutover_settings: CutoverJobSettings | None = None,
         chunking: Chunking = DEFAULT_CHUNKING,
         embed_heading_path: bool = True,
+        max_llm_pairs: int = MAX_LLM_PAIRS,
     ) -> "Graph":
         """Open a graph, connecting and fully provisioning graph_store.
 
@@ -538,6 +545,8 @@ class Graph:
                 __init__.
             embed_heading_path: Whether chunk embeddings include the heading path;
                 see __init__.
+            max_llm_pairs: The most ambiguous entity pairs sent to the LLM for each
+                label during resolution; see __init__.
 
         Returns:
             A graph connected to graph_store and ready to accept add() calls.
@@ -644,6 +653,7 @@ class Graph:
                     cutover_settings=cutover_settings,
                     chunking=chunking,
                     embed_heading_path=embed_heading_path,
+                    max_llm_pairs=max_llm_pairs,
                 )
                 # Crash recovery, last: every index and collection the
                 # recovery paths rely on now exists. A pending job (its worker
@@ -1615,6 +1625,7 @@ class Graph:
                     ],
                     candidate_source=PersistedCandidateSource(candidate_indices),
                     embedder=self._embedder,
+                    max_llm_pairs=self._max_llm_pairs,
                     tracer=self._tracer,
                 )
                 resolution_result = await resolver.resolve(
@@ -1724,6 +1735,7 @@ class Graph:
                     }
                 ),
                 embedder=self._embedder,
+                max_llm_pairs=self._max_llm_pairs,
                 tracer=self._tracer,
             )
             resolution = await resolver.resolve(mentions)
