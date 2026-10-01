@@ -72,19 +72,20 @@ class RunLimits:
     cost: CostModel
 
 
-# Not measured yet. These figures follow the Memory and GraphRAG runs, where a
-# resolution call took about 16k tokens and an agent question about 80k to 100k.
+# Measured on one Financial lite run: 2 chunks gave 29 ingest calls and 293k ingest
+# tokens, and 2 questions took 78 agent calls and 344k agent tokens. The agent limits
+# did not bound the calls, because sub-agents make their own.
 RUN_LIMITS: dict[tuple[str, str], RunLimits] = {
     ("financial", "lite"): RunLimits(
         max_llm_pairs=20,
         recursion_limit=30,
         max_research_attempts=1,
         cost=CostModel(
-            calls_per_chunk=5,
-            tokens_per_chunk=60_000,
-            agent_calls_per_question=15,
-            agent_tokens_per_question=100_000,
-            judge_tokens_per_call=2_000,
+            calls_per_chunk=15,
+            tokens_per_chunk=150_000,
+            agent_calls_per_question=39,
+            agent_tokens_per_question=172_000,
+            judge_tokens_per_call=1_300,
         ),
     ),
 }
@@ -92,7 +93,7 @@ RUN_LIMITS: dict[tuple[str, str], RunLimits] = {
 SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
     ("legal", "lite"): SpendCap(llm_calls=1_200, tokens=7_500_000),
     ("legal", "full"): SpendCap(llm_calls=12_100, tokens=81_000_000),
-    ("financial", "lite"): SpendCap(llm_calls=100, tokens=1_000_000),
+    ("financial", "lite"): SpendCap(llm_calls=130, tokens=800_000),
     ("financial", "full"): SpendCap(llm_calls=16_000, tokens=170_000_000),
 }
 
