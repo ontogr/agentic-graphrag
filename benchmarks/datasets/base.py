@@ -52,10 +52,30 @@ class DatasetAdapter(ABC):
 
 @dataclass(frozen=True)
 class Domain:
-    """A dataset adapter and the grader for its questions."""
+    """A dataset adapter and the grader for its questions.
+
+    Attributes:
+        adapter: The dataset adapter.
+        grader: The grader of every mode, unless ``full_grader`` is set.
+        full_grader: The grader of full mode, when it differs from ``grader``.
+    """
 
     adapter: DatasetAdapter
     grader: Grader
+    full_grader: Grader | None = None
+
+    def grader_for(self, mode: Mode) -> Grader:
+        """Return the grader of one mode.
+
+        Args:
+            mode: ``lite`` or ``full``.
+
+        Returns:
+            ``full_grader`` for full mode when it is set, otherwise ``grader``.
+        """
+        if mode == "full" and self.full_grader is not None:
+            return self.full_grader
+        return self.grader
 
 
 # Each domain adds its entry here when it is written.

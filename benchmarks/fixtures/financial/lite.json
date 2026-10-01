@@ -1,0 +1,81 @@
+{
+ "name": "financebench",
+ "domain": "financial",
+ "mode": "lite",
+ "upstream": {
+  "repo": "patronus-ai/financebench",
+  "commit": "cc39aeb4afdf33909ee1412188bf89035950c2eb",
+  "questions_file": "data/financebench_open_source.jsonl",
+  "questions_sha256": "a5a2aa673e573e55675fc3c0f9aa38c1cf59d2abc91edb077534f71f10a71877"
+ },
+ "corpora": [
+  {
+   "id": "financial-lite",
+   "service": "financial-lite",
+   "schema_name": "financial",
+   "documents": [
+    {
+     "id": "BOEING_2022_10K",
+     "uri": "BOEING_2022_10K.pdf",
+     "sha256": "09285ff7ee737d3302977104aa05cc53c9dfb0161f3461a89b583dc38b9f2ab6",
+     "source": "https://raw.githubusercontent.com/patronus-ai/financebench/cc39aeb4afdf33909ee1412188bf89035950c2eb/pdfs/BOEING_2022_10K.pdf",
+     "pages": [
+      7,
+      61
+     ]
+    }
+   ],
+   "n_tokens": 1280
+  }
+ ],
+ "questions": [
+  {
+   "id": "financebench_id_00517",
+   "corpus_id": "financial-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Are there any product categories / service categories that represent more than 20% of Boeing's revenue for FY2022?"
+    }
+   ],
+   "group": "domain-relevant",
+   "reference": {
+    "answer": "Yes. Boeing has product and service categories that represent more than 20% of Boeing's revenue for FY2022. These categories are Commercial Airplanes which comprises 39% of total revenue, Defence which comprises 35% of total revenue and Services which comprises 26% of total revenue.",
+    "justification": "Commercial Airplanes%=Revenues: Commercial Airplanes/Total revenues*100=25,867/66,608*100=39%. Defence%=Defense, Space & Security/Total revenues*100=23,162/66,608*100=35%. Services%=Global Services/Total revenues*100=17,611/66,608*100=26%.",
+    "doc_name": "BOEING_2022_10K",
+    "question_reasoning": "Logical reasoning (based on numerical reasoning)",
+    "evidence": [
+     {
+      "text": "The Boeing Company and Subsidiaries\nNotes to the Consolidated Financial Statements\nSummary of Business Segment Data\n(Dollars in millions)\n \nYears ended December 31,\n2022\n2021\n2020\nRevenues:\nCommercial Airplanes\n$25,867 \n$19,493 \n$16,162 \nDefense, Space & Security\n23,162 \n26,540 \n26,257 \nGlobal Services\n17,611 \n16,328 \n15,543 \nBoeing Capital\n199 \n272 \n261 \nUnallocated items, eliminations and other\n(231)\n(347)\n(65)\nTotal revenues\n$66,608 \n$62,286 \n$58,158",
+      "page": 61
+     }
+    ],
+    "row_sha256": "8f44288244e7c734350da0e27ef0b769768935a1de347a62d1ae22b4255b2d40"
+   }
+  },
+  {
+   "id": "financebench_id_00464",
+   "corpus_id": "financial-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Is Boeing's business subject to cyclicality?"
+    }
+   ],
+   "group": "novel-generated",
+   "reference": {
+    "answer": "Yes, Boeing's business is subject to cyclicality due to its exposure to the airline industry which is a cyclical industry.",
+    "justification": "A major portion of Boeing's revenue is derived from the sale of aircraft to commercial airlines. The commercial airlines business is cyclical, and subject to significant profit swings.",
+    "doc_name": "BOEING_2022_10K",
+    "question_reasoning": null,
+    "evidence": [
+     {
+      "text": "Historically, the\nairline industry has been cyclical and very competitive and has experienced significant profit swings and constant challenges to be more cost\ncompetitive.",
+      "page": 7
+     }
+    ],
+    "row_sha256": "e85e420a091bc148f7146c7074b4ba2ad3dee59188a1d1bde773d0d60349a647"
+   }
+  }
+ ]
+}

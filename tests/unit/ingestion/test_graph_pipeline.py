@@ -2729,6 +2729,49 @@ class TestGraphAddPipeline:
                         [replaced_id],
                     )
 
+    async def test_consolidate_passes_max_llm_pairs_to_the_resolver(self) -> None:
+        """The pair limit given to ``Graph.open`` reaches the resolver."""
+        small_schema = GraphSchema(
+            name="test",
+            version="1",
+            entities=[EntityType(label="Person", description="p")],
+            relations=[],
+        )
+        graph = await Graph.open(
+            schema=small_schema,
+            graph_store=MockStore(),
+            embedder=MockEmbedder(),
+            extractor=MockExtractor(),
+            max_llm_pairs=7,
+        )
+        entities = [
+            Entity(
+                id=uuid4(),
+                label="Person",
+                name=name,
+                properties={},
+                source_chunk_ids=[uuid4()],
+            )
+            for name in ("Alice", "alice")
+        ]
+        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+        from agrag.ingestion.resolve import ResolutionResult  # noqa: PLC0415
+
+        with (
+            mock.patch.object(
+                graph, "_all_entities_by_label", new_callable=mock.AsyncMock
+            ) as mock_all,
+            mock.patch.object(gmod, "Resolver") as mock_resolver,
+        ):
+            mock_all.return_value = entities
+            mock_resolver.return_value.resolve = mock.AsyncMock(
+                return_value=ResolutionResult(groups=[], matches=[])
+            )
+
+            await graph.consolidate(apply=False)
+
+        assert mock_resolver.call_args.kwargs["max_llm_pairs"] == 7
+
     async def test_consolidate_reports_materialization_failure(self) -> None:
         """A failed materialization keeps raw entities intact and reports the error."""
         store = MockStore()

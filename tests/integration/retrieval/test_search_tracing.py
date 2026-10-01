@@ -9,6 +9,7 @@ as JSON, like the other tracing suites. Run against the Docker Compose Neo4j
 from ``docker/docker-compose.ci.yml`` (``make dev-services-up``).
 """
 
+import asyncio
 import importlib.util
 import json
 import os
@@ -174,6 +175,9 @@ class TestSearchTracingEndToEnd:
             dimensions=await self.embedder.dimensions(),
             distance=Distance.COSINE,
         )
+        for entity in entities:
+            assert entity.embedding is not None
+            await self._wait_for_index(self.label, entity.embedding, entity.id)
         return entities
 
     async def _seed_chunks(self, texts: list[str]) -> list[Chunk]:
@@ -221,7 +225,34 @@ class TestSearchTracingEndToEnd:
             dimensions=await self.embedder.dimensions(),
             distance=Distance.COSINE,
         )
+        for chunk in chunks:
+            assert chunk.embedding is not None
+            await self._wait_for_index(CHUNK_LABEL, chunk.embedding, chunk.id)
         return chunks
+
+    async def _wait_for_index(
+        self, label: str, vector: list[float], expected_id: UUID
+    ) -> None:
+        """Wait until the vector index of ``label`` returns the seeded node.
+
+        Neo4j updates a vector index asynchronously, so a search right after a
+        write can miss the node. Membership of ``expected_id`` is checked because
+        the chunk index is shared with other tests.
+
+        Raises:
+            TimeoutError: The index did not return the node in time.
+        """
+        for _ in range(10):
+            hits = await self.store.vector_search(
+                label=label,
+                vector_property="embedding",
+                query_vector=vector,
+                limit=100,
+            )
+            if any(hit.id == expected_id for hit in hits):
+                return
+            await asyncio.sleep(1)
+        raise TimeoutError(f"the {label} vector index never returned {expected_id}")
 
     def _write_tree(self, spans: tuple[ReadableSpan, ...], name: str) -> None:
         """Write the span tree to the test output directory."""

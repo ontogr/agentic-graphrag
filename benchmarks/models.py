@@ -55,12 +55,21 @@ class CorpusDocument(BaseModel):
         sha256: The hash of the fetched bytes, checked on every fetch.
         source: Where the fetch step gets the bytes, such as a pinned URL or a
             Hugging Face path and revision.
+        pages: The zero-based pages of a PDF to ingest, or None for all of them.
     """
 
     id: str
     uri: str
     sha256: str
     source: str
+    pages: list[int] | None = None
+
+    @model_validator(mode="after")
+    def _pages_are_a_selection(self) -> "CorpusDocument":
+        """Require ``pages`` to be None or a non-empty list of non-negative pages."""
+        if self.pages is not None and (not self.pages or min(self.pages) < 0):
+            raise ValueError("pages must be None or a non-empty list of page numbers")
+        return self
 
 
 class Corpus(BaseModel):

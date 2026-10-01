@@ -1,0 +1,98 @@
+---
+sidebar_position: 5
+title: Financial benchmark
+---
+
+# Financial benchmark
+
+This page describes the Financial benchmark: the questions, the graph schema, how `agrag` answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
+
+## The dataset
+
+[FinanceBench](https://github.com/patronus-ai/financebench) ([paper](https://arxiv.org/abs/2311.11944)) asks questions about public company filings: 10-K and 10-Q reports, 8-K filings, and earnings releases. Many answers need a number from a table or a calculation on several numbers. Each question has:
+
+- A reference answer and a short justification.
+- One or more evidence passages, each with the page of the filing that holds it.
+- A question type: `domain-relevant`, `novel-generated`, or `metrics-generated`.
+
+The harness reads the questions and the PDFs from the benchmark repository at a pinned commit. It checks the hash of the questions file and of every PDF before it uses them. Docling converts a PDF to Markdown, and `agrag` ingests the Markdown. Docling is slow on a CPU, so the harness keeps each conversion in the download cache.
+
+### Lite and full
+
+| Set | Questions | Documents | Tokens |
+|---|---|---|---|
+| Lite | 2 | 1: pages 7 and 61 of the Boeing FY2022 10-K | 1,280 |
+| Full | 53 | 18 whole filings | 783,071 |
+
+The lite set is a quick check, not a sample of the benchmark. It takes 2 pages of one filing, so a run takes a few minutes. It has one question about a table and one about text:
+
+- `financebench_id_00517`: which product and service categories are more than 20% of revenue (a calculation on the segment table, page 61).
+- `financebench_id_00464`: whether the business is cyclical (text, page 7).
+
+Page numbers count from 0. The harness cuts out the chosen pages, converts each page on its own, and joins the Markdown. A 4-page file made in one piece did not finish converting after 28 minutes, and each page alone took 24 to 47 seconds.
+
+Both lite questions are in the full set. The full set holds every question on its 18 filings: the three filings of the first selection (the Boeing, Amazon, and Netflix 10-Ks) and 15 more with the most questions for their size. Nobody has run the full set. It is far above the budget of a manual run, so do not start it without reading its dry-run estimate first.
+
+## The graph schema
+
+See `benchmarks/schemas/financial.py`. The schema has 13 entity types and 22 relation types. The main entity types are `Company`, `Filing`, `FiscalPeriod`, `FinancialMetric`, `BusinessSegment`, `Product`, `Risk`, `LegalProceeding`, `Guidance`, and `FilingSection`.
+
+The schema models a number only for the headline line items of a filing. Each `FinancialMetric` has a value, a unit, a scale, and a period. The periods and the filing are entities, because a question names a company and a period but not a document.
+
+A schema that fits the corpus helps `agrag`, so these numbers do not compare with systems that use another schema.
+
+## How answers are scored
+
+A judge model gives each answer two scores from 0 to 1.
+
+- **`correctness`.** The judge compares the answer with the reference answer.
+- **`context_recall`.** The judge checks whether the text that the agent retrieved covers the reference answer and the evidence passages.
+
+Read `context_recall` with care. A reference answer can hold a value that the filing does not state, such as a percentage that the question asks the reader to calculate. The judge then finds no support for that value in the text and scores the question low, even when the numbers for the calculation are in the text.
+
+The judge is the same model as the agent by default, so the scores are biased upward. See [Benchmarks](./index.mdx#who-grades-the-answers).
+
+## Results of the lite run
+
+The run used `gemma4:31b` for extraction, the agent, and the judge, on one clean commit, with the default chunking of about 1,000 tokens.
+
+| Question | Type | `correctness` | `context_recall` |
+|---|---|---|---|
+| `financebench_id_00517` | `domain-relevant` | 0.10 | 0.00 |
+| `financebench_id_00464` | `novel-generated` | 1.00 | 1.00 |
+| Mean | | 0.55 | 0.50 |
+
+Two questions cannot rank anything. The run shows that the pipeline works end to end, and it shows one fault.
+
+- **A wrong answer with the evidence in hand.** For `financebench_id_00517`, the retrieved text held the revenue of each segment: $25,867 million, $23,162 million, and $17,611 million, with total revenue of $66,608 million. The answer gave only the total and said that it could not confirm the revenue of each category. The `context_recall` score of 0 comes in part from the percentages that the reference answer holds (39%, 35%, and 26%), which the text does not state.
+- **Retrieval is not tested.** The graph has 2 chunks, so every search returns both of them. The run tests whether the agent uses what it gets, not whether it finds the right chunk.
+
+The graph has 30 entities and 18 relations from 2 chunks. No chunk gave an empty extraction, and no question failed or carries a flag.
+
+Print the record with:
+
+```bash
+uv run python -m benchmarks report --domain financial
+```
+
+## Cost and time
+
+| Phase | Model calls | Tokens |
+|---|---|---|
+| Ingest: extraction | 3 | 9k |
+| Ingest: resolution and merge | 26 | 285k |
+| Agent, 2 questions | 78 | 344k |
+| Judge, 2 questions | 7 | 8k |
+| Total | 114 | 646k |
+
+The run took 450 seconds. Ingest of 2 chunks took 29 calls. Extraction is cheap, at about 2,000 tokens a call. Entity resolution takes most of the ingest tokens, at about 10,000 tokens a call, because each call carries a batch of entity pairs and their context.
+
+The agent made 39 calls for each question, and the two questions made 30 and 48 calls. The limits on the agent loop (`AGENT_RECURSION_LIMIT` of 30 and `AGENT_MAX_RESEARCH_ATTEMPTS` of 1) did not hold the count down, because the sub-agents that the planner starts make their own calls.
+
+The run set `max_llm_pairs` to 20. This is the most entity pairs per label that resolution sends to the model. The default is 500. A low value bounds the resolution calls and leaves more pairs undecided.
+
+The spend cap for this set is 130 calls and 800,000 tokens, and the dry-run estimate from this run is 114 calls and about 650,000 tokens. The first run had a cap of 100 calls and used 114, so it went over its cap: the cap checks the estimate before a run and does not stop a run in progress.
+
+## Terms of use
+
+The FinanceBench annotations are under CC BY-NC 4.0. The filings are public SEC filings and issuer press releases, and the copyright stays with the issuers. A trace holds passages of the filings, so read `benchmarks/results/NOTICE` before you share one.

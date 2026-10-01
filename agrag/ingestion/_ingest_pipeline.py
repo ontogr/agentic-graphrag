@@ -78,6 +78,7 @@ from agrag.ingestion.resolve import (
     exact_resolution_groups,
     fetch_persisted_neighbors,
 )
+from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
 from agrag.ingestion.stats import (
     ExtractionStats,
@@ -213,6 +214,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     materialized_components: list[MatchComponent] | None = None,
     tracer: Tracer | None = None,
     embed_heading_path: bool = True,
+    max_llm_pairs: int = MAX_LLM_PAIRS,
 ) -> AddResult:
     """Run resolution, merge, and storage for already-chunked input.
 
@@ -256,6 +258,8 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         tracer: Opens this call's span and every phase span below it.
         embed_heading_path: Whether chunk embeddings include the chunk's heading
             path. The stored chunk text and vector payload text stay raw.
+        max_llm_pairs: The most ambiguous entity pairs that resolution sends to
+            the LLM for each label.
 
     Returns:
         The per-stage summary for this ingestion.
@@ -406,6 +410,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             candidate_source=PersistedCandidateSource(candidates_by_index),
             embedder=embedder,
             tracer=tracer,
+            max_llm_pairs=max_llm_pairs,
         )
         resolution_result = (
             await resolver.resolve(

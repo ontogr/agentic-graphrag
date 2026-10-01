@@ -13,6 +13,8 @@
 # | fake       | local checks of the harness, no real dataset | 7700      |
 # | legal-lite | LegalBench-RAG mini, lite                    | 7701      |
 # | legal-full | LegalBench-RAG mini, full                    | 7702      |
+# | financial-lite | FinanceBench, lite                        | 7709      |
+# | financial-full | FinanceBench, full                        | 7710      |
 
 name: agrag-bench
 
@@ -50,6 +52,20 @@ services:
     volumes:
       - agrag-bench-legal-full:/data
 
+  financial-lite:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7709:7687"
+    volumes:
+      - agrag-bench-financial-lite:/data
+
+  financial-full:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7710:7687"
+    volumes:
+      - agrag-bench-financial-full:/data
+
 volumes:
   agrag-bench-fake:
     name: agrag-bench-fake
@@ -57,3 +73,7 @@ volumes:
     name: agrag-bench-legal-lite
   agrag-bench-legal-full:
     name: agrag-bench-legal-full
+  agrag-bench-financial-lite:
+    name: agrag-bench-financial-lite
+  agrag-bench-financial-full:
+    name: agrag-bench-financial-full

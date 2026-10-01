@@ -10,3 +10,5 @@ PrivacyQA | MIT | https://github.com/AbhilashaRavichander/PrivacyQA_EMNLP
 ContractNLI | CC BY 4.0 | https://stanfordnlp.github.io/contract-nli/
 CUAD | CC BY 4.0 | https://www.atticusprojectai.org/cuad
 MAUD | license not verified | https://github.com/TheAtticusProject/maud
+FinanceBench annotations | CC BY-NC 4.0 | https://huggingface.co/datasets/PatronusAI/financebench
+FinanceBench filings | public SEC filings and issuer press releases; copyright stays with the issuers | https://github.com/patronus-ai/financebench
