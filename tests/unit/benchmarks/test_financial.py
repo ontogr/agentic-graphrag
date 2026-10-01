@@ -226,8 +226,48 @@ class TestFinancialGrader:
             ("correctness",): "$5466.00",
             ("context_recall",): "$5466.00\nTotal 5,466\nNote 2",
         }
-        assert set(grade.scores) == set(FinancialGrader.metrics)
+        assert set(grade.scores) == set(FinancialGrader().metrics)
         assert grade.flags == []
+
+    async def test_full_grader_scores_five_metrics_with_the_right_references(
+        self, monkeypatch
+    ):
+        """Full mode adds faithfulness, citation accuracy and context precision."""
+        seen = {}
+
+        async def _fake_answer_quality(
+            judge, question, answer, reference, names=("correctness",)
+        ):
+            seen[names] = reference
+            return dict.fromkeys(names, 0.5)
+
+        monkeypatch.setattr(grading, "answer_quality", _fake_answer_quality)
+
+        grade = await FinancialGrader(full=True).grade(
+            _question(),
+            SystemAnswer(text="5,466"),
+            _FakeJudge(),  # type: ignore[arg-type]
+        )
+
+        assert seen == {
+            ("correctness", "faithfulness", "citation_accuracy"): "$5466.00",
+            ("context_precision", "context_recall"): "$5466.00\nTotal 5,466\nNote 2",
+        }
+        assert set(grade.scores) == {
+            "correctness",
+            "faithfulness",
+            "citation_accuracy",
+            "context_precision",
+            "context_recall",
+        }
+
+    def test_domain_uses_the_full_grader_only_in_full_mode(self):
+        """Lite scores two metrics and full scores five."""
+        assert financial.DOMAIN.grader_for("lite").metrics == (
+            "correctness",
+            "context_recall",
+        )
+        assert len(financial.DOMAIN.grader_for("full").metrics) == 5
 
 
 class TestCorpusDocumentPages:

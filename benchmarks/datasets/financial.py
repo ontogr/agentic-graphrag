@@ -137,4 +137,8 @@ class FinancialAdapter(DatasetAdapter):
         return FINANCIAL
 
 
-DOMAIN = Domain(adapter=FinancialAdapter(), grader=FinancialGrader())
+DOMAIN = Domain(
+    adapter=FinancialAdapter(),
+    grader=FinancialGrader(),
+    full_grader=FinancialGrader(full=True),
+)
