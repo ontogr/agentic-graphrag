@@ -277,6 +277,13 @@ class TestFinancialGrader:
             "context_recall",
         }
 
+    def test_full_estimate_allows_for_more_judge_calls_than_lite(self):
+        """The full-mode estimate covers a long cited answer, not a short one."""
+        assert (
+            FinancialGrader(full=True).judge_calls_per_question
+            > FinancialGrader().judge_calls_per_question
+        )
+
     def test_domain_uses_the_full_grader_only_in_full_mode(self):
         """Lite scores two metrics and full scores five."""
         assert financial.DOMAIN.grader_for("lite").metrics == (

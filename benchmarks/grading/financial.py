@@ -15,6 +15,14 @@ from benchmarks.models import BenchmarkQuestion
 from benchmarks.systems.base import SystemAnswer
 
 
+_CORRECTNESS_CALLS = 1
+_FAITHFULNESS_CALLS = 4
+_CONTEXT_PRECISION_CALLS = 2
+_CONTEXT_RECALL_CALLS = 2
+# Cited sentences in an answer that the full-mode estimate allows for.
+_MAX_CITED_SENTENCES = 10
+
+
 class FinancialGrader(Grader):
     """Scores one answer with agrag's judged metrics, one judge sample each.
 
@@ -38,10 +46,16 @@ class FinancialGrader(Grader):
                 "context_precision",
                 "context_recall",
             )
-            # GEval correctness, about four calls for faithfulness, about five for
-            # citation accuracy (one per answer sentence), two for context
-            # precision and two for context recall.
-            self.judge_calls_per_question = 14
+            # Citation accuracy makes one call per cited sentence and no limit
+            # exists on answer length, so the estimate assumes a long answer. An
+            # answer with more cited sentences costs more than the estimate.
+            self.judge_calls_per_question = (
+                _CORRECTNESS_CALLS
+                + _FAITHFULNESS_CALLS
+                + _MAX_CITED_SENTENCES
+                + _CONTEXT_PRECISION_CALLS
+                + _CONTEXT_RECALL_CALLS
+            )
         else:
             self.metrics = ("correctness", "context_recall")
             # One GEval call for correctness and about two for context recall.
