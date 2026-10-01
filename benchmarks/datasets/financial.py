@@ -8,12 +8,13 @@ version.
 """
 
 from collections.abc import Sequence
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.graph_schema import GraphSchema
+from agrag.loaders.corpus.errors import MissingExtraError
 from agrag.loaders.corpus.types import ReadOptions, SourceRef
 from benchmarks.datasets.base import DatasetAdapter, Domain
 from benchmarks.datasets.fetch import CACHE_DIR, fetch_url
@@ -33,12 +34,26 @@ PDF_CACHE = CACHE_DIR / "financial"
 
 
 def pdf_url(doc_name: str) -> str:
-    """Return the URL of a PDF at the pinned commit."""
+    """Return the URL of a PDF at the pinned commit.
+
+    Args:
+        doc_name: The FinanceBench document name, without the extension.
+
+    Returns:
+        The raw download URL of the PDF.
+    """
     return f"{RAW_URL}/pdfs/{doc_name}.pdf"
 
 
 def convert_pdf(path: Path, uri: str) -> str:
     """Convert a PDF to Markdown with the Docling loader.
+
+    Args:
+        path: The PDF file.
+        uri: The document uri, for error messages.
+
+    Returns:
+        The Markdown text of the PDF.
 
     Raises:
         DocumentConversionError: Docling could not convert the PDF.
@@ -53,7 +68,13 @@ def convert_pdf(path: Path, uri: str) -> str:
 
 
 def select_pages(source: Path, pages: Sequence[int], dest: Path) -> None:
-    """Write the chosen zero-based pages of a PDF, in the order given, to ``dest``."""
+    """Write the chosen zero-based pages of a PDF, in the order given, to ``dest``.
+
+    Args:
+        source: The PDF to read.
+        pages: The zero-based pages to copy.
+        dest: The file to write.
+    """
     import pypdfium2  # noqa: PLC0415
 
     with pypdfium2.PdfDocument(source) as pdf, pypdfium2.PdfDocument.new() as chosen:
@@ -71,8 +92,18 @@ def pdf_document(
         uri: The document uri.
         sha256: The hash of the PDF, which becomes the content hash.
         pages: The zero-based pages to convert, or None to convert them all.
+
+    Returns:
+        The prose document holding the Markdown of the PDF.
+
+    Raises:
+        MissingExtraError: The docling extra is not installed.
+        DocumentConversionError: Docling could not convert the PDF.
     """
-    docling = version("docling")
+    try:
+        docling = version("docling")
+    except PackageNotFoundError as exc:
+        raise MissingExtraError(".pdf", "docling") from exc
     chosen = "" if pages is None else ".p" + "-".join(map(str, pages))
     cached = PDF_CACHE / f"{sha256}{chosen}.docling-{docling}.md"
     if cached.exists():
@@ -109,14 +140,28 @@ class FinancialAdapter(DatasetAdapter):
     """The lite and full selections of FinanceBench."""
 
     def load(self, mode: Mode) -> CorpusManifest:
-        """Return the manifest of one mode from its fixture."""
+        """Return the manifest of one mode from its fixture.
+
+        Args:
+            mode: ``lite`` or ``full``.
+
+        Returns:
+            The corpora and questions of the mode.
+        """
         text = (FIXTURE_DIR / f"{mode}.json").read_text(encoding="utf-8")
         return CorpusManifest.model_validate_json(text)
 
     def documents(self, corpus: Corpus) -> Sequence[Document]:
         """Download each PDF, check its hash and convert it with Docling.
 
+        Args:
+            corpus: The corpus whose documents to build.
+
+        Returns:
+            One prose document for each corpus document.
+
         Raises:
+            MissingExtraError: The docling extra is not installed.
             HashMismatchError: A PDF differs from the fixture hash.
         """
         PDF_CACHE.mkdir(parents=True, exist_ok=True)
@@ -133,7 +178,14 @@ class FinancialAdapter(DatasetAdapter):
         return documents
 
     def schema(self, corpus: Corpus) -> GraphSchema:
-        """Return the financial schema."""
+        """Return the financial schema.
+
+        Args:
+            corpus: The corpus, which every financial corpus shares a schema with.
+
+        Returns:
+            The financial graph schema.
+        """
         return FINANCIAL
 
 

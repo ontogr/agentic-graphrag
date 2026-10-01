@@ -50,7 +50,16 @@ class FinancialGrader(Grader):
     async def grade(
         self, question: BenchmarkQuestion, answer: SystemAnswer, judge: ChatModelJudge
     ) -> Grade:
-        """Score one answer."""
+        """Score one answer.
+
+        Args:
+            question: The question, with its reference answer and evidence.
+            answer: The answer of the system.
+            judge: The judge model.
+
+        Returns:
+            The score of each metric of this grader.
+        """
         reference = question.reference
         evidence = "\n".join(item["text"] for item in reference["evidence"])
         answer_names = tuple(

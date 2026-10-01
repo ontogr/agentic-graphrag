@@ -65,7 +65,14 @@ class Domain:
     full_grader: Grader | None = None
 
     def grader_for(self, mode: Mode) -> Grader:
-        """Return the grader of one mode."""
+        """Return the grader of one mode.
+
+        Args:
+            mode: ``lite`` or ``full``.
+
+        Returns:
+            ``full_grader`` for full mode when it is set, otherwise ``grader``.
+        """
         if mode == "full" and self.full_grader is not None:
             return self.full_grader
         return self.grader

@@ -5,6 +5,7 @@ model is needed.
 """
 
 from collections import Counter
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from pydantic import ValidationError
 
 from agrag.common.data_models.document import DocumentFamily, SourceFormat
 from agrag.common.data_models.graph_schema import GraphSchema
+from agrag.loaders.corpus.errors import MissingExtraError
 from benchmarks.datasets import financial
 from benchmarks.datasets.financial import COMMIT, FinancialAdapter
 from benchmarks.grading import financial as grading
@@ -159,6 +161,20 @@ class TestDocuments:
 
         assert converted == ["A_2022_10K.pdf"]
         assert first[0].text == second[0].text
+
+    def test_a_missing_docling_extra_raises_the_missing_extra_error(
+        self, tmp_path, monkeypatch
+    ):
+        """The error names the extra to install instead of the package lookup."""
+        self._patch(monkeypatch, tmp_path)
+
+        def not_installed(name):
+            raise PackageNotFoundError(name)
+
+        monkeypatch.setattr(financial, "version", not_installed)
+
+        with pytest.raises(MissingExtraError, match="docling"):
+            FinancialAdapter().documents(self._corpus("A_2022_10K"))
 
 
 class TestSchema:

@@ -238,6 +238,9 @@ class TestSearchTracingEndToEnd:
         Neo4j updates a vector index asynchronously, so a search right after a
         write can miss the node. Membership of ``expected_id`` is checked because
         the chunk index is shared with other tests.
+
+        Raises:
+            TimeoutError: The index did not return the node in time.
         """
         for _ in range(10):
             hits = await self.store.vector_search(
@@ -249,6 +252,7 @@ class TestSearchTracingEndToEnd:
             if any(hit.id == expected_id for hit in hits):
                 return
             await asyncio.sleep(1)
+        raise TimeoutError(f"the {label} vector index never returned {expected_id}")
 
     def _write_tree(self, spans: tuple[ReadableSpan, ...], name: str) -> None:
         """Write the span tree to the test output directory."""
