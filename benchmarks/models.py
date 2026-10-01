@@ -64,6 +64,13 @@ class CorpusDocument(BaseModel):
     source: str
     pages: list[int] | None = None
 
+    @model_validator(mode="after")
+    def _pages_are_a_selection(self) -> "CorpusDocument":
+        """Require ``pages`` to be None or a non-empty list of non-negative pages."""
+        if self.pages is not None and (not self.pages or min(self.pages) < 0):
+            raise ValueError("pages must be None or a non-empty list of page numbers")
+        return self
+
 
 class Corpus(BaseModel):
     """A set of documents that must share one graph and no other graph.

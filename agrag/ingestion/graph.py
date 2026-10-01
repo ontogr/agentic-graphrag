@@ -988,6 +988,7 @@ class Graph:
                         materialized_components=_components,
                         tracer=self._tracer,
                         embed_heading_path=self._embed_heading_path,
+                        max_llm_pairs=self._max_llm_pairs,
                     )
 
                 async def _cleanup(
@@ -1177,6 +1178,7 @@ class Graph:
                     materialized_components=components,
                     tracer=self._tracer,
                     embed_heading_path=self._embed_heading_path,
+                    max_llm_pairs=self._max_llm_pairs,
                 )
 
             async def _cleanup() -> list[StageFailure]:

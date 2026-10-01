@@ -261,6 +261,43 @@ class TestIngestChunks:
         assert len(mentioned) == 1
         assert mentioned[0].start_id == chunk_id
 
+    async def test_passes_max_llm_pairs_to_the_resolver(self) -> None:
+        """The pair limit reaches the resolver that ``ingest_chunks`` builds."""
+        store, _ = _store()
+        doc = _doc(key="limit")
+        chunk = _chunk(doc, text="Ada Lovelace wrote the first algorithm.")
+        entity = ExtractedEntity(
+            chunk_id=chunk.id,
+            label="Person",
+            text="Ada Lovelace",
+            char_start=0,
+            char_end=12,
+        )
+        resolver_instance = AsyncMock()
+        resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
+
+        with mock.patch(
+            "agrag.ingestion._ingest_pipeline.Resolver",
+            return_value=resolver_instance,
+        ) as resolver_class:
+            await ingest_chunks(
+                [chunk],
+                [doc],
+                [entity],
+                [],
+                [],
+                graph_store=store,
+                embedder=_ZeroEmbedder(),
+                vector_store=None,
+                graph_schema=GENERIC,
+                retrieval_settings=RetrievalSettings(),
+                error_policy=ErrorPolicy.RAISE,
+                ingestion=IngestStats(documents=1),
+                max_llm_pairs=7,
+            )
+
+        assert resolver_class.call_args.kwargs["max_llm_pairs"] == 7
+
 
 class TestIngestMatchesAdd:
     """The extraction is a pure move: add() and the core agree."""

@@ -12,12 +12,9 @@ from importlib.metadata import version
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-import pypdfium2
-
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.loaders.corpus.types import ReadOptions, SourceRef
-from agrag.loaders.docling.loader import DoclingLoader
 from benchmarks.datasets.base import DatasetAdapter, Domain
 from benchmarks.datasets.fetch import CACHE_DIR, fetch_url
 from benchmarks.grading.financial import FinancialGrader
@@ -46,6 +43,8 @@ def convert_pdf(path: Path, uri: str) -> str:
     Raises:
         DocumentConversionError: Docling could not convert the PDF.
     """
+    from agrag.loaders.docling.loader import DoclingLoader  # noqa: PLC0415
+
     options = ReadOptions(max_document_bytes=path.stat().st_size + 1)
     source = SourceRef(uri=uri, extension=".pdf", byte_size=path.stat().st_size)
     with path.open("rb") as stream:
@@ -55,6 +54,8 @@ def convert_pdf(path: Path, uri: str) -> str:
 
 def select_pages(source: Path, pages: Sequence[int], dest: Path) -> None:
     """Write the chosen zero-based pages of a PDF, in the order given, to ``dest``."""
+    import pypdfium2  # noqa: PLC0415
+
     with pypdfium2.PdfDocument(source) as pdf, pypdfium2.PdfDocument.new() as chosen:
         chosen.import_pages(pdf, list(pages))
         chosen.save(dest)

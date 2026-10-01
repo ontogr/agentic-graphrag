@@ -7,6 +7,9 @@ model is needed.
 from collections import Counter
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from agrag.common.data_models.document import DocumentFamily, SourceFormat
 from agrag.common.data_models.graph_schema import GraphSchema
 from benchmarks.datasets import financial
@@ -176,7 +179,7 @@ class TestSchema:
         assert FinancialAdapter().schema(corpus) is FINANCIAL
 
 
-class _Judge:
+class _FakeJudge:
     """Stands in for the judge; the patched quality function ignores it."""
 
 
@@ -205,16 +208,18 @@ class TestFinancialGrader:
         """Correctness uses the answer. Context recall adds the evidence text."""
         seen = {}
 
-        async def fake(judge, question, answer, reference, names=("correctness",)):
+        async def _fake_answer_quality(
+            judge, question, answer, reference, names=("correctness",)
+        ):
             seen[names] = reference
             return dict.fromkeys(names, 0.5)
 
-        monkeypatch.setattr(grading, "answer_quality", fake)
+        monkeypatch.setattr(grading, "answer_quality", _fake_answer_quality)
 
         grade = await FinancialGrader().grade(
             _question(),
             SystemAnswer(text="5,466"),
-            _Judge(),  # type: ignore[arg-type]
+            _FakeJudge(),  # type: ignore[arg-type]
         )
 
         assert seen == {
@@ -223,3 +228,22 @@ class TestFinancialGrader:
         }
         assert set(grade.scores) == set(FinancialGrader.metrics)
         assert grade.flags == []
+
+
+class TestCorpusDocumentPages:
+    """The page selection of a corpus document."""
+
+    @pytest.mark.parametrize("pages", [[], [-1], [2, -3]])
+    def test_rejects_an_empty_or_negative_selection(self, pages):
+        """A selection must name at least one page, and no page is negative."""
+        with pytest.raises(ValidationError):
+            CorpusDocument(id="d", uri="d.pdf", sha256="0", source="x", pages=pages)
+
+    @pytest.mark.parametrize("pages", [None, [0], [3, 1]])
+    def test_accepts_none_or_page_numbers(self, pages):
+        """None selects every page; a list selects those pages."""
+        document = CorpusDocument(
+            id="d", uri="d.pdf", sha256="0", source="x", pages=pages
+        )
+
+        assert document.pages == pages
