@@ -387,6 +387,46 @@ class TestText2CypherSpans:
             str(result.item.id) for result in results
         ]
 
+    async def test_entity_row_hydration_exports_its_own_span(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Hydrating an entity row exports a hydrate_entities span with counts."""
+        provider, exporter = _provider()
+        tracer = provider.get_tracer("t")
+        store = AsyncMock()
+        entity_id = uuid4()
+
+        async def _read(query, params=None, **kwargs):
+            if query.startswith("EXPLAIN"):
+                return []
+            return [{"n": _entity_node(entity_id)}]
+
+        store.execute_read.side_effect = _read
+
+        async def _generate(self, question, *, failure_context=None):
+            return "MATCH (n) RETURN n"
+
+        monkeypatch.setattr(
+            t2c_module.Text2CypherRetriever, "_generate_cypher", _generate
+        )
+        retriever = Text2CypherRetriever(
+            graph_store=store,
+            schema=GENERIC,
+            settings=RetrievalSettings(),
+            tracer=tracer,
+        )
+
+        await retriever.retrieve("who knows alice")
+
+        hydrates = _named(
+            exporter.get_finished_spans(), "agrag.retrieval.hydrate_entities"
+        )
+        assert len(hydrates) == 1
+        attributes = hydrates[0].attributes
+        assert attributes is not None
+        assert attributes["agrag.requested_count"] == 1
+        assert attributes["agrag.hydrated_count"] == 1
+
     async def test_a_failed_generation_records_and_stays_unset(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

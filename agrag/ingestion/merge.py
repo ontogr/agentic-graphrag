@@ -353,7 +353,7 @@ async def compute_merge(  # noqa: PLR0912
     No storage is touched. Zero existing entities produces a brand-new Entity.
     One produces an updated copy folding in the mentions. Two or more picks a
     canonical entity for the survivor's identity; the others contribute
-    property values only.
+    property values and accepted merge-key aliases.
 
     Args:
         existing_entities: Already-persisted entities this call reconciles.

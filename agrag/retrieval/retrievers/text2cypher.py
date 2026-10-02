@@ -524,7 +524,11 @@ class Text2CypherRetriever(Retriever):
                 # Try to find an entity id in the row.
                 entity_id = self._extract_entity_id(row)
                 if entity_id is not None:
-                    entity = await self._hydrate_entity(entity_id)
+                    try:
+                        entity = await self._hydrate_entity(entity_id)
+                    except Exception as exc:  # noqa: BLE001
+                        record_swallowed_exception(exc)
+                        continue
                     if entity is not None:
                         results.append(
                             SearchResult(item=entity, score=1.0, method=method)
@@ -687,15 +691,22 @@ class Text2CypherRetriever(Retriever):
 
     async def _hydrate_entity(self, entity_id: UUID) -> Entity | None:
         """Return the committed Entity with this id, or None if it is absent."""
-        rows = await self._graph_store.execute_read(
-            hydrate_entities_by_id_query(), {"ids": [str(entity_id)], "job_id": None}
-        )
-        for row in rows:
-            node = row.get("n") if isinstance(row, dict) and "n" in row else row
-            entity = parse_entity_node(node)
-            if entity is not None:
-                return entity
-        return None
+        with get_tracer(self._tracer).start_as_current_span(
+            "agrag.retrieval.hydrate_entities",
+            attributes={"agrag.requested_count": 1},
+        ) as hydrate:
+            rows = await self._graph_store.execute_read(
+                hydrate_entities_by_id_query(),
+                {"ids": [str(entity_id)], "job_id": None},
+            )
+            for row in rows:
+                node = row.get("n") if isinstance(row, dict) and "n" in row else row
+                entity = parse_entity_node(node)
+                if entity is not None:
+                    hydrate.set_attribute("agrag.hydrated_count", 1)
+                    return entity
+            hydrate.set_attribute("agrag.hydrated_count", 0)
+            return None
 
     @staticmethod
     def _extract_entity_id(row: dict) -> UUID | None:  # noqa: PLR0912

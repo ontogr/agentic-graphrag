@@ -87,6 +87,7 @@ class TestEntityRetriever:
 
             assert len(results) == 1
             assert results[0].item.id == ent.id
+            assert results[0].item.name == ent.name
             assert results[0].method == "entity"
 
     async def test_returns_materialization_without_its_raw_member(self) -> None:

@@ -23,13 +23,13 @@ def fuse(
     Each method contributes at most one vote per item, scored at the
     item's best (lowest) rank within that method. A multi-label
     entity that surfaces in two positions of one method's output only
-    adds one vote from that method, so duplicate hits from a single retriever cannot
-    unfairly promote an item over a single best hit from another
-    method.
+    adds one vote from that method, so duplicate hits from a single
+    retriever cannot unfairly promote an item over a single best hit
+    from another method.
 
     Deduplication uses SearchResult.identity_key, which is (type, id).
-    Fusion does not re-resolve identity; it trusts that every
-    SearchResult it receives already carries a live id.
+    Fusion does not re-resolve identity; it deduplicates on the ids each
+    SearchResult carries.
 
     Args:
         results_by_method: Each method's own ranked output, keyed by

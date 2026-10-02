@@ -200,6 +200,42 @@ class TestText2CypherRowShapes:
 
         assert results == []
 
+    async def test_entity_hydration_failure_keeps_other_rows(self) -> None:
+        """A failed hydration read skips that row and keeps the others."""
+        failing_id = uuid4()
+        healthy_id = uuid4()
+        hydrate_query = hydrate_entities_by_id_query()
+
+        async def read(query: str, params: dict | None = None, **kwargs) -> list[dict]:
+            """Return two entity rows; fail hydration for the first id."""
+            if query != hydrate_query:
+                return [
+                    {"n": {"id": str(failing_id), "name": "Bob"}},
+                    {"n": {"id": str(healthy_id), "name": "Alice"}},
+                ]
+            if params is not None and params["ids"] == [str(failing_id)]:
+                raise RuntimeError("hydration failed")
+            return [
+                {
+                    "n": {
+                        "id": str(healthy_id),
+                        "labels": ["Person"],
+                        "properties": {"name": "Alice"},
+                    }
+                }
+            ]
+
+        gs = AsyncMock()
+        gs.execute_read.side_effect = read
+        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+
+        with patch.object(
+            retriever, "_generate_cypher", return_value="MATCH (n:Person) RETURN n"
+        ):
+            results = await retriever.retrieve("who is Alice?")
+
+        assert [result.item.id for result in results] == [healthy_id]
+
     async def test_relation_row_becomes_search_result(self) -> None:
         """A relationship row is wrapped in a Relation, not dropped."""
         gs = AsyncMock()
