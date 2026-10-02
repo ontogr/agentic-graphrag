@@ -33,7 +33,7 @@ from benchmarks.datasets.healthcare_index import (
     CLOSURE_K,
     INDEX_PATH,
     closure,
-    index_problems,
+    source_problems,
 )
 from benchmarks.models import (
     BenchmarkQuestion,
@@ -281,7 +281,7 @@ def main() -> None:
         )
     rows = _healthbench_rows()
     with closing(sqlite3.connect(INDEX_PATH)) as index:
-        problems = index_problems(index)
+        problems = source_problems(index)
     if problems:
         raise SystemExit(f"the index is not complete: {'; '.join(problems)}")
     themes = collections.Counter(_theme(rows[i]) for i in FULL)

@@ -185,6 +185,21 @@ def content_problems(db: sqlite3.Connection) -> list[str]:
     return problems
 
 
+def source_problems(db: sqlite3.Connection) -> list[str]:
+    """Return what makes an index differ from the pinned sources.
+
+    The cheap count and id check runs first, and the passage text is compared with
+    the pinned files only when that check passes.
+
+    Args:
+        db: The open index.
+
+    Returns:
+        A message for each difference. The list is empty for a faithful index.
+    """
+    return index_problems(db) or content_problems(db)
+
+
 def closure(db: sqlite3.Connection, turn: str, k: int) -> list[str]:
     """Return the ids of the best ``k`` passages for a prompt turn, best first.
 
@@ -248,7 +263,7 @@ def check_index(path: Path = INDEX_PATH) -> tuple[int, list[str]]:
     """
     db = sqlite3.connect(path)
     rows = db.execute("SELECT count(*) FROM docs").fetchone()[0]
-    problems = index_problems(db) or content_problems(db)
+    problems = source_problems(db)
     k = CLOSURE_K["full"]
     for mode in ("lite", "full"):
         manifest = HealthcareAdapter().load(mode)
