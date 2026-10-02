@@ -30,6 +30,7 @@ from benchmarks.datasets.healthcare_index import (
     content_problems,
     fts_query,
     index_problems,
+    source_problems,
 )
 from benchmarks.grading.healthbench import (
     ATTEMPTS,
@@ -510,6 +511,36 @@ class TestContentProblems:
         rows = [("t1", "textbooks", "pain"), ("s1", "statpearls", "asthma")]
 
         assert content_problems(self._db(rows)) == [
+            "textbooks differs from the pinned passages"
+        ]
+
+    def test_source_problems_skips_the_pinned_files_when_the_counts_differ(
+        self, monkeypatch
+    ):
+        """A count problem is reported without a fetch of the pinned files."""
+        self._pin(monkeypatch)
+        monkeypatch.setattr(
+            healthcare_index, "SOURCE_ROWS", {"textbooks": 2, "statpearls": 1}
+        )
+
+        def fetch(source, file):
+            raise AssertionError("the pinned files were fetched")
+
+        monkeypatch.setattr(healthcare_index, "fetch_source_file", fetch)
+        rows = [("t1", "textbooks", "pain"), ("s1", "statpearls", "asthma")]
+
+        assert source_problems(self._db(rows)) == ["textbooks has 1 passages, not 2"]
+
+    def test_source_problems_reports_a_changed_text_in_a_sound_index(self, monkeypatch):
+        """An index with the right counts and ids still fails on changed text."""
+        self._pin(monkeypatch)
+        monkeypatch.setattr(
+            healthcare_index, "SOURCE_ROWS", {"textbooks": 2, "statpearls": 1}
+        )
+        rows = [("t1", "textbooks", "pain"), ("t2", "textbooks", "altered")]
+        rows.append(("s1", "statpearls", "asthma"))
+
+        assert source_problems(self._db(rows)) == [
             "textbooks differs from the pinned passages"
         ]
 
