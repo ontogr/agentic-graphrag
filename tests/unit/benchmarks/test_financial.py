@@ -99,10 +99,42 @@ class TestFixtures:
         assert {lite.service, full.service} == {"financial-lite", "financial-full"}
 
 
+def _write_pdf(path: Path, widths: list[int]) -> None:
+    """Write a blank PDF with one page for each width, so a page has an identity.
+
+    The test is skipped when ``pypdfium2`` is missing. It comes with the docling
+    extra, and the other tests of this module do not need it.
+    """
+    pypdfium2 = pytest.importorskip("pypdfium2")
+    with pypdfium2.PdfDocument.new() as pdf:
+        for width in widths:
+            pdf.new_page(width, 100)
+        pdf.save(path)
+
+
+def _page_widths(path: Path) -> list[int]:
+    pypdfium2 = pytest.importorskip("pypdfium2")
+    with pypdfium2.PdfDocument(path) as pdf:
+        return [round(pdf[i].get_width()) for i in range(len(pdf))]
+
+
+class TestSelectPages:
+    """Cutting chosen pages out of a PDF."""
+
+    def test_writes_the_chosen_pages_in_the_order_given(self, tmp_path):
+        """The new PDF holds only the named pages, counted from 0, in that order."""
+        source = tmp_path / "source.pdf"
+        _write_pdf(source, [100, 200, 300, 400])
+
+        financial.select_pages(source, [2, 0], tmp_path / "chosen.pdf")
+
+        assert _page_widths(tmp_path / "chosen.pdf") == [300, 100]
+
+
 class TestDocuments:
     """PDFs become prose documents, and the conversion is cached."""
 
-    def _corpus(self, *names: str) -> Corpus:
+    def _corpus(self, *names: str, pages: list[int] | None = None) -> Corpus:
         return Corpus(
             id="financial-lite",
             service="financial-lite",
@@ -113,6 +145,7 @@ class TestDocuments:
                     uri=f"{name}.pdf",
                     sha256=f"{i:064d}",
                     source=f"https://example.test/{name}.pdf",
+                    pages=pages,
                 )
                 for i, name in enumerate(names)
             ],
@@ -161,6 +194,63 @@ class TestDocuments:
 
         assert converted == ["A_2022_10K.pdf"]
         assert first[0].text == second[0].text
+
+    def _patch_pages(self, monkeypatch, tmp_path: Path) -> list[int]:
+        """Serve a 4-page PDF and record the width of each page that converts."""
+        pytest.importorskip("pypdfium2")
+        converted: list[int] = []
+
+        def fetch(url, sha256, dest):
+            _write_pdf(dest, [100, 200, 300, 400])
+            return dest
+
+        def convert(path, uri):
+            (width,) = _page_widths(path)
+            converted.append(width)
+            return f"page {width}"
+
+        monkeypatch.setattr(financial, "PDF_CACHE", tmp_path)
+        monkeypatch.setattr(financial, "fetch_url", fetch)
+        monkeypatch.setattr(financial, "convert_pdf", convert)
+        return converted
+
+    def test_chosen_pages_convert_one_at_a_time_and_join_in_order(
+        self, tmp_path, monkeypatch
+    ):
+        """Each chosen page converts alone, and the Markdown joins with a blank line."""
+        converted = self._patch_pages(monkeypatch, tmp_path)
+
+        (document,) = FinancialAdapter().documents(
+            self._corpus("A_2022_10K", pages=[3, 1])
+        )
+
+        assert converted == [400, 200]
+        assert document.text == "page 400\n\npage 200"
+
+    def test_a_second_call_reuses_the_cached_pages(self, tmp_path, monkeypatch):
+        """The cache holds the selection, so Docling does not run again."""
+        converted = self._patch_pages(monkeypatch, tmp_path)
+        corpus = self._corpus("A_2022_10K", pages=[3, 1])
+
+        FinancialAdapter().documents(corpus)
+        FinancialAdapter().documents(corpus)
+
+        assert converted == [400, 200]
+        assert [f.name for f in tmp_path.glob("*.md")] == [
+            f"{0:064d}.p3-1.docling-{financial.version('docling')}.md"
+        ]
+
+    def test_another_selection_of_the_same_pdf_converts_again(
+        self, tmp_path, monkeypatch
+    ):
+        """Two selections of one PDF never share a cached conversion."""
+        converted = self._patch_pages(monkeypatch, tmp_path)
+
+        first = FinancialAdapter().documents(self._corpus("A_2022_10K", pages=[0]))
+        second = FinancialAdapter().documents(self._corpus("A_2022_10K", pages=[1]))
+
+        assert converted == [100, 200]
+        assert first[0].text != second[0].text
 
     def test_a_missing_docling_extra_raises_the_missing_extra_error(
         self, tmp_path, monkeypatch
