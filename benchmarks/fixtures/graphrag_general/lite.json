@@ -10,28 +10,9 @@
    "Datasets/Corpus/novel.json": "0e79a0dae5a420e8ee0ecffb04f7ddf8d441a4d868fbbe5a011baa2196b9702f",
    "Datasets/Questions/medical_questions.json": "9af76a619e24d84f5509ba10274fbba465e901140a34c4429821f68686f0277b",
    "Datasets/Questions/novel_questions.json": "90214823709fc5ff5858e1688c4efd56d64995ebbbcc70f6ab9e8953cc7dc43f"
-  },
-  "medical_lite_segment": {
-   "start": 0,
-   "end": 81651,
-   "sha256": "2d33350f72e147e8dba02c9e730d6c9c918f04e2747814eed82f2f8bfddcfcaa"
   }
  },
  "corpora": [
-  {
-   "id": "novel-25646",
-   "service": "graphrag-novel-25646",
-   "schema_name": "graphrag-novel",
-   "documents": [
-    {
-     "id": "Novel-25646",
-     "uri": "novel/Novel-25646",
-     "sha256": "aa9e574fca0f1ac2ab9c9652cb575712472777f04bb1b45cac2561f1d85d8323",
-     "source": "hf://datasets/GraphRAG-Bench/GraphRAG-Bench@dc3a111e77dbaf8bbaf51ef331f3cfc9b1b5c546/Datasets/Corpus/novel.json#Novel-25646"
-    }
-   ],
-   "n_tokens": 23209
-  },
   {
    "id": "medical-lite",
    "service": "graphrag-medical-lite",
@@ -41,245 +22,49 @@
      "id": "medical-00",
      "uri": "medical/00",
      "sha256": "cacaf5d14e0056c4c5c38f1191c17ac37eee9568f70008feaaf2fa5ac991e472",
-     "source": "hf://datasets/GraphRAG-Bench/GraphRAG-Bench@dc3a111e77dbaf8bbaf51ef331f3cfc9b1b5c546/Datasets/Corpus/medical.json#piece-00"
-    },
-    {
-     "id": "medical-01",
-     "uri": "medical/01",
-     "sha256": "3043eb08d29042baab811ead6d584951c5e8b00580706e930bb98aa618996bab",
-     "source": "hf://datasets/GraphRAG-Bench/GraphRAG-Bench@dc3a111e77dbaf8bbaf51ef331f3cfc9b1b5c546/Datasets/Corpus/medical.json#piece-01"
-    },
-    {
-     "id": "medical-02",
-     "uri": "medical/02",
-     "sha256": "64fdd63f3b99907d68c386e4ab970f7a206fc97594afdf8c3e8d42349fb09200",
-     "source": "hf://datasets/GraphRAG-Bench/GraphRAG-Bench@dc3a111e77dbaf8bbaf51ef331f3cfc9b1b5c546/Datasets/Corpus/medical.json#piece-02"
+     "source": "hf://datasets/GraphRAG-Bench/GraphRAG-Bench@dc3a111e77dbaf8bbaf51ef331f3cfc9b1b5c546/Datasets/Corpus/medical.json#piece-00",
+     "pages": null
     }
    ],
-   "n_tokens": 17042
+   "n_tokens": 1655
   }
  ],
  "questions": [
   {
-   "id": "novel:Novel-8cc0478d",
-   "corpus_id": "novel-25646",
+   "id": "medical:Medical-152bec6a",
+   "corpus_id": "medical-lite",
    "messages": [
     {
      "role": "user",
-     "content": "Explain how the need for blood by the brain is supported by the heart and the chest’s structure."
+     "content": "What is the recommended frequency for full skin exams in BCC follow-up?"
+    }
+   ],
+   "group": "Fact Retrieval",
+   "reference": {
+    "answer": "Full skin exams with a doctor are recommended at least once a year.",
+    "evidence": [
+     "Full skin exams with a doctor are recommended at least once a year."
+    ],
+    "row_sha256": "dff1220368abf747387dfee293de9408b51250403a7f80ad14605732dd903a67"
+   }
+  },
+  {
+   "id": "medical:Medical-14016ce3",
+   "corpus_id": "medical-lite",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is the rationale for recommending surgery as the most common treatment for BCC lesions on sun-exposed areas?"
     }
    ],
    "group": "Complex Reasoning",
    "reference": {
-    "answer": "The brain needs blood; blood is carried to the heart; the heart is made of muscles; muscles move the chest; and the chest is made up of ribs, spine, shoulder-blades, and collar-bones.",
+    "answer": "Because BCC most commonly develops on sun-exposed areas and surgery is the most effective treatment.",
     "evidence": [
-     "The brain needs blood.",
-     "Blood is carried to the heart.",
-     "The heart is made of muscles.",
-     "Muscles move the chest.",
-     "The chest is made up of ribs.",
-     "The chest is made up of the spine.",
-     "The chest is made up of shoulder-blades.",
-     "The chest is made up of collar-bones."
+     "Basal cell carcinoma most commonly develops on sun-exposed areas.",
+     "Surgery is the most effective treatment for basal cell carcinoma lesions."
     ],
-    "row_sha256": "6238f31fe2b6dc719dbc628d8fa7731498e59d0d09c7c814f38d53d6f5d20584"
-   }
-  },
-  {
-   "id": "novel:Novel-0c5272d1",
-   "corpus_id": "novel-25646",
-   "messages": [
-    {
-     "role": "user",
-     "content": "Write a news article about how the body’s organs work together to keep a person healthy."
-    }
-   ],
-   "group": "Creative Generation",
-   "reference": {
-    "answer": "Science News — The human body relies on a coordinated system of organs to maintain health. Food is essential for the body and is needed by the brain. The stomach produces gastric juice to digest food, while blood carries nutrients to the heart. The heart, made of muscles, pumps blood to the lungs, which are located in the chest. Nerves help muscles know when to move, and bones give structure through the spine. This teamwork keeps the body functioning properly.",
-    "evidence": [
-     "The human body relies on a coordinated system of organs to maintain health.",
-     "Food is essential for the body.",
-     "The brain needs food.",
-     "The stomach produces gastric juice to digest food.",
-     "Blood carries nutrients to the heart.",
-     "The heart is made of muscles.",
-     "The heart pumps blood to the lungs.",
-     "The lungs are located in the chest.",
-     "Nerves help muscles know when to move.",
-     "Bones give structure through the spine."
-    ],
-    "row_sha256": "e5ed817371d285b9f31dbed08fbd2675a608b98063b2b5db9c11e577e9272c4a"
-   }
-  },
-  {
-   "id": "novel:Novel-c8928151",
-   "corpus_id": "novel-25646",
-   "messages": [
-    {
-     "role": "user",
-     "content": "During the doctor's experiments described in the CHILD'S HEALTH PRIMER, what substance did he put into the stomach to observe its effects?"
-    }
-   ],
-   "group": "Fact Retrieval",
-   "reference": {
-    "answer": "The doctor put alcohol into the stomach.",
-    "evidence": [
-     "The doctor put alcohol into the stomach."
-    ],
-    "row_sha256": "7f8b9764b0ed13e80853cb52abe04ee72cc30f93c330b064a84b89eee32cdd90"
-   }
-  },
-  {
-   "id": "novel:Novel-71646b3e",
-   "corpus_id": "novel-25646",
-   "messages": [
-    {
-     "role": "user",
-     "content": "In the anatomical description of the eye, which part is controlled by muscle as described in the CHILD'S HEALTH PRIMER?"
-    }
-   ],
-   "group": "Fact Retrieval",
-   "reference": {
-    "answer": "The pupil is controlled by muscle.",
-    "evidence": [
-     "The pupil is controlled by muscle."
-    ],
-    "row_sha256": "3aedb272e119736feb9f89e8a811c364e1b59c104beea28631f1b596f3bae671"
-   }
-  },
-  {
-   "id": "novel:Novel-1f8fc3b0",
-   "corpus_id": "novel-25646",
-   "messages": [
-    {
-     "role": "user",
-     "content": "In the CHILD'S HEALTH PRIMER, what specific effects of alcohol on various parts of the human body are described, such as how alcohol poisons the blood, puts the nerves to sleep, harms the muscles and stomach, and impairs the brain's ability to think clearly?"
-    }
-   ],
-   "group": "Contextual Summarize",
-   "reference": {
-    "answer": "Alcohol poisons the blood, puts the nerves to sleep, harms the muscles and stomach, and impairs the brain's ability to think well.",
-    "evidence": [
-     "Alcohol poisons the blood.",
-     "Alcohol puts the nerves to sleep.",
-     "Alcohol harms the muscles.",
-     "Alcohol harms the stomach.",
-     "Alcohol impairs the brain's ability to think clearly."
-    ],
-    "row_sha256": "373c29f9ff62be3385a26438910cb9cf33aee78f322d71eaaa7130008b696c3d"
-   }
-  },
-  {
-   "id": "medical:Medical-6baf8bff",
-   "corpus_id": "medical-lite",
-   "messages": [
-    {
-     "role": "user",
-     "content": "What are the standard treatment options for basal cell carcinoma?"
-    }
-   ],
-   "group": "Contextual Summarize",
-   "reference": {
-    "answer": "Surgery is the most common treatment for basal cell carcinoma, with radiation therapy or systemic therapy used in selected cases.",
-    "evidence": [
-     "Surgery is the most common treatment for basal cell carcinoma.",
-     "Radiation therapy is used in selected cases for basal cell carcinoma.",
-     "Systemic therapy is used in selected cases for basal cell carcinoma."
-    ],
-    "row_sha256": "294f6216edc5905e6234991c5693351d5bbbe4acb825ac0c2ee861535f1fd679"
-   }
-  },
-  {
-   "id": "medical:Medical-a9a52704",
-   "corpus_id": "medical-lite",
-   "messages": [
-    {
-     "role": "user",
-     "content": "What combination of anatomical location and cell type defines basal cell carcinoma?"
-    }
-   ],
-   "group": "Complex Reasoning",
-   "reference": {
-    "answer": "BCC arises from basal cells in the lower part of the epidermis, often in sun-exposed locations.",
-    "evidence": [
-     "Basal cell carcinoma arises from basal cells.",
-     "Basal cells are located in the lower part of the epidermis.",
-     "Basal cell carcinoma often occurs in sun-exposed locations."
-    ],
-    "row_sha256": "7ae4343105383f56e8aa5e029623295d8b0e2856eb6eb75a1813cd1bdd1a955f"
-   }
-  },
-  {
-   "id": "medical:Medical-8fe8663f",
-   "corpus_id": "medical-lite",
-   "messages": [
-    {
-     "role": "user",
-     "content": "What are the preferred treatments for low-risk local CSCC?"
-    }
-   ],
-   "group": "Fact Retrieval",
-   "reference": {
-    "answer": "Low-risk local CSCC is primarily treated with surgery (C&E, standard excision, Mohs surgery/PDEMA).",
-    "evidence": [
-     "Low-risk local CSCC is primarily treated with surgery.",
-     "Surgical options for low-risk local CSCC include curettage and electrodessication (C&E).",
-     "Surgical options for low-risk local CSCC include standard excision.",
-     "Surgical options for low-risk local CSCC include Mohs surgery/PDEMA."
-    ],
-    "row_sha256": "2e32fb1351829e1394f02979b27556731bdf61b2e21798b69bfdb11dac9c1e4b"
-   }
-  },
-  {
-   "id": "medical:Medical-338ef222",
-   "corpus_id": "medical-lite",
-   "messages": [
-    {
-     "role": "user",
-     "content": "What is the most common type of adrenal gland tumor?"
-    }
-   ],
-   "group": "Fact Retrieval",
-   "reference": {
-    "answer": "Adenoma is the most common type of adrenal gland tumor.",
-    "evidence": [
-     "Adenoma is the most common type of adrenal gland tumor."
-    ],
-    "row_sha256": "5eaf3959ce9b619c3b8f3b0936e2e777d6ec5fc3790aecad8d500b5358387926"
-   }
-  },
-  {
-   "id": "medical:Medical-2e1ccbe9",
-   "corpus_id": "medical-lite",
-   "messages": [
-    {
-     "role": "user",
-     "content": "You are a clinician asked to summarize the key differences in presentation, diagnosis, and risk factors between adrenocortical carcinoma, pheochromocytoma, and neuroblastoma, using evidence from the guidelines."
-    }
-   ],
-   "group": "Creative Generation",
-   "reference": {
-    "answer": "Adrenocortical carcinoma (ACC) is a rare malignant tumor of the adrenal cortex, most common in children under 5 and adults in their 40s and 50s. It often presents with symptoms of hormone excess such as weight gain, muscle weakness, and stretch marks. Diagnosis involves imaging (CT, MRI, PET), blood and biochemical tests, genetic evaluation, and sometimes biopsy. Hereditary syndromes like Li-Fraumeni and MEN1/2 increase risk. Pheochromocytoma arises from the adrenal medulla, presenting with high blood pressure, headache, rapid heartbeat, and sweating. Diagnosis relies on CT/MRI and biochemical tests. Neuroblastoma mainly affects children under 5, may metastasize to bones, and is diagnosed with imaging and biochemical tests. Family history and hereditary syndromes are important risk factors for all three.",
-    "evidence": [
-     "Adrenocortical carcinoma (ACC) is a rare malignant tumor of the adrenal cortex.",
-     "ACC is most common in children under 5 and adults in their 40s and 50s.",
-     "ACC often presents with symptoms of hormone excess.",
-     "Symptoms of hormone excess include weight gain, muscle weakness, and stretch marks.",
-     "Diagnosis of ACC involves imaging such as CT, MRI, and PET.",
-     "Diagnosis also includes blood and biochemical tests.",
-     "Genetic evaluation may be part of the diagnostic process.",
-     "A biopsy may be performed to confirm the diagnosis.",
-     "Hereditary syndromes like Li-Fraumeni and MEN1/2 increase the risk of ACC.",
-     "Pheochromocytoma arises from the adrenal medulla.",
-     "Pheochromocytoma presents with high blood pressure, headache, rapid heartbeat, and sweating.",
-     "Diagnosis of pheochromocytoma relies on CT/MRI and biochemical tests.",
-     "Neuroblastoma mainly affects children under 5.",
-     "Neuroblastoma may metastasize to bones.",
-     "Diagnosis of neuroblastoma involves imaging and biochemical tests.",
-     "Family history and hereditary syndromes are important risk factors for all three tumors."
-    ],
-    "row_sha256": "911ef6761cc29159edf6cef71048801d916f1955adf6677b7dddc9ad8ca12943"
+    "row_sha256": "2f61964c458f0ed1874378ed170a22053a76c02149b6395b35923a697e8dc832"
    }
   }
  ]

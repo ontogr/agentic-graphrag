@@ -58,15 +58,20 @@ class TestFixtures:
         assert medical == dict(zip(TYPES, (69, 32, 18, 11), strict=True))
         assert novel == dict(zip(TYPES, (57, 37, 21, 5), strict=True))
 
-    def test_lite_has_five_questions_on_each_corpus_and_all_four_types(self):
-        """Lite has 5 Novel and 5 Medical questions, each set with every type."""
+    def test_lite_has_two_questions_on_the_first_medical_extract(self):
+        """Lite has a Fact Retrieval and a Complex Reasoning question on one extract."""
         manifest = GraphRagAdapter().load("lite")
 
-        assert [c.id for c in manifest.corpora] == ["novel-25646", "medical-lite"]
-        for corpus in manifest.corpora:
-            groups = {q.group for q in manifest.questions if q.corpus_id == corpus.id}
-            assert groups == set(TYPES)
-            assert sum(q.corpus_id == corpus.id for q in manifest.questions) == 5
+        (corpus,) = manifest.corpora
+
+        assert corpus.id == "medical-lite"
+        assert [d.id for d in corpus.documents] == ["medical-00"]
+        assert corpus.n_tokens == 1_655
+        assert {q.group for q in manifest.questions} == {
+            "Fact Retrieval",
+            "Complex Reasoning",
+        }
+        assert len(manifest.questions) == 2
 
     def test_lite_questions_are_a_subset_of_full_with_the_same_content(self):
         """Every lite question is also a full question with the same content."""
@@ -94,22 +99,13 @@ class TestFixtures:
             assert reference["evidence"]
             assert len(reference["row_sha256"]) == 64
 
-    def test_the_shared_novel_corpus_is_identical_in_lite_and_full(self):
-        """Lite and full use one Novel-25646 graph, so its corpus entry must match."""
+    def test_the_lite_medical_document_is_the_first_extract_of_full(self):
+        """The lite document is the first of the 44 full documents."""
         lite = {c.id: c for c in GraphRagAdapter().load("lite").corpora}
         full = {c.id: c for c in GraphRagAdapter().load("full").corpora}
 
-        assert lite["novel-25646"] == full["novel-25646"]
-
-    def test_the_lite_medical_corpus_is_the_first_three_extracts_of_full(self):
-        """The lite segment is the first three full documents, ending at char 81,651."""
-        lite = {c.id: c for c in GraphRagAdapter().load("lite").corpora}
-        full_manifest = GraphRagAdapter().load("full")
-        full = {c.id: c for c in full_manifest.corpora}
-
-        assert lite["medical-lite"].documents == full["medical-full"].documents[:3]
+        assert lite["medical-lite"].documents == full["medical-full"].documents[:1]
         assert len(full["medical-full"].documents) == 44
-        assert full_manifest.upstream["medical_lite_segment"]["end"] == 81_651
 
     def test_services_are_unique_per_corpus(self):
         """No two corpora share a service, except one corpus used in both modes."""
@@ -223,7 +219,9 @@ class TestSchemas:
     def test_each_corpus_gets_its_own_schema(self):
         """Novel corpora use the general schema and Medical uses the oncology one."""
         adapter = GraphRagAdapter()
-        corpora = {c.id: c for c in adapter.load("lite").corpora}
+        corpora = {
+            c.id: c for mode in ("lite", "full") for c in adapter.load(mode).corpora
+        }
 
         assert adapter.schema(corpora["novel-25646"]) is NOVEL
         assert adapter.schema(corpora["medical-lite"]) is MEDICAL
@@ -363,7 +361,9 @@ def _question() -> BenchmarkQuestion:
 class TestGraphRagGrader:
     """Grading one answer."""
 
-    async def test_scores_every_metric_and_splits_the_references(self, monkeypatch):
+    async def test_full_scores_every_metric_and_splits_the_references(
+        self, monkeypatch
+    ):
         """Quality uses the gold answer, context recall uses the evidence items."""
         seen = {}
 
@@ -376,7 +376,10 @@ class TestGraphRagGrader:
             {"gold answer": '["a"]'},
             _classes(1, 0, 0),
         )
-        grader = GraphRagGrader(embedder=_Embedder([1.0], [1.0]))  # type: ignore[arg-type]
+        grader = GraphRagGrader(
+            embedder=_Embedder([1.0], [1.0]),  # type: ignore[arg-type]
+            full=True,
+        )
 
         grade = await grader.grade(
             _question(),
@@ -388,10 +391,37 @@ class TestGraphRagGrader:
             ("correctness", "faithfulness"): "gold answer",
             ("context_recall",): "one\ntwo",
         }
-        assert set(grade.scores) == set(GraphRagGrader.metrics)
+        assert set(grade.scores) == set(grader.metrics)
+        assert len(grader.metrics) == 5
+        assert grader.judge_calls_per_question == 10
         assert grade.scores["rouge_l"] == 1.0
         assert grade.scores["official_accuracy"] == pytest.approx(1.0)
         assert grade.flags == []
+
+    async def test_lite_scores_three_metrics_and_skips_the_evidence_judge(
+        self, monkeypatch
+    ):
+        """Lite judges correctness and accuracy only, so recall is never asked."""
+        seen = {}
+
+        async def fake(judge, question, answer, reference, names=("correctness",)):
+            seen[names] = reference
+            return dict.fromkeys(names, 0.5)
+
+        monkeypatch.setattr(grading, "answer_quality", fake)
+        judge = _Judge({"gold answer": '["a"]'}, _classes(1, 0, 0))
+        grader = GraphRagGrader(embedder=_Embedder([1.0], [1.0]))  # type: ignore[arg-type]
+
+        grade = await grader.grade(
+            _question(),
+            SystemAnswer(text="gold answer"),
+            judge,  # type: ignore[arg-type]
+        )
+
+        assert seen == {("correctness",): "gold answer"}
+        assert set(grade.scores) == {"correctness", "rouge_l", "official_accuracy"}
+        assert set(grade.scores) == set(grader.metrics)
+        assert grader.judge_calls_per_question == 4
 
     async def test_a_judge_parse_failure_sets_the_flag(self, monkeypatch):
         """A judge reply that is not JSON shows as a flag on the question."""

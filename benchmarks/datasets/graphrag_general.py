@@ -118,4 +118,8 @@ class GraphRagAdapter(DatasetAdapter):
         return MEDICAL if corpus.schema_name == MEDICAL.name else NOVEL
 
 
-DOMAIN = Domain(adapter=GraphRagAdapter(), grader=GraphRagGrader())
+DOMAIN = Domain(
+    adapter=GraphRagAdapter(),
+    grader=GraphRagGrader(),
+    full_grader=GraphRagGrader(full=True),
+)

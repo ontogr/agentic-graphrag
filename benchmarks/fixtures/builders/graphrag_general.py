@@ -1,9 +1,10 @@
 """Build the GraphRAG-Bench fixtures from the pinned Hugging Face revision.
 
-Lite is five Novel-25646 questions and five Medical questions on the first three
-guideline extracts. Full is 130 Medical and 120 Novel questions on the whole Medical
-corpus and four novels, sampled with seed 42 in proportion to the question types of
-each population, with the lite questions forced in. Writes
+Lite is two Medical questions on the first guideline extract (basal cell skin
+cancer), small enough for a run of a few minutes. Full is 130 Medical and 120 Novel
+questions on the whole Medical corpus and four novels, sampled with seed 42 in
+proportion to the question types of each population, with ten fixed questions forced
+in. Writes
 ``benchmarks/fixtures/graphrag_general/{lite,full}.json``.
 
 Usage:
@@ -44,26 +45,27 @@ from benchmarks.schemas.graphrag_general import MEDICAL, NOVEL
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "graphrag_general"
 SEED = 42
-LITE_NOVEL = "Novel-25646"
-# Body-text questions only: none rests on the Gutenberg credits or contents list.
-LITE_NOVEL_IDS = [
+# The ten questions that the full sample is built around. The full set depends on this
+# list, so do not change it.
+FORCED_NOVEL = "Novel-25646"
+FORCED_NOVEL_IDS = [
     "Novel-8cc0478d",
     "Novel-0c5272d1",
     "Novel-c8928151",
     "Novel-71646b3e",
     "Novel-1f8fc3b0",
 ]
-# The lite Medical text is the first three extracts: basal cell skin cancer, adrenal
-# tumors and squamous cell skin cancer. The end is the start of the fourth extract.
-LITE_MEDICAL_PIECES = 3
-LITE_MEDICAL_END = 81_651
-LITE_MEDICAL_IDS = [
+FORCED_MEDICAL_IDS = [
     "Medical-6baf8bff",
     "Medical-a9a52704",
     "Medical-8fe8663f",
     "Medical-338ef222",
     "Medical-2e1ccbe9",
 ]
+# The lite questions rest on the first extract only: a fact about the follow-up
+# visits and a question that joins two facts. The text of the extract states both.
+LITE_MEDICAL_PIECES = 1
+LITE_MEDICAL_IDS = ["Medical-152bec6a", "Medical-14016ce3"]
 FULL_NOVELS = ["Novel-2544", "Novel-8559", "Novel-25646", "Novel-41603"]
 FULL_COUNTS = {"medical": 130, "novel": 120}
 
@@ -172,17 +174,11 @@ def main() -> None:
     pieces = medical_pieces(blob)
     if len(pieces) != 44 or not all(pieces):
         raise SystemExit(f"expected 44 non-empty extracts, got {len(pieces)}")
-    lite_segment = blob[:LITE_MEDICAL_END]
-    if lite_segment != "\n".join(pieces[:LITE_MEDICAL_PIECES]) + "\n":
-        raise SystemExit("the lite segment is not the first three extracts")
-
     medical_by_id = {r["id"]: r for r in medical_rows}
-    novel_by_id = {r["id"]: r for r in novel_rows if r["source"] == LITE_NOVEL}
     lite_medical = [medical_by_id[i] for i in LITE_MEDICAL_IDS]
-    lite_novel = [novel_by_id[i] for i in LITE_NOVEL_IDS]
     novel_pool = [r for r in novel_rows if r["source"] in FULL_NOVELS]
-    full_medical = _sample(medical_rows, FULL_COUNTS["medical"], LITE_MEDICAL_IDS)
-    full_novel = _sample(novel_pool, FULL_COUNTS["novel"], LITE_NOVEL_IDS)
+    full_medical = _sample(medical_rows, FULL_COUNTS["medical"], FORCED_MEDICAL_IDS)
+    full_novel = _sample(novel_pool, FULL_COUNTS["novel"], FORCED_NOVEL_IDS)
 
     encoder = tiktoken.get_encoding("cl100k_base")
     tokens = {n: len(encoder.encode(novels[n], disallowed_special=())) for n in novels}
@@ -190,16 +186,8 @@ def main() -> None:
         "repo": REPO,
         "revision": REVISION,
         "files": FILE_SHA256,
-        "medical_lite_segment": {
-            "start": 0,
-            "end": LITE_MEDICAL_END,
-            "sha256": text_sha256(lite_segment),
-        },
     }
-    lite_corpora = [
-        _novel_corpus(LITE_NOVEL, novels[LITE_NOVEL], tokens[LITE_NOVEL]),
-        _medical_corpus("lite", pieces[:LITE_MEDICAL_PIECES], encoder),
-    ]
+    lite_corpora = [_medical_corpus("lite", pieces[:LITE_MEDICAL_PIECES], encoder)]
     full_corpora = [
         _medical_corpus("full", pieces, encoder),
         *(_novel_corpus(n, novels[n], tokens[n]) for n in FULL_NOVELS),
@@ -210,8 +198,7 @@ def main() -> None:
     plans: dict[Mode, tuple[list[Corpus], list[BenchmarkQuestion]]] = {
         "lite": (
             lite_corpora,
-            [_question(r, "novel", "novel-25646") for r in lite_novel]
-            + [_question(r, "medical", "medical-lite") for r in lite_medical],
+            [_question(r, "medical", "medical-lite") for r in lite_medical],
         ),
         "full": (
             full_corpora,

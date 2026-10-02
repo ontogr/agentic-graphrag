@@ -13,8 +13,8 @@
 # | fake                   | local checks of the harness, no real dataset | 7700      |
 # | legal-lite             | LegalBench-RAG mini, lite                    | 7701      |
 # | legal-full             | LegalBench-RAG mini, full                    | 7702      |
-# | graphrag-novel-25646   | GraphRAG-Bench Novel-25646, lite and full    | 7703      |
-# | graphrag-medical-lite  | GraphRAG-Bench Medical, first 3 extracts     | 7704      |
+# | graphrag-novel-25646   | GraphRAG-Bench Novel-25646, full             | 7703      |
+# | graphrag-medical-lite  | GraphRAG-Bench Medical, first extract        | 7704      |
 # | graphrag-medical-full  | GraphRAG-Bench Medical, all 44 extracts      | 7705      |
 # | graphrag-novel-8559    | GraphRAG-Bench Novel-8559, full              | 7706      |
 # | graphrag-novel-41603   | GraphRAG-Bench Novel-41603, full             | 7707      |

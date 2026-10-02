@@ -88,6 +88,19 @@ RUN_LIMITS: dict[tuple[str, str], RunLimits] = {
             judge_tokens_per_call=1_300,
         ),
     ),
+    # Not measured yet: the figures are those of the Financial lite run.
+    ("graphrag_general", "lite"): RunLimits(
+        max_llm_pairs=10,
+        recursion_limit=30,
+        max_research_attempts=1,
+        cost=CostModel(
+            calls_per_chunk=15,
+            tokens_per_chunk=150_000,
+            agent_calls_per_question=39,
+            agent_tokens_per_question=172_000,
+            judge_tokens_per_call=1_300,
+        ),
+    ),
 }
 
 SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
@@ -95,7 +108,7 @@ SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
     ("legal", "full"): SpendCap(llm_calls=12_100, tokens=81_000_000),
     ("financial", "lite"): SpendCap(llm_calls=130, tokens=800_000),
     ("financial", "full"): SpendCap(llm_calls=16_000, tokens=170_000_000),
-    ("graphrag_general", "lite"): SpendCap(llm_calls=1_550, tokens=11_000_000),
+    ("graphrag_general", "lite"): SpendCap(llm_calls=130, tokens=800_000),
     ("graphrag_general", "full"): SpendCap(llm_calls=31_500, tokens=179_000_000),
 }
 
