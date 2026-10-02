@@ -38,18 +38,41 @@ _REFERENCE = re.compile(
 
 
 def passage_reference(source: str, file: str, row: int) -> str:
-    """Return the address of one passage: repo, revision, file and row."""
+    """Return the address of one passage: repo, revision, file and row.
+
+    Args:
+        source: The name of a source in ``SOURCES``.
+        file: The file of the source that holds the passage.
+        row: The zero-based row of the passage in the file.
+
+    Returns:
+        An ``hf://datasets/<repo>@<revision>/<file>#<row>`` reference.
+    """
     pin = SOURCES[source]
     return f"hf://datasets/{pin['repo']}@{pin['revision']}/{file}#{row}"
 
 
 def passage_sha256(contents: str) -> str:
-    """Return the SHA-256 of a passage text as UTF-8."""
+    """Return the SHA-256 of a passage text as UTF-8.
+
+    Args:
+        contents: The passage text.
+
+    Returns:
+        The hash as a lowercase hexadecimal string.
+    """
     return hashlib.sha256(contents.encode("utf-8")).hexdigest()
 
 
 def fetch_source_file(source: str, file: str) -> Path:
     """Fetch one file of a source at its pinned revision and check its hash.
+
+    Args:
+        source: The name of a source in ``SOURCES``.
+        file: The file to fetch, as listed for the source.
+
+    Returns:
+        The path of the file in the local cache.
 
     Raises:
         HashMismatchError: The fetched file differs from its pinned hash.
@@ -65,6 +88,12 @@ def iter_rows(path: Path) -> Iterator[tuple[int, str, str]]:
 
     Reads a Parquet file in batches, so the whole file is never in memory. A JSONL
     file is read as bytes, so only a line feed ends a row.
+
+    Args:
+        path: A Parquet or JSONL file of a MedCorp source.
+
+    Yields:
+        The zero-based row, the passage id and the passage text.
     """
     if path.suffix == ".parquet":
         row = 0
@@ -87,7 +116,14 @@ class HealthcareAdapter(DatasetAdapter):
     """The lite and full selections of HealthBench Hard."""
 
     def load(self, mode: Mode) -> CorpusManifest:
-        """Return the manifest of one mode from its fixture."""
+        """Return the manifest of one mode from its fixture.
+
+        Args:
+            mode: The mode to load, ``lite`` or ``full``.
+
+        Returns:
+            The questions, rubrics and passage references of the mode.
+        """
         text = (FIXTURE_DIR / f"{mode}.json").read_text(encoding="utf-8")
         return CorpusManifest.model_validate_json(text)
 
@@ -96,6 +132,12 @@ class HealthcareAdapter(DatasetAdapter):
 
         The text is the ``contents`` field of the source row, which is the title,
         a period and a space, and the passage. It is used as it is.
+
+        Args:
+            corpus: The corpus whose passages to fetch.
+
+        Returns:
+            One document for each passage of the corpus, in corpus order.
 
         Raises:
             HashMismatchError: A file or a passage differs from its pinned hash.
@@ -133,7 +175,14 @@ class HealthcareAdapter(DatasetAdapter):
         ]
 
     def schema(self, corpus: Corpus) -> GraphSchema:
-        """Return the healthcare schema."""
+        """Return the healthcare schema.
+
+        Args:
+            corpus: The corpus. The schema does not depend on it.
+
+        Returns:
+            The graph schema for healthcare.
+        """
         return HEALTHCARE
 
 

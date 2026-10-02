@@ -14,7 +14,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from agrag.common.data_models.graph_schema import GraphSchema
-from benchmarks.datasets import healthcare
+from benchmarks.datasets import healthcare, healthcare_index
 from benchmarks.datasets.fetch import HashMismatchError
 from benchmarks.datasets.healthcare import (
     SOURCES,
@@ -24,6 +24,7 @@ from benchmarks.datasets.healthcare import (
     passage_sha256,
 )
 from benchmarks.datasets.healthcare_index import (
+    build_index,
     check_manifest,
     closure,
     fts_query,
@@ -342,6 +343,64 @@ class TestSearch:
             "1 passages are missing",
             "1 passages are not in any closure",
         ]
+
+
+class TestBuildIndex:
+    """Building the text-search index and resuming an interrupted build."""
+
+    ROWS = {
+        "textbooks": [("t1", "pain"), ("t2", "cough"), ("t3", "fever")],
+        "statpearls": [("s1", "asthma"), ("s2", "stone")],
+    }
+
+    def _patch_sources(self, monkeypatch, fail_after: int | None = None):
+        reads = {"textbooks": 0}
+
+        def rows(path):
+            source = Path(path).name
+            for row, (passage_id, contents) in enumerate(self.ROWS[source]):
+                if source == "textbooks" and fail_after is not None:
+                    reads["textbooks"] += 1
+                    if reads["textbooks"] > fail_after:
+                        raise OSError("interrupted")
+                yield row, passage_id, contents
+
+        monkeypatch.setattr(
+            healthcare_index,
+            "SOURCES",
+            {name: {"files": {name: "0"}} for name in self.ROWS},
+        )
+        monkeypatch.setattr(
+            healthcare_index, "fetch_source_file", lambda source, file: Path(source)
+        )
+        monkeypatch.setattr(healthcare_index, "iter_rows", rows)
+        monkeypatch.setattr(healthcare_index, "BATCH", 2)
+
+    def test_a_build_after_an_interruption_reads_the_source_again(
+        self, tmp_path, monkeypatch
+    ):
+        """Rows that a failed run committed do not make the source complete."""
+        path = tmp_path / "index.sqlite"
+        self._patch_sources(monkeypatch, fail_after=2)
+        with pytest.raises(OSError, match="interrupted"):
+            build_index(path)
+        self._patch_sources(monkeypatch)
+
+        count = build_index(path)
+
+        db = sqlite3.connect(path)
+        ids = sorted(row[0] for row in db.execute("SELECT doc_id FROM docs"))
+        db.close()
+        assert count == 5
+        assert ids == ["s1", "s2", "t1", "t2", "t3"]
+
+    def test_a_second_build_adds_no_rows(self, tmp_path, monkeypatch):
+        """A finished index stays the same size when built again."""
+        path = tmp_path / "index.sqlite"
+        self._patch_sources(monkeypatch)
+        build_index(path)
+
+        assert build_index(path) == 5
 
 
 class TestSchema:

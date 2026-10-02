@@ -49,7 +49,14 @@ STOP = {
 
 
 def words(text: str) -> list[str]:
-    """Split a text into lowercase words, keeping digits and inner ``:./-``."""
+    """Split a text into lowercase words, keeping digits and inner ``:./-``.
+
+    Args:
+        text: The text to split.
+
+    Returns:
+        The words in the order they occur, repeats included.
+    """
     return re.findall(r"[a-z0-9][a-z0-9:./-]*[a-z0-9]|[a-z0-9]", text.lower())
 
 
@@ -59,6 +66,13 @@ def fts_query(text: str) -> str:
     The query is the first 40 distinct words of three letters or more that are
     not stop words, each in quotes, joined with ``OR``. Quotes keep punctuation
     from being a syntax error.
+
+    Args:
+        text: The text of the prompt turn.
+
+    Returns:
+        The query for the FTS5 ``MATCH`` operator, or an empty string when the text
+        has no usable word.
     """
     seen: list[str] = []
     for word in words(text):
@@ -81,7 +95,8 @@ def _passages(source: str) -> Iterable[tuple[str, str]]:
 def build_index(path: Path = INDEX_PATH) -> int:
     """Build the index of StatPearls and the textbooks, or finish a partial one.
 
-    A source that is already in the index is skipped.
+    A source is skipped only when a past run read all of its rows. The rows of a
+    source that a run left half read are removed, and the source is read again.
 
     Args:
         path: Where the SQLite file goes.
@@ -91,14 +106,17 @@ def build_index(path: Path = INDEX_PATH) -> int:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path)
+    db.execute("CREATE TABLE IF NOT EXISTS complete (source TEXT PRIMARY KEY)")
     db.execute(
         "CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5("
         "doc_id UNINDEXED, source UNINDEXED, contents, tokenize='porter unicode61')"
     )
-    done = {row[0] for row in db.execute("SELECT DISTINCT source FROM docs")}
+    done = {row[0] for row in db.execute("SELECT source FROM complete")}
     for source in ("textbooks", "statpearls"):
         if source in done:
             continue
+        db.execute("DELETE FROM docs WHERE source = ?", (source,))
+        db.commit()
         batch: list[tuple[str, str, str]] = []
         for passage_id, contents in _passages(source):
             batch.append((passage_id, source, contents))
@@ -107,6 +125,7 @@ def build_index(path: Path = INDEX_PATH) -> int:
                 db.commit()
                 batch = []
         db.executemany("INSERT INTO docs VALUES (?,?,?)", batch)
+        db.execute("INSERT INTO complete VALUES (?)", (source,))
         db.commit()
     db.execute("INSERT INTO docs(docs) VALUES ('optimize')")
     db.commit()
@@ -116,7 +135,16 @@ def build_index(path: Path = INDEX_PATH) -> int:
 
 
 def closure(db: sqlite3.Connection, turn: str, k: int) -> list[str]:
-    """Return the ids of the best ``k`` passages for a prompt turn, best first."""
+    """Return the ids of the best ``k`` passages for a prompt turn, best first.
+
+    Args:
+        db: The open index.
+        turn: The text of the prompt turn.
+        k: The most passages to return.
+
+    Returns:
+        The passage ids in rank order. The list is empty when the turn gives no query.
+    """
     query = fts_query(turn)
     if not query:
         return []
