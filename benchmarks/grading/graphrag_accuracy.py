@@ -62,9 +62,9 @@ class StatementsWithReason(BaseModel):
 class ClassificationWithReason(BaseModel):
     """The judge's split of statements into true positives, false positives, misses."""
 
-    TP: list[StatementsWithReason] = []
-    FP: list[StatementsWithReason] = []
-    FN: list[StatementsWithReason] = []
+    TP: list[StatementsWithReason]
+    FP: list[StatementsWithReason]
+    FN: list[StatementsWithReason]
 
 
 STATEMENT_GENERATOR_PROMPT = """
@@ -236,8 +236,10 @@ async def answer_accuracy(
         _statements(judge, answer), _statements(judge, reference)
     )
     failed = answer_statements is None or truth_statements is None
-    factuality = await _factuality(
-        judge, question, answer_statements or [], truth_statements or []
+    factuality = (
+        None
+        if answer_statements is None or truth_statements is None
+        else await _factuality(judge, question, answer_statements, truth_statements)
     )
     failed = failed or factuality is None
     similarity = await _similarity(embedder, answer, reference)

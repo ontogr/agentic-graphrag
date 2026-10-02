@@ -113,7 +113,7 @@ Resolution took only 3 calls, because the graph is small and few entity pairs we
 
 The agent limits of the run (`AGENT_RECURSION_LIMIT` of 30 and `AGENT_MAX_RESEARCH_ATTEMPTS` of 1) do not bound the agent calls, because the sub-agents that the planner starts make their own calls.
 
-The dry-run estimate is 56 calls and 265,000 tokens, which matches the run. The spend cap is 100 calls and 500,000 tokens. The cap checks the estimate before a run and does not stop a run in progress.
+The dry-run estimate is 56 calls and 265,000 tokens, which matches the run. The spend cap is 100 calls and 500,000 tokens. The committed record shows 130 calls and 800,000 tokens, the cap in force when the run took place. The cap checks the estimate before a run and does not stop a run in progress.
 
 The dry run for the full set estimates 20,937 calls and 119M tokens, with 258 chunks in the Medical corpus alone. Nobody has measured a run of that size. Run `make bench-dry DOMAIN=graphrag_general MODE=full` and read the estimate before you start one.
 

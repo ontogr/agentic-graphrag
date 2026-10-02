@@ -313,7 +313,7 @@ class TestAnswerAccuracy:
         """A reply inside a code fence counts as its JSON."""
         judge = _FakeJudge(
             {"ans": '```json\n["a"]\n```', "gold": '["a"]'},
-            '```json\n{"TP": [{"statement": "a", "reason": "r"}]}\n```',
+            f"```json\n{_classes(1, 0, 0)}\n```",
         )
 
         score, failed = await answer_accuracy(
@@ -326,6 +326,28 @@ class TestAnswerAccuracy:
     async def test_a_reply_that_is_not_json_scores_no_statements_and_is_flagged(self):
         """Prose in place of JSON takes the scorer's fallback and sets the flag."""
         judge = _FakeJudge({"ans": "I cannot", "gold": '["a"]'}, "not json")
+
+        score, failed = await answer_accuracy(
+            judge, _FakeEmbedder([1.0], [1.0]), "q?", "ans", "gold"
+        )
+
+        assert score == pytest.approx(0.25)
+        assert failed is True
+
+    async def test_unparsed_statements_score_factuality_zero_and_are_flagged(self):
+        """A statement reply that is not a list gets no credit for factuality."""
+        judge = _FakeJudge({"ans": "oops", "gold": "oops"}, _classes(1, 0, 0))
+
+        score, failed = await answer_accuracy(
+            judge, _FakeEmbedder([1.0], [1.0]), "q?", "ans", "gold"
+        )
+
+        assert score == pytest.approx(0.25)
+        assert failed is True
+
+    async def test_a_classification_missing_a_class_is_flagged(self):
+        """A reply that lists only TP is incomplete, not a perfect match."""
+        judge = _FakeJudge({"ans": '["a"]', "gold": '["a"]'}, '{"TP": []}')
 
         score, failed = await answer_accuracy(
             judge, _FakeEmbedder([1.0], [1.0]), "q?", "ans", "gold"
