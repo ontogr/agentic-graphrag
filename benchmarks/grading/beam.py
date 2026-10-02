@@ -29,9 +29,16 @@ class BeamGrader(Grader):
     """
 
     metrics = ("score", "score_excluding_known_bad", "event_f1", "event_tau_norm")
-    # Two rubric items on average, and about ten answer lines times the reference
-    # items for the one event-ordering question of each ability set.
-    judge_calls_per_question = 8
+
+    def __init__(self, *, full: bool = False) -> None:
+        """Set the judge calls that one question needs.
+
+        Args:
+            full: Whether the questions include event ordering. An event-ordering
+                question needs about ten answer lines times its reference items;
+                the others need one call for each rubric item, two on average.
+        """
+        self.judge_calls_per_question = 8 if full else 2
 
     async def grade(
         self, question: BenchmarkQuestion, answer: SystemAnswer, judge: ChatModelJudge

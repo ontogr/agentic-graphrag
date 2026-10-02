@@ -27,19 +27,25 @@
      "id": "conv1-s1",
      "uri": "beam/1/session-1",
      "sha256": "30cc05891e98639c297c6770e1f61fe587c8ed41797bafb658c513183e37d6d3",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=1;session=1"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=1;session=1",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv1-s2",
      "uri": "beam/1/session-2",
      "sha256": "4eb753a1067c715c538b9029866deee733f1b2c3d12d8d139496986b71cc827b",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=1;session=2"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=1;session=2",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv1-s3",
      "uri": "beam/1/session-3",
      "sha256": "abe9718d2ea934813adb6412594cb73295516a96bad48309dee0c9ef4aec8155",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=1;session=3"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=1;session=3",
+     "pages": null,
+     "messages": null
     }
    ],
    "n_tokens": 116551
@@ -53,19 +59,25 @@
      "id": "conv4-s1",
      "uri": "beam/4/session-1",
      "sha256": "4d4bf96bacd0ee5bf5e380c036be1107e82aed05c59e8cbfd2407b9f4b0ea846",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=4;session=1"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=4;session=1",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv4-s2",
      "uri": "beam/4/session-2",
      "sha256": "aabb618551f5736b20ef92bef13f2572726265e31561b899fdef08120246e411",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=4;session=2"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=4;session=2",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv4-s3",
      "uri": "beam/4/session-3",
      "sha256": "cbbb2eae46d357dcb34727afee5c367de5a95adc0534e92052296fc3737596fa",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=4;session=3"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=4;session=3",
+     "pages": null,
+     "messages": null
     }
    ],
    "n_tokens": 95361
@@ -79,31 +91,41 @@
      "id": "conv6-s1",
      "uri": "beam/6/session-1",
      "sha256": "8d5bf41b629f1da94c0935d58ccf2fb54ca3c8ae717a40fb957dcb2dcd10bfe6",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=1"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=1",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv6-s2",
      "uri": "beam/6/session-2",
      "sha256": "d27397c58f50e29f8dc9970041b3f016a5c6c843a5d2395a7984e3c26b780038",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=2"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=2",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv6-s3",
      "uri": "beam/6/session-3",
      "sha256": "bdb3c326d8b3faf76ba293dbe584fcd82ac0fc9c0c609a31b9f648af0bc13a3c",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=3"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=3",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv6-s4",
      "uri": "beam/6/session-4",
      "sha256": "b7132bf90371960ff2ca717da33556e7de9322ad3891f707d3ad4cbbaf906717",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=4"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=4",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv6-s5",
      "uri": "beam/6/session-5",
      "sha256": "91a9d93613656a7e392df6fad5a6c15b9ae156e8a05f787f3758beb0cf36f013",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=5"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=5",
+     "pages": null,
+     "messages": null
     }
    ],
    "n_tokens": 118298
@@ -117,31 +139,41 @@
      "id": "conv13-s1",
      "uri": "beam/13/session-1",
      "sha256": "a65d7d721dd164d1bbf74396d9c89d1f10cc66128255e69c78f50a90ea02ebde",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=1"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=1",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv13-s2",
      "uri": "beam/13/session-2",
      "sha256": "20f445a22dbea22849ec85611e048ce6ffe4d87876f1dbe3d57b33c4e52883f3",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=2"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=2",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv13-s3",
      "uri": "beam/13/session-3",
      "sha256": "4e6820a1e6520b526d02674f377c4cfcc70ca819cec58d9d0d3fe11064472c0a",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=3"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=3",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv13-s4",
      "uri": "beam/13/session-4",
      "sha256": "4467b6d7e9afb39ebfe4baa6f9be1d134b33d2d314e77aa3d3187c7ddcb9d975",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=4"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=4",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv13-s5",
      "uri": "beam/13/session-5",
      "sha256": "60ac340a3cbf1c894d816cb9ebafb9dfb89cc8c8eeffa746f69d72ab936d87c7",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=5"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=5",
+     "pages": null,
+     "messages": null
     }
    ],
    "n_tokens": 114744
@@ -155,31 +187,41 @@
      "id": "conv17-s1",
      "uri": "beam/17/session-1",
      "sha256": "717f1f6e18d0189ea6c5c1f32908eb8e586a479da3b590c7d09937bc6a33c331",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=1"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=1",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv17-s2",
      "uri": "beam/17/session-2",
      "sha256": "5c230b1ff871a60c099aee814e58e49350d7cd2ae32e1ba17ba19cf4c0e9caea",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=2"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=2",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv17-s3",
      "uri": "beam/17/session-3",
      "sha256": "eccd86ec30b22a23619b9d16c7d09da17ba7d7f64664522dac0f9b15efa67fdc",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=3"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=3",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv17-s4",
      "uri": "beam/17/session-4",
      "sha256": "8b12466e401a02a622b25a1e209b50ce0a9f8916b21b98a49a40e3a112be039f",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=4"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=4",
+     "pages": null,
+     "messages": null
     },
     {
      "id": "conv17-s5",
      "uri": "beam/17/session-5",
      "sha256": "6bdd7ffc4434d9648906abc676c4bd6cbfda275b7144f25323b96fe1259fcba3",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=5"
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=5",
+     "pages": null,
+     "messages": null
     }
    ],
    "n_tokens": 124033

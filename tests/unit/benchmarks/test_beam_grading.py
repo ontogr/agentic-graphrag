@@ -203,6 +203,15 @@ def _question(group: str, reference: dict) -> BenchmarkQuestion:
     )
 
 
+class TestJudgeCallEstimate:
+    """The judge calls that the dry run allows for."""
+
+    def test_full_allows_for_event_ordering_and_lite_does_not(self):
+        """Event-ordering questions need more calls, and only full has them."""
+        assert BeamGrader(full=True).judge_calls_per_question == 8
+        assert BeamGrader().judge_calls_per_question == 2
+
+
 class TestBeamGrader:
     """Grading one answer."""
 

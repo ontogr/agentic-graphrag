@@ -15,6 +15,7 @@ from benchmarks.datasets.memory import (
     RunawayMessage,
     collapse_runaway,
     probes,
+    session_document_text,
     session_text,
     text_sha256,
 )
@@ -39,15 +40,22 @@ ABILITIES = {
 class TestFixtures:
     """The committed lite and full fixtures."""
 
-    def test_lite_is_one_probe_for_each_ability_on_conversation_17(self):
-        """Lite has 10 questions, one per ability, on 5 session documents."""
+    def test_lite_is_two_probes_on_three_messages_of_conversation_17(self):
+        """Lite has an extraction and a reasoning question on two session slices."""
         manifest = MemoryAdapter().load("lite")
 
-        assert [q.group for q in manifest.questions].count("event_ordering") == 1
-        assert {q.group for q in manifest.questions} == ABILITIES
-        assert len(manifest.questions) == 10
-        assert [c.id for c in manifest.corpora] == ["conv17"]
-        assert len(manifest.corpora[0].documents) == 5
+        (corpus,) = manifest.corpora
+
+        assert {q.group for q in manifest.questions} == {
+            "information_extraction",
+            "multi_session_reasoning",
+        }
+        assert len(manifest.questions) == 2
+        assert corpus.id == "conv17"
+        assert [(d.id, d.messages) for d in corpus.documents] == [
+            ("conv17-s1", [18]),
+            ("conv17-s3", [156, 157]),
+        ]
 
     def test_full_is_twenty_probes_on_each_of_five_conversations(self):
         """Full has 100 questions, 2 per ability on each of 5 conversations."""
@@ -64,14 +72,16 @@ class TestFixtures:
             assert [q.group for q in manifest.questions].count(ability) == 10
 
     def test_lite_questions_are_a_subset_of_full_with_the_same_content(self):
-        """Every lite question is also a full question, and conv17 is shared."""
+        """Every lite question is also a full question on the same conversation."""
         full = MemoryAdapter().load("full")
         lite = MemoryAdapter().load("lite")
         by_id = {q.id: q for q in full.questions}
 
         for question in lite.questions:
             assert by_id[question.id] == question
-        assert lite.corpora[0] == next(c for c in full.corpora if c.id == "conv17")
+        full_corpus = next(c for c in full.corpora if c.id == "conv17")
+        assert lite.corpora[0].service == full_corpus.service
+        assert all(d.messages is None for d in full_corpus.documents)
 
     def test_every_question_carries_its_rubric_and_probe_hash(self):
         """The grader reads only the rubric, and the hash pins the source probe."""
@@ -137,6 +147,18 @@ class TestSessionText:
             "[msg 1 | assistant] Sure, here is a plan."
         )
 
+    def test_a_selection_keeps_the_session_date_and_only_the_chosen_messages(self):
+        """The date comes from the start of the session, not from the first choice."""
+        messages = _messages("one", "two", "three")
+
+        text = session_document_text(messages, 4, "9", [1, 2])
+
+        assert text == (
+            "Session 4, date: March-15-2024\n\n"
+            "[msg 1 | assistant] two\n\n"
+            "[msg 2 | user] three"
+        )
+
     def test_a_runaway_message_is_cut_and_marked_while_others_stay(self, monkeypatch):
         """Only the listed message is cut, and the marker counts what it removed."""
         long = "Good start.\n" + "x" * 500
@@ -195,6 +217,32 @@ class TestDocuments:
         assert documents[1].text.startswith("Session 2, date: March-15-2024")
         assert "[msg 3 | assistant] d" in documents[1].text
 
+    def test_builds_a_document_from_the_chosen_messages_of_a_session(self, monkeypatch):
+        """A document with ``messages`` holds only those messages."""
+        row = {"chat": [_messages("a", "b", "c")]}
+        slice_text = session_document_text(row["chat"][0], 1, "9", [2])
+        corpus = Corpus(
+            id="conv9",
+            service="memory-conv17",
+            schema_name=MEMORY.name,
+            documents=[
+                CorpusDocument(
+                    id="conv9-s1",
+                    uri="beam/9/session-1",
+                    sha256=text_sha256(slice_text),
+                    source="x",
+                    messages=[2],
+                )
+            ],
+        )
+        monkeypatch.setattr(memory, "load_rows", lambda columns=None: {"9": row})
+
+        (document,) = MemoryAdapter().documents(corpus)
+
+        assert document.text == slice_text
+        assert "[msg 2 | user] c" in document.text
+        assert "[msg 0" not in document.text
+
     def test_a_changed_session_fails_the_hash_check(self, monkeypatch):
         """Chat text that differs from the fixture hash raises."""
         row = {"chat": [_messages("a", "b")]}
@@ -204,6 +252,18 @@ class TestDocuments:
 
         with pytest.raises(HashMismatchError):
             MemoryAdapter().documents(corpus)
+
+
+class TestCorpusDocument:
+    """The message selection of a document."""
+
+    @pytest.mark.parametrize("messages", [[], [-1, 3]])
+    def test_an_empty_or_negative_selection_is_refused(self, messages):
+        """A selection must name at least one message, by a non-negative id."""
+        with pytest.raises(ValueError, match="messages"):
+            CorpusDocument(
+                id="a", uri="a", sha256="0" * 64, source="x", messages=messages
+            )
 
 
 class TestProbes:

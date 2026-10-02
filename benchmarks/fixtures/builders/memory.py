@@ -1,7 +1,8 @@
 """Build the BEAM fixtures from the pinned Hugging Face revision.
 
-Lite is ten probing questions, one per ability, on conversation 17. Full is all
-twenty probing questions of each of conversations 1, 4, 6, 13 and 17. Writes
+Lite is two probing questions on three messages of conversation 17, small enough
+for a run of a few minutes. Full is all twenty probing questions of each of
+conversations 1, 4, 6, 13 and 17, on whole sessions. Writes
 ``benchmarks/fixtures/memory/{lite,full}.json``.
 
 Usage:
@@ -25,7 +26,7 @@ from benchmarks.datasets.memory import (
     document_source,
     load_rows,
     probes,
-    session_text,
+    session_document_text,
     text_sha256,
 )
 from benchmarks.models import (
@@ -42,19 +43,13 @@ from benchmarks.schemas.memory import MEMORY
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "memory"
 FULL_CONVERSATIONS = ["1", "4", "6", "13", "17"]
 LITE_CONVERSATION = "17"
-# One probe per ability on conversation 17: (ability, index within the ability).
-LITE_PROBES = [
-    ("abstention", 1),
-    ("contradiction_resolution", 0),
-    ("event_ordering", 0),
-    ("information_extraction", 0),
-    ("instruction_following", 1),
-    ("knowledge_update", 0),
-    ("multi_session_reasoning", 0),
-    ("preference_following", 1),
-    ("summarization", 1),
-    ("temporal_reasoning", 0),
-]
+# The lite probes on conversation 17: (ability, index within the ability). Each
+# rests on the messages that its ``source_chat_ids`` name, and no other message of
+# the chat is needed to answer it.
+LITE_PROBES = [("information_extraction", 0), ("multi_session_reasoning", 0)]
+# The lite messages by session number: the user message that gives the days of the
+# activities of the children, and the pair that gives the scenes filmed and left.
+LITE_MESSAGES = {1: [18], 3: [156, 157]}
 # Probes whose rubric has a known defect, by (conversation, ability, index).
 KNOWN_BAD = {
     ("17", "temporal_reasoning", 1): (
@@ -68,18 +63,27 @@ KNOWN_BAD = {
 }
 
 
-def _corpus(conversation: str, row: dict[str, Any], encoder) -> Corpus:
+def _corpus(
+    conversation: str,
+    row: dict[str, Any],
+    encoder,
+    selection: dict[int, list[int]] | None = None,
+) -> Corpus:
     documents = []
     n_tokens = 0
     for number, messages in enumerate(row["chat"], start=1):
-        text = session_text(number, messages, conversation)
+        if selection is not None and number not in selection:
+            continue
+        chosen = None if selection is None else selection[number]
+        text = session_document_text(messages, number, conversation, chosen)
         n_tokens += len(encoder.encode(text, disallowed_special=()))
         documents.append(
             CorpusDocument(
                 id=f"conv{conversation}-s{number}",
                 uri=f"beam/{conversation}/session-{number}",
                 sha256=text_sha256(text),
-                source=document_source(conversation, number),
+                source=document_source(conversation, number, chosen),
+                messages=chosen,
             )
         )
     return Corpus(
@@ -117,7 +121,11 @@ def _manifest(
     questions = []
     for conversation in conversations:
         row = rows[conversation]
-        corpora.append(_corpus(conversation, row, encoder))
+        corpora.append(
+            _corpus(
+                conversation, row, encoder, LITE_MESSAGES if mode == "lite" else None
+            )
+        )
         by_ability = probes(row)
         picks = (
             LITE_PROBES

@@ -86,16 +86,28 @@ def collapse_runaway(content: str, runaway: RunawayMessage) -> str:
 
 
 def session_text(
-    number: int, messages: Sequence[dict[str, Any]], conversation: str = ""
+    number: int,
+    messages: Sequence[dict[str, Any]],
+    conversation: str = "",
+    *,
+    date: str | None = None,
 ) -> str:
     """Build the text of one session from its messages.
 
     The first line names the session and its date. Each turn follows as
     ``[msg <id> | <role>] <text>``, in chat order. A message listed in
     ``RUNAWAY_MESSAGES`` is cut. All other text is kept as it is.
+
+    Args:
+        number: The session number.
+        messages: The messages to include, in chat order.
+        conversation: The conversation id, to find runaway messages.
+        date: The date of the session. By default it is the date of the first
+            message, which is the session date only when ``messages`` starts the
+            session. Pass it for a selection of messages from the middle.
     """
     collapsed = {(r.conversation, r.message): r for r in RUNAWAY_MESSAGES}
-    lines = [f"Session {number}, date: {messages[0]['time_anchor']}"]
+    lines = [f"Session {number}, date: {date or messages[0]['time_anchor']}"]
     for message in messages:
         content = message["content"]
         runaway = collapsed.get((conversation, message["id"]))
@@ -129,12 +141,37 @@ def probes(row: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     return ast.literal_eval(row["probing_questions"])
 
 
-def document_source(conversation: str, session: int) -> str:
-    """Return where the fetch step gets one session of a conversation."""
-    return (
+def session_document_text(
+    session: Sequence[dict[str, Any]],
+    number: int,
+    conversation: str,
+    message_ids: Sequence[int] | None = None,
+) -> str:
+    """Build the text of one session, or of chosen messages of it.
+
+    Args:
+        session: All the messages of the session.
+        number: The session number.
+        conversation: The conversation id.
+        message_ids: The ids of the messages to keep, or None to keep them all.
+    """
+    if message_ids is None:
+        return session_text(number, session, conversation)
+    chosen = [m for m in session if m["id"] in message_ids]
+    return session_text(number, chosen, conversation, date=session[0]["time_anchor"])
+
+
+def document_source(
+    conversation: str, session: int, message_ids: Sequence[int] | None = None
+) -> str:
+    """Return where the fetch step gets one session, or chosen messages of it."""
+    source = (
         f"hf://datasets/{REPO}@{REVISION}/{PARQUET_FILE}"
         f"#conversation={conversation};session={session}"
     )
+    if message_ids is not None:
+        source += ";messages=" + ",".join(map(str, message_ids))
+    return source
 
 
 class MemoryAdapter(DatasetAdapter):
@@ -157,7 +194,9 @@ class MemoryAdapter(DatasetAdapter):
         documents = []
         for entry in corpus.documents:
             number = int(entry.id.rsplit("-s", 1)[1])
-            text = session_text(number, row["chat"][number - 1], conversation)
+            text = session_document_text(
+                row["chat"][number - 1], number, conversation, entry.messages
+            )
             if text_sha256(text) != entry.sha256:
                 raise HashMismatchError(f"{entry.id}: text differs from the fixture")
             documents.append(text_document(text, uri=entry.uri, title=entry.id))
@@ -168,4 +207,8 @@ class MemoryAdapter(DatasetAdapter):
         return MEMORY
 
 
-DOMAIN = Domain(adapter=MemoryAdapter(), grader=BeamGrader())
+DOMAIN = Domain(
+    adapter=MemoryAdapter(),
+    grader=BeamGrader(),
+    full_grader=BeamGrader(full=True),
+)

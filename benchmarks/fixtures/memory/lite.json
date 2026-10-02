@@ -26,96 +26,29 @@
     {
      "id": "conv17-s1",
      "uri": "beam/17/session-1",
-     "sha256": "717f1f6e18d0189ea6c5c1f32908eb8e586a479da3b590c7d09937bc6a33c331",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=1"
-    },
-    {
-     "id": "conv17-s2",
-     "uri": "beam/17/session-2",
-     "sha256": "5c230b1ff871a60c099aee814e58e49350d7cd2ae32e1ba17ba19cf4c0e9caea",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=2"
+     "sha256": "10c625cd72dbeac395549e322586f484171893cb8fb0c9230d5059f8b8ce862d",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=1;messages=18",
+     "pages": null,
+     "messages": [
+      18
+     ]
     },
     {
      "id": "conv17-s3",
      "uri": "beam/17/session-3",
-     "sha256": "eccd86ec30b22a23619b9d16c7d09da17ba7d7f64664522dac0f9b15efa67fdc",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=3"
-    },
-    {
-     "id": "conv17-s4",
-     "uri": "beam/17/session-4",
-     "sha256": "8b12466e401a02a622b25a1e209b50ce0a9f8916b21b98a49a40e3a112be039f",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=4"
-    },
-    {
-     "id": "conv17-s5",
-     "uri": "beam/17/session-5",
-     "sha256": "6bdd7ffc4434d9648906abc676c4bd6cbfda275b7144f25323b96fe1259fcba3",
-     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=5"
+     "sha256": "b8cbec74f15ed3c257798e759e467831e02c96111254a60cd1bf9caeb33a897f",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=3;messages=156,157",
+     "pages": null,
+     "messages": [
+      156,
+      157
+     ]
     }
    ],
-   "n_tokens": 124033
+   "n_tokens": 1279
   }
  ],
  "questions": [
-  {
-   "id": "conv17:abstention:1",
-   "corpus_id": "conv17",
-   "messages": [
-    {
-     "role": "user",
-     "content": "What was the atmosphere like at the dinner celebrating the casting completion on April 20?"
-    }
-   ],
-   "group": "abstention",
-   "reference": {
-    "rubric": [
-     "Based on the provided chat, there is no information related to the atmosphere of the April 20 dinner"
-    ],
-    "probe_sha256": "e15b8dfb91351baa84d1862ba879b9601087ebdfcb6fd10c89d960c6c654de0f"
-   }
-  },
-  {
-   "id": "conv17:contradiction_resolution:0",
-   "corpus_id": "conv17",
-   "messages": [
-    {
-     "role": "user",
-     "content": "Have I ever declined meetings to protect my writing time?"
-    }
-   ],
-   "group": "contradiction_resolution",
-   "reference": {
-    "rubric": [
-     "LLM response should state: there is contradictory information",
-     "LLM response should mention: You said you declined a meeting to protect your writing time",
-     "LLM response should mention: you also mentioned that you've never declined any meetings",
-     "LLM response should mention: which statement is correct?"
-    ],
-    "probe_sha256": "1f4d86278ebfad4c4f9d0551d3c4730746a1b05805035f767f8c0a21307c5c5d"
-   }
-  },
-  {
-   "id": "conv17:event_ordering:0",
-   "corpus_id": "conv17",
-   "messages": [
-    {
-     "role": "user",
-     "content": "Can you list the order in which I brought up different strategies and support options for managing my workload throughout our conversations in order? Mention ONLY and ONLY five items."
-    }
-   ],
-   "group": "event_ordering",
-   "reference": {
-    "rubric": [
-     "Mentor advice on schedule management",
-     "Task organization tools inspired by mentor",
-     "Hiring agency for delegation",
-     "Considering part-time assistant",
-     "Review meeting with mentor on engagement"
-    ],
-    "probe_sha256": "42a9db51c5935985ce542fa9de8e6405ed0690406b6f17ae3e367c6cceeef973"
-   }
-  },
   {
    "id": "conv17:information_extraction:0",
    "corpus_id": "conv17",
@@ -134,40 +67,6 @@
    }
   },
   {
-   "id": "conv17:instruction_following:1",
-   "corpus_id": "conv17",
-   "messages": [
-    {
-     "role": "user",
-     "content": "When was my meetings at East Janethaven Library?"
-    }
-   ],
-   "group": "instruction_following",
-   "reference": {
-    "rubric": [
-     "LLM response should contain: date shown as MM/DD/YYYY"
-    ],
-    "probe_sha256": "959b92e612b41e84e2fe23cd0747a32c746723e0632961494becf8acca646f94"
-   }
-  },
-  {
-   "id": "conv17:knowledge_update:0",
-   "corpus_id": "conv17",
-   "messages": [
-    {
-     "role": "user",
-     "content": "What is the total budget allocated for post-production software licenses including any additional plugins?"
-    }
-   ],
-   "group": "knowledge_update",
-   "reference": {
-    "rubric": [
-     "LLM response should state: $6,200"
-    ],
-    "probe_sha256": "14944bd83ffd71571f69b229b60183317e02952551a57f958b13179e8455dc56"
-   }
-  },
-  {
    "id": "conv17:multi_session_reasoning:0",
    "corpus_id": "conv17",
    "messages": [
@@ -183,63 +82,6 @@
      "LLM response should state: had 4 scenes left to film"
     ],
     "probe_sha256": "29ddcfc1d42a60e76ad8e32c62fc08f69f7d2b7fd1fd48c60556fb28a91a394b"
-   }
-  },
-  {
-   "id": "conv17:preference_following:1",
-   "corpus_id": "conv17",
-   "messages": [
-    {
-     "role": "user",
-     "content": "Can you help me organize my tasks so I can easily update and share them with others?"
-    }
-   ],
-   "group": "preference_following",
-   "reference": {
-    "rubric": [
-     "LLM response should contain: recommends digital platforms for task management",
-     "LLM response should contain: mentions features like real-time updates or collaboration"
-    ],
-    "probe_sha256": "50ec43ec76bb79d66b8c9bdf41934153ae72e06586a6522a0fe59fdd80da3660"
-   }
-  },
-  {
-   "id": "conv17:summarization:1",
-   "corpus_id": "conv17",
-   "messages": [
-    {
-     "role": "user",
-     "content": "Can you give me a summary of how my pilot episode project timeline and tasks have developed and changed throughout our conversations?"
-    }
-   ],
-   "group": "summarization",
-   "reference": {
-    "rubric": [
-     "LLM response should contain: a detailed plan was established to meet the June 30, 2024 deadline within a $120,000 budget, outlining pre-production, production, and post-production phases with specific milestones",
-     "LLM response should contain: the schedule was adjusted to focus on completing the script by the end of April, with location scouting postponed to early May",
-     "LLM response should contain: due to casting delays communicated on April 28, the delivery date was pushed back to July 15, prompting a reassessment of the timeline",
-     "LLM response should contain: By early July, with 75% of the pilot complete and post-production underway, a detailed daily plan was created to film remaining scenes",
-     "LLM response should contain: as the project progressed into later stages, further prioritization was needed to manage editing and color grading tasks"
-    ],
-    "probe_sha256": "dfca0197cf5e903303df7fcbeff3d6e227de5f2308666a16a22cbc833ba96991"
-   }
-  },
-  {
-   "id": "conv17:temporal_reasoning:0",
-   "corpus_id": "conv17",
-   "messages": [
-    {
-     "role": "user",
-     "content": "How many days passed between when I had the 3 PM meeting I wanted to protect my writing block from and when I rescheduled the client meeting from 11 AM to 4 PM?"
-    }
-   ],
-   "group": "temporal_reasoning",
-   "reference": {
-    "rubric": [
-     "LLM response should state: 15 days",
-     "LLM response should state: from March 14 till March 29"
-    ],
-    "probe_sha256": "01961147c7ef9dfba2434658fe1c2ee8d830842869afe514940ab9206d6435dd"
    }
   }
  ]
