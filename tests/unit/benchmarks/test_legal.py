@@ -38,14 +38,16 @@ class TestFixtures:
         assert len(manifest.corpora[0].documents) == 15
         assert manifest.corpora[0].n_tokens == 223_766
 
-    def test_lite_is_ten_questions_on_three_documents_without_maud(self):
-        """Lite has 10 questions on 3 documents and no MAUD question."""
+    def test_lite_is_two_questions_on_one_short_privacy_policy(self):
+        """Lite has a one-span and a two-span question on one policy."""
         manifest = LegalAdapter().load("lite")
 
-        assert len(manifest.questions) == 10
-        assert len(manifest.corpora[0].documents) == 3
-        assert manifest.corpora[0].n_tokens == 18_638
-        assert "maud" not in {q.group for q in manifest.questions}
+        (document,) = manifest.corpora[0].documents
+        spans = [len(q.reference["snippets"]) for q in manifest.questions]
+
+        assert document.uri == "privacy_qa/Keep.txt"
+        assert manifest.corpora[0].n_tokens == 2_024
+        assert spans == [1, 2]
 
     def test_lite_questions_are_a_subset_of_full(self):
         """Every lite question is also a full question, with the same content."""

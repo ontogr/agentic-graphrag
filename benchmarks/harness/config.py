@@ -117,10 +117,23 @@ RUN_LIMITS: dict[tuple[str, str], RunLimits] = {
             judge_tokens_per_call=1_000,
         ),
     ),
+    # Not measured yet: the figures are those of the GraphRAG lite run.
+    ("legal", "lite"): RunLimits(
+        max_llm_pairs=10,
+        recursion_limit=30,
+        max_research_attempts=1,
+        cost=CostModel(
+            calls_per_chunk=3,
+            tokens_per_chunk=25_000,
+            agent_calls_per_question=21,
+            agent_tokens_per_question=106_000,
+            judge_tokens_per_call=400,
+        ),
+    ),
 }
 
 SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
-    ("legal", "lite"): SpendCap(llm_calls=1_200, tokens=7_500_000),
+    ("legal", "lite"): SpendCap(llm_calls=100, tokens=500_000),
     ("legal", "full"): SpendCap(llm_calls=12_100, tokens=81_000_000),
     ("financial", "lite"): SpendCap(llm_calls=130, tokens=800_000),
     ("financial", "full"): SpendCap(llm_calls=16_000, tokens=170_000_000),
