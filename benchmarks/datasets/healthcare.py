@@ -25,6 +25,8 @@ from benchmarks.schemas.healthcare import HEALTHCARE
 
 
 DATASET_NAME = "healthbench-hard"
+# The rubric items of the one lite question, which is one judge call each.
+LITE_RUBRIC_ITEMS = 3
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "healthcare"
 # The pinned repos, revisions, files and file hashes of the three source datasets.
 SOURCES: dict[str, dict] = json.loads(
@@ -135,4 +137,8 @@ class HealthcareAdapter(DatasetAdapter):
         return HEALTHCARE
 
 
-DOMAIN = Domain(adapter=HealthcareAdapter(), grader=HealthBenchGrader())
+DOMAIN = Domain(
+    adapter=HealthcareAdapter(),
+    grader=HealthBenchGrader(judge_calls_per_question=LITE_RUBRIC_ITEMS),
+    full_grader=HealthBenchGrader(),
+)

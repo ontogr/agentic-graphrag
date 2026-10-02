@@ -25,8 +25,9 @@ INDEX_PATH = CACHE_DIR / "healthcare" / "medcorp-fts.sqlite"
 EXPECTED_ROWS = 470_823
 MAX_QUERY_TERMS = 40
 BATCH = 5000
-# The number of passages kept for each prompt in each mode.
-CLOSURE_K: dict[Mode, int] = {"lite": 16, "full": 32}
+# The number of passages kept for each prompt. Lite names its few passages by id,
+# and each must be among the passages that full keeps for its question.
+CLOSURE_K: dict[Mode, int] = {"full": 32}
 # fmt: off
 STOP = {
     "a", "about", "above", "after", "again", "all", "also", "am", "an", "and",
@@ -126,7 +127,7 @@ def closure(db: sqlite3.Connection, turn: str, k: int) -> list[str]:
 
 
 def check_manifest(
-    db: sqlite3.Connection, manifest: CorpusManifest, k: int
+    db: sqlite3.Connection, manifest: CorpusManifest, k: int, *, subset: bool = False
 ) -> Sequence[str]:
     """Return what differs between a manifest's corpus and the search rule.
 
@@ -134,17 +135,19 @@ def check_manifest(
         db: The open index.
         manifest: A healthcare manifest.
         k: The number of passages kept for each question.
+        subset: Whether the corpus may hold fewer passages than the union.
 
     Returns:
         A message for each difference. The list is empty when the corpus is the
-        union of the best ``k`` passages of every question.
+        union of the best ``k`` passages of every question, or, with ``subset``,
+        a part of that union.
     """
     expected: set[str] = set()
     for question in manifest.questions:
         expected.update(closure(db, question.query, k))
     actual = {document.id for document in manifest.corpora[0].documents}
     problems = []
-    if expected - actual:
+    if expected - actual and not subset:
         problems.append(f"{len(expected - actual)} passages are missing")
     if actual - expected:
         problems.append(f"{len(actual - expected)} passages are not in any closure")
@@ -154,8 +157,9 @@ def check_manifest(
 def check_index(path: Path = INDEX_PATH) -> tuple[int, list[str]]:
     """Check an index against the committed fixtures.
 
-    The index must hold every passage of the pinned sources. The corpus of each
-    fixture must be the union of the best passages for its questions.
+    The index must hold every passage of the pinned sources. The full corpus must be
+    the union of the best passages for its questions, and the lite corpus must be a
+    part of the union for its questions.
 
     Returns:
         The number of passages in the index, and a message for each difference.
@@ -165,8 +169,10 @@ def check_index(path: Path = INDEX_PATH) -> tuple[int, list[str]]:
     problems = []
     if rows != EXPECTED_ROWS:
         problems.append(f"the index has {rows} passages, not {EXPECTED_ROWS}")
-    for mode, k in CLOSURE_K.items():
+    k = CLOSURE_K["full"]
+    for mode in ("lite", "full"):
         manifest = HealthcareAdapter().load(mode)
-        problems += [f"{mode}: {p}" for p in check_manifest(db, manifest, k)]
+        found = check_manifest(db, manifest, k, subset=mode == "lite")
+        problems += [f"{mode}: {p}" for p in found]
     db.close()
     return rows, problems

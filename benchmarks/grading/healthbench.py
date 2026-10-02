@@ -166,8 +166,15 @@ class HealthBenchGrader(Grader):
     """
 
     metrics = ("score",)
-    # The selected questions have 11 to 12 rubric items on average.
-    judge_calls_per_question = 11
+
+    def __init__(self, judge_calls_per_question: int = 11) -> None:
+        """Set the judge calls that one question needs.
+
+        Args:
+            judge_calls_per_question: The rubric items of a question. The default
+                is the mean of the full set, which is 11 to 12 items.
+        """
+        self.judge_calls_per_question = judge_calls_per_question
 
     async def grade(
         self, question: BenchmarkQuestion, answer: SystemAnswer, judge: ChatModelJudge

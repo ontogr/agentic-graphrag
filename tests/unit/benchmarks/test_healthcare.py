@@ -68,12 +68,25 @@ class TestFixtures:
         assert len(manifest.questions) == 150
         assert themes == THEMES
 
-    def test_lite_has_ten_questions_and_a_small_corpus(self):
-        """Lite has 10 questions and a corpus of 159 passages."""
+    def test_lite_has_one_question_and_three_passages(self):
+        """Lite has one question and the three passages that state its facts."""
         manifest = HealthcareAdapter().load("lite")
 
-        assert len(manifest.questions) == 10
-        assert len(manifest.corpora[0].documents) == 159
+        assert len(manifest.questions) == 1
+        assert [d.id for d in manifest.corpora[0].documents] == [
+            "article-30719_98",
+            "article-30719_101",
+            "article-30720_46",
+        ]
+
+    def test_the_lite_judge_estimate_is_the_rubric_items_of_the_question(self):
+        """Lite costs one judge call for each rubric item of its question."""
+        (question,) = HealthcareAdapter().load("lite").questions
+
+        grader = healthcare.DOMAIN.grader_for("lite")
+
+        assert grader.judge_calls_per_question == len(question.reference["rubrics"])
+        assert healthcare.DOMAIN.grader_for("full").judge_calls_per_question == 11
 
     def test_full_closure_has_4477_passages(self):
         """Full keeps the 4,477 passages that its questions find."""
@@ -139,7 +152,7 @@ class TestFixtures:
 
         assert upstream["sources"] == SOURCES
         assert all(len(pin["revision"]) == 40 for pin in SOURCES.values())
-        assert upstream["closure_passages_per_question"] == {"lite": 16, "full": 32}
+        assert upstream["closure_passages_per_question"] == {"full": 32}
 
 
 def _textbook(tmp_path: Path, rows: list[dict]) -> Path:
@@ -319,6 +332,10 @@ class TestSearch:
             )
 
         assert check_manifest(db, manifest(["a", "b"]), 5) == []
+        assert check_manifest(db, manifest(["a"]), 5, subset=True) == []
+        assert check_manifest(db, manifest(["a", "z"]), 5, subset=True) == [
+            "1 passages are not in any closure"
+        ]
         assert check_manifest(db, manifest(["a", "z"]), 5) == [
             "1 passages are missing",
             "1 passages are not in any closure",

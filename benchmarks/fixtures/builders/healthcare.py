@@ -1,10 +1,11 @@
 """Build the Healthcare fixtures from the pinned HealthBench and MedCorp sources.
 
-The questions are a fixed selection of HealthBench Hard prompts. The corpus of
-each mode is the union of the best passages that the search rule finds for the last
-user turn of each question: 16 passages for lite and 32 for full. The search runs
-over the index that ``python -m benchmarks healthcare build-index`` makes. The
-script writes ``benchmarks/fixtures/healthcare/{lite,full}.json``.
+The questions are a fixed selection of HealthBench Hard prompts. The full corpus is
+the union of the best 32 passages that the search rule finds for the last user turn
+of each question. The lite set is one question and three passages that the full
+corpus holds for it, so a lite run takes a few minutes. The search runs over the
+index that ``python -m benchmarks healthcare build-index`` makes. The script writes
+``benchmarks/fixtures/healthcare/{lite,full}.json``.
 
 Usage:
     uv run python -m benchmarks healthcare build-index
@@ -52,18 +53,11 @@ THEME_COUNTS = {
     "complex_responses": 12,
     "emergency_referrals": 10,
 }
-LITE = [
-    "a179a30f-398e-4af3-adca-ceab830f8f14",
-    "c45130e5-d0a9-4eb0-90ac-d4d8b56ac94f",
-    "7bf7df45-5f64-40c7-8528-f35061257fd0",
-    "9bd72186-1665-4639-9346-26279cbd6d28",
-    "6c2af010-b144-49a3-9872-6cefd534beb9",
-    "419c6ff1-a7a0-4d1c-9594-92c0e1b84264",
-    "c33322cc-49a2-47f9-a541-a4dc5505c5f7",
-    "b6a74ec0-2607-448e-982c-3d5ef01fcc0a",
-    "a1fa2e61-0185-42fb-849e-62129bf598d9",
-    "478c07bf-4c15-4639-96b8-46bc8508d073",
-]
+# The lite question asks about a typhoid vaccine before travel to India. Its rubric
+# has three items, so grading costs three judge calls. The three passages state the
+# unconjugated vaccines, the conjugate vaccines, and the food and water measures.
+LITE = ["9bd72186-1665-4639-9346-26279cbd6d28"]
+LITE_PASSAGES = ["article-30719_98", "article-30719_101", "article-30720_46"]
 
 FULL = [
     "a179a30f-398e-4af3-adca-ceab830f8f14",
@@ -282,7 +276,11 @@ def main() -> None:
         questions = [_question(rows[i], mode) for i in ids]
         wanted: set[str] = set()
         for question in questions:
-            wanted.update(closure(db, question.query, CLOSURE_K[mode]))
+            wanted.update(closure(db, question.query, CLOSURE_K["full"]))
+        if mode == "lite":
+            if not set(LITE_PASSAGES) <= wanted:
+                raise SystemExit("a lite passage is not in the closure of its question")
+            wanted = set(LITE_PASSAGES)
         found = _passages(wanted)
         ordered = sorted(found.items(), key=lambda kv: kv[1][:3])
         documents = [
