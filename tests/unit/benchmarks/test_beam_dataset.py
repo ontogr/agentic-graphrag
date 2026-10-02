@@ -217,6 +217,23 @@ class TestDocuments:
         assert documents[1].text.startswith("Session 2, date: March-15-2024")
         assert "[msg 3 | assistant] d" in documents[1].text
 
+    def test_reads_the_chat_file_once_for_all_corpora(self, monkeypatch):
+        """A second call on one adapter reuses the rows of the first."""
+        row = {"chat": [_messages("a", "b")]}
+        reads = []
+
+        def fake_load_rows(columns=None):
+            reads.append(columns)
+            return {"9": row}
+
+        monkeypatch.setattr(memory, "load_rows", fake_load_rows)
+        adapter = MemoryAdapter()
+
+        adapter.documents(self._corpus(row))
+        adapter.documents(self._corpus(row))
+
+        assert len(reads) == 1
+
     def test_builds_a_document_from_the_chosen_messages_of_a_session(self, monkeypatch):
         """A document with ``messages`` holds only those messages."""
         row = {"chat": [_messages("a", "b", "c")]}

@@ -68,7 +68,7 @@ The scorer is ported from the benchmark, with its prompts kept. The judge is the
 
 The benchmark reports only the rank correlation for event ordering. Its `score` is stricter, so do not compare it with a published event ordering number.
 
-Lite mode makes about 2 judge calls for each question, because it has no event-ordering question. Full mode allows for 8, because an event-ordering question compares each answer line with each rubric item.
+Lite mode makes about 2 judge calls for each question, because it has no event-ordering question. Full mode allows for 12 on average, because an event-ordering question compares each answer line with each unused rubric item. It can need about 90 calls.
 
 The judge is the same model as the agent by default, so the scores are biased upward. See [Benchmarks](./index.mdx#who-grades-the-answers).
 
@@ -107,7 +107,7 @@ The run took 153 seconds. The agent made 6 and 7 calls for the two questions. `m
 
 These figures are floors. The cost of a larger slice grows faster than its size, because resolution compares every new entity with the whole graph. The spend cap of the lite set is 40 calls and 120,000 tokens, and the dry-run estimate is 24 calls and 78,000 tokens. The cap checks the estimate before a run and does not stop a run in progress.
 
-A run of the old lite set (all 5 sessions of conversation 17, 10 questions) made 1,018 calls and used 13.3M tokens in 115 minutes. The full set has not been run. Run `make bench-dry DOMAIN=memory MODE=full` and read the estimate before you start one.
+A run of the old lite set (all 5 sessions of conversation 17, 10 questions) made 1,018 calls and used 13.3M tokens in 115 minutes. The full set has not been run. The dry-run estimate of the full set is 11,323 calls and 89 million tokens, and its spend cap is 17,000 calls and 133.9 million tokens. The estimate is linear in the chunk count, so a real run can cost more. Run `make bench-dry DOMAIN=memory MODE=full` and read the estimate before you start one.
 
 ## Terms of use
 

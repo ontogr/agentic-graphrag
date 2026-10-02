@@ -46,6 +46,7 @@ import asyncio
 import json
 import math
 import re
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -133,6 +134,9 @@ EQUIVALENCE_INSTRUCTION = """
         """  # noqa: W291
 
 
+RUBRIC_SCORES = (0.0, 0.5, 1.0)
+
+
 class JudgeReplyError(ValueError):
     """A judge reply holds no JSON object with a numeric score."""
 
@@ -164,7 +168,7 @@ def parse_json_response(response: str) -> object:
 async def rubric_item_score(
     judge: ChatModelJudge, item: str, response: str
 ) -> float | None:
-    """Score one rubric item from 0 to 1, or return None when the reply is bad."""
+    """Score one rubric item as 0, 0.5 or 1, or return None when the reply is bad."""
     prompt = unified_llm_judge_base_prompt.replace("<rubric_item>", item).replace(
         "<llm_response>", response
     )
@@ -173,9 +177,10 @@ async def rubric_item_score(
         parsed = parse_json_response(reply)
         if not isinstance(parsed, dict):
             return None
-        return float(parsed["score"])
+        score = float(parsed["score"])
     except (JudgeReplyError, KeyError, TypeError, ValueError):
         return None
+    return score if score in RUBRIC_SCORES else None
 
 
 async def rubric_score(
@@ -200,7 +205,7 @@ async def llm_equivalence(judge: ChatModelJudge, first: str, second: str) -> boo
         f"{EQUIVALENCE_INSTRUCTION}\nFirst snippet: {first} \n\n"
         f"                       Second snippet: {second}\n"
     )
-    return "yes" in reply.lower()
+    return re.fullmatch(r"\W*yes\W*", reply, re.IGNORECASE) is not None
 
 
 async def align_with_llm(
@@ -258,9 +263,9 @@ def ordering_score(
     """
     reference = list(reference)
     system = list(aligned_system)
-    tp = len(set(reference) & set(system))
-    fp = len([x for x in system if x not in reference])
-    fn = len([x for x in reference if x not in system])
+    tp = sum((Counter(reference) & Counter(system)).values())
+    fp = len(system) - tp
+    fn = len(reference) - tp
     precision = tp / (tp + fp) if tp + fp else 0
     recall = tp / (tp + fn) if tp + fn else 0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0

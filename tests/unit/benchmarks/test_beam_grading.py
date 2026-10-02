@@ -110,6 +110,19 @@ class TestRubricScore:
         assert score == pytest.approx(0.5)
         assert failed is True
 
+    @pytest.mark.parametrize(
+        "reply",
+        ['{"score": 2}', '{"score": -1}', '{"score": 0.3}', '{"score": NaN}'],
+    )
+    async def test_a_score_outside_the_scale_counts_as_a_bad_reply(self, reply):
+        """Only 0, 0.5 and 1 are scores; any other value is flagged and scores 0."""
+        judge = _Judge({"item one": reply})
+
+        score, failed = await rubric_score(judge, ["item one"], "a")  # type: ignore[arg-type]
+
+        assert score == 0.0
+        assert failed is True
+
 
 class TestOrderingScore:
     """The event-ordering formula on hand-worked cases."""
@@ -143,6 +156,13 @@ class TestOrderingScore:
         assert score.tau_norm == 0.0
         assert score.final_score == 0.0
 
+    def test_a_repeated_line_counts_as_a_false_positive(self):
+        """Two copies of one item match it once; the second copy is extra."""
+        score = ordering_score(["A", "B"], ["A", "A", "B"])
+
+        assert score.precision == pytest.approx(2 / 3)
+        assert score.recall == 1.0
+
     def test_nothing_matched_scores_zero(self):
         """No shared line gives F1 0."""
         assert ordering_score(["A", "B"], ["X", "Y"]).final_score == 0.0
@@ -165,6 +185,28 @@ class TestAlignment:
         assert ("park trip", "") not in judge.asked
         assert ("lunch", "") not in judge.asked
         assert ("lunch", "drank tea") in judge.asked
+
+    @pytest.mark.parametrize(
+        ("reply", "matched"),
+        [
+            ("YES", True),
+            (" yes. ", True),
+            ("**YES**", True),
+            ("NO", False),
+            ("yesterday", False),
+            ("Yes, they match", False),
+        ],
+    )
+    async def test_only_a_whole_yes_reply_is_a_match(self, reply, matched):
+        """A reply that merely contains the letters ``yes`` does not match."""
+
+        class _Fixed:
+            async def a_generate(self, prompt: str, schema=None) -> str:
+                return reply
+
+        aligned = await align_with_llm(_Fixed(), ["item"], ["line"])  # type: ignore[arg-type]
+
+        assert aligned == (["item"] if matched else ["line"])
 
     async def test_a_matched_item_is_not_offered_to_later_lines(self):
         """Two lines about one event match it once."""
@@ -208,7 +250,7 @@ class TestJudgeCallEstimate:
 
     def test_full_allows_for_event_ordering_and_lite_does_not(self):
         """Event-ordering questions need more calls, and only full has them."""
-        assert BeamGrader(full=True).judge_calls_per_question == 8
+        assert BeamGrader(full=True).judge_calls_per_question == 12
         assert BeamGrader().judge_calls_per_question == 2
 
 

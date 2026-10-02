@@ -16,6 +16,10 @@ from benchmarks.models import BenchmarkQuestion
 from benchmarks.systems.base import SystemAnswer
 
 
+# One event-ordering question in ten at 90 calls, the other nine at 3 calls each.
+_FULL_JUDGE_CALLS = 12
+
+
 class BeamGrader(Grader):
     """Scores one answer against the rubric of its probing question.
 
@@ -34,11 +38,14 @@ class BeamGrader(Grader):
         """Set the judge calls that one question needs.
 
         Args:
-            full: Whether the questions include event ordering. An event-ordering
-                question needs about ten answer lines times its reference items;
-                the others need one call for each rubric item, two on average.
+            full: Whether the questions include event ordering. An answer line
+                that matches no reference item is compared with every unused
+                item, so an event-ordering question can need as many calls as
+                answer lines times reference items. The estimate takes ten lines
+                and nine items, the largest rubric of the full set. A question
+                of another ability needs one call for each rubric item.
         """
-        self.judge_calls_per_question = 8 if full else 2
+        self.judge_calls_per_question = _FULL_JUDGE_CALLS if full else 2
 
     async def grade(
         self, question: BenchmarkQuestion, answer: SystemAnswer, judge: ChatModelJudge

@@ -177,6 +177,10 @@ def document_source(
 class MemoryAdapter(DatasetAdapter):
     """The lite and full selections of BEAM."""
 
+    def __init__(self) -> None:
+        """Create an adapter that reads the chat file on first use."""
+        self._chats: dict[str, dict[str, Any]] | None = None
+
     def load(self, mode: Mode) -> CorpusManifest:
         """Return the manifest of one mode from its fixture."""
         text = (FIXTURE_DIR / f"{mode}.json").read_text(encoding="utf-8")
@@ -185,12 +189,16 @@ class MemoryAdapter(DatasetAdapter):
     def documents(self, corpus: Corpus) -> Sequence[Document]:
         """Fetch the chat and build one document per session.
 
+        The chat file is read once and reused for later corpora.
+
         Raises:
             HashMismatchError: The file, a runaway message or a session differs
                 from its pinned hash.
         """
         conversation = corpus.id.removeprefix("conv")
-        row = load_rows(["conversation_id", "chat"])[conversation]
+        if self._chats is None:
+            self._chats = load_rows(["conversation_id", "chat"])
+        row = self._chats[conversation]
         documents = []
         for entry in corpus.documents:
             number = int(entry.id.rsplit("-s", 1)[1])
