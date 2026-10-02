@@ -131,18 +131,18 @@ RUN_LIMITS: dict[tuple[str, str], RunLimits] = {
             judge_tokens_per_call=900,
         ),
     ),
-    # Measured on one Healthcare lite run of 3 chunks: 8 ingest calls and 21k ingest
-    # tokens, 21 agent calls and 105k agent tokens, 3 judge calls and 4k tokens.
+    # Measured on one Healthcare lite run of 5 chunks: 17 ingest calls and 53k ingest
+    # tokens, 15 agent calls and 80k agent tokens, 3 judge calls and 4k tokens.
     ("healthcare", "lite"): RunLimits(
         max_llm_pairs=10,
         recursion_limit=30,
         max_research_attempts=1,
         cost=CostModel(
-            calls_per_chunk=3,
-            tokens_per_chunk=10_000,
-            agent_calls_per_question=21,
-            agent_tokens_per_question=105_000,
-            judge_tokens_per_call=1_300,
+            calls_per_chunk=3.4,
+            tokens_per_chunk=10_700,
+            agent_calls_per_question=15,
+            agent_tokens_per_question=80_300,
+            judge_tokens_per_call=1_460,
         ),
     ),
 }
@@ -156,7 +156,7 @@ SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
     ("graphrag_general", "full"): SpendCap(llm_calls=31_500, tokens=179_000_000),
     ("memory", "lite"): SpendCap(llm_calls=40, tokens=120_000),
     ("memory", "full"): SpendCap(llm_calls=17_000, tokens=133_900_000),
-    ("healthcare", "lite"): SpendCap(llm_calls=60, tokens=250_000),
+    ("healthcare", "lite"): SpendCap(llm_calls=50, tokens=200_000),
     ("healthcare", "full"): SpendCap(llm_calls=63_000, tokens=766_500_000),
 }
 
