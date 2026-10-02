@@ -29,14 +29,14 @@ The harness reads the text and the questions from the Hugging Face dataset [`Gra
 
 | Set | Questions | Corpora | Tokens |
 |---|---|---|---|
-| Lite | 10 | 2: the novel `Novel-25646`, and the first 3 Medical extracts (basal cell skin cancer, adrenal tumors, squamous cell skin cancer) | 40,251 |
+| Lite | 2 | 1: the first Medical extract (basal cell skin cancer) | 1,655 |
 | Full | 250 | 5: the whole Medical text and 4 novels | 443,524 |
 
-Each set has all four question types. Lite has 4 Fact Retrieval questions and 2 of each other type. Full has 130 Medical questions and 120 Novel questions, sampled with a fixed seed in proportion to the question types of each corpus. Every lite question is also in the full set.
+The lite set is a quick check, not a sample of the benchmark. It has one Fact Retrieval question (the follow-up visits after treatment) and one Complex Reasoning question (why surgery suits lesions in sun-exposed areas). The text of the extract states every clause of both gold answers. A run takes a few minutes.
 
-The two corpora never share a graph. Each corpus is ingested alone into its own Neo4j service, so a question about a novel cannot find text from another book. The novel `Novel-25646` is in both sets and uses one service for both.
+The full set has 130 Medical questions and 120 Novel questions, sampled with a fixed seed in proportion to the question types of each corpus. Ten fixed questions seed the sample. Both lite questions are in the full set. Nobody has run the full set, and it is far above the budget of a manual run, so read its dry-run estimate before you start it.
 
-The lite questions rest on the body text. None asks about the Gutenberg credits or the contents page.
+The two corpora never share a graph. Each corpus is ingested alone into its own Neo4j service, so a question about a novel cannot find text from another book.
 
 Three Medical extracts occur twice in the Medical text, which is 5.4% of its tokens. The harness keeps them, because the benchmark does, and gives each extract its own document uri. Lite has none of them.
 
@@ -51,15 +51,17 @@ Every entity type has a `description` property, because `agrag` embeds an entity
 
 ## How answers are scored
 
-Each question gets five scores from 0 to 1.
+The lite run scores three metrics from 0 to 1. The full run scores five.
 
 - **`correctness`.** A judge model compares the answer with the gold answer.
-- **`faithfulness`.** A judge model checks the claims of the answer against the text that the agent retrieved. A claim that the text does not mention counts as faithful. Only a claim that the text contradicts lowers the score.
-- **`context_recall`.** A judge model checks whether the retrieved text covers the evidence sentences of the question.
 - **`rouge_l`.** The ROUGE-L F-measure of the answer against the gold answer, as the benchmark computes it. The benchmark reports it for Fact Retrieval and Complex Reasoning only, so read it in those two groups. The record holds it for every question.
 - **`official_accuracy`.** The accuracy score of the benchmark: 0.75 times an F1 over atomic statements, plus 0.25 times the similarity of the answer and gold answer embeddings. The F1 comes from a judge model that splits the answer and the gold answer into statements and then classifies them as supported, unsupported, or missing. The code is ported from the benchmark's scorer, which is under the MIT license, with its prompts and arithmetic unchanged.
+- **`faithfulness`** (full run only). A judge model checks the claims of the answer against the text that the agent retrieved. A claim that the text does not mention counts as faithful. Only a claim that the text contradicts lowers the score.
+- **`context_recall`** (full run only). A judge model checks whether the retrieved text covers the evidence sentences of the question.
 
-The port differs from the scorer in these ways:
+The lite run leaves out `faithfulness` and `context_recall`. In an earlier lite run on 10 questions, both scored 1.0 on every question, so they gave no signal.
+
+The port of `official_accuracy` differs from the scorer in these ways:
 
 - The judge is the judge model of the run, not the scorer's OpenAI model.
 - The embedder is the embedder of the run (`ibm-granite/granite-embedding-small-english-r2`), not the scorer's BGE model. The embedding term therefore does not compare with published numbers.
@@ -75,23 +77,19 @@ The judge is the same model as the agent by default, so the judged scores are bi
 
 The run used `gemma4:31b` for extraction, the agent, and the judge, on one clean commit, with the default chunking of about 1,000 tokens.
 
-| Group | Questions | `correctness` | `faithfulness` | `context_recall` | `official_accuracy` | `rouge_l` |
-|---|---|---|---|---|---|---|
-| All | 10 | 1.00 | 1.00 | 1.00 | 0.59 | 0.17 |
-| Fact Retrieval | 4 | 1.00 | 1.00 | 1.00 | 0.54 | 0.16 |
-| Complex Reasoning | 2 | 1.00 | 1.00 | 1.00 | 0.63 | 0.22 |
-| Contextual Summarize | 2 | 1.00 | 1.00 | 1.00 | 0.73 | 0.18 |
-| Creative Generation | 2 | 1.00 | 1.00 | 1.00 | 0.53 | 0.13 |
-| Novel corpus | 5 | 1.00 | 1.00 | 1.00 | 0.46 | 0.14 |
-| Medical corpus | 5 | 1.00 | 1.00 | 1.00 | 0.73 | 0.20 |
+| Question | Type | `correctness` | `official_accuracy` | `rouge_l` |
+|---|---|---|---|---|
+| `Medical-152bec6a` | Fact Retrieval | 1.00 | 0.99 | 0.40 |
+| `Medical-14016ce3` | Complex Reasoning | 1.00 | 0.74 | 0.15 |
+| Mean | | 1.00 | 0.86 | 0.27 |
 
-Read the table with care.
+Two questions cannot rank anything. The run shows that the pipeline works end to end.
 
-- The three judged scores are 1.0 on all 10 questions. They do not tell the questions apart. The judge is the agent model, and `faithfulness` and `context_recall` are lenient by design. `official_accuracy` and `rouge_l` vary, so use them to compare runs.
-- Each run has 10 questions, and each question type has 2 to 4. One question moves a group score by 0.25 to 0.5. A lite run shows that the pipeline works. It does not rank systems.
+- The judge scored both answers as correct. The second question has a lower `official_accuracy` and `rouge_l` than the first.
 - The gold answers are short sentences, and the agent writes longer answers. That is why ROUGE-L is low even when `correctness` is 1.0.
+- With 2 chunks, every search returns both chunks. The run tests whether the agent uses what it gets, not whether it finds the right chunk.
 
-The graphs were small. The novel graph has 417 entities and 73 relations from 25 chunks. The Medical graph has 387 entities and 89 relations from 19 chunks. No chunk gave an empty extraction, and no question failed or carries a flag.
+The graph has 37 entities and 7 relations from 2 chunks. No chunk gave an empty extraction, and no question failed or carries a flag.
 
 Print the record with:
 
@@ -103,15 +101,19 @@ uv run python -m benchmarks report --domain graphrag_general
 
 | Phase | Model calls | Tokens |
 |---|---|---|
-| Ingest of the novel | 150 | 2.6M |
-| Ingest of the Medical extracts | 300 | 5.0M |
-| Agent, 10 questions | 174 | 1.0M |
-| Judge, 10 questions | 100 | 0.28M |
-| Total | 724 | 8.9M |
+| Ingest: extraction | 2 | 9k |
+| Ingest: resolution and merge | 3 | 47k |
+| Agent, 2 questions | 41 | 212k |
+| Judge, 2 questions | 8 | 3k |
+| Total | 54 | 271k |
 
-The run took about 73 minutes. Ingest took about 90% of it: 23 minutes for the novel and 43 minutes for the Medical extracts. `agrag` reads the chunks one call at a time and resolves duplicate entities once per document against the whole graph, so ingest time grows faster than the text. Answering took 90 seconds for the 5 novel questions and 144 seconds for the 5 Medical questions, and grading took about 100 seconds. A question took 7 to 31 agent calls.
+The run took 288 seconds. The agent took 10 calls for the first question and 31 for the second, and the two answers took 43 and 127 seconds.
 
-The dry-run estimate for this run was 1,008 calls and 7.3M tokens. The run used fewer calls and 22% more tokens, so the estimate is not an upper bound. The spend cap of 11M tokens held.
+Resolution took only 3 calls, because the graph is small and few entity pairs were unclear. The run set `max_llm_pairs` to 10. This is the most entity pairs per label that resolution sends to the model. The default is 500. The cost of resolution depends on how many pairs are unclear, so a larger text can cost far more.
+
+The agent limits of the run (`AGENT_RECURSION_LIMIT` of 30 and `AGENT_MAX_RESEARCH_ATTEMPTS` of 1) do not bound the agent calls, because the sub-agents that the planner starts make their own calls.
+
+The dry-run estimate is 56 calls and 265,000 tokens, which matches the run. The spend cap is 100 calls and 500,000 tokens. The cap checks the estimate before a run and does not stop a run in progress.
 
 The dry run for the full set estimates 20,937 calls and 119M tokens, with 258 chunks in the Medical corpus alone. Nobody has measured a run of that size. Run `make bench-dry DOMAIN=graphrag_general MODE=full` and read the estimate before you start one.
 
@@ -119,4 +121,4 @@ The dry run for the full set estimates 20,937 calls and 119M tokens, with 258 ch
 
 The GraphRAG-Bench code is under the MIT license. The dataset card states no license for the data. The Medical text comes from the NCCN Guidelines for Patients, which carry this notice: they "may not be reproduced in any form for any purpose without the express written permission of NCCN". The Novel text comes from Project Gutenberg, and these books are in the public domain in the United States.
 
-A trace holds passages of these texts, so read `benchmarks/results/NOTICE` before you share one.
+A trace holds passages of these texts, so read `benchmarks/results/NOTICE` before you share one. The committed lite trace holds the first Medical extract.
