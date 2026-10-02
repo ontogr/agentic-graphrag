@@ -20,7 +20,7 @@ Each dataset covers one domain. The module plans five:
 - **Legal contracts.** [LegalBench-RAG](https://github.com/zeroentropy-ai/legalbenchrag) ([paper](https://arxiv.org/abs/2408.10343)) questions over contract text, where the answer is a passage that the agent must find and cite. See the [Legal benchmark](./legal.mdx).
 - **Novels and medical guidelines.** [GraphRAG-Bench](https://github.com/GraphRAG-Bench/GraphRAG-Benchmark) ([paper](https://arxiv.org/abs/2506.05690)) questions over long fiction and clinical guideline documents, which test multi-step reasoning across a graph. See the [GraphRAG-Bench benchmark](./graphrag-general.mdx).
 - **Financial filings.** [FinanceBench](https://github.com/patronus-ai/financebench) ([paper](https://arxiv.org/abs/2311.11944)) questions over company filings, which mix text with numbers. See the [Financial benchmark](./financial.mdx).
-- **Long conversations.** [BEAM](https://github.com/mohammadtavakoli78/BEAM) ([paper](https://arxiv.org/abs/2510.27246)) questions over long chat histories, which test memory across many turns.
+- **Long conversations.** [BEAM](https://github.com/mohammadtavakoli78/BEAM) ([paper](https://arxiv.org/abs/2510.27246)) questions over long chat histories, which test memory across many turns. See the [Memory benchmark](./memory.mdx).
 - **Medical answers.** [HealthBench](https://openai.com/index/healthbench/) ([paper](https://arxiv.org/abs/2505.08775)) conversations that the agent answers from [MedCorp](https://huggingface.co/MedRAG) ([paper](https://arxiv.org/abs/2402.13178)) passages.
 
 Each dataset adds its own page to this section when it is added to the harness. That page states the exact questions, the source, the graph schema, and the terms of use.
@@ -34,7 +34,7 @@ Each dataset has two sets of questions.
 
 The lite set is a subset of the full set. A lite score is not statistically meaningful, because a few questions cannot separate a real change from noise. Compare only full runs.
 
-Ingest cost drives the total cost, not the question count. `agrag` must read and extract every chunk of a corpus before it can answer one question. A lite run pays the full ingest cost of its corpus. The lite set therefore saves answer and grading calls, not ingest calls. The Financial and GraphRAG-Bench lite sets are exceptions: each ingests a few pages or one short extract, so its ingest cost is small.
+Ingest cost drives the total cost, not the question count. `agrag` must read and extract every chunk of a corpus before it can answer one question. A lite run pays the full ingest cost of its corpus. The lite set therefore saves answer and grading calls, not ingest calls. The Financial, GraphRAG-Bench, and Memory lite sets are exceptions: each ingests only the pages, messages, or short extract that its questions need, so its ingest cost is small.
 
 ## The audit trail
 

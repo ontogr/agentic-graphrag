@@ -1,0 +1,88 @@
+{
+ "name": "beam",
+ "domain": "memory",
+ "mode": "lite",
+ "upstream": {
+  "repo": "Mohammadta/BEAM",
+  "revision": "3205395e897e7318c7b094ef4e6047b9b82dbb03",
+  "file": "data/100K-00000-of-00001.parquet",
+  "file_sha256": "c0519be25907005ba873c927c50877471d550873039d96c041554d0075a78ace",
+  "collapsed_messages": [
+   {
+    "conversation": "4",
+    "message": 97,
+    "keep_chars": 1470,
+    "original_chars": 348853,
+    "original_sha256": "f395a89214d8b2b6f226e6ae3f0e4f3727222d55223fef10ea76405af865ed73"
+   }
+  ]
+ },
+ "corpora": [
+  {
+   "id": "conv17",
+   "service": "memory-conv17",
+   "schema_name": "beam-memory",
+   "documents": [
+    {
+     "id": "conv17-s1",
+     "uri": "beam/17/session-1",
+     "sha256": "10c625cd72dbeac395549e322586f484171893cb8fb0c9230d5059f8b8ce862d",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=1;messages=18",
+     "pages": null,
+     "messages": [
+      18
+     ]
+    },
+    {
+     "id": "conv17-s3",
+     "uri": "beam/17/session-3",
+     "sha256": "b8cbec74f15ed3c257798e759e467831e02c96111254a60cd1bf9caeb33a897f",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=3;messages=156,157",
+     "pages": null,
+     "messages": [
+      156,
+      157
+     ]
+    }
+   ],
+   "n_tokens": 1279
+  }
+ ],
+ "questions": [
+  {
+   "id": "conv17:information_extraction:0",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Which days did I say my kids have their afterschool activities at their school?"
+    }
+   ],
+   "group": "information_extraction",
+   "reference": {
+    "rubric": [
+     "LLM response should state: on Tuesdays and Thursdays"
+    ],
+    "probe_sha256": "4cbe51d018bd9a02028fcc3956a8c4829229cee501172bffad093d7ed52674ac"
+   }
+  },
+  {
+   "id": "conv17:multi_session_reasoning:0",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many scenes had I filmed in total by July 5 and how many were left to film after that?"
+    }
+   ],
+   "group": "multi_session_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: had filmed 12 scenes",
+     "LLM response should state: had 4 scenes left to film"
+    ],
+    "probe_sha256": "29ddcfc1d42a60e76ad8e32c62fc08f69f7d2b7fd1fd48c60556fb28a91a394b"
+   }
+  }
+ ]
+}

@@ -1,0 +1,2115 @@
+{
+ "name": "beam",
+ "domain": "memory",
+ "mode": "full",
+ "upstream": {
+  "repo": "Mohammadta/BEAM",
+  "revision": "3205395e897e7318c7b094ef4e6047b9b82dbb03",
+  "file": "data/100K-00000-of-00001.parquet",
+  "file_sha256": "c0519be25907005ba873c927c50877471d550873039d96c041554d0075a78ace",
+  "collapsed_messages": [
+   {
+    "conversation": "4",
+    "message": 97,
+    "keep_chars": 1470,
+    "original_chars": 348853,
+    "original_sha256": "f395a89214d8b2b6f226e6ae3f0e4f3727222d55223fef10ea76405af865ed73"
+   }
+  ]
+ },
+ "corpora": [
+  {
+   "id": "conv1",
+   "service": "memory-conv1",
+   "schema_name": "beam-memory",
+   "documents": [
+    {
+     "id": "conv1-s1",
+     "uri": "beam/1/session-1",
+     "sha256": "30cc05891e98639c297c6770e1f61fe587c8ed41797bafb658c513183e37d6d3",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=1;session=1",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv1-s2",
+     "uri": "beam/1/session-2",
+     "sha256": "4eb753a1067c715c538b9029866deee733f1b2c3d12d8d139496986b71cc827b",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=1;session=2",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv1-s3",
+     "uri": "beam/1/session-3",
+     "sha256": "abe9718d2ea934813adb6412594cb73295516a96bad48309dee0c9ef4aec8155",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=1;session=3",
+     "pages": null,
+     "messages": null
+    }
+   ],
+   "n_tokens": 116551
+  },
+  {
+   "id": "conv4",
+   "service": "memory-conv4",
+   "schema_name": "beam-memory",
+   "documents": [
+    {
+     "id": "conv4-s1",
+     "uri": "beam/4/session-1",
+     "sha256": "4d4bf96bacd0ee5bf5e380c036be1107e82aed05c59e8cbfd2407b9f4b0ea846",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=4;session=1",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv4-s2",
+     "uri": "beam/4/session-2",
+     "sha256": "aabb618551f5736b20ef92bef13f2572726265e31561b899fdef08120246e411",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=4;session=2",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv4-s3",
+     "uri": "beam/4/session-3",
+     "sha256": "cbbb2eae46d357dcb34727afee5c367de5a95adc0534e92052296fc3737596fa",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=4;session=3",
+     "pages": null,
+     "messages": null
+    }
+   ],
+   "n_tokens": 95361
+  },
+  {
+   "id": "conv6",
+   "service": "memory-conv6",
+   "schema_name": "beam-memory",
+   "documents": [
+    {
+     "id": "conv6-s1",
+     "uri": "beam/6/session-1",
+     "sha256": "8d5bf41b629f1da94c0935d58ccf2fb54ca3c8ae717a40fb957dcb2dcd10bfe6",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=1",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv6-s2",
+     "uri": "beam/6/session-2",
+     "sha256": "d27397c58f50e29f8dc9970041b3f016a5c6c843a5d2395a7984e3c26b780038",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=2",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv6-s3",
+     "uri": "beam/6/session-3",
+     "sha256": "bdb3c326d8b3faf76ba293dbe584fcd82ac0fc9c0c609a31b9f648af0bc13a3c",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=3",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv6-s4",
+     "uri": "beam/6/session-4",
+     "sha256": "b7132bf90371960ff2ca717da33556e7de9322ad3891f707d3ad4cbbaf906717",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=4",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv6-s5",
+     "uri": "beam/6/session-5",
+     "sha256": "91a9d93613656a7e392df6fad5a6c15b9ae156e8a05f787f3758beb0cf36f013",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=6;session=5",
+     "pages": null,
+     "messages": null
+    }
+   ],
+   "n_tokens": 118298
+  },
+  {
+   "id": "conv13",
+   "service": "memory-conv13",
+   "schema_name": "beam-memory",
+   "documents": [
+    {
+     "id": "conv13-s1",
+     "uri": "beam/13/session-1",
+     "sha256": "a65d7d721dd164d1bbf74396d9c89d1f10cc66128255e69c78f50a90ea02ebde",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=1",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv13-s2",
+     "uri": "beam/13/session-2",
+     "sha256": "20f445a22dbea22849ec85611e048ce6ffe4d87876f1dbe3d57b33c4e52883f3",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=2",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv13-s3",
+     "uri": "beam/13/session-3",
+     "sha256": "4e6820a1e6520b526d02674f377c4cfcc70ca819cec58d9d0d3fe11064472c0a",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=3",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv13-s4",
+     "uri": "beam/13/session-4",
+     "sha256": "4467b6d7e9afb39ebfe4baa6f9be1d134b33d2d314e77aa3d3187c7ddcb9d975",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=4",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv13-s5",
+     "uri": "beam/13/session-5",
+     "sha256": "60ac340a3cbf1c894d816cb9ebafb9dfb89cc8c8eeffa746f69d72ab936d87c7",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=13;session=5",
+     "pages": null,
+     "messages": null
+    }
+   ],
+   "n_tokens": 114744
+  },
+  {
+   "id": "conv17",
+   "service": "memory-conv17",
+   "schema_name": "beam-memory",
+   "documents": [
+    {
+     "id": "conv17-s1",
+     "uri": "beam/17/session-1",
+     "sha256": "717f1f6e18d0189ea6c5c1f32908eb8e586a479da3b590c7d09937bc6a33c331",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=1",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv17-s2",
+     "uri": "beam/17/session-2",
+     "sha256": "5c230b1ff871a60c099aee814e58e49350d7cd2ae32e1ba17ba19cf4c0e9caea",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=2",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv17-s3",
+     "uri": "beam/17/session-3",
+     "sha256": "eccd86ec30b22a23619b9d16c7d09da17ba7d7f64664522dac0f9b15efa67fdc",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=3",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv17-s4",
+     "uri": "beam/17/session-4",
+     "sha256": "8b12466e401a02a622b25a1e209b50ce0a9f8916b21b98a49a40e3a112be039f",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=4",
+     "pages": null,
+     "messages": null
+    },
+    {
+     "id": "conv17-s5",
+     "uri": "beam/17/session-5",
+     "sha256": "6bdd7ffc4434d9648906abc676c4bd6cbfda275b7144f25323b96fe1259fcba3",
+     "source": "hf://datasets/Mohammadta/BEAM@3205395e897e7318c7b094ef4e6047b9b82dbb03/data/100K-00000-of-00001.parquet#conversation=17;session=5",
+     "pages": null,
+     "messages": null
+    }
+   ],
+   "n_tokens": 124033
+  }
+ ],
+ "questions": [
+  {
+   "id": "conv1:abstention:0",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How did the user feedback influence the UI/UX improvements I made before the public launch?"
+    }
+   ],
+   "group": "abstention",
+   "reference": {
+    "rubric": [
+     "Based on the provided chat, there is no information related to how user feedback influenced UI/UX improvements"
+    ],
+    "probe_sha256": "1760cf3df98af4ca9f511f5ad39edeb760a5836a168a0288eccacfdc9c04d724"
+   }
+  },
+  {
+   "id": "conv1:abstention:1",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you tell me about my background and previous development projects?"
+    }
+   ],
+   "group": "abstention",
+   "reference": {
+    "rubric": [
+     "Based on the provided chat, there is no information related to your background or previous development projects"
+    ],
+    "probe_sha256": "a96731224f1fe481c1f9ed74615401d023f9f1f1a02416bc4c670c4a3e13000a"
+   }
+  },
+  {
+   "id": "conv1:contradiction_resolution:0",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Have I worked with Flask routes and handled HTTP requests in this project?"
+    }
+   ],
+   "group": "contradiction_resolution",
+   "reference": {
+    "rubric": [
+     "LLM response should state: there is contradictory information",
+     "LLM response should mention: You said you have never written any Flask routes or handled HTTP requests in this project",
+     "LLM response should mention: you also mentioned implementing a basic homepage route with Flask",
+     "LLM response should mention: which statement is correct?"
+    ],
+    "probe_sha256": "38cfec8cf65528b180180c311dd43072d8ddfc3e0104c22def0902a322bb01e4"
+   }
+  },
+  {
+   "id": "conv1:contradiction_resolution:1",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Have I integrated Flask-Login for session management in my project?"
+    }
+   ],
+   "group": "contradiction_resolution",
+   "reference": {
+    "rubric": [
+     "LLM response should state: there is contradictory information",
+     "LLM response should mention: You said you have never integrated Flask-Login or managed user sessions in this project",
+     "LLM response should mention: you also mentioned that Flask-Login v0.6.2 was integrated for session management",
+     "LLM response should mention: which statement is correct?"
+    ],
+    "probe_sha256": "2a1c2808814cb51d363927611696441715f031db6964e463bbb4f3b66fc13dad"
+   }
+  },
+  {
+   "id": "conv1:event_ordering:0",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you list the order in which I brought up different aspects of developing my personal budget tracker throughout our conversations, in order? Mention ONLY and ONLY three items."
+    }
+   ],
+   "group": "event_ordering",
+   "reference": {
+    "rubric": [
+     "Core functionality",
+     "Transaction error handling",
+     "Security and deployment"
+    ],
+    "probe_sha256": "42d4cc1cc692d78133bb7e5b1e5385455113cb180b4efb9ebfae70917e9413a3"
+   }
+  },
+  {
+   "id": "conv1:event_ordering:1",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you walk me through the order in which I brought up different aspects of my app development and deployment across our conversations? Mention ONLY and ONLY five items."
+    }
+   ],
+   "group": "event_ordering",
+   "reference": {
+    "rubric": [
+     "Initial project setup",
+     "Transaction CRUD implementation",
+     "Deployment configuration",
+     "Integration test coverage",
+     "Deployment and test improvements"
+    ],
+    "probe_sha256": "82f3fab127c97e6cb7cc4691a76ed6895ad7f2749d4578c7a1d1d9f7b62bcd39"
+   }
+  },
+  {
+   "id": "conv1:information_extraction:0",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "When does my first sprint end?"
+    }
+   ],
+   "group": "information_extraction",
+   "reference": {
+    "rubric": [
+     "LLM response should state: March 29"
+    ],
+    "probe_sha256": "ce2ce1907c53b8fef30794e7a1dc1d8e50473b1315b17ca79e4db5b3519928aa"
+   }
+  },
+  {
+   "id": "conv1:information_extraction:1",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How did I organize the tasks over the course of the sprint to ensure both backend and frontend aspects of the features were completed on time?"
+    }
+   ],
+   "group": "information_extraction",
+   "reference": {
+    "rubric": [
+     "LLM response should state: You organized the sprint by scheduling backend-related tasks such as setting up the environment",
+     "LLM response should state: defining the database schema",
+     "LLM response should state: implementing registration and login",
+     "LLM response should state: adding validation",
+     "LLM response should state: writing unit tests in the first week",
+     "LLM response should state: frontend tasks like adding forms and integrating frontend with backend in the second week"
+    ],
+    "probe_sha256": "bbf94718c110c4720f9b3428ce1c83f83b5590f26d9057b4617e13a0d0b0d10b"
+   }
+  },
+  {
+   "id": "conv1:instruction_following:0",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Could you show me how to implement a login feature?"
+    }
+   ],
+   "group": "instruction_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: code blocks with syntax highlighting"
+    ],
+    "probe_sha256": "2597f9d0858aba9d46800d5a4364371ea7561cd561d264faf9be3c3eaa01bd60"
+   }
+  },
+  {
+   "id": "conv1:instruction_following:1",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Which libraries are used in this project?"
+    }
+   ],
+   "group": "instruction_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: explicit version details for each dependency"
+    ],
+    "probe_sha256": "8a3583eb0c997dac82ff426223d8dfdc3b1244fde884779b4a5d6459c88a881b"
+   }
+  },
+  {
+   "id": "conv1:knowledge_update:0",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is the average response time of the dashboard API?"
+    }
+   ],
+   "group": "knowledge_update",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 250ms"
+    ],
+    "probe_sha256": "8fe04addd826ad4d8e5f0980f8d91a3bc5b28f370c2af2ad4dbba166466478b4"
+   }
+  },
+  {
+   "id": "conv1:knowledge_update:1",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many commits have been merged into the main branch of my Git repository?"
+    }
+   ],
+   "group": "knowledge_update",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 165 commits"
+    ],
+    "probe_sha256": "c97e4d1be5e269c2a35e7ab4a1eadea56ed0cbf995db80a7babcac05fa215aed"
+   }
+  },
+  {
+   "id": "conv1:multi_session_reasoning:0",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many new columns did I want to add to the transactions table across my requests?"
+    }
+   ],
+   "group": "multi_session_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: Two columns",
+     "LLM response should state: 'category' and 'notes'"
+    ],
+    "probe_sha256": "bc1befa2b7b0cfba288d619eafda893d89aa915b0df4ebbf7b18b57d4210c405"
+   }
+  },
+  {
+   "id": "conv1:multi_session_reasoning:1",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many different user roles and security features am I trying to implement across my sessions?"
+    }
+   ],
+   "group": "multi_session_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: Three",
+     "LLM response should state: password hashing",
+     "LLM response should state: role-based access control",
+     "LLM response should state: account lockout after failed login attempts"
+    ],
+    "probe_sha256": "346f68096791c1a81fa9a69146bcf0a0e9ee690118831edb74260b633e769dc2"
+   }
+  },
+  {
+   "id": "conv1:preference_following:0",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I'm planning to add user login, income and expense tracking, and some basic analytics to my Flask app. What libraries or tools would you suggest I use to implement these features?"
+    }
+   ],
+   "group": "preference_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: suggests lightweight libraries",
+     "LLM response should contain: avoids recommending large frameworks or heavy dependencies"
+    ],
+    "probe_sha256": "f3488e1554eab828d3f023ebd20fe5b20824d1973f7e962a491d2247106b4f46"
+   }
+  },
+  {
+   "id": "conv1:preference_following:1",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I'm looking to improve the security features of my app. What steps would you suggest I take?"
+    }
+   ],
+   "group": "preference_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: suggests security measures that are efficient and lightweight",
+     "LLM response should contain: proposes incremental or practical enhancements"
+    ],
+    "probe_sha256": "5afbfac2b56dcf2d32981e12d5780d74a4b4cbef55d8aac7a3f30204be881e2b"
+   }
+  },
+  {
+   "id": "conv1:summarization:0",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you provide a comprehensive summary of how my budget tracker project has progressed, including the key features implemented, the development timeline, security enhancements, and documentation efforts?"
+    }
+   ],
+   "group": "summarization",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: Early development focused on implementing core functionalities such as user registration, login, and managing expenses, followed by adding data visualization",
+     "LLM response should contain: A detailed project schedule was then created to ensure timely delivery of the MVP by April 15, 2024",
+     "LLM response should contain: breaking down tasks into phases covering authentication, transaction management, analytics, and deployment",
+     "LLM response should contain: security improvements were addressed, including stronger password hashing, token-based authentication, role-based access control, and input validation to harden the application before launch",
+     "LLM response should contain: documentation practices were enhanced by structuring API endpoint details and architecture decisions in Confluence, incorporating tables and diagrams to facilitate collaboration and feedback"
+    ],
+    "probe_sha256": "61fdced1f7dcac85eb09f362bd8c1a49b5fe2089a21854593873495c615d1419"
+   }
+  },
+  {
+   "id": "conv1:summarization:1",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you give me a comprehensive summary of how I handled the security and database challenges in my budget tracker app across our discussions?"
+    }
+   ],
+   "group": "summarization",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: you focused on implementing password hashing using Werkzeug.security, ensuring passwords were securely hashed with the default pbkdf2:sha256 method and verified correctly during login",
+     "LLM response should contain: you tackled database integrity issues, specifically resolving a UNIQUE constraint error in your SQLite transactions table by verifying UUID uniqueness",
+     "LLM response should contain: enhanced your application's robustness by incorporating proper error handling for database operational errors in your Flask routes",
+     "LLM response should contain: you addressed frontend security concerns by troubleshooting CSRF token errors in your Flask-WTF forms, confirming correct token inclusion, enabling CSRF protection, and verifying browser cookie settings",
+     "LLM response should contain: you implemented an account lockout mechanism using Redis to limit login attempts, refining your approach with atomic operations, expiry management, and resetting counters"
+    ],
+    "probe_sha256": "5c9c379cac0b0651f537b0b736f30d7be6a2b50cb1565e202fcb9f30fce507b4"
+   }
+  },
+  {
+   "id": "conv1:temporal_reasoning:0",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many weeks do I have between finishing the transaction management features and the final deployment deadline?"
+    }
+   ],
+   "group": "temporal_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 8 weeks",
+     "LLM response should state: from January 15, 2024 till March 15, 2024"
+    ],
+    "probe_sha256": "750a8bae90986a9e5634cfa01b37fa1f31bf21cf042c0f863b39fff4172eb496",
+    "known_bad_rubric": "The reference answer says 4 weeks and the rubric says 8 weeks."
+   }
+  },
+  {
+   "id": "conv1:temporal_reasoning:1",
+   "corpus_id": "conv1",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many days were there between the end of my first sprint and the deadline for completing the analytics features in sprint 2?"
+    }
+   ],
+   "group": "temporal_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 21 days",
+     "LLM response should state: from March 29 till April 19"
+    ],
+    "probe_sha256": "34bfd58259ee16635bc6214be909dce4ef8e4be001d38a81170ea2359783254b"
+   }
+  },
+  {
+   "id": "conv4:abstention:0",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What specific criteria did I consider when choosing between angle-based or side-based classification strategies?"
+    }
+   ],
+   "group": "abstention",
+   "reference": {
+    "rubric": [
+     "Based on the provided chat, there is no information related to the specific criteria considered for choosing classification strategies"
+    ],
+    "probe_sha256": "36a47fac0c5c72aba08f58a7443c87d59d39695ea1f361babe5f075601c370ec"
+   }
+  },
+  {
+   "id": "conv4:abstention:1",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you share the agenda or structure of the sessions where I practiced writing angle and side notation?"
+    }
+   ],
+   "group": "abstention",
+   "reference": {
+    "rubric": [
+     "Based on the provided chat, there is no information related to the agenda or structure of the notation practice sessions"
+    ],
+    "probe_sha256": "49a203375c9787de3079a9271d78803b04de681ebcc6ccf1ecfc13f930414a99"
+   }
+  },
+  {
+   "id": "conv4:contradiction_resolution:0",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Have I ever worked on triangle classification problems before?"
+    }
+   ],
+   "group": "contradiction_resolution",
+   "reference": {
+    "rubric": [
+     "LLM response should state: there is contradictory information",
+     "LLM response should mention: You said you have never attempted any triangle classification problems before",
+     "LLM response should mention: you also mentioned recently completing 15 classification problems with good accuracy",
+     "LLM response should mention: which statement is correct?"
+    ],
+    "probe_sha256": "62f94a35f27546e8429c791d49516d887cc335dce56e5df1f63d269269aeb033"
+   }
+  },
+  {
+   "id": "conv4:contradiction_resolution:1",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Have I ever worked on problems involving medians or altitudes in triangles?"
+    }
+   ],
+   "group": "contradiction_resolution",
+   "reference": {
+    "rubric": [
+     "LLM response should state: there is contradictory information",
+     "LLM response should mention: You said you have never completed any problems involving medians",
+     "LLM response should mention: you also mentioned improving your accuracy in area calculation problems after completing several problems",
+     "LLM response should mention: which statement is correct?"
+    ],
+    "probe_sha256": "25825e1ec3b8a194de85da2e71b1c011950402f4887504cc492a42089c01df99"
+   }
+  },
+  {
+   "id": "conv4:event_ordering:0",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you list the order in which I brought up different aspects of classifying triangles throughout our conversations, including how I first approached understanding their types, then moved on to calculating areas, identifying key characteristics, comparing types, and finally applying these concepts to more complex problems, in order? Mention ONLY and ONLY nine items."
+    }
+   ],
+   "group": "event_ordering",
+   "reference": {
+    "rubric": [
+     "Initial classification example",
+     "Defining and area calculation",
+     "Key characteristics and example calculations",
+     "Comparing types and clarifying differences",
+     "Classification methods and angle sum relation",
+     "Classifying new triangle example",
+     "Law of Cosines for unknown angle",
+     "Applying knowledge to complex problems",
+     "Reflecting on real-world application after practice"
+    ],
+    "probe_sha256": "783ae2ba44f15982dc03dfc13753137732d2a097c1614bbb5f93856d8a90c668"
+   }
+  },
+  {
+   "id": "conv4:event_ordering:1",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you list the order in which I brought up different concepts related to triangle geometry throughout our conversations, in order? Mention ONLY and ONLY nine items."
+    }
+   ],
+   "group": "event_ordering",
+   "reference": {
+    "rubric": [
+     "Area methods and median formula",
+     "Altitude length in scalene triangle",
+     "Notation and centroid properties",
+     "Sum of medians and calculation",
+     "Apollonius of Perga's work",
+     "Area calculation comparison with progress",
+     "Emphasis on comparative analysis",
+     "Applying medians and altitudes to area with progress",
+     "Examples with non-right triangles and median formula"
+    ],
+    "probe_sha256": "fa4b241f43fa966f9b0cec854116af56e6f9a3df9160d58ca7e1e6769704d297"
+   }
+  },
+  {
+   "id": "conv4:information_extraction:0",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What approach did I outline to demonstrate that two triangles with matching angle pairs and a connecting segment are identical, and how did I organize the information to support this?"
+    }
+   ],
+   "group": "information_extraction",
+   "reference": {
+    "rubric": [
+     "LLM response should state: suggested labeling the triangles with corresponding vertices to identify matching angles and the included side",
+     "LLM response should state: stating the given angle measures and side length for both triangles, the triangles are congruent",
+     "LLM response should state: applying the criterion that if two angles and the included side of one triangle equal those of another"
+    ],
+    "probe_sha256": "0c08a44ed0abfedda6f8de893f5254cd15b700f6df9bf2ab89d90099bedd3d67"
+   }
+  },
+  {
+   "id": "conv4:information_extraction:1",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How did I confirm that the proportional relationship between the two sets of measurements was consistent across all comparisons?"
+    }
+   ],
+   "group": "information_extraction",
+   "reference": {
+    "rubric": [
+     "LLM response should state: I compared each pair of corresponding measurements by calculating their ratios step-by-step",
+     "LLM response should state: simplifying each fraction to verify they all reduced to the same value"
+    ],
+    "probe_sha256": "9be9a09595f65c1f1013b57169f219e74f22a5c180b398f6505d668816ada084"
+   }
+  },
+  {
+   "id": "conv4:instruction_following:0",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How can I find the area of a triangle using medians and altitudes?"
+    }
+   ],
+   "group": "instruction_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: multiple methods described",
+     "LLM response should contain: comparison between methods"
+    ],
+    "probe_sha256": "69ab8a35c8a205001a6f5a02d0e9df9cb58e9463de00d7e94d38eb9f99339373"
+   }
+  },
+  {
+   "id": "conv4:instruction_following:1",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What are the different ways to calculate the area of a triangle if I know various parameters like side lengths, angles, or special lines?"
+    }
+   ],
+   "group": "instruction_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: multiple methods described",
+     "LLM response should contain: comparison between methods"
+    ],
+    "probe_sha256": "a21fa83fefead80cfd0a30426f90fa9b3d3608745d51bf26aeb539a0ef8f553b"
+   }
+  },
+  {
+   "id": "conv4:knowledge_update:0",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is my accuracy percentage in solving area calculation problems after completing 15 problems?"
+    }
+   ],
+   "group": "knowledge_update",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 95%"
+    ],
+    "probe_sha256": "659a03d53cf52ef9c34bdf21277d2fe0cd1df7c036e8454ec6f6077056cfb838"
+   }
+  },
+  {
+   "id": "conv4:knowledge_update:1",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many classification problems have I completed, and what accuracy rate have I maintained in identifying triangle types?"
+    }
+   ],
+   "group": "knowledge_update",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 15 classification problems",
+     "LLM response should state: 80%"
+    ],
+    "probe_sha256": "573b0e24a5fd4c35945889e824df79ac89ad3beed01ba0f324d734f2a267c728"
+   }
+  },
+  {
+   "id": "conv4:multi_session_reasoning:0",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many triangle classification problems have I completed in total across all sessions where I mentioned my progress?"
+    }
+   ],
+   "group": "multi_session_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 25 problems"
+    ],
+    "probe_sha256": "f8a4dc34760c6e03494f1fb14fea56a1b3e7288a553a733117453784fe51158a"
+   }
+  },
+  {
+   "id": "conv4:multi_session_reasoning:1",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How much did my accuracy improve between the two times I mentioned my scores on area calculation problems and special lines in triangles?"
+    }
+   ],
+   "group": "multi_session_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: improved by 20 percentage points"
+    ],
+    "probe_sha256": "afc264eafb4253c1117c442367a35b4faad965658d525ddf2a10a24dc8f75066"
+   }
+  },
+  {
+   "id": "conv4:preference_following:0",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you show me how to calculate the area of this triangle using different methods and also help me find the length of the median?"
+    }
+   ],
+   "group": "preference_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: does not limit to a single method or skip any requested calculations"
+    ],
+    "probe_sha256": "4cd7c38d48d725a95385433f0e0f245a4e71ed8bf7960131559d4d0dccc8bb34"
+   }
+  },
+  {
+   "id": "conv4:preference_following:1",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you walk me through how to prove two triangles are congruent using the ASA criterion?"
+    }
+   ],
+   "group": "preference_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: dprovides step-by-step logical proof",
+     "LLM response should contain: explains reasoning behind each step clearly"
+    ],
+    "probe_sha256": "9c656efe7eba80d011dfdcf8ec1daa0dbd19747a4fadcea502ff427ce408fef9",
+    "known_bad_rubric": "A rubric item has a dropped letter."
+   }
+  },
+  {
+   "id": "conv4:summarization:0",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you give me a clear summary of everything we've covered about triangles, including how to verify right angles, calculate areas, and understand medians?"
+    }
+   ],
+   "group": "summarization",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: we verified whether a triangle is right-angled by applying the Pythagorean theorem",
+     "LLM response should contain: we learned how to calculate the area of triangles using different methods: Heron's formula was applied to a triangle",
+     "LLM response should contain: we compared the base-height formula and Heron's formula, concluding that the base-height formula is more efficient in such cases",
+     "LLM response should contain: We also examined how to find the length of a median in a triangle using the median length formula",
+     "LLM response should contain: we discussed the property that a median divides a triangle into two smaller triangles of equal area"
+    ],
+    "probe_sha256": "915714eb7ec44efb9600ee1205071563e82e05f5be8cffee35099ad5277bb6a0"
+   }
+  },
+  {
+   "id": "conv4:summarization:1",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you give me a clear summary of how my understanding and application of triangle similarity and congruence developed throughout our conversations?"
+    }
+   ],
+   "group": "summarization",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: you explored the SSS similarity criterion by comparing two triangles",
+     "LLM response should contain: ou moved on to proving congruence using the ASA criterion, where you learned to identify corresponding angles and the included side, and how to structure a formal proof",
+     "LLM response should contain: you compared the SAS and ASA methods for a triangle with given sides and angles, understanding the conditions and efficiency of each approach",
+     "LLM response should contain: you examined a formal proof of similarity using the SAS similarity criterion with sides in a 2:3 ratio and equal included angles",
+     "LLM response should contain: you addressed why SSA is not a valid congruence criterion through a counterexample"
+    ],
+    "probe_sha256": "3c45ef8c316548404c9045cc71bf42c8bd3d8896803f859f7319a1339bea739c",
+    "known_bad_rubric": "A rubric item has a dropped letter."
+   }
+  },
+  {
+   "id": "conv4:temporal_reasoning:0",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Which improvement happened first: my quiz score increasing from 65% to 82% after focusing on triangle side classifications, or my test score rising from 80% to 92% on congruence proofs and similarity calculations?"
+    }
+   ],
+   "group": "temporal_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: The quiz score improvement from 65% to 82%"
+    ],
+    "probe_sha256": "ae417e39278e031681c0508053543be3b9f8da0449e6684a15b146706a457ff1"
+   }
+  },
+  {
+   "id": "conv4:temporal_reasoning:1",
+   "corpus_id": "conv4",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many more problems did I complete between when I scored 8 out of 10 on triangle classification and when my accuracy improved from 70% to 90% in area calculations?"
+    }
+   ],
+   "group": "temporal_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 2 problems"
+    ],
+    "probe_sha256": "8f676e36dd31528aea2a0d9cf1f7ca3d15ef034f0b2e3af0647a75e873a6edce"
+   }
+  },
+  {
+   "id": "conv6:abstention:0",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What specific advice did Bryan give about updating the LinkedIn profile in April 2024?"
+    }
+   ],
+   "group": "abstention",
+   "reference": {
+    "rubric": [
+     "Based on the provided chat, there is no information related to the specific advice Bryan gave about updating the LinkedIn profile"
+    ],
+    "probe_sha256": "bcfc37b64d9eb75a7264171e08946c9bd695197217a5bfa489c62b4879df7700"
+   }
+  },
+  {
+   "id": "conv6:abstention:1",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What specific modules are included in the LinkedIn Learning ATS optimization course?"
+    }
+   ],
+   "group": "abstention",
+   "reference": {
+    "rubric": [
+     "Based on the provided chat, there is no information related to the specific content of the LinkedIn Learning ATS optimization course"
+    ],
+    "probe_sha256": "cc91ddda4b1ce0da61ee6e2bffd5a3e3f1d6111b91a2cac4046c5c20ff7c9e3a"
+   }
+  },
+  {
+   "id": "conv6:contradiction_resolution:0",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Have I ever enrolled in any courses or training programs on ATS optimization?"
+    }
+   ],
+   "group": "contradiction_resolution",
+   "reference": {
+    "rubric": [
+     "LLM response should state: there is contradictory information",
+     "LLM response should mention: You said you enrolled in a LinkedIn Learning course on ATS optimization",
+     "LLM response should mention: you also mentioned never enrolling in any ATS optimization courses",
+     "LLM response should mention: which statement is correct?"
+    ],
+    "probe_sha256": "85d726e43849ac9a25f48fdf06246b5ddaf8db730aec13c4fe74d367000b84fa"
+   }
+  },
+  {
+   "id": "conv6:contradiction_resolution:1",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Have I ever attended any workshops or training sessions related to resume standards or ATS optimization?"
+    }
+   ],
+   "group": "contradiction_resolution",
+   "reference": {
+    "rubric": [
+     "LLM response should state: there is contradictory information",
+     "LLM response should mention: You said you attended a workshop on international resume standards",
+     "LLM response should mention: you also mentioned never attending any workshops or training sessions",
+     "LLM response should mention: which statement is correct?"
+    ],
+    "probe_sha256": "40ee8a7a6abc9a1cf3a6e21b168cd6cd576113ac8b73ea56f93ea941ef321671"
+   }
+  },
+  {
+   "id": "conv6:event_ordering:0",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you list the order in which I brought up different aspects of improving my professional profile and resume throughout our conversations in order? Mention ONLY and ONLY six items."
+    }
+   ],
+   "group": "event_ordering",
+   "reference": {
+    "rubric": [
+     "ATS concerns and partner's advice",
+     "LinkedIn profile collaboration",
+     "Transferable skills suggestion",
+     "Raise addition and negotiation tips",
+     "International resume adaptation and portfolio metrics",
+     "Sharing job descriptions and keyword refinement"
+    ],
+    "probe_sha256": "5a67e07886218b5117f158e58bfdd44825f655f3d32017846b62b56635f997d8"
+   }
+  },
+  {
+   "id": "conv6:event_ordering:1",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you walk me through the order in which I brought up different aspects of my career development and relocation plans in our conversations, in order? Mention ONLY and ONLY five items."
+    }
+   ],
+   "group": "event_ordering",
+   "reference": {
+    "rubric": [
+     "Subscription service concern",
+     "Resume keyword tool usage",
+     "Profile headline update",
+     "Interview preparation",
+     "Rental research for relocation"
+    ],
+    "probe_sha256": "1ce89b2094dae8ad28b076bd069742325b14fdf8238852baab0bc422bd73d957"
+   }
+  },
+  {
+   "id": "conv6:information_extraction:0",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How much does my subscription to the service I’m using for my resume cost each month?"
+    }
+   ],
+   "group": "information_extraction",
+   "reference": {
+    "rubric": [
+     "LLM response should state: $12.99 per month"
+    ],
+    "probe_sha256": "57b7a333ab76c686f26c19d6a54d622100fa5b9ecaa7a6ca63d5e193c828896a"
+   }
+  },
+  {
+   "id": "conv6:information_extraction:1",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What approach did you recommend for weaving certain important terms into different sections of my resume to make it more effective?"
+    }
+   ],
+   "group": "information_extraction",
+   "reference": {
+    "rubric": [
+     "LLM response should state: recommended integrating the key terms naturally across multiple sections of your resume",
+     "LLM response should state: recommended including the professional summary, work experience, skills section, education and certifications, and any additional sections like a portfolio",
+     "LLM response should state: suggested using action verbs, providing relevant context, repeating keywords appropriately without redundancy, and using synonyms to maintain a natural flow"
+    ],
+    "probe_sha256": "d337da47453112f336d418c07eb1fd7d44e5e48545336308e04fad1cd8956075"
+   }
+  },
+  {
+   "id": "conv6:instruction_following:0",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How should I organize the information about my past jobs?"
+    }
+   ],
+   "group": "instruction_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: use of bullet points",
+     "LLM response should contain: inclusion of specific numbers or metrics"
+    ],
+    "probe_sha256": "51c6bffa2032b31e28eb7483e438e0f8dc2b5565d2eb77316198e2301031e50e"
+   }
+  },
+  {
+   "id": "conv6:instruction_following:1",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How should I desing my resume?"
+    }
+   ],
+   "group": "instruction_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: use of simple layout",
+     "LLM response should contain: clear and separate section titles"
+    ],
+    "probe_sha256": "de2d58a4b172cb3b593d6dc8c7e3de588a1b471ffe15d19d5bf2e4d61c72673b"
+   }
+  },
+  {
+   "id": "conv6:knowledge_update:0",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many interviews have I secured for executive producer roles during the recent period?"
+    }
+   ],
+   "group": "knowledge_update",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 5 interviews"
+    ],
+    "probe_sha256": "11ae903958431751e3c0f2f5a687bf3acebef03f6386b27287a12b13588e46a1"
+   }
+  },
+  {
+   "id": "conv6:knowledge_update:1",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many women have I highlighted as mentees in my portfolio to showcase my mentoring efforts in Caribbean media?"
+    }
+   ],
+   "group": "knowledge_update",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 7 women"
+    ],
+    "probe_sha256": "048c5313286b963c69664d8b9bc3fe88b9156da83362bc5adc64f19dbb3b895b"
+   }
+  },
+  {
+   "id": "conv6:multi_session_reasoning:0",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many different areas have I focused on updating or improving based on my messages about my resume, portfolio, and salary negotiation?"
+    }
+   ],
+   "group": "multi_session_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: Four areas",
+     "LLM response should state: salary negotiation",
+     "LLM response should state: portfolio project selection",
+     "LLM response should state: resume international standards",
+     "LLM response should state: remote leadership skills"
+    ],
+    "probe_sha256": "26b41b4b1c1acbe88016bee7ef24579c85b1a9c229c2a6a4e32ecd8c27f38d11"
+   }
+  },
+  {
+   "id": "conv6:multi_session_reasoning:1",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Considering my progress, achievements, and interview successes, how can I best sequence my resume updates to maximize ATS compatibility and increase interview callbacks?"
+    }
+   ],
+   "group": "multi_session_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: integrate key ATS optimization concepts from your course progres",
+     "LLM response should state: highlight your recent interview feedback and quantified achievements",
+     "LLM response should state: prominently featuring your completed digital media leadership courses with high scores",
+     "LLM response should state: tailor each resume version to specific job descriptions to maximize ATS compatibility and interview callbacks"
+    ],
+    "probe_sha256": "5e6f505ce48dc61961c5182ccf88fd903fd4bfbaa46923366faaffe07875917b"
+   }
+  },
+  {
+   "id": "conv6:preference_following:0",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I'm updating my portfolio and want to include some samples. What types of content would you suggest I add?"
+    }
+   ],
+   "group": "preference_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: suggests adding video samples",
+     "LLM response should contain: mentions video as a key content type",
+     "LLM response should contain: prioritizes dynamic or multimedia content over static images"
+    ],
+    "probe_sha256": "7749ce1a23db1aafc8807da91cd17c25b58fb14e36dfb6d6354cc9e0a9244e32"
+   }
+  },
+  {
+   "id": "conv6:preference_following:1",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I'm applying for a job in the UK. How should I format it?"
+    }
+   ],
+   "group": "preference_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: mentions UK-specific ATS formatting",
+     "LLM response should contain: avoids suggesting a one-size-fits-all resume template"
+    ],
+    "probe_sha256": "22b2851cb9904656b4c2f26d100591c5b0b654d16deb570db8656d077e43a54b"
+   }
+  },
+  {
+   "id": "conv6:summarization:0",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you give me a summary of how I worked on improving my resume and job application strategy over time?"
+    }
+   ],
+   "group": "summarization",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: you received advice on tailoring your resume to highlight relevant skills, achievements, and recent experience",
+     "LLM response should contain: considered involving your partner Joshua, who has expertise in project budgeting and networking, to help optimize your resume with keyword integration",
+     "LLM response should contain: explored adding a section on your work with diverse Caribbean communities to showcase cultural competence",
+     "LLM response should contain: you used tools like Jobscan to improve keyword matching and received guidance on formatting, quantifying achievements, and including a professional summary",
+     "LLM response should contain: you planned to incorporate transferable skills such as remote team leadership, emphasizing adaptability and strategic planning"
+    ],
+    "probe_sha256": "9b929aa82a3236a63890c37d1c25b97201fef74a35a83b270ded9c6402d3c0b6"
+   }
+  },
+  {
+   "id": "conv6:summarization:1",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you summarize how my resume development and job application strategy progressed over the past few months?"
+    }
+   ],
+   "group": "summarization",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: you worked on tailoring your resume specifically for the film, television, and digital media industries, starting with defining your goals and gathering relevant information",
+     "LLM response should contain: You focused on creating a professional summary and structuring your resume with clear sections, incorporating strong action verbs and integrating your portfolio",
+     "LLM response should contain: you adapted your resume design using Canva Pro, emphasizing simple templates, standard fonts, and avoiding graphics or tables",
+     "LLM response should contain: converted your resume to a text-based format and using ATS simulators for validation",
+     "LLM response should contain: you balanced your time between interview preparation and workshops by setting clear goals, creating structured daily schedules, and reducing social media usage",
+     "LLM response should contain: you leveraged feedback to further refine your resume by tailoring it to job descriptions, quantifying achievements and highlighting transferable skills",
+     "LLM response should contain: you sought to showcase your warm and charismatic nature effectively within your resume by using action verbs, providing specific examples of rapport-building",
+     "LLM response should contain: you updated your resume to reflect your latest certification and promotion, emphasizing these achievements in your professional summary, work experience, skills, and certifications sections"
+    ],
+    "probe_sha256": "e719a06cc5ecc6241089560add4f69e536ccd2c56ec6b30d70ccb04ad9053d14"
+   }
+  },
+  {
+   "id": "conv6:temporal_reasoning:0",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many days do I have between the deadline to tailor my resume for film, television, and digital media and the date I want to be ready to apply confidently for executive producer roles?"
+    }
+   ],
+   "group": "temporal_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 52 days",
+     "LLM response should state: from April 10, 2024 till June 1, 2024"
+    ],
+    "probe_sha256": "371f77aae16ef1f3b4bb70622dfc7e876e885f10a0a46d00f53863bf8b184e98"
+   }
+  },
+  {
+   "id": "conv6:temporal_reasoning:1",
+   "corpus_id": "conv6",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many days were there between when I postponed my family reunion and when I planned to celebrate my promotion with Linda?"
+    }
+   ],
+   "group": "temporal_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 64 days",
+     "LLM response should state: from July 10 till September 12"
+    ],
+    "probe_sha256": "da143801a5aec940261ff7e2ca4fd764ff203b8eb1d0c8f72d263486534ee122"
+   }
+  },
+  {
+   "id": "conv13:abstention:0",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What was the atmosphere like during the February 20 book club discussion on 'The Poppy War' hosted by Kelly and I?"
+    }
+   ],
+   "group": "abstention",
+   "reference": {
+    "rubric": [
+     "Based on the provided chat, there is no information related to the atmosphere during the February 20 book club discussion"
+    ],
+    "probe_sha256": "4e7c430ab13b62732ed145140e35d3e052eb102435b550c1e42452bcf6247d41"
+   }
+  },
+  {
+   "id": "conv13:abstention:1",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What was discussed or decided during the March 20 book club meeting on 'The Nightingale' and 'The Witcher'?"
+    }
+   ],
+   "group": "abstention",
+   "reference": {
+    "rubric": [
+     "Based on the provided chat, there is no information related to the discussions or decisions made during the March 20 book club meeting"
+    ],
+    "probe_sha256": "d12259456808088261f7ec6380dd345c54544175915b8cb8067f238b3e40490b"
+   }
+  },
+  {
+   "id": "conv13:contradiction_resolution:0",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Have I ever met Kelly at any book club or library event?"
+    }
+   ],
+   "group": "contradiction_resolution",
+   "reference": {
+    "rubric": [
+     "LLM response should state: there is contradictory information",
+     "LLM response should mention: You said you met Kelly at a book club event",
+     "LLM response should mention: you also mentioned that you've never met her at any book club or library event",
+     "LLM response should mention: which statement is correct?"
+    ],
+    "probe_sha256": "c8aea14b307d0732195ef596da6e601120a9da1cad2b6378bf8936bb06782626"
+   }
+  },
+  {
+   "id": "conv13:contradiction_resolution:1",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Have I ever listened to any audiobooks narrated by the person recommended for \"The Poppy War\"?"
+    }
+   ],
+   "group": "contradiction_resolution",
+   "reference": {
+    "rubric": [
+     "LLM response should state: there is contradictory information",
+     "LLM response should mention: You said you started listening to the audiobook narrated by the recommended narrator",
+     "LLM response should mention: you also mentioned you've never listened to any audiobook narrated by that person",
+     "LLM response should mention: which statement is correct?"
+    ],
+    "probe_sha256": "94ea720c940b583bbc852877f2f15237dce561f81353f8511251c9aab5431769"
+   }
+  },
+  {
+   "id": "conv13:event_ordering:0",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you list the order in which I brought up different aspects of my book club activities throughout our conversations in order? Mention ONLY and ONLY five items."
+    }
+   ],
+   "group": "event_ordering",
+   "reference": {
+    "rubric": [
+     "Meeting Kelly and book recommendations",
+     "Missing a meeting and discussion recap",
+     "Rescheduling concerns linked to a reading session",
+     "Hosting a discussion and planning next reads",
+     "Balancing discussions with others referencing Kelly"
+    ],
+    "probe_sha256": "c61d306b27a4875d8d3c606501a426665312a0352145e95befcf1019ab684a03"
+   }
+  },
+  {
+   "id": "conv13:event_ordering:1",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you walk me through the order in which I brought up different shared entertainment interests with Douglas throughout our conversations, in order? Mention ONLY and ONLY six items."
+    }
+   ],
+   "group": "event_ordering",
+   "reference": {
+    "rubric": [
+     "New fiction series to read",
+     "Fantasy-historical fiction blend discussion",
+     "Audiobook commute consideration",
+     "Series to deepen bond inspired by novella",
+     "Bookstore visit for fantasy authors",
+     "Literary festival panel and new historical fiction series"
+    ],
+    "probe_sha256": "cbd0ada9b8417b54512fa4308bf7b50510575a0556eb31bc6bfcac360b340abd"
+   }
+  },
+  {
+   "id": "conv13:information_extraction:0",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many series did I say were on my reading list, and what was the total page count?"
+    }
+   ],
+   "group": "information_extraction",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 7 series",
+     "LLM response should state: 4,200 pages"
+    ],
+    "probe_sha256": "0d684768e7201a470513fe185e5da7e0a4a1b3b31cf6f8c9e2b14fc5983399a8"
+   }
+  },
+  {
+   "id": "conv13:information_extraction:1",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How did you help me balance my spending to get a variety of print books while staying within my set limits?"
+    }
+   ],
+   "group": "information_extraction",
+   "reference": {
+    "rubric": [
+     "LLM response should state: suggested several combinations of fiction series that fit within your $120 budget for print editions from Montserrat Books",
+     "LLM response should state: outlining options that mix different series priced between $30 and $50 each to maximize variety without exceeding your allocation"
+    ],
+    "probe_sha256": "00d4ce7219fdeb6b34692881053af169a18b835ed14d10ba5b27ebb61a635a60"
+   }
+  },
+  {
+   "id": "conv13:instruction_following:0",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you suggest some good audiobooks for me to listen to?"
+    }
+   ],
+   "group": "instruction_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: mention of narrator names",
+     "LLM response should contain: narrator information included with recommendations"
+    ],
+    "probe_sha256": "925b1b4dca5c7630c72e61a19e722638b2832aef0eca0316b44af3fed401d348"
+   }
+  },
+  {
+   "id": "conv13:instruction_following:1",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What are some good books I should check out?"
+    }
+   ],
+   "group": "instruction_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: explanation of genre characteristics",
+     "LLM response should contain: context about the style or themes of the genre"
+    ],
+    "probe_sha256": "da24a851ca2b5bab686fb320dfb27b3775048fe93b959a2988acf44a4bfd14eb"
+   }
+  },
+  {
+   "id": "conv13:knowledge_update:0",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many books am I aiming to read in my winter reading challenge?"
+    }
+   ],
+   "group": "knowledge_update",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 12 books by March 1"
+    ],
+    "probe_sha256": "f7d72193cc9b7698b92684b16ee0bead3520a23df7f0ccd1d20c7af4981feb1f"
+   }
+  },
+  {
+   "id": "conv13:knowledge_update:1",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is my monthly budget for books and subscriptions?"
+    }
+   ],
+   "group": "knowledge_update",
+   "reference": {
+    "rubric": [
+     "LLM response should state: $50"
+    ],
+    "probe_sha256": "2351423715665145a4f7c7b4e06d61f052e70e830da5c9d7cad0789b65ecb830"
+   }
+  },
+  {
+   "id": "conv13:multi_session_reasoning:0",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many different book series or genres have I mentioned wanting to explore across my conversations?"
+    }
+   ],
+   "group": "multi_session_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: Four different series",
+     "LLM response should state: three fiction series from Montserrat Books",
+     "LLM response should state: one sci-fi series for the live chat"
+    ],
+    "probe_sha256": "8b386fa75e8941378c09a5055795d035c6c45d100aea45e033a8c723213334fc"
+   }
+  },
+  {
+   "id": "conv13:multi_session_reasoning:1",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Considering my choices and preferences across all sessions, how does my reading plan balance shorter series and longer commitments while fitting my time constraints and enjoyment goals?"
+    }
+   ],
+   "group": "multi_session_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: You prioritized shorter series like \"The Poppy War\" trilogy due to positive community feedback and fit with your reading goals",
+     "LLM response should state: planning to tackle the longer \"The Expanse\" series later by mixing print and audiobooks to manage time and maintain engagement"
+    ],
+    "probe_sha256": "cb20a38efe47b8253344215b7b210396f84e8dc7eb0f6842778af97d79b32e1c"
+   }
+  },
+  {
+   "id": "conv13:preference_following:0",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I'm looking to add some new books to my collection and also want something easy to carry around. What would you suggest?"
+    }
+   ],
+   "group": "preference_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: suggests e-books for convenience or portability",
+     "LLM response should contain: balances both formats in recommendations"
+    ],
+    "probe_sha256": "874e0d6c71ad75cf35f0b0efb36c5f02cfe0aab4655daacbb550be30e79cf789"
+   }
+  },
+  {
+   "id": "conv13:preference_following:1",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I'm planning my reading list for the next few weeks. Can you suggest some books for me?"
+    }
+   ],
+   "group": "preference_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: recommends both standalone novels and series",
+     "LLM response should contain: balances suggestions between series and standalone books"
+    ],
+    "probe_sha256": "2bca0870aabb1c9474650f6c2b4777ec071bda8437a52fe0abf8a011be557062"
+   }
+  },
+  {
+   "id": "conv13:summarization:0",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you summarize how my reading goals and strategies have developed over time based on our conversations?"
+    }
+   ],
+   "group": "summarization",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: a detailed schedule was created prioritizing series like \"The Kingkiller Chronicle,\" \"The Mistborn Trilogy,\" and \"The Broken Empire,\"",
+     "LLM response should contain: you expressed concerns about staying on track, especially after completing 1,200 pages of \"The Stormlight Archive\" by December 1",
+     "LLM response should contain: you incorporated audiobooks into your routine, particularly for evening listening, which helped balance your reading load and maintain momentum",
+     "LLM response should contain: Motivational strategies were also discussed, including setting smaller daily goals, creating a cozy reading environment",
+     "LLM response should contain: you refined your goals by focusing on finishing 1,500 pages of \"The Expanse\" by March 15, averaging 75 pages daily",
+     "LLM response should contain: after completing the first three books of \"The Expanse,\" you chose \"The Nightingale\" by Kristin Hannah to diversify your reading experience"
+    ],
+    "probe_sha256": "ae0fd381f28c712f79d9bb135ee661853b35150a412f1faf7f88bddd8ddaaeb4"
+   }
+  },
+  {
+   "id": "conv13:summarization:1",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you give me a summary of how my plans and decisions around choosing and budgeting for fiction books evolved over our conversations?"
+    }
+   ],
+   "group": "summarization",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: you set a $120 budget for print editions from Montserrat Books and explored various must-read fantasy series combinations that fit within this limit",
+     "LLM response should contain: you considered the suitability of \"The Poppy War\" trilogy for your winter reading challenge, recognizing its engaging narrative and manageable length",
+     "LLM response should contain: You sought advice on balancing print editions for rereading with audiobooks for new releases, aiming to optimize your reading experience across formats",
+     "LLM response should contain: Budget constraints became more prominent when you evaluated whether to enter a \"The Witcher\" fan fiction contest given your limited remaining funds",
+     "LLM response should contain: you reflected on your recent purchase of the \"Outlander\" box set, assessing its fit for your winter reading preferences and appreciating its rich historical storytelling"
+    ],
+    "probe_sha256": "d97349ac5dff277e7796276daa9cd85f66dbab0ffa15e3bde82979e881612131"
+   }
+  },
+  {
+   "id": "conv13:temporal_reasoning:0",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many days did it take me to finish reading the trilogy after I downloaded it?"
+    }
+   ],
+   "group": "temporal_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 12 days"
+    ],
+    "probe_sha256": "992de41fff1f5cdb17bb08e141ff0b0df7961c0967ecf91dbbc700d10a5a0786"
+   }
+  },
+  {
+   "id": "conv13:temporal_reasoning:1",
+   "corpus_id": "conv13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many days do I have to finish reading the first four Outlander books after my freelance editing job starts?"
+    }
+   ],
+   "group": "temporal_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 114 days",
+     "LLM response should state: from March 8  till June 30"
+    ],
+    "probe_sha256": "4281535a0adcdba0f1a2bb68c7535ba5983aeac2b19e2cdc61866f40dea42218"
+   }
+  },
+  {
+   "id": "conv17:abstention:0",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What mindfulness techniques were introduced to reduce stress to 4/10 by May 1?"
+    }
+   ],
+   "group": "abstention",
+   "reference": {
+    "rubric": [
+     "Based on the provided chat, there is no information related to the specific mindfulness techniques introduced"
+    ],
+    "probe_sha256": "1873fafc3e3429907e03416efe069b82859d6bb39f637992c4ee05621c9e9429"
+   }
+  },
+  {
+   "id": "conv17:abstention:1",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What was the atmosphere like at the dinner celebrating the casting completion on April 20?"
+    }
+   ],
+   "group": "abstention",
+   "reference": {
+    "rubric": [
+     "Based on the provided chat, there is no information related to the atmosphere of the April 20 dinner"
+    ],
+    "probe_sha256": "e15b8dfb91351baa84d1862ba879b9601087ebdfcb6fd10c89d960c6c654de0f"
+   }
+  },
+  {
+   "id": "conv17:contradiction_resolution:0",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Have I ever declined meetings to protect my writing time?"
+    }
+   ],
+   "group": "contradiction_resolution",
+   "reference": {
+    "rubric": [
+     "LLM response should state: there is contradictory information",
+     "LLM response should mention: You said you declined a meeting to protect your writing time",
+     "LLM response should mention: you also mentioned that you've never declined any meetings",
+     "LLM response should mention: which statement is correct?"
+    ],
+    "probe_sha256": "1f4d86278ebfad4c4f9d0551d3c4730746a1b05805035f767f8c0a21307c5c5d"
+   }
+  },
+  {
+   "id": "conv17:contradiction_resolution:1",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Have I ever attended any location scouts with Jeremy?"
+    }
+   ],
+   "group": "contradiction_resolution",
+   "reference": {
+    "rubric": [
+     "LLM response should state: there is contradictory information",
+     "LLM response should mention: You said you coordinated a location scout with Jeremy",
+     "LLM response should mention: you also mentioned that you've never attended any location scouts with Jeremy",
+     "LLM response should mention: which statement is correct?"
+    ],
+    "probe_sha256": "eff486778dc4a783a05ae41773c22f115a022e418c1d3afc5b6e175a7ac4ef91"
+   }
+  },
+  {
+   "id": "conv17:event_ordering:0",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you list the order in which I brought up different strategies and support options for managing my workload throughout our conversations in order? Mention ONLY and ONLY five items."
+    }
+   ],
+   "group": "event_ordering",
+   "reference": {
+    "rubric": [
+     "Mentor advice on schedule management",
+     "Task organization tools inspired by mentor",
+     "Hiring agency for delegation",
+     "Considering part-time assistant",
+     "Review meeting with mentor on engagement"
+    ],
+    "probe_sha256": "42a9db51c5935985ce542fa9de8e6405ed0690406b6f17ae3e367c6cceeef973"
+   }
+  },
+  {
+   "id": "conv17:event_ordering:1",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you list the order in which I brought up different aspects of my creative collaborations and related plans throughout our conversations in order? Mention ONLY and ONLY six items."
+    }
+   ],
+   "group": "event_ordering",
+   "reference": {
+    "rubric": [
+     "Balancing time with creative contact",
+     "Weekend retreat stress and productivity",
+     "Collaboration on storyboard and visuals",
+     "Virtual brainstorming and prioritization",
+     "Workshop planning with local artists",
+     "Backup plans for workshop"
+    ],
+    "probe_sha256": "bbd5c1d3153da23f22250b221dcf057b071174d92ee2125370ee05b2f6aca83f"
+   }
+  },
+  {
+   "id": "conv17:information_extraction:0",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Which days did I say my kids have their afterschool activities at their school?"
+    }
+   ],
+   "group": "information_extraction",
+   "reference": {
+    "rubric": [
+     "LLM response should state: on Tuesdays and Thursdays"
+    ],
+    "probe_sha256": "4cbe51d018bd9a02028fcc3956a8c4829229cee501172bffad093d7ed52674ac"
+   }
+  },
+  {
+   "id": "conv17:information_extraction:1",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How did I plan to make the most of my regular video calls with that experienced industry professional to improve how I handle my busy schedule?"
+    }
+   ],
+   "group": "information_extraction",
+   "reference": {
+    "rubric": [
+     "LLM response should state: You planned to prepare specific questions about managing multiple projects",
+     "LLM response should state: You planned setting boundaries between work and personal life",
+     "LLM response should state: you ask for targeted advice during your weekly video calls",
+     "LLM response should state: you follow up afterward with a thank-you email summarizing the key points discussed and your intended actions"
+    ],
+    "probe_sha256": "345f9f39685dd53123794b7732cf9e2d36f457c546104befed2e248319aa362a"
+   }
+  },
+  {
+   "id": "conv17:instruction_following:0",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "When is my meetings at Montserrat Studios?"
+    }
+   ],
+   "group": "instruction_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: date shown as MM/DD/YYYY"
+    ],
+    "probe_sha256": "91e3f34aad392ec343fe5cf1f359fd91069d24fb9256a48d2ee9d976e7e23ccb"
+   }
+  },
+  {
+   "id": "conv17:instruction_following:1",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "When was my meetings at East Janethaven Library?"
+    }
+   ],
+   "group": "instruction_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: date shown as MM/DD/YYYY"
+    ],
+    "probe_sha256": "959b92e612b41e84e2fe23cd0747a32c746723e0632961494becf8acca646f94"
+   }
+  },
+  {
+   "id": "conv17:knowledge_update:0",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is the total budget allocated for post-production software licenses including any additional plugins?"
+    }
+   ],
+   "group": "knowledge_update",
+   "reference": {
+    "rubric": [
+     "LLM response should state: $6,200"
+    ],
+    "probe_sha256": "14944bd83ffd71571f69b229b60183317e02952551a57f958b13179e8455dc56"
+   }
+  },
+  {
+   "id": "conv17:knowledge_update:1",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many days are scheduled for the sound mixing sessions with Jeremy?"
+    }
+   ],
+   "group": "knowledge_update",
+   "reference": {
+    "rubric": [
+     "LLM response should state: Five days"
+    ],
+    "probe_sha256": "37445f11372e496c4bc1d6de0ae7ad5b486945c033c9eba1b810272499abe4bf"
+   }
+  },
+  {
+   "id": "conv17:multi_session_reasoning:0",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many scenes had I filmed in total by July 5 and how many were left to film after that?"
+    }
+   ],
+   "group": "multi_session_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: had filmed 12 scenes",
+     "LLM response should state: had 4 scenes left to film"
+    ],
+    "probe_sha256": "29ddcfc1d42a60e76ad8e32c62fc08f69f7d2b7fd1fd48c60556fb28a91a394b"
+   }
+  },
+  {
+   "id": "conv17:multi_session_reasoning:1",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many different types of reminders or plans have I mentioned using to manage my tasks and family events?"
+    }
+   ],
+   "group": "multi_session_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: Three types",
+     "LLM response should state: Todoist for daily and weekend plans",
+     "LLM response should state: Google Calendar for family appointments and school events",
+     "LLM response should state: Asana for pilot deadlines"
+    ],
+    "probe_sha256": "68f0ce48822ef44d2be40f3e189ee34b1107c938344b76afff4dbab67debc24a"
+   }
+  },
+  {
+   "id": "conv17:preference_following:0",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How can I organize my workday to make the most of my productivity?"
+    }
+   ],
+   "group": "preference_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: recommends dedicated morning blocks for creative tasks"
+    ],
+    "probe_sha256": "063c0bd54c2f7e0f8621f16be389b92f8f67b12a4627906a4672bd8730417b4d"
+   }
+  },
+  {
+   "id": "conv17:preference_following:1",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you help me organize my tasks so I can easily update and share them with others?"
+    }
+   ],
+   "group": "preference_following",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: recommends digital platforms for task management",
+     "LLM response should contain: mentions features like real-time updates or collaboration"
+    ],
+    "probe_sha256": "50ec43ec76bb79d66b8c9bdf41934153ae72e06586a6522a0fe59fdd80da3660"
+   }
+  },
+  {
+   "id": "conv17:summarization:0",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you give me a summary of how I've been managing my time, stress, and creative collaborations throughout our recent conversations?"
+    }
+   ],
+   "group": "summarization",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: you expressed concerns about managing time between work and friends like Carla",
+     "LLM response should contain: you incorporated mindfulness, regular exercise, and structured breaks into your routine, alongside strategies for realistic goal setting",
+     "LLM response should contain:  You also integrated task management tools like Todoist to organize both daily responsibilities and special events",
+     "LLM response should contain: you planned collaborative creative sessions, including workshops with local artists, ensuring clear communication and contingency plans for scheduling conflicts",
+     "LLM response should contain: your approach evolved to emphasize maintaining meaningful relationships, managing stress proactively, and organizing tasks effectively"
+    ],
+    "probe_sha256": "a97f316caacb85211bad3644fbfcf5f4d53ad7b597694be3fd318d6f61a61dfc"
+   }
+  },
+  {
+   "id": "conv17:summarization:1",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you give me a summary of how my pilot episode project timeline and tasks have developed and changed throughout our conversations?"
+    }
+   ],
+   "group": "summarization",
+   "reference": {
+    "rubric": [
+     "LLM response should contain: a detailed plan was established to meet the June 30, 2024 deadline within a $120,000 budget, outlining pre-production, production, and post-production phases with specific milestones",
+     "LLM response should contain: the schedule was adjusted to focus on completing the script by the end of April, with location scouting postponed to early May",
+     "LLM response should contain: due to casting delays communicated on April 28, the delivery date was pushed back to July 15, prompting a reassessment of the timeline",
+     "LLM response should contain: By early July, with 75% of the pilot complete and post-production underway, a detailed daily plan was created to film remaining scenes",
+     "LLM response should contain: as the project progressed into later stages, further prioritization was needed to manage editing and color grading tasks"
+    ],
+    "probe_sha256": "dfca0197cf5e903303df7fcbeff3d6e227de5f2308666a16a22cbc833ba96991"
+   }
+  },
+  {
+   "id": "conv17:temporal_reasoning:0",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many days passed between when I had the 3 PM meeting I wanted to protect my writing block from and when I rescheduled the client meeting from 11 AM to 4 PM?"
+    }
+   ],
+   "group": "temporal_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 15 days",
+     "LLM response should state: from March 14 till March 29"
+    ],
+    "probe_sha256": "01961147c7ef9dfba2434658fe1c2ee8d830842869afe514940ab9206d6435dd"
+   }
+  },
+  {
+   "id": "conv17:temporal_reasoning:1",
+   "corpus_id": "conv17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many days passed between when I finished casting and when my pilot episode was 75% complete?"
+    }
+   ],
+   "group": "temporal_reasoning",
+   "reference": {
+    "rubric": [
+     "LLM response should state: 46 days",
+     "LLM response should state: from April 20 till July 5"
+    ],
+    "probe_sha256": "c93c22e52fe09d40bf6621b4d524440a3c5e9ce6dd6953774cf6374e6000e58a",
+    "known_bad_rubric": "The rubric says 46 days from April 20 to July 5, which is 76 days."
+   }
+  }
+ ]
+}

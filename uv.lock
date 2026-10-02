@@ -143,6 +143,7 @@ weaviate = [
 [package.dev-dependencies]
 benchmarks = [
     { name = "huggingface-hub" },
+    { name = "pyarrow" },
     { name = "rouge-score" },
     { name = "tiktoken" },
 ]
@@ -216,6 +217,7 @@ provides-extras = ["docling", "embed-local", "qdrant", "weaviate", "milvus", "ne
 [package.metadata.requires-dev]
 benchmarks = [
     { name = "huggingface-hub", specifier = ">=0.30" },
+    { name = "pyarrow", specifier = ">=15" },
     { name = "rouge-score", specifier = ">=0.1.2" },
     { name = "tiktoken" },
 ]

@@ -1,0 +1,16 @@
+These fixtures list probing questions, rubrics, reference items and document hashes of
+BEAM. They hold the question and rubric text of the dataset, and no chat text. The
+harness fetches the chat at run time.
+
+Source: https://huggingface.co/datasets/Mohammadta/BEAM, at the revision pinned in
+benchmarks/datasets/memory.py. The data is under CC BY-SA 4.0, so the questions and
+rubrics here keep that license. The benchmark code
+(https://github.com/mohammadtavakoli78/BEAM) is under the MIT license. The chat text
+has its own terms: see benchmarks/results/NOTICE.
+
+Selection: lite.json holds 2 probing questions on 3 messages of conversation 17. full.json
+holds 100 questions, which are the first two probing questions of each of the 10
+abilities for each of conversations 1, 4, 6, 13 and 17, on whole sessions.
+
+Builder: benchmarks/fixtures/builders/memory.py. Run
+"uv run python -m benchmarks.fixtures.builders.memory" to rebuild both files.

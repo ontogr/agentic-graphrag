@@ -116,6 +116,7 @@ benchmarks = [
   "huggingface_hub>=0.30",
   "tiktoken",
   "rouge-score>=0.1.2",
+  "pyarrow>=15",
 ]
 
 [tool.ruff]

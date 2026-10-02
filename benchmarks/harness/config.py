@@ -102,6 +102,21 @@ RUN_LIMITS: dict[tuple[str, str], RunLimits] = {
             judge_tokens_per_call=400,
         ),
     ),
+    # Measured on one Memory lite run: 3 chunks gave 5 ingest calls and 22k ingest
+    # tokens, and 2 questions took 13 agent calls and 49k agent tokens. These are
+    # floors for a corpus this small, so they under-estimate a larger one.
+    ("memory", "lite"): RunLimits(
+        max_llm_pairs=10,
+        recursion_limit=30,
+        max_research_attempts=1,
+        cost=CostModel(
+            calls_per_chunk=2,
+            tokens_per_chunk=8_000,
+            agent_calls_per_question=7,
+            agent_tokens_per_question=25_000,
+            judge_tokens_per_call=1_000,
+        ),
+    ),
 }
 
 SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
@@ -111,6 +126,8 @@ SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
     ("financial", "full"): SpendCap(llm_calls=16_000, tokens=170_000_000),
     ("graphrag_general", "lite"): SpendCap(llm_calls=100, tokens=500_000),
     ("graphrag_general", "full"): SpendCap(llm_calls=31_500, tokens=179_000_000),
+    ("memory", "lite"): SpendCap(llm_calls=40, tokens=120_000),
+    ("memory", "full"): SpendCap(llm_calls=17_000, tokens=133_900_000),
 }
 
 # About 1000 tokens per chunk, counted with the tokenizer agrag uses elsewhere.
