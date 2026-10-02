@@ -1180,11 +1180,10 @@ async def _global_exact_match(
             },
         )
         for row in rows:
-            node = row.get("n") if isinstance(row, dict) and "n" in row else row
-            entity = parse_entity_node(node) or parse_entity_node(row)
+            entity = parse_entity_node(row.get("n"))
             if entity is None:
                 continue
-            queried_mk = row.get("merge_key") if isinstance(row, dict) else None
+            queried_mk = row.get("merge_key")
             mk = queried_mk if isinstance(queried_mk, str) else entity.merge_key
             for idx in mk_to_indices.get(mk, []):
                 if mentions[idx].label == entity.label:

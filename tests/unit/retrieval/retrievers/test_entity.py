@@ -49,8 +49,8 @@ def _graph_store(
                 {
                     "n": {
                         "id": str(entity.id),
-                        "labels": [entity.label],
-                        "properties": {"name": entity.name},
+                        "name": entity.name,
+                        "merge_key": entity.merge_key,
                     }
                 }
                 for entity in entities

@@ -159,8 +159,8 @@ class TestText2CypherRowShapes:
                 {
                     "n": {
                         "id": str(entity_id),
-                        "labels": ["Person"],
-                        "properties": {"name": "Alice"},
+                        "name": "Alice",
+                        "merge_key": "Person:alice",
                     }
                 }
             ]
@@ -219,8 +219,8 @@ class TestText2CypherRowShapes:
                 {
                     "n": {
                         "id": str(healthy_id),
-                        "labels": ["Person"],
-                        "properties": {"name": "Alice"},
+                        "name": "Alice",
+                        "merge_key": "Person:alice",
                     }
                 }
             ]

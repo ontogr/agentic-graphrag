@@ -45,16 +45,13 @@ def _named(spans: tuple[ReadableSpan, ...], name: str) -> list[ReadableSpan]:
 
 
 def _entity_node(entity_id) -> dict:
-    """Return one entity node in the mock wire shape."""
+    """Return one stored entity node."""
     return {
         "id": str(entity_id),
-        "labels": ["Person"],
-        "properties": {
-            "name": "Alice",
-            "merge_key": "Person:alice",
-            "merge_count": 1,
-            "source_chunk_ids": [],
-        },
+        "name": "Alice",
+        "merge_key": "Person:alice",
+        "merge_count": 1,
+        "source_chunk_ids": [],
     }
 
 
@@ -309,6 +306,36 @@ class TestEntityRetrieverSpans:
         searches = _named(spans, "agrag.retrieval.vector_search")
         assert len(searches) == 2
 
+    async def test_a_failing_hydration_read_is_recorded_and_returns_nothing(
+        self,
+    ) -> None:
+        """A failed entity read returns no results and leaves the span unset."""
+        provider, exporter = _provider()
+        tracer = provider.get_tracer("t")
+        hits = [VectorHit(id=uuid4(), score=0.9, payload={})]
+        store = _vector_searching_store(hits)
+
+        async def _read(query, params=None, **kwargs):
+            if "ResolvedEntity" in query or "MATCHES" in query:
+                return []
+            raise RuntimeError("read failed")
+
+        store.execute_read.side_effect = _read
+        retriever = EntityRetriever(
+            graph_store=store,
+            embedder=_MockEmbedder(),
+            settings=RetrievalSettings(),
+            entity_labels=["Person"],
+            tracer=tracer,
+        )
+
+        results = await retriever.retrieve("q")
+
+        assert results == []
+        entity_span = _named(exporter.get_finished_spans(), "agrag.retrieval.entity")[0]
+        assert [e for e in entity_span.events if e.name == "exception"]
+        assert entity_span.status.status_code.name != "ERROR"
+
     async def test_tracer_none_leaves_the_host_span_untouched(self) -> None:
         """An untraced EntityRetriever marks no host span."""
         provider, exporter = _provider()
@@ -419,7 +446,7 @@ class TestText2CypherSpans:
         await retriever.retrieve("who knows alice")
 
         hydrates = _named(
-            exporter.get_finished_spans(), "agrag.retrieval.hydrate_entities"
+            exporter.get_finished_spans(), "agrag.graphdb.hydrate_entities"
         )
         assert len(hydrates) == 1
         attributes = hydrates[0].attributes

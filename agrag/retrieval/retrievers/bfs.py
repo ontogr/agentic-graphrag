@@ -120,12 +120,7 @@ class BFSRetriever(Retriever):
             seen_ids: set[UUID] = set()
 
             for row in rows:
-                neighbor = (
-                    row.get("neighbor")
-                    if isinstance(row, dict) and "neighbor" in row
-                    else row
-                )
-                entity = parse_entity_node(neighbor)
+                entity = parse_entity_node(row.get("neighbor"))
                 if entity is None:
                     continue
 

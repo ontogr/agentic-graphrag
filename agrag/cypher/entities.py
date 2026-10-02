@@ -416,22 +416,16 @@ def clear_chunk_embedding_query(vector_property: str) -> str:
 
 
 def hydrate_entities_by_id_query() -> str:
-    """Build Cypher fetching entities by id.
-
-    Pending visibility is job-scoped: the merge-apply and pruning paths
-    run inside their own job's pending phase and must see the entities
-    that same job just wrote, while still excluding every other
-    in-flight job's. A null ``$job_id`` reduces the guard to
-    committed-only, which is what every caller outside a job passes.
+    """Build Cypher fetching committed entities by id.
 
     Returns:
-        Parameterized Cypher expecting $ids (list of string ids) and
-        $job_id (the in-flight job's id, or null outside a job).
+        Parameterized Cypher expecting $ids (list of string ids). Nodes an
+        in-flight Cutover Job wrote are excluded.
     """
     return (
         f"UNWIND $ids AS id "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: id}}) "
-        f"WHERE (n._pending_job_id IS NULL OR n._pending_job_id = $job_id) "
+        f"WHERE n._pending_job_id IS NULL "
         f"RETURN n"
     )
 

@@ -30,6 +30,7 @@ from agrag.cypher.resolution_write import (
     upsert_matches_query,
 )
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.entities import hydrate_entities
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion.merge import compute_merge
 from agrag.ingestion.resolve.resolver import ResolvedMatch
@@ -464,8 +465,6 @@ async def prune_orphaned_entities(
     Only the supplied candidates are ever deleted. Evidence is checked per
     candidate id, never with a graph-wide scan.
     """
-    from agrag.cypher.entities import hydrate_entities_by_id_query  # noqa: PLC0415
-
     unique_ids = list(dict.fromkeys(candidate_entity_ids))
     empty = PruningResult(
         removed_entity_ids=[],
@@ -508,25 +507,13 @@ async def prune_orphaned_entities(
     rematerialized: list[ResolvedEntity] = []
     for resolved_id, member_ids in clusters.items():
         remaining_ids = [m for m in dict.fromkeys(member_ids) if m not in removed_set]
-        hydrate_rows = (
-            await graph_store.execute_read(
-                hydrate_entities_by_id_query(), {"ids": remaining_ids, "job_id": None}
-            )
-            if remaining_ids
-            else []
-        )
-        members = [
-            entity
-            for row in hydrate_rows
-            if (
-                entity := parse_entity_node(
-                    row.get("member", row.get("n", row))
-                    if isinstance(row, dict)
-                    else row
+        members = list(
+            (
+                await hydrate_entities(
+                    graph_store, [UUID(m) for m in remaining_ids], tracer=tracer
                 )
-            )
-            is not None
-        ]
+            ).values()
+        )
         if len(members) >= 2:
             async with graph_store.transaction() as transaction:
                 replacement_rows = await transaction.execute_write(

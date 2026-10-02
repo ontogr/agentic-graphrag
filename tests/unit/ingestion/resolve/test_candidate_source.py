@@ -16,6 +16,12 @@ reads: ``build_relation_neighbors`` from a batch's own extraction, and
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.ingestion.resolve.candidate_source import (
@@ -160,8 +166,8 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
             {
                 "n": {
                     "id": str(entity_id),
-                    "labels": ["Show", "_AgragNode"],
-                    "properties": {"name": "Star Trek: Voyager"},
+                    "name": "Star Trek: Voyager",
+                    "merge_key": "Show:star trek: voyager",
                 }
             }
         ]
@@ -218,6 +224,34 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
             )
 
         assert candidates == []
+
+    async def test_a_failing_hydration_read_yields_no_candidates(self) -> None:
+        """A failed read returns no candidates and records the error."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        graph_store = AsyncMock()
+        graph_store.execute_read.side_effect = RuntimeError("read failed")
+        source = GraphCandidateSource(
+            graph_store=graph_store,
+            embedder=MockEmbedder(),
+            vector_store=AsyncMock(),
+            vector_collection="entities",
+        )
+
+        with (
+            provider.get_tracer("t").start_as_current_span("probe"),
+            patch(
+                "agrag.ingestion.resolve.candidate_source.vector_search",
+                new_callable=AsyncMock,
+                return_value=[VectorHit(id=uuid4(), score=0.9, payload={})],
+            ),
+        ):
+            candidates = await source.global_candidates_for(_mention("Alice"))
+
+        assert candidates == []
+        probe = next(s for s in exporter.get_finished_spans() if s.name == "probe")
+        assert [e for e in probe.events if e.name == "exception"]
 
     async def test_native_path_validates_payload_directly(self) -> None:
         """With no VectorStore, the native payload already has the real name.
@@ -279,8 +313,8 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
             {
                 "n": {
                     "id": str(kept_id),
-                    "labels": ["Show", "_AgragNode"],
-                    "properties": {"name": "Voyager"},
+                    "name": "Voyager",
+                    "merge_key": "Show:voyager",
                 }
             }
         ]
@@ -364,14 +398,11 @@ class TestExactMatchLookup:
                 {
                     "n": {
                         "id": str(eid),
-                        "labels": ["Person"],
-                        "properties": {
-                            "name": "Alice",
-                            "merge_key": "Person:alice",
-                            "merge_count": 1,
-                            "source_chunk_ids": [],
-                            "created_at": "2020-01-01T00:00:00+00:00",
-                        },
+                        "name": "Alice",
+                        "merge_key": "Person:alice",
+                        "merge_count": 1,
+                        "source_chunk_ids": [],
+                        "created_at": "2020-01-01T00:00:00+00:00",
                     }
                 }
             ],
@@ -383,8 +414,8 @@ class TestExactMatchLookup:
         assert 2 not in result
         assert store.execute_read.call_count == 2
 
-    async def test_handles_flat_row_and_missing(self) -> None:
-        """Handles flat row form and skips unparsable rows."""
+    async def test_skips_unparsable_rows(self) -> None:
+        """A row whose node is not a valid entity is skipped."""
         store = AsyncMock()
         cid = uuid4()
         entity_id = uuid4()
@@ -394,11 +425,13 @@ class TestExactMatchLookup:
         store.execute_read.side_effect = [
             [
                 {
-                    "id": str(entity_id),
-                    "merge_key": "Person:bob",
-                    "name": "Bob",
+                    "n": {
+                        "id": str(entity_id),
+                        "merge_key": "Person:bob",
+                        "name": "Bob",
+                    }
                 },
-                {"n": {"id": "bad", "labels": ["Person"], "properties": {}}},
+                {"n": {"id": "bad"}},
             ]
         ]
         result = await exact_match_lookup([m], graph_store=store)

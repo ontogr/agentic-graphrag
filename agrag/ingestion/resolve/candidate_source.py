@@ -7,13 +7,11 @@ from uuid import UUID
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.vector_record import VectorHit
-from agrag.cypher.entities import (
-    fetch_entity_neighbors_query,
-    hydrate_entities_by_id_query,
-)
+from agrag.cypher.entities import fetch_entity_neighbors_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.serialize import parse_entity_node
+from agrag.graphdb.entities import hydrate_entities
+from agrag.observability import record_swallowed_exception
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.settings import RetrievalSettings
@@ -226,27 +224,17 @@ class GraphCandidateSource(CandidateSource):
 
         Reconstructing the name from the payload's display text corrupts
         any name containing ":" (e.g. "Star Trek: Voyager"), so this fetches
-        the actual nodes instead.
+        the actual nodes instead. A failed read yields no candidates and is
+        recorded on the current span.
         """
-        ids = [str(hit.id) for hit in hits]
         try:
-            rows = await self.graph_store.execute_read(
-                hydrate_entities_by_id_query(), {"ids": ids, "job_id": None}
+            entities_by_id = await hydrate_entities(
+                self.graph_store, [hit.id for hit in hits]
             )
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            record_swallowed_exception(exc)
             return []
-        entities: list[Entity] = []
-        for row in rows:
-            try:
-                node = row.get("n") if isinstance(row, dict) and "n" in row else row
-                entity = parse_entity_node(node)
-                if entity is None:
-                    entity = parse_entity_node(row)  # type: ignore[arg-type]
-                if entity is not None and entity.label == label:
-                    entities.append(entity)
-            except Exception:
-                continue
-        return entities
+        return [entity for entity in entities_by_id.values() if entity.label == label]
 
 
 class PersistedCandidateSource(CandidateSource):

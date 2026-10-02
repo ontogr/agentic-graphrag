@@ -50,16 +50,13 @@ def _named(spans: tuple[ReadableSpan, ...], name: str) -> list[ReadableSpan]:
 
 
 def _entity_node(entity_id) -> dict:
-    """Return one entity node in the mock wire shape."""
+    """Return one stored entity node."""
     return {
         "id": str(entity_id),
-        "labels": ["Person"],
-        "properties": {
-            "name": "Alice",
-            "merge_key": "Person:alice",
-            "merge_count": 1,
-            "source_chunk_ids": [],
-        },
+        "name": "Alice",
+        "merge_key": "Person:alice",
+        "merge_count": 1,
+        "source_chunk_ids": [],
     }
 
 

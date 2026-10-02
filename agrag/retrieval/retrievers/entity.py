@@ -10,12 +10,11 @@ from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.common.validation import MAX_SEARCH_LIMIT
-from agrag.cypher.entities import hydrate_entities_by_id_query
 from agrag.cypher.relations import entities_in_documents_query
 from agrag.cypher.resolution_read import fetch_active_resolved_member_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.serialize import parse_entity_node
+from agrag.graphdb.entities import hydrate_entities
 from agrag.observability import get_tracer, record_swallowed_exception
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
@@ -187,38 +186,15 @@ class EntityRetriever(Retriever):
             if hits:
                 if allowed_ids is not None:
                     hits = [hit for hit in hits if str(hit.id) in allowed_ids]
-                ids = [str(h.id) for h in hits]
-                entities_by_id: dict[str, Entity] = {}
-                with get_tracer(self._tracer).start_as_current_span(
-                    "agrag.retrieval.hydrate_entities",
-                    attributes={"agrag.requested_count": len(hits)},
-                ) as hydrate:
-                    try:
-                        rows = await self._graph_store.execute_read(
-                            hydrate_entities_by_id_query(), {"ids": ids, "job_id": None}
-                        )
-
-                        for row in rows:
-                            try:
-                                node = (
-                                    row.get("n")
-                                    if isinstance(row, dict) and "n" in row
-                                    else row
-                                )
-                                ent = parse_entity_node(node)
-                                if ent is None:
-                                    ent = parse_entity_node(row)  # type: ignore[arg-type]
-                                if ent is not None:
-                                    entities_by_id[str(ent.id)] = ent
-                            except Exception:
-                                continue
-                    except Exception as exc:
-                        record_swallowed_exception(exc)
-                        entities_by_id = {}
-                    if hydrate.is_recording():
-                        hydrate.set_attribute(
-                            "agrag.hydrated_count", len(entities_by_id)
-                        )
+                entities_by_id: dict[UUID, Entity] = {}
+                try:
+                    entities_by_id = await hydrate_entities(
+                        self._graph_store,
+                        [hit.id for hit in hits],
+                        tracer=self._tracer,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    record_swallowed_exception(exc)
                 if active_member_ids is None:
                     active_member_ids = await self._active_resolved_member_ids(
                         [hit.id for hit in hits]
@@ -226,7 +202,7 @@ class EntityRetriever(Retriever):
                 for hit in hits:
                     if hit.id in active_member_ids:
                         continue
-                    entity = entities_by_id.get(str(hit.id))
+                    entity = entities_by_id.get(hit.id)
                     if entity is None:
                         continue
                     results.append(
