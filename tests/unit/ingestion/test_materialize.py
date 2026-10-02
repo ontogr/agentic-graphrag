@@ -197,6 +197,29 @@ class TestRematerializeComponents:
         assert upsert_matches_query() not in queries
         assert transaction.execute_write.await_args.args[1]["pending_job_id"] is None
 
+    async def test_memberships_carry_the_newest_committed_match_time(self) -> None:
+        """Rebuilt memberships keep the newest committed match decision time."""
+        first, second = _entity("Ada"), _entity("Ada Lovelace")
+        older = datetime(2026, 1, 1, tzinfo=UTC)
+        newer = datetime(2026, 2, 1, 12, 30, tzinfo=UTC)
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
+        )
+        transaction = store.current_transaction
+        transaction.execute_read.side_effect = [
+            [_member_row(first, first), _member_row(first, second)],
+            [{"decided_at": older.isoformat()}, {"decided_at": newer.isoformat()}],
+        ]
+        transaction.execute_write.return_value = [{"removed_resolved_entity_ids": []}]
+
+        await rematerialize_components([first.id], graph_store=store, schema=_schema())
+
+        records = transaction.upsert_relations.await_args.args[0]
+        assert [record.properties["decided_at"] for record in records] == [
+            newer.isoformat(),
+            newer.isoformat(),
+        ]
+
     async def test_seeds_in_one_component_rebuild_it_once(self) -> None:
         """A second seed that the first rebuild already covered is skipped."""
         first, second = _entity("Ada"), _entity("Ada Lovelace")

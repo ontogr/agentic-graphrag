@@ -45,6 +45,25 @@ def fetch_active_component_members_query() -> str:
     )
 
 
+def fetch_committed_component_decided_at_query() -> str:
+    """Build Cypher returning when each committed match of a component was decided.
+
+    Returns:
+        Parameterized Cypher expecting $seed_id (a string id). Returns one
+        row per distinct ``decided_at`` value among the active, committed
+        matches in the seed's component.
+    """
+    return (
+        f"MATCH (seed:{NODE_IDENTITY_LABEL} {{id: $seed_id}})"
+        f"-[matches:{MATCHES_RELATION}*1..]-(member:{NODE_IDENTITY_LABEL}) "
+        "WHERE ALL(match IN matches WHERE match.active = true "
+        "AND match._pending_job_id IS NULL) "
+        "AND seed._pending_job_id IS NULL AND member._pending_job_id IS NULL "
+        "UNWIND matches AS match "
+        "RETURN DISTINCT match.decided_at AS decided_at"
+    )
+
+
 def hydrate_resolved_entities_by_id_query() -> str:
     """Build Cypher hydrating materializations returned by vector search.
 
