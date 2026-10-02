@@ -68,14 +68,16 @@ class TestFixtures:
         assert len(manifest.questions) == 150
         assert themes == THEMES
 
-    def test_lite_has_one_question_and_three_passages(self):
-        """Lite has one question and the three passages that state its facts."""
+    def test_lite_has_one_question_and_five_passages(self):
+        """Lite has one question and the five passages that state its facts."""
         manifest = HealthcareAdapter().load("lite")
 
         assert len(manifest.questions) == 1
         assert [d.id for d in manifest.corpora[0].documents] == [
+            "article-28707_17",
             "article-30719_98",
             "article-30719_101",
+            "article-30719_103",
             "article-30720_46",
         ]
 

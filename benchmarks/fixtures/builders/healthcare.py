@@ -2,7 +2,7 @@
 
 The questions are a fixed selection of HealthBench Hard prompts. The full corpus is
 the union of the best 32 passages that the search rule finds for the last user turn
-of each question. The lite set is one question and three passages that the full
+of each question. The lite set is one question and five passages that the full
 corpus holds for it, so a lite run takes a few minutes. The search runs over the
 index that ``python -m benchmarks healthcare build-index`` makes. The script writes
 ``benchmarks/fixtures/healthcare/{lite,full}.json``.
@@ -54,10 +54,17 @@ THEME_COUNTS = {
     "emergency_referrals": 10,
 }
 # The lite question asks about a typhoid vaccine before travel to India. Its rubric
-# has three items, so grading costs three judge calls. The three passages state the
-# unconjugated vaccines, the conjugate vaccines, and the food and water measures.
+# has three items, so grading costs three judge calls. The five passages state the
+# unconjugated vaccines and their boosters, the conjugate vaccines, the food and
+# water measures, and the use of soap and water.
 LITE = ["9bd72186-1665-4639-9346-26279cbd6d28"]
-LITE_PASSAGES = ["article-30719_98", "article-30719_101", "article-30720_46"]
+LITE_PASSAGES = [
+    "article-30719_98",
+    "article-30719_101",
+    "article-30720_46",
+    "article-28707_17",
+    "article-30719_103",
+]
 
 FULL = [
     "a179a30f-398e-4af3-adca-ceab830f8f14",
