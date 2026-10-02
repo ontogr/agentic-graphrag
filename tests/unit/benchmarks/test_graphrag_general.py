@@ -250,7 +250,7 @@ class TestRougeL:
         assert rouge_l(answer, reference) == 0.0
 
 
-class _Judge:
+class _FakeJudge:
     """Answers the two prompts of the accuracy metric from canned replies."""
 
     def __init__(self, statements: dict[str, str], classification: str) -> None:
@@ -264,7 +264,7 @@ class _Judge:
         return self.statements[text]
 
 
-class _Embedder:
+class _FakeEmbedder:
     """Returns fixed vectors, in the order of the texts."""
 
     def __init__(self, *vectors: list[float]) -> None:
@@ -285,10 +285,12 @@ class TestAnswerAccuracy:
 
     async def test_adds_the_weighted_statement_f1_and_embedding_similarity(self):
         """F1 is 0.5 for 1 TP, 1 FP, 1 FN. Equal vectors give similarity 1."""
-        judge = _Judge({"ans": '["a", "b"]', "gold": '["a", "c"]'}, _classes(1, 1, 1))
+        judge = _FakeJudge(
+            {"ans": '["a", "b"]', "gold": '["a", "c"]'}, _classes(1, 1, 1)
+        )
 
         score, failed = await answer_accuracy(
-            judge, _Embedder([1.0, 0.0], [1.0, 0.0]), "q?", "ans", "gold"
+            judge, _FakeEmbedder([1.0, 0.0], [1.0, 0.0]), "q?", "ans", "gold"
         )
 
         assert score == pytest.approx(0.75 * 0.5 + 0.25 * 1.0)
@@ -296,26 +298,26 @@ class TestAnswerAccuracy:
 
     async def test_orthogonal_embeddings_give_similarity_one_half(self):
         """Cosine 0 scales to 0.5."""
-        judge = _Judge(
+        judge = _FakeJudge(
             {"ans": '["a"]', "gold": '["a"]'},
             _classes(1, 0, 0),
         )
 
         score, _ = await answer_accuracy(
-            judge, _Embedder([1.0, 0.0], [0.0, 1.0]), "q?", "ans", "gold"
+            judge, _FakeEmbedder([1.0, 0.0], [0.0, 1.0]), "q?", "ans", "gold"
         )
 
         assert score == pytest.approx(0.75 * 1.0 + 0.25 * 0.5)
 
     async def test_a_fenced_reply_is_parsed(self):
         """A reply inside a code fence counts as its JSON."""
-        judge = _Judge(
+        judge = _FakeJudge(
             {"ans": '```json\n["a"]\n```', "gold": '["a"]'},
             '```json\n{"TP": [{"statement": "a", "reason": "r"}]}\n```',
         )
 
         score, failed = await answer_accuracy(
-            judge, _Embedder([1.0], [1.0]), "q?", "ans", "gold"
+            judge, _FakeEmbedder([1.0], [1.0]), "q?", "ans", "gold"
         )
 
         assert score == pytest.approx(1.0)
@@ -323,10 +325,10 @@ class TestAnswerAccuracy:
 
     async def test_a_reply_that_is_not_json_scores_no_statements_and_is_flagged(self):
         """Prose in place of JSON takes the scorer's fallback and sets the flag."""
-        judge = _Judge({"ans": "I cannot", "gold": '["a"]'}, "not json")
+        judge = _FakeJudge({"ans": "I cannot", "gold": '["a"]'}, "not json")
 
         score, failed = await answer_accuracy(
-            judge, _Embedder([1.0], [1.0]), "q?", "ans", "gold"
+            judge, _FakeEmbedder([1.0], [1.0]), "q?", "ans", "gold"
         )
 
         assert score == pytest.approx(0.25)
@@ -334,10 +336,10 @@ class TestAnswerAccuracy:
 
     async def test_no_statements_on_either_side_scores_factuality_one(self):
         """Two empty statement lists are a perfect match, as in the scorer."""
-        judge = _Judge({"ans": "[]", "gold": "[]"}, "unused")
+        judge = _FakeJudge({"ans": "[]", "gold": "[]"}, "unused")
 
         score, failed = await answer_accuracy(
-            judge, _Embedder([1.0], [1.0]), "q?", "ans", "gold"
+            judge, _FakeEmbedder([1.0], [1.0]), "q?", "ans", "gold"
         )
 
         assert score == pytest.approx(1.0)
@@ -372,12 +374,12 @@ class TestGraphRagGrader:
             return dict.fromkeys(names, 0.5)
 
         monkeypatch.setattr(grading, "answer_quality", fake)
-        judge = _Judge(
+        judge = _FakeJudge(
             {"gold answer": '["a"]'},
             _classes(1, 0, 0),
         )
         grader = GraphRagGrader(
-            embedder=_Embedder([1.0], [1.0]),  # type: ignore[arg-type]
+            embedder=_FakeEmbedder([1.0], [1.0]),  # type: ignore[arg-type]
             full=True,
         )
 
@@ -409,8 +411,8 @@ class TestGraphRagGrader:
             return dict.fromkeys(names, 0.5)
 
         monkeypatch.setattr(grading, "answer_quality", fake)
-        judge = _Judge({"gold answer": '["a"]'}, _classes(1, 0, 0))
-        grader = GraphRagGrader(embedder=_Embedder([1.0], [1.0]))  # type: ignore[arg-type]
+        judge = _FakeJudge({"gold answer": '["a"]'}, _classes(1, 0, 0))
+        grader = GraphRagGrader(embedder=_FakeEmbedder([1.0], [1.0]))  # type: ignore[arg-type]
 
         grade = await grader.grade(
             _question(),
@@ -430,8 +432,8 @@ class TestGraphRagGrader:
             return dict.fromkeys(names, 1.0)
 
         monkeypatch.setattr(grading, "answer_quality", fake)
-        judge = _Judge({"gold answer": "oops"}, "oops")
-        grader = GraphRagGrader(embedder=_Embedder([1.0], [1.0]))  # type: ignore[arg-type]
+        judge = _FakeJudge({"gold answer": "oops"}, "oops")
+        grader = GraphRagGrader(embedder=_FakeEmbedder([1.0], [1.0]))  # type: ignore[arg-type]
 
         grade = await grader.grade(
             _question(),

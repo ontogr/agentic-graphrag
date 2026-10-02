@@ -199,12 +199,7 @@
     }
   },
   "system": "agrag",
-  "trace": {
-    "path": "trace.jsonl.gz",
-    "repo": null,
-    "revision": null,
-    "sha256": "f172c3afd8f1720d98194aa28a7dc5194011296408817c0bf05859f893e24b6d"
-  },
+  "trace": null,
   "usage": {
     "by_path": {
       "agent": {
