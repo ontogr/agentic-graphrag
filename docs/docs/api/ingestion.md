@@ -2275,11 +2275,12 @@ Rebuild the resolved entity of each committed component from its seeds.
 
 The matches already exist, so no match decision is written or changed.
 The resolved nodes and their `RESOLVED_AS` memberships are rebuilt,
-each membership carrying the newest committed match time. Each
-component is read as it stands now, replacing whatever resolved
-entities its members belonged to. A seed whose entity is gone,
-or whose component has fewer than two members, is skipped: nothing is
-left to materialize for it. Safe to run again on the same seeds.
+each membership carrying the newest committed match time when one
+exists. Each component is read as it stands now, replacing whatever
+resolved entities its members belonged to. A seed whose entity is
+gone, or whose component has fewer than two members, is skipped:
+nothing is left to materialize for it. Safe to run again on the same
+seeds.
 
 **Parameters:**
 

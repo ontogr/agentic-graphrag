@@ -48,18 +48,19 @@ def fetch_active_component_members_query() -> str:
 def fetch_committed_component_decided_at_query() -> str:
     """Build Cypher returning when each committed match of a component was decided.
 
+    Reads the active committed matches between the given members directly,
+    so the cost does not depend on how many paths join them.
+
     Returns:
-        Parameterized Cypher expecting $seed_id (a string id). Returns one
-        row per distinct ``decided_at`` value among the active, committed
-        matches in the seed's component.
+        Parameterized Cypher expecting $member_ids (list of string ids).
+        Returns one row per distinct ``decided_at`` value among the active,
+        committed matches whose two ends are both members.
     """
     return (
-        f"MATCH (seed:{NODE_IDENTITY_LABEL} {{id: $seed_id}})"
-        f"-[matches:{MATCHES_RELATION}*1..]-(member:{NODE_IDENTITY_LABEL}) "
-        "WHERE ALL(match IN matches WHERE match.active = true "
-        "AND match._pending_job_id IS NULL) "
-        "AND seed._pending_job_id IS NULL AND member._pending_job_id IS NULL "
-        "UNWIND matches AS match "
+        f"MATCH (a:{NODE_IDENTITY_LABEL})-[match:{MATCHES_RELATION}]->"
+        f"(b:{NODE_IDENTITY_LABEL}) "
+        "WHERE a.id IN $member_ids AND b.id IN $member_ids "
+        "AND match.active = true AND match._pending_job_id IS NULL "
         "RETURN DISTINCT match.decided_at AS decided_at"
     )
 

@@ -214,6 +214,11 @@ class TestRematerializeComponents:
 
         await rematerialize_components([first.id], graph_store=store, schema=_schema())
 
+        decided_at_call = transaction.execute_read.await_args_list[1]
+        assert set(decided_at_call.args[1]["member_ids"]) == {
+            str(first.id),
+            str(second.id),
+        }
         records = transaction.upsert_relations.await_args.args[0]
         assert [record.properties["decided_at"] for record in records] == [
             newer.isoformat(),
