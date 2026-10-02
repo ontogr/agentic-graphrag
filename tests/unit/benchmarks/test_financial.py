@@ -8,7 +8,6 @@ from collections import Counter
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 
-import pypdfium2
 import pytest
 from pydantic import ValidationError
 
@@ -101,7 +100,12 @@ class TestFixtures:
 
 
 def _write_pdf(path: Path, widths: list[int]) -> None:
-    """Write a blank PDF with one page for each width, so a page has an identity."""
+    """Write a blank PDF with one page for each width, so a page has an identity.
+
+    The test is skipped when ``pypdfium2`` is missing. It comes with the docling
+    extra, and the other tests of this module do not need it.
+    """
+    pypdfium2 = pytest.importorskip("pypdfium2")
     with pypdfium2.PdfDocument.new() as pdf:
         for width in widths:
             pdf.new_page(width, 100)
@@ -109,6 +113,7 @@ def _write_pdf(path: Path, widths: list[int]) -> None:
 
 
 def _page_widths(path: Path) -> list[int]:
+    pypdfium2 = pytest.importorskip("pypdfium2")
     with pypdfium2.PdfDocument(path) as pdf:
         return [round(pdf[i].get_width()) for i in range(len(pdf))]
 
@@ -192,6 +197,7 @@ class TestDocuments:
 
     def _patch_pages(self, monkeypatch, tmp_path: Path) -> list[int]:
         """Serve a 4-page PDF and record the width of each page that converts."""
+        pytest.importorskip("pypdfium2")
         converted: list[int] = []
 
         def fetch(url, sha256, dest):
