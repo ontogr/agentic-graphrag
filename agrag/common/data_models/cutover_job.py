@@ -35,13 +35,12 @@ class CutoverJob(DataPoint):
         verb: Which public method created this job.
         status: Current phase, see CutoverJobStatus.
         affected_entity_ids: The snapshot taken before any pending write
-            began — the only entities the cleanup phase may prune.
+            began — the only entities pruning may remove.
         component_seed_ids: One member id per match component the job
             materialized, recorded at commit. The cleanup phase rebuilds
-            each component's resolved entity from these, so a resumed job
-            can replace the materialization the commit left in place. Cleanup
-            rebuilds these components even though they are not pruning
-            candidates.
+            each component's resolved entity from these, in addition to
+            pruning, so a resumed job can replace the materialization
+            the commit left in place.
         lease_token: Current lease holder's fencing token.
         lease_expires_at: When the current lease expires.
     """
