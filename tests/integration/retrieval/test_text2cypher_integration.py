@@ -71,7 +71,6 @@ def _entity_node(node_id: UUID, label: str, name: str) -> NodeRecord:
         properties={
             "name": name,
             "merge_key": f"{label}:{name.lower()}",
-            "merged_from": [],
             "merge_count": 1,
             "source_chunk_ids": [],
             "created_at": "2024-01-01T00:00:00",

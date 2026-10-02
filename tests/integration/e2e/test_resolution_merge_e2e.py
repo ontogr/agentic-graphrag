@@ -50,7 +50,6 @@ from agrag.ingestion.graph import Graph
 from agrag.ingestion.merge import (
     PropertyRules,
     PropertyStrategy,
-    apply_merge,
     compute_merge,
 )
 from agrag.retrieval.recipes import ENTITY
@@ -792,7 +791,6 @@ class TestResolutionMerge:
             "revenue",
             "description",
         }
-        assert first.tombstone_ids  # the two absorbed members
 
         _, broken_failures = await merge(None, client=_BrokenSummarizer())
         broken_plan, _ = await merge(None, client=_BrokenSummarizer())
@@ -800,12 +798,6 @@ class TestResolutionMerge:
             sorted(ORG_DESCRIPTIONS.values())
         )
         assert [f.error_message for f in broken_failures] == ["summarizer down"]
-
-        # A multi-entity plan must not delete raw nodes: apply_merge refuses.
-        before = await _raw_ids(w, w.org_label)
-        with pytest.raises(ValueError, match="Destructive merge is retired"):
-            await apply_merge(first, graph_store=w.store, schema=w.schema)
-        assert await _raw_ids(w, w.org_label) == before
 
         artifact = write_artifact(
             "resolution_merge_property_rules",
@@ -818,13 +810,10 @@ class TestResolutionMerge:
                 "conflict_fields": sorted(c.field for c in first.conflicts),
                 "description": first.survivor.properties["description"],
                 "summarizer_failure": [f.error_message for f in broken_failures],
-                "apply_multi_entity_plan": "rejected",
-                "raw_entities_after_rejection": len(before),
             },
         )
         assert artifact["keep_first"] == ["Northwind Trading Company", "Oslo"]
         assert artifact["merge_all_revenue"] == [5, 7]
-        assert artifact["raw_entities_after_rejection"] == 4
 
     async def test_failed_vector_sync_hides_cluster_until_retry(
         self, resolved_world: _World

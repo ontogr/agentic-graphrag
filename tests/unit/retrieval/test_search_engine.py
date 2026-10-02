@@ -1,8 +1,8 @@
 """Tests for SearchEngine in agrag.retrieval.search_engine.
 
-Patches retriever-level ``vector_search``/``resolve_entity``/
-``_parse_chunk_node`` functions and BFSRetriever/node_distance_rerank with
-AsyncMock/MagicMock, using an AsyncMock graph store, so no real database or
+Patches retriever-level ``vector_search``/``_parse_chunk_node`` functions and
+BFSRetriever/node_distance_rerank with AsyncMock/MagicMock, using an AsyncMock
+graph store that hydrates entities by id, so no real database or
 embedding call is made. Covers single-method and HYBRID (fused entity+chunk)
 recipes, forwarding a recipe's bfs_depth to BFSRetriever (or omitting it when
 None), that SearchFilters route to only the retrievers they apply to
@@ -35,6 +35,7 @@ from agrag.common.data_models.graph_schema import (
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import VectorHit
+from agrag.cypher.entities import hydrate_entities_by_id_query
 from agrag.retrieval.errors import (
     AllRetrievalMethodsFailedError,
     UnknownRecipeMethodError,
@@ -56,6 +57,30 @@ class MockEmbedder:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Return mock vectors for a batch."""
         return [[0.1, 0.2] for _ in texts]
+
+
+def _hydrating(store: AsyncMock, *entities: Entity) -> AsyncMock:
+    """Make ``store`` hydrate ``entities`` by id and answer other reads as before."""
+    hydrate_query = hydrate_entities_by_id_query()
+
+    async def execute_read(query: str, params: dict) -> list:
+        """Return entity nodes for hydration reads, else the configured rows."""
+        if query != hydrate_query:
+            return store.execute_read.return_value
+        return [
+            {
+                "n": {
+                    "id": str(entity.id),
+                    "labels": [entity.label],
+                    "properties": {"name": entity.name},
+                }
+            }
+            for entity in entities
+            if str(entity.id) in params["ids"]
+        ]
+
+    store.execute_read.side_effect = execute_read
+    return store
 
 
 # A non-GENERIC schema, so a test cannot pass by matching the fallback's labels.
@@ -91,13 +116,9 @@ class TestSearchEngine:
                 "agrag.retrieval.retrievers.entity.vector_search",
                 new_callable=AsyncMock,
             ) as mock_vs,
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
         ):
             mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_resolve.return_value = ent
+            _hydrating(gs, ent)
 
             results = await engine.search("test", ENTITY)
 
@@ -125,10 +146,6 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_ev,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_er,
-            patch(
                 "agrag.retrieval.retrievers.chunk.vector_search",
                 new_callable=AsyncMock,
             ) as mock_cv,
@@ -137,7 +154,7 @@ class TestSearchEngine:
             ) as mock_cp,
         ):
             mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_er.return_value = ent
+            _hydrating(gs, ent)
             mock_cv.return_value = [VectorHit(id=ch.id, score=0.8, payload={})]
             mock_cp.return_value = ch
 
@@ -175,16 +192,12 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_vs,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-            patch(
                 "agrag.retrieval.search_engine.BFSRetriever",
                 new_callable=MagicMock,
             ) as mock_bfs,
         ):
             mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_resolve.return_value = ent
+            _hydrating(gs, ent)
             bfs_inst = mock_bfs.return_value
             bfs_inst.retrieve = AsyncMock(return_value=[])
 
@@ -208,16 +221,12 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_vs,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-            patch(
                 "agrag.retrieval.search_engine.BFSRetriever",
                 new_callable=MagicMock,
             ) as mock_bfs,
         ):
             mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_resolve.return_value = ent
+            _hydrating(gs, ent)
             bfs_inst = mock_bfs.return_value
             bfs_inst.retrieve = AsyncMock(return_value=[])
 
@@ -242,16 +251,12 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_vs,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-            patch(
                 "agrag.retrieval.search_engine.BFSRetriever",
                 new_callable=MagicMock,
             ) as mock_bfs,
         ):
             mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_resolve.return_value = ent
+            _hydrating(gs, ent)
             bfs_inst = mock_bfs.return_value
             bfs_inst.retrieve = AsyncMock(return_value=[])
 
@@ -284,10 +289,6 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_ev,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_er,
-            patch(
                 "agrag.retrieval.retrievers.chunk.vector_search",
                 new_callable=AsyncMock,
             ) as mock_cv,
@@ -296,7 +297,7 @@ class TestSearchEngine:
             ) as mock_cp,
         ):
             mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_er.return_value = ent
+            _hydrating(gs, ent)
             mock_cv.return_value = [VectorHit(id=ch.id, score=0.8, payload={})]
             mock_cp.return_value = ch
             gs.execute_read.return_value = [{"n": {"id": str(ch.id)}}]
@@ -330,16 +331,12 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_ev,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_er,
-            patch(
                 "agrag.retrieval.retrievers.chunk.vector_search",
                 new_callable=AsyncMock,
             ) as mock_cv,
         ):
             mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_er.return_value = ent
+            _hydrating(gs, ent)
             mock_cv.return_value = []
 
             results = await engine.search("test", HYBRID, filters=filters)
@@ -374,16 +371,12 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_vs,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-            patch(
                 "agrag.retrieval.community_context.community_context",
                 new_callable=AsyncMock,
             ) as mock_cc,
         ):
             mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_resolve.return_value = ent
+            _hydrating(gs, ent)
             mock_cc.return_value = []
 
             await engine.search("test", recipe, filters=filters)
@@ -415,16 +408,12 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_vs,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-            patch(
                 "agrag.retrieval.community_context.community_context",
                 new_callable=AsyncMock,
             ) as mock_cc,
         ):
             mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_resolve.return_value = ent
+            _hydrating(gs, ent)
             mock_cc.return_value = [
                 SearchResult(item=community, score=5.0, method="community")
             ]
@@ -465,10 +454,6 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_vs,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-            patch(
                 "agrag.retrieval.community_context.community_context",
                 new_callable=AsyncMock,
             ) as mock_cc,
@@ -481,7 +466,7 @@ class TestSearchEngine:
                 VectorHit(id=ent1.id, score=0.9, payload={}),
                 VectorHit(id=ent2.id, score=0.8, payload={}),
             ]
-            mock_resolve.side_effect = [ent1, ent2]
+            _hydrating(gs, ent1, ent2)
             mock_cc.return_value = [
                 SearchResult(item=comm1, score=5.0, method="community"),
                 SearchResult(item=comm2, score=4.0, method="community"),
@@ -514,10 +499,6 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_vs,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-            patch(
                 "agrag.retrieval.search_engine.BFSRetriever",
                 new_callable=MagicMock,
             ) as mock_bfs,
@@ -530,7 +511,7 @@ class TestSearchEngine:
                 VectorHit(id=ent.id, score=0.9, payload={}),
                 VectorHit(id=ent2.id, score=0.8, payload={}),
             ]
-            mock_resolve.side_effect = [ent, ent2]
+            _hydrating(gs, ent, ent2)
             bfs_inst = mock_bfs.return_value
             bfs_inst.retrieve = AsyncMock(
                 return_value=[
@@ -571,10 +552,6 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_ev,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_er,
-            patch(
                 "agrag.retrieval.retrievers.chunk.vector_search",
                 new_callable=AsyncMock,
             ) as mock_cv,
@@ -587,7 +564,7 @@ class TestSearchEngine:
             ) as mock_ndr,
         ):
             mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_er.return_value = ent
+            _hydrating(gs, ent)
             mock_cv.return_value = [VectorHit(id=ch.id, score=0.8, payload={})]
             mock_cp.return_value = ch
             gs.execute_read.return_value = [{"n": {"id": str(ch.id)}}]
@@ -621,10 +598,6 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_ev,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_er,
-            patch(
                 "agrag.retrieval.search_engine.node_distance_rerank",
                 new_callable=AsyncMock,
             ) as mock_ndr,
@@ -633,7 +606,7 @@ class TestSearchEngine:
                 VectorHit(id=e.id, score=0.9 - i / 10, payload={})
                 for i, e in enumerate(entities)
             ]
-            mock_er.side_effect = entities
+            _hydrating(gs, *entities)
             mock_ndr.return_value = []
 
             await engine.search("test", recipe)
@@ -657,10 +630,6 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_ev,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_er,
-            patch(
                 "agrag.retrieval.search_engine.BFSRetriever",
                 new_callable=MagicMock,
             ) as mock_bfs,
@@ -670,7 +639,7 @@ class TestSearchEngine:
             ) as mock_ndr,
         ):
             mock_ev.return_value = [VectorHit(id=seed_ent.id, score=0.9, payload={})]
-            mock_er.return_value = seed_ent
+            _hydrating(gs, seed_ent)
             bfs_inst = mock_bfs.return_value
             bfs_inst.retrieve = AsyncMock(
                 return_value=[SearchResult(item=neighbour, score=1.0, method="bfs")]
@@ -698,13 +667,9 @@ class TestSearchEngine:
                 "agrag.retrieval.retrievers.entity.vector_search",
                 new_callable=AsyncMock,
             ) as mock_ev,
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_er,
         ):
             mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_er.return_value = ent
+            _hydrating(gs, ent)
 
             await engine.search("test", ENTITY)
 
@@ -717,7 +682,7 @@ class TestSearchEngine:
         """A custom schema's labels drive native search with no second input."""
         ent = Entity(id=uuid4(), label="Drug", name="Aspirin")
         engine = SearchEngine(
-            graph_store=AsyncMock(),
+            graph_store=_hydrating(AsyncMock(), ent),
             embedder=MockEmbedder(),
             graph_schema=_CLINICAL_SCHEMA,
         )
@@ -727,13 +692,8 @@ class TestSearchEngine:
                 "agrag.retrieval.retrievers.entity.vector_search",
                 new_callable=AsyncMock,
             ) as mock_ev,
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_er,
         ):
             mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_er.return_value = ent
 
             await engine.search("Aspirin", ENTITY)
 
@@ -858,7 +818,9 @@ class TestSearchEngine:
     ) -> None:
         """A community lookup error does not discard successful search results."""
         entity = Entity(id=uuid4(), label="Person", name="Ada", properties={})
-        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+        engine = SearchEngine(
+            graph_store=_hydrating(AsyncMock(), entity), embedder=MockEmbedder()
+        )
         recipe = Recipe(methods=["entity"], community_expand=True)
 
         with (
@@ -867,29 +829,24 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_search,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-            patch(
                 "agrag.retrieval.community_context.community_context",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("community store unavailable"),
             ),
         ):
             mock_search.return_value = [VectorHit(id=entity.id, score=0.9, payload={})]
-            mock_resolve.return_value = entity
 
             with caplog.at_level(logging.WARNING):
                 results = await engine.search("Ada", recipe)
 
-        assert [result.item for result in results] == [entity]
+        assert [result.item.id for result in results] == [entity.id]
         assert "Community expansion failed" in caplog.text
 
     async def test_recipe_min_score_overrides_settings_value(self) -> None:
         """A per-call min_score beats the configured rerank threshold."""
         ent = Entity(id=uuid4(), label="Person", name="Alice")
         engine = SearchEngine(
-            graph_store=AsyncMock(),
+            graph_store=_hydrating(AsyncMock(), ent),
             embedder=MockEmbedder(),
             settings=RetrievalSettings(reranker_min_score=0.2),
         )
@@ -901,16 +858,11 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_ev,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_er,
-            patch(
                 "agrag.retrieval.search_engine.cross_encoder_rerank",
                 new_callable=AsyncMock,
             ) as mock_rerank,
         ):
             mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_er.return_value = ent
             mock_rerank.return_value = []
 
             await engine.search("test", recipe)
@@ -921,7 +873,7 @@ class TestSearchEngine:
         """A recipe that sets no floor still uses the configured threshold."""
         ent = Entity(id=uuid4(), label="Person", name="Alice")
         engine = SearchEngine(
-            graph_store=AsyncMock(),
+            graph_store=_hydrating(AsyncMock(), ent),
             embedder=MockEmbedder(),
             settings=RetrievalSettings(reranker_min_score=0.2),
         )
@@ -933,16 +885,11 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_ev,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_er,
-            patch(
                 "agrag.retrieval.search_engine.cross_encoder_rerank",
                 new_callable=AsyncMock,
             ) as mock_rerank,
         ):
             mock_ev.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_er.return_value = ent
             mock_rerank.return_value = []
 
             await engine.search("test", recipe)
@@ -952,7 +899,9 @@ class TestSearchEngine:
     async def test_search_bfs_seeding_calls_extract_entity_ids(self) -> None:
         """search() seeds BFS through the relocated free function."""
         entity = Entity(id=uuid4(), label="Person", name="Ada")
-        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+        engine = SearchEngine(
+            graph_store=_hydrating(AsyncMock(), entity), embedder=MockEmbedder()
+        )
         recipe = Recipe(methods=["entity"], bfs=True, bfs_depth=1)
 
         with (
@@ -960,10 +909,6 @@ class TestSearchEngine:
                 "agrag.retrieval.retrievers.entity.vector_search",
                 new_callable=AsyncMock,
             ) as mock_vs,
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
             patch(
                 "agrag.retrieval.search_engine.extract_entity_ids",
                 wraps=extract_entity_ids,
@@ -973,7 +918,6 @@ class TestSearchEngine:
             ) as mock_bfs,
         ):
             mock_vs.return_value = [VectorHit(id=entity.id, score=0.9, payload={})]
-            mock_resolve.return_value = entity
             mock_bfs.return_value.retrieve = AsyncMock(return_value=[])
 
             await engine.search("Ada", recipe)
@@ -1000,16 +944,12 @@ class TestSearchEngine:
                 new_callable=AsyncMock,
             ) as mock_vs,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-            patch(
                 "agrag.retrieval.search_engine.expand_with_communities",
                 new_callable=AsyncMock,
             ) as mock_expand,
         ):
             mock_vs.return_value = [VectorHit(id=entity.id, score=0.9, payload={})]
-            mock_resolve.return_value = entity
+            _hydrating(graph_store, entity)
             mock_expand.return_value = []
 
             await engine.search(

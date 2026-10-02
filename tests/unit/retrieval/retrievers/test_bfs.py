@@ -43,7 +43,6 @@ class TestBFSRetriever:
                     "properties": {
                         "name": "Neighbor",
                         "merge_key": "Person:neighbor",
-                        "merged_from": [],
                         "merge_count": 1,
                         "source_chunk_ids": [],
                     },
@@ -54,10 +53,7 @@ class TestBFSRetriever:
         retriever = BFSRetriever(graph_store=gs)
         results = await retriever.retrieve("test", seed_ids=[uuid4()])
 
-        # The entity should be resolved via resolve_entity.
-        # With the mock, it may or may not resolve depending on
-        # whether parse_entity_node succeeds.
-        assert isinstance(results, list)
+        assert [result.item.id for result in results] == [ent.id]
 
     async def test_labels_restrict_neighbors_without_query_parameters(self) -> None:
         """A label scope becomes a validated neighbor label predicate."""

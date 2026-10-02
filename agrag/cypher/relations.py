@@ -178,7 +178,6 @@ def entities_in_documents_query() -> str:
         "AND (document._pending_job_id IS NULL "
         "OR document._pending_job_id = $job_id) "
         "AND (part._pending_job_id IS NULL OR part._pending_job_id = $job_id) } "
-        "AND entity.merged_into IS NULL "
         "AND (entity._pending_job_id IS NULL "
         "OR entity._pending_job_id = $job_id) "
         "AND (chunk._pending_job_id IS NULL OR chunk._pending_job_id = $job_id) "
@@ -268,8 +267,7 @@ def chunks_mentioning_entities_query() -> str:
         "UNWIND $entity_ids AS entity_id "
         "MATCH (c:_AgragNode:Chunk)-[:MENTIONED_IN]-> "
         "(e:_AgragNode {{id: entity_id}}) "
-        "WHERE c.merged_into IS NULL "
-        "AND (c._pending_job_id IS NULL OR c._pending_job_id = $job_id) "
+        "WHERE (c._pending_job_id IS NULL OR c._pending_job_id = $job_id) "
         "RETURN DISTINCT c, c.id AS id"
     )
 
@@ -290,8 +288,7 @@ def entities_mentioned_in_chunks_query() -> str:
         "UNWIND $chunk_ids AS chunk_id "
         "MATCH (c:_AgragNode:Chunk {{id: chunk_id}})"
         "-[:MENTIONED_IN]->(e:_AgragNode) "
-        "WHERE e.merged_into IS NULL "
-        "AND (e._pending_job_id IS NULL OR e._pending_job_id = $job_id) "
+        "WHERE (e._pending_job_id IS NULL OR e._pending_job_id = $job_id) "
         "RETURN DISTINCT e, e.id AS id"
     )
 
@@ -301,8 +298,7 @@ def fetch_all_relations_query() -> str:
 
     Used by Graph.detect_communities() to build the weighted edge list for
     clustering. Excludes MENTIONED_IN and MEMBER_OF (system edges, not
-    entity-graph topology) and any endpoint that is a Chunk, a Community,
-    or a tombstone.
+    entity-graph topology) and any endpoint that is a Chunk or a Community.
 
     ``ORDER BY`` includes ``type(r)`` and ``r.id`` after ``(a.id, b.id)``
     because two distinct relationships (different types, or the same type
@@ -317,8 +313,7 @@ def fetch_all_relations_query() -> str:
     """
     return (
         f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
-        f"WHERE a.merged_into IS NULL AND b.merged_into IS NULL "
-        f"AND NOT a:Chunk AND NOT b:Chunk "
+        f"WHERE NOT a:Chunk AND NOT b:Chunk "
         f"AND NOT a:Community AND NOT b:Community "
         f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
         f"AND r._pending_job_id IS NULL "
@@ -359,7 +354,6 @@ def fetch_all_relations_query_cursor() -> str:
         f"AND coalesce(r.id, '') > $last_rel_id) "
         f'OR ($last_a = "" AND $last_b = "" AND $last_type = "" '
         f'AND $last_rel_id = "")) '
-        f"AND a.merged_into IS NULL AND b.merged_into IS NULL "
         f"AND NOT a:Chunk AND NOT b:Chunk "
         f"AND NOT a:Community AND NOT b:Community "
         f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "

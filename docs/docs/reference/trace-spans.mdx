@@ -244,7 +244,6 @@ agrag.retrieval.search                     RETRIEVER
       agrag.retrieval.vector_search        one per adaptive pass
     agrag.retrieval.active_member_ids
     agrag.retrieval.hydrate_entities
-      agrag.retrieval.resolve_entity       per hit that needs the walk
     agrag.retrieval.resolved_entity_search
   agrag.retrieval.chunk                    RETRIEVER
     agrag.retrieval.vector_search
@@ -253,6 +252,7 @@ agrag.retrieval.search                     RETRIEVER
   agrag.retrieval.text2cypher              RETRIEVER
     agrag.retrieval.generate_cypher
     agrag.retrieval.execute_cypher         one per attempt
+    agrag.retrieval.hydrate_entities       one per entity row
   agrag.retrieval.fuse
   agrag.retrieval.bfs                      RETRIEVER, when recipe.bfs
   agrag.retrieval.community_expand         when recipe.community_expand
@@ -277,7 +277,6 @@ of the tool call that made it.
 | `agrag.retrieval.vector_search` | `agrag.collection`, `agrag.store` (`vector_store` or `graph_native`), `agrag.labels`, `agrag.limit`, `agrag.hit_count`, `agrag.hit_ids`, `agrag.hit_scores` |
 | `agrag.retrieval.entity_search` / `resolved_entity_search` | `agrag.limit`, `agrag.passes`, `agrag.hit_count` |
 | `agrag.retrieval.hydrate_*` | `agrag.requested_count`, `agrag.hydrated_count` |
-| `agrag.retrieval.resolve_entity` | `agrag.entity_id`, `agrag.hops`, `agrag.resolved_id` |
 | `agrag.retrieval.allowed_entity_ids` | `agrag.document_count`, `agrag.entity_count` |
 | `agrag.retrieval.active_member_ids` | `agrag.requested_count`, `agrag.superseded_count` |
 | `agrag.retrieval.execute_cypher` | `agrag.is_repair`, `agrag.row_count` |

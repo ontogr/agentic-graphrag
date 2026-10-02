@@ -35,7 +35,6 @@ from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.data_models.vector_record import PENDING_VECTOR_FLAG, VectorRecord
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
-    NODE_IDENTITY_LABEL,
     clear_chunk_embedding_query,
     clear_property_query,
     fetch_by_merge_keys_query,
@@ -46,7 +45,6 @@ from agrag.cypher.entities import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.errors import GraphStoreDataIntegrityError
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._lexical_backbone import (
     build_document_record,
@@ -456,7 +454,6 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         # For storage stats counting
         nodes_created = 0
         nodes_updated = 0
-        nodes_merged = 0
         conflicts_resolved = 0
 
         for group in groups:
@@ -600,7 +597,6 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         merge_stats = MergeStats(
             nodes_created=nodes_created,
             nodes_updated=nodes_updated,
-            nodes_merged=nodes_merged,
             conflicts_resolved=conflicts_resolved,
             failures=merge_failures_capped.items,
             failures_total=merge_failures_capped.total,
@@ -674,12 +670,9 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             chunk_id = entities[idx].chunk_id
             mentioned_pairs.add((chunk_id, entity_id))
 
-        # Look up by endpoint rather than trusting mentioned_in_id() alone:
-        # an entity merge transfers a MENTIONED_IN edge onto a new endpoint
-        # but keeps its old, tombstone-derived id (transfer_relationships_
-        # query copies the edge's existing properties, including id, as-is).
-        # Recomputing the id from the current (chunk, entity) pair would
-        # then miss that edge and create a parallel one on re-ingest.
+        # Look up by endpoint rather than trusting mentioned_in_id() alone,
+        # so an edge whose stored id differs from the recomputed one is
+        # found instead of duplicated on re-ingest.
         existing_mentioned_map = await _global_relation_lookup(
             [
                 (chunk_id, entity_id, "MENTIONED_IN")
@@ -1137,112 +1130,6 @@ async def _persisted_chunk_ids(
     return found
 
 
-def _extract_merged_into(node: object, row: object) -> str | None:
-    """Return a tombstone's ``merged_into`` id if present, else ``None``.
-
-    Callers read ``None`` as "this node is live" -- so, unlike the two
-    inner probes below, nothing here is allowed to turn a genuine failure
-    into ``None``. Each probe tries one node representation (plain dict
-    properties, a dict-convertible driver object, an attribute-bearing
-    driver object) and is individually suppressed only because failing to
-    apply does not mean the node lacks ``merged_into``, just that this
-    particular representation does not match; there is always another probe
-    or the final "no candidates found" fallthrough to answer that. Nothing
-    past those probes suppresses errors, so a genuine bug -- for example an
-    id that cannot be stringified -- propagates instead of being silently
-    read as "live".
-    """
-    candidates: list[object] = []
-    if isinstance(node, dict):
-        props = node.get("properties") if "properties" in node else None
-        if isinstance(props, dict) and props.get("merged_into"):
-            candidates.append(props["merged_into"])
-        if node.get("merged_into"):
-            candidates.append(node["merged_into"])
-    else:
-        with contextlib.suppress(Exception):
-            props = dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
-            if isinstance(props, dict) and props.get("merged_into"):
-                candidates.append(props["merged_into"])
-        with contextlib.suppress(Exception):
-            val = getattr(node, "merged_into", None)
-            if val:
-                candidates.append(val)
-    if isinstance(row, dict) and row.get("merged_into"):
-        candidates.append(row["merged_into"])
-    if candidates:
-        return str(candidates[0])
-    return None
-
-
-_MAX_TOMBSTONE_CHAIN_HOPS = 32
-
-
-async def _resolve_tombstone_chain(
-    *,
-    start_merged_into: str,
-    graph_store: GraphStore,
-) -> Entity:
-    """Follow ``merged_into`` pointers until the live survivor is reached.
-
-    Args:
-        start_merged_into: The id the first tombstone points at.
-        graph_store: Where the chain is read from.
-
-    Returns:
-        The live entity at the end of the chain -- never a tombstone.
-
-    Raises:
-        GraphStoreDataIntegrityError: The chain cycles, points at a missing
-            node, the live node at its end cannot be parsed as an Entity, or
-            the chain exceeds ``_MAX_TOMBSTONE_CHAIN_HOPS`` hops without
-            reaching a live node. A store read failure propagates as-is,
-            unwrapped.
-    """
-    visited: set[str] = set()
-    current_id = start_merged_into
-    for _ in range(_MAX_TOMBSTONE_CHAIN_HOPS):
-        if current_id in visited:
-            raise GraphStoreDataIntegrityError(
-                f"merged_into cycle detected resolving tombstone chain from "
-                f"{start_merged_into!r} (revisited {current_id!r})"
-            )
-        visited.add(current_id)
-        rows = await graph_store.execute_read(
-            f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) RETURN n",
-            {"id": current_id},
-        )
-        if not rows:
-            raise GraphStoreDataIntegrityError(
-                f"tombstone chain from {start_merged_into!r} points at "
-                f"missing node {current_id!r}"
-            )
-        row = rows[0]
-        node = (
-            row.get("n") if isinstance(row, dict) and "n" in row else row  # type: ignore[union-attr]
-        )
-        # An intermediate tombstone's own node is never parsed: a real
-        # driver row carries no "labels" key for a plain RETURN n, and
-        # clear_tombstone_merge_keys_query already stripped merge_key --
-        # parse_entity_node's label fallbacks both come up empty, even
-        # though this hop is not what the caller ultimately needs.
-        next_id = _extract_merged_into(node, row)
-        if next_id is not None:
-            current_id = next_id
-            continue
-        entity = parse_entity_node(node) or parse_entity_node(row)  # type: ignore[arg-type]
-        if entity is None:
-            raise GraphStoreDataIntegrityError(
-                f"tombstone chain from {start_merged_into!r} reached "
-                f"unparsable node {current_id!r}"
-            )
-        return entity
-    raise GraphStoreDataIntegrityError(
-        f"tombstone chain from {start_merged_into!r} exceeded "
-        f"{_MAX_TOMBSTONE_CHAIN_HOPS} hops without reaching a live node"
-    )
-
-
 async def _global_exact_match(
     mentions: list[ExtractedEntity],
     *,
@@ -1257,10 +1144,9 @@ async def _global_exact_match(
     -- rather than by re-deriving a key from the resolved entity's current
     name: an accepted alias can name an entity by something other than its
     current canonical name (see upsert_merge_alias_query), so re-deriving
-    would silently fail to map those mentions back. A row that turns out to
-    be a tombstone has its merged_into chain followed to the live survivor
-    first; older rows without a returned merge_key (plain mocks) fall back
-    to the resolved entity's own merge_key.
+    would silently fail to map those mentions back. Rows without a returned
+    merge_key (plain mocks) fall back to the resolved entity's own
+    merge_key.
 
     Args:
         mentions: The entity mentions to look up.
@@ -1271,10 +1157,6 @@ async def _global_exact_match(
 
     Returns:
         A map from mention index to its matching Entity.
-
-    Raises:
-        GraphStoreDataIntegrityError: A matched row's merged_into chain
-            could not be resolved to a live entity.
     """
     if not mentions:
         return {}
@@ -1299,21 +1181,9 @@ async def _global_exact_match(
         )
         for row in rows:
             node = row.get("n") if isinstance(row, dict) and "n" in row else row
-            # A tombstone's own node is never parsed: a real driver row
-            # carries no "labels" key for a plain RETURN n, and
-            # clear_tombstone_merge_keys_query already stripped merge_key --
-            # parse_entity_node's label fallbacks both come up empty, even
-            # though the alias lookup only needs the live entity at the end
-            # of merged_into, not this row's own node.
-            merged_into = _extract_merged_into(node, row)
-            if merged_into is not None:
-                entity = await _resolve_tombstone_chain(
-                    start_merged_into=merged_into, graph_store=graph_store
-                )
-            else:
-                entity = parse_entity_node(node) or parse_entity_node(row)
-                if entity is None:
-                    continue
+            entity = parse_entity_node(node) or parse_entity_node(row)
+            if entity is None:
+                continue
             queried_mk = row.get("merge_key") if isinstance(row, dict) else None
             mk = queried_mk if isinstance(queried_mk, str) else entity.merge_key
             for idx in mk_to_indices.get(mk, []):

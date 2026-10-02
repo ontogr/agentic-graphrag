@@ -24,9 +24,8 @@ NODE_IDENTITY_LABEL = "_AgragNode"
 
 # One node per merge_key ever assigned to any entity, permanently mapping
 # that key to the entity's own id. A live entity's node also carries
-# merge_key directly (see merge_key_constraint_query), but
-# clear_tombstone_merge_keys_query clears that property on absorption; this
-# table is what keeps an absorbed name resolvable afterward. See
+# merge_key directly (see merge_key_constraint_query); this table is what
+# lets an accepted alternate name resolve to the same entity. See
 # fetch_by_merge_keys_query and upsert_merge_alias_query.
 MERGE_ALIAS_LABEL = "_AgragMergeAlias"
 
@@ -117,12 +116,8 @@ def fetch_by_merge_keys_query() -> str:
     """Build Cypher for a batched exact-match lookup by merge key.
 
     Resolves through the merge-key alias table (``MERGE_ALIAS_LABEL``)
-    rather than matching each node's own ``merge_key`` property directly:
-    that property is cleared when a node is tombstoned (see
-    ``clear_tombstone_merge_keys_query``), so a name it once held would
-    otherwise become unreachable. The alias always points at the entity id
-    that first held the key, which may itself now be a tombstone; the caller
-    follows its ``merged_into`` chain to the live survivor.
+    rather than matching each node's own ``merge_key`` property directly,
+    so an accepted alternate name resolves to the entity that owns it.
 
     ``merge_key`` is returned alongside ``n`` so the caller can map a row
     back to the mention(s) that queried it without re-deriving a key from
@@ -162,10 +157,7 @@ def upsert_merge_alias_query() -> str:
     keeps it. Without this, a resolution decision in one ``add()`` call
     could silently steal a name an unrelated entity already owns.
 
-    Once created, an alias is never rewritten to point elsewhere: if the
-    entity it names is later itself absorbed, ``fetch_by_merge_keys_query``'s
-    caller follows that entity's ``merged_into`` chain from here instead of
-    this table being kept in sync with every later merge.
+    Once created, an alias is never rewritten to point elsewhere.
 
     An alias written by an in-flight Cutover Job carries that job's id, so
     the exact-match lookup (which filters pending nodes) never resolves a
@@ -179,7 +171,7 @@ def upsert_merge_alias_query() -> str:
     live entity, not one this same merge is writing or absorbing. Neither
     entity's own node merge_key collides in that case, so nothing at the
     database level rejects the write; the caller must compare each row's
-    entity_id against its own survivor and tombstone ids itself.
+    entity_id against its own survivor id itself.
 
     Returns:
         Parameterized Cypher expecting $merge_keys (list of strings),
@@ -202,9 +194,9 @@ def upsert_survivor_query(label: str) -> str:
     """Build Cypher upserting a merge survivor with atomic accumulation.
 
     Unlike ``upsert_node_query``'s plain ``SET n += record.properties``
-    overwrite, ``source_chunk_ids`` and ``merged_from`` are unioned against
-    whatever the node currently has, and ``merge_count`` is incremented by a
-    delta, all read and written inside this one query. Two concurrent
+    overwrite, ``source_chunk_ids`` is unioned against whatever the node
+    currently has, and ``merge_count`` is incremented by a delta, all read
+    and written inside this one query. Two concurrent
     callers merging into the same entity each read the node's current
     accumulator values fresh here, so neither's contribution is lost to
     whichever write lands second -- unlike overwriting from a full snapshot
@@ -223,10 +215,9 @@ def upsert_survivor_query(label: str) -> str:
     Returns:
         A parameterized Cypher query expecting a ``$records`` list
         parameter whose items carry ``id``, ``properties`` (every survivor
-        field except ``source_chunk_ids``, ``merged_from``, and
-        ``merge_count``), ``pending_job_id`` (the Cutover Job tag, or
-        None), ``new_source_chunk_ids``, ``new_merged_from``, and
-        ``merge_count_delta``.
+        field except ``source_chunk_ids`` and ``merge_count``),
+        ``pending_job_id`` (the Cutover Job tag, or None),
+        ``new_source_chunk_ids``, and ``merge_count_delta``.
     """
     safe_label = validate_identifier(label)
     return (
@@ -238,15 +229,11 @@ def upsert_survivor_query(label: str) -> str:
         f"(record.pending_job_id IS NULL OR n.{PENDING_JOB_ID_PROPERTY} IS NULL "
         f"OR n.{PENDING_JOB_ID_PROPERTY} = record.pending_job_id) AS can_update, "
         f"coalesce(n.source_chunk_ids, []) AS existing_source_chunk_ids, "
-        f"coalesce(n.merged_from, []) AS existing_merged_from, "
         f"coalesce(n.merge_count, 0) AS existing_merge_count "
         f"SET n += CASE WHEN can_update THEN record.properties ELSE {{}} END "
         f"SET n.source_chunk_ids = CASE WHEN can_update THEN "
         f"[x IN existing_source_chunk_ids WHERE NOT x IN record.new_source_chunk_ids] "
         f"+ record.new_source_chunk_ids ELSE n.source_chunk_ids END "
-        f"SET n.merged_from = CASE WHEN can_update THEN "
-        f"[x IN existing_merged_from WHERE NOT x IN record.new_merged_from] "
-        f"+ record.new_merged_from ELSE n.merged_from END "
         f"SET n.merge_count = CASE WHEN can_update THEN "
         f"existing_merge_count + record.merge_count_delta ELSE n.merge_count END "
         f"SET n.id = record.id"
@@ -265,15 +252,6 @@ def set_embedding_query(vector_property: str) -> str:
     still matches what its vector was computed from, so a slower write from
     an older call cannot overwrite a newer one's vector with a stale one.
 
-    Also requires ``merged_into IS NULL``: a concurrent merge can tombstone
-    the node -- clearing this same property -- after this call already read
-    its text and started embedding, but before this write lands. Without
-    this guard, the write would restore a vector on an absorbed entity
-    purely because its name/description happened not to change, putting it
-    back in native vector search. ``tombstone_query`` sets ``merged_into``
-    and removes the embedding in the same write, so this guard racing that
-    one always sees them change together.
-
     Args:
         vector_property: The property to set. Must already be validated.
 
@@ -290,7 +268,6 @@ def set_embedding_query(vector_property: str) -> str:
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
         f"WHERE n.name = record.expected_name "
         f"AND coalesce(n.description, '') = record.expected_description "
-        f"AND n.merged_into IS NULL "
         f"SET n.{safe_property} = record.vector "
         f"RETURN n.id AS id"
     )
@@ -408,7 +385,6 @@ def set_chunk_embedding_query(vector_property: str) -> str:
         f"UNWIND $records AS record "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: record.id}}) "
         f"WHERE n.text = record.expected_text "
-        f"AND n.merged_into IS NULL "
         f"SET n.{safe_property} = record.vector "
         f"RETURN n.id AS id"
     )
@@ -439,34 +415,8 @@ def clear_chunk_embedding_query(vector_property: str) -> str:
     )
 
 
-def resolve_merged_into_query() -> str:
-    """Return a node and the id of the node it was merged into.
-
-    A tombstoned node is never deleted; it only gains a ``merged_into``
-    property pointing at its survivor. The pointer is a property, not a
-    relationship, so a chain is followed one hop per call: ``merged_into``
-    is null on a live node and holds the next id on a tombstone.
-
-    A pending node resolves to itself: the identity path must see its own
-    job's in-flight writes, and an uncommitted job's node is only ever
-    reached through that same job's own reads.
-
-    Returns:
-        A parameterized query expecting an $id parameter, returning the
-        node as ``node`` and its survivor id as ``merged_into``.
-    """
-    return (
-        f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) "
-        f"RETURN n AS node, n.merged_into AS merged_into"
-    )
-
-
 def hydrate_entities_by_id_query() -> str:
-    """Build Cypher fetching entities by id, excluding tombstones.
-
-    A tombstoned node is never deleted, so a naive
-    ``MATCH (n) WHERE n.id IN $ids`` would surface one. This query
-    filters on ``merged_into IS NULL`` to return only live nodes.
+    """Build Cypher fetching entities by id.
 
     Pending visibility is job-scoped: the merge-apply and pruning paths
     run inside their own job's pending phase and must see the entities
@@ -481,8 +431,7 @@ def hydrate_entities_by_id_query() -> str:
     return (
         f"UNWIND $ids AS id "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: id}}) "
-        f"WHERE n.merged_into IS NULL "
-        f"AND (n._pending_job_id IS NULL OR n._pending_job_id = $job_id) "
+        f"WHERE (n._pending_job_id IS NULL OR n._pending_job_id = $job_id) "
         f"RETURN n"
     )
 

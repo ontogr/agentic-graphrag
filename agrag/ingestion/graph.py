@@ -405,7 +405,6 @@ def _merge_add_results(
         merge=MergeStats(
             nodes_created=sum(result.merge.nodes_created for result in results),
             nodes_updated=sum(result.merge.nodes_updated for result in results),
-            nodes_merged=sum(result.merge.nodes_merged for result in results),
             conflicts_resolved=sum(
                 result.merge.conflicts_resolved for result in results
             ),
@@ -465,9 +464,8 @@ class Graph:
                 set, every embedding the pipeline writes to graph_store is
                 also upserted here, so SearchEngine's VectorStore path finds
                 the same vectors the GraphStore-native path does. Also gets
-                tombstoned entities deleted after merges and old community
-                vectors removed on each detect_communities(apply=True)
-                cycle.
+                old community vectors removed on each
+                detect_communities(apply=True) cycle.
             retrieval_settings: Collection names for the VectorStore writes.
                 None uses RetrievalSettings defaults. Ignored when
                 vector_store is None.
@@ -1474,32 +1472,9 @@ class Graph:
                 break
             for row in rows:
                 node = row.get("n") if isinstance(row, dict) and "n" in row else row
-                ent = parse_entity_node(node)
+                ent = parse_entity_node(node) or parse_entity_node(row)
                 if ent is not None:
-                    # Skip tombstoned nodes with merged_into.
-                    # Check node for merged_into property.
-                    try:
-                        raw_props = (
-                            dict(node)  # ty: ignore[no-matching-overload]
-                            if not isinstance(node, dict)
-                            else node.get("properties", node)
-                        )  # type: ignore[union-attr]
-                        if isinstance(raw_props, dict) and raw_props.get("merged_into"):
-                            continue
-                        # Also check node dict directly
-                        if isinstance(node, dict) and node.get("merged_into"):
-                            continue
-                        # Check row for merged_into
-                        if isinstance(row, dict) and row.get("merged_into"):
-                            continue
-                    except Exception:
-                        pass
                     entities.append(ent)
-                else:
-                    # Try parsing row directly if node was wrapped differently
-                    ent2 = parse_entity_node(row)
-                    if ent2 is not None:
-                        entities.append(ent2)
             if len(rows) < limit:
                 break
             skip += limit

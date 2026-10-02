@@ -159,7 +159,6 @@ class TestSearchTracingEndToEnd:
                     properties={
                         "name": entity.name,
                         "merge_key": entity.merge_key,
-                        "merged_from": [],
                         "merge_count": 1,
                         "source_chunk_ids": [],
                         "embedding": entity.embedding,

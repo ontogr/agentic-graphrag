@@ -1,11 +1,9 @@
 """Tests for EntityRetriever in agrag.retrieval.retrievers.entity.
 
-Patches ``agrag.retrieval.retrievers.entity.vector_search`` and
-``resolve_entity`` with AsyncMock, using an AsyncMock graph store and a
-minimal MockEmbedder. Covers returning entities resolved through
-resolve_entity, skipping hits that fail to resolve (ValueError), and a
-regression proving the retriever returns the live survivor entity rather
-than a tombstoned id when the vector store's hit has since been merged.
+Patches ``agrag.retrieval.retrievers.entity.vector_search`` with AsyncMock,
+using an AsyncMock graph store that answers hydration reads and a minimal
+MockEmbedder. Covers hydrating hits from the graph, dropping hits the graph
+cannot hydrate, document scoping, and resolved-entity search.
 """
 
 from unittest.mock import AsyncMock, patch
@@ -14,6 +12,7 @@ from uuid import uuid4
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorHit
+from agrag.cypher.entities import hydrate_entities_by_id_query
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.retrievers.entity import EntityRetriever
 
@@ -30,33 +29,65 @@ class MockEmbedder:
         return [[0.1, 0.2] for _ in texts]
 
 
-class TestEntityRetriever:
-    """EntityRetriever resolves hits through merged_into."""
+def _graph_store(
+    entities: tuple[Entity, ...] = (),
+    allowed_ids: tuple = (),
+    superseded_ids: tuple = (),
+) -> AsyncMock:
+    """Return a graph store that hydrates ``entities`` and scopes to ``allowed_ids``.
 
-    async def test_returns_resolved_entities(self) -> None:
-        """Hits are resolved through resolve_entity and returned."""
+    ``superseded_ids`` are raw ids an active resolved entity replaces.
+    """
+    hydrate_query = hydrate_entities_by_id_query()
+
+    async def execute_read(query: str, params: dict) -> list[dict]:
+        """Answer the scope, hydration, and supersession reads."""
+        if "document_ids" in params:
+            return [{"id": str(item_id)} for item_id in allowed_ids]
+        if query == hydrate_query:
+            return [
+                {
+                    "n": {
+                        "id": str(entity.id),
+                        "labels": [entity.label],
+                        "properties": {"name": entity.name},
+                    }
+                }
+                for entity in entities
+                if str(entity.id) in params["ids"]
+            ]
+        return [
+            {"entity_id": str(item_id)}
+            for item_id in superseded_ids
+            if str(item_id) in params["ids"]
+        ]
+
+    store = AsyncMock()
+    store.execute_read.side_effect = execute_read
+    return store
+
+
+class TestEntityRetriever:
+    """EntityRetriever hydrates hits from the graph."""
+
+    async def test_returns_hydrated_entities(self) -> None:
+        """Hits are hydrated from the graph and returned."""
         ent = Entity(id=uuid4(), label="Person", name="Alice")
-        gs = AsyncMock()
+        gs = _graph_store(entities=(ent,))
         embedder = MockEmbedder()
 
-        with (
-            patch(
-                "agrag.retrieval.retrievers.entity.vector_search",
-                new_callable=AsyncMock,
-            ) as mock_vs,
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-        ):
+        with patch(
+            "agrag.retrieval.retrievers.entity.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
             mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_resolve.return_value = ent
 
             retriever = EntityRetriever(graph_store=gs, embedder=embedder)
             results = await retriever.retrieve("test query")
 
             assert len(results) == 1
             assert results[0].item.id == ent.id
+            assert results[0].item.name == ent.name
             assert results[0].method == "entity"
 
     async def test_returns_materialization_without_its_raw_member(self) -> None:
@@ -154,12 +185,7 @@ class TestEntityRetriever:
         """Document scope expands past higher-ranked entities from other documents."""
         scoped_id = uuid4()
         scoped = Entity(id=scoped_id, label="Person", name="Ada")
-        graph_store = AsyncMock()
-        graph_store.execute_read.side_effect = [
-            [{"id": str(scoped_id)}],
-            [],
-            [],
-        ]
+        graph_store = _graph_store(entities=(scoped,), allowed_ids=(scoped_id,))
         outside_first = VectorHit(id=uuid4(), score=0.99, payload={})
         outside_second = VectorHit(id=uuid4(), score=0.98, payload={})
 
@@ -177,11 +203,6 @@ class TestEntityRetriever:
                     [],
                 ],
             ) as vector_search_mock,
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-                return_value=scoped,
-            ),
         ):
             retriever = EntityRetriever(
                 graph_store=graph_store, embedder=MockEmbedder()
@@ -190,7 +211,7 @@ class TestEntityRetriever:
                 "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
             )
 
-        assert [result.item for result in results] == [scoped]
+        assert [result.item.id for result in results] == [scoped.id]
         limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
         assert limits == [2, 4, 2]
         assert all(
@@ -204,20 +225,11 @@ class TestEntityRetriever:
         second_member_id = uuid4()
         regular_id = uuid4()
         regular = Entity(id=regular_id, label="Person", name="Katherine")
-        graph_store = AsyncMock()
-        graph_store.execute_read.side_effect = [
-            [
-                {"id": str(first_member_id)},
-                {"id": str(second_member_id)},
-                {"id": str(regular_id)},
-            ],
-            [{"entity_id": str(first_member_id)}],
-            [
-                {"entity_id": str(first_member_id)},
-                {"entity_id": str(second_member_id)},
-            ],
-            [],
-        ]
+        graph_store = _graph_store(
+            entities=(regular,),
+            allowed_ids=(first_member_id, second_member_id, regular_id),
+            superseded_ids=(first_member_id, second_member_id),
+        )
         first_member = VectorHit(id=first_member_id, score=0.99, payload={})
         second_member = VectorHit(id=second_member_id, score=0.98, payload={})
         regular_hit = VectorHit(id=regular_id, score=0.8, payload={})
@@ -233,11 +245,6 @@ class TestEntityRetriever:
                 ],
             ) as vector_search_mock,
             patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-                return_value=regular,
-            ),
-            patch(
                 "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
                 new_callable=AsyncMock,
                 return_value={},
@@ -250,7 +257,7 @@ class TestEntityRetriever:
                 "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
             )
 
-        assert [result.item for result in results] == [regular]
+        assert [result.item.id for result in results] == [regular.id]
         limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
         assert limits == [2, 4, 2]
 
@@ -260,12 +267,7 @@ class TestEntityRetriever:
         """A failed raw backfill keeps the scoped result from the first search."""
         scoped_id = uuid4()
         scoped = Entity(id=scoped_id, label="Person", name="Ada")
-        graph_store = AsyncMock()
-        graph_store.execute_read.side_effect = [
-            [{"id": str(scoped_id)}],
-            [],
-            [],
-        ]
+        graph_store = _graph_store(entities=(scoped,), allowed_ids=(scoped_id,))
         outside = VectorHit(id=uuid4(), score=0.99, payload={})
 
         with (
@@ -278,11 +280,6 @@ class TestEntityRetriever:
                     [],
                 ],
             ) as vector_search_mock,
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-                return_value=scoped,
-            ),
         ):
             retriever = EntityRetriever(
                 graph_store=graph_store, embedder=MockEmbedder()
@@ -291,7 +288,7 @@ class TestEntityRetriever:
                 "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
             )
 
-        assert [result.item for result in results] == [scoped]
+        assert [result.item.id for result in results] == [scoped.id]
         limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
         assert limits == [2, 4, 2]
 
@@ -361,7 +358,7 @@ class TestEntityRetriever:
                 "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
             )
 
-        assert [result.item for result in results] == [scoped]
+        assert [result.item.id for result in results] == [scoped.id]
         limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
         assert limits == [2, 2, 4]
         assert all(
@@ -415,173 +412,28 @@ class TestEntityRetriever:
                 "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
             )
 
-        assert [result.item for result in results] == [scoped]
+        assert [result.item.id for result in results] == [scoped.id]
         limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
         assert limits == [2, 2, 4]
 
-    async def test_skips_unresolvable_entities(self) -> None:
-        """Entities that fail to resolve are skipped."""
-        gs = AsyncMock()
-        embedder = MockEmbedder()
+    async def test_drops_hits_the_graph_cannot_hydrate(self) -> None:
+        """A hit with no matching graph node is dropped; the others stay."""
+        live = Entity(id=uuid4(), label="Person", name="Alice")
+        gs = _graph_store(entities=(live,))
 
-        with (
-            patch(
-                "agrag.retrieval.retrievers.entity.vector_search",
-                new_callable=AsyncMock,
-            ) as mock_vs,
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-        ):
-            mock_vs.return_value = [VectorHit(id=uuid4(), score=0.9, payload={})]
-            mock_resolve.side_effect = ValueError("not found")
+        with patch(
+            "agrag.retrieval.retrievers.entity.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = [
+                VectorHit(id=uuid4(), score=0.95, payload={}),
+                VectorHit(id=live.id, score=0.9, payload={}),
+            ]
 
-            retriever = EntityRetriever(graph_store=gs, embedder=embedder)
+            retriever = EntityRetriever(graph_store=gs, embedder=MockEmbedder())
             results = await retriever.retrieve("test query")
 
-            assert len(results) == 0
-
-    async def test_regression_returns_survivor_not_tombstone(
-        self,
-    ) -> None:
-        """Regression: EntityRetriever returns survivor, not tombstone.
-
-        When the store has a merged_into chain, the retriever must
-        return the live survivor entity. This test fails without
-        resolve_entity wired in correctly.
-        """
-        survivor = Entity(id=uuid4(), label="Person", name="Alice (survivor)")
-        tombstone_id = uuid4()
-
-        gs = AsyncMock()
-        embedder = MockEmbedder()
-
-        with (
-            patch(
-                "agrag.retrieval.retrievers.entity.vector_search",
-                new_callable=AsyncMock,
-            ) as mock_vs,
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-        ):
-            # The vector store returns the tombstone id.
-            mock_vs.return_value = [VectorHit(id=tombstone_id, score=0.9, payload={})]
-            # resolve_entity follows merged_into and returns survivor.
-            mock_resolve.return_value = survivor
-
-            retriever = EntityRetriever(graph_store=gs, embedder=embedder)
-            results = await retriever.retrieve("test query")
-
-            assert len(results) == 1
-            assert results[0].item.id == survivor.id
-            assert results[0].item.name == "Alice (survivor)"
-
-    async def test_hydrated_entity_skips_resolve_entity_round_trip(self) -> None:
-        """A row that hydrates directly avoids the per-hit resolve_entity call.
-
-        This is exactly what the diff's batch-hydration change is for: when
-        the hydration query already returns a live entity for a hit's id,
-        the retriever must not fall back to resolve_entity for it.
-        """
-        eid = uuid4()
-        gs = AsyncMock()
-        gs.execute_read.return_value = [
-            {
-                "n": {
-                    "id": str(eid),
-                    "name": "Alice",
-                    "merge_key": "Person:alice",
-                    "merged_from": [],
-                    "merge_count": 1,
-                    "source_chunk_ids": [],
-                    "created_at": "2020-01-01T00:00:00+00:00",
-                    "labels": ["Person"],
-                }
-            }
-        ]
-        embedder = MockEmbedder()
-
-        with (
-            patch(
-                "agrag.retrieval.retrievers.entity.vector_search",
-                new_callable=AsyncMock,
-            ) as mock_vs,
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-        ):
-            mock_vs.return_value = [VectorHit(id=eid, score=0.9, payload={})]
-
-            retriever = EntityRetriever(graph_store=gs, embedder=embedder)
-            results = await retriever.retrieve("test query")
-
-            assert len(results) == 1
-            assert results[0].item.name == "Alice"
-            mock_resolve.assert_not_called()
-
-    async def test_unwrappable_row_falls_through_to_resolve_entity(self) -> None:
-        """A row whose 'n' value parses to nothing is skipped, not fatal.
-
-        parse_entity_node's own {"n": ...} unwrapping means retrying the
-        raw row after the wrapped node fails still yields None here, so the
-        hit falls through to per-hit resolve_entity instead of being dropped.
-        """
-        eid = uuid4()
-        gs = AsyncMock()
-        gs.execute_read.return_value = [{"n": {}}]
-        ent = Entity(id=eid, label="Person", name="Alice")
-        embedder = MockEmbedder()
-
-        with (
-            patch(
-                "agrag.retrieval.retrievers.entity.vector_search",
-                new_callable=AsyncMock,
-            ) as mock_vs,
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-        ):
-            mock_vs.return_value = [VectorHit(id=eid, score=0.9, payload={})]
-            mock_resolve.return_value = ent
-
-            retriever = EntityRetriever(graph_store=gs, embedder=embedder)
-            results = await retriever.retrieve("test query")
-
-            assert len(results) == 1
-            assert results[0].item.id == eid
-            mock_resolve.assert_awaited_once()
-
-    async def test_hydration_query_failure_falls_back_to_resolve_entity(self) -> None:
-        """A hydration query error still lets resolve_entity find the entity."""
-        ent = Entity(id=uuid4(), label="Person", name="Alice")
-        gs = AsyncMock()
-        gs.execute_read.side_effect = RuntimeError("db down")
-        embedder = MockEmbedder()
-
-        with (
-            patch(
-                "agrag.retrieval.retrievers.entity.vector_search",
-                new_callable=AsyncMock,
-            ) as mock_vs,
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-        ):
-            mock_vs.return_value = [VectorHit(id=ent.id, score=0.9, payload={})]
-            mock_resolve.return_value = ent
-
-            retriever = EntityRetriever(graph_store=gs, embedder=embedder)
-            results = await retriever.retrieve("test query")
-
-            assert len(results) == 1
-            assert results[0].item.id == ent.id
-            mock_resolve.assert_awaited_once()
+        assert [result.item.id for result in results] == [live.id]
 
     async def test_zero_limit_returns_empty_without_searching(self) -> None:
         """limit=0 returns no results and never reaches vector_search."""
@@ -672,8 +524,7 @@ class TestEntityRetriever:
     ) -> None:
         """A resolved-collection search failure keeps the raw results."""
         ent = Entity(id=uuid4(), label="Person", name="Alice")
-        gs = AsyncMock()
-        gs.execute_read.return_value = []
+        gs = _graph_store(entities=(ent,))
 
         with (
             patch(
@@ -684,13 +535,8 @@ class TestEntityRetriever:
                     RuntimeError("collection not found"),
                 ],
             ),
-            patch(
-                "agrag.retrieval.retrievers.entity.resolve_entity",
-                new_callable=AsyncMock,
-                return_value=ent,
-            ),
         ):
             retriever = EntityRetriever(graph_store=gs, embedder=MockEmbedder())
             results = await retriever.retrieve("Alice")
 
-        assert [result.item for result in results] == [ent]
+        assert [result.item.id for result in results] == [ent.id]

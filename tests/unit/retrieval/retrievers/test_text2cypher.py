@@ -6,9 +6,9 @@ back to empty results on generation failure or a missing BAML client
 (simulated via ``sys.modules`` patching), rejecting write Cypher while
 appending a configured row LIMIT when the generated query lacks one (without
 being fooled by a quoted "LIMIT" inside a string literal), and parsing result
-rows into Relation/Chunk
-SearchResults, including relations with embedded start/end nodes and a
-scalar row (e.g. ``count(p)``) being logged as a warning rather than
+rows into Entity/Relation/Chunk SearchResults, hydrating entity rows from the
+graph and skipping ids it lacks, including relations with embedded start/end
+nodes and a scalar row (e.g. ``count(p)``) being logged as a warning rather than
 silently dropped.
 
 The BAML call is stubbed by replacing the generated client's ``b`` object
@@ -32,8 +32,10 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from opentelemetry.trace import StatusCode
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.relation import Relation
+from agrag.cypher.entities import hydrate_entities_by_id_query
 from agrag.retrieval.retrievers.text2cypher import (
     Text2CypherRetriever,
     _format_retry_diagnostic,
@@ -143,6 +145,96 @@ class TestText2CypherBounds:
 
 class TestText2CypherRowShapes:
     """Structured rows are surfaced as Entity/Relation/Chunk results."""
+
+    async def test_entity_row_is_hydrated_from_the_graph(self) -> None:
+        """An entity row returns the graph's entity for that id."""
+        entity_id = uuid4()
+        hydrate_query = hydrate_entities_by_id_query()
+
+        async def read(query: str, params: dict | None = None, **kwargs) -> list[dict]:
+            """Return the query row, or the stored node for hydration."""
+            if query != hydrate_query:
+                return [{"n": {"id": str(entity_id), "name": "stale"}}]
+            return [
+                {
+                    "n": {
+                        "id": str(entity_id),
+                        "labels": ["Person"],
+                        "properties": {"name": "Alice"},
+                    }
+                }
+            ]
+
+        gs = AsyncMock()
+        gs.execute_read.side_effect = read
+        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+
+        with patch.object(
+            retriever, "_generate_cypher", return_value="MATCH (n:Person) RETURN n"
+        ):
+            results = await retriever.retrieve("who is Alice?")
+
+        assert len(results) == 1
+        assert isinstance(results[0].item, Entity)
+        assert results[0].item.id == entity_id
+        assert results[0].item.name == "Alice"
+
+    async def test_entity_row_absent_from_the_graph_is_skipped(self) -> None:
+        """An entity row the graph cannot hydrate yields no result."""
+        hydrate_query = hydrate_entities_by_id_query()
+
+        async def read(query: str, params: dict | None = None, **kwargs) -> list[dict]:
+            """Return the query row, and nothing for hydration."""
+            if query == hydrate_query:
+                return []
+            return [{"n": {"id": str(uuid4()), "name": "Ghost"}}]
+
+        gs = AsyncMock()
+        gs.execute_read.side_effect = read
+        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+
+        with patch.object(
+            retriever, "_generate_cypher", return_value="MATCH (n:Person) RETURN n"
+        ):
+            results = await retriever.retrieve("who is Ghost?")
+
+        assert results == []
+
+    async def test_entity_hydration_failure_keeps_other_rows(self) -> None:
+        """A failed hydration read skips that row and keeps the others."""
+        failing_id = uuid4()
+        healthy_id = uuid4()
+        hydrate_query = hydrate_entities_by_id_query()
+
+        async def read(query: str, params: dict | None = None, **kwargs) -> list[dict]:
+            """Return two entity rows; fail hydration for the first id."""
+            if query != hydrate_query:
+                return [
+                    {"n": {"id": str(failing_id), "name": "Bob"}},
+                    {"n": {"id": str(healthy_id), "name": "Alice"}},
+                ]
+            if params is not None and params["ids"] == [str(failing_id)]:
+                raise RuntimeError("hydration failed")
+            return [
+                {
+                    "n": {
+                        "id": str(healthy_id),
+                        "labels": ["Person"],
+                        "properties": {"name": "Alice"},
+                    }
+                }
+            ]
+
+        gs = AsyncMock()
+        gs.execute_read.side_effect = read
+        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+
+        with patch.object(
+            retriever, "_generate_cypher", return_value="MATCH (n:Person) RETURN n"
+        ):
+            results = await retriever.retrieve("who is Alice?")
+
+        assert [result.item.id for result in results] == [healthy_id]
 
     async def test_relation_row_becomes_search_result(self) -> None:
         """A relationship row is wrapped in a Relation, not dropped."""

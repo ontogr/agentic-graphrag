@@ -27,7 +27,7 @@ from agrag.observability import get_tracer, record_stage_failure
 if TYPE_CHECKING:
     from baml_py import ClientRegistry
 
-    from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+    from agrag.graphdb.base import GraphStore
     from agrag.llm.baml_client.runtime import BamlCallOptions
 
 
@@ -78,29 +78,25 @@ class MergePlan(BaseModel):
     """Computed result of merging zero or more entities and mentions.
 
     Attributes:
-        survivor: The resulting Entity. Its merge_count, source_chunk_ids,
-            and merged_from are this call's best local computation, for
+        survivor: The resulting Entity. Its merge_count and
+            source_chunk_ids are this call's best local computation, for
             reporting; apply_merge writes new_source_chunk_ids and
             merge_count_delta atomically instead, so a concurrent writer's
             own contribution to the same node is never overwritten.
-        tombstone_ids: Ids of entities absorbed into survivor. Also this
-            call's new contribution to the survivor's merged_from, applied
-            atomically.
         conflicts: Every field that had more than one candidate value.
         accepted_merge_keys: Every normalized merge_key this merge
             accepted -- from existing_entities and mentions alike, not only
             the survivor's own chosen name -- so a later mention of any
             accepted name resolves back to this entity instead of creating
             a duplicate.
-        new_source_chunk_ids: The chunk ids this call's mentions and
-            absorbed entities contribute, applied as an atomic union
-            against whatever the survivor's node currently has.
+        new_source_chunk_ids: The chunk ids this call's mentions contribute,
+            applied as an atomic union against whatever the survivor's node
+            currently has.
         merge_count_delta: The amount to atomically add to whatever
             merge_count the survivor's node currently has.
     """
 
     survivor: Entity
-    tombstone_ids: list[UUID] = []
     conflicts: list[ConflictRecord] = []
     accepted_merge_keys: list[str] = []
     new_source_chunk_ids: list[UUID] = []
@@ -110,7 +106,7 @@ class MergePlan(BaseModel):
 def select_canonical(
     entities: list[Entity], entity_type: EntityType | None
 ) -> tuple[Entity, list[Entity]]:
-    """Return the canonical survivor and the rest, from two or more entities.
+    """Return the canonical entity and the rest, from two or more entities.
 
     Schema-completeness (fewest missing declared fields) first, then earliest
     created_at, then lexicographically smallest id.
@@ -120,7 +116,7 @@ def select_canonical(
         entity_type: The schema type for this label, if declared.
 
     Returns:
-        The survivor and the absorbed entities.
+        The canonical entity and the other entities.
     """
     declared_fields = set(entity_type.properties) if entity_type is not None else set()
 
@@ -356,7 +352,8 @@ async def compute_merge(  # noqa: PLR0912
 
     No storage is touched. Zero existing entities produces a brand-new Entity.
     One produces an updated copy folding in the mentions. Two or more picks a
-    canonical survivor and marks the rest for tombstoning.
+    canonical entity for the survivor's identity; the others contribute
+    property values and accepted merge-key aliases.
 
     Args:
         existing_entities: Already-persisted entities this call reconciles.
@@ -394,11 +391,11 @@ async def compute_merge(  # noqa: PLR0912
     entity_type = next((t for t in schema.entities if t.label == label), None)
 
     if len(existing_entities) >= 2:
-        survivor_base, absorbed = select_canonical(existing_entities, entity_type)
+        survivor_base, _ = select_canonical(existing_entities, entity_type)
     elif existing_entities:
-        survivor_base, absorbed = existing_entities[0], []
+        survivor_base = existing_entities[0]
     else:
-        survivor_base, absorbed = None, []  # type: ignore[assignment]
+        survivor_base = None
 
     field_sources = [
         {"name": entity.name, **entity.properties} for entity in existing_entities
@@ -434,27 +431,14 @@ async def compute_merge(  # noqa: PLR0912
         if survivor_base is not None
         else _new_survivor_id(label, name, job_id)
     )
-    merged_from_vals: list[UUID] = []
-    if survivor_base is not None:
-        merged_from_vals.extend(survivor_base.merged_from)
-    merged_from_vals.extend(entity.id for entity in absorbed)
-    # Deduplicate while preserving order.
-    merged_from = list(dict.fromkeys(merged_from_vals))
-
     base_merge_count = survivor_base.merge_count if survivor_base is not None else 0
-    merge_count = (
-        base_merge_count
-        + sum(entity.merge_count for entity in absorbed)
-        + len(mentions)
-    )
+    merge_count = base_merge_count + len(mentions)
     # Ensure at least 1.
     merge_count = max(merge_count, 1)
 
     source_ids: list[UUID] = []
     if survivor_base is not None:
         source_ids.extend(survivor_base.source_chunk_ids)
-    for entity in absorbed:
-        source_ids.extend(entity.source_chunk_ids)
     for mention in mentions:
         source_ids.append(mention.chunk_id)
     source_chunk_ids = list(dict.fromkeys(source_ids))
@@ -464,13 +448,8 @@ async def compute_merge(  # noqa: PLR0912
     # writes this atomically against whatever the node currently has, so a
     # concurrent writer's own contribution is never lost to a full
     # overwrite from a snapshot taken before either write landed.
-    new_source_ids: list[UUID] = []
-    for entity in absorbed:
-        new_source_ids.extend(entity.source_chunk_ids)
-    for mention in mentions:
-        new_source_ids.append(mention.chunk_id)
-    new_source_chunk_ids = list(dict.fromkeys(new_source_ids))
-    merge_count_delta = sum(entity.merge_count for entity in absorbed) + len(mentions)
+    new_source_chunk_ids = list(dict.fromkeys(mention.chunk_id for mention in mentions))
+    merge_count_delta = len(mentions)
 
     accepted_merge_keys = list(
         dict.fromkeys(
@@ -488,7 +467,6 @@ async def compute_merge(  # noqa: PLR0912
             label=label,
             name=name,  # type: ignore[arg-type]
             properties=properties,
-            merged_from=merged_from,
             merge_count=merge_count,
             source_chunk_ids=source_chunk_ids,
         )
@@ -498,14 +476,12 @@ async def compute_merge(  # noqa: PLR0912
             label=label,
             name=name,  # type: ignore[arg-type]
             properties=properties,
-            merged_from=merged_from,
             merge_count=merge_count,
             source_chunk_ids=source_chunk_ids,
         )
 
     plan = MergePlan(
         survivor=survivor,
-        tombstone_ids=[entity.id for entity in absorbed],
         conflicts=conflicts,
         accepted_merge_keys=accepted_merge_keys,
         new_source_chunk_ids=new_source_chunk_ids,
@@ -680,65 +656,6 @@ def next_chunk_id(from_chunk_id: UUID, to_chunk_id: UUID) -> UUID:
     return uuid5(NAMESPACE_OID, f"NEXT_CHUNK:{from_chunk_id}:{to_chunk_id}")
 
 
-_MAX_ALIAS_OWNER_CHAIN_HOPS = 32
-
-
-async def _resolve_alias_owner(owner_id: str, *, txn: GraphStoreTransaction) -> str:
-    """Follow a merge-key alias owner's ``merged_into`` chain to its live id.
-
-    ``upsert_merge_alias_query`` never rewrites an alias once created: if the
-    entity it names is later absorbed by a separate, earlier-committed
-    merge, the alias still points at that now-tombstoned id. Comparing an
-    alias owner's raw id against a merge's own survivor and tombstone ids
-    would then read that historical alias as a foreign conflict even though
-    it resolves, through ``merged_into``, to the very entity this merge is
-    writing.
-
-    Args:
-        owner_id: The alias row's raw ``entity_id``, possibly a tombstone.
-        txn: The transaction to read within.
-
-    Returns:
-        The id of the live entity at the end of the chain. Returns
-        ``owner_id`` unchanged when it already names a live node.
-
-    Raises:
-        GraphStoreDataIntegrityError: The chain cycles, points at a missing
-            node, or exceeds ``_MAX_ALIAS_OWNER_CHAIN_HOPS`` hops without
-            reaching a live node.
-    """
-    from agrag.cypher.entities import NODE_IDENTITY_LABEL  # noqa: PLC0415
-    from agrag.graphdb.errors import GraphStoreDataIntegrityError  # noqa: PLC0415
-
-    visited: set[str] = set()
-    current_id = owner_id
-    for _ in range(_MAX_ALIAS_OWNER_CHAIN_HOPS):
-        if current_id in visited:
-            raise GraphStoreDataIntegrityError(
-                f"merged_into cycle detected resolving alias owner "
-                f"{owner_id!r} (revisited {current_id!r})"
-            )
-        visited.add(current_id)
-        rows = await txn.execute_read(
-            f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: $id}}) "
-            f"RETURN n.merged_into AS merged_into",
-            {"id": current_id},
-        )
-        if not rows:
-            raise GraphStoreDataIntegrityError(
-                f"alias owner chain from {owner_id!r} points at missing "
-                f"node {current_id!r}"
-            )
-        next_id = rows[0].get("merged_into")
-        if not next_id:
-            return current_id
-        current_id = str(next_id)
-    raise GraphStoreDataIntegrityError(
-        f"alias owner chain from {owner_id!r} exceeded "
-        f"{_MAX_ALIAS_OWNER_CHAIN_HOPS} hops without reaching a live node"
-    )
-
-
 async def apply_merge(
     plan: MergePlan,
     *,
@@ -753,11 +670,6 @@ async def apply_merge(
     failure partway through leaves no half-written state: no survivor
     without its alias.
 
-    Destructive merging is retired: a plan with non-empty tombstone_ids
-    is rejected before any write runs, and callers must persist the
-    match through MATCHES edges and materialize a ResolvedEntity
-    instead.
-
     Args:
         plan: The merge to write.
         graph_store: Where the merge is written.
@@ -767,14 +679,10 @@ async def apply_merge(
             writes untagged, for callers outside a job.
 
     Raises:
-        ValueError: plan.tombstone_ids is non-empty.
         GraphStoreAliasConflictError: An accepted merge_key is already owned
             by a live entity outside this merge's own survivor id -- a
             concurrent writer accepted that name as an alias of, or
             created it as the canonical name of, a different entity.
-        GraphStoreDataIntegrityError: A candidate conflicting alias owner's
-            merged_into chain cycles, points at a missing node, or does not
-            reach a live node within the hop limit.
     """
     from agrag.common.data_models.graph_record import (  # noqa: PLC0415
         NodeRecord,
@@ -788,24 +696,17 @@ async def apply_merge(
     from agrag.graphdb.errors import GraphStoreAliasConflictError  # noqa: PLC0415
     from agrag.graphdb.serialize import node_params  # noqa: PLC0415
 
-    if plan.tombstone_ids:
-        raise ValueError(
-            "Destructive merge is retired: apply_merge no longer absorbs "
-            "entities. Persist the match with MATCHES edges and materialize "
-            "a ResolvedEntity instead."
-        )
     validate_identifier(plan.survivor.label)
     survivor_id = str(plan.survivor.id)
 
     async with graph_store.transaction() as txn:
-        # Everything except source_chunk_ids/merged_from/merge_count is
-        # applied as-is; those three go through upsert_survivor_query's
-        # atomic accumulation instead, using node_params only to get their
-        # driver-safe encoding, not their values.
+        # Everything except source_chunk_ids/merge_count is applied as-is;
+        # those two go through upsert_survivor_query's atomic accumulation
+        # instead, using node_params only to get their driver-safe encoding,
+        # not their values.
         record = plan.survivor.to_node_record()
         survivor_properties = dict(record.properties)
         survivor_properties.pop("source_chunk_ids", None)
-        survivor_properties.pop("merged_from", None)
         survivor_properties.pop("merge_count", None)
         params = node_params(
             tag_pending(
@@ -816,7 +717,6 @@ async def apply_merge(
             )
         )
         params["new_source_chunk_ids"] = [str(cid) for cid in plan.new_source_chunk_ids]
-        params["new_merged_from"] = [str(tid) for tid in plan.tombstone_ids]
         params["merge_count_delta"] = plan.merge_count_delta
         await txn.execute_write(
             upsert_survivor_query(plan.survivor.label), {"records": [params]}
@@ -830,23 +730,11 @@ async def apply_merge(
                 "pending_job_id": pending_job_id,
             },
         )
-        # An alias an earlier, unrelated merge accepted still points at
-        # that merge's own survivor id even after that entity is itself
-        # later absorbed elsewhere, since upsert_merge_alias_query never
-        # rewrites an alias once created. Resolving the owner's
-        # merged_into chain first tells that historical owner apart from
-        # a genuinely different live entity that claimed the same name.
-        known_ids = {survivor_id}
-        candidate_conflicts = {
+        conflicts = {
             row["merge_key"]: row["entity_id"]
             for row in alias_rows
-            if isinstance(row, dict) and row.get("entity_id") not in known_ids
+            if isinstance(row, dict) and row.get("entity_id") != survivor_id
         }
-        conflicts = {}
-        for merge_key, owner_id in candidate_conflicts.items():
-            live_owner_id = await _resolve_alias_owner(owner_id, txn=txn)
-            if live_owner_id not in known_ids:
-                conflicts[merge_key] = live_owner_id
         if conflicts:
             raise GraphStoreAliasConflictError(conflicts)
 

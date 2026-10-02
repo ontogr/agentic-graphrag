@@ -9,7 +9,6 @@ from agrag.cypher.relations import TraversalDirection, bfs_expand_query
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.retrieval.filters import SearchFilters
-from agrag.retrieval.identity import resolve_entity
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.retrieval.tracing import record_results, retrieval_span
@@ -20,7 +19,7 @@ class BFSRetriever(Retriever):
 
     Takes seed entity ids (from a prior EntityRetriever call, or
     supplied directly), runs bfs_expand_query, and hydrates the
-    returned entities through resolve_entity and relations directly.
+    returned entities and relations directly.
     Degree-capped by RetrievalSettings.traversal_limit.
     """
 
@@ -128,16 +127,6 @@ class BFSRetriever(Retriever):
                 )
                 entity = parse_entity_node(neighbor)
                 if entity is None:
-                    continue
-
-                # Resolve through merged_into if needed. A neighbour that
-                # cannot be resolved is skipped without a record: a row the
-                # caller never sees is not a step that fell back.
-                try:
-                    entity = await resolve_entity(
-                        self._graph_store, entity.id, tracer=self._tracer
-                    )
-                except (ValueError, Exception):
                     continue
 
                 if entity.id in seen_ids:

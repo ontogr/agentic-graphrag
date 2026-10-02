@@ -11,20 +11,22 @@ from uuid import UUID
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.search_result import SearchResult
+from agrag.cypher.entities import hydrate_entities_by_id_query
 from agrag.cypher.safety import (
     UnsafeCypherError,
     reject_write_cypher,
     strip_cypher_syntax,
 )
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.serialize import parse_entity_node
 from agrag.llm.retry import NO_RETRY, call_with_retry
 from agrag.observability import get_tracer, record_swallowed_exception
 from agrag.retrieval.filters import SearchFilters
-from agrag.retrieval.identity import resolve_entity
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.retrieval.tracing import record_results, retrieval_span
@@ -417,7 +419,7 @@ class Text2CypherRetriever(Retriever):
     server-side transaction timeout before EXPLAIN and execution. A
     query that fails to plan or to execute is regenerated once, carrying
     a bounded, sanitized diagnostic of the failure. Rows that carry an
-    entity id are resolved through resolve_entity before becoming a
+    entity id are hydrated from the graph before becoming a
     SearchResult; relationship and chunk rows are parsed directly, under
     the prompt's own aliases or any alias the model chose instead.
     Scalar rows (for example counts or property values) become cited
@@ -472,7 +474,7 @@ class Text2CypherRetriever(Retriever):
 
         Returns:
             SearchResults from the generated query: entity results
-                resolved through ``resolve_entity``; relation, chunk, and
+                hydrated from the graph; relation, chunk, and
                 scalar rows parsed directly.
         """
         with retrieval_span(
@@ -523,14 +525,14 @@ class Text2CypherRetriever(Retriever):
                 entity_id = self._extract_entity_id(row)
                 if entity_id is not None:
                     try:
-                        entity = await resolve_entity(
-                            self._graph_store, entity_id, tracer=self._tracer
-                        )
+                        entity = await self._hydrate_entity(entity_id)
+                    except Exception as exc:  # noqa: BLE001
+                        record_swallowed_exception(exc)
+                        continue
+                    if entity is not None:
                         results.append(
                             SearchResult(item=entity, score=1.0, method=method)
                         )
-                    except Exception:
-                        continue
                 else:
                     relation = self._extract_relation(row)
                     if relation is not None:
@@ -686,6 +688,25 @@ class Text2CypherRetriever(Retriever):
             if chunk is not None:
                 return chunk
         return None
+
+    async def _hydrate_entity(self, entity_id: UUID) -> Entity | None:
+        """Return the committed Entity with this id, or None if it is absent."""
+        with get_tracer(self._tracer).start_as_current_span(
+            "agrag.retrieval.hydrate_entities",
+            attributes={"agrag.requested_count": 1},
+        ) as hydrate:
+            rows = await self._graph_store.execute_read(
+                hydrate_entities_by_id_query(),
+                {"ids": [str(entity_id)], "job_id": None},
+            )
+            for row in rows:
+                node = row.get("n") if isinstance(row, dict) and "n" in row else row
+                entity = parse_entity_node(node)
+                if entity is not None:
+                    hydrate.set_attribute("agrag.hydrated_count", 1)
+                    return entity
+            hydrate.set_attribute("agrag.hydrated_count", 0)
+            return None
 
     @staticmethod
     def _extract_entity_id(row: dict) -> UUID | None:  # noqa: PLR0912

@@ -1,8 +1,8 @@
 """Tests for the retrieval helper spans.
 
 Pins the span names, attributes and swallow-site behavior of the shared
-helpers: ``vector_search``, ``resolve_entity``, ``hydrate_resolved_entities``,
-``fuse``, the community helpers and both rerankers. Runs real spans through an
+helpers: ``vector_search``, ``hydrate_resolved_entities``, ``fuse``, the community
+helpers and both rerankers. Runs real spans through an
 in-memory exporter; stores are mocks at the driver boundary.
 """
 
@@ -24,7 +24,6 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.retrieval.fusion import fuse
-from agrag.retrieval.identity import resolve_entity
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.rerank.cross_encoder import cross_encoder_rerank
 from agrag.retrieval.rerank.node_distance import node_distance_rerank
@@ -164,71 +163,6 @@ class TestVectorSearchSpan:
 def _raises_value_error():
     """Return the context manager the misconfiguration test uses."""
     return contextlib.suppress(ValueError)
-
-
-def _resolve_row(entity_id, merged_into=None) -> dict:
-    """Build a resolve_merged_into_query row for one node."""
-    return {
-        "node": {
-            "id": str(entity_id),
-            "labels": ["Person"],
-            "properties": {
-                "name": "Alice",
-                "merge_key": "Person:alice",
-                "merged_from": [],
-                "merge_count": 1,
-                "source_chunk_ids": [],
-            },
-        },
-        "merged_into": str(merged_into) if merged_into else None,
-    }
-
-
-class TestResolveEntitySpan:
-    """resolve_entity records hops and the resolved id."""
-
-    async def test_two_hop_chain_records_hops_of_two(self) -> None:
-        """A two-hop merged_into chain records agrag.hops=2."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        first = uuid4()
-        second = uuid4()
-        survivor = uuid4()
-        gs = AsyncMock()
-        gs.execute_read.side_effect = [
-            [_resolve_row(first, merged_into=second)],
-            [_resolve_row(second, merged_into=survivor)],
-            [_resolve_row(survivor)],
-        ]
-
-        entity = await resolve_entity(gs, first, tracer=tracer)
-
-        attributes = _named(
-            exporter.get_finished_spans(), "agrag.retrieval.resolve_entity"
-        )[0].attributes
-        assert attributes is not None
-        assert attributes["agrag.hops"] == 2
-        assert attributes["agrag.resolved_id"] == str(entity.id)
-        assert attributes["agrag.entity_id"] == str(first)
-
-    async def test_missing_entity_marks_the_span_error(self) -> None:
-        """A chain pointing at a missing node marks the span ERROR."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        first = uuid4()
-        gs = AsyncMock()
-        gs.execute_read.side_effect = [
-            [_resolve_row(first, merged_into=uuid4())],
-            [],
-        ]
-
-        with contextlib.suppress(ValueError):
-            await resolve_entity(gs, first, tracer=tracer)
-
-        span = _named(exporter.get_finished_spans(), "agrag.retrieval.resolve_entity")[
-            0
-        ]
-        assert span.status.status_code.name == "ERROR"
 
 
 class TestFuseSpan:
@@ -402,20 +336,6 @@ class TestNoTracerLeavesHostSpanUntouched:
                 filters=None,
                 settings=RetrievalSettings(),
             )
-
-        host = _named(exporter.get_finished_spans(), "host")[0]
-        assert host.status.status_code.name != "ERROR"
-        assert not [e for e in host.events if e.name == "exception"]
-
-    async def test_resolve_entity(self) -> None:
-        """resolve_entity adds no exception event to the host span."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        gs = AsyncMock()
-        gs.execute_read.return_value = [_resolve_row(uuid4())]
-
-        with tracer.start_as_current_span("host"):
-            await resolve_entity(gs, uuid4())
 
         host = _named(exporter.get_finished_spans(), "host")[0]
         assert host.status.status_code.name != "ERROR"

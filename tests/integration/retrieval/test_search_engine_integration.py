@@ -168,7 +168,6 @@ class TestSearchEngineIntegration:
                 properties={
                     "name": ent.name,
                     "merge_key": ent.merge_key,
-                    "merged_from": [],
                     "merge_count": 1,
                     "source_chunk_ids": [],
                     "embedding": ent.embedding,
@@ -485,7 +484,6 @@ class TestTraversalIntegration:
                     properties={
                         "name": name,
                         "merge_key": entity.merge_key,
-                        "merged_from": [],
                         "merge_count": 1,
                         "source_chunk_ids": [],
                         "embedding": entity.embedding,

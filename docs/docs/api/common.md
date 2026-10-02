@@ -739,9 +739,8 @@ records and their relationships survive resolution.
   EntityType.properties for this label declares). Never holds name.
 - [**embedding**](#agrag-common-data_models-Entity-embedding) (<code>list\[float\] | None</code>) – The entity's dense vector, once populated by the storage
   stage. None before that point.
-- [**merged_from**](#agrag-common-data_models-Entity-merged_from) (<code>list\[UUID\]</code>) – Ids of entities accumulated by exact-name matching.
-- [**merge_count**](#agrag-common-data_models-Entity-merge_count) (<code>int</code>) – The total number of source mentions and absorbed
-  entities this entity's data was assembled from. Starts at 1.
+- [**merge_count**](#agrag-common-data_models-Entity-merge_count) (<code>int</code>) – The total number of source mentions this entity's data
+  was assembled from. Starts at 1.
 - [**source_chunk_ids**](#agrag-common-data_models-Entity-source_chunk_ids) (<code>list\[UUID\]</code>) – Ids of every Chunk a mention contributing to this
   entity's data came from. Each also backs one MENTIONED_IN edge
   from that Chunk to this Entity.
@@ -807,12 +806,6 @@ stored redundantly anywhere else on this model; to_node_record()
 computes it fresh from label/name every write, so it can never drift
 from what the fields it's derived from actually say.
 
-##### `agrag.common.data_models.Entity.merged_from` \{#agrag-common-data_models-Entity-merged_from}
-
-```python
-merged_from: list[UUID] = Field(default_factory=list)
-```
-
 ##### `agrag.common.data_models.Entity.metadata` \{#agrag-common-data_models-Entity-metadata}
 
 ```python
@@ -845,7 +838,7 @@ to_node_record() -> NodeRecord
 
 Return this entity as a GraphStore write record.
 
-Name, merge_key, merged_from, merge_count, and source_chunk_ids are
+Name, merge_key, merge_count, and source_chunk_ids are
 flattened into properties as plain JSON-safe values; GraphStore has
 no reason to know these fields are special.
 
@@ -1369,8 +1362,7 @@ One retrieved item, tagged with where it came from.
 **Attributes:**
 
 - [**item**](#agrag-common-data_models-SearchResult-item) (<code>Union\[[Entity](#agrag-common-data_models-entity-Entity), [ResolvedEntity](#agrag-common-data_models-resolved_entity-ResolvedEntity), [Relation](#agrag-common-data_models-relation-Relation), [Chunk](#agrag-common-data_models-chunk-Chunk), [Community](#agrag-common-data_models-community-Community), [QueryValue](#agrag-common-data_models-query_value-QueryValue)\]</code>) – The retrieved Entity, ResolvedEntity, Relation, Chunk, or
-  Community, or scalar query value, already resolved through any
-  merged_into chain.
+  Community, or scalar query value.
 - [**score**](#agrag-common-data_models-SearchResult-score) (<code>float</code>) – The method's own relevance score. Not comparable
   across methods until Fusion normalizes it.
 - [**method**](#agrag-common-data_models-SearchResult-method) (<code>str</code>) – The name of the retrieval method that produced
@@ -2701,9 +2693,8 @@ records and their relationships survive resolution.
   EntityType.properties for this label declares). Never holds name.
 - [**embedding**](#agrag-common-data_models-entity-Entity-embedding) (<code>list\[float\] | None</code>) – The entity's dense vector, once populated by the storage
   stage. None before that point.
-- [**merged_from**](#agrag-common-data_models-entity-Entity-merged_from) (<code>list\[UUID\]</code>) – Ids of entities accumulated by exact-name matching.
-- [**merge_count**](#agrag-common-data_models-entity-Entity-merge_count) (<code>int</code>) – The total number of source mentions and absorbed
-  entities this entity's data was assembled from. Starts at 1.
+- [**merge_count**](#agrag-common-data_models-entity-Entity-merge_count) (<code>int</code>) – The total number of source mentions this entity's data
+  was assembled from. Starts at 1.
 - [**source_chunk_ids**](#agrag-common-data_models-entity-Entity-source_chunk_ids) (<code>list\[UUID\]</code>) – Ids of every Chunk a mention contributing to this
   entity's data came from. Each also backs one MENTIONED_IN edge
   from that Chunk to this Entity.
@@ -2769,12 +2760,6 @@ stored redundantly anywhere else on this model; to_node_record()
 computes it fresh from label/name every write, so it can never drift
 from what the fields it's derived from actually say.
 
-###### `agrag.common.data_models.entity.Entity.merged_from` \{#agrag-common-data_models-entity-Entity-merged_from}
-
-```python
-merged_from: list[UUID] = Field(default_factory=list)
-```
-
 ###### `agrag.common.data_models.entity.Entity.metadata` \{#agrag-common-data_models-entity-Entity-metadata}
 
 ```python
@@ -2807,7 +2792,7 @@ to_node_record() -> NodeRecord
 
 Return this entity as a GraphStore write record.
 
-Name, merge_key, merged_from, merge_count, and source_chunk_ids are
+Name, merge_key, merge_count, and source_chunk_ids are
 flattened into properties as plain JSON-safe values; GraphStore has
 no reason to know these fields are special.
 
@@ -3831,8 +3816,7 @@ One retrieved item, tagged with where it came from.
 **Attributes:**
 
 - [**item**](#agrag-common-data_models-search_result-SearchResult-item) (<code>Union\[[Entity](#agrag-common-data_models-entity-Entity), [ResolvedEntity](#agrag-common-data_models-resolved_entity-ResolvedEntity), [Relation](#agrag-common-data_models-relation-Relation), [Chunk](#agrag-common-data_models-chunk-Chunk), [Community](#agrag-common-data_models-community-Community), [QueryValue](#agrag-common-data_models-query_value-QueryValue)\]</code>) – The retrieved Entity, ResolvedEntity, Relation, Chunk, or
-  Community, or scalar query value, already resolved through any
-  merged_into chain.
+  Community, or scalar query value.
 - [**score**](#agrag-common-data_models-search_result-SearchResult-score) (<code>float</code>) – The method's own relevance score. Not comparable
   across methods until Fusion normalizes it.
 - [**method**](#agrag-common-data_models-search_result-SearchResult-method) (<code>str</code>) – The name of the retrieval method that produced

@@ -4,7 +4,7 @@ Each retriever exports one ``RETRIEVER`` span with ``input.value`` equal to
 the query and results matching what it returned; its stage and helper spans
 nest under it. Swallow sites record an exception event and leave the span
 status UNSET. Stores are mocks at the driver boundary; the real vector_search
-and resolve_entity run against them, so the exported spans are the real ones.
+runs against them, so the exported spans are the real ones.
 """
 
 import json
@@ -52,7 +52,6 @@ def _entity_node(entity_id) -> dict:
         "properties": {
             "name": "Alice",
             "merge_key": "Person:alice",
-            "merged_from": [],
             "merge_count": 1,
             "source_chunk_ids": [],
         },
@@ -62,11 +61,6 @@ def _entity_node(entity_id) -> dict:
 def _entity_rows(entity_id) -> list[dict]:
     """Return one hydrate_entities row."""
     return [{"n": _entity_node(entity_id)}]
-
-
-def _resolve_rows(entity_id) -> list[dict]:
-    """Return one resolve_merged_into_query row for a live entity."""
-    return [{"node": _entity_node(entity_id), "merged_into": None}]
 
 
 def _chunk_rows(chunk_id) -> list[dict]:
@@ -209,10 +203,7 @@ class TestBFSRetrieverSpan:
         seed_id = uuid4()
         neighbor_id = uuid4()
         bfs_rows = [{"neighbor": _entity_node(neighbor_id), "id": str(neighbor_id)}]
-        store.execute_read.side_effect = [
-            bfs_rows,
-            *([_resolve_rows(neighbor_id)]) * 8,
-        ]
+        store.execute_read.return_value = bfs_rows
         retriever = BFSRetriever(
             graph_store=store, settings=RetrievalSettings(), tracer=tracer
         )
@@ -252,25 +243,6 @@ class TestBFSRetrieverSpan:
         assert attributes is not None
         assert attributes["agrag.result_count"] == 0
 
-    async def test_an_unresolvable_neighbour_records_nothing(self) -> None:
-        """A per-neighbour resolve_entity failure records no extra event."""
-        provider, exporter = _provider()
-        tracer = provider.get_tracer("t")
-        store = AsyncMock()
-        store.execute_read.side_effect = [
-            [{"neighbor": _entity_node(uuid4()), "id": str(uuid4())}],
-            [],
-        ]
-        retriever = BFSRetriever(
-            graph_store=store, settings=RetrievalSettings(), tracer=tracer
-        )
-
-        results = await retriever.retrieve("", seed_ids=[uuid4()])
-
-        assert results == []
-        bfs_span = _named(exporter.get_finished_spans(), "agrag.retrieval.bfs")[0]
-        assert bfs_span.status.status_code.name != "ERROR"
-
 
 class TestEntityRetrieverSpans:
     """EntityRetriever's phase spans under a document scope."""
@@ -298,7 +270,7 @@ class TestEntityRetrieverSpans:
                         }
                     }
                 ]
-            return _entity_rows(entity_id)
+            return _entity_rows(hit_id)
 
         store.execute_read.side_effect = _read
         retriever = EntityRetriever(
@@ -377,8 +349,6 @@ class TestText2CypherSpans:
                 if calls["explain"] == 1:
                     raise RuntimeError("plan failed")
                 return []
-            if "node" in query:
-                return _resolve_rows(entity_id)
             return [{"n": _entity_node(entity_id)}]
 
         store.execute_read.side_effect = _read
@@ -416,6 +386,46 @@ class TestText2CypherSpans:
         assert list(t2c_attributes["agrag.result_ids"]) == [
             str(result.item.id) for result in results
         ]
+
+    async def test_entity_row_hydration_exports_its_own_span(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Hydrating an entity row exports a hydrate_entities span with counts."""
+        provider, exporter = _provider()
+        tracer = provider.get_tracer("t")
+        store = AsyncMock()
+        entity_id = uuid4()
+
+        async def _read(query, params=None, **kwargs):
+            if query.startswith("EXPLAIN"):
+                return []
+            return [{"n": _entity_node(entity_id)}]
+
+        store.execute_read.side_effect = _read
+
+        async def _generate(self, question, *, failure_context=None):
+            return "MATCH (n) RETURN n"
+
+        monkeypatch.setattr(
+            t2c_module.Text2CypherRetriever, "_generate_cypher", _generate
+        )
+        retriever = Text2CypherRetriever(
+            graph_store=store,
+            schema=GENERIC,
+            settings=RetrievalSettings(),
+            tracer=tracer,
+        )
+
+        await retriever.retrieve("who knows alice")
+
+        hydrates = _named(
+            exporter.get_finished_spans(), "agrag.retrieval.hydrate_entities"
+        )
+        assert len(hydrates) == 1
+        attributes = hydrates[0].attributes
+        assert attributes is not None
+        assert attributes["agrag.requested_count"] == 1
+        assert attributes["agrag.hydrated_count"] == 1
 
     async def test_a_failed_generation_records_and_stays_unset(
         self, monkeypatch: pytest.MonkeyPatch

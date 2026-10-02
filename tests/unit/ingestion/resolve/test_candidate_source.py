@@ -4,7 +4,7 @@ Covers same-label in-batch blocking with exact index sets, the guarantee
 that the in-batch path never touches GraphStore.vector_search or
 VectorStore.hybrid_search, batch-bounded cost independent of graph size,
 both global_candidates_for routing branches, and exact_match_lookup alias
-and tombstone-chain behavior.
+behavior.
 
 Also covers the VectorStore-backed candidate path, which must hydrate the
 persisted Entity by id rather than reconstructing its name from the display
@@ -15,8 +15,6 @@ reads: ``build_relation_neighbors`` from a batch's own extraction, and
 
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
-
-import pytest
 
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.vector_record import VectorHit
@@ -370,7 +368,6 @@ class TestExactMatchLookup:
                         "properties": {
                             "name": "Alice",
                             "merge_key": "Person:alice",
-                            "merged_from": [],
                             "merge_count": 1,
                             "source_chunk_ids": [],
                             "created_at": "2020-01-01T00:00:00+00:00",
@@ -418,198 +415,6 @@ class TestExactMatchLookup:
         store.execute_read.side_effect = [[]]
         result = await exact_match_lookup([m], graph_store=store)
         assert result == {}
-
-    async def test_reingest_of_absorbed_name_resolves_to_survivor(self) -> None:
-        """A name absorbed into a survivor still resolves there on re-ingest.
-
-        Regression test: tombstone_query clears merge_key on absorption, so
-        a later mention of the absorbed name can only be found through the
-        merge-key alias table (fetch_by_merge_keys_query,
-        upsert_merge_alias_query). Without that alias, this mention would
-        find nothing and a duplicate "Bob" entity would be created instead
-        of resolving to the existing survivor.
-        """
-        store = AsyncMock()
-        cid = uuid4()
-        m = ExtractedEntity(
-            chunk_id=cid, label="Person", text="Bob", char_start=0, char_end=3
-        )
-        tombstone_id = uuid4()
-        survivor_id = uuid4()
-        store.execute_read.side_effect = [
-            [
-                {
-                    "merge_key": "Person:bob",
-                    "n": {
-                        "id": str(tombstone_id),
-                        "labels": ["Person"],
-                        "properties": {
-                            "name": "Bob",
-                            "merged_from": [],
-                            "merge_count": 1,
-                            "source_chunk_ids": [],
-                            "created_at": "2020-01-01T00:00:00+00:00",
-                            "merged_into": str(survivor_id),
-                        },
-                    },
-                }
-            ],
-            [
-                {
-                    "n": {
-                        "id": str(survivor_id),
-                        "labels": ["Person"],
-                        "properties": {
-                            "name": "Robert",
-                            "merge_key": "Person:robert",
-                            "merged_from": [str(tombstone_id)],
-                            "merge_count": 2,
-                            "source_chunk_ids": [],
-                            "created_at": "2020-01-01T00:00:00+00:00",
-                        },
-                    }
-                }
-            ],
-        ]
-        result = await exact_match_lookup([m], graph_store=store)
-        assert result[0].id == survivor_id
-        assert result[0].name == "Robert"
-
-    async def test_reingest_resolves_with_driver_shaped_tombstone_row(
-        self,
-    ) -> None:
-        """Reingest still resolves when the tombstone row has no labels key.
-
-        Regression test: a real Neo4j driver's RETURN n never carries a
-        labels key -- only _tombstone_row's mock form did, masking a bug
-        where the tombstone's own node was parsed into an Entity (to learn
-        its label) before its merged_into chain was ever checked. With
-        merge_key already stripped by clear_tombstone_merge_keys_query, a
-        driver-shaped tombstone row has neither a labels list nor a
-        merge_key to derive a label from, so that parse always failed and
-        the mention was silently dropped instead of resolving to the
-        survivor.
-        """
-        store = AsyncMock()
-        cid = uuid4()
-        m = ExtractedEntity(
-            chunk_id=cid, label="Person", text="Bob", char_start=0, char_end=3
-        )
-        tombstone_id = uuid4()
-        survivor_id = uuid4()
-        store.execute_read.side_effect = [
-            [
-                {
-                    "merge_key": "Person:bob",
-                    "n": {
-                        "id": str(tombstone_id),
-                        "name": "Bob",
-                        "merged_from": [],
-                        "merge_count": 1,
-                        "source_chunk_ids": [],
-                        "created_at": "2020-01-01T00:00:00+00:00",
-                        "merged_into": str(survivor_id),
-                    },
-                }
-            ],
-            [
-                {
-                    "n": {
-                        "id": str(survivor_id),
-                        "name": "Robert",
-                        "merge_key": "Person:robert",
-                        "merged_from": [str(tombstone_id)],
-                        "merge_count": 2,
-                        "source_chunk_ids": [],
-                        "created_at": "2020-01-01T00:00:00+00:00",
-                    }
-                }
-            ],
-        ]
-        result = await exact_match_lookup([m], graph_store=store)
-        assert result[0].id == survivor_id
-        assert result[0].name == "Robert"
-
-    async def test_accepted_alias_with_different_name_resolves_to_entity(
-        self,
-    ) -> None:
-        """A mention resolves via an alias even when it never was the name.
-
-        Regression test: when resolution joins "Bob" and "Robert" into one
-        survivor named "Robert", an alias for "Person:bob" is written
-        pointing at that entity even though the entity's own name was never
-        "Bob". Mapping the returned row back to the "Bob" mention must use
-        the merge_key the row's alias was queried on, not one re-derived
-        from the entity's current name -- re-deriving would compute
-        "Person:robert" and silently fail to map "Bob" at all.
-        """
-        store = AsyncMock()
-        cid = uuid4()
-        mention = ExtractedEntity(
-            chunk_id=cid, label="Person", text="Bob", char_start=0, char_end=3
-        )
-        entity_id = uuid4()
-        store.execute_read.side_effect = [
-            [
-                {
-                    "merge_key": "Person:bob",
-                    "n": {
-                        "id": str(entity_id),
-                        "labels": ["Person"],
-                        "properties": {
-                            "name": "Robert",
-                            "merge_key": "Person:robert",
-                            "merged_from": [],
-                            "merge_count": 2,
-                            "source_chunk_ids": [],
-                            "created_at": "2020-01-01T00:00:00+00:00",
-                        },
-                    },
-                }
-            ]
-        ]
-        result = await exact_match_lookup([mention], graph_store=store)
-        assert result[0].id == entity_id
-        assert result[0].name == "Robert"
-
-    async def test_transient_chain_read_failure_propagates(self) -> None:
-        """A transient error resolving a tombstone chain must not be missed.
-
-        Regression test: _resolve_tombstone_chain used to catch every
-        exception from its chain-follow read and return whatever survivor it
-        had so far (None on the first hop). _global_exact_match then treated
-        that as "no match" and the caller would create a duplicate entity for
-        an already-known name instead of surfacing the failure.
-        """
-        store = AsyncMock()
-        tombstone_id = uuid4()
-        survivor_id = uuid4()
-        mention = ExtractedEntity(
-            chunk_id=uuid4(), label="Person", text="Bob", char_start=0, char_end=3
-        )
-        first_response = [
-            {
-                "merge_key": "Person:bob",
-                "n": {
-                    "id": str(tombstone_id),
-                    "labels": ["Person"],
-                    "properties": {
-                        "name": "Bob",
-                        "merged_from": [],
-                        "merge_count": 1,
-                        "source_chunk_ids": [],
-                        "created_at": "2020-01-01T00:00:00+00:00",
-                        "merged_into": str(survivor_id),
-                    },
-                },
-            }
-        ]
-        store.execute_read.side_effect = [
-            first_response,
-            ConnectionError("simulated transient DB error"),
-        ]
-        with pytest.raises(ConnectionError, match="simulated transient DB error"):
-            await exact_match_lookup([mention], graph_store=store)
 
 
 class TestBuildRelationNeighbors:

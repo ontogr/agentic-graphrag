@@ -57,7 +57,6 @@ def _entity_node(entity_id) -> dict:
         "properties": {
             "name": "Alice",
             "merge_key": "Person:alice",
-            "merged_from": [],
             "merge_count": 1,
             "source_chunk_ids": [],
         },
@@ -67,11 +66,6 @@ def _entity_node(entity_id) -> dict:
 def _entity_rows(entity_id) -> list[dict]:
     """Return one hydrate_entities row."""
     return [{"n": _entity_node(entity_id)}]
-
-
-def _resolve_rows(entity_id) -> list[dict]:
-    """Return one resolve_merged_into_query row for a live entity."""
-    return [{"node": _entity_node(entity_id), "merged_into": None}]
 
 
 def _chunk_rows(chunk_id) -> list[dict]:
@@ -132,7 +126,7 @@ def _routed_store() -> AsyncMock:
             return _chunk_rows(UUID(params["ids"][0]))
         if "UNWIND $ids" in query:
             return _entity_rows(UUID(params["ids"][0]))
-        return _resolve_rows(UUID(params["id"]))
+        return []
 
     store.execute_read.side_effect = _read
     return store
@@ -317,9 +311,8 @@ class TestTraversalRootSpans:
             method="entity",
         )
         store = AsyncMock()
-        store.execute_read.side_effect = [
-            [{"neighbor": _entity_node(neighbor_id), "id": str(neighbor_id)}],
-            *([_resolve_rows(neighbor_id)]) * 10,
+        store.execute_read.return_value = [
+            {"neighbor": _entity_node(neighbor_id), "id": str(neighbor_id)}
         ]
 
         results = await traverse(

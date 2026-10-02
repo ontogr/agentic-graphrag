@@ -226,8 +226,7 @@ real atomicity, such as `Neo4jGraphStore`, overrides this with a
 driver transaction.
 
 Use this when a caller must guarantee several writes either all apply
-or none do, such as `apply_merge`'s tombstone, relationship
-transfer, and dedup steps.
+or none do, such as `apply_merge`'s survivor upsert and alias claim.
 
 **Returns:**
 
@@ -890,8 +889,7 @@ real atomicity, such as `Neo4jGraphStore`, overrides this with a
 driver transaction.
 
 Use this when a caller must guarantee several writes either all apply
-or none do, such as `apply_merge`'s tombstone, relationship
-transfer, and dedup steps.
+or none do, such as `apply_merge`'s survivor upsert and alias claim.
 
 **Returns:**
 
@@ -1047,7 +1045,6 @@ Errors that the graph-store layer raises.
 
 - [**GraphStoreAliasConflictError**](#agrag-graphdb-errors-GraphStoreAliasConflictError) – A merge-key alias a merge tried to claim already names another entity.
 - [**GraphStoreConstraintViolationError**](#agrag-graphdb-errors-GraphStoreConstraintViolationError) – A write violated a uniqueness constraint the backend enforces.
-- [**GraphStoreDataIntegrityError**](#agrag-graphdb-errors-GraphStoreDataIntegrityError) – A read found the graph store in a state its own invariants forbid.
 - [**GraphStoreError**](#agrag-graphdb-errors-GraphStoreError) – The base class for every graph-store error.
 - [**GraphStoreMissingExtraError**](#agrag-graphdb-errors-GraphStoreMissingExtraError) – A graph store exists, but its package extra is not installed.
 
@@ -1093,18 +1090,6 @@ so callers can recognize this specific case -- for example, two
 concurrent writers both missing an exact-match lookup and racing to
 create the same `merge_key` -- and recover by re-resolving to
 whichever write landed first, rather than treating it as a fatal error.
-
-#### `agrag.graphdb.errors.GraphStoreDataIntegrityError` \{#agrag-graphdb-errors-GraphStoreDataIntegrityError}
-
-Bases: <code>[GraphStoreError](#agrag-graphdb-errors-GraphStoreError)</code>
-
-A read found the graph store in a state its own invariants forbid.
-
-Raised when persisted data cannot be trusted at face value -- for
-example a `merged_into` tombstone chain that cycles, points at a
-missing node, or runs past its expected bound without reaching a live
-node. Returning the last-seen data in these cases would let a caller
-silently act on a tombstone instead of the entity it was absorbed into.
 
 #### `agrag.graphdb.errors.GraphStoreError` \{#agrag-graphdb-errors-GraphStoreError}
 

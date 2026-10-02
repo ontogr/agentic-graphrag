@@ -12,9 +12,7 @@ class MergeStats(BaseModel):
 
     Attributes:
         nodes_created: Brand-new entities materialized this call.
-        nodes_updated: Existing entities that absorbed new mention data
-            without tombstoning anything.
-        nodes_merged: Entities tombstoned into a survivor this call.
+        nodes_updated: Existing entities that absorbed new mention data.
         conflicts_resolved: Total property/description conflicts resolved
             across every merge this call performed.
         failures: Includes an LLM failure during description
@@ -26,7 +24,6 @@ class MergeStats(BaseModel):
 
     nodes_created: int = 0
     nodes_updated: int = 0
-    nodes_merged: int = 0
     conflicts_resolved: int = 0
     failures: list[StageFailure] = Field(default_factory=list)
     failures_total: int = 0

@@ -170,7 +170,6 @@ def parse_entity_node(node: object) -> Entity | None:  # noqa: PLR0912,PLR0915
         system_keys = {
             "name",
             "merge_key",
-            "merged_from",
             "merge_count",
             "source_chunk_ids",
             "created_at",
@@ -179,9 +178,6 @@ def parse_entity_node(node: object) -> Entity | None:  # noqa: PLR0912,PLR0915
             PENDING_JOB_ID_PROPERTY,
         }
         entity_props = {k: v for k, v in props.items() if k not in system_keys}
-
-        merged_from_raw = props.get("merged_from") or []
-        merged_from = [UUID(str(x)) for x in merged_from_raw if x]
 
         try:
             merge_count = int(props.get("merge_count", 1))
@@ -214,7 +210,6 @@ def parse_entity_node(node: object) -> Entity | None:  # noqa: PLR0912,PLR0915
             "label": label,
             "name": str(name_val),
             "properties": entity_props,
-            "merged_from": merged_from,
             "merge_count": merge_count,
             "source_chunk_ids": scids,
         }

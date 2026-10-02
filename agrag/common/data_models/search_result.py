@@ -18,8 +18,7 @@ class SearchResult(BaseModel):
 
     Attributes:
         item: The retrieved Entity, ResolvedEntity, Relation, Chunk, or
-            Community, or scalar query value, already resolved through any
-            merged_into chain.
+            Community, or scalar query value.
         score: The method's own relevance score. Not comparable
             across methods until Fusion normalizes it.
         method: The name of the retrieval method that produced

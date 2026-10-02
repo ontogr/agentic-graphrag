@@ -174,7 +174,7 @@ class GraphCandidateSource(CandidateSource):
         properties and is validated directly. The VectorStore path's payload
         only carries ``label`` and ``text`` (the embedding source text), so
         candidates are hydrated from the graph by hit id instead; a hit that
-        fails to hydrate, for example a tombstoned or deleted node, is
+        fails to hydrate, for example a deleted node, is
         skipped rather than reconstructed from ``text``.
 
         Each candidate is paired with the cosine similarity of the
@@ -323,7 +323,7 @@ async def persisted_candidate_indices(
 async def exact_match_lookup(
     mentions: list[ExtractedEntity], *, graph_store: GraphStore
 ) -> dict[int, Entity]:
-    """Return persisted exact matches, including resolved tombstone aliases."""
+    """Return persisted exact matches, including accepted merge-key aliases."""
     from agrag.ingestion._ingest_pipeline import _global_exact_match  # noqa: PLC0415
 
     return await _global_exact_match(mentions, graph_store=graph_store)
