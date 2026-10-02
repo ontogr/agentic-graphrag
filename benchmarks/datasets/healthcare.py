@@ -12,6 +12,7 @@ import json
 import re
 from collections.abc import Iterator, Sequence
 from pathlib import Path
+from typing import TypedDict
 
 import pyarrow.parquet as pq
 
@@ -24,12 +25,26 @@ from benchmarks.models import Corpus, CorpusManifest, Mode
 from benchmarks.schemas.healthcare import HEALTHCARE
 
 
+class SourcePin(TypedDict):
+    """The pinned revision of one source dataset.
+
+    Attributes:
+        repo: The Hugging Face dataset repository.
+        revision: The commit hash of the pinned revision.
+        files: The SHA-256 of each pinned file, by path in the repository.
+    """
+
+    repo: str
+    revision: str
+    files: dict[str, str]
+
+
 DATASET_NAME = "healthbench-hard"
 # The rubric items of the one lite question, which is one judge call each.
 LITE_RUBRIC_ITEMS = 3
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "healthcare"
 # The pinned repos, revisions, files and file hashes of the three source datasets.
-SOURCES: dict[str, dict] = json.loads(
+SOURCES: dict[str, SourcePin] = json.loads(
     Path(__file__).with_name("healthcare_sources.json").read_text(encoding="utf-8")
 )
 _REFERENCE = re.compile(

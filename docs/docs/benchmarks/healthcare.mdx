@@ -96,8 +96,8 @@ The run took 285 seconds. The agent took 81 seconds for its 15 calls. The limits
 
 The run set `max_llm_pairs` to 10. This is the most entity pairs per label that resolution sends to the model. The default is 500.
 
-The spend cap for the set is 50 calls and 200,000 tokens, and the dry-run estimate is 35 calls and about 138,000 tokens. The cap checks the estimate before a run and does not stop a run in progress. Each rubric item costs one judge call, so a different question costs more or less to grade.
+The spend cap for the set is 50 calls and 200,000 tokens, and the dry-run estimate is 35 calls and about 138,000 tokens. The committed record shows a cap of 60 calls and 250,000 tokens, which was the cap when the run took place; the estimate is below both caps. The cap checks the estimate before a run and does not stop a run in progress. Each rubric item costs one judge call, so a different question costs more or less to grade.
 
 ## Terms of use
 
-The HealthBench code and prompts come from `simple-evals`, under the MIT license. The MedCorp datasets state no license. The StatPearls text and the textbook text are copyrighted, and a trace holds passages of them. Read `benchmarks/results/NOTICE` before you share one.
+The HealthBench questions and rubrics come from the [`openai/healthbench`](https://huggingface.co/datasets/openai/healthbench) dataset, under the MIT license, and the code and prompts come from `simple-evals`, under the MIT license too. The MedCorp datasets state no license. The StatPearls text and the textbook text are copyrighted, and a trace holds passages of them. Read `benchmarks/results/NOTICE` before you share one.

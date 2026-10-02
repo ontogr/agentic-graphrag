@@ -167,12 +167,12 @@ class HealthBenchGrader(Grader):
 
     metrics = ("score",)
 
-    def __init__(self, judge_calls_per_question: int = 11) -> None:
+    def __init__(self, judge_calls_per_question: int = 13) -> None:
         """Set the judge calls that one question needs.
 
         Args:
             judge_calls_per_question: The rubric items of a question. The default
-                is the mean of the full set, which is 11 to 12 items.
+                is the mean of the full set, 12.2 items, rounded up.
         """
         self.judge_calls_per_question = judge_calls_per_question
 

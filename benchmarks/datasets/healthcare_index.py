@@ -22,7 +22,8 @@ from benchmarks.models import CorpusManifest, Mode
 
 
 INDEX_PATH = CACHE_DIR / "healthcare" / "medcorp-fts.sqlite"
-EXPECTED_ROWS = 470_823
+# The passages of each indexed source, as the pinned revisions hold them.
+SOURCE_ROWS = {"textbooks": 125_847, "statpearls": 344_976}
 MAX_QUERY_TERMS = 40
 BATCH = 5000
 # The number of passages kept for each prompt. Lite names its few passages by id,
@@ -134,6 +135,31 @@ def build_index(path: Path = INDEX_PATH) -> int:
     return count
 
 
+def index_problems(db: sqlite3.Connection) -> list[str]:
+    """Return what makes an index differ from the pinned sources.
+
+    A source must have its full passage count with a distinct id for each passage.
+    An index that a build did not finish, or that has a changed row, fails.
+
+    Args:
+        db: The open index.
+
+    Returns:
+        A message for each source that differs. The list is empty for a sound index.
+    """
+    problems = []
+    for source, expected in SOURCE_ROWS.items():
+        rows, distinct = db.execute(
+            "SELECT count(*), count(DISTINCT doc_id) FROM docs WHERE source = ?",
+            (source,),
+        ).fetchone()
+        if rows != expected:
+            problems.append(f"{source} has {rows} passages, not {expected}")
+        if distinct != rows:
+            problems.append(f"{source} has {rows - distinct} repeated passage ids")
+    return problems
+
+
 def closure(db: sqlite3.Connection, turn: str, k: int) -> list[str]:
     """Return the ids of the best ``k`` passages for a prompt turn, best first.
 
@@ -185,18 +211,16 @@ def check_manifest(
 def check_index(path: Path = INDEX_PATH) -> tuple[int, list[str]]:
     """Check an index against the committed fixtures.
 
-    The index must hold every passage of the pinned sources. The full corpus must be
-    the union of the best passages for its questions, and the lite corpus must be a
-    part of the union for its questions.
+    The index must hold every passage of the pinned sources, each with its own id.
+    The full corpus must be the union of the best passages for its questions, and the
+    lite corpus must be a part of the union for its questions.
 
     Returns:
         The number of passages in the index, and a message for each difference.
     """
     db = sqlite3.connect(path)
     rows = db.execute("SELECT count(*) FROM docs").fetchone()[0]
-    problems = []
-    if rows != EXPECTED_ROWS:
-        problems.append(f"the index has {rows} passages, not {EXPECTED_ROWS}")
+    problems = index_problems(db)
     k = CLOSURE_K["full"]
     for mode in ("lite", "full"):
         manifest = HealthcareAdapter().load(mode)

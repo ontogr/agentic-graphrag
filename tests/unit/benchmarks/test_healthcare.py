@@ -28,6 +28,7 @@ from benchmarks.datasets.healthcare_index import (
     check_manifest,
     closure,
     fts_query,
+    index_problems,
 )
 from benchmarks.grading.healthbench import (
     ATTEMPTS,
@@ -89,7 +90,7 @@ class TestFixtures:
         grader = healthcare.DOMAIN.grader_for("lite")
 
         assert grader.judge_calls_per_question == len(question.reference["rubrics"])
-        assert healthcare.DOMAIN.grader_for("full").judge_calls_per_question == 11
+        assert healthcare.DOMAIN.grader_for("full").judge_calls_per_question == 13
 
     def test_full_closure_has_4477_passages(self):
         """Full keeps the 4,477 passages that its questions find."""
@@ -401,6 +402,49 @@ class TestBuildIndex:
         build_index(path)
 
         assert build_index(path) == 5
+
+
+class TestIndexProblems:
+    """The integrity check of a built index."""
+
+    def _db(self, textbooks: list[str], statpearls: list[str]) -> sqlite3.Connection:
+        db = sqlite3.connect(":memory:")
+        db.execute(
+            "CREATE VIRTUAL TABLE docs USING fts5("
+            "doc_id UNINDEXED, source UNINDEXED, contents, tokenize='porter unicode61')"
+        )
+        rows = [(i, "textbooks", "x") for i in textbooks]
+        rows += [(i, "statpearls", "x") for i in statpearls]
+        db.executemany("INSERT INTO docs VALUES (?,?,?)", rows)
+        return db
+
+    def test_a_source_with_fewer_passages_than_pinned_is_reported(self, monkeypatch):
+        """A build that stopped early leaves a source short."""
+        monkeypatch.setattr(
+            healthcare_index, "SOURCE_ROWS", {"textbooks": 3, "statpearls": 2}
+        )
+        db = self._db(["a", "b", "c"], ["s1"])
+
+        assert index_problems(db) == ["statpearls has 1 passages, not 2"]
+
+    def test_a_replaced_passage_is_reported_though_the_count_is_right(
+        self, monkeypatch
+    ):
+        """A repeated id shows that another passage is gone."""
+        monkeypatch.setattr(
+            healthcare_index, "SOURCE_ROWS", {"textbooks": 3, "statpearls": 2}
+        )
+        db = self._db(["a", "b", "b"], ["s1", "s2"])
+
+        assert index_problems(db) == ["textbooks has 1 repeated passage ids"]
+
+    def test_a_sound_index_has_no_problems(self, monkeypatch):
+        """Each source has its pinned count of distinct ids."""
+        monkeypatch.setattr(
+            healthcare_index, "SOURCE_ROWS", {"textbooks": 3, "statpearls": 2}
+        )
+
+        assert index_problems(self._db(["a", "b", "c"], ["s1", "s2"])) == []
 
 
 class TestSchema:

@@ -98,7 +98,11 @@ async def answer_quality(
 
 
 def aggregate(questions: Sequence[QuestionRecord]) -> Scores:
-    """Average each metric over all questions and over each group."""
+    """Average each metric over all questions and over each group.
+
+    A mean is limited to the range 0 to 1. A question score below 0, such as a
+    HealthBench score with met negative items, stays as it is on its record.
+    """
 
     def means(rows: Sequence[QuestionRecord]) -> dict[str, MetricScore]:
         values: dict[str, list[float]] = defaultdict(list)
@@ -106,7 +110,7 @@ def aggregate(questions: Sequence[QuestionRecord]) -> Scores:
             for name, score in row.scores.items():
                 values[name].append(score)
         return {
-            name: MetricScore(mean=sum(v) / len(v), n=len(v))
+            name: MetricScore(mean=min(max(sum(v) / len(v), 0.0), 1.0), n=len(v))
             for name, v in values.items()
         }
 

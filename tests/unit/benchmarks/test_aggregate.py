@@ -28,6 +28,20 @@ class TestAggregate:
         assert scores.by_group["a"]["correctness"].mean == 0.5
         assert scores.by_group["b"]["faithfulness"].n == 1
 
+    def test_means_stay_within_zero_and_one(self):
+        """A question score below 0 does not take a mean below 0."""
+        scores = aggregate(
+            [
+                _question("a", score=-0.5),
+                _question("a", score=0.25),
+                _question("b", score=-1.0),
+            ]
+        )
+
+        assert scores.aggregate["score"].mean == 0.0
+        assert scores.by_group["a"]["score"].mean == 0.0
+        assert scores.by_group["b"]["score"].mean == 0.0
+
     def test_no_questions_give_no_scores(self):
         """No questions give no scores."""
         assert aggregate([]).aggregate == {}

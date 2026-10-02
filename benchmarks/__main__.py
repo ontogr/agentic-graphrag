@@ -1,4 +1,4 @@
-"""Command line: ``python -m benchmarks run|dry-run|report|clean``."""
+"""Command line: ``python -m benchmarks run|dry-run|report|clean|healthcare``."""
 
 import argparse
 import asyncio

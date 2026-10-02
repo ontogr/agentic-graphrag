@@ -15,6 +15,7 @@ Usage:
 import collections
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import tiktoken
@@ -28,7 +29,12 @@ from benchmarks.datasets.healthcare import (
     passage_reference,
     passage_sha256,
 )
-from benchmarks.datasets.healthcare_index import CLOSURE_K, INDEX_PATH, closure
+from benchmarks.datasets.healthcare_index import (
+    CLOSURE_K,
+    INDEX_PATH,
+    closure,
+    index_problems,
+)
 from benchmarks.models import (
     BenchmarkQuestion,
     Corpus,
@@ -272,6 +278,10 @@ def main() -> None:
     if not INDEX_PATH.exists():
         raise SystemExit("run `python -m benchmarks healthcare build-index` first")
     rows = _healthbench_rows()
+    with closing(sqlite3.connect(INDEX_PATH)) as index:
+        problems = index_problems(index)
+    if problems:
+        raise SystemExit(f"the index is not complete: {'; '.join(problems)}")
     themes = collections.Counter(_theme(rows[i]) for i in FULL)
     if themes != THEME_COUNTS or not set(LITE) <= set(FULL):
         raise SystemExit(f"unexpected selection: {dict(themes)}")
