@@ -308,7 +308,7 @@ class TestGraphAdd:
         monkeypatch.setattr(graph_module, "ingest_chunks", _ingest_with_component)
         monkeypatch.setattr(
             graph_module,
-            "write_matches_and_materialize",
+            "rematerialize_components",
             AsyncMock(side_effect=RuntimeError("database unavailable")),
         )
 
@@ -324,6 +324,38 @@ class TestGraphAdd:
         assert result.storage.failures_total == 1
         assert result.storage.failures[0].item_id == str(member.id)
         assert result.storage.failures[0].error_message == "database unavailable"
+
+    @pytest.mark.parametrize("verb", ["add", "update"])
+    async def test_rebuilds_materialized_components_after_commit(
+        self, monkeypatch: pytest.MonkeyPatch, verb: str
+    ) -> None:
+        """The cleanup phase rebuilds each component the job materialized."""
+        graph = await _open_graph()
+        graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
+            return_value=[]
+        )
+        low, high = sorted([uuid4(), uuid4()], key=str)
+        members = [
+            Entity(id=entity_id, label="Person", name=str(entity_id))
+            for entity_id in (high, low)
+        ]
+        real_ingest = graph_module.ingest_chunks
+
+        async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
+            kwargs["materialized_components"].append(([], members))
+            return await real_ingest(*args, **kwargs)
+
+        rebuild = AsyncMock(return_value=[])
+        monkeypatch.setattr(graph_module, "ingest_chunks", _ingest_with_component)
+        monkeypatch.setattr(graph_module, "rematerialize_components", rebuild)
+
+        if verb == "add":
+            await graph.add(text="a short note")
+        else:
+            await graph.update("memory://doc", text="brand new")
+
+        rebuild.assert_awaited_once()
+        assert rebuild.await_args.args[0] == [low]
 
     async def test_add_requires_exactly_one_input(self) -> None:
         """Add requires exactly one input."""

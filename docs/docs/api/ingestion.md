@@ -2064,6 +2064,7 @@ Non-destructive match persistence and resolved-entity computation.
 - [**match_decision_components**](#agrag-ingestion-materialize-match_decision_components) – Group persisted match decisions by their connected raw component.
 - [**matches_id**](#agrag-ingestion-materialize-matches_id) – Return the order-independent deterministic id for an entity match.
 - [**prune_orphaned_entities**](#agrag-ingestion-materialize-prune_orphaned_entities) – Delete candidates with no open-chunk evidence and rebuild clusters.
+- [**rematerialize_components**](#agrag-ingestion-materialize-rematerialize_components) – Rebuild the resolved entity of each committed component from its seeds.
 - [**write_matches_and_materialize**](#agrag-ingestion-materialize-write_matches_and_materialize) – Persist matches and materialize their supplied connected component.
 
 **Attributes:**
@@ -2263,6 +2264,32 @@ instead of colliding with an alias pointing at a missing node.
 
 Only the supplied candidates are ever deleted. Evidence is checked per
 candidate id, never with a graph-wide scan.
+
+#### `agrag.ingestion.materialize.rematerialize_components` \{#agrag-ingestion-materialize-rematerialize_components}
+
+```python
+rematerialize_components(seed_ids:list[UUID], *, graph_store:GraphStore, schema:GraphSchema, tracer:Tracer | None = None) -> list[MaterializationResult]
+```
+
+Rebuild the resolved entity of each committed component from its seeds.
+
+The matches already exist, so nothing is persisted but the derived
+nodes. Each component is read as it stands now, replacing whatever
+resolved entities its members belonged to. A seed whose entity is gone,
+or whose component has fewer than two members, is skipped: nothing is
+left to materialize for it. Safe to run again on the same seeds.
+
+**Parameters:**
+
+- **seed_ids** (<code>list\[UUID\]</code>) – One member id per component to rebuild. Seeds that share a
+  component rebuild it once.
+- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where the components are read and rewritten.
+- **schema** (<code>[GraphSchema](common.md#agrag-common-data_models-graph_schema-GraphSchema)</code>) – The schema the members belong to.
+- **tracer** (<code>Tracer | None</code>) – Passed to description summarization.
+
+**Returns:**
+
+- <code>list\[[MaterializationResult](#agrag-ingestion-materialize-MaterializationResult)\]</code> – One result per rebuilt component, in seed order.
 
 #### `agrag.ingestion.materialize.write_matches_and_materialize` \{#agrag-ingestion-materialize-write_matches_and_materialize}
 

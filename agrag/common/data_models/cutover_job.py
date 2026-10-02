@@ -36,6 +36,10 @@ class CutoverJob(DataPoint):
         status: Current phase, see CutoverJobStatus.
         affected_entity_ids: The snapshot taken before any pending write
             began — the only entities the cleanup phase may touch.
+        component_seed_ids: One member id per match component the job
+            materialized, recorded at commit. The cleanup phase rebuilds
+            each component's resolved entity from these, so a resumed job
+            can replace the materialization the commit left in place.
         lease_token: Current lease holder's fencing token.
         lease_expires_at: When the current lease expires.
     """
@@ -44,6 +48,7 @@ class CutoverJob(DataPoint):
     verb: Literal["add", "update", "delete_document"]
     status: CutoverJobStatus
     affected_entity_ids: list[UUID] = Field(default_factory=list)
+    component_seed_ids: list[UUID] = Field(default_factory=list)
     lease_token: UUID
     lease_expires_at: datetime
 
@@ -56,6 +61,7 @@ class CutoverJob(DataPoint):
             "affected_entity_ids": [
                 str(entity_id) for entity_id in self.affected_entity_ids
             ],
+            "component_seed_ids": [str(seed_id) for seed_id in self.component_seed_ids],
             "lease_token": str(self.lease_token),
             "lease_expires_at": self.lease_expires_at,
             "created_at": self.created_at,

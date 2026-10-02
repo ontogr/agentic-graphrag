@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import functools
 import glob
 import hashlib
 import json
@@ -60,6 +61,7 @@ from agrag.ingestion.materialize import (
     match_decision_components,
     matches_id,
     prune_orphaned_entities,
+    rematerialize_components,
     write_matches_and_materialize,
 )
 from agrag.ingestion.reports import (
@@ -657,16 +659,17 @@ class Graph:
                 # recovery paths rely on now exists. A pending job (its worker
                 # died pre-commit) rolls back; a committed or cleaning job
                 # rolls forward, rerunning the cleanup phase this graph's own
-                # pruning implements. A recovery failure is swallowed: opening
-                # the graph must not break because a leftover job could not be
-                # finished, and the pending filters keep any tagged writes
-                # invisible to retrieval until a later open succeeds.
+                # calls run after their commit. A recovery failure is
+                # swallowed: opening the graph must not break because a
+                # leftover job could not be finished, and the pending filters
+                # keep any tagged writes invisible to retrieval until a later
+                # open succeeds.
                 with contextlib.suppress(Exception):
                     await resume_incomplete_jobs(
                         graph_store,
                         vector_store=vector_store,
                         vector_collections=recovery_collections,
-                        roll_forward=graph._prune_document_entities,
+                        roll_forward=graph._finish_job,
                         lease_ttl_seconds=graph._cutover_settings.lease_ttl_seconds,
                         tracer=resolved_tracer,
                     )
@@ -989,14 +992,6 @@ class Graph:
                         max_llm_pairs=self._max_llm_pairs,
                     )
 
-                async def _cleanup(
-                    _components: list[MatchComponent] = components,
-                ) -> list[StageFailure]:
-                    _, cleanup_failures = await self._materialize_components(
-                        _components, error_policy=error_policy
-                    )
-                    return cleanup_failures
-
                 partial, cleanup_failures, _ = await run_cutover_job(
                     verb="add",
                     document_key=document_key,
@@ -1006,7 +1001,10 @@ class Graph:
                     vector_collections=vector_collections,
                     settings=self._cutover_settings,
                     pending_write=_pending,
-                    cleanup=_cleanup,
+                    cleanup=functools.partial(
+                        self._finish_job, error_policy=error_policy
+                    ),
+                    components=components,
                     tracer=self._tracer,
                 )
                 partials.append(_with_cleanup_failures(partial, cleanup_failures))
@@ -1179,13 +1177,6 @@ class Graph:
                     max_llm_pairs=self._max_llm_pairs,
                 )
 
-            async def _cleanup() -> list[StageFailure]:
-                _, cleanup_failures = await self._materialize_components(
-                    components, error_policy=error_policy
-                )
-                await self._prune_document_entities(candidates)
-                return cleanup_failures
-
             add_result, cleanup_failures, chunks_closed = await run_cutover_job(
                 verb="update",
                 document_key=document_key,
@@ -1199,7 +1190,8 @@ class Graph:
                 ),
                 settings=self._cutover_settings,
                 pending_write=_pending,
-                cleanup=_cleanup,
+                cleanup=functools.partial(self._finish_job, error_policy=error_policy),
+                components=components,
                 close_document_node_id=(
                     found.document_node_id if found is not None else None
                 ),
@@ -1250,9 +1242,6 @@ class Graph:
                 return UpdateResult(document_key=document_key, no_op=True)
             candidates = await self._document_entity_candidates(found.document_node_id)
 
-            async def _cleanup() -> None:
-                await self._prune_document_entities(candidates)
-
             _, _, chunks_closed = await run_cutover_job(
                 verb="delete_document",
                 document_key=document_key,
@@ -1266,7 +1255,7 @@ class Graph:
                 ),
                 settings=self._cutover_settings,
                 pending_write=_no_pending_write,
-                cleanup=_cleanup,
+                cleanup=self._finish_job,
                 close_document_node_id=found.document_node_id,
                 tracer=self._tracer,
             )
@@ -1304,6 +1293,106 @@ class Graph:
             if candidate not in candidates:
                 candidates.append(candidate)
         return candidates
+
+    async def _finish_job(
+        self,
+        affected_entity_ids: list[UUID],
+        component_seed_ids: list[UUID],
+        *,
+        error_policy: ErrorPolicy = ErrorPolicy.RAISE,
+    ) -> list[StageFailure]:
+        """Run the cleanup phase of one committed Cutover Job.
+
+        A pending job never deletes the materialization it supersedes, so
+        after the commit this rebuilds the resolved entity of each component
+        the job materialized, then prunes the entities that lost their last
+        evidence. The live calls and crash recovery both run it, with the
+        lists the job recorded. Running it again changes nothing.
+
+        Args:
+            affected_entity_ids: Entities that may have lost their last
+                evidence; the only ones pruning may remove.
+            component_seed_ids: One member id per component to rebuild.
+            error_policy: RAISE propagates the first failure; any other
+                policy records it and continues. Recovery uses RAISE, so a
+                failure leaves the job in ``cleaning`` for a later open.
+
+        Returns:
+            The failures recorded while rebuilding components.
+        """
+        failures = await self._rematerialize_components(
+            component_seed_ids, error_policy=error_policy
+        )
+        await self._prune_document_entities(affected_entity_ids)
+        return failures
+
+    async def _rematerialize_components(
+        self, component_seed_ids: list[UUID], *, error_policy: ErrorPolicy
+    ) -> list[StageFailure]:
+        """Rebuild committed components' resolved entities and sync vectors.
+
+        The replaced resolved entities' vectors are deleted and the new ones
+        written to the graph and the external vector store. Persisted vector
+        deletions from earlier passes are retried even when no seed is given.
+
+        Args:
+            component_seed_ids: One member id per component to rebuild.
+            error_policy: RAISE propagates the first failure; any other
+                policy records it and continues.
+
+        Returns:
+            The recorded failures.
+        """
+        with self._tracer.start_as_current_span(
+            "agrag.merge.materialize_components",
+            attributes={"agrag.component_count": len(component_seed_ids)},
+        ):
+            failures: list[StageFailure] = []
+            materialized: list[ResolvedEntity] = []
+            replaced_ids: list[UUID] = []
+            for seed_id in component_seed_ids:
+                with self._tracer.start_as_current_span(
+                    "agrag.merge.materialize_component"
+                ) as span:
+                    try:
+                        results = await rematerialize_components(
+                            [seed_id],
+                            graph_store=self._graph_store,
+                            schema=self._schema,
+                            tracer=self._tracer,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        if error_policy is ErrorPolicy.RAISE:
+                            raise
+                        trace_id, span_id = record_stage_failure(exc)
+                        failures.append(
+                            StageFailure(
+                                item_id=str(seed_id),
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                                trace_id=trace_id,
+                                span_id=span_id,
+                            )
+                        )
+                        continue
+                    for result in results:
+                        span.set_attribute(
+                            "agrag.member_count", len(result.resolved_entity.member_ids)
+                        )
+                        materialized.append(result.resolved_entity)
+                        replaced_ids.extend(result.removed_entity_ids)
+            failures.extend(
+                await _synchronize_resolved_entity_vectors(
+                    materialized,
+                    replaced_ids,
+                    embedder=self._embedder,
+                    graph_store=self._graph_store,
+                    vector_store=self._vector_store,
+                    vector_collection=self._retrieval_settings.resolved_entity_collection,
+                    error_policy=error_policy,
+                )
+            )
+            return failures
 
     async def _materialize_components(
         self, components: list[MatchComponent], *, error_policy: ErrorPolicy

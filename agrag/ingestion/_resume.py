@@ -44,7 +44,7 @@ async def resume_incomplete_jobs(
     *,
     vector_store: Any = None,
     vector_collections: Sequence[str] = (),
-    roll_forward: Callable[[list[UUID]], Awaitable[None]] | None = None,
+    roll_forward: Callable[[list[UUID], list[UUID]], Awaitable[object]] | None = None,
     lease_ttl_seconds: int = CutoverJobSettings().lease_ttl_seconds,
     tracer: Tracer | None = None,
 ) -> list[str]:
@@ -57,9 +57,11 @@ async def resume_incomplete_jobs(
             job's are flipped to committed.
         vector_collections: The collections the pending phase may have
             written to.
-        roll_forward: Runs one rolled-forward job's cleanup over its
-            affected-entity snapshot. None rolls forward without pruning,
-            which leaves the snapshot on the job node for a later caller.
+        roll_forward: Runs one rolled-forward job's cleanup. It receives the
+            job's affected-entity snapshot and its component seed ids. An
+            exception leaves the job in ``cleaning`` for a later open. None
+            rolls forward only jobs that recorded neither list, because a
+            job with work left cannot finish without it.
         lease_ttl_seconds: Lease duration for a resume claimant.
         tracer: Opens this pass's span.
 
@@ -107,10 +109,11 @@ async def resume_incomplete_jobs(
             if await _roll_forward(
                 graph_store,
                 job_id=job_id,
-                affected_entity_ids=_affected_entity_ids(row),
+                affected_entity_ids=_uuid_list(row, "affected_entity_ids"),
+                component_seed_ids=_uuid_list(row, "component_seed_ids"),
                 vector_store=vector_store,
                 vector_collections=vector_collections,
-                prune=roll_forward,
+                roll_forward=roll_forward,
                 lease_token=str(row["lease_token"]),
                 lease_ttl_seconds=lease_ttl_seconds,
             ):
@@ -119,13 +122,18 @@ async def resume_incomplete_jobs(
         return handled
 
 
-def _affected_entity_ids(row: dict[str, Any]) -> list[UUID]:
-    """Return one job's recorded affected-entity snapshot as ids.
+def _uuid_list(row: dict[str, Any], key: str) -> list[UUID]:
+    """Return one id list recorded on a job row.
+
+    Args:
+        row: The job row from ``find_incomplete_jobs_query``.
+        key: The column holding the list of string ids.
 
     Returns:
-        The snapshot's ids, skipping any entry that is not a UUID.
+        The list's ids, skipping any entry that is not a UUID. A missing or
+        malformed column gives an empty list.
     """
-    raw = row.get("affected_entity_ids") or []
+    raw = row.get(key) or []
     if not isinstance(raw, list):
         return []
     ids: list[UUID] = []
@@ -198,21 +206,23 @@ async def _roll_forward(
     *,
     job_id: str,
     affected_entity_ids: list[UUID],
+    component_seed_ids: list[UUID],
     vector_store: Any,
     vector_collections: Sequence[str],
-    prune: Callable[[list[UUID]], Awaitable[None]] | None,
+    roll_forward: Callable[[list[UUID], list[UUID]], Awaitable[object]] | None,
     lease_token: str,
     lease_ttl_seconds: int,
 ) -> bool:
     """Finish one committed-or-cleaning job's remaining cleanup work.
 
     The commit cleared the job's pending tags atomically, so what is left
-    is the cleanup phase the crashed worker never reached: pruning the
-    job's snapshot, flipping the vector payloads still flagged pending,
-    and the terminal ``done`` flip. All three are idempotent, so a resume
+    is the cleanup phase the crashed worker never reached: the same
+    cleanup a live call runs over the job's recorded snapshot and component
+    seeds, flipping the vector payloads still flagged pending, and the
+    terminal ``done`` flip. All three are idempotent, so a resume
     that dies part way through simply re-runs them on the next open.
 
-    A prune that raises leaves the job in ``cleaning`` — terminal only
+    A cleanup that raises leaves the job in ``cleaning`` — terminal only
     once its cleanup actually completed — so a later open retries it.
 
     Returns:
@@ -257,9 +267,10 @@ async def _roll_forward(
             job_id=job_id,
             job_uuid=job_uuid,
             affected_entity_ids=affected_entity_ids,
+            component_seed_ids=component_seed_ids,
             vector_store=vector_store,
             vector_collections=vector_collections,
-            prune=prune,
+            roll_forward=roll_forward,
             lease_token=token,
             stop_renewal=stop_renewal,
             renewal_stopped=renewal_stopped,
@@ -290,19 +301,21 @@ async def _finish_roll_forward(
     job_id: str,
     job_uuid: UUID,
     affected_entity_ids: list[UUID],
+    component_seed_ids: list[UUID],
     vector_store: Any,
     vector_collections: Sequence[str],
-    prune: Callable[[list[UUID]], Awaitable[None]] | None,
+    roll_forward: Callable[[list[UUID], list[UUID]], Awaitable[object]] | None,
     lease_token: str,
     stop_renewal: asyncio.Event,
     renewal_stopped: asyncio.Event,
 ) -> bool:
     """Complete cleanup and mark one recovery claim done."""
-    if prune is None and affected_entity_ids:
+    has_work = bool(affected_entity_ids or component_seed_ids)
+    if roll_forward is None and has_work:
         return False
-    if prune is not None and affected_entity_ids:
+    if roll_forward is not None and has_work:
         try:
-            await prune(affected_entity_ids)
+            await roll_forward(affected_entity_ids, component_seed_ids)
         except Exception as exc:  # noqa: BLE001
             record_swallowed_exception(exc)
             return False

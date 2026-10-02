@@ -1988,6 +1988,10 @@ Crash-recoverable state for one add/update/delete_document call.
 - [**status**](#agrag-common-data_models-cutover_job-CutoverJob-status) (<code>[CutoverJobStatus](#agrag-common-data_models-cutover_job-CutoverJobStatus)</code>) – Current phase, see CutoverJobStatus.
 - [**affected_entity_ids**](#agrag-common-data_models-cutover_job-CutoverJob-affected_entity_ids) (<code>list\[UUID\]</code>) – The snapshot taken before any pending write
   began — the only entities the cleanup phase may touch.
+- [**component_seed_ids**](#agrag-common-data_models-cutover_job-CutoverJob-component_seed_ids) (<code>list\[UUID\]</code>) – One member id per match component the job
+  materialized, recorded at commit. The cleanup phase rebuilds
+  each component's resolved entity from these, so a resumed job
+  can replace the materialization the commit left in place.
 - [**lease_token**](#agrag-common-data_models-cutover_job-CutoverJob-lease_token) (<code>UUID</code>) – Current lease holder's fencing token.
 - [**lease_expires_at**](#agrag-common-data_models-cutover_job-CutoverJob-lease_expires_at) (<code>datetime</code>) – When the current lease expires.
 
@@ -1999,6 +2003,12 @@ Crash-recoverable state for one add/update/delete_document call.
 
 ```python
 affected_entity_ids: list[UUID] = Field(default_factory=list)
+```
+
+###### `agrag.common.data_models.cutover_job.CutoverJob.component_seed_ids` \{#agrag-common-data_models-cutover_job-CutoverJob-component_seed_ids}
+
+```python
+component_seed_ids: list[UUID] = Field(default_factory=list)
 ```
 
 ###### `agrag.common.data_models.cutover_job.CutoverJob.created_at` \{#agrag-common-data_models-cutover_job-CutoverJob-created_at}

@@ -13,12 +13,17 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import UpsertFailure, UpsertResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.resolved_entity import ResolvedEntity
+from agrag.cypher.resolution_write import (
+    replace_component_materializations_query,
+    upsert_matches_query,
+)
 from agrag.ingestion.materialize import (
     MatchDecision,
     compute_resolved_entity,
     deactivate_match_and_rematerialize,
     decisions_by_component,
     matches_id,
+    rematerialize_components,
     write_matches_and_materialize,
 )
 from agrag.ingestion.resolve import ResolvedMatch
@@ -145,6 +150,90 @@ class TestWriteMatchesAndMaterialize:
         assert result.removed_entity_ids == []
         replacement_call = store.current_transaction.execute_write.await_args_list[1]
         assert replacement_call.args[1]["pending_job_id"] is not None
+
+
+def _member_row(seed: Entity, member: Entity) -> dict[str, Any]:
+    """Build one active-component row as the graph store returns it."""
+    return {
+        "seed_id": str(seed.id),
+        "member": {
+            "id": str(member.id),
+            "labels": ["Person"],
+            "properties": {"name": member.name},
+        },
+    }
+
+
+class TestRematerializeComponents:
+    """Committed components are rebuilt from seeds without new matches."""
+
+    async def test_rebuilds_the_component_and_reports_replaced_ids(self) -> None:
+        """A seed's component gets one resolved entity, replacing the old one."""
+        first, second = _entity("Ada"), _entity("Ada Lovelace")
+        stale_id = uuid4()
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
+        )
+        transaction = store.current_transaction
+        transaction.execute_read.return_value = [
+            _member_row(first, first),
+            _member_row(first, second),
+        ]
+        transaction.execute_write.return_value = [
+            {"removed_resolved_entity_ids": [str(stale_id)]}
+        ]
+
+        results = await rematerialize_components(
+            [first.id], graph_store=store, schema=_schema()
+        )
+
+        assert len(results) == 1
+        assert results[0].resolved_entity.member_ids == sorted(
+            [first.id, second.id], key=str
+        )
+        assert results[0].removed_entity_ids == [stale_id]
+        queries = [call.args[0] for call in transaction.execute_write.await_args_list]
+        assert queries == [replace_component_materializations_query()]
+        assert upsert_matches_query() not in queries
+        assert transaction.execute_write.await_args.args[1]["pending_job_id"] is None
+
+    async def test_seeds_in_one_component_rebuild_it_once(self) -> None:
+        """A second seed that the first rebuild already covered is skipped."""
+        first, second = _entity("Ada"), _entity("Ada Lovelace")
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
+        )
+        store.current_transaction.execute_read.return_value = [
+            _member_row(first, first),
+            _member_row(first, second),
+        ]
+        store.current_transaction.execute_write.return_value = [
+            {"removed_resolved_entity_ids": []}
+        ]
+
+        results = await rematerialize_components(
+            [first.id, second.id], graph_store=store, schema=_schema()
+        )
+
+        assert len(results) == 1
+        store.current_transaction.upsert_nodes.assert_awaited_once()
+
+    @pytest.mark.parametrize("members", [0, 1])
+    async def test_skips_a_seed_with_no_component_left(self, members: int) -> None:
+        """A component that shrank below two members has nothing to materialize."""
+        seed = _entity("Ada")
+        store = _store()
+        store.current_transaction.execute_read.return_value = [_member_row(seed, seed)][
+            :members
+        ]
+
+        results = await rematerialize_components(
+            [seed.id], graph_store=store, schema=_schema()
+        )
+
+        assert results == []
+        store.current_transaction.execute_write.assert_not_awaited()
+        store.current_transaction.upsert_nodes.assert_not_awaited()
 
 
 class TestDeactivateMatch:

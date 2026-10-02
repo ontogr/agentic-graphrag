@@ -19,7 +19,8 @@ def find_incomplete_jobs_query() -> str:
     Returns:
         Parameterized Cypher expecting no parameters. Returns each
         incomplete job's id, status, lease token, affected-entity snapshot,
-        and whether its lease has lapsed. The lease token is required to
+        component seed ids (set once the job committed), and whether its
+        lease has lapsed. The lease token is required to
         fence the subsequent recovery claim.
     """
     return (
@@ -28,5 +29,6 @@ def find_incomplete_jobs_query() -> str:
         "RETURN job.id AS id, job.status AS status, "
         "job.lease_token AS lease_token, "
         "job.affected_entity_ids AS affected_entity_ids, "
+        "job.component_seed_ids AS component_seed_ids, "
         "job.lease_expires_at < datetime() AS lease_expired"
     )
