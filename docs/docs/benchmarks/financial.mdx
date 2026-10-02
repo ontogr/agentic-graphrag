@@ -43,10 +43,15 @@ A schema that fits the corpus helps `agrag`, so these numbers do not compare wit
 
 ## How answers are scored
 
-A judge model gives each answer two scores from 0 to 1.
+The lite run scores two metrics from 0 to 1. The full run scores five. A judge model gives each score.
 
 - **`correctness`.** The judge compares the answer with the reference answer.
 - **`context_recall`.** The judge checks whether the text that the agent retrieved covers the reference answer and the evidence passages.
+- **`faithfulness`** (full run only). The judge checks the claims of the answer against the text that the agent retrieved. A claim that the text does not mention counts as faithful. Only a claim that the text contradicts lowers the score.
+- **`citation_accuracy`** (full run only). The judge checks each cited sentence of the answer against the text that its citation keys point to. A citation key that the agent never saw counts as fabricated.
+- **`context_precision`** (full run only). The judge checks whether the useful text that the agent retrieved comes before the noise.
+
+The lite run leaves out the three extra metrics to keep its judge cost low: about 3 judge calls for each question, against about 19 in the full run. The estimate for `citation_accuracy` assumes an answer of up to 10 cited sentences, and a longer answer costs more.
 
 Read `context_recall` with care. A reference answer can hold a value that the filing does not state, such as a percentage that the question asks the reader to calculate. The judge then finds no support for that value in the text and scores the question low, even when the numbers for the calculation are in the text.
 
