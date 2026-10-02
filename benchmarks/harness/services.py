@@ -57,6 +57,8 @@ SERVICE_PORTS: dict[str, int] = {
     "memory-conv4": 7713,
     "memory-conv6": 7714,
     "memory-conv13": 7715,
+    "healthcare-lite": 7716,
+    "healthcare-full": 7717,
 }
 
 CommandRunner = Callable[[Sequence[str]], None]
