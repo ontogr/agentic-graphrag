@@ -1,0 +1,250 @@
+{
+  "chunking": {
+    "fingerprint": "20409d9e11faaf1c",
+    "settings": {
+      "fallback": {
+        "chunk_size": 1000,
+        "levels": null,
+        "min_characters_per_chunk": 24,
+        "strategy": "recursive",
+        "tokenizer": "o200k_base"
+      },
+      "rules": []
+    }
+  },
+  "code": {
+    "agrag_tree": "6a0dd820aee194ff0a998139a8471f6e5984ef2c",
+    "agrag_version": "0.0.4",
+    "benchmarks_code_sha256": "ebd9943a57a489f94f92a8f78f04d2571be0f57d434209e14f4bcc6ff27a8b6e",
+    "git_commit": "21a1590905d4ce160fa0238887d376a270379776",
+    "git_describe": "v0.0.4-7-g21a1590",
+    "git_dirty": false,
+    "uv_lock_sha256": "811e0a1c5ab1317ef4f408b98b9b7d401843b876f8c05c69c6f35a8fe3900036"
+  },
+  "config": {
+    "agent": {
+      "max_llm_pairs": 10,
+      "max_research_attempts": 1,
+      "recursion_limit": 30
+    },
+    "concurrency": 2,
+    "judge_samples": 1,
+    "question_timeout_s": 900.0,
+    "seed": 42,
+    "sha256": "1d27f3e29357b2ac51c585619524ca0e680d400364971d7a92f0de891befe9ee"
+  },
+  "corpora": [
+    {
+      "cache_key": "4b62ca4b8bee9c5670d238902185bd1051152d1cb98e963e6d8d4b6cc8e1920d",
+      "chunks": 3,
+      "corpus_id": "legal-lite",
+      "corpus_tokens": 2024,
+      "empty_extractions": 0,
+      "graph": {
+        "entities_by_label": {
+          "Agreement": 1,
+          "DataCategory": 24,
+          "Party": 11,
+          "Purpose": 10
+        },
+        "relations_by_type": {
+          "SHARED_WITH": 1,
+          "USED_FOR": 2
+        }
+      },
+      "ingest_cache_hit": false,
+      "ingest_usage": {
+        "input_tokens": 70827,
+        "llm_calls": 6,
+        "output_tokens": 7332
+      },
+      "n_documents": 1,
+      "service": "legal-lite"
+    }
+  ],
+  "created_at": "2026-10-02T05:35:53+00:00",
+  "dataset": {
+    "manifest_sha256": "2abd85c2fd29cf4d25c10ec09462d762052b4c5926d04288a1999b23cee0a2f7",
+    "n_questions": 2,
+    "name": "legalbench-rag-mini",
+    "question_ids_sha256": "6a78dd27b1fd8ef15afa1527817dcc627d6452168fa62ace7b85f9feab8ea4b5",
+    "upstream": {
+      "benchmark_files_sha256": "991d965c4e33873cd4db2cfc6e06786a2f313d6d9d310c798e69efde02e0906c",
+      "repo": "awinml/legalbench-rag",
+      "revision": "0263f7b2a9fb811f984ead05a0aa0d796a456124"
+    }
+  },
+  "domain": "legal",
+  "mode": "lite",
+  "models": {
+    "agent": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic"
+    },
+    "embedder": {
+      "model": "ibm-granite/granite-embedding-small-english-r2"
+    },
+    "extractor": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic"
+    },
+    "judge": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic",
+      "temperature": 0.0
+    }
+  },
+  "questions": [
+    {
+      "corpus_id": "legal-lite",
+      "flags": [],
+      "group": "privacy_qa",
+      "id": "privacy_qa:fdf155d3",
+      "latency_s": 44.6237,
+      "llm_calls": 9,
+      "retrieved_chunk_ids": [
+        "1e854490-8ed3-59db-a8e9-fc9b0c038e71",
+        "d56dedfb-3ab5-5167-bd58-c5036b1423c7",
+        "cacdf236-8eb9-513c-b51b-4731c9973053"
+      ],
+      "scores": {
+        "correctness": 1.0,
+        "expanded_precision": 0.0131,
+        "expanded_recall": 1.0,
+        "non_chunk_citation_share": 0.0,
+        "precision": 0.0131,
+        "recall": 1.0
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "legal-lite",
+      "flags": [],
+      "group": "privacy_qa",
+      "id": "privacy_qa:c96be584",
+      "latency_s": 48.5097,
+      "llm_calls": 10,
+      "retrieved_chunk_ids": [
+        "d56dedfb-3ab5-5167-bd58-c5036b1423c7",
+        "cacdf236-8eb9-513c-b51b-4731c9973053",
+        "1e854490-8ed3-59db-a8e9-fc9b0c038e71"
+      ],
+      "scores": {
+        "correctness": 1.0,
+        "expanded_precision": 0.1058,
+        "expanded_recall": 1.0,
+        "non_chunk_citation_share": 0.0,
+        "precision": 0.1058,
+        "recall": 1.0
+      },
+      "status": "ok"
+    }
+  ],
+  "run_id": "20261002T053553Z-legal-lite-agrag-d98fa8",
+  "schema_version": 1,
+  "schemas": [
+    {
+      "name": "legal",
+      "sha256": "45da7bd0416c35e917f347931e6a81398cb555468a8cbe361c5f95a68c81642a",
+      "version": "1"
+    }
+  ],
+  "scores": {
+    "aggregate": {
+      "correctness": {
+        "mean": 1.0,
+        "n": 2
+      },
+      "expanded_precision": {
+        "mean": 0.0595,
+        "n": 2
+      },
+      "expanded_recall": {
+        "mean": 1.0,
+        "n": 2
+      },
+      "non_chunk_citation_share": {
+        "mean": 0.0,
+        "n": 2
+      },
+      "precision": {
+        "mean": 0.0595,
+        "n": 2
+      },
+      "recall": {
+        "mean": 1.0,
+        "n": 2
+      }
+    },
+    "by_group": {
+      "privacy_qa": {
+        "correctness": {
+          "mean": 1.0,
+          "n": 2
+        },
+        "expanded_precision": {
+          "mean": 0.0595,
+          "n": 2
+        },
+        "expanded_recall": {
+          "mean": 1.0,
+          "n": 2
+        },
+        "non_chunk_citation_share": {
+          "mean": 0.0,
+          "n": 2
+        },
+        "precision": {
+          "mean": 0.0595,
+          "n": 2
+        },
+        "recall": {
+          "mean": 1.0,
+          "n": 2
+        }
+      }
+    }
+  },
+  "system": "agrag",
+  "trace": {
+    "path": "trace.jsonl.gz",
+    "repo": null,
+    "revision": null,
+    "sha256": "810aa2f6b0f6d9c089da721ca017b9b0991fe0ea589385caf1ceb1a8aa18ed05"
+  },
+  "usage": {
+    "by_path": {
+      "agent": {
+        "input_tokens": 78283,
+        "llm_calls": 19,
+        "output_tokens": 2850
+      },
+      "extraction": {
+        "input_tokens": 5112,
+        "llm_calls": 3,
+        "output_tokens": 5198
+      },
+      "judge": {
+        "input_tokens": 1552,
+        "llm_calls": 2,
+        "output_tokens": 184
+      },
+      "other": {
+        "input_tokens": 65715,
+        "llm_calls": 3,
+        "output_tokens": 2134
+      }
+    },
+    "cost_usd": null,
+    "input_tokens": 150662,
+    "llm_calls": 27,
+    "output_tokens": 10366,
+    "spend_cap": {
+      "llm_calls": 100,
+      "overridden": false,
+      "tokens": 500000
+    },
+    "usage_complete": true,
+    "wall_seconds": 264.5585
+  }
+}

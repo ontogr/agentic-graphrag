@@ -42,9 +42,17 @@ FULL_PER_SOURCE = 25
 # Documents kept per source in the full set: most questions first, and for MAUD
 # the shortest documents.
 FULL_DOCUMENTS = {"privacy_qa": 2, "contractnli": 4, "cuad": 7, "maud": 2}
-# The lite questions: (source, document name, part of the query). MAUD is left out
-# because one MAUD document would be most of the ingest cost.
+# Lite is two questions on one short privacy policy (2,024 tokens), small enough for
+# a run of a few minutes: (source, document name, part of the query). One has a single
+# gold span and one has two. Both are in the full set.
 LITE = [
+    ("privacy_qa", "Keep.txt", "do you keep and upload my activity"),
+    ("privacy_qa", "Keep.txt", "will my workout data be given to anyone else"),
+]
+# The ten questions that the full sample is built around. The full set depends on
+# this list, so do not change it. MAUD is left out because one MAUD document would
+# be most of the ingest cost.
+FULL_FORCED = [
     ("privacy_qa", "Viber Messenger.txt", "how is my data used?"),
     ("privacy_qa", "Viber Messenger.txt", "how long do you retain meta data?"),
     (
@@ -126,17 +134,22 @@ def _check_benchmark_files() -> None:
 
 def _select(mini: dict[str, list[dict]], text) -> tuple[list, list]:
     """Return the lite and full picks as ``(source, test)`` pairs."""
-    lite: list[tuple[str, dict]] = []
-    for source, document, needle in LITE:
-        hits = [
-            t
-            for t in mini[source]
-            if document in t["snippets"][0]["file_path"] and needle in t["query"]
-        ]
-        if not hits:
-            raise SystemExit(f"no lite question for {(source, document, needle)}")
-        lite.append((source, hits[0]))
-    lite_ids = {question_id(s, t) for s, t in lite}
+
+    def pick(wanted: list[tuple[str, str, str]]) -> list[tuple[str, dict]]:
+        picks: list[tuple[str, dict]] = []
+        for source, document, needle in wanted:
+            hits = [
+                t
+                for t in mini[source]
+                if document in t["snippets"][0]["file_path"] and needle in t["query"]
+            ]
+            if not hits:
+                raise SystemExit(f"no question for {(source, document, needle)}")
+            picks.append((source, hits[0]))
+        return picks
+
+    lite = pick(LITE)
+    forced_ids = {question_id(s, t) for s, t in pick(FULL_FORCED)}
 
     full: list[tuple[str, dict]] = []
     for source, tests in mini.items():
@@ -152,14 +165,14 @@ def _select(mini: dict[str, list[dict]], text) -> tuple[list, list]:
             if test["snippets"][0]["file_path"] in keep and test["query"] not in seen:
                 seen.add(test["query"])
                 pool.append(test)
-        forced = [t for t in pool if question_id(source, t) in lite_ids]
-        rest = [t for t in pool if question_id(source, t) not in lite_ids]
+        forced = [t for t in pool if question_id(source, t) in forced_ids]
+        rest = [t for t in pool if question_id(source, t) not in forced_ids]
         random.Random(42).shuffle(rest)
         chosen = (forced + rest)[:FULL_PER_SOURCE]
         if len(chosen) != FULL_PER_SOURCE:
             raise SystemExit(f"{source}: only {len(chosen)} questions")
         full += [(source, t) for t in chosen]
-    if not lite_ids <= {question_id(s, t) for s, t in full}:
+    if not {question_id(s, t) for s, t in lite} <= {question_id(s, t) for s, t in full}:
         raise SystemExit("lite is not a subset of full")
     return lite, full
 

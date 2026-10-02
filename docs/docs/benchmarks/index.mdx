@@ -34,7 +34,7 @@ Each dataset has two sets of questions.
 
 The lite set is a subset of the full set. A lite score is not statistically meaningful, because a few questions cannot separate a real change from noise. Compare only full runs.
 
-Ingest cost drives the total cost, not the question count. `agrag` must read and extract every chunk of a corpus before it can answer one question. A lite run pays the full ingest cost of its corpus. The lite set therefore saves answer and grading calls, not ingest calls. The Financial, GraphRAG-Bench, and Memory lite sets are exceptions: each ingests only the pages, messages, or short extract that its questions need, so its ingest cost is small.
+Ingest cost drives the total cost, not the question count. `agrag` must read and extract every chunk of a corpus before it can answer one question. A lite run pays the full ingest cost of its corpus. The lite set therefore saves answer and grading calls, not ingest calls. The Financial, GraphRAG-Bench, Memory, and Legal lite sets are exceptions: each ingests only the pages, messages, extract, or short document that its questions need, so its ingest cost is small.
 
 ## The audit trail
 
