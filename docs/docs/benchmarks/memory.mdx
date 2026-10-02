@@ -34,10 +34,15 @@ The probing questions fall into ten abilities:
 
 | Set | Questions | Conversations | Tokens |
 |---|---|---|---|
-| Lite | 10, one for each ability | 1 (`conv17`) | 124,033 |
-| Full | 100, ten for each ability | 5 (`conv1`, `conv4`, `conv6`, `conv13`, `conv17`) | not measured here |
+| Lite | 2 | 1 (`conv17`), 3 messages | 1,279 |
+| Full | 100, ten for each ability | 5 (`conv1`, `conv4`, `conv6`, `conv13`, `conv17`), whole sessions | 568,987 |
 
-Every lite question is also in the full set. Each conversation gets its own Neo4j service and its own graph. A question about one conversation cannot find text from another. Each session of a conversation is one document.
+The lite set is a quick check, not a sample of the benchmark. It takes 3 messages of conversation 17, so a run takes a few minutes. Each question of the benchmark names the messages that hold its answer (`source_chat_ids`), and the harness ingests only those messages for the two lite questions:
+
+- `conv17:information_extraction:0` asks which days the kids have afterschool activities. Message 18 of session 1 holds the answer.
+- `conv17:multi_session_reasoning:0` asks how many scenes the user had filmed by July 5 and how many were left. Messages 156 and 157 of session 3 hold the answer. Despite its name, the question needs only one session.
+
+A slice keeps the session number and the session date, and it tags each message with its id. The harness pins the hash of each slice, and the fixture lists the message ids. Both lite questions are in the full set. Each conversation gets its own Neo4j service and its own graph. In full mode each session of a conversation is one document.
 
 Four questions of the full set have a known defect in their rubric. They carry the flag `known_bad_rubric`. The lite set has none.
 
@@ -63,31 +68,24 @@ The scorer is ported from the benchmark, with its prompts kept. The judge is the
 
 The benchmark reports only the rank correlation for event ordering. Its `score` is stricter, so do not compare it with a published event ordering number.
 
+Lite mode makes about 2 judge calls for each question, because it has no event-ordering question. Full mode allows for 8, because an event-ordering question compares each answer line with each rubric item.
+
 The judge is the same model as the agent by default, so the scores are biased upward. See [Benchmarks](./index.mdx#who-grades-the-answers).
 
 ## Results of the lite run
 
 The run used `gemma4:31b` for extraction, the agent, and the judge, on one clean commit, with the default chunking of about 1,000 tokens.
 
-| Ability | Questions | `score` |
+| Question | Ability | `score` |
 |---|---|---|
-| All | 10 | 0.70 |
-| `abstention` | 1 | 1.00 |
-| `contradiction_resolution` | 1 | 0.75 |
-| `event_ordering` | 1 | 0.13 (`event_f1` 0.33, `event_tau_norm` 0.40) |
-| `information_extraction` | 1 | 1.00 |
-| `instruction_following` | 1 | 0.00 |
-| `knowledge_update` | 1 | 1.00 |
-| `multi_session_reasoning` | 1 | 1.00 |
-| `preference_following` | 1 | 1.00 |
-| `summarization` | 1 | 0.10 |
-| `temporal_reasoning` | 1 | 1.00 |
+| `conv17:information_extraction:0` | `information_extraction` | 1.00 |
+| `conv17:multi_session_reasoning:0` | `multi_session_reasoning` | 1.00 |
 
-Each ability has one question, so each row is one answer. One question moves the mean by 0.1. A lite run shows that the pipeline works. It does not rank systems or abilities.
+Both answers match every rubric item, no question failed, and no question carries a flag. Two questions cannot rank anything. The run shows that ingest, answering, and grading work end to end.
 
-No question failed, and no question carries a flag. The agent answered the `preference_following` question with one model call and no retrieval, so that score does not test the graph.
+The set cannot test memory over a long chat. The graph holds 3 messages, so a search returns all of the text, and a question never has to find a fact among many sessions. Use the full set for that.
 
-The graph has 644 entities and 276 relations from 128 chunks. Four chunks gave an empty extraction. 142 of the relations are `PART_OF`.
+The graph has 21 entities and 20 relations from 3 chunks. No chunk gave an empty extraction.
 
 Print the record with:
 
@@ -99,14 +97,17 @@ uv run python -m benchmarks report --domain memory
 
 | Phase | Model calls | Tokens |
 |---|---|---|
-| Ingest | 847 | 12.5M |
-| Agent, 10 questions | 134 | 0.77M |
-| Judge, 10 questions | 37 | 0.026M |
-| Total | 1,018 | 13.3M |
+| Ingest: extraction | 3 | 9k |
+| Ingest: resolution and merge | 2 | 13k |
+| Agent, 2 questions | 13 | 49k |
+| Judge, 2 questions | 3 | 3k |
+| Total | 21 | 74k |
 
-The run took about 115 minutes. Ingest used 83% of the calls and 94% of the tokens. Extraction took 128 calls, one for each chunk. The other 719 ingest calls resolve duplicate entities and merge them. In the run, `agrag` dropped some pairs of entities at its limit on resolution calls, so the graph can keep a few duplicates.
+The run took 153 seconds. The agent made 6 and 7 calls for the two questions. `max_llm_pairs` was 10, which is the most entity pairs per label that resolution sends to the model. The default is 500. A graph this small has few pairs to check, so resolution made only 2 calls.
 
-The dry-run estimate for this run was about 1,600 calls and 16.1M tokens. The run used fewer of both. The estimate is not an upper bound, so the spend caps are 1.5 times the estimate: 2,400 calls and 24.2M tokens for lite, and 16,400 calls and 132.7M tokens for full. Nobody has measured a full run. Run `make bench-dry DOMAIN=memory MODE=full` and read the estimate before you start one.
+These figures are floors. The cost of a larger slice grows faster than its size, because resolution compares every new entity with the whole graph. The spend cap of the lite set is 40 calls and 120,000 tokens, and the dry-run estimate is 24 calls and 78,000 tokens. The cap checks the estimate before a run and does not stop a run in progress.
+
+A run of the old lite set (all 5 sessions of conversation 17, 10 questions) made 1,018 calls and used 13.3M tokens in 115 minutes. The full set has not been run. Run `make bench-dry DOMAIN=memory MODE=full` and read the estimate before you start one.
 
 ## Terms of use
 
