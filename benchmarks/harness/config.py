@@ -88,6 +88,20 @@ RUN_LIMITS: dict[tuple[str, str], RunLimits] = {
             judge_tokens_per_call=1_300,
         ),
     ),
+    # Measured on one GraphRAG lite run: 2 chunks gave 5 ingest calls and 49k ingest
+    # tokens, and 2 questions took 41 agent calls and 212k agent tokens.
+    ("graphrag_general", "lite"): RunLimits(
+        max_llm_pairs=10,
+        recursion_limit=30,
+        max_research_attempts=1,
+        cost=CostModel(
+            calls_per_chunk=3,
+            tokens_per_chunk=25_000,
+            agent_calls_per_question=21,
+            agent_tokens_per_question=106_000,
+            judge_tokens_per_call=400,
+        ),
+    ),
 }
 
 SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
@@ -95,6 +109,8 @@ SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
     ("legal", "full"): SpendCap(llm_calls=12_100, tokens=81_000_000),
     ("financial", "lite"): SpendCap(llm_calls=130, tokens=800_000),
     ("financial", "full"): SpendCap(llm_calls=16_000, tokens=170_000_000),
+    ("graphrag_general", "lite"): SpendCap(llm_calls=100, tokens=500_000),
+    ("graphrag_general", "full"): SpendCap(llm_calls=31_500, tokens=179_000_000),
 }
 
 # About 1000 tokens per chunk, counted with the tokenizer agrag uses elsewhere.

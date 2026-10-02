@@ -46,6 +46,12 @@ SERVICE_PORTS: dict[str, int] = {
     "legal-full": 7702,
     "financial-lite": 7709,
     "financial-full": 7710,
+    "graphrag-novel-25646": 7703,
+    "graphrag-medical-lite": 7704,
+    "graphrag-medical-full": 7705,
+    "graphrag-novel-8559": 7706,
+    "graphrag-novel-41603": 7707,
+    "graphrag-novel-2544": 7708,
 }
 
 CommandRunner = Callable[[Sequence[str]], None]
