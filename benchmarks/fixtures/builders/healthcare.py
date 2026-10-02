@@ -4,8 +4,8 @@ The questions are a fixed selection of HealthBench Hard prompts. The full corpus
 the union of the best 32 passages that the search rule finds for the last user turn
 of each question. The lite set is one question and five passages that the full
 corpus holds for it, so a lite run takes a few minutes. The search runs over the
-index that ``python -m benchmarks healthcare build-index`` makes. The script writes
-``benchmarks/fixtures/healthcare/{lite,full}.json``.
+index that ``uv run python -m benchmarks healthcare build-index`` makes. The script
+writes ``benchmarks/fixtures/healthcare/{lite,full}.json``.
 
 Usage:
     uv run python -m benchmarks healthcare build-index
@@ -276,7 +276,9 @@ def _question(row: dict, mode: Mode) -> BenchmarkQuestion:
 def main() -> None:
     """Write both fixtures."""
     if not INDEX_PATH.exists():
-        raise SystemExit("run `python -m benchmarks healthcare build-index` first")
+        raise SystemExit(
+            "run `uv run python -m benchmarks healthcare build-index` first"
+        )
     rows = _healthbench_rows()
     with closing(sqlite3.connect(INDEX_PATH)) as index:
         problems = index_problems(index)

@@ -9,6 +9,7 @@ the pinned sources, so you can check the fixture against the search rule.
 import re
 import sqlite3
 from collections.abc import Iterable, Sequence
+from itertools import zip_longest
 from pathlib import Path
 
 from benchmarks.datasets.fetch import CACHE_DIR
@@ -160,6 +161,30 @@ def index_problems(db: sqlite3.Connection) -> list[str]:
     return problems
 
 
+def content_problems(db: sqlite3.Connection) -> list[str]:
+    """Return the sources whose indexed passages differ from the pinned ones.
+
+    Each source must hold the same ids and texts, in the same order, as its pinned
+    files. This reads the pinned files, which are fetched when not cached.
+
+    Args:
+        db: The open index.
+
+    Returns:
+        A message for each source that differs. The list is empty for a faithful
+        index.
+    """
+    problems = []
+    for source in SOURCE_ROWS:
+        indexed = db.execute(
+            "SELECT doc_id, contents FROM docs WHERE source = ? ORDER BY rowid",
+            (source,),
+        )
+        if any(a != b for a, b in zip_longest(indexed, _passages(source))):
+            problems.append(f"{source} differs from the pinned passages")
+    return problems
+
+
 def closure(db: sqlite3.Connection, turn: str, k: int) -> list[str]:
     """Return the ids of the best ``k`` passages for a prompt turn, best first.
 
@@ -211,16 +236,19 @@ def check_manifest(
 def check_index(path: Path = INDEX_PATH) -> tuple[int, list[str]]:
     """Check an index against the committed fixtures.
 
-    The index must hold every passage of the pinned sources, each with its own id.
-    The full corpus must be the union of the best passages for its questions, and the
-    lite corpus must be a part of the union for its questions.
+    The index must hold every passage of the pinned sources, with the pinned id and
+    text. The full corpus must be the union of the best passages for its questions,
+    and the lite corpus must be a part of the union for its questions.
+
+    Args:
+        path: The SQLite file of the index.
 
     Returns:
         The number of passages in the index, and a message for each difference.
     """
     db = sqlite3.connect(path)
     rows = db.execute("SELECT count(*) FROM docs").fetchone()[0]
-    problems = index_problems(db)
+    problems = index_problems(db) or content_problems(db)
     k = CLOSURE_K["full"]
     for mode in ("lite", "full"):
         manifest = HealthcareAdapter().load(mode)

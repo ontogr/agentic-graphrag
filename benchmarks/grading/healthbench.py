@@ -111,6 +111,9 @@ Return just the json object in markdown format. Do not include any other text in
 def parse_json_to_dict(reply: str) -> dict:
     """Parse a judge reply as a JSON object, after removing a code fence around it.
 
+    Args:
+        reply: The text of the judge reply.
+
     Returns:
         The object, or an empty dict when the reply is not a JSON object.
     """
@@ -123,12 +126,23 @@ def parse_json_to_dict(reply: str) -> dict:
 
 
 def rubric_text(item: Mapping) -> str:
-    """Return a rubric item as the grader prompt shows it: ``[points] criterion``."""
+    """Return a rubric item as the grader prompt shows it: ``[points] criterion``.
+
+    Args:
+        item: A rubric item with ``points`` and ``criterion`` keys.
+
+    Returns:
+        The points in brackets, a space, and the criterion.
+    """
     return f"[{item['points']}] {item['criterion']}"
 
 
 def calculate_score(rubrics: Sequence[Mapping], met: Sequence[bool]) -> float | None:
     """Return the points of the met items over the sum of the positive points.
+
+    Args:
+        rubrics: The rubric items of a question, each with a ``points`` key.
+        met: Whether the answer meets each item, in the order of ``rubrics``.
 
     Returns:
         The score, which is below 0 when met negative items outweigh the met
@@ -179,7 +193,17 @@ class HealthBenchGrader(Grader):
     async def grade(
         self, question: BenchmarkQuestion, answer: SystemAnswer, judge: ChatModelJudge
     ) -> Grade:
-        """Score one answer."""
+        """Score one answer.
+
+        Args:
+            question: The question, with its messages and rubric items.
+            answer: The answer to score.
+            judge: The model that decides whether each rubric item is met.
+
+        Returns:
+            The question score, and the flags ``parse_error`` or
+            ``no_positive_points`` when they apply.
+        """
         rubrics = question.reference["rubrics"]
         conversation = "\n\n".join(
             f"{m['role']}: {m['content']}"

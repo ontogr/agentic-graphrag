@@ -27,6 +27,7 @@ from benchmarks.datasets.healthcare_index import (
     build_index,
     check_manifest,
     closure,
+    content_problems,
     fts_query,
     index_problems,
 )
@@ -447,6 +448,72 @@ class TestIndexProblems:
         assert index_problems(self._db(["a", "b", "c"], ["s1", "s2"])) == []
 
 
+class TestContentProblems:
+    """The comparison of an index with the pinned passages."""
+
+    PINNED = {
+        "textbooks": [("t1", "pain"), ("t2", "cough")],
+        "statpearls": [("s1", "asthma")],
+    }
+
+    def _db(self, rows: list[tuple[str, str, str]]) -> sqlite3.Connection:
+        db = sqlite3.connect(":memory:")
+        db.execute(
+            "CREATE VIRTUAL TABLE docs USING fts5("
+            "doc_id UNINDEXED, source UNINDEXED, contents, tokenize='porter unicode61')"
+        )
+        db.executemany("INSERT INTO docs VALUES (?,?,?)", rows)
+        return db
+
+    def _pin(self, monkeypatch):
+        monkeypatch.setattr(
+            healthcare_index, "SOURCE_ROWS", dict.fromkeys(self.PINNED, 0)
+        )
+        monkeypatch.setattr(
+            healthcare_index, "fetch_source_file", lambda source, file: Path(source)
+        )
+        monkeypatch.setattr(
+            healthcare_index,
+            "SOURCES",
+            {name: {"files": {name: "0"}} for name in self.PINNED},
+        )
+        monkeypatch.setattr(
+            healthcare_index,
+            "iter_rows",
+            lambda path: (
+                (row, pid, text)
+                for row, (pid, text) in enumerate(self.PINNED[Path(path).name])
+            ),
+        )
+
+    def test_an_index_with_the_pinned_passages_has_no_problems(self, monkeypatch):
+        """The same ids and texts in the same order pass."""
+        self._pin(monkeypatch)
+        rows = [("t1", "textbooks", "pain"), ("t2", "textbooks", "cough")]
+        rows.append(("s1", "statpearls", "asthma"))
+
+        assert content_problems(self._db(rows)) == []
+
+    def test_a_changed_text_is_reported_though_ids_and_counts_match(self, monkeypatch):
+        """An altered passage fails even when the count and the ids are right."""
+        self._pin(monkeypatch)
+        rows = [("t1", "textbooks", "pain"), ("t2", "textbooks", "altered")]
+        rows.append(("s1", "statpearls", "asthma"))
+
+        assert content_problems(self._db(rows)) == [
+            "textbooks differs from the pinned passages"
+        ]
+
+    def test_a_missing_passage_is_reported(self, monkeypatch):
+        """A source with fewer passages than pinned fails."""
+        self._pin(monkeypatch)
+        rows = [("t1", "textbooks", "pain"), ("s1", "statpearls", "asthma")]
+
+        assert content_problems(self._db(rows)) == [
+            "textbooks differs from the pinned passages"
+        ]
+
+
 class TestSchema:
     """The healthcare graph schema."""
 
@@ -507,7 +574,7 @@ class TestScoring:
         assert parse_json_to_dict(reply) == expected
 
 
-class _Judge:
+class _FakeJudge:
     """Answers each rubric prompt from a queue of replies for its criterion."""
 
     def __init__(self, replies: dict[str, list[str]]) -> None:
@@ -544,7 +611,7 @@ class TestHealthBenchGrader:
 
     async def test_scores_the_met_items_and_reads_fenced_replies(self):
         """The judge is asked once for each item, and verdicts set the score."""
-        judge = _Judge(
+        judge = _FakeJudge(
             {
                 "Names the drug": [f"```json\n{_verdict(True)}\n```"],
                 "Gives the dose": [_verdict(False)],
@@ -564,7 +631,7 @@ class TestHealthBenchGrader:
 
     async def test_the_judge_sees_every_turn_and_the_answer(self):
         """The conversation in the prompt holds all turns, then the answer."""
-        judge = _Judge({c["criterion"]: [_verdict(False)] for c in RUBRICS})
+        judge = _FakeJudge({c["criterion"]: [_verdict(False)] for c in RUBRICS})
 
         await HealthBenchGrader().grade(
             _question(),
@@ -581,7 +648,7 @@ class TestHealthBenchGrader:
         self,
     ):
         """After three bad replies the item is not met and the question is flagged."""
-        judge = _Judge(
+        judge = _FakeJudge(
             {
                 "Names the drug": ["oops"] * ATTEMPTS,
                 "Gives the dose": [_verdict(True)],
@@ -600,7 +667,7 @@ class TestHealthBenchGrader:
 
     async def test_a_reply_that_is_valid_on_the_second_try_needs_no_flag(self):
         """A retry that succeeds leaves the question unflagged."""
-        judge = _Judge(
+        judge = _FakeJudge(
             {
                 "Names the drug": ["oops", _verdict(True)],
                 "Gives the dose": [_verdict(True)],
@@ -620,7 +687,7 @@ class TestHealthBenchGrader:
     async def test_a_question_without_positive_items_scores_zero_and_is_flagged(self):
         """A zero denominator gives score 0 and the flag."""
         rubrics = [{"criterion": "Invents a side effect", "points": -4}]
-        judge = _Judge({"Invents a side effect": [_verdict(True)]})
+        judge = _FakeJudge({"Invents a side effect": [_verdict(True)]})
 
         grade = await HealthBenchGrader().grade(
             _question(rubrics),
