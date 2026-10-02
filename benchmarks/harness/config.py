@@ -134,7 +134,7 @@ RUN_LIMITS: dict[tuple[str, str], RunLimits] = {
 }
 
 SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
-    ("legal", "lite"): SpendCap(llm_calls=100, tokens=400_000),
+    ("legal", "lite"): SpendCap(llm_calls=45, tokens=245_000),
     ("legal", "full"): SpendCap(llm_calls=12_100, tokens=81_000_000),
     ("financial", "lite"): SpendCap(llm_calls=130, tokens=800_000),
     ("financial", "full"): SpendCap(llm_calls=16_000, tokens=170_000_000),

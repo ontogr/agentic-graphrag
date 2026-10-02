@@ -96,7 +96,7 @@ The run set `max_llm_pairs` to 10. This is the most entity pairs per label that 
 
 The agent limits of the run (`AGENT_RECURSION_LIMIT` of 30 and `AGENT_MAX_RESEARCH_ATTEMPTS` of 1) do not bound the agent calls, because the sub-agents that the planner starts make their own calls.
 
-The dry-run estimate is 28 calls and 162,000 tokens, which matches the run. The spend cap is 100 calls and 400,000 tokens. The cap checks the estimate before a run and does not stop a run in progress.
+The dry-run estimate is 28 calls and 162,000 tokens, just above the run's 27 calls and 161,000 tokens. The spend cap is 45 calls and 245,000 tokens, about 1.5 times the estimate. The cap checks the estimate before a run and does not stop a run in progress.
 
 The full set has 15 documents and 272 chunks at the default chunking. Its dry-run estimate is about 8,000 calls and 54 million tokens, so run `make bench-dry DOMAIN=legal MODE=full` and read the estimate before you start it.
 
