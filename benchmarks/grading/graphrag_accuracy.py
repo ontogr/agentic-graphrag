@@ -143,7 +143,17 @@ CORRECTNESS_EXAMPLES = [
 
 
 def fbeta_score(tp: int, fp: int, fn: int, beta: float = 1.0) -> float:
-    """Return the F-beta score of statement counts, with the scorer's smoothing."""
+    """Return the F-beta score of statement counts, with the scorer's smoothing.
+
+    Args:
+        tp: The number of true positives.
+        fp: The number of false positives.
+        fn: The number of false negatives.
+        beta: The weight of recall against precision. 1 gives the F1 score.
+
+    Returns:
+        The F-beta score from 0 to 1.
+    """
     precision = tp / (tp + fp + 1e-10)
     recall = tp / (tp + fn + 1e-10)
     return (
@@ -153,6 +163,12 @@ def fbeta_score(tp: int, fp: int, fn: int, beta: float = 1.0) -> float:
 
 def parse_json(reply: str) -> object:
     """Parse a judge reply as JSON, after removing a code fence around it.
+
+    Args:
+        reply: The text of the judge reply.
+
+    Returns:
+        The parsed JSON value.
 
     Raises:
         json.JSONDecodeError: The reply is not JSON.
