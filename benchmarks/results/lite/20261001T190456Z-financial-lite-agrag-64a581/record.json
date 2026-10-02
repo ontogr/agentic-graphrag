@@ -1,0 +1,223 @@
+{
+  "chunking": {
+    "fingerprint": "20409d9e11faaf1c",
+    "settings": {
+      "fallback": {
+        "chunk_size": 1000,
+        "levels": null,
+        "min_characters_per_chunk": 24,
+        "strategy": "recursive",
+        "tokenizer": "o200k_base"
+      },
+      "rules": []
+    }
+  },
+  "code": {
+    "agrag_tree": "6ba0f63a906c55b4ecd9b95a1c03a75fbc142e81",
+    "agrag_version": "0.0.4",
+    "benchmarks_code_sha256": "1528d781425c345d848e07970af9c16e46a37e4b736112fb672572c49d41aee7",
+    "git_commit": "7ed622b36b59ccd083b7541cb2eb8aa194ae8003",
+    "git_describe": "v0.0.4-8-g7ed622b",
+    "git_dirty": false,
+    "uv_lock_sha256": "01db0b8c683f77c57134b71966540d9024562e00dd3b927dbf0589941afff7ed"
+  },
+  "config": {
+    "agent": {
+      "max_llm_pairs": 20,
+      "max_research_attempts": 1,
+      "recursion_limit": 30
+    },
+    "concurrency": 2,
+    "judge_samples": 1,
+    "question_timeout_s": 900.0,
+    "seed": 42,
+    "sha256": "6ebe004f6c336460a07b81251b7e87246bb738a4b351e98aac7b39fcc2a82164"
+  },
+  "corpora": [
+    {
+      "cache_key": "bd12b4ad482114f66617670f94b2d8228696b2c0232c780831b0b78ffcd458e1",
+      "chunks": 2,
+      "corpus_id": "financial-lite",
+      "corpus_tokens": 1280,
+      "empty_extractions": 0,
+      "graph": {
+        "entities_by_label": {
+          "BusinessSegment": 4,
+          "Company": 1,
+          "FilingSection": 2,
+          "FinancialMetric": 19,
+          "FiscalPeriod": 3,
+          "Organization": 1
+        },
+        "relations_by_type": {
+          "FOR_PERIOD": 12,
+          "HAS_SEGMENT": 4,
+          "REFERS_TO": 1,
+          "REPORTED_METRIC": 1
+        }
+      },
+      "ingest_cache_hit": false,
+      "ingest_usage": {
+        "input_tokens": 277129,
+        "llm_calls": 29,
+        "output_tokens": 16368
+      },
+      "n_documents": 1,
+      "service": "financial-lite"
+    }
+  ],
+  "created_at": "2026-10-01T19:04:56+00:00",
+  "dataset": {
+    "manifest_sha256": "0ebf5e00852f1a48bc0a5ece3d7d5032c9a72d3e7b8c557dd6701dd4eb563f80",
+    "n_questions": 2,
+    "name": "financebench",
+    "question_ids_sha256": "b5e1382f3601dd0e2680f1592cc0f836511351a5bc2d4454d6bca2377e1d8a0b",
+    "upstream": {
+      "commit": "cc39aeb4afdf33909ee1412188bf89035950c2eb",
+      "questions_file": "data/financebench_open_source.jsonl",
+      "questions_sha256": "a5a2aa673e573e55675fc3c0f9aa38c1cf59d2abc91edb077534f71f10a71877",
+      "repo": "patronus-ai/financebench"
+    }
+  },
+  "domain": "financial",
+  "mode": "lite",
+  "models": {
+    "agent": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic"
+    },
+    "embedder": {
+      "model": "ibm-granite/granite-embedding-small-english-r2"
+    },
+    "extractor": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic"
+    },
+    "judge": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic",
+      "temperature": 0.0
+    }
+  },
+  "questions": [
+    {
+      "corpus_id": "financial-lite",
+      "flags": [],
+      "group": "domain-relevant",
+      "id": "financebench_id_00517",
+      "latency_s": 124.6272,
+      "llm_calls": 30,
+      "retrieved_chunk_ids": [
+        "0726f637-6c73-5b22-841e-08cc194cc79b",
+        "437646a6-1d05-563f-a27f-522981551724"
+      ],
+      "scores": {
+        "context_recall": 0.0,
+        "correctness": 0.1
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "financial-lite",
+      "flags": [],
+      "group": "novel-generated",
+      "id": "financebench_id_00464",
+      "latency_s": 198.838,
+      "llm_calls": 48,
+      "retrieved_chunk_ids": [
+        "0726f637-6c73-5b22-841e-08cc194cc79b",
+        "437646a6-1d05-563f-a27f-522981551724"
+      ],
+      "scores": {
+        "context_recall": 1.0,
+        "correctness": 1.0
+      },
+      "status": "ok"
+    }
+  ],
+  "run_id": "20261001T190456Z-financial-lite-agrag-64a581",
+  "schema_version": 1,
+  "schemas": [
+    {
+      "name": "financial",
+      "sha256": "29a1bcf95c3e968c4e79512b08cc463651709487c9bc03e8c3a191cb42801f82",
+      "version": "1"
+    }
+  ],
+  "scores": {
+    "aggregate": {
+      "context_recall": {
+        "mean": 0.5,
+        "n": 2
+      },
+      "correctness": {
+        "mean": 0.55,
+        "n": 2
+      }
+    },
+    "by_group": {
+      "domain-relevant": {
+        "context_recall": {
+          "mean": 0.0,
+          "n": 1
+        },
+        "correctness": {
+          "mean": 0.1,
+          "n": 1
+        }
+      },
+      "novel-generated": {
+        "context_recall": {
+          "mean": 1.0,
+          "n": 1
+        },
+        "correctness": {
+          "mean": 1.0,
+          "n": 1
+        }
+      }
+    }
+  },
+  "system": "agrag",
+  "trace": {
+    "path": "trace.jsonl.gz",
+    "repo": null,
+    "revision": null,
+    "sha256": "06471b6f2771b72e9a04eb282bf4d163c48ab1dcc7cc786aced988311a0d293e"
+  },
+  "usage": {
+    "by_path": {
+      "agent": {
+        "input_tokens": 335138,
+        "llm_calls": 78,
+        "output_tokens": 9119
+      },
+      "extraction": {
+        "input_tokens": 4216,
+        "llm_calls": 3,
+        "output_tokens": 4418
+      },
+      "judge": {
+        "input_tokens": 7571,
+        "llm_calls": 7,
+        "output_tokens": 610
+      },
+      "other": {
+        "input_tokens": 272913,
+        "llm_calls": 26,
+        "output_tokens": 11950
+      }
+    },
+    "cost_usd": null,
+    "input_tokens": 619838,
+    "llm_calls": 114,
+    "output_tokens": 26097,
+    "spend_cap": {
+      "llm_calls": 100,
+      "overridden": false,
+      "tokens": 1000000
+    },
+    "usage_complete": true,
+    "wall_seconds": 450.4563
+  }
+}

@@ -40,7 +40,26 @@ class BenchSettings(BaseSettings):
 
 # Bolt ports on the loopback address, one per compose service. A domain adds its
 # services here and in the compose file.
-SERVICE_PORTS: dict[str, int] = {"fake": 7700, "legal-lite": 7701, "legal-full": 7702}
+SERVICE_PORTS: dict[str, int] = {
+    "fake": 7700,
+    "legal-lite": 7701,
+    "legal-full": 7702,
+    "financial-lite": 7709,
+    "financial-full": 7710,
+    "graphrag-novel-25646": 7703,
+    "graphrag-medical-lite": 7704,
+    "graphrag-medical-full": 7705,
+    "graphrag-novel-8559": 7706,
+    "graphrag-novel-41603": 7707,
+    "graphrag-novel-2544": 7708,
+    "memory-conv17": 7711,
+    "memory-conv1": 7712,
+    "memory-conv4": 7713,
+    "memory-conv6": 7714,
+    "memory-conv13": 7715,
+    "healthcare-lite": 7716,
+    "healthcare-full": 7717,
+}
 
 CommandRunner = Callable[[Sequence[str]], None]
 

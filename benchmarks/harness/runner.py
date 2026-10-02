@@ -16,7 +16,7 @@ from agrag.common.data_models.document import Document
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.graphdb import GraphStore, Neo4jGraphStore, Neo4jSettings
 from benchmarks.datasets.base import Domain
-from benchmarks.grading.base import aggregate
+from benchmarks.grading.base import Grader, aggregate
 from benchmarks.harness import cache
 from benchmarks.harness.config import COST_MODEL, CostModel
 from benchmarks.harness.dry_run import DryRun, check_cap, dry_run
@@ -382,7 +382,7 @@ async def _execute(
 
 
 async def _grade(
-    outcome: _Outcome, domain: Domain, judge: Any, ctx: _Context
+    outcome: _Outcome, grader: Grader, judge: Any, ctx: _Context
 ) -> QuestionRecord:
     """Score one outcome. An agent failure scores 0 on every metric."""
     question = outcome.question
@@ -395,12 +395,12 @@ async def _grade(
             latency_s=outcome.latency_s,
             status="agent_failure",
             flags=outcome.flags,
-            scores=dict.fromkeys(domain.grader.metrics, 0.0),
+            scores=dict.fromkeys(grader.metrics, 0.0),
         )
 
     async def call():
         with ctx.tracing.tracer.start_as_current_span(GRADE_SPAN):
-            return await domain.grader.grade(question, answer, judge)
+            return await grader.grade(question, answer, judge)
 
     grade = await _retry(call, ctx)
     return QuestionRecord(
@@ -476,7 +476,7 @@ def make_plan(
         documents,
         chunking=chunking,
         cost=cost,
-        judge_calls_per_question=domain.grader.judge_calls_per_question,
+        judge_calls_per_question=domain.grader_for(mode).judge_calls_per_question,
     )
     cap = check_cap(
         bound,
@@ -545,7 +545,9 @@ async def run(
         )
         judge = env.make_judge(tracing.tracer)
         questions = await _bounded(
-            options.concurrency, outcomes, lambda o: _grade(o, domain, judge, ctx)
+            options.concurrency,
+            outcomes,
+            lambda o: _grade(o, domain.grader_for(mode), judge, ctx),
         )
     finally:
         tracing.close()

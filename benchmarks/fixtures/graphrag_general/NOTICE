@@ -1,0 +1,15 @@
+These fixtures list questions, reference answers, evidence items and document hashes of
+GraphRAG-Bench. They hold no corpus text. The harness fetches the text at run time.
+
+Source: https://huggingface.co/datasets/GraphRAG-Bench/GraphRAG-Bench, at the revision
+pinned in benchmarks/datasets/graphrag_general.py. The benchmark code is under the MIT
+license (https://github.com/GraphRAG-Bench/GraphRAG-Benchmark). The dataset card states
+no license for the data, so the questions, answers and evidence keep the rights of their
+authors. The corpus text has its own terms: see benchmarks/results/NOTICE.
+
+Selection: lite.json holds 2 Medical questions on the first Medical extract. full.json
+holds 130 Medical and 120 Novel questions, sampled with seed 42 in proportion to the
+question types of each population, with ten fixed questions forced in.
+
+Builder: benchmarks/fixtures/builders/graphrag_general.py. Run
+"uv run python -m benchmarks.fixtures.builders.graphrag_general" to rebuild both files.

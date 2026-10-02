@@ -55,12 +55,27 @@ class CorpusDocument(BaseModel):
         sha256: The hash of the fetched bytes, checked on every fetch.
         source: Where the fetch step gets the bytes, such as a pinned URL or a
             Hugging Face path and revision.
+        pages: The zero-based pages of a PDF to ingest, or None for all of them.
+        messages: The ids of the chat messages to ingest, or None for all of them.
     """
 
     id: str
     uri: str
     sha256: str
     source: str
+    pages: list[int] | None = None
+    messages: list[int] | None = None
+
+    @model_validator(mode="after")
+    def _selections_are_not_empty(self) -> "CorpusDocument":
+        """Require a selection to be None, or non-empty with no negative number."""
+        selections = {"pages": self.pages, "messages": self.messages}
+        for name, selection in selections.items():
+            if selection is not None and (not selection or min(selection) < 0):
+                raise ValueError(
+                    f"{name} must be None or a non-empty list of non-negative numbers"
+                )
+        return self
 
 
 class Corpus(BaseModel):

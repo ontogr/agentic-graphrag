@@ -1,0 +1,40 @@
+{
+ "healthbench": {
+  "repo": "openai/healthbench",
+  "revision": "40ee1968852fc57f625934251ac22be47077a8fb",
+  "files": {
+   "hard_2025-05-08-21-00-10.jsonl": "b0320430e5cd974e746585594c1dd10b5a3fc2aff9c72b26106c2c4a069d74e9"
+  }
+ },
+ "statpearls": {
+  "repo": "awinml/statpearls",
+  "revision": "3b3ce5c7013a7abb23c4131b09ae9514a7c437ef",
+  "files": {
+   "data/train-00000-of-00001.parquet": "2d684b1196f85e98539a51934ca29d3ca7731b82d6538deaeef160184e505c6e"
+  }
+ },
+ "textbooks": {
+  "repo": "MedRAG/textbooks",
+  "revision": "9c72838920a1323ffa867467d3f7aa7b36b0f994",
+  "files": {
+   "chunk/Anatomy_Gray.jsonl": "7ee624233f9bd0e1db499233dab824e396398f1c9b5b1a9a391be4aa61c1990b",
+   "chunk/Biochemistry_Lippincott.jsonl": "baeb945f0b84cb073dfe286af5f9eb4c558a029f1c65a519e74ff425d51cabf6",
+   "chunk/Cell_Biology_Alberts.jsonl": "e281aaf151aac1bc2e893e89f5a28bb52c4e0fd29ce94a323940d47b23909f5d",
+   "chunk/First_Aid_Step1.jsonl": "9b6b3e1256d09481cd6caacf70732aa1ef58c934ff957a7228efa0f2a3a2af81",
+   "chunk/First_Aid_Step2.jsonl": "49e1a4436f4c72ec94e890e95e16357d6d07e8a4b89cc6490742d621476396c8",
+   "chunk/Gynecology_Novak.jsonl": "75123830fe5c6293b7af05446926d8dc4cf2d2f14b5fd4fc540ef94365902c3e",
+   "chunk/Histology_Ross.jsonl": "2c68dcf3e903e648f79c6ef624b0ddfe23c98d8311d7341a005628d67386e57d",
+   "chunk/Immunology_Janeway.jsonl": "8c256fecfb8dfdbc8afad1966ba879994009f623bf2b28beb3caf444cd05f47b",
+   "chunk/InternalMed_Harrison.jsonl": "c0f3523c74e99c152cf51aad91928c811dc30918ca9d1c68a24691525ea6bcbb",
+   "chunk/Neurology_Adams.jsonl": "7fe80c8c8d0dab2c6645a00166fdf8dce73a717e2fcf155736f1ecf5a13abfa2",
+   "chunk/Obstentrics_Williams.jsonl": "d8f53df6626566e3b0a8dc30ba76fe4fe3af1995333afcf55f7f569e1ba991fb",
+   "chunk/Pathology_Robbins.jsonl": "bc8d58dce0b5b94a42fafc2f47e6c3f2e0f3d86a5842d8fd2e60dc8a835e5045",
+   "chunk/Pathoma_Husain.jsonl": "827ed8c8a6fb99fe863b230a231208fd2ad62effc3753ba8d17fce31cf8ba2a2",
+   "chunk/Pediatrics_Nelson.jsonl": "701fefb07537888d5062bc6873a5ac7e746867f8eda9c0fc6e14aaeeba96fce3",
+   "chunk/Pharmacology_Katzung.jsonl": "47b79061f05293173787205e89a083350e0372beb197aceb92d2e3381c4b8334",
+   "chunk/Physiology_Levy.jsonl": "95c7b1972afef628228efd43a032ac83c6101a60b918b835fe24fff5b6b275db",
+   "chunk/Psichiatry_DSM-5.jsonl": "3a7b2232b2dbb642c06fdf8ea8926c8a69aeb05f76b43b7e71d79081b29f7171",
+   "chunk/Surgery_Schwartz.jsonl": "e1d682541c9e4704db5fe48d61944a115e204f693e0ca360171c41e44fc3b2c0"
+  }
+ }
+}

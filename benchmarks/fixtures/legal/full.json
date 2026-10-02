@@ -17,91 +17,106 @@
      "id": "contractnli/ExcelerateStandardNDAFormat.txt",
      "uri": "contractnli/ExcelerateStandardNDAFormat.txt",
      "sha256": "48730c8d5d8e8a3c67cf301b8da0a8cfc26652834cc3d8091c8f95e7b87000be",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/ExcelerateStandardNDAFormat.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/ExcelerateStandardNDAFormat.txt",
+     "pages": null
     },
     {
      "id": "contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
      "uri": "contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
      "sha256": "2a748cb1888853a0f5bf6dccc7f8b2e0c2fc0ec303e3349ae24af04181485c58",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/HNBA-2017-18-Confidentiality-Agreement.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/HNBA-2017-18-Confidentiality-Agreement.txt",
+     "pages": null
     },
     {
      "id": "contractnli/Kenway-NDA-Form-Blank.txt",
      "uri": "contractnli/Kenway-NDA-Form-Blank.txt",
      "sha256": "3dff6905cdc6ba5263a025b509f5c989ad4a3108a3ca726c753f1f9bf8072fb6",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/Kenway-NDA-Form-Blank.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/Kenway-NDA-Form-Blank.txt",
+     "pages": null
     },
     {
      "id": "contractnli/SE_NDCA_and_PRE-QUAL_PACKAGE_March-2016.txt",
      "uri": "contractnli/SE_NDCA_and_PRE-QUAL_PACKAGE_March-2016.txt",
      "sha256": "9f6d27e0a294d79ea1bb094e82f4a675f1a646852aca18a8a96cee7946002089",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/SE_NDCA_and_PRE-QUAL_PACKAGE_March-2016.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/contractnli/SE_NDCA_and_PRE-QUAL_PACKAGE_March-2016.txt",
+     "pages": null
     },
     {
      "id": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
      "uri": "cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
      "sha256": "17f0b67c57a587044cc00aa7b9dfc258cd199f809b8fa5c19acddceb873b8517",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/DUOSTECHNOLOGIESGROUP,INC_04_21_2009-EX-10.1-STRATEGIC ALLIANCE AGREEMENT.txt",
+     "pages": null
     },
     {
      "id": "cuad/DYNAMEXINC_06_06_1996-EX-10.4-TRANSPORTATION SERVICES AGREEMENT.txt",
      "uri": "cuad/DYNAMEXINC_06_06_1996-EX-10.4-TRANSPORTATION SERVICES AGREEMENT.txt",
      "sha256": "b78b65221c6ae786e6c1274ca932d7a5ffef078da4d94d0b6617db6028764e96",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/DYNAMEXINC_06_06_1996-EX-10.4-TRANSPORTATION SERVICES AGREEMENT.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/DYNAMEXINC_06_06_1996-EX-10.4-TRANSPORTATION SERVICES AGREEMENT.txt",
+     "pages": null
     },
     {
      "id": "cuad/HealthcareIntegratedTechnologiesInc_20190812_8-K_EX-10.1_11776966_EX-10.1_Reseller Agreement.txt",
      "uri": "cuad/HealthcareIntegratedTechnologiesInc_20190812_8-K_EX-10.1_11776966_EX-10.1_Reseller Agreement.txt",
      "sha256": "d172327b68fd725ed5c08ba20640023bb56b6e0904d75c65d53bb4acc97092d8",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/HealthcareIntegratedTechnologiesInc_20190812_8-K_EX-10.1_11776966_EX-10.1_Reseller Agreement.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/HealthcareIntegratedTechnologiesInc_20190812_8-K_EX-10.1_11776966_EX-10.1_Reseller Agreement.txt",
+     "pages": null
     },
     {
      "id": "cuad/IGENEBIOTECHNOLOGYINC_05_13_2003-EX-1-JOINT VENTURE AGREEMENT.txt",
      "uri": "cuad/IGENEBIOTECHNOLOGYINC_05_13_2003-EX-1-JOINT VENTURE AGREEMENT.txt",
      "sha256": "3413f2b63169639f157ba60f663245197e24310c269c443267db6af0e4707708",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/IGENEBIOTECHNOLOGYINC_05_13_2003-EX-1-JOINT VENTURE AGREEMENT.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/IGENEBIOTECHNOLOGYINC_05_13_2003-EX-1-JOINT VENTURE AGREEMENT.txt",
+     "pages": null
     },
     {
      "id": "cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt",
      "uri": "cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt",
      "sha256": "92a552b93eee815071993af2c822aa2133f5588b3bf6dcec3de7e07bfa542d6a",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/KINGPHARMACEUTICALSINC_08_09_2006-EX-10.1-PROMOTION AGREEMENT.txt",
+     "pages": null
     },
     {
      "id": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
      "uri": "cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
      "sha256": "2fac2af5a9219ca22702929af105a9cb5fbfb2982f3d2a1a73800591a21c72cc",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/PapaJohnsInternationalInc_20190617_8-K_EX-10.1_11707365_EX-10.1_Endorsement Agreement.txt",
+     "pages": null
     },
     {
      "id": "cuad/PenntexMidstreamPartnersLp_20150416_S-1A_EX-10.4_9042833_EX-10.4_Transportation Agreement.txt",
      "uri": "cuad/PenntexMidstreamPartnersLp_20150416_S-1A_EX-10.4_9042833_EX-10.4_Transportation Agreement.txt",
      "sha256": "d06674177f876cf4fc26cc68646a264f2462529ab949abdbe96372468fa7a6de",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/PenntexMidstreamPartnersLp_20150416_S-1A_EX-10.4_9042833_EX-10.4_Transportation Agreement.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/cuad/PenntexMidstreamPartnersLp_20150416_S-1A_EX-10.4_9042833_EX-10.4_Transportation Agreement.txt",
+     "pages": null
     },
     {
      "id": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
      "uri": "maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
      "sha256": "39e427ae5a36d611f9e27e5575e6766a6515e7bde3b2bf403e800abb24c84a43",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/maud/Bank of Commerce Holdings_Columbia Banking System, Inc..txt",
+     "pages": null
     },
     {
      "id": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
      "uri": "maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
      "sha256": "67f1e353c04151fd847a866305528b0fafeebe8a416a755a4ef8ce638616133a",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/maud/Community Bankers Trust Corporation_United Bankshares, Inc..txt",
+     "pages": null
     },
     {
      "id": "privacy_qa/Keep.txt",
      "uri": "privacy_qa/Keep.txt",
      "sha256": "e2b4782b7611593798332c228b084ee72ed2fa81c5170818116b9092dfa7d8d2",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/privacy_qa/Keep.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/privacy_qa/Keep.txt",
+     "pages": null
     },
     {
      "id": "privacy_qa/Viber Messenger.txt",
      "uri": "privacy_qa/Viber Messenger.txt",
      "sha256": "6c92fa4cadaef3b1f37d0d34ea81cbccfcf3576d321e63fb916c24e64e100767",
-     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/privacy_qa/Viber Messenger.txt"
+     "source": "hf://datasets/awinml/legalbench-rag@0263f7b2a9fb811f984ead05a0aa0d796a456124/corpus/privacy_qa/Viber Messenger.txt",
+     "pages": null
     }
    ],
    "n_tokens": 223766

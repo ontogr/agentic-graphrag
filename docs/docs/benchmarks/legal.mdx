@@ -5,7 +5,7 @@ title: Legal benchmark
 
 # Legal benchmark
 
-This page describes the Legal benchmark: the questions, the graph schema, how `agrag` answers are scored, and the results of the committed lite runs. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
+This page describes the Legal benchmark: the questions, the graph schema, how `agrag` answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
 
 ## The dataset
 
@@ -24,10 +24,12 @@ The benchmark keeps its own "mini" sample of 776 questions on 72 documents. The 
 
 | Set | Questions | Documents | Tokens | Sources |
 |---|---|---|---|---|
-| Lite | 10 | 3 | 18,638 | PrivacyQA 4, ContractNLI 3, CUAD 3 |
+| Lite | 2 | 1: the privacy policy of Keep | 2,024 | PrivacyQA 2 |
 | Full | 100 | 15 | 223,766 | 25 from each of the four sources |
 
-The lite set uses one privacy policy, one non-disclosure agreement, and one strategic alliance agreement. It leaves out MAUD, because a single MAUD document would be most of the ingest cost. Every lite question is also in the full set. The full set keeps the documents with the most questions in each source, and for MAUD the two shortest documents. It drops repeated query strings.
+The lite set is a quick check, not a sample of the benchmark. It takes the shortest policy of the full set, so a run takes a few minutes. It has one question with one gold span of 140 characters (does the app keep and upload my activity) and one question with two gold spans of 907 and 221 characters (is my workout data shared with anyone). Both lite questions are in the full set.
+
+The full set keeps the documents with the most questions in each source, and for MAUD the two shortest documents. It drops repeated query strings. Nobody has run the full set, and it is far above the budget of a manual run, so read its dry-run estimate before you start it.
 
 The text of a document is read exactly as the gold offsets count it: a carriage return and line feed pair is one character, and a byte order mark stays as the first character. The harness builds the document text itself and does not use an `agrag` loader, because a loader changes the text and moves every offset. A test checks that each chunk equals the slice of the document at its offsets.
 
@@ -49,20 +51,30 @@ The benchmark scores a fixed number of retrieved snippets. `agrag` has no such n
 
 Because the judge is the same model as the agent by default, correctness is biased upward. See [Benchmarks](./index.mdx#who-grades-the-answers).
 
-## Results of the lite runs
+## Results of the lite run
 
-Both runs used `gemma4:31b` for extraction, the agent, and the judge, on one clean commit. The two runs differ only in the chunk size.
+The run used `gemma4:31b` for extraction, the agent, and the judge, on one clean commit, with the default chunking of about 1,000 tokens.
 
-| Chunking | Chunks | Correctness | Precision | Recall | Model calls | Tokens | Wall time |
-|---|---|---|---|---|---|---|---|
-| About 1,000 tokens (default) | 23 | 0.98 | 0.10 | 0.91 | 310 | 3.67M | 26 min |
-| 1,024 characters | 113 | 0.81 | 0.21 | 0.65 | 605 | 2.90M | 47 min |
+| Question | Gold spans | `precision` | `recall` | `correctness` |
+|---|---|---|---|---|
+| `privacy_qa:fdf155d3` | 1 (140 characters) | 0.013 | 1.00 | 1.00 |
+| `privacy_qa:c96be584` | 2 (1,128 characters) | 0.106 | 1.00 | 1.00 |
+| Mean | | 0.060 | 1.00 | 1.00 |
 
-The chunk size sets the trade between precision and recall. A large chunk holds the whole gold span, so recall is high, but the chunk is far larger than the span, so precision is low. A small chunk is closer to the span size, so precision doubles. Recall and correctness fall, most likely because an answer that spans several small chunks needs all of them, and the agent cites only some. The record does not show which. Two small chunks also had no extracted entity.
+Expanded precision and expanded recall equal the primary scores on both questions. No question failed or carries a flag, and no citation points to something other than a chunk.
 
-Read the numbers with care. Each run has 10 questions, so one question moves a score by 0.1. The judge grades its own model. Neither run is a measure of how `agrag` compares with other systems.
+Two questions cannot rank anything. The run shows that the pipeline works end to end. The precision is low for this reason: the chunks are large compared with the gold spans.
 
-The per-source results are in the records under `benchmarks/results/lite/`. Print them with:
+- The policy has 3 chunks of 5,327, 5,336, and 241 characters. Both gold sets lie in the first chunk.
+- The agent cited two chunks for each answer, the first and the second. They hold 10,663 characters. The precision is therefore 140 / 10,663 = 0.013 and 1,128 / 10,663 = 0.106, and the record shows these values.
+- Even if the agent had cited only the first chunk, the precision would have been 0.026 and 0.212. A chunk of about 1,000 tokens is far larger than a short gold span, so this benchmark gives a low precision to any system that cites whole chunks.
+- Recall is 1.00 because the cited chunks cover the gold spans.
+
+The graph has 46 entities and 3 relations from 3 chunks. No chunk gave an empty extraction.
+
+Read the numbers with care. The judge grades its own model. The run is not a measure of how `agrag` compares with other systems.
+
+Print the record with:
 
 ```bash
 uv run python -m benchmarks report --domain legal
@@ -70,17 +82,23 @@ uv run python -m benchmarks report --domain legal
 
 ## Cost and time
 
-Ingest takes most of the time. `agrag` reads the documents one call at a time, and it resolves duplicate entities once per document against the whole graph. In the default lite run, ingest took about 80% of the wall time, and resolution was the largest part of it. The full set has 15 documents and 272 chunks at the default chunking. Its dry-run estimate is about 8,000 calls and 54 million tokens, so run `make bench-dry DOMAIN=legal MODE=full` and read the estimate before you start it.
+| Phase | Model calls | Tokens |
+|---|---|---|
+| Ingest: extraction | 3 | 10k |
+| Ingest: resolution and merge | 3 | 68k |
+| Agent, 2 questions | 19 | 81k |
+| Judge, 2 questions | 2 | 2k |
+| Total | 27 | 161k |
 
-To run the second chunking of the table:
+The run took 265 seconds. The two answers took 45 and 49 seconds, with 9 and 10 agent calls. Span scoring needs no judge, so the judge makes one call for each question, for `correctness`.
 
-```bash
-make bench-dry DOMAIN=legal MODE=lite
-uv run python -m benchmarks run legal --mode lite --chunk-size 1024 \
-  --max-llm-calls 2500 --max-tokens 25000000
-```
+The run set `max_llm_pairs` to 10. This is the most entity pairs per label that resolution sends to the model. The default is 500. The cost of resolution depends on how many pairs are unclear, so a larger text can cost far more.
 
-The chunk size is in characters. The estimate for 1,024 characters is above the lite spend cap, so the run needs the two override flags, and the record states that it used them.
+The agent limits of the run (`AGENT_RECURSION_LIMIT` of 30 and `AGENT_MAX_RESEARCH_ATTEMPTS` of 1) do not bound the agent calls, because the sub-agents that the planner starts make their own calls.
+
+The dry-run estimate is 28 calls and 162,000 tokens, just above the run's 27 calls and 161,000 tokens. The spend cap is 45 calls and 245,000 tokens, about 1.5 times the estimate. The cap checks the estimate before a run and does not stop a run in progress.
+
+The full set has 15 documents and 272 chunks at the default chunking. Its dry-run estimate is about 8,000 calls and 54 million tokens, so run `make bench-dry DOMAIN=legal MODE=full` and read the estimate before you start it.
 
 ## Terms of use
 

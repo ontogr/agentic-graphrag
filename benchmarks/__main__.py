@@ -1,4 +1,4 @@
-"""Command line: ``python -m benchmarks run|dry-run|report|clean``."""
+"""Command line: ``python -m benchmarks run|dry-run|report|clean|healthcare``."""
 
 import argparse
 import asyncio
@@ -6,7 +6,8 @@ import sys
 
 from agrag.chunking import Chunking, RecursiveChunker
 from benchmarks.datasets.base import DOMAINS
-from benchmarks.harness.config import BENCH_CHUNKING, COST_MODEL
+from benchmarks.datasets.healthcare_index import INDEX_PATH, build_index, check_index
+from benchmarks.harness.config import BENCH_CHUNKING, COST_MODEL, RUN_LIMITS
 from benchmarks.harness.dry_run import DryRun, SpendCapError
 from benchmarks.harness.record import code_identity
 from benchmarks.harness.report import load_records, report
@@ -33,9 +34,10 @@ def _confirm(bound: DryRun) -> bool:
     return answer.strip().lower() == "y"
 
 
-def _environment(chunking: Chunking) -> RunEnvironment:
+def _environment(chunking: Chunking, domain: str, mode: str) -> RunEnvironment:
     """Build the agrag environment from the process environment."""
-    settings = AgragSettings.from_env()
+    limits = RUN_LIMITS.get((domain, mode))
+    settings = AgragSettings.from_env(limits)
     agent = settings.agent.clients[0]
     judge = settings.judge
     extractor = settings.extraction.clients[0]
@@ -65,12 +67,15 @@ def _environment(chunking: Chunking) -> RunEnvironment:
             "extractor": {"model_id": extractor.model, "provider": extractor.provider},
             "embedder": {"model": embedder},
         },
-        agent_config=settings.agent_loop.model_dump(),
+        agent_config={
+            **settings.agent_loop.model_dump(),
+            "max_llm_pairs": settings.max_llm_pairs,
+        },
         make_system=make_system,
         make_judge=settings.make_judge,
         confirm=_confirm,
         trace_repo=BenchSettings().trace_repo,
-        cost=COST_MODEL,
+        cost=limits.cost if limits else COST_MODEL,
         embedder_model=embedder,
     )
 
@@ -82,6 +87,18 @@ def _chunking(args: argparse.Namespace) -> Chunking:
     return Chunking(
         fallback=RecursiveChunker(tokenizer="character", chunk_size=args.chunk_size)
     )
+
+
+def _build_index(*, check: bool) -> int:
+    """Build the MedCorp search index, and check it against the fixtures if asked."""
+    rows = build_index()
+    print(f"index {INDEX_PATH}: {rows} passages")
+    if not check:
+        return 0
+    rows, problems = check_index()
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    return 1 if problems else 0
 
 
 def _domain(name: str):
@@ -136,6 +153,14 @@ def _parser() -> argparse.ArgumentParser:
     report_command.add_argument("--domain")
     clean = commands.add_parser("clean", help="Delete corpus graphs and volumes.")
     clean.add_argument("--corpus", help="The service name of one corpus.")
+    healthcare = commands.add_parser("healthcare", help="Healthcare corpus tools.")
+    healthcare_commands = healthcare.add_subparsers(dest="action", required=True)
+    build_index = healthcare_commands.add_parser(
+        "build-index", help="Build the MedCorp search index."
+    )
+    build_index.add_argument(
+        "--check", action="store_true", help="Check the index against the fixtures."
+    )
     return parser
 
 
@@ -151,8 +176,12 @@ def main(argv: list[str] | None = None) -> int:
             services.remove(service)
         return 0
 
+    if args.command == "healthcare":
+        return _build_index(check=args.check)
+
     domain = _domain(args.domain)
     try:
+        limits = RUN_LIMITS.get((args.domain, args.mode))
         if args.command == "dry-run":
             options = RunOptions(
                 max_llm_calls=args.max_llm_calls, max_tokens=args.max_tokens
@@ -163,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.mode,
                 options,
                 chunking=_chunking(args),
-                cost=COST_MODEL,
+                cost=limits.cost if limits else COST_MODEL,
             )
             print(
                 f"chunks {plan.bound.chunks}\n"
@@ -178,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
                 domain,
                 args.mode,
                 _options(args),
-                _environment(_chunking(args)),
+                _environment(_chunking(args), args.domain, args.mode),
             )
         )
     except (SpendCapError, RunRefusedError) as error:

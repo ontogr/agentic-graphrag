@@ -10,3 +10,14 @@ PrivacyQA | MIT | https://github.com/AbhilashaRavichander/PrivacyQA_EMNLP
 ContractNLI | CC BY 4.0 | https://stanfordnlp.github.io/contract-nli/
 CUAD | CC BY 4.0 | https://www.atticusprojectai.org/cuad
 MAUD | license not verified | https://github.com/TheAtticusProject/maud
+FinanceBench annotations | CC BY-NC 4.0 | https://huggingface.co/datasets/PatronusAI/financebench
+FinanceBench filings | public SEC filings and issuer press releases; copyright stays with the issuers | https://github.com/patronus-ai/financebench
+GraphRAG-Bench code | MIT | https://github.com/GraphRAG-Bench/GraphRAG-Benchmark
+GraphRAG-Bench data | no license stated | https://huggingface.co/datasets/GraphRAG-Bench/GraphRAG-Bench
+NCCN Guidelines for Patients (GraphRAG-Bench Medical corpus) | all rights reserved | The text says it "may not be reproduced in any form for any purpose without the express written permission of NCCN". https://www.nccn.org/patientresources/patient-resources/guidelines-for-patients
+Project Gutenberg texts (GraphRAG-Bench Novel corpus) | public domain in the United States | https://www.gutenberg.org
+BEAM data | CC BY-SA 4.0 (share-alike applies to adapted text, so to these traces) | https://huggingface.co/datasets/Mohammadta/BEAM
+BEAM code | MIT | https://github.com/mohammadtavakoli78/BEAM
+HealthBench data | MIT | https://huggingface.co/datasets/openai/healthbench
+HealthBench code | MIT | https://github.com/openai/simple-evals
+MedCorp (StatPearls and 18 medical textbooks) | no license stated | https://huggingface.co/MedRAG

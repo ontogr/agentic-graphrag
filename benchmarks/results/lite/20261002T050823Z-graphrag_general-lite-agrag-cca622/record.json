@@ -1,0 +1,238 @@
+{
+  "chunking": {
+    "fingerprint": "20409d9e11faaf1c",
+    "settings": {
+      "fallback": {
+        "chunk_size": 1000,
+        "levels": null,
+        "min_characters_per_chunk": 24,
+        "strategy": "recursive",
+        "tokenizer": "o200k_base"
+      },
+      "rules": []
+    }
+  },
+  "code": {
+    "agrag_tree": "6a0dd820aee194ff0a998139a8471f6e5984ef2c",
+    "agrag_version": "0.0.4",
+    "benchmarks_code_sha256": "43c8ca169d6fc1baf5343e93f78f19c76f7c3ad465f6ff13ba730f35f57d11d6",
+    "git_commit": "4aaab893b8baa97fe4ad06be27a3b2d552ae8097",
+    "git_describe": "v0.0.4-12-g4aaab89",
+    "git_dirty": false,
+    "uv_lock_sha256": "c892fd8cbb6a783ba7511498b134f2ca73045dbe7e53a88c39fa06782f7d3390"
+  },
+  "config": {
+    "agent": {
+      "max_llm_pairs": 10,
+      "max_research_attempts": 1,
+      "recursion_limit": 30
+    },
+    "concurrency": 2,
+    "judge_samples": 1,
+    "question_timeout_s": 900.0,
+    "seed": 42,
+    "sha256": "1d27f3e29357b2ac51c585619524ca0e680d400364971d7a92f0de891befe9ee"
+  },
+  "corpora": [
+    {
+      "cache_key": "75e97ebacedff635b8589a111caf7a0bd3608cf8e4c22acd58999b5521f112e0",
+      "chunks": 2,
+      "corpus_id": "medical-lite",
+      "corpus_tokens": 1655,
+      "empty_extractions": 0,
+      "graph": {
+        "entities_by_label": {
+          "Anatomy": 10,
+          "Cancer": 3,
+          "FollowUp": 1,
+          "GuideRef": 3,
+          "Procedure": 2,
+          "RiskFactor": 8,
+          "Symptom": 5,
+          "Test": 3,
+          "Treatment": 2
+        },
+        "relations_by_type": {
+          "FOLLOWED_BY": 1,
+          "PART_OF": 4,
+          "SEE_GUIDE": 2
+        }
+      },
+      "ingest_cache_hit": false,
+      "ingest_usage": {
+        "input_tokens": 48583,
+        "llm_calls": 5,
+        "output_tokens": 7401
+      },
+      "n_documents": 1,
+      "service": "graphrag-medical-lite"
+    }
+  ],
+  "created_at": "2026-10-02T05:08:23+00:00",
+  "dataset": {
+    "manifest_sha256": "597aa3234149bfcefce39b8eb576fc87fea23b99b260ed8d680dd62ce66d183b",
+    "n_questions": 2,
+    "name": "graphrag-bench",
+    "question_ids_sha256": "927063c6a92b4b238aa5f559c59e10976ca0d1e97accdb6d19ba08f8b98640f4",
+    "upstream": {
+      "files": {
+        "Datasets/Corpus/medical.json": "12eff34c994dcf101f83968c832bce15dab3c19176da855706f8c9b5cc208758",
+        "Datasets/Corpus/novel.json": "0e79a0dae5a420e8ee0ecffb04f7ddf8d441a4d868fbbe5a011baa2196b9702f",
+        "Datasets/Questions/medical_questions.json": "9af76a619e24d84f5509ba10274fbba465e901140a34c4429821f68686f0277b",
+        "Datasets/Questions/novel_questions.json": "90214823709fc5ff5858e1688c4efd56d64995ebbbcc70f6ab9e8953cc7dc43f"
+      },
+      "repo": "GraphRAG-Bench/GraphRAG-Bench",
+      "revision": "dc3a111e77dbaf8bbaf51ef331f3cfc9b1b5c546"
+    }
+  },
+  "domain": "graphrag_general",
+  "mode": "lite",
+  "models": {
+    "agent": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic"
+    },
+    "embedder": {
+      "model": "ibm-granite/granite-embedding-small-english-r2"
+    },
+    "extractor": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic"
+    },
+    "judge": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic",
+      "temperature": 0.0
+    }
+  },
+  "questions": [
+    {
+      "corpus_id": "medical-lite",
+      "flags": [],
+      "group": "Fact Retrieval",
+      "id": "medical:Medical-152bec6a",
+      "latency_s": 43.3995,
+      "llm_calls": 10,
+      "retrieved_chunk_ids": [
+        "6037a64d-e549-5069-b3be-93e5f3495af2",
+        "24eb19dc-fbc8-5b55-ad14-c126eb09a42d"
+      ],
+      "scores": {
+        "correctness": 1.0,
+        "official_accuracy": 0.9897,
+        "rouge_l": 0.4
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "medical-lite",
+      "flags": [],
+      "group": "Complex Reasoning",
+      "id": "medical:Medical-14016ce3",
+      "latency_s": 127.0707,
+      "llm_calls": 31,
+      "retrieved_chunk_ids": [
+        "6037a64d-e549-5069-b3be-93e5f3495af2",
+        "24eb19dc-fbc8-5b55-ad14-c126eb09a42d"
+      ],
+      "scores": {
+        "correctness": 1.0,
+        "official_accuracy": 0.74,
+        "rouge_l": 0.1493
+      },
+      "status": "ok"
+    }
+  ],
+  "run_id": "20261002T050823Z-graphrag_general-lite-agrag-cca622",
+  "schema_version": 1,
+  "schemas": [
+    {
+      "name": "graphrag-medical",
+      "sha256": "363dccacc6235668f20c517682b880076bf212f66d8a1974ebc5ffa52322831c",
+      "version": "1"
+    }
+  ],
+  "scores": {
+    "aggregate": {
+      "correctness": {
+        "mean": 1.0,
+        "n": 2
+      },
+      "official_accuracy": {
+        "mean": 0.8648,
+        "n": 2
+      },
+      "rouge_l": {
+        "mean": 0.2746,
+        "n": 2
+      }
+    },
+    "by_group": {
+      "Complex Reasoning": {
+        "correctness": {
+          "mean": 1.0,
+          "n": 1
+        },
+        "official_accuracy": {
+          "mean": 0.74,
+          "n": 1
+        },
+        "rouge_l": {
+          "mean": 0.1493,
+          "n": 1
+        }
+      },
+      "Fact Retrieval": {
+        "correctness": {
+          "mean": 1.0,
+          "n": 1
+        },
+        "official_accuracy": {
+          "mean": 0.9897,
+          "n": 1
+        },
+        "rouge_l": {
+          "mean": 0.4,
+          "n": 1
+        }
+      }
+    }
+  },
+  "system": "agrag",
+  "trace": null,
+  "usage": {
+    "by_path": {
+      "agent": {
+        "input_tokens": 208803,
+        "llm_calls": 41,
+        "output_tokens": 3012
+      },
+      "extraction": {
+        "input_tokens": 3797,
+        "llm_calls": 2,
+        "output_tokens": 5668
+      },
+      "judge": {
+        "input_tokens": 2419,
+        "llm_calls": 8,
+        "output_tokens": 650
+      },
+      "other": {
+        "input_tokens": 44786,
+        "llm_calls": 3,
+        "output_tokens": 1733
+      }
+    },
+    "cost_usd": null,
+    "input_tokens": 259805,
+    "llm_calls": 54,
+    "output_tokens": 11063,
+    "spend_cap": {
+      "llm_calls": 130,
+      "overridden": false,
+      "tokens": 800000
+    },
+    "usage_complete": true,
+    "wall_seconds": 288.0374
+  }
+}

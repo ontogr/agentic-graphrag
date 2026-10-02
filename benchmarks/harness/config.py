@@ -53,9 +53,111 @@ COST_MODEL: CostModel | None = CostModel(
     judge_tokens_per_call=2_000,
 )
 
+
+@dataclass(frozen=True)
+class RunLimits:
+    """The limits of a small run, which replace the defaults of agrag.
+
+    Attributes:
+        max_llm_pairs: The most entity pairs per label that resolution sends to
+            the LLM.
+        recursion_limit: The most steps of one agent run.
+        max_research_attempts: The most times the agent repeats its research.
+        cost: The cost model of a run with these limits.
+    """
+
+    max_llm_pairs: int
+    recursion_limit: int
+    max_research_attempts: int
+    cost: CostModel
+
+
+# Measured on one Financial lite run: 2 chunks gave 29 ingest calls and 293k ingest
+# tokens, and 2 questions took 78 agent calls and 344k agent tokens. The agent limits
+# did not bound the calls, because sub-agents make their own.
+RUN_LIMITS: dict[tuple[str, str], RunLimits] = {
+    ("financial", "lite"): RunLimits(
+        max_llm_pairs=20,
+        recursion_limit=30,
+        max_research_attempts=1,
+        cost=CostModel(
+            calls_per_chunk=15,
+            tokens_per_chunk=150_000,
+            agent_calls_per_question=39,
+            agent_tokens_per_question=172_000,
+            judge_tokens_per_call=1_300,
+        ),
+    ),
+    # Measured on one GraphRAG lite run: 2 chunks gave 5 ingest calls and 49k ingest
+    # tokens, and 2 questions took 41 agent calls and 212k agent tokens.
+    ("graphrag_general", "lite"): RunLimits(
+        max_llm_pairs=10,
+        recursion_limit=30,
+        max_research_attempts=1,
+        cost=CostModel(
+            calls_per_chunk=3,
+            tokens_per_chunk=25_000,
+            agent_calls_per_question=21,
+            agent_tokens_per_question=106_000,
+            judge_tokens_per_call=400,
+        ),
+    ),
+    # Measured on one Memory lite run: 3 chunks gave 5 ingest calls and 22k ingest
+    # tokens, and 2 questions took 13 agent calls and 49k agent tokens. These are
+    # floors for a corpus this small, so they under-estimate a larger one.
+    ("memory", "lite"): RunLimits(
+        max_llm_pairs=10,
+        recursion_limit=30,
+        max_research_attempts=1,
+        cost=CostModel(
+            calls_per_chunk=2,
+            tokens_per_chunk=8_000,
+            agent_calls_per_question=7,
+            agent_tokens_per_question=25_000,
+            judge_tokens_per_call=1_000,
+        ),
+    ),
+    # Measured on one Legal lite run: 3 chunks gave 6 ingest calls and 71k ingest
+    # tokens, and 2 questions took 19 agent calls and 78k agent tokens.
+    ("legal", "lite"): RunLimits(
+        max_llm_pairs=10,
+        recursion_limit=30,
+        max_research_attempts=1,
+        cost=CostModel(
+            calls_per_chunk=2,
+            tokens_per_chunk=26_000,
+            agent_calls_per_question=10,
+            agent_tokens_per_question=41_000,
+            judge_tokens_per_call=900,
+        ),
+    ),
+    # Measured on one Healthcare lite run of 5 chunks: 17 ingest calls and 53k ingest
+    # tokens, 15 agent calls and 80k agent tokens, 3 judge calls and 4k tokens.
+    ("healthcare", "lite"): RunLimits(
+        max_llm_pairs=10,
+        recursion_limit=30,
+        max_research_attempts=1,
+        cost=CostModel(
+            calls_per_chunk=3.4,
+            tokens_per_chunk=10_700,
+            agent_calls_per_question=15,
+            agent_tokens_per_question=80_300,
+            judge_tokens_per_call=1_460,
+        ),
+    ),
+}
+
 SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
-    ("legal", "lite"): SpendCap(llm_calls=1_200, tokens=7_500_000),
+    ("legal", "lite"): SpendCap(llm_calls=45, tokens=245_000),
     ("legal", "full"): SpendCap(llm_calls=12_100, tokens=81_000_000),
+    ("financial", "lite"): SpendCap(llm_calls=130, tokens=800_000),
+    ("financial", "full"): SpendCap(llm_calls=16_000, tokens=170_000_000),
+    ("graphrag_general", "lite"): SpendCap(llm_calls=100, tokens=500_000),
+    ("graphrag_general", "full"): SpendCap(llm_calls=31_500, tokens=179_000_000),
+    ("memory", "lite"): SpendCap(llm_calls=40, tokens=120_000),
+    ("memory", "full"): SpendCap(llm_calls=17_000, tokens=133_900_000),
+    ("healthcare", "lite"): SpendCap(llm_calls=50, tokens=200_000),
+    ("healthcare", "full"): SpendCap(llm_calls=63_000, tokens=766_500_000),
 }
 
 # About 1000 tokens per chunk, counted with the tokenizer agrag uses elsewhere.

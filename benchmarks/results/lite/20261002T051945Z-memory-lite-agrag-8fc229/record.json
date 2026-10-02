@@ -1,0 +1,236 @@
+{
+  "chunking": {
+    "fingerprint": "20409d9e11faaf1c",
+    "settings": {
+      "fallback": {
+        "chunk_size": 1000,
+        "levels": null,
+        "min_characters_per_chunk": 24,
+        "strategy": "recursive",
+        "tokenizer": "o200k_base"
+      },
+      "rules": []
+    }
+  },
+  "code": {
+    "agrag_tree": "6a0dd820aee194ff0a998139a8471f6e5984ef2c",
+    "agrag_version": "0.0.4",
+    "benchmarks_code_sha256": "9bcbe94d1ac5f5f87c259bb5d651ff7986f608b95057bae2d88275aee3b511a4",
+    "git_commit": "fad522b1b92b2308989eab6190ae770d0dadd413",
+    "git_describe": "v0.0.4-11-gfad522b",
+    "git_dirty": false,
+    "uv_lock_sha256": "dfa9af3780bf83cc8ae0231d616ef1fd019961438145a3b2734272ec8adceb52"
+  },
+  "config": {
+    "agent": {
+      "max_llm_pairs": 10,
+      "max_research_attempts": 1,
+      "recursion_limit": 30
+    },
+    "concurrency": 2,
+    "judge_samples": 1,
+    "question_timeout_s": 900.0,
+    "seed": 42,
+    "sha256": "1d27f3e29357b2ac51c585619524ca0e680d400364971d7a92f0de891befe9ee"
+  },
+  "corpora": [
+    {
+      "cache_key": "8689311e1b67452ab407ab6df1a54c57a49fc40a4092e34e70551f8d160f2583",
+      "chunks": 3,
+      "corpus_id": "conv17",
+      "corpus_tokens": 1279,
+      "empty_extractions": 0,
+      "graph": {
+        "entities_by_label": {
+          "Event": 8,
+          "Fact": 1,
+          "Measure": 3,
+          "Organization": 1,
+          "Person": 4,
+          "Session": 2,
+          "Tool": 2
+        },
+        "relations_by_type": {
+          "FOLLOWS": 4,
+          "HAS_MEASURE": 3,
+          "PARTICIPATES_IN": 3,
+          "PART_OF": 8,
+          "USES": 2
+        }
+      },
+      "ingest_cache_hit": false,
+      "ingest_usage": {
+        "input_tokens": 17134,
+        "llm_calls": 5,
+        "output_tokens": 5199
+      },
+      "n_documents": 2,
+      "service": "memory-conv17"
+    }
+  ],
+  "created_at": "2026-10-02T05:19:45+00:00",
+  "dataset": {
+    "manifest_sha256": "31b703934cbe9a0f0ea5a4c00309efa60548fa07951956c39b3cd7fae5fda2ae",
+    "n_questions": 2,
+    "name": "beam",
+    "question_ids_sha256": "8b9af61c501dc6a3422cd68d3c148c4c5294e634355315c2f670505fcedabc95",
+    "upstream": {
+      "collapsed_messages": [
+        {
+          "conversation": "4",
+          "keep_chars": 1470,
+          "message": 97,
+          "original_chars": 348853,
+          "original_sha256": "f395a89214d8b2b6f226e6ae3f0e4f3727222d55223fef10ea76405af865ed73"
+        }
+      ],
+      "file": "data/100K-00000-of-00001.parquet",
+      "file_sha256": "c0519be25907005ba873c927c50877471d550873039d96c041554d0075a78ace",
+      "repo": "Mohammadta/BEAM",
+      "revision": "3205395e897e7318c7b094ef4e6047b9b82dbb03"
+    }
+  },
+  "domain": "memory",
+  "mode": "lite",
+  "models": {
+    "agent": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic"
+    },
+    "embedder": {
+      "model": "ibm-granite/granite-embedding-small-english-r2"
+    },
+    "extractor": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic"
+    },
+    "judge": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic",
+      "temperature": 0.0
+    }
+  },
+  "questions": [
+    {
+      "corpus_id": "conv17",
+      "flags": [],
+      "group": "information_extraction",
+      "id": "conv17:information_extraction:0",
+      "latency_s": 28.7055,
+      "llm_calls": 7,
+      "retrieved_chunk_ids": [
+        "7eefe256-933b-50e8-a7c3-157c65e4dad6",
+        "791b94dd-849d-5c29-85ea-81914b9f44b5",
+        "2009ae34-5d1a-5b14-9ce9-cd6bc486889e"
+      ],
+      "scores": {
+        "score": 1.0,
+        "score_excluding_known_bad": 1.0
+      },
+      "status": "ok"
+    },
+    {
+      "corpus_id": "conv17",
+      "flags": [],
+      "group": "multi_session_reasoning",
+      "id": "conv17:multi_session_reasoning:0",
+      "latency_s": 20.4467,
+      "llm_calls": 6,
+      "retrieved_chunk_ids": [
+        "791b94dd-849d-5c29-85ea-81914b9f44b5",
+        "2009ae34-5d1a-5b14-9ce9-cd6bc486889e",
+        "7eefe256-933b-50e8-a7c3-157c65e4dad6"
+      ],
+      "scores": {
+        "score": 1.0,
+        "score_excluding_known_bad": 1.0
+      },
+      "status": "ok"
+    }
+  ],
+  "run_id": "20261002T051945Z-memory-lite-agrag-8fc229",
+  "schema_version": 1,
+  "schemas": [
+    {
+      "name": "beam-memory",
+      "sha256": "d0329c659eb9b6d70ed80b7ab3d771b837dbde5523f1355856fded1126c95efd",
+      "version": "1"
+    }
+  ],
+  "scores": {
+    "aggregate": {
+      "score": {
+        "mean": 1.0,
+        "n": 2
+      },
+      "score_excluding_known_bad": {
+        "mean": 1.0,
+        "n": 2
+      }
+    },
+    "by_group": {
+      "information_extraction": {
+        "score": {
+          "mean": 1.0,
+          "n": 1
+        },
+        "score_excluding_known_bad": {
+          "mean": 1.0,
+          "n": 1
+        }
+      },
+      "multi_session_reasoning": {
+        "score": {
+          "mean": 1.0,
+          "n": 1
+        },
+        "score_excluding_known_bad": {
+          "mean": 1.0,
+          "n": 1
+        }
+      }
+    }
+  },
+  "system": "agrag",
+  "trace": {
+    "path": "trace.jsonl.gz",
+    "repo": null,
+    "revision": null,
+    "sha256": "dba5ab03499c61e350f6e734f14921eb72d5cc820c871b108163494045b7f5e4"
+  },
+  "usage": {
+    "by_path": {
+      "agent": {
+        "input_tokens": 47556,
+        "llm_calls": 13,
+        "output_tokens": 1458
+      },
+      "extraction": {
+        "input_tokens": 4644,
+        "llm_calls": 3,
+        "output_tokens": 4271
+      },
+      "judge": {
+        "input_tokens": 2802,
+        "llm_calls": 3,
+        "output_tokens": 201
+      },
+      "other": {
+        "input_tokens": 12490,
+        "llm_calls": 2,
+        "output_tokens": 928
+      }
+    },
+    "cost_usd": null,
+    "input_tokens": 67492,
+    "llm_calls": 21,
+    "output_tokens": 6858,
+    "spend_cap": {
+      "llm_calls": 150,
+      "overridden": false,
+      "tokens": 900000
+    },
+    "usage_complete": true,
+    "wall_seconds": 152.6212
+  }
+}

@@ -1,0 +1,241 @@
+{
+  "chunking": {
+    "fingerprint": "20409d9e11faaf1c",
+    "settings": {
+      "fallback": {
+        "chunk_size": 1000,
+        "levels": null,
+        "min_characters_per_chunk": 24,
+        "strategy": "recursive",
+        "tokenizer": "o200k_base"
+      },
+      "rules": []
+    }
+  },
+  "code": {
+    "agrag_tree": "6a0dd820aee194ff0a998139a8471f6e5984ef2c",
+    "agrag_version": "0.0.4",
+    "benchmarks_code_sha256": "3e6321e8302da0ac39a771daa4494b3edce6809666a715ef721716cc3bc2b528",
+    "git_commit": "9b5ea5559d56f3606402db68e998d4ba25a10ea1",
+    "git_describe": "v0.0.4-11-g9b5ea55",
+    "git_dirty": false,
+    "uv_lock_sha256": "dfa9af3780bf83cc8ae0231d616ef1fd019961438145a3b2734272ec8adceb52"
+  },
+  "config": {
+    "agent": {
+      "max_llm_pairs": 10,
+      "max_research_attempts": 1,
+      "recursion_limit": 30
+    },
+    "concurrency": 2,
+    "judge_samples": 1,
+    "question_timeout_s": 900.0,
+    "seed": 42,
+    "sha256": "1d27f3e29357b2ac51c585619524ca0e680d400364971d7a92f0de891befe9ee"
+  },
+  "corpora": [
+    {
+      "cache_key": "d3a72f56f2dec032e31cc160cc2cce975ea45d675e4ec8f2a235927367e543d9",
+      "chunks": 5,
+      "corpus_id": "healthcare-lite",
+      "corpus_tokens": 933,
+      "empty_extractions": 0,
+      "graph": {
+        "entities_by_label": {
+          "Condition": 7,
+          "Dosing": 3,
+          "Drug": 17,
+          "Organism": 3,
+          "Population": 14,
+          "Procedure": 1,
+          "Recommendation": 5,
+          "RiskFactor": 1
+        },
+        "relations_by_type": {
+          "APPLIES_TO": 2,
+          "CAUSED_BY_ORGANISM": 1,
+          "HAS_DOSING": 2,
+          "INTERACTS_WITH": 4,
+          "PART_OF": 5,
+          "PREVENTS": 4,
+          "RECOMMENDS": 1,
+          "RISK_FACTOR_FOR": 1,
+          "SUBTYPE_OF": 8
+        }
+      },
+      "ingest_cache_hit": false,
+      "ingest_usage": {
+        "input_tokens": 40784,
+        "llm_calls": 17,
+        "output_tokens": 12495
+      },
+      "n_documents": 5,
+      "service": "healthcare-lite"
+    }
+  ],
+  "created_at": "2026-10-02T05:54:55+00:00",
+  "dataset": {
+    "manifest_sha256": "d0c679d9312cc364e4d11295a533462e72b2485782b146fe10e346fdd80f5a88",
+    "n_questions": 1,
+    "name": "healthbench-hard",
+    "question_ids_sha256": "9e7ceb6640ff320097b3fb80726dc009678d727335fd538d614437ff4e2f802d",
+    "upstream": {
+      "closure_passages_per_question": {
+        "full": 32
+      },
+      "pass_bar": {
+        "16": 0.1562,
+        "32": 0.189,
+        "8": 0.121
+      },
+      "sources": {
+        "healthbench": {
+          "files": {
+            "hard_2025-05-08-21-00-10.jsonl": "b0320430e5cd974e746585594c1dd10b5a3fc2aff9c72b26106c2c4a069d74e9"
+          },
+          "repo": "openai/healthbench",
+          "revision": "40ee1968852fc57f625934251ac22be47077a8fb"
+        },
+        "statpearls": {
+          "files": {
+            "data/train-00000-of-00001.parquet": "2d684b1196f85e98539a51934ca29d3ca7731b82d6538deaeef160184e505c6e"
+          },
+          "repo": "awinml/statpearls",
+          "revision": "3b3ce5c7013a7abb23c4131b09ae9514a7c437ef"
+        },
+        "textbooks": {
+          "files": {
+            "chunk/Anatomy_Gray.jsonl": "7ee624233f9bd0e1db499233dab824e396398f1c9b5b1a9a391be4aa61c1990b",
+            "chunk/Biochemistry_Lippincott.jsonl": "baeb945f0b84cb073dfe286af5f9eb4c558a029f1c65a519e74ff425d51cabf6",
+            "chunk/Cell_Biology_Alberts.jsonl": "e281aaf151aac1bc2e893e89f5a28bb52c4e0fd29ce94a323940d47b23909f5d",
+            "chunk/First_Aid_Step1.jsonl": "9b6b3e1256d09481cd6caacf70732aa1ef58c934ff957a7228efa0f2a3a2af81",
+            "chunk/First_Aid_Step2.jsonl": "49e1a4436f4c72ec94e890e95e16357d6d07e8a4b89cc6490742d621476396c8",
+            "chunk/Gynecology_Novak.jsonl": "75123830fe5c6293b7af05446926d8dc4cf2d2f14b5fd4fc540ef94365902c3e",
+            "chunk/Histology_Ross.jsonl": "2c68dcf3e903e648f79c6ef624b0ddfe23c98d8311d7341a005628d67386e57d",
+            "chunk/Immunology_Janeway.jsonl": "8c256fecfb8dfdbc8afad1966ba879994009f623bf2b28beb3caf444cd05f47b",
+            "chunk/InternalMed_Harrison.jsonl": "c0f3523c74e99c152cf51aad91928c811dc30918ca9d1c68a24691525ea6bcbb",
+            "chunk/Neurology_Adams.jsonl": "7fe80c8c8d0dab2c6645a00166fdf8dce73a717e2fcf155736f1ecf5a13abfa2",
+            "chunk/Obstentrics_Williams.jsonl": "d8f53df6626566e3b0a8dc30ba76fe4fe3af1995333afcf55f7f569e1ba991fb",
+            "chunk/Pathology_Robbins.jsonl": "bc8d58dce0b5b94a42fafc2f47e6c3f2e0f3d86a5842d8fd2e60dc8a835e5045",
+            "chunk/Pathoma_Husain.jsonl": "827ed8c8a6fb99fe863b230a231208fd2ad62effc3753ba8d17fce31cf8ba2a2",
+            "chunk/Pediatrics_Nelson.jsonl": "701fefb07537888d5062bc6873a5ac7e746867f8eda9c0fc6e14aaeeba96fce3",
+            "chunk/Pharmacology_Katzung.jsonl": "47b79061f05293173787205e89a083350e0372beb197aceb92d2e3381c4b8334",
+            "chunk/Physiology_Levy.jsonl": "95c7b1972afef628228efd43a032ac83c6101a60b918b835fe24fff5b6b275db",
+            "chunk/Psichiatry_DSM-5.jsonl": "3a7b2232b2dbb642c06fdf8ea8926c8a69aeb05f76b43b7e71d79081b29f7171",
+            "chunk/Surgery_Schwartz.jsonl": "e1d682541c9e4704db5fe48d61944a115e204f693e0ca360171c41e44fc3b2c0"
+          },
+          "repo": "MedRAG/textbooks",
+          "revision": "9c72838920a1323ffa867467d3f7aa7b36b0f994"
+        }
+      }
+    }
+  },
+  "domain": "healthcare",
+  "mode": "lite",
+  "models": {
+    "agent": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic"
+    },
+    "embedder": {
+      "model": "ibm-granite/granite-embedding-small-english-r2"
+    },
+    "extractor": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic"
+    },
+    "judge": {
+      "model_id": "gemma4:31b",
+      "provider": "openai-generic",
+      "temperature": 0.0
+    }
+  },
+  "questions": [
+    {
+      "corpus_id": "healthcare-lite",
+      "flags": [],
+      "group": "global_health",
+      "id": "9bd72186-1665-4639-9346-26279cbd6d28",
+      "latency_s": 81.1155,
+      "llm_calls": 15,
+      "retrieved_chunk_ids": [
+        "40ff93ff-c3ce-5419-84e9-920562a2739e",
+        "75dc9d40-7e76-5fca-a1af-593c54d09b03",
+        "e5995cf6-eb88-5479-bcdb-35bafc7d7dad",
+        "0c3293b4-87af-5172-85fd-3b4d63dd9af9",
+        "23cd0ebe-7adc-5125-8f7d-5e9c8dd9d8e8"
+      ],
+      "scores": {
+        "score": 0.4667
+      },
+      "status": "ok"
+    }
+  ],
+  "run_id": "20261002T055455Z-healthcare-lite-agrag-26def6",
+  "schema_version": 1,
+  "schemas": [
+    {
+      "name": "healthcare",
+      "sha256": "cc4be047b2a31f62729d56feb77fcbc54c1b8bb8debc96be96a455eb7fcbf4f8",
+      "version": "1"
+    }
+  ],
+  "scores": {
+    "aggregate": {
+      "score": {
+        "mean": 0.4667,
+        "n": 1
+      }
+    },
+    "by_group": {
+      "global_health": {
+        "score": {
+          "mean": 0.4667,
+          "n": 1
+        }
+      }
+    }
+  },
+  "system": "agrag",
+  "trace": {
+    "path": "trace.jsonl.gz",
+    "repo": null,
+    "revision": null,
+    "sha256": "1c021c134e5031c062807db4cee333d11e677b385785802319cad57c86daaf90"
+  },
+  "usage": {
+    "by_path": {
+      "agent": {
+        "input_tokens": 76641,
+        "llm_calls": 15,
+        "output_tokens": 3679
+      },
+      "extraction": {
+        "input_tokens": 6441,
+        "llm_calls": 5,
+        "output_tokens": 6202
+      },
+      "judge": {
+        "input_tokens": 4096,
+        "llm_calls": 3,
+        "output_tokens": 280
+      },
+      "other": {
+        "input_tokens": 34343,
+        "llm_calls": 12,
+        "output_tokens": 6293
+      }
+    },
+    "cost_usd": null,
+    "input_tokens": 121521,
+    "llm_calls": 35,
+    "output_tokens": 16454,
+    "spend_cap": {
+      "llm_calls": 60,
+      "overridden": false,
+      "tokens": 250000
+    },
+    "usage_complete": true,
+    "wall_seconds": 285.0404
+  }
+}

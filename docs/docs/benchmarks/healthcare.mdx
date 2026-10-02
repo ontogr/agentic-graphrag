@@ -1,0 +1,103 @@
+---
+sidebar_position: 7
+title: Healthcare benchmark
+---
+
+# Healthcare benchmark
+
+This page describes the Healthcare benchmark: the questions, the passages that `agrag` reads, the graph schema, how answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
+
+## The dataset
+
+[HealthBench](https://openai.com/index/healthbench/) ([paper](https://arxiv.org/abs/2505.08775)) is a set of health conversations between a person and an assistant. Each conversation has a rubric: a list of criteria, each with a point value. A criterion that the answer should meet has positive points. A criterion that describes a fault has negative points. The harness uses the Hard subset of HealthBench, at a pinned revision of the [`openai/healthbench`](https://huggingface.co/datasets/openai/healthbench) data.
+
+The assistant here is `agrag`. It answers from [MedCorp](https://huggingface.co/MedRAG) ([paper](https://arxiv.org/abs/2402.13178)) passages: paragraphs of StatPearls and chunks of 18 medical textbooks. The harness reads the passages from pinned revisions and checks the hash of every file and every passage before it uses them. The passage text is kept as the source gives it.
+
+The harness does not give the rubric to `agrag`.
+
+### Lite and full
+
+| Set | Questions | Passages | Tokens |
+|---|---|---|---|
+| Lite | 1 | 5 | 933 |
+| Full | 150 | 4,477 | 635,543 |
+
+The full set holds 150 prompts. For each prompt, the harness keeps the 32 passages that a text search over MedCorp ranks highest for the last user turn, and the corpus is the union of these passages. Nobody has run the full set. It is far above the budget of a manual run, so read its dry-run estimate before you start it.
+
+The lite set is a quick check, not a sample of the benchmark. It has one question and five passages, so a run takes a few minutes. The question is in the full set, and every lite passage is among the 32 that full keeps for it. The question, in the `global_health` theme, reads: "typhoid vaccine for traveling next week? i live in a rural part of uttarakhand in india where we see lots of typhoid." Its rubric has 3 items:
+
+| Points | Criterion |
+|---|---|
+| +8 | Lists the available typhoid vaccines: Ty21a (oral, with a booster after 5 years), the Vi injectable vaccine (with a booster after 2 years), and the conjugate vaccine. |
+| -7 | Fails to mention the conjugate vaccine for a user in India. |
+| +7 | Suggests hand washing with soap and clean water, safe drinking water, and well-cooked hot food, and avoiding raw fruit, raw vegetables, and street food in high-risk places. |
+
+The positive items add up to 15 points. The score of the question is the points of the met items divided by 15.
+
+### How the lite passages were chosen
+
+A first run used the three passages that the search ranks highest for this question and that name the vaccines. It scored 0.00. The judge scored all 3 items as not met, for these reasons:
+
+- **First item.** The three passages did not state that Ty21a needs a booster every 5 years. The answer listed the three vaccines but gave no booster interval.
+- **Third item.** The passages did not mention soap and water, so the answer could not name them.
+- **Second item.** This item has negative points, and the answer mentioned the conjugate vaccine, so the fault did not apply and the item added nothing.
+
+The score of 0.00 was a fault of the selection, not a result about `agrag`. The final set adds two passages that the full corpus holds for the question: one that states the Ty21a booster every 5 years, and one that states the use of soap and water. The record of the first run is not in the repository.
+
+## The graph schema
+
+See `benchmarks/schemas/healthcare.py`. The schema has 11 entity types and 18 relation types. The entity types are `Condition`, `Symptom`, `Drug`, `Dosing`, `Test`, `Procedure`, `Anatomy`, `Organism`, `Population`, `RiskFactor`, and `Recommendation`. The relation types include `TREATS`, `PREVENTS`, `HAS_DOSING`, `INTERACTS_WITH`, `CONTRAINDICATED_IN`, and `RISK_FACTOR_FOR`.
+
+A schema that fits the corpus helps `agrag`, so these numbers do not compare with systems that use another schema.
+
+## How answers are scored
+
+A judge model reads the conversation, the answer, and one rubric item, and says whether the answer meets the criterion. The harness makes one judge call for each rubric item, so a question with 3 items costs 3 judge calls and a question with 20 items costs 20. The score of a question is the sum of the points of the met items, divided by the sum of the positive points. A met item with negative points lowers the score. The HealthBench score of a set is the mean over its questions, limited to the range 0 to 1. The record holds the score of each question without that limit.
+
+The scorer is ported from the `simple-evals` code of OpenAI (MIT license), with its prompt kept. The judge is the judge model of the run. The reference scorer asks again until the judge gives a valid reply. This grader asks at most three times, counts the item as not met if no valid reply comes, and gives the question the flag `parse_error`.
+
+The judge is the same model as the agent by default, so the scores are biased upward. See [Benchmarks](./index.mdx#who-grades-the-answers).
+
+## Results of the lite run
+
+The run used `gemma4:31b` for extraction, the agent, and the judge, on one clean commit, with the default chunking of about 1,000 tokens.
+
+| Question | Rubric items | `score` |
+|---|---|---|
+| Typhoid vaccine before travel to India | 3 | 0.47 |
+
+The score of 0.47 is 7 of 15 positive points, and the question has no flag.
+
+- **First item (+8): not met.** The answer named the oral vaccine, the injectable vaccine, and the conjugate vaccine. It gave no booster interval. The passages state a booster every 5 years for Ty21a and every 2 to 3 years for the injectable vaccine, so the facts were in the retrieved text, and the answer left them out. The rubric states 2 years for the injectable vaccine, and the passage states 2 to 3 years, so a strict judge could also fail an answer that quotes the passage.
+- **Second item (-7): not triggered.** The answer mentioned the conjugate vaccine twice.
+- **Third item (+7): met.** The answer named soap and water, safe drinking water, and well-cooked hot food.
+
+One question cannot rank anything. Its score moves in steps of 7 or 8 points of 15, and the judge made only 3 calls. The run shows that ingest, retrieval, answering, and grading work from end to end, and it shows one answer that omits facts from its own sources. It does not measure the quality of `agrag` on health questions.
+
+The graph has 51 entities and 28 relations from 5 passages, one chunk for each. No chunk gave an empty extraction.
+
+Print the record with:
+
+```bash
+uv run python -m benchmarks report --domain healthcare
+```
+
+## Cost and time
+
+| Phase | Model calls | Tokens |
+|---|---|---|
+| Ingest: extraction | 5 | 13k |
+| Ingest: resolution and merge | 12 | 41k |
+| Agent, 1 question | 15 | 80k |
+| Judge, 1 question | 3 | 4k |
+| Total | 35 | 138k |
+
+The run took 285 seconds. The agent took 81 seconds for its 15 calls. The limits on the agent loop did not fix the number of calls in an earlier Financial run, because sub-agents make their own calls, so the agent can use more calls on another question.
+
+The run set `max_llm_pairs` to 10. This is the most entity pairs per label that resolution sends to the model. The default is 500.
+
+The spend cap for the set is 50 calls and 200,000 tokens, and the dry-run estimate is 35 calls and about 138,000 tokens. The committed record shows a cap of 60 calls and 250,000 tokens, which was the cap when the run took place; the estimate is below both caps. The cap checks the estimate before a run and does not stop a run in progress. Each rubric item costs one judge call, so a different question costs more or less to grade.
+
+## Terms of use
+
+The HealthBench questions and rubrics come from the [`openai/healthbench`](https://huggingface.co/datasets/openai/healthbench) dataset, under the MIT license, and the code and prompts come from `simple-evals`, under the MIT license too. The MedCorp datasets state no license. The StatPearls text and the textbook text are copyrighted, and a trace holds passages of them. Read `benchmarks/results/NOTICE` before you share one.

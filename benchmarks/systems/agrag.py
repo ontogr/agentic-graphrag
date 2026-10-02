@@ -26,7 +26,9 @@ from agrag.eval import ChatModelJudge, EvalJudgeSettings, final_answer
 from agrag.graphdb import GraphStore
 from agrag.ingestion import Graph
 from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
+from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.retrieval.search_engine import SearchEngine
+from benchmarks.harness.config import RunLimits
 from benchmarks.models import BenchmarkQuestion
 from benchmarks.systems.base import AgentFailureError, CitedChunk, SystemAnswer
 
@@ -43,25 +45,41 @@ class AgragSettings:
         agent: The agent's client config.
         judge: The judge's client config.
         agent_loop: The agent loop limits.
+        max_llm_pairs: The most entity pairs per label that resolution sends to
+            the LLM.
     """
 
     extraction: ExtractionLLMSettings
     agent: AgentLLMSettings
     judge: EvalJudgeSettings
     agent_loop: AgentSettings
+    max_llm_pairs: int = MAX_LLM_PAIRS
 
     def make_judge(self, tracer: Tracer) -> ChatModelJudge:
         """Build the judge around the run's tracer."""
         return ChatModelJudge.from_settings(self.judge, tracer=tracer)
 
     @classmethod
-    def from_env(cls) -> "AgragSettings":
-        """Read every role's settings. The judge and agent fall back to ``LLM_*``."""
+    def from_env(cls, limits: RunLimits | None = None) -> "AgragSettings":
+        """Read every role's settings. The judge and agent fall back to ``LLM_*``.
+
+        Args:
+            limits: Limits that replace the defaults of resolution and the agent.
+        """
+        extra: dict[str, int] = {}
+        loop = AgentSettings()
+        if limits is not None:
+            extra = {"max_llm_pairs": limits.max_llm_pairs}
+            loop = AgentSettings(
+                recursion_limit=limits.recursion_limit,
+                max_research_attempts=limits.max_research_attempts,
+            )
         return cls(
             extraction=ExtractionLLMSettings.from_openai_compatible_env(),
             agent=AgentLLMSettings.from_openai_compatible_env(),
             judge=EvalJudgeSettings.from_openai_compatible_env(),
-            agent_loop=AgentSettings(),
+            agent_loop=loop,
+            **extra,
         )
 
 
@@ -146,6 +164,7 @@ class AgragSystem:
             ),
             tracer=self._tracer,
             chunking=self._chunking,
+            max_llm_pairs=self._settings.max_llm_pairs,
         )
         await graph.add(documents=self._documents)
 

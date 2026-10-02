@@ -8,11 +8,26 @@
 # must be set, at least 8 characters, when any compose command runs. A domain adds its services here
 # and to SERVICE_PORTS.
 #
-# | Service    | Corpus                                       | Bolt port |
-# |------------|----------------------------------------------|-----------|
-# | fake       | local checks of the harness, no real dataset | 7700      |
-# | legal-lite | LegalBench-RAG mini, lite                    | 7701      |
-# | legal-full | LegalBench-RAG mini, full                    | 7702      |
+# | Service                | Corpus                                       | Bolt port |
+# |------------------------|----------------------------------------------|-----------|
+# | fake                   | local checks of the harness, no real dataset | 7700      |
+# | legal-lite             | LegalBench-RAG mini, lite                    | 7701      |
+# | legal-full             | LegalBench-RAG mini, full                    | 7702      |
+# | graphrag-novel-25646   | GraphRAG-Bench Novel-25646, full             | 7703      |
+# | graphrag-medical-lite  | GraphRAG-Bench Medical, first extract        | 7704      |
+# | graphrag-medical-full  | GraphRAG-Bench Medical, all 44 extracts      | 7705      |
+# | graphrag-novel-8559    | GraphRAG-Bench Novel-8559, full              | 7706      |
+# | graphrag-novel-41603   | GraphRAG-Bench Novel-41603, full             | 7707      |
+# | graphrag-novel-2544    | GraphRAG-Bench Novel-2544, full              | 7708      |
+# | financial-lite         | FinanceBench, lite                           | 7709      |
+# | financial-full         | FinanceBench, full                           | 7710      |
+# | memory-conv17          | BEAM conversation 17, lite and full          | 7711      |
+# | memory-conv1           | BEAM conversation 1, full                    | 7712      |
+# | memory-conv4           | BEAM conversation 4, full                    | 7713      |
+# | memory-conv6           | BEAM conversation 6, full                    | 7714      |
+# | memory-conv13          | BEAM conversation 13, full                   | 7715      |
+# | healthcare-lite        | HealthBench Hard, lite closure               | 7716      |
+# | healthcare-full        | HealthBench Hard, full closure               | 7717      |
 
 name: agrag-bench
 
@@ -50,6 +65,109 @@ services:
     volumes:
       - agrag-bench-legal-full:/data
 
+  financial-lite:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7709:7687"
+    volumes:
+      - agrag-bench-financial-lite:/data
+
+  financial-full:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7710:7687"
+    volumes:
+      - agrag-bench-financial-full:/data
+  memory-conv17:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7711:7687"
+    volumes:
+      - agrag-bench-memory-conv17:/data
+
+  memory-conv1:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7712:7687"
+    volumes:
+      - agrag-bench-memory-conv1:/data
+
+  memory-conv4:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7713:7687"
+    volumes:
+      - agrag-bench-memory-conv4:/data
+
+  memory-conv6:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7714:7687"
+    volumes:
+      - agrag-bench-memory-conv6:/data
+
+  memory-conv13:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7715:7687"
+    volumes:
+      - agrag-bench-memory-conv13:/data
+
+  graphrag-novel-25646:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7703:7687"
+    volumes:
+      - agrag-bench-graphrag-novel-25646:/data
+
+  graphrag-medical-lite:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7704:7687"
+    volumes:
+      - agrag-bench-graphrag-medical-lite:/data
+
+  graphrag-medical-full:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7705:7687"
+    volumes:
+      - agrag-bench-graphrag-medical-full:/data
+
+  graphrag-novel-8559:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7706:7687"
+    volumes:
+      - agrag-bench-graphrag-novel-8559:/data
+
+  graphrag-novel-41603:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7707:7687"
+    volumes:
+      - agrag-bench-graphrag-novel-41603:/data
+
+  graphrag-novel-2544:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7708:7687"
+    volumes:
+      - agrag-bench-graphrag-novel-2544:/data
+  healthcare-lite:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7716:7687"
+    volumes:
+      - agrag-bench-healthcare-lite:/data
+
+  healthcare-full:
+    <<: *neo4j
+    ports:
+      - "127.0.0.1:7717:7687"
+    volumes:
+      - agrag-bench-healthcare-full:/data
+
 volumes:
   agrag-bench-fake:
     name: agrag-bench-fake
@@ -57,3 +175,33 @@ volumes:
     name: agrag-bench-legal-lite
   agrag-bench-legal-full:
     name: agrag-bench-legal-full
+  agrag-bench-financial-lite:
+    name: agrag-bench-financial-lite
+  agrag-bench-financial-full:
+    name: agrag-bench-financial-full
+  agrag-bench-graphrag-novel-25646:
+    name: agrag-bench-graphrag-novel-25646
+  agrag-bench-graphrag-medical-lite:
+    name: agrag-bench-graphrag-medical-lite
+  agrag-bench-graphrag-medical-full:
+    name: agrag-bench-graphrag-medical-full
+  agrag-bench-graphrag-novel-8559:
+    name: agrag-bench-graphrag-novel-8559
+  agrag-bench-graphrag-novel-41603:
+    name: agrag-bench-graphrag-novel-41603
+  agrag-bench-graphrag-novel-2544:
+    name: agrag-bench-graphrag-novel-2544
+  agrag-bench-memory-conv17:
+    name: agrag-bench-memory-conv17
+  agrag-bench-memory-conv1:
+    name: agrag-bench-memory-conv1
+  agrag-bench-memory-conv4:
+    name: agrag-bench-memory-conv4
+  agrag-bench-memory-conv6:
+    name: agrag-bench-memory-conv6
+  agrag-bench-memory-conv13:
+    name: agrag-bench-memory-conv13
+  agrag-bench-healthcare-lite:
+    name: agrag-bench-healthcare-lite
+  agrag-bench-healthcare-full:
+    name: agrag-bench-healthcare-full
