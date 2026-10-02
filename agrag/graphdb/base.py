@@ -262,8 +262,7 @@ class GraphStore(ABC):
         driver transaction.
 
         Use this when a caller must guarantee several writes either all apply
-        or none do, such as ``apply_merge``'s tombstone, relationship
-        transfer, and dedup steps.
+        or none do, such as ``apply_merge``'s survivor upsert and alias claim.
 
         Returns:
             An async context manager yielding the transactional handle.

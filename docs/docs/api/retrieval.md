@@ -13,7 +13,6 @@ Retrieval package: search engine, fusion, reranking, and retrievers.
 - [**errors**](#agrag-retrieval-errors) – Errors that the retrieval layer raises.
 - [**filters**](#agrag-retrieval-filters) – Constraints applied across every retrieval method in one call.
 - [**fusion**](#agrag-retrieval-fusion) – Reciprocal Rank Fusion: combine ranked results from multiple methods.
-- [**identity**](#agrag-retrieval-identity) – Shared identity resolution for merged_into chains.
 - [**methods**](#agrag-retrieval-methods) – Low-level search method helpers shared by retrievers.
 - [**recipes**](#agrag-retrieval-recipes) – Named, data-only configurations of what SearchEngine runs.
 - [**rerank**](#agrag-retrieval-rerank) – Rerankers that reorder fused search results.
@@ -86,7 +85,7 @@ Graph traversal from seed entity ids.
 
 Takes seed entity ids (from a prior EntityRetriever call, or
 supplied directly), runs bfs_expand_query, and hydrates the
-returned entities through resolve_entity and relations directly.
+returned entities and relations directly.
 Degree-capped by RetrievalSettings.traversal_limit.
 
 **Functions:**
@@ -155,9 +154,8 @@ Bases: <code>[Retriever](#agrag-retrieval-retrievers-base-Retriever)</code>
 
 Dense chunk search via vector similarity.
 
-Chunks are never tombstoned, so no merged_into resolution is
-needed. Embeds the query, searches via the GraphStore-native or
-VectorStore path, then hydrates each hit into a Chunk. The native
+Embeds the query, searches via the GraphStore-native or VectorStore
+path, then hydrates each hit into a Chunk. The native
 path searches the `Chunk` vector index ingestion provisions; the
 VectorStore path searches `chunk_collection`.
 
@@ -271,8 +269,8 @@ Bases: <code>[Retriever](#agrag-retrieval-retrievers-base-Retriever)</code>
 Dense entity search via vector similarity.
 
 Embeds the query, searches via the GraphStore-native or
-VectorStore path, then resolves every hit through
-`resolve_entity` so the caller can trust `item.id` is live.
+VectorStore path, then hydrates every hit from the graph. A hit that
+no longer exists in the graph is dropped.
 
 The native path searches one vector index per entity label, so it
 needs the labels ingestion provisioned indexes for: the label
@@ -976,7 +974,7 @@ safety pre-filter, then bounds the query with a row limit and a
 server-side transaction timeout before EXPLAIN and execution. A
 query that fails to plan or to execute is regenerated once, carrying
 a bounded, sanitized diagnostic of the failure. Rows that carry an
-entity id are resolved through resolve_entity before becoming a
+entity id are hydrated from the graph before becoming a
 SearchResult; relationship and chunk rows are parsed directly, under
 the prompt's own aliases or any alias the model chose instead.
 Scalar rows (for example counts or property values) become cited
@@ -1029,7 +1027,7 @@ raising.
 **Returns:**
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – SearchResults from the generated query: entity results
-  resolved through `resolve_entity`; relation, chunk, and
+  hydrated from the graph; relation, chunk, and
   scalar rows parsed directly.
 
 ### `agrag.retrieval.UnknownRecipeMethodError` \{#agrag-retrieval-UnknownRecipeMethodError}
@@ -1378,16 +1376,14 @@ that returned it.
 
 Each method contributes at most one vote per item, scored at the
 item's best (lowest) rank within that method. A multi-label
-entity that surfaces in two positions of one method's output, or
-a pre-fusion `merged_into` collapse, only adds one vote from
-that method, so duplicate hits from a single retriever cannot
+entity that surfaces in two positions of one method's output only
+adds one vote from that method, so duplicate hits from a single retriever cannot
 unfairly promote an item over a single best hit from another
 method.
 
-Deduplication uses SearchResult.identity_key, which is (type, id)
-after hydration has already resolved any merged_into chain to the
-live survivor. Fusion does not re-resolve identity; it trusts that
-every SearchResult it receives already carries a live id.
+Deduplication uses SearchResult.identity_key, which is (type, id).
+Fusion does not re-resolve identity; it trusts that every
+SearchResult it receives already carries a live id.
 
 **Parameters:**
 
@@ -1401,57 +1397,6 @@ every SearchResult it receives already carries a live id.
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – One list, ranked by fused score descending, one entry per
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – distinct identity_key.
-
-### `agrag.retrieval.identity` \{#agrag-retrieval-identity}
-
-Shared identity resolution for merged_into chains.
-
-**Functions:**
-
-- [**resolve_entity**](#agrag-retrieval-identity-resolve_entity) – Return the live Entity behind an id, following merged_into.
-
-**Attributes:**
-
-- [**MAX_MERGE_HOPS**](#agrag-retrieval-identity-MAX_MERGE_HOPS) –
-
-#### `agrag.retrieval.identity.MAX_MERGE_HOPS` \{#agrag-retrieval-identity-MAX_MERGE_HOPS}
-
-```python
-MAX_MERGE_HOPS = 32
-```
-
-#### `agrag.retrieval.identity.resolve_entity` \{#agrag-retrieval-identity-resolve_entity}
-
-```python
-resolve_entity(graph_store:GraphStore, entity_id:UUID, *, tracer:Tracer | None = None) -> Entity
-```
-
-Return the live Entity behind an id, following merged_into.
-
-Every retrieval path that can produce an entity id must call
-this before wrapping the id in a SearchResult. This is the
-single place the merged_into invariant is enforced.
-
-A merge writes a `merged_into` property on the tombstone rather
-than a relationship, so the chain is walked one hop per query.
-
-**Parameters:**
-
-- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where the entity and its possible tombstone
-  chain live.
-- **entity_id** (<code>UUID</code>) – The id a retrieval method found, which may or
-  may not still be live.
-- **tracer** (<code>Tracer | None</code>) – Opens the resolution span. None opens no recorded span.
-
-**Returns:**
-
-- <code>[Entity](common.md#agrag-common-data_models-entity-Entity)</code> – The live Entity, after resolving zero or more hops.
-
-**Raises:**
-
-- <code>ValueError</code> – The id does not exist, its node cannot be parsed,
-  the chain points at a missing node, the chain cycles, or it
-  is longer than `MAX_MERGE_HOPS`.
 
 ### `agrag.retrieval.methods` \{#agrag-retrieval-methods}
 
@@ -2020,7 +1965,7 @@ Graph traversal from seed entity ids.
 
 Takes seed entity ids (from a prior EntityRetriever call, or
 supplied directly), runs bfs_expand_query, and hydrates the
-returned entities through resolve_entity and relations directly.
+returned entities and relations directly.
 Degree-capped by RetrievalSettings.traversal_limit.
 
 **Functions:**
@@ -2091,9 +2036,8 @@ Bases: <code>[Retriever](#agrag-retrieval-retrievers-base-Retriever)</code>
 
 Dense chunk search via vector similarity.
 
-Chunks are never tombstoned, so no merged_into resolution is
-needed. Embeds the query, searches via the GraphStore-native or
-VectorStore path, then hydrates each hit into a Chunk. The native
+Embeds the query, searches via the GraphStore-native or VectorStore
+path, then hydrates each hit into a Chunk. The native
 path searches the `Chunk` vector index ingestion provisions; the
 VectorStore path searches `chunk_collection`.
 
@@ -2217,8 +2161,8 @@ Bases: <code>[Retriever](#agrag-retrieval-retrievers-base-Retriever)</code>
 Dense entity search via vector similarity.
 
 Embeds the query, searches via the GraphStore-native or
-VectorStore path, then resolves every hit through
-`resolve_entity` so the caller can trust `item.id` is live.
+VectorStore path, then hydrates every hit from the graph. A hit that
+no longer exists in the graph is dropped.
 
 The native path searches one vector index per entity label, so it
 needs the labels ingestion provisioned indexes for: the label
@@ -2303,7 +2247,7 @@ safety pre-filter, then bounds the query with a row limit and a
 server-side transaction timeout before EXPLAIN and execution. A
 query that fails to plan or to execute is regenerated once, carrying
 a bounded, sanitized diagnostic of the failure. Rows that carry an
-entity id are resolved through resolve_entity before becoming a
+entity id are hydrated from the graph before becoming a
 SearchResult; relationship and chunk rows are parsed directly, under
 the prompt's own aliases or any alias the model chose instead.
 Scalar rows (for example counts or property values) become cited
@@ -2356,7 +2300,7 @@ raising.
 **Returns:**
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – SearchResults from the generated query: entity results
-  resolved through `resolve_entity`; relation, chunk, and
+  hydrated from the graph; relation, chunk, and
   scalar rows parsed directly.
 
 ##### `agrag.retrieval.retrievers.text2cypher.logger` \{#agrag-retrieval-retrievers-text2cypher-logger}

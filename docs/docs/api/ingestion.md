@@ -584,9 +584,8 @@ by `open()` when missing.
   set, every embedding the pipeline writes to graph_store is
   also upserted here, so SearchEngine's VectorStore path finds
   the same vectors the GraphStore-native path does. Also gets
-  tombstoned entities deleted after merges and old community
-  vectors removed on each detect_communities(apply=True)
-  cycle.
+  old community vectors removed on each
+  detect_communities(apply=True) cycle.
 - **retrieval_settings** (<code>[RetrievalSettings](retrieval.md#agrag-retrieval-settings-RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
   None uses RetrievalSettings defaults. Ignored when
   vector_store is None.
@@ -1692,9 +1691,8 @@ by `open()` when missing.
   set, every embedding the pipeline writes to graph_store is
   also upserted here, so SearchEngine's VectorStore path finds
   the same vectors the GraphStore-native path does. Also gets
-  tombstoned entities deleted after merges and old community
-  vectors removed on each detect_communities(apply=True)
-  cycle.
+  old community vectors removed on each
+  detect_communities(apply=True) cycle.
 - **retrieval_settings** (<code>[RetrievalSettings](retrieval.md#agrag-retrieval-settings-RetrievalSettings) | None</code>) – Collection names for the VectorStore writes.
   None uses RetrievalSettings defaults. Ignored when
   vector_store is None.
@@ -2318,7 +2316,7 @@ separate step.
 - [**part_of_id**](#agrag-ingestion-merge-part_of_id) – Return the id for one versioned Document -[:PART_OF]-> Chunk edge.
 - [**relation_id**](#agrag-ingestion-merge-relation_id) – Return the deterministic id for a domain relationship triple.
 - [**resolve_description**](#agrag-ingestion-merge-resolve_description) – Resolve a description field, trying LLM summarization.
-- [**select_canonical**](#agrag-ingestion-merge-select_canonical) – Return the canonical survivor and the rest, from two or more entities.
+- [**select_canonical**](#agrag-ingestion-merge-select_canonical) – Return the canonical entity and the rest, from two or more entities.
 
 **Attributes:**
 
@@ -2362,23 +2360,20 @@ Computed result of merging zero or more entities and mentions.
 
 **Attributes:**
 
-- [**survivor**](#agrag-ingestion-merge-MergePlan-survivor) (<code>[Entity](common.md#agrag-common-data_models-entity-Entity)</code>) – The resulting Entity. Its merge_count, source_chunk_ids,
-  and merged_from are this call's best local computation, for
+- [**survivor**](#agrag-ingestion-merge-MergePlan-survivor) (<code>[Entity](common.md#agrag-common-data_models-entity-Entity)</code>) – The resulting Entity. Its merge_count and
+  source_chunk_ids are this call's best local computation, for
   reporting; apply_merge writes new_source_chunk_ids and
   merge_count_delta atomically instead, so a concurrent writer's
   own contribution to the same node is never overwritten.
-- [**tombstone_ids**](#agrag-ingestion-merge-MergePlan-tombstone_ids) (<code>list\[UUID\]</code>) – Ids of entities absorbed into survivor. Also this
-  call's new contribution to the survivor's merged_from, applied
-  atomically.
 - [**conflicts**](#agrag-ingestion-merge-MergePlan-conflicts) (<code>list\[[ConflictRecord](#agrag-ingestion-merge-ConflictRecord)\]</code>) – Every field that had more than one candidate value.
 - [**accepted_merge_keys**](#agrag-ingestion-merge-MergePlan-accepted_merge_keys) (<code>list\[str\]</code>) – Every normalized merge_key this merge
   accepted -- from existing_entities and mentions alike, not only
   the survivor's own chosen name -- so a later mention of any
   accepted name resolves back to this entity instead of creating
   a duplicate.
-- [**new_source_chunk_ids**](#agrag-ingestion-merge-MergePlan-new_source_chunk_ids) (<code>list\[UUID\]</code>) – The chunk ids this call's mentions and
-  absorbed entities contribute, applied as an atomic union
-  against whatever the survivor's node currently has.
+- [**new_source_chunk_ids**](#agrag-ingestion-merge-MergePlan-new_source_chunk_ids) (<code>list\[UUID\]</code>) – The chunk ids this call's mentions contribute,
+  applied as an atomic union against whatever the survivor's node
+  currently has.
 - [**merge_count_delta**](#agrag-ingestion-merge-MergePlan-merge_count_delta) (<code>int</code>) – The amount to atomically add to whatever
   merge_count the survivor's node currently has.
 
@@ -2410,12 +2405,6 @@ new_source_chunk_ids: list[UUID] = []
 
 ```python
 survivor: Entity
-```
-
-##### `agrag.ingestion.merge.MergePlan.tombstone_ids` \{#agrag-ingestion-merge-MergePlan-tombstone_ids}
-
-```python
-tombstone_ids: list[UUID] = []
 ```
 
 #### `agrag.ingestion.merge.PropertyRule` \{#agrag-ingestion-merge-PropertyRule}
@@ -2497,11 +2486,6 @@ survivor and records a merge-key alias for its current name. A
 failure partway through leaves no half-written state: no survivor
 without its alias.
 
-Destructive merging is retired: a plan with non-empty tombstone_ids
-is rejected before any write runs, and callers must persist the
-match through MATCHES edges and materialize a ResolvedEntity
-instead.
-
 **Parameters:**
 
 - **plan** (<code>[MergePlan](#agrag-ingestion-merge-MergePlan)</code>) – The merge to write.
@@ -2513,14 +2497,10 @@ instead.
 
 **Raises:**
 
-- <code>ValueError</code> – plan.tombstone_ids is non-empty.
 - <code>GraphStoreAliasConflictError</code> – An accepted merge_key is already owned
   by a live entity outside this merge's own survivor id -- a
   concurrent writer accepted that name as an alias of, or
   created it as the canonical name of, a different entity.
-- <code>GraphStoreDataIntegrityError</code> – A candidate conflicting alias owner's
-  merged_into chain cycles, points at a missing node, or does not
-  reach a live node within the hop limit.
 
 #### `agrag.ingestion.merge.compute_merge` \{#agrag-ingestion-merge-compute_merge}
 
@@ -2532,7 +2512,8 @@ Compute how existing_entities and mentions combine into one Entity.
 
 No storage is touched. Zero existing entities produces a brand-new Entity.
 One produces an updated copy folding in the mentions. Two or more picks a
-canonical survivor and marks the rest for tombstoning.
+canonical entity for the survivor's identity; the others contribute
+property values only.
 
 **Parameters:**
 
@@ -2690,7 +2671,7 @@ LLM summarization; on failure, fall back to concatenation.
 select_canonical(entities:list[Entity], entity_type:EntityType | None) -> tuple[Entity, list[Entity]]
 ```
 
-Return the canonical survivor and the rest, from two or more entities.
+Return the canonical entity and the rest, from two or more entities.
 
 Schema-completeness (fewest missing declared fields) first, then earliest
 created_at, then lexicographically smallest id.
@@ -2702,7 +2683,7 @@ created_at, then lexicographically smallest id.
 
 **Returns:**
 
-- <code>tuple\[[Entity](common.md#agrag-common-data_models-entity-Entity), list\[[Entity](common.md#agrag-common-data_models-entity-Entity)\]\]</code> – The survivor and the absorbed entities.
+- <code>tuple\[[Entity](common.md#agrag-common-data_models-entity-Entity), list\[[Entity](common.md#agrag-common-data_models-entity-Entity)\]\]</code> – The canonical entity and the other entities.
 
 ### `agrag.ingestion.reports` \{#agrag-ingestion-reports}
 
@@ -3329,7 +3310,7 @@ Entity resolution public API.
 **Functions:**
 
 - [**build_relation_neighbors**](#agrag-ingestion-resolve-build_relation_neighbors) – Build LLMVerify neighbor context from one batch's extracted relations.
-- [**exact_match_lookup**](#agrag-ingestion-resolve-exact_match_lookup) – Return persisted exact matches, including resolved tombstone aliases.
+- [**exact_match_lookup**](#agrag-ingestion-resolve-exact_match_lookup) – Return persisted exact matches, including accepted merge-key aliases.
 - [**exact_resolution_groups**](#agrag-ingestion-resolve-exact_resolution_groups) – Group mentions only when they share exact raw-entity identity.
 - [**fetch_persisted_neighbors**](#agrag-ingestion-resolve-fetch_persisted_neighbors) – Fetch a bounded neighbor-relationship sample for persisted entities.
 - [**persisted_candidate_indices**](#agrag-ingestion-resolve-persisted_candidate_indices) – Return ANN candidate indices, with a bounded exhaustive fallback.
@@ -3575,7 +3556,7 @@ The GraphStore-native path's payload already carries the real node
 properties and is validated directly. The VectorStore path's payload
 only carries `label` and `text` (the embedding source text), so
 candidates are hydrated from the graph by hit id instead; a hit that
-fails to hydrate, for example a tombstoned or deleted node, is
+fails to hydrate, for example a deleted node, is
 skipped rather than reconstructed from `text`.
 
 Each candidate is paired with the cosine similarity of the
@@ -4118,7 +4099,7 @@ Candidate generation for in-batch and persisted graph entities.
 **Functions:**
 
 - [**build_relation_neighbors**](#agrag-ingestion-resolve-candidate_source-build_relation_neighbors) – Build LLMVerify neighbor context from one batch's extracted relations.
-- [**exact_match_lookup**](#agrag-ingestion-resolve-candidate_source-exact_match_lookup) – Return persisted exact matches, including resolved tombstone aliases.
+- [**exact_match_lookup**](#agrag-ingestion-resolve-candidate_source-exact_match_lookup) – Return persisted exact matches, including accepted merge-key aliases.
 - [**fetch_persisted_neighbors**](#agrag-ingestion-resolve-candidate_source-fetch_persisted_neighbors) – Fetch a bounded neighbor-relationship sample for persisted entities.
 - [**persisted_candidate_indices**](#agrag-ingestion-resolve-candidate_source-persisted_candidate_indices) – Return ANN candidate indices, with a bounded exhaustive fallback.
 
@@ -4200,7 +4181,7 @@ The GraphStore-native path's payload already carries the real node
 properties and is validated directly. The VectorStore path's payload
 only carries `label` and `text` (the embedding source text), so
 candidates are hydrated from the graph by hit id instead; a hit that
-fails to hydrate, for example a tombstoned or deleted node, is
+fails to hydrate, for example a deleted node, is
 skipped rather than reconstructed from `text`.
 
 Each candidate is paired with the cosine similarity of the
@@ -4306,7 +4287,7 @@ Build LLMVerify neighbor context from one batch's extracted relations.
 exact_match_lookup(mentions:list[ExtractedEntity], *, graph_store:GraphStore) -> dict[int, Entity]
 ```
 
-Return persisted exact matches, including resolved tombstone aliases.
+Return persisted exact matches, including accepted merge-key aliases.
 
 ##### `agrag.ingestion.resolve.candidate_source.fetch_persisted_neighbors` \{#agrag-ingestion-resolve-candidate_source-fetch_persisted_neighbors}
 
@@ -4700,7 +4681,7 @@ separate raw records and are materialized through `MATCHES` later.
 exact_match_lookup(mentions:list[ExtractedEntity], *, graph_store:GraphStore) -> dict[int, Entity]
 ```
 
-Return persisted exact matches, including resolved tombstone aliases.
+Return persisted exact matches, including accepted merge-key aliases.
 
 #### `agrag.ingestion.resolve.exact_resolution_groups` \{#agrag-ingestion-resolve-exact_resolution_groups}
 
@@ -5760,9 +5741,7 @@ Merge-stage results.
 **Attributes:**
 
 - [**nodes_created**](#agrag-ingestion-stats-MergeStats-nodes_created) (<code>int</code>) – Brand-new entities materialized this call.
-- [**nodes_updated**](#agrag-ingestion-stats-MergeStats-nodes_updated) (<code>int</code>) – Existing entities that absorbed new mention data
-  without tombstoning anything.
-- [**nodes_merged**](#agrag-ingestion-stats-MergeStats-nodes_merged) (<code>int</code>) – Entities tombstoned into a survivor this call.
+- [**nodes_updated**](#agrag-ingestion-stats-MergeStats-nodes_updated) (<code>int</code>) – Existing entities that absorbed new mention data.
 - [**conflicts_resolved**](#agrag-ingestion-stats-MergeStats-conflicts_resolved) (<code>int</code>) – Total property/description conflicts resolved
   across every merge this call performed.
 - [**failures**](#agrag-ingestion-stats-MergeStats-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Includes an LLM failure during description
@@ -5799,12 +5778,6 @@ failures_truncated: bool = False
 
 ```python
 nodes_created: int = 0
-```
-
-##### `agrag.ingestion.stats.MergeStats.nodes_merged` \{#agrag-ingestion-stats-MergeStats-nodes_merged}
-
-```python
-nodes_merged: int = 0
 ```
 
 ##### `agrag.ingestion.stats.MergeStats.nodes_updated` \{#agrag-ingestion-stats-MergeStats-nodes_updated}
@@ -6163,9 +6136,7 @@ Merge-stage results.
 **Attributes:**
 
 - [**nodes_created**](#agrag-ingestion-stats-merge-MergeStats-nodes_created) (<code>int</code>) – Brand-new entities materialized this call.
-- [**nodes_updated**](#agrag-ingestion-stats-merge-MergeStats-nodes_updated) (<code>int</code>) – Existing entities that absorbed new mention data
-  without tombstoning anything.
-- [**nodes_merged**](#agrag-ingestion-stats-merge-MergeStats-nodes_merged) (<code>int</code>) – Entities tombstoned into a survivor this call.
+- [**nodes_updated**](#agrag-ingestion-stats-merge-MergeStats-nodes_updated) (<code>int</code>) – Existing entities that absorbed new mention data.
 - [**conflicts_resolved**](#agrag-ingestion-stats-merge-MergeStats-conflicts_resolved) (<code>int</code>) – Total property/description conflicts resolved
   across every merge this call performed.
 - [**failures**](#agrag-ingestion-stats-merge-MergeStats-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Includes an LLM failure during description
@@ -6202,12 +6173,6 @@ failures_truncated: bool = False
 
 ```python
 nodes_created: int = 0
-```
-
-###### `agrag.ingestion.stats.merge.MergeStats.nodes_merged` \{#agrag-ingestion-stats-merge-MergeStats-nodes_merged}
-
-```python
-nodes_merged: int = 0
 ```
 
 ###### `agrag.ingestion.stats.merge.MergeStats.nodes_updated` \{#agrag-ingestion-stats-merge-MergeStats-nodes_updated}

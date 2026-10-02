@@ -72,10 +72,10 @@ The same rule applies to Qdrant, Weaviate, and Milvus when an API key or token i
 You see:
 
 ```text
-GraphStoreDataIntegrityError: alias owner chain from '<id>' points at missing node '<id>'
+GraphStoreAliasConflictError: merge_key alias already claimed by another entity: {'<label>:<name>': '<id>'}
 ```
 
-agrag keeps bookkeeping nodes beside the graph, such as merge aliases and document jobs. If you delete only the entity and chunk nodes, the bookkeeping points at nodes that no longer exist.
+agrag keeps bookkeeping nodes beside the graph, such as merge aliases and document jobs. If you delete only the entity and chunk nodes, the bookkeeping points at entities that no longer exist.
 
 To start over, delete every node in the database and drop the vector indexes. This removes all data in the database, so use it only when the database holds nothing but agrag data. See the last section for the commands.
 

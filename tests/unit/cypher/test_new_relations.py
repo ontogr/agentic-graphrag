@@ -5,7 +5,7 @@ an unsupported direction, and clamping depth to [1, 10] and limit to
 [1, 1000] rather than passing extreme values through. Also covers
 relationship_types_from_query rejecting an unsafe relation type, and
 chunks_mentioning_entities_query and entities_mentioned_in_chunks_query
-traversing MENTIONED_IN in each direction while filtering tombstoned nodes.
+traversing MENTIONED_IN in each direction.
 """
 
 import pytest
@@ -72,11 +72,6 @@ class TestChunksMentioningEntitiesQuery:
         q = chunks_mentioning_entities_query()
         assert "MENTIONED_IN" in q
 
-    def test_filters_tombstones(self) -> None:
-        """The query filters out tombstoned chunks."""
-        q = chunks_mentioning_entities_query()
-        assert "merged_into IS NULL" in q
-
 
 class TestEntitiesMentionedInChunksQuery:
     """entities_mentioned_in_chunks_query walks MENTIONED_IN reverse."""
@@ -85,8 +80,3 @@ class TestEntitiesMentionedInChunksQuery:
         """The query traverses MENTIONED_IN edges."""
         q = entities_mentioned_in_chunks_query()
         assert "MENTIONED_IN" in q
-
-    def test_filters_tombstones(self) -> None:
-        """The query filters out tombstoned entities."""
-        q = entities_mentioned_in_chunks_query()
-        assert "merged_into IS NULL" in q

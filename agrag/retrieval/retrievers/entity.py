@@ -18,7 +18,6 @@ from agrag.graphdb.base import GraphStore
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.observability import get_tracer, record_swallowed_exception
 from agrag.retrieval.filters import SearchFilters
-from agrag.retrieval.identity import resolve_entity
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.resolved_entities import hydrate_resolved_entities
 from agrag.retrieval.retrievers.base import Retriever
@@ -31,8 +30,8 @@ class EntityRetriever(Retriever):
     """Dense entity search via vector similarity.
 
     Embeds the query, searches via the GraphStore-native or
-    VectorStore path, then resolves every hit through
-    ``resolve_entity`` so the caller can trust ``item.id`` is live.
+    VectorStore path, then hydrates every hit from the graph. A hit that
+    no longer exists in the graph is dropped.
 
     The native path searches one vector index per entity label, so it
     needs the labels ingestion provisioned indexes for: the label
@@ -227,20 +226,12 @@ class EntityRetriever(Retriever):
                 for hit in hits:
                     if hit.id in active_member_ids:
                         continue
-                    try:
-                        entity: Entity | None = entities_by_id.get(str(hit.id))
-                        if entity is None:
-                            try:
-                                entity = await resolve_entity(
-                                    self._graph_store, hit.id, tracer=self._tracer
-                                )
-                            except Exception:
-                                continue
-                        results.append(
-                            SearchResult(item=entity, score=hit.score, method=self.name)
-                        )
-                    except Exception:
+                    entity = entities_by_id.get(str(hit.id))
+                    if entity is None:
                         continue
+                    results.append(
+                        SearchResult(item=entity, score=hit.score, method=self.name)
+                    )
 
             resolved_limit = (
                 limit if limit is not None else self._settings.resolved_entity_top_k

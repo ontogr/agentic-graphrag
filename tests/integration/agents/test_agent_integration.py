@@ -218,7 +218,6 @@ class TestToolsIntegration:
                 properties={
                     "name": name,
                     "merge_key": f"{label}:{name.lower()}",
-                    "merged_from": [],
                     "merge_count": 1,
                     "source_chunk_ids": [],
                     "embedding": await self.embedder.embed_one(name),
@@ -249,7 +248,6 @@ class TestToolsIntegration:
                     properties={
                         "name": name,
                         "merge_key": f"{label}:{name.lower()}",
-                        "merged_from": [],
                         "merge_count": 1,
                         "source_chunk_ids": [],
                         "embedding": await self.embedder.embed_one(name),
@@ -564,7 +562,6 @@ class TestAgentBuildIntegration:
                     properties={
                         "name": name,
                         "merge_key": f"{label}:{name.lower()}",
-                        "merged_from": [],
                         "merge_count": 1,
                         "source_chunk_ids": [],
                         "embedding": await self.embedder.embed_one(name),

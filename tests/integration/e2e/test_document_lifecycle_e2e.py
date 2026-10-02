@@ -179,10 +179,10 @@ class _Env:
         return f"{body} Reference {self.run}."
 
     async def entity_names(self) -> list[str]:
-        """Return the sorted live entity names of this run's labels."""
+        """Return the sorted entity names of this run's labels."""
         rows = await self.store.execute_read(
-            "MATCH (n) WHERE ($drug IN labels(n) OR $condition IN labels(n)) "
-            "AND n.merged_into IS NULL RETURN n.name AS name",
+            "MATCH (n) WHERE $drug IN labels(n) OR $condition IN labels(n) "
+            "RETURN n.name AS name",
             {"drug": self.drug_label, "condition": self.condition_label},
         )
         return sorted(str(row["name"]) for row in rows)

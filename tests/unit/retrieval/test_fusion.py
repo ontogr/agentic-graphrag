@@ -56,7 +56,7 @@ class TestFuse:
     def test_duplicate_within_one_method_does_not_inflate(self) -> None:
         """A single method that returns the same item twice gets one vote.
 
-        Multi-label searches or pre-fusion merged_into resolution can
+        Multi-label searches can
         surface the same identity_key in two positions of one
         method's output. Fuse must count it as one vote from that
         method, scored at the best rank, so a duplicate within a

@@ -42,16 +42,13 @@ from agrag.common.data_models.vector_record import VectorHit, VectorRecord
 from agrag.cypher.cutover_job_read import find_incomplete_jobs_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.errors import GraphStoreDataIntegrityError
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._ingest_pipeline import (
     _delete_vectors,
     _embed_and_upsert_chunks,
     _embed_and_upsert_survivors,
-    _extract_merged_into,
     _global_exact_match,
     _global_relation_lookup,
-    _resolve_tombstone_chain,
     _upsert_vectors,
 )
 from agrag.ingestion.extract import Extractor
@@ -349,28 +346,6 @@ def _distinct_doc(
     )
 
 
-def _tombstone_row(
-    node_id: str,
-    *,
-    name: str,
-    merge_key: str | None = None,
-    merged_into: str | None = None,
-) -> list[dict[str, Any]]:
-    """Build one execute_read response for a single node in a merged_into chain."""
-    properties: dict[str, Any] = {
-        "name": name,
-        "merged_from": [],
-        "merge_count": 1,
-        "source_chunk_ids": [],
-        "created_at": "2020-01-01T00:00:00+00:00",
-    }
-    if merge_key is not None:
-        properties["merge_key"] = merge_key
-    if merged_into is not None:
-        properties["merged_into"] = merged_into
-    return [{"n": {"id": node_id, "labels": ["Person"], "properties": properties}}]
-
-
 class TestParseEntityNode:
     """Tests for parse_entity_node."""
 
@@ -384,7 +359,6 @@ class TestParseEntityNode:
             "properties": {
                 "name": "Alice",
                 "merge_key": "Person:alice",
-                "merged_from": [],
                 "merge_count": 1,
                 "source_chunk_ids": [str(cid)],
                 "created_at": "2020-01-01T00:00:00+00:00",
@@ -407,7 +381,6 @@ class TestParseEntityNode:
             "id": str(eid),
             "name": "Bob",
             "merge_key": "Person:bob",
-            "merged_from": [],
             "merge_count": 1,
             "source_chunk_ids": [],
             "created_at": "2020-01-01T00:00:00+00:00",
@@ -431,7 +404,6 @@ class TestParseEntityNode:
                         "id": str(eid),
                         "name": "Carol",
                         "merge_key": "Person:carol",
-                        "merged_from": [],
                         "merge_count": 1,
                         "source_chunk_ids": [],
                         "created_at": "2020-01-01T00:00:00+00:00",
@@ -451,7 +423,6 @@ class TestParseEntityNode:
             "properties": {
                 "name": "Dave",
                 "merge_key": "Person:dave",
-                "merged_from": [],
                 "merge_count": 1,
                 "source_chunk_ids": [],
                 "created_at": "2020-01-01T00:00:00+00:00",
@@ -470,7 +441,6 @@ class TestParseEntityNode:
             "properties": {
                 "name": "Eve",
                 "merge_key": "Person:eve",
-                "merged_from": [],
                 "merge_count": 1,
                 "source_chunk_ids": [],
                 "created_at": "2020-01-01T00:00:00+00:00",
@@ -498,7 +468,6 @@ class TestParseEntityNode:
             "properties": {
                 "name": "Frank",
                 "merge_key": "Person:frank",
-                "merged_from": [],
                 "merge_count": 1,
                 "source_chunk_ids": [],
                 "created_at": "2020-01-01T00:00:00+00:00",
@@ -521,7 +490,6 @@ class TestParseEntityNode:
             "properties": {
                 "name": "Grace",
                 "merge_key": "Person:grace",
-                "merged_from": [],
                 "merge_count": "not_an_int",
                 "source_chunk_ids": [],
                 "created_at": "bad-date",
@@ -539,7 +507,6 @@ class TestParseEntityNode:
             "labels": ["Person"],
             "properties": {
                 "merge_key": "Person:heidi",
-                "merged_from": [],
                 "merge_count": 1,
                 "source_chunk_ids": [],
                 "created_at": "2020-01-01T00:00:00+00:00",
@@ -581,7 +548,6 @@ class TestGlobalExactMatch:
                         "properties": {
                             "name": "Alice",
                             "merge_key": "Person:alice",
-                            "merged_from": [],
                             "merge_count": 1,
                             "source_chunk_ids": [],
                             "created_at": "2020-01-01T00:00:00+00:00",
@@ -596,122 +562,6 @@ class TestGlobalExactMatch:
         assert result[1].id == eid
         assert 2 not in result
         assert len(store.execute_read_calls) == 2
-
-    async def test_reingest_of_absorbed_name_resolves_to_survivor(self) -> None:
-        """A name absorbed into a survivor still resolves there on re-ingest.
-
-        Regression test: tombstone_query clears merge_key on absorption, so
-        a later mention of the absorbed name can only be found through the
-        merge-key alias table (fetch_by_merge_keys_query,
-        upsert_merge_alias_query). Without that alias, this mention would
-        find nothing and a duplicate "Bob" entity would be created instead
-        of resolving to the existing survivor.
-        """
-        store = MockStore()
-        cid = uuid4()
-        m = ExtractedEntity(
-            chunk_id=cid, label="Person", text="Bob", char_start=0, char_end=3
-        )
-        tombstone_id = uuid4()
-        survivor_id = uuid4()
-        store.execute_read_responses = [
-            # fetch_by_merge_keys_query resolves the alias to the original
-            # (now-tombstoned) "Bob" entity; merge_key is absent from its
-            # own properties, matching what REMOVE n.merge_key leaves
-            # behind, but the query returns the queried key alongside the
-            # row regardless, which is what mapping now relies on.
-            [
-                {
-                    "merge_key": "Person:bob",
-                    "n": {
-                        "id": str(tombstone_id),
-                        "labels": ["Person"],
-                        "properties": {
-                            "name": "Bob",
-                            "merged_from": [],
-                            "merge_count": 1,
-                            "source_chunk_ids": [],
-                            "created_at": "2020-01-01T00:00:00+00:00",
-                            "merged_into": str(survivor_id),
-                        },
-                    },
-                }
-            ],
-            # _resolve_tombstone_chain follows merged_into to the live
-            # survivor.
-            [
-                {
-                    "n": {
-                        "id": str(survivor_id),
-                        "labels": ["Person"],
-                        "properties": {
-                            "name": "Robert",
-                            "merge_key": "Person:robert",
-                            "merged_from": [str(tombstone_id)],
-                            "merge_count": 2,
-                            "source_chunk_ids": [],
-                            "created_at": "2020-01-01T00:00:00+00:00",
-                        },
-                    }
-                }
-            ],
-        ]
-        result = await _global_exact_match([m], graph_store=store)
-        assert result[0].id == survivor_id
-        assert result[0].name == "Robert"
-
-    async def test_reingest_resolves_with_driver_shaped_tombstone_row(self) -> None:
-        """Reingest still resolves when the tombstone row has no ``labels`` key.
-
-        Regression test: a real Neo4j driver's ``RETURN n`` never carries a
-        ``labels`` key -- only ``_tombstone_row``'s mock form did, masking a
-        bug where the tombstone's own node was parsed into an Entity (to
-        learn its label) before its merged_into chain was ever checked.
-        With merge_key already stripped by clear_tombstone_merge_keys_query,
-        a driver-shaped tombstone row has neither a labels list nor a
-        merge_key to derive a label from, so that parse always failed and
-        the mention was silently dropped instead of resolving to the
-        survivor.
-        """
-        store = MockStore()
-        cid = uuid4()
-        m = ExtractedEntity(
-            chunk_id=cid, label="Person", text="Bob", char_start=0, char_end=3
-        )
-        tombstone_id = uuid4()
-        survivor_id = uuid4()
-        store.execute_read_responses = [
-            [
-                {
-                    "merge_key": "Person:bob",
-                    "n": {
-                        "id": str(tombstone_id),
-                        "name": "Bob",
-                        "merged_from": [],
-                        "merge_count": 1,
-                        "source_chunk_ids": [],
-                        "created_at": "2020-01-01T00:00:00+00:00",
-                        "merged_into": str(survivor_id),
-                    },
-                }
-            ],
-            [
-                {
-                    "n": {
-                        "id": str(survivor_id),
-                        "name": "Robert",
-                        "merge_key": "Person:robert",
-                        "merged_from": [str(tombstone_id)],
-                        "merge_count": 2,
-                        "source_chunk_ids": [],
-                        "created_at": "2020-01-01T00:00:00+00:00",
-                    }
-                }
-            ],
-        ]
-        result = await _global_exact_match([m], graph_store=store)
-        assert result[0].id == survivor_id
-        assert result[0].name == "Robert"
 
     async def test_accepted_alias_with_different_name_resolves_to_entity(self) -> None:
         """A mention resolves via an alias even when it never was the entity's name.
@@ -740,7 +590,6 @@ class TestGlobalExactMatch:
                         "properties": {
                             "name": "Robert",
                             "merge_key": "Person:robert",
-                            "merged_from": [],
                             "merge_count": 2,
                             "source_chunk_ids": [],
                             "created_at": "2020-01-01T00:00:00+00:00",
@@ -752,216 +601,6 @@ class TestGlobalExactMatch:
         result = await _global_exact_match([mention], graph_store=store)
         assert result[0].id == entity_id
         assert result[0].name == "Robert"
-
-    async def test_transient_chain_read_failure_propagates(self) -> None:
-        """A transient error resolving a tombstone chain must not be swallowed.
-
-        Regression test: _resolve_tombstone_chain used to catch every
-        exception from its chain-follow read and return whatever survivor it
-        had so far (None on the first hop). _global_exact_match then treated
-        that as "no match" and the caller would create a duplicate entity for
-        an already-known name instead of surfacing the failure.
-        """
-        store = MockStore()
-        tombstone_id = uuid4()
-        survivor_id = uuid4()
-        mention = ExtractedEntity(
-            chunk_id=uuid4(), label="Person", text="Bob", char_start=0, char_end=3
-        )
-        store.execute_read_responses = [
-            [
-                {
-                    "merge_key": "Person:bob",
-                    "n": {
-                        "id": str(tombstone_id),
-                        "labels": ["Person"],
-                        "properties": {
-                            "name": "Bob",
-                            "merged_from": [],
-                            "merge_count": 1,
-                            "source_chunk_ids": [],
-                            "created_at": "2020-01-01T00:00:00+00:00",
-                            "merged_into": str(survivor_id),
-                        },
-                    },
-                }
-            ]
-        ]
-        with (
-            mock.patch.object(
-                store,
-                "execute_read",
-                mock.AsyncMock(
-                    side_effect=[
-                        store.execute_read_responses[0],
-                        ConnectionError("simulated transient DB error"),
-                    ]
-                ),
-            ),
-            pytest.raises(ConnectionError, match="simulated transient DB error"),
-        ):
-            await _global_exact_match([mention], graph_store=store)
-
-
-class TestExtractMergedInto:
-    """_extract_merged_into never turns a genuine failure into "not a tombstone"."""
-
-    def test_plain_dict_node_reads_merged_into(self) -> None:
-        """The plain-dict mock form (used throughout this file) still works."""
-        survivor_id = str(uuid4())
-        node = {
-            "labels": ["Person"],
-            "properties": {"name": "Bob", "merged_into": survivor_id},
-        }
-        assert _extract_merged_into(node, {}) == survivor_id
-
-    def test_unstringifiable_candidate_propagates(self) -> None:
-        """A failure while reading merged_into must not be read as "live".
-
-        Regression test: this used to be wrapped in a blanket
-        ``except Exception: return None``, so any failure here -- not just
-        an absent merged_into -- looked identical to a live node to every
-        caller. The only step past the two per-representation probes (each
-        already narrowly suppressed on its own) that can still raise is
-        stringifying the candidate id, so that is what this test exercises.
-        """
-
-        class _Unstringifiable:
-            def __str__(self) -> str:
-                raise RuntimeError("cannot stringify")
-
-        node = {
-            "labels": ["Person"],
-            "properties": {"name": "Bob", "merged_into": _Unstringifiable()},
-        }
-        with pytest.raises(RuntimeError, match="cannot stringify"):
-            _extract_merged_into(node, {})
-
-
-class TestResolveTombstoneChain:
-    """_resolve_tombstone_chain never returns a tombstone; every failure raises."""
-
-    async def test_chain_over_max_hops_raises(self) -> None:
-        """A chain longer than the hop cap raises instead of returning a tombstone.
-
-        Regression test: the resolver used to run a fixed 32-iteration loop
-        and return whatever node it last parsed, even though that node still
-        had merged_into set -- silently handing back a tombstone rather than
-        the true live entity.
-        """
-        store = MockStore()
-        hop_count = 40  # more than _MAX_TOMBSTONE_CHAIN_HOPS
-        ids = [str(uuid4()) for _ in range(hop_count)]
-        store.execute_read_responses = [
-            _tombstone_row(
-                ids[i],
-                name=f"Name{i}",
-                merged_into=ids[i + 1] if i < hop_count - 1 else None,
-            )
-            for i in range(hop_count)
-        ]
-        with pytest.raises(GraphStoreDataIntegrityError, match="exceeded"):
-            await _resolve_tombstone_chain(start_merged_into=ids[0], graph_store=store)
-
-    async def test_cycle_raises(self) -> None:
-        """A merged_into cycle raises instead of returning the last node visited."""
-        store = MockStore()
-        id_a, id_b = str(uuid4()), str(uuid4())
-        store.execute_read_responses = [
-            _tombstone_row(id_a, name="A", merged_into=id_b),
-            _tombstone_row(id_b, name="B", merged_into=id_a),
-        ]
-        with pytest.raises(GraphStoreDataIntegrityError, match="cycle"):
-            await _resolve_tombstone_chain(start_merged_into=id_a, graph_store=store)
-
-    async def test_missing_node_raises(self) -> None:
-        """A merged_into pointer to a node that no longer exists raises."""
-        store = MockStore()
-        missing_id = str(uuid4())
-        store.execute_read_responses = [[]]
-        with pytest.raises(GraphStoreDataIntegrityError, match="missing"):
-            await _resolve_tombstone_chain(
-                start_merged_into=missing_id, graph_store=store
-            )
-
-    async def test_short_chain_returns_live_entity(self) -> None:
-        """A short chain still resolves to the live entity at its end."""
-        store = MockStore()
-        tombstone_id, survivor_id = str(uuid4()), str(uuid4())
-        store.execute_read_responses = [
-            _tombstone_row(tombstone_id, name="Bob", merged_into=survivor_id),
-            _tombstone_row(survivor_id, name="Robert", merge_key="Person:robert"),
-        ]
-        entity = await _resolve_tombstone_chain(
-            start_merged_into=tombstone_id, graph_store=store
-        )
-        assert str(entity.id) == survivor_id
-        assert entity.name == "Robert"
-
-    async def test_driver_shaped_intermediate_hop_without_labels_resolves(
-        self,
-    ) -> None:
-        """A two-hop chain resolves when neither row carries a ``labels`` key.
-
-        Regression test: a real Neo4j driver's ``RETURN n`` never returns
-        ``labels``, and clear_tombstone_merge_keys_query has already
-        stripped merge_key from every tombstone in the chain. The
-        intermediate hop used to be parsed into an Entity purely to check
-        its own merged_into, with neither label source available -- raising
-        "unparsable node" instead of continuing to the live survivor.
-        """
-        store = MockStore()
-        tombstone_id, intermediate_id, survivor_id = (
-            str(uuid4()),
-            str(uuid4()),
-            str(uuid4()),
-        )
-        store.execute_read_responses = [
-            [
-                {
-                    "n": {
-                        "id": tombstone_id,
-                        "name": "Bob",
-                        "merged_from": [],
-                        "merge_count": 1,
-                        "source_chunk_ids": [],
-                        "created_at": "2020-01-01T00:00:00+00:00",
-                        "merged_into": intermediate_id,
-                    }
-                }
-            ],
-            [
-                {
-                    "n": {
-                        "id": intermediate_id,
-                        "name": "Bobby",
-                        "merged_from": [tombstone_id],
-                        "merge_count": 2,
-                        "source_chunk_ids": [],
-                        "created_at": "2020-01-01T00:00:00+00:00",
-                        "merged_into": survivor_id,
-                    }
-                }
-            ],
-            [
-                {
-                    "n": {
-                        "id": survivor_id,
-                        "name": "Robert",
-                        "merge_key": "Person:robert",
-                        "merged_from": [intermediate_id],
-                        "merge_count": 3,
-                        "source_chunk_ids": [],
-                        "created_at": "2020-01-01T00:00:00+00:00",
-                    }
-                }
-            ],
-        ]
-        entity = await _resolve_tombstone_chain(
-            start_merged_into=tombstone_id, graph_store=store
-        )
-        assert str(entity.id) == survivor_id
-        assert entity.name == "Robert"
 
 
 class TestSynthesizeConsolidationMentions:
@@ -1073,10 +712,7 @@ class _GuardedNodeStore(MockStore):
             node = self.nodes.get(str(node_id))
             if node is None:
                 continue
-            # hydrate_entities_by_id_query drops tombstones; the chunk
-            # variant matches the Chunk label instead.
-            if ":Chunk" not in query and node.get("merged_into") is not None:
-                continue
+            # The chunk variant matches the Chunk label instead.
             rows.append({"n": {"id": str(node_id), **node}})
         return rows
 
@@ -1111,8 +747,6 @@ class _GuardedNodeStore(MockStore):
             if "REMOVE n.embedding" in query:
                 node["embedding"] = None
             elif "SET n.embedding" in query:
-                if node.get("merged_into") is not None:
-                    continue
                 node["embedding"] = record["vector"]
                 matched_ids.append(record["id"])
         if "SET n.embedding" in query:
@@ -1179,43 +813,6 @@ class TestEmbedAndUpsertSurvivors:
             name="Ada",
             properties={"description": "old description"},
         )
-
-        await _embed_and_upsert_survivors(
-            {entity_id: stale_entity},
-            embedder=MockEmbedder(),
-            graph_store=store,
-            error_policy=ErrorPolicy.SKIP,
-        )
-
-        assert store.nodes[str(entity_id)]["embedding"] is None
-
-    async def test_merge_during_embed_does_not_restore_tombstone_vector(self) -> None:
-        """A merge landing mid-embed must not have its cleared vector restored.
-
-        Regression test: set_embedding_query's guard used to check only
-        name/description, so a concurrent merge tombstoning this entity
-        after embed() started -- clearing its embedding -- would still
-        accept a write whose text still matched, silently putting the
-        absorbed entity back in native vector search. Simulates the
-        interleaving deterministically: the node is already merged_into
-        another entity by the time this call's write reaches the guard,
-        the same state a race with a real, concurrent apply_merge would
-        leave behind.
-        """
-        entity_id = uuid4()
-        store = _GuardedNodeStore(
-            {
-                str(entity_id): {
-                    "name": "Ada",
-                    "description": None,
-                    "embedding": None,
-                    "merged_into": str(uuid4()),
-                }
-            }
-        )
-        # This call's own read of the entity happened before the concurrent
-        # merge landed, so its text still matches the now-tombstoned node.
-        stale_entity = Entity(id=entity_id, label="Person", name="Ada")
 
         await _embed_and_upsert_survivors(
             {entity_id: stale_entity},
@@ -2161,7 +1758,6 @@ class TestGraphAddPipeline:
                         "properties": {
                             "name": "Alice",
                             "merge_key": "Person:alice",
-                            "merged_from": [],
                             "merge_count": 1,
                             "source_chunk_ids": [str(cid)],
                             "created_at": "2020-01-01T00:00:00+00:00",
@@ -2353,8 +1949,8 @@ class TestGraphAddPipeline:
             from agrag.ingestion.merge import MergePlan  # noqa: PLC0415
 
             if mentions[0].text == "Alice":
-                return MergePlan(survivor=e_s, tombstone_ids=[], conflicts=[]), []
-            return MergePlan(survivor=e_t, tombstone_ids=[], conflicts=[]), []
+                return MergePlan(survivor=e_s, conflicts=[]), []
+            return MergePlan(survivor=e_t, conflicts=[]), []
 
         with (
             mock.patch.object(gmod, "compute_merge", side_effect=fake_compute),
@@ -2377,14 +1973,11 @@ class TestGraphAddPipeline:
         )
 
     async def test_mentioned_in_reuses_transferred_edge_id(self) -> None:
-        """A MENTIONED_IN edge transferred by a merge keeps its id on re-ingest.
+        """An existing MENTIONED_IN edge keeps its id when a chunk is re-ingested.
 
-        Regression test: transfer_relationships_query preserves a transferred
-        edge's tombstone-derived id rather than recomputing it for the
-        survivor. Without an endpoint lookup before writing, Graph.add would
-        blindly compute a fresh mentioned_in_id() for the same (chunk,
-        entity) pair and create a second, parallel edge instead of reusing
-        the one already there.
+        Without an endpoint lookup before writing, Graph.add would compute a
+        fresh mentioned_in_id() for the same (chunk, entity) pair and create
+        a second, parallel edge instead of reusing the one already there.
         """
         store = MockStore()
         survivor_id = uuid4()
@@ -2450,7 +2043,7 @@ class TestGraphAddPipeline:
         ):
             from agrag.ingestion.merge import MergePlan  # noqa: PLC0415
 
-            return MergePlan(survivor=survivor, tombstone_ids=[], conflicts=[]), []
+            return MergePlan(survivor=survivor, conflicts=[]), []
 
         with (
             mock.patch.object(gmod, "compute_merge", side_effect=fake_compute),
@@ -2574,7 +2167,6 @@ class TestGraphAddPipeline:
                 "properties": {
                     "name": "Alice",
                     "merge_key": "Person:alice",
-                    "merged_from": [],
                     "merge_count": 1,
                     "source_chunk_ids": [],
                     "created_at": "2020-01-01T00:00:00+00:00",
@@ -2604,39 +2196,6 @@ class TestGraphAddPipeline:
         ents = await graph._all_entities_by_label("Person")
         assert len(ents) == 257
         assert call_count == 2
-
-        store2 = MockStore()
-
-        async def fake_read2(q: str, p: Any = None) -> list[dict[str, Any]]:
-            if "RETURN n ORDER BY" in q:
-                return [
-                    {
-                        "n": {
-                            "id": str(uuid4()),
-                            "labels": ["Person"],
-                            "properties": {
-                                "name": "Tomb",
-                                "merge_key": "Person:tomb",
-                                "merged_from": [],
-                                "merge_count": 1,
-                                "source_chunk_ids": [],
-                                "created_at": "2020-01-01T00:00:00+00:00",
-                                "merged_into": str(uuid4()),
-                            },
-                        }
-                    }
-                ]
-            return []
-
-        store2.execute_read = fake_read2  # type: ignore[method-assign]
-        graph2 = await Graph.open(
-            schema=GENERIC,
-            graph_store=store2,
-            embedder=MockEmbedder(),
-            extractor=MockExtractor(),
-        )
-        ents2 = await graph2._all_entities_by_label("Person")
-        assert ents2 == []
 
     async def test_consolidate_dry_run_and_apply(self) -> None:
         """Consolidate reports and materializes matches without merging raw nodes."""

@@ -30,9 +30,8 @@ class Entity(DataPoint):
             EntityType.properties for this label declares). Never holds name.
         embedding: The entity's dense vector, once populated by the storage
             stage. None before that point.
-        merged_from: Ids of entities accumulated by exact-name matching.
-        merge_count: The total number of source mentions and absorbed
-            entities this entity's data was assembled from. Starts at 1.
+        merge_count: The total number of source mentions this entity's data
+            was assembled from. Starts at 1.
         source_chunk_ids: Ids of every Chunk a mention contributing to this
             entity's data came from. Each also backs one MENTIONED_IN edge
             from that Chunk to this Entity.
@@ -42,7 +41,6 @@ class Entity(DataPoint):
     name: str
     properties: dict[str, object] = Field(default_factory=dict)
     embedding: list[float] | None = None
-    merged_from: list[UUID] = Field(default_factory=list)
     merge_count: int = 1
     source_chunk_ids: list[UUID] = Field(default_factory=list)
 
@@ -75,7 +73,7 @@ class Entity(DataPoint):
     def to_node_record(self) -> NodeRecord:
         """Return this entity as a GraphStore write record.
 
-        Name, merge_key, merged_from, merge_count, and source_chunk_ids are
+        Name, merge_key, merge_count, and source_chunk_ids are
         flattened into properties as plain JSON-safe values; GraphStore has
         no reason to know these fields are special.
         """
@@ -83,7 +81,6 @@ class Entity(DataPoint):
             **self.properties,
             "name": self.name,
             "merge_key": self.merge_key,
-            "merged_from": [str(entity_id) for entity_id in self.merged_from],
             "merge_count": self.merge_count,
             "source_chunk_ids": [str(chunk_id) for chunk_id in self.source_chunk_ids],
             "created_at": self.created_at.isoformat(),

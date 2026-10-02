@@ -1,8 +1,7 @@
 """End-to-end tests for the full ingest-retrieve-ask pipeline.
 
-Seeds a fixture graph through Graph.add() including deliberate merges
-(so merged_into chains exist), then verifies SearchEngine.search()
-returns the correct results, citation keys resolve to live entities,
+Seeds a fixture graph, then verifies SearchEngine.search() returns the
+correct results, citation keys resolve to live entities,
 and the agent build/invoke path works.
 """
 
@@ -120,7 +119,7 @@ class _DrugExtractor(Extractor):
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestRetrievalE2E:
-    """Full end-to-end test: ingest, merge, retrieve, verify."""
+    """Full end-to-end test: ingest, retrieve, verify."""
 
     @pytest.fixture(autouse=True)
     async def setup_store(self) -> AsyncGenerator[None, None]:
@@ -236,19 +235,17 @@ class TestRetrievalE2E:
                 distance=Distance.COSINE,
             )
 
-    async def _seed_graph_with_merge(
+    async def _seed_graph(
         self,
-    ) -> tuple[Entity, Entity, Chunk]:
-        """Seed a graph with a merge scenario.
+    ) -> tuple[Entity, Chunk]:
+        """Seed a graph with one drug entity and a chunk that mentions it.
 
         Creates:
-        - Entity "Aspirin" (survivor)
-        - Entity "ASA" (tombstoned into Aspirin)
+        - Entity "Aspirin"
         - Chunk mentioning Aspirin
         - MENTIONED_IN edge from Chunk to Aspirin
         """
         survivor = Entity(id=uuid4(), label="Drug", name="Aspirin")
-        tombstone = Entity(id=uuid4(), label="Drug", name="ASA")
 
         await self.store.upsert_nodes(
             self.drug_label,
@@ -259,23 +256,9 @@ class TestRetrievalE2E:
                     properties={
                         "name": survivor.name,
                         "merge_key": survivor.merge_key,
-                        "merged_from": [str(tombstone.id)],
-                        "merge_count": 2,
-                        "source_chunk_ids": [],
-                        "created_at": survivor.created_at.isoformat(),
-                    },
-                ),
-                NodeRecord(
-                    id=tombstone.id,
-                    labels=[self.drug_label],
-                    properties={
-                        "name": tombstone.name,
-                        "merge_key": tombstone.merge_key,
-                        "merged_from": [],
                         "merge_count": 1,
                         "source_chunk_ids": [],
-                        "merged_into": str(survivor.id),
-                        "created_at": tombstone.created_at.isoformat(),
+                        "created_at": survivor.created_at.isoformat(),
                     },
                 ),
             ],
@@ -340,25 +323,24 @@ class TestRetrievalE2E:
             },
         )
 
-        return survivor, tombstone, chunk
+        return survivor, chunk
 
     # ---- Entity search tests ----
 
     async def test_entity_search_finds_survivor(self) -> None:
-        """Entity search returns the survivor, not the tombstone."""
-        survivor, tombstone, _ = await self._seed_graph_with_merge()
+        """Entity search returns the seeded entity."""
+        survivor, _ = await self._seed_graph()
 
         results = await self._engine().search("Aspirin", ENTITY)
 
         result_ids = {r.item.id for r in results}
         assert survivor.id in result_ids
-        assert tombstone.id not in result_ids
         own = await self._own_entities()
         names = sorted(own[str(r.item.id)] for r in results if str(r.item.id) in own)
         assert names == ["Aspirin"]
         artifact = write_artifact(
             "retrieval_and_agent_merge_entity_search",
-            {"entity_names": names, "tombstone_returned": False},
+            {"entity_names": names},
         )
         assert artifact["entity_names"] == ["Aspirin"]
 
@@ -366,7 +348,7 @@ class TestRetrievalE2E:
 
     async def test_chunk_search_finds_related_chunk(self) -> None:
         """Chunk search finds the seeded chunk."""
-        _, _, chunk = await self._seed_graph_with_merge()
+        _, chunk = await self._seed_graph()
 
         results = await self._engine().search(chunk.text, CHUNK)
 
@@ -376,7 +358,7 @@ class TestRetrievalE2E:
 
     async def test_chunk_result_has_embedding(self) -> None:
         """The chunk result carries its embedding."""
-        _, _, chunk = await self._seed_graph_with_merge()
+        _, chunk = await self._seed_graph()
 
         results = await self._engine().search(chunk.text, CHUNK)
 
@@ -389,7 +371,7 @@ class TestRetrievalE2E:
 
     async def test_hybrid_returns_both_types(self) -> None:
         """HYBRID returns the survivor entity and the seeded chunk."""
-        survivor, _, chunk = await self._seed_graph_with_merge()
+        survivor, chunk = await self._seed_graph()
 
         results = await self._engine().search(chunk.text, HYBRID)
 
@@ -399,7 +381,7 @@ class TestRetrievalE2E:
 
     async def test_hybrid_fusion_deduplicates(self) -> None:
         """HYBRID fusion deduplicates results by identity_key."""
-        survivor, _, chunk = await self._seed_graph_with_merge()
+        survivor, chunk = await self._seed_graph()
 
         results = await self._engine().search(chunk.text, HYBRID)
 
@@ -412,10 +394,10 @@ class TestRetrievalE2E:
     async def test_citation_keys_resolve_to_live_entities(
         self,
     ) -> None:
-        """Every citation key resolves to a live, non-tombstoned entity."""
+        """Every citation key resolves to a seeded result."""
         from agrag.agents.ledger import Ledger  # noqa: PLC0415
 
-        survivor, tombstone, chunk = await self._seed_graph_with_merge()
+        survivor, chunk = await self._seed_graph()
 
         results = await self._engine().search(chunk.text, HYBRID)
 
@@ -424,7 +406,6 @@ class TestRetrievalE2E:
         for key in keys:
             resolved = ledger.resolve(key)
             assert resolved is not None
-            assert resolved.item.id != tombstone.id
         resolved_ids = {ledger.resolve(k).item.id for k in keys}  # type: ignore[union-attr]
         assert {survivor.id, chunk.id} <= resolved_ids
         assert len(set(keys)) == len(keys)
@@ -433,9 +414,8 @@ class TestRetrievalE2E:
             {
                 "survivor_cited": True,
                 "chunk_cited": True,
-                "tombstone_cited": False,
                 "unique_keys": len(set(keys)) == len(keys),
-                "own_entities_cited": len(resolved_ids & {survivor.id, tombstone.id}),
+                "own_entities_cited": len(resolved_ids & {survivor.id}),
             },
         )
         assert artifact["own_entities_cited"] == 1
@@ -444,7 +424,7 @@ class TestRetrievalE2E:
         """Citation keys are stable across multiple cite() calls."""
         from agrag.agents.ledger import Ledger  # noqa: PLC0415
 
-        survivor, _, _ = await self._seed_graph_with_merge()
+        survivor, _ = await self._seed_graph()
 
         results = await self._engine().search("Aspirin", ENTITY)
         assert results
@@ -461,7 +441,7 @@ class TestRetrievalE2E:
 
     async def test_search_engine_entity_direct(self) -> None:
         """SearchEngine entity search returns the survivor entity."""
-        survivor, _, _ = await self._seed_graph_with_merge()
+        survivor, _ = await self._seed_graph()
 
         results = await self._engine().search("Aspirin", ENTITY)
 
@@ -470,23 +450,15 @@ class TestRetrievalE2E:
 
     async def test_search_engine_chunk_direct(self) -> None:
         """SearchEngine chunk search returns the seeded chunk."""
-        _, _, chunk = await self._seed_graph_with_merge()
+        _, chunk = await self._seed_graph()
 
         results = await self._engine().search(chunk.text, CHUNK)
 
         assert chunk.id in {r.item.id for r in results}
 
-    async def test_search_engine_empty_query(self) -> None:
-        """An empty query never returns a tombstoned entity."""
-        _, tombstone, _ = await self._seed_graph_with_merge()
-
-        results = await self._engine().search("", ENTITY)
-
-        assert tombstone.id not in {r.item.id for r in results}
-
     async def test_search_respects_limit(self) -> None:
         """Search respects the recipe's limit."""
-        survivor, _, _ = await self._seed_graph_with_merge()
+        survivor, _ = await self._seed_graph()
 
         from agrag.retrieval.recipes import Recipe  # noqa: PLC0415
 
@@ -592,7 +564,7 @@ class TestRetrievalE2E:
     )
     async def test_agent_build_and_invoke(self) -> None:
         """build_agent constructs an agent that can be invoked."""
-        await self._seed_graph_with_merge()
+        await self._seed_graph()
 
         from agrag.agents.build import build_agent  # noqa: PLC0415
         from agrag.agents.settings import (  # noqa: PLC0415
@@ -632,7 +604,7 @@ class TestRetrievalE2E:
     )
     async def test_agent_answer_contains_evidence(self) -> None:
         """The agent's answer contains evidence from the graph."""
-        await self._seed_graph_with_merge()
+        await self._seed_graph()
 
         from agrag.agents.build import build_agent  # noqa: PLC0415
         from agrag.agents.settings import (  # noqa: PLC0415
@@ -668,93 +640,3 @@ class TestRetrievalE2E:
         )
         # The answer should reference Aspirin or citation keys.
         assert "aspirin" in answer.lower() or "[E" in answer or "[C" in answer
-
-    # ---- Tombstone chain tests ----
-
-    async def test_multi_hop_merge_chain(self) -> None:
-        """A multi-hop merge chain resolves to the final survivor."""
-        survivor = Entity(id=uuid4(), label="Drug", name="Aspirin")
-        t1 = Entity(id=uuid4(), label="Drug", name="ASA")
-        t0 = Entity(id=uuid4(), label="Drug", name="Acetylsalicylic acid")
-
-        await self.store.upsert_nodes(
-            self.drug_label,
-            [
-                NodeRecord(
-                    id=survivor.id,
-                    labels=[self.drug_label],
-                    properties={
-                        "name": survivor.name,
-                        "merge_key": survivor.merge_key,
-                        "merged_from": [str(t1.id)],
-                        "merge_count": 2,
-                        "source_chunk_ids": [],
-                        "created_at": survivor.created_at.isoformat(),
-                    },
-                ),
-                NodeRecord(
-                    id=t1.id,
-                    labels=[self.drug_label],
-                    properties={
-                        "name": t1.name,
-                        "merge_key": t1.merge_key,
-                        "merged_from": [str(t0.id)],
-                        "merge_count": 2,
-                        "source_chunk_ids": [],
-                        "merged_into": str(survivor.id),
-                        "created_at": t1.created_at.isoformat(),
-                    },
-                ),
-                NodeRecord(
-                    id=t0.id,
-                    labels=[self.drug_label],
-                    properties={
-                        "name": t0.name,
-                        "merge_key": t0.merge_key,
-                        "merged_from": [],
-                        "merge_count": 1,
-                        "source_chunk_ids": [],
-                        "merged_into": str(t1.id),
-                        "created_at": t0.created_at.isoformat(),
-                    },
-                ),
-            ],
-        )
-
-        await self.store.ensure_vector_index(
-            label=self.drug_label,
-            vector_property="embedding",
-            dimensions=4,
-            distance=Distance.COSINE,
-        )
-
-        survivor.embedding = await self.embedder.embed_one(survivor.name)
-        await self.store.execute_write(
-            "UNWIND $records AS record "
-            f"MATCH (n:{self.drug_label} {{id: record.id}}) "
-            "SET n.embedding = record.vector",
-            {
-                "records": [
-                    {
-                        "id": str(survivor.id),
-                        "vector": survivor.embedding,
-                    }
-                ]
-            },
-        )
-
-        results = await self._engine().search("Aspirin", ENTITY)
-
-        own = await self._own_entities()
-        result_ids = {r.item.id for r in results if str(r.item.id) in own}
-        assert result_ids == {survivor.id}
-        assert t1.id not in result_ids
-        assert t0.id not in result_ids
-        artifact = write_artifact(
-            "retrieval_and_agent_multi_hop_merge",
-            {
-                "entity_names": sorted(own[str(i)] for i in result_ids),
-                "chain_length": 3,
-            },
-        )
-        assert artifact["entity_names"] == ["Aspirin"]

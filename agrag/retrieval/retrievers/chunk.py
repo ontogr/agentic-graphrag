@@ -22,9 +22,8 @@ from agrag.vectordb.base import VectorStore
 class ChunkRetriever(Retriever):
     """Dense chunk search via vector similarity.
 
-    Chunks are never tombstoned, so no merged_into resolution is
-    needed. Embeds the query, searches via the GraphStore-native or
-    VectorStore path, then hydrates each hit into a Chunk. The native
+    Embeds the query, searches via the GraphStore-native or VectorStore
+    path, then hydrates each hit into a Chunk. The native
     path searches the ``Chunk`` vector index ingestion provisions; the
     VectorStore path searches ``chunk_collection``.
     """

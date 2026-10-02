@@ -6,7 +6,7 @@ Run against the Docker Compose Neo4j instance from
 tests expect a reachable Neo4j at the default ``NEO4J_URI``.
 
 Covers the real Cypher builder's filtering: system edges (MENTIONED_IN),
-Chunk endpoints, and tombstone endpoints are excluded.
+and Chunk endpoints are excluded.
 """
 
 import importlib.util
@@ -42,7 +42,7 @@ class _FixedEmbedder(Embedder):
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestFetchAllRelationsQueryIntegration:
-    """``fetch_all_relations_query`` excludes system and tombstone edges."""
+    """``fetch_all_relations_query`` excludes system and Chunk edges."""
 
     @pytest.fixture(autouse=True)
     async def setup_store(self) -> AsyncGenerator[None, None]:
@@ -55,11 +55,11 @@ class TestFetchAllRelationsQueryIntegration:
         await self.store.execute_write(f"MATCH (n:{self.entity_label}) DETACH DELETE n")
         await self.store.close()
 
-    async def test_excludes_mentioned_in_chunk_and_tombstone(self) -> None:
-        """Only live domain relations survive the filter.
+    async def test_excludes_mentioned_in_and_chunk_edges(self) -> None:
+        """Only domain relations survive the filter.
 
-        Writes 1 KNOWS (kept), 1 MENTIONED_IN (excluded), 1 Chunk
-        endpoint (excluded), and 1 tombstone endpoint (excluded).
+        Writes 1 KNOWS (kept), 1 MENTIONED_IN (excluded), and 1 Chunk
+        endpoint (excluded).
         Asserts only the KNOWS row remains among the seeded ids.
         """
         # Unique ids for deterministic filtering.
@@ -69,9 +69,6 @@ class TestFetchAllRelationsQueryIntegration:
         mentioned_b = uuid4()
         chunk_id = uuid4()
         chunk_target = uuid4()
-        tombstone_id = uuid4()
-        survivor_id = uuid4()
-        chunk_target_b = uuid4()
         # Track Chunk id for targeted cleanup.
         created_chunk_ids = [chunk_id]
 
@@ -99,21 +96,6 @@ class TestFetchAllRelationsQueryIntegration:
                         id=chunk_target,
                         labels=[self.entity_label],
                         properties={"name": "e"},
-                    ),
-                    NodeRecord(
-                        id=survivor_id,
-                        labels=[self.entity_label],
-                        properties={"name": "f"},
-                    ),
-                    NodeRecord(
-                        id=tombstone_id,
-                        labels=[self.entity_label],
-                        properties={"name": "g", "merged_into": str(survivor_id)},
-                    ),
-                    NodeRecord(
-                        id=chunk_target_b,
-                        labels=[self.entity_label],
-                        properties={"name": "h"},
                     ),
                 ],
             )
@@ -158,13 +140,6 @@ class TestFetchAllRelationsQueryIntegration:
                         end_id=chunk_target,
                         properties={},
                     ),
-                    RelationRecord(
-                        id=uuid4(),
-                        type="KNOWS",
-                        start_id=tombstone_id,
-                        end_id=chunk_target_b,
-                        properties={},
-                    ),
                 ]
             )
 
@@ -176,7 +151,6 @@ class TestFetchAllRelationsQueryIntegration:
                 str(good_a),
                 str(mentioned_a),
                 str(chunk_id),
-                str(tombstone_id),
             }
             relevant = [r for r in rows if r["source_id"] in seeded_source_ids]
 

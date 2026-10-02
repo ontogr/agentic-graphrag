@@ -56,7 +56,6 @@ def _entity(
     properties: dict[str, object] | None = None,
     entity_id: UUID | None = None,
     created_at: datetime | None = None,
-    merged_from: list[UUID] | None = None,
     merge_count: int = 1,
     source_chunk_ids: list[UUID] | None = None,
 ) -> Entity:
@@ -67,7 +66,6 @@ def _entity(
         label=label,
         name=name,
         properties=properties or {},
-        merged_from=merged_from or [],
         merge_count=merge_count,
         source_chunk_ids=source_chunk_ids or [],
     )
@@ -649,7 +647,6 @@ class TestComputeMerge:
             schema=_schema(),
         )
         assert isinstance(plan.survivor.id, UUID)
-        assert plan.tombstone_ids == []
         assert plan.survivor.name == "Ada"
         assert mention.chunk_id in plan.survivor.source_chunk_ids
         assert failures == []
@@ -711,7 +708,6 @@ class TestComputeMerge:
             schema=_schema(),
         )
         assert plan.survivor.id == existing.id
-        assert plan.tombstone_ids == []
         # created_at preserved
         assert plan.survivor.created_at == existing.created_at
 
@@ -727,7 +723,6 @@ class TestComputeMerge:
             schema=_schema(),
         )
         assert plan.survivor.id == e2.id
-        assert plan.tombstone_ids == [e1.id]
 
     async def test_mention_properties_reach_the_survivor(self) -> None:
         """A fresh mention's schema-declared properties reach the survivor.
@@ -783,12 +778,12 @@ class TestComputeMerge:
     async def test_merge_all_default_keeps_empty_canonical_name(self) -> None:
         """MERGE_ALL preserves an explicitly empty canonical name."""
         canonical = _entity(name="")
-        absorbed = _entity(name="Ada")
+        other = _entity(name="Ada")
         canonical.created_at = datetime(2020, 1, 1, tzinfo=UTC)
-        absorbed.created_at = datetime(2020, 1, 2, tzinfo=UTC)
+        other.created_at = datetime(2020, 1, 2, tzinfo=UTC)
 
         plan, _ = await compute_merge(
-            existing_entities=[absorbed, canonical],
+            existing_entities=[other, canonical],
             mentions=[],
             schema=_schema(),
             rules=PropertyRules(default=PropertyStrategy.MERGE_ALL),
@@ -797,20 +792,15 @@ class TestComputeMerge:
         assert plan.survivor.name == ""
 
     async def test_merge_count_accumulation(self) -> None:
-        """merge_count accumulates from survivor, absorbed, and mentions."""
+        """merge_count accumulates from the existing entity and mentions."""
         e1 = _entity(name="Ada", merge_count=2)
-        e2 = _entity(name="Ada", merge_count=3)
         mentions = [_mention(text="Ada"), _mention(text="Ada")]
-        # Ensure e1 is survivor (earlier created_at)
-        e1.created_at = datetime(2020, 1, 1, tzinfo=UTC)
-        e2.created_at = datetime(2020, 1, 2, tzinfo=UTC)
         plan, _ = await compute_merge(
-            existing_entities=[e1, e2],
+            existing_entities=[e1],
             mentions=mentions,
             schema=_schema(),
         )
-        # survivor base 2 + absorbed 3 + 2 mentions = 7
-        assert plan.survivor.merge_count == 7
+        assert plan.survivor.merge_count == 4
 
     async def test_merge_count_at_least_one(self) -> None:
         """merge_count is at least 1 even with zero."""
@@ -821,50 +811,14 @@ class TestComputeMerge:
         assert plan.survivor.merge_count == 1
 
     async def test_source_chunk_ids_accumulation(self) -> None:
-        """source_chunk_ids merges survivor, absorbed, and mentions."""
-        c1, c2, c3 = uuid4(), uuid4(), uuid4()
+        """source_chunk_ids merges the existing entity's ids and mentions."""
+        c1, c3 = uuid4(), uuid4()
         e1 = _entity(name="Ada", source_chunk_ids=[c1], merge_count=1)
-        e2 = _entity(name="Ada", source_chunk_ids=[c2], merge_count=1)
-        # make e1 survivor
-        e1.created_at = datetime(2020, 1, 1, tzinfo=UTC)
-        e2.created_at = datetime(2020, 1, 2, tzinfo=UTC)
         m = _mention(text="Ada", chunk_id=c3)
         plan, _ = await compute_merge(
-            existing_entities=[e1, e2], mentions=[m], schema=_schema()
+            existing_entities=[e1], mentions=[m], schema=_schema()
         )
-        assert plan.survivor.source_chunk_ids == [c1, c2, c3]
-
-    async def test_merged_from_accumulation(self) -> None:
-        """merged_from accumulates survivor merged_from plus absorbed ids."""
-        absorbed_id = uuid4()
-        survivor = _entity(
-            name="Ada",
-            merged_from=[uuid4()],
-            merge_count=1,
-        )
-        absorbed = _entity(entity_id=absorbed_id, name="Ada", merge_count=1)
-        survivor.created_at = datetime(2020, 1, 1, tzinfo=UTC)
-        absorbed.created_at = datetime(2020, 1, 2, tzinfo=UTC)
-        plan, _ = await compute_merge(
-            existing_entities=[survivor, absorbed],
-            mentions=[],
-            schema=_schema(),
-        )
-        assert absorbed_id in plan.survivor.merged_from
-        assert survivor.merged_from[0] in plan.survivor.merged_from
-
-    async def test_merged_from_dedupes(self) -> None:
-        """merged_from deduplicates while preserving order."""
-        dup = uuid4()
-        e1 = _entity(name="Ada", merged_from=[dup])
-        e2 = _entity(entity_id=dup, name="Ada")
-        e1.created_at = datetime(2020, 1, 1, tzinfo=UTC)
-        e2.created_at = datetime(2020, 1, 2, tzinfo=UTC)
-        plan, _ = await compute_merge(
-            existing_entities=[e1, e2], mentions=[], schema=_schema()
-        )
-        # dup should appear only once
-        assert plan.survivor.merged_from.count(dup) == 1
+        assert plan.survivor.source_chunk_ids == [c1, c3]
 
     async def test_merge_all_property(self) -> None:
         """MERGE_ALL returns list for conflicting property."""
@@ -963,8 +917,8 @@ class TestComputeMerge:
         assert "Person:robert" in plan.accepted_merge_keys
         assert "Person:bob" in plan.accepted_merge_keys
 
-    async def test_accepted_merge_keys_includes_absorbed_entities_names(self) -> None:
-        """Absorbed existing entities' own names are also accepted keys."""
+    async def test_accepted_merge_keys_includes_every_existing_name(self) -> None:
+        """Every existing entity's own name is also an accepted key."""
         e1 = _entity(name="Ada")
         e2 = _entity(name="Ada Lovelace")
         plan, _ = await compute_merge(
@@ -1124,25 +1078,15 @@ class TestPlanRelationshipDedup:
         assert deletes == [{"id": str(extra.new_relationship_id), "rel_type": "KNOWS"}]
 
 
-def _store_with_transaction(
-    execute_write: AsyncMock, execute_read: AsyncMock | None = None
-) -> AsyncMock:
+def _store_with_transaction(execute_write: AsyncMock) -> AsyncMock:
     """Build a store AsyncMock whose transaction() yields a fake handle.
 
     The handle's execute_write is the given mock. Its upsert_nodes mock is
     exposed as store.txn_upsert_nodes, kept separate from the store's own
     upsert_nodes so a test can tell which one apply_merge actually used.
-    execute_read defaults to reporting every queried id as a live node (no
-    merged_into), for tests that never resolve an alias-owner chain.
     """
     upsert_nodes = AsyncMock()
-    if execute_read is None:
-        execute_read = AsyncMock(return_value=[{"merged_into": None}])
-    handle = SimpleNamespace(
-        execute_write=execute_write,
-        execute_read=execute_read,
-        upsert_nodes=upsert_nodes,
-    )
+    handle = SimpleNamespace(execute_write=execute_write, upsert_nodes=upsert_nodes)
 
     @asynccontextmanager
     async def _transaction():
@@ -1151,22 +1095,21 @@ def _store_with_transaction(
     store = AsyncMock()
     store.transaction = _transaction
     store.txn_upsert_nodes = upsert_nodes
-    store.txn_execute_read = execute_read
     return store
 
 
 class TestApplyMerge:
     """apply_merge writes to GraphStore."""
 
-    async def test_zero_tombstones_upserts_survivor_and_alias(self) -> None:
-        """No tombstones still runs in a transaction: upsert survivor + alias.
+    async def test_upserts_survivor_and_alias_in_one_transaction(self) -> None:
+        """Runs in a transaction: upsert survivor + alias.
 
         The survivor write goes through upsert_survivor_query's atomic
         accumulation, not txn.upsert_nodes, so a concurrent writer's own
         contribution to the same node is never lost to a full overwrite.
         """
         survivor = _entity(name="Ada")
-        plan = MergePlan(survivor=survivor, tombstone_ids=[], conflicts=[])
+        plan = MergePlan(survivor=survivor, conflicts=[])
         execute_write = AsyncMock(return_value=[])
         store = _store_with_transaction(execute_write)
 
@@ -1181,7 +1124,6 @@ class TestApplyMerge:
         record = survivor_calls[0].args[1]["records"][0]
         assert record["id"] == str(survivor.id)
         assert "source_chunk_ids" not in record["properties"]
-        assert "merged_from" not in record["properties"]
         assert "merge_count" not in record["properties"]
         alias_calls = [
             c
@@ -1194,18 +1136,6 @@ class TestApplyMerge:
             "entity_id": str(survivor.id),
             "pending_job_id": None,
         }
-
-    async def test_nonempty_tombstones_raise_before_any_write(self) -> None:
-        """A plan naming absorbed entities is rejected, never half-written."""
-        survivor = _entity(name="Ada")
-        plan = MergePlan(survivor=survivor, tombstone_ids=[uuid4()], conflicts=[])
-        execute_write = AsyncMock(return_value=[])
-        store = _store_with_transaction(execute_write)
-
-        with pytest.raises(ValueError, match="Destructive merge is retired"):
-            await apply_merge(plan, graph_store=store, schema=_schema())
-
-        execute_write.assert_not_awaited()
 
     async def test_foreign_alias_owner_raises_conflict(self) -> None:
         """An accepted merge_key already owned elsewhere raises, not silently drops.
@@ -1220,7 +1150,6 @@ class TestApplyMerge:
         foreign_owner_id = uuid4()
         plan = MergePlan(
             survivor=survivor,
-            tombstone_ids=[],
             conflicts=[],
             accepted_merge_keys=["Person:robert", "Person:bob"],
         )
@@ -1239,52 +1168,6 @@ class TestApplyMerge:
         with pytest.raises(GraphStoreAliasConflictError) as exc_info:
             await apply_merge(plan, graph_store=store, schema=_schema())
         assert exc_info.value.conflicts == {"Person:bob": str(foreign_owner_id)}
-
-    async def test_historical_alias_owner_resolving_to_survivor_is_not_a_conflict(
-        self,
-    ) -> None:
-        """An alias claimed by an earlier, unrelated merge is not a false conflict.
-
-        Regression test: upsert_merge_alias_query never rewrites an alias
-        once created, so a merge_key an earlier merge accepted still points
-        at that merge's own survivor id even after that entity is itself
-        later absorbed by this merge's own survivor. Without following the
-        owner's merged_into chain, apply_merge misreads that historical
-        owner as belonging to a genuinely foreign entity and raises every
-        time the absorbed name is reingested.
-        """
-        survivor = _entity(name="Robert")
-        historical_owner_id = uuid4()
-        plan = MergePlan(
-            survivor=survivor,
-            tombstone_ids=[],
-            conflicts=[],
-            accepted_merge_keys=["Person:robert", "Person:bob"],
-        )
-
-        async def _exec_write(query, params=None):
-            if params and "pending_job_id" in params:
-                return [
-                    {"merge_key": "Person:robert", "entity_id": str(survivor.id)},
-                    {
-                        "merge_key": "Person:bob",
-                        "entity_id": str(historical_owner_id),
-                    },
-                ]
-            return []
-
-        async def _exec_read(query, params=None):
-            if params and params.get("id") == str(historical_owner_id):
-                return [{"merged_into": str(survivor.id)}]
-            return [{"merged_into": None}]
-
-        execute_write = AsyncMock(side_effect=_exec_write)
-        execute_read = AsyncMock(side_effect=_exec_read)
-        store = _store_with_transaction(execute_write, execute_read)
-
-        await apply_merge(plan, graph_store=store, schema=_schema())
-
-        assert execute_read.await_count == 2
 
 
 class TestRelationId:
