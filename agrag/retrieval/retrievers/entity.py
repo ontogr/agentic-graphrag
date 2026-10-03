@@ -5,7 +5,6 @@ from uuid import UUID
 
 from opentelemetry.trace import Tracer
 
-from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import VectorHit
@@ -186,15 +185,11 @@ class EntityRetriever(Retriever):
             if hits:
                 if allowed_ids is not None:
                     hits = [hit for hit in hits if str(hit.id) in allowed_ids]
-                entities_by_id: dict[UUID, Entity] = {}
-                try:
-                    entities_by_id = await load_entities(
-                        self._graph_store,
-                        [hit.id for hit in hits],
-                        tracer=self._tracer,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    record_swallowed_exception(exc)
+                entities_by_id = await load_entities(
+                    self._graph_store,
+                    [hit.id for hit in hits],
+                    tracer=self._tracer,
+                )
                 if active_member_ids is None:
                     active_member_ids = await self._active_resolved_member_ids(
                         [hit.id for hit in hits]

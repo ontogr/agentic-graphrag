@@ -306,10 +306,8 @@ class TestEntityRetrieverSpans:
         searches = _named(spans, "agrag.retrieval.vector_search")
         assert len(searches) == 2
 
-    async def test_a_failing_loading_read_is_recorded_and_returns_nothing(
-        self,
-    ) -> None:
-        """A failed entity read returns no results and leaves the span unset."""
+    async def test_a_failing_loading_read_marks_the_span_as_error(self) -> None:
+        """A failed entity read propagates and sets the retrieval span to ERROR."""
         provider, exporter = _provider()
         tracer = provider.get_tracer("t")
         hits = [VectorHit(id=uuid4(), score=0.9, payload={})]
@@ -329,12 +327,11 @@ class TestEntityRetrieverSpans:
             tracer=tracer,
         )
 
-        results = await retriever.retrieve("q")
+        with pytest.raises(RuntimeError, match="read failed"):
+            await retriever.retrieve("q")
 
-        assert results == []
         entity_span = _named(exporter.get_finished_spans(), "agrag.retrieval.entity")[0]
-        assert [e for e in entity_span.events if e.name == "exception"]
-        assert entity_span.status.status_code.name != "ERROR"
+        assert entity_span.status.status_code.name == "ERROR"
 
     async def test_tracer_none_leaves_the_host_span_untouched(self) -> None:
         """An untraced EntityRetriever marks no host span."""

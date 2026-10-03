@@ -16,11 +16,7 @@ reads: ``build_relation_neighbors`` from a batch's own extraction, and
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
-    InMemorySpanExporter,
-)
+import pytest
 
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.vector_record import VectorHit
@@ -225,11 +221,8 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
 
         assert candidates == []
 
-    async def test_a_failing_loading_read_yields_no_candidates(self) -> None:
-        """A failed read returns no candidates and records the error."""
-        exporter = InMemorySpanExporter()
-        provider = TracerProvider()
-        provider.add_span_processor(SimpleSpanProcessor(exporter))
+    async def test_a_failing_loading_read_propagates(self) -> None:
+        """A failed read is raised, not reported as no candidates."""
         graph_store = AsyncMock()
         graph_store.execute_read.side_effect = RuntimeError("read failed")
         source = GraphCandidateSource(
@@ -240,18 +233,14 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
         )
 
         with (
-            provider.get_tracer("t").start_as_current_span("probe"),
             patch(
                 "agrag.ingestion.resolve.candidate_source.vector_search",
                 new_callable=AsyncMock,
                 return_value=[VectorHit(id=uuid4(), score=0.9, payload={})],
             ),
+            pytest.raises(RuntimeError, match="read failed"),
         ):
-            candidates = await source.global_candidates_for(_mention("Alice"))
-
-        assert candidates == []
-        probe = next(s for s in exporter.get_finished_spans() if s.name == "probe")
-        assert [e for e in probe.events if e.name == "exception"]
+            await source.global_candidates_for(_mention("Alice"))
 
     async def test_native_path_validates_payload_directly(self) -> None:
         """With no VectorStore, the native payload already has the real name.
