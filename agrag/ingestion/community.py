@@ -281,7 +281,7 @@ def _relation_summaries_for(
     """Return one "source REL_TYPE target" line per internal edge.
 
     Only edges whose both endpoints are members of the community count.
-    An endpoint whose Entity was not hydrated (its name is unknown) drops
+    An endpoint whose Entity was not loaded (its name is unknown) drops
     the line rather than showing the LLM a raw UUID. Lines are ordered by
     attestation weight descending, most-attested relations first, and
     truncated to max_relations to bound the batch prompt's token budget.
@@ -370,7 +370,7 @@ async def generate_community_reports(  # noqa: PLR0915
     "source REL_TYPE target" lines (most-attested first, truncated to
     max_relations_per_prompt), so the report can state connections the
     evidence actually attests; a relation whose endpoint Entity was not
-    hydrated is omitted.
+    loaded is omitted.
 
     When the ``llm`` extra (baml-py) is not installed, qualifying
     communities fall back to the heuristic report too: with ErrorPolicy

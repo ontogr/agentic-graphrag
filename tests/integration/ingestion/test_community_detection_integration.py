@@ -21,10 +21,10 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure  # noqa: F401
-from agrag.cypher.entities import hydrate_entities_by_id_query, validate_identifier
+from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
-from agrag.graphdb.serialize import parse_entity_node
+from agrag.graphdb.entities import load_entities
 from agrag.ingestion.community import (
     CommunityDetectionMissingExtraError,
     compute_communities,
@@ -446,16 +446,7 @@ class TestCommunityDetectionIntegration:
         # Check heuristic rating after direct call.
 
         needed = required_member_ids(comms)
-        rows = await self.store.execute_read(
-            hydrate_entities_by_id_query(),
-            {"ids": [str(i) for i in needed], "job_id": None},
-        )
-
-        entities_by_id = {
-            ent.id: ent
-            for row in rows
-            if (ent := parse_entity_node(row.get("n", row))) is not None  # type: ignore[arg-type]
-        }
+        entities_by_id = await load_entities(self.store, list(needed))
         # Patch LLM to count calls and verify truncation.
         batch_size = 1
         max_members = 2

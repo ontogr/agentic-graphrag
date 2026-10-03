@@ -1,7 +1,7 @@
 """Integration tests for PART_OF currency filtering in retrieval reads.
 
 add() -> update() against a real Neo4j instance, then the retrieval-side
-hydration queries: superseded chunks stay out, current and legacy chunks
+loading queries: superseded chunks stay out, current and legacy chunks
 stay in, and document-scoped entity lookup still finds live entities.
 """
 
@@ -18,7 +18,7 @@ from agrag.common.data_models.document import Document, DocumentFamily, SourceFo
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
 from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
-from agrag.cypher.entities import hydrate_chunks_by_id_query
+from agrag.cypher.entities import load_chunks_by_id_query
 from agrag.cypher.relations import entities_in_documents_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
@@ -95,8 +95,8 @@ def _legacy_chunk() -> Chunk:
     )
 
 
-def _hydrated_id(row: dict[str, object]) -> str | None:
-    """Read a hydrated chunk's id from a raw driver row."""
+def _loaded_id(row: dict[str, object]) -> str | None:
+    """Read a loaded chunk's id from a raw driver row."""
     node = row.get("n", row)
     if isinstance(node, dict):
         properties = node.get("properties", node)
@@ -113,7 +113,7 @@ def _hydrated_id(row: dict[str, object]) -> str | None:
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestPartOfFiltering:
-    """Retrieval hydration honors PART_OF currency after an update."""
+    """Retrieval loading honors PART_OF currency after an update."""
 
     async def _setup(self) -> tuple[Graph, GraphStore, str, str]:
         """Open a graph and ingest two versions of one probe document."""
@@ -127,7 +127,7 @@ class TestPartOfFiltering:
             extractor=_KeywordExtractor(probe_name),
         )
         key = f"lifecycle://{uuid4().hex}"
-        first_text = "filterprobe version one for hydration checks. " * 60
+        first_text = "filterprobe version one for loading checks. " * 60
         second_text = "filterprobe version two, materially different. " * 60
         first = await graph.add(
             documents=[_document(key, first_text)], return_chunks=True
@@ -172,8 +172,8 @@ class TestPartOfFiltering:
             )
         await store.close()
 
-    async def test_hydration_excludes_superseded_chunks(self) -> None:
-        """Hydrating old and new ids returns only the current version."""
+    async def test_loading_excludes_superseded_chunks(self) -> None:
+        """Loading old and new ids returns only the current version."""
         _, store, key, probe_name = await self._setup()
         legacy_ids: list[str] = []
         try:
@@ -192,10 +192,10 @@ class TestPartOfFiltering:
             legacy_ids = [str(legacy.id)]
 
             rows = await store.execute_read(
-                hydrate_chunks_by_id_query(),
+                load_chunks_by_id_query(),
                 {"ids": [*old_ids, *new_ids, *legacy_ids], "job_id": None},
             )
-            returned = {_hydrated_id(row) for row in rows}
+            returned = {_loaded_id(row) for row in rows}
             assert set(new_ids) <= returned
             assert not (set(old_ids) & returned)
             assert set(legacy_ids) <= returned

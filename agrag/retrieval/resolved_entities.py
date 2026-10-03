@@ -1,4 +1,4 @@
-"""Hydration helpers for resolved-entities."""
+"""Loading helpers for resolved entities."""
 
 from typing import Any
 from uuid import UUID
@@ -6,7 +6,7 @@ from uuid import UUID
 from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.resolved_entity import ResolvedEntity
-from agrag.cypher.resolution_read import hydrate_resolved_entities_by_id_query
+from agrag.cypher.resolution_read import load_resolved_entities_by_id_query
 from agrag.graphdb.base import GraphStore
 from agrag.observability import get_tracer
 
@@ -62,28 +62,28 @@ def parse_resolved_entity_node(node: object) -> ResolvedEntity | None:
         return None
 
 
-async def hydrate_resolved_entities(
+async def load_resolved_entities(
     graph_store: GraphStore, ids: list[UUID], *, tracer: Tracer | None = None
 ) -> dict[UUID, ResolvedEntity]:
-    """Hydrate resolved entities by vector-hit identifiers.
+    """Load resolved entities by vector-hit identifiers.
 
     Args:
         graph_store: Where the resolved entities live.
-        ids: The vector-hit ids to hydrate.
-        tracer: Opens the hydration span. None opens no recorded span.
+        ids: The vector-hit ids to load.
+        tracer: Opens the loading span. None opens no recorded span.
 
     Returns:
-        The hydrated resolved entities by id; an empty dict when ``ids`` is
+        The loaded resolved entities by id; an empty dict when ``ids`` is
         empty or nothing parsed.
     """
     if not ids:
         return {}
     with get_tracer(tracer).start_as_current_span(
-        "agrag.retrieval.hydrate_resolved_entities",
+        "agrag.retrieval.load_resolved_entities",
         attributes={"agrag.requested_count": len(ids)},
     ) as span:
         rows = await graph_store.execute_read(
-            hydrate_resolved_entities_by_id_query(),
+            load_resolved_entities_by_id_query(),
             {"ids": [str(item_id) for item_id in ids], "job_id": None},
         )
         entities: dict[UUID, ResolvedEntity] = {}
@@ -93,5 +93,5 @@ async def hydrate_resolved_entities(
             if entity is not None:
                 entities[entity.id] = entity
         if span.is_recording():
-            span.set_attribute("agrag.hydrated_count", len(entities))
+            span.set_attribute("agrag.loaded_count", len(entities))
         return entities

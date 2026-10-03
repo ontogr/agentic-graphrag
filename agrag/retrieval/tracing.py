@@ -153,7 +153,7 @@ def retrieval_span(
 
 
 def record_chunks(span: Span, chunks: Sequence[Chunk]) -> None:
-    """Record hydrated chunks as OpenTelemetry-safe attributes.
+    """Record loaded chunks as OpenTelemetry-safe attributes.
 
     Args:
         span: The active retrieval span.

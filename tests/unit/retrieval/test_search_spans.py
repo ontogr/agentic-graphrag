@@ -50,26 +50,23 @@ def _named(spans: tuple[ReadableSpan, ...], name: str) -> list[ReadableSpan]:
 
 
 def _entity_node(entity_id) -> dict:
-    """Return one entity node in the mock wire shape."""
+    """Return one stored entity node."""
     return {
         "id": str(entity_id),
-        "labels": ["Person"],
-        "properties": {
-            "name": "Alice",
-            "merge_key": "Person:alice",
-            "merge_count": 1,
-            "source_chunk_ids": [],
-        },
+        "name": "Alice",
+        "merge_key": "Person:alice",
+        "merge_count": 1,
+        "source_chunk_ids": [],
     }
 
 
 def _entity_rows(entity_id) -> list[dict]:
-    """Return one hydrate_entities row."""
+    """Return one load_entities row."""
     return [{"n": _entity_node(entity_id)}]
 
 
 def _chunk_rows(chunk_id) -> list[dict]:
-    """Return one hydrate_chunks row."""
+    """Return one load_chunks row."""
     return [
         {
             "n": {
@@ -99,8 +96,8 @@ class _MockEmbedder:
 def _routed_store() -> AsyncMock:
     """Return a store whose reads route by query text and echo hit ids.
 
-    Entity, chunk and resolved hydration rebuild their rows from the ids
-    the query asked for, so a hydrated item's id always matches the hit
+    Entity, chunk and resolved loading rebuild their rows from the ids
+    the query asked for, so a loaded item's id always matches the hit
     that requested it.
     """
     store = AsyncMock()

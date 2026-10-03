@@ -165,6 +165,7 @@ The Neo4j store opens these spans. Reads and writes carry the query text and the
 | `agrag.graphdb.transaction` | none |
 | `agrag.graphdb.upsert_nodes` | `db.collection.name` (the label), `agrag.record_count`, `agrag.written`, `agrag.failures_count`, `db.operation.batch.size` (only for a write of more than one record) |
 | `agrag.graphdb.upsert_relations` | `agrag.record_count`, `agrag.written`, `agrag.failures_count`, `db.operation.batch.size` (only for a write of more than one record) |
+| `agrag.graphdb.load_entities` | `agrag.requested_count`, `agrag.loaded_count` |
 | `agrag.graphdb.vector_search` | `db.collection.name` (the label), `agrag.limit`, `agrag.k_final`, `agrag.index_missing` (when the index does not exist; the search then returns no hits) |
 
 ## Vector store spans
@@ -192,12 +193,12 @@ Qdrant, Weaviate, and Milvus open the same names. `db.system.name` is `qdrant`, 
 | `agrag.embedding.encode` | `agrag.text_count`, `agrag.cache_hit_count` (dense embedder) |
 | `agrag.embedding.query_embed` | `agrag.text_count` (keyword embedder for Qdrant hybrid search) |
 
-## Retrieval hydration spans and the agent span
+## Retrieval loading spans and the agent span
 
 | Span | Attributes |
 |---|---|
-| `agrag.retrieval.hydrate_communities` | `agrag.requested_count`, `agrag.hydrated_count` |
-| `agrag.retrieval.hydrate_resolved_entities` | `agrag.requested_count`, `agrag.hydrated_count` |
+| `agrag.retrieval.load_communities` | `agrag.requested_count`, `agrag.loaded_count` |
+| `agrag.retrieval.load_resolved_entities` | `agrag.requested_count`, `agrag.loaded_count` |
 | `agrag.retrieval.community_context` | `agrag.seed_count`, `agrag.top_k` |
 | `agrag.agents.run` | none. Only the simple agent (used when the `agents` extra is not installed) opens it. The full loop opens OpenInference spans instead. |
 
@@ -213,7 +214,7 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 | Resolution | `agrag.resolution.llm_verify` | `agrag.pair_count`, `agrag.match_count`, `agrag.uncertain_count`, `agrag.request_failed` (bool) |
 | Merge | `agrag.merge.resolve_description` | `agrag.description_count`, `agrag.summarized` (bool) |
 | Community | `agrag.community.report_batch` | `agrag.batch_size` |
-| Chunk retrieval | `agrag.retrieval.hydrate_parents` | `agrag.parent_count`, `agrag.result.count`, `retrieval.documents` (JSON array of attached parent chunks) |
+| Chunk retrieval | `agrag.retrieval.load_parents` | `agrag.parent_count`, `agrag.result.count`, `retrieval.documents` (JSON array of attached parent chunks) |
 | Text2cypher | `agrag.retrieval.generate_cypher` | `agrag.is_repair` (bool) |
 | Judge | `agrag.eval.judge` | `agrag.eval.judge_model` |
 
@@ -243,16 +244,16 @@ agrag.retrieval.search                     RETRIEVER
     agrag.retrieval.entity_search
       agrag.retrieval.vector_search        one per adaptive pass
     agrag.retrieval.active_member_ids
-    agrag.retrieval.hydrate_entities
+    agrag.graphdb.load_entities
     agrag.retrieval.resolved_entity_search
   agrag.retrieval.chunk                    RETRIEVER
     agrag.retrieval.vector_search
-    agrag.retrieval.hydrate_chunks
+    agrag.retrieval.load_chunks
   agrag.retrieval.community                RETRIEVER
   agrag.retrieval.text2cypher              RETRIEVER
     agrag.retrieval.generate_cypher
     agrag.retrieval.execute_cypher         one per attempt
-    agrag.retrieval.hydrate_entities       one per entity row
+    agrag.graphdb.load_entities         one per entity row
   agrag.retrieval.fuse
   agrag.retrieval.bfs                      RETRIEVER, when recipe.bfs
   agrag.retrieval.community_expand         when recipe.community_expand
@@ -276,7 +277,7 @@ of the tool call that made it.
 | `agrag.retrieval.list_relationship_types` | `agrag.seed_ids`, `agrag.relation_type_filter`, `agrag.direction`, `agrag.result_count`, `agrag.result_types` |
 | `agrag.retrieval.vector_search` | `agrag.collection`, `agrag.store` (`vector_store` or `graph_native`), `agrag.labels`, `agrag.limit`, `agrag.hit_count`, `agrag.hit_ids`, `agrag.hit_scores` |
 | `agrag.retrieval.entity_search` / `resolved_entity_search` | `agrag.limit`, `agrag.passes`, `agrag.hit_count` |
-| `agrag.retrieval.hydrate_*` | `agrag.requested_count`, `agrag.hydrated_count` |
+| `agrag.retrieval.load_*` | `agrag.requested_count`, `agrag.loaded_count` |
 | `agrag.retrieval.allowed_entity_ids` | `agrag.document_count`, `agrag.entity_count` |
 | `agrag.retrieval.active_member_ids` | `agrag.requested_count`, `agrag.superseded_count` |
 | `agrag.retrieval.execute_cypher` | `agrag.is_repair`, `agrag.row_count` |
@@ -301,7 +302,7 @@ Every span that returns a list records its results in full:
 
 The query and the scope are always recorded: `input.value` and `agrag.query`
 carry the query text, and `agrag.filters` carries the scope as JSON, an empty
-scope included. A step that falls back to empty (a failed hydration, a
+scope included. A step that falls back to empty (a failed load, a
 reranker without its extra) records the exception as an event on the
 narrowest span and that span's status stays `UNSET`.
 

@@ -162,8 +162,8 @@ class TestChunkRetriever:
 
             assert len(results) == 0
 
-    async def test_hydration_query_raises_returns_empty(self) -> None:
-        """A hydration query failure returns no results, not an exception."""
+    async def test_loading_query_raises_returns_empty(self) -> None:
+        """A loading query failure returns no results, not an exception."""
         gs = AsyncMock()
         gs.execute_read.side_effect = RuntimeError("db down")
         embedder = MockEmbedder()
@@ -180,7 +180,7 @@ class TestChunkRetriever:
             assert results == []
 
     async def test_unparsable_row_is_skipped(self) -> None:
-        """A row that fails to parse is skipped; other rows still hydrate."""
+        """A row that fails to parse is skipped; other rows still load."""
         good_id = uuid4()
         doc_id = uuid4()
         bad_id = uuid4()
@@ -239,7 +239,7 @@ class TestChunkRetriever:
 
 
 class _ChunkProperties(TypedDict):
-    """Properties required to hydrate a chunk row."""
+    """Properties required to load a chunk row."""
 
     document_id: str
     text: str
@@ -249,14 +249,14 @@ class _ChunkProperties(TypedDict):
 
 
 class _ChunkNode(TypedDict):
-    """A graph node returned in a chunk hydration row."""
+    """A graph node returned in a chunk loading row."""
 
     id: str
     properties: _ChunkProperties
 
 
 class _ChunkRow(TypedDict):
-    """A graph hydration result containing one chunk node."""
+    """A graph loading result containing one chunk node."""
 
     n: _ChunkNode
 
@@ -269,7 +269,7 @@ def _node(
     level: int = 0,
     parent_id: UUID | None = None,
 ) -> _ChunkRow:
-    """Build a typed chunk hydration row."""
+    """Build a typed chunk loading row."""
     properties: _ChunkProperties = {
         "document_id": str(document_id),
         "text": text,
@@ -357,10 +357,10 @@ class TestParentAttachment:
         assert results == []
 
 
-class TestParentHydrationTracing:
-    """Parent hydration records an observable best-effort fallback."""
+class TestParentLoadingTracing:
+    """Parent loading records an observable best-effort fallback."""
 
-    async def test_parent_query_failure_records_unset_hydration_span(self) -> None:
+    async def test_parent_query_failure_records_unset_loading_span(self) -> None:
         """A failed parent read records its exception while returning the child."""
         provider = TracerProvider()
         exporter = InMemorySpanExporter()
@@ -382,7 +382,7 @@ class TestParentHydrationTracing:
 
         assert results == []
         finished = list(exporter.get_finished_spans())
-        (span,) = [s for s in finished if s.name == "agrag.retrieval.hydrate_parents"]
+        (span,) = [s for s in finished if s.name == "agrag.retrieval.load_parents"]
         (retrieval,) = [s for s in finished if s.name == "agrag.retrieval.chunk"]
         assert span.parent is not None
         assert span.parent.span_id == retrieval.get_span_context().span_id
@@ -392,7 +392,7 @@ class TestParentHydrationTracing:
         assert (span.attributes or {})["agrag.parent_count"] == 1
         assert len(list(span.events)) == 1
 
-    async def test_parent_hydration_records_attached_parent_attributes(
+    async def test_parent_loading_records_attached_parent_attributes(
         self,
     ) -> None:
         """A successful parent read records the context available to child results."""
@@ -420,7 +420,7 @@ class TestParentHydrationTracing:
         (span,) = [
             span
             for span in exporter.get_finished_spans()
-            if span.name == "agrag.retrieval.hydrate_parents"
+            if span.name == "agrag.retrieval.load_parents"
         ]
         attributes = span.attributes or {}
         assert attributes["agrag.result.count"] == 1

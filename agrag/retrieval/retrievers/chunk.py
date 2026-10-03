@@ -7,7 +7,7 @@ from opentelemetry.trace import SpanKind, Tracer
 
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.search_result import SearchResult
-from agrag.cypher.entities import hydrate_chunks_by_id_query
+from agrag.cypher.entities import load_chunks_by_id_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.observability import get_tracer, record_swallowed_exception
@@ -23,7 +23,7 @@ class ChunkRetriever(Retriever):
     """Dense chunk search via vector similarity.
 
     Embeds the query, searches via the GraphStore-native or VectorStore
-    path, then hydrates each hit into a Chunk. The native
+    path, then loads each hit into a Chunk. The native
     path searches the ``Chunk`` vector index ingestion provisions; the
     VectorStore path searches ``chunk_collection``.
     """
@@ -64,7 +64,7 @@ class ChunkRetriever(Retriever):
         filters: SearchFilters | None = None,
         limit: int | None = None,
     ) -> list[SearchResult]:
-        """Run chunk search and return hydrated results.
+        """Run chunk search and return loaded results.
 
         Args:
             query: The natural-language query text.
@@ -73,7 +73,7 @@ class ChunkRetriever(Retriever):
                 Zero or negative returns no results without searching.
 
         Returns:
-            Ranked SearchResults with hydrated Chunk items. A child chunk result
+            Ranked SearchResults with loaded Chunk items. A child chunk result
             carries its parent chunk in ``SearchResult.parent``.
         """
         effective_limit = limit if limit is not None else self._settings.chunk_top_k
@@ -104,12 +104,12 @@ class ChunkRetriever(Retriever):
                 return []
             ids = [str(h.id) for h in hits]
             with get_tracer(self._tracer).start_as_current_span(
-                "agrag.retrieval.hydrate_chunks",
+                "agrag.retrieval.load_chunks",
                 attributes={"agrag.requested_count": len(hits)},
-            ) as hydrate:
+            ) as load:
                 try:
                     rows = await self._graph_store.execute_read(
-                        hydrate_chunks_by_id_query(), {"ids": ids, "job_id": None}
+                        load_chunks_by_id_query(), {"ids": ids, "job_id": None}
                     )
                 except Exception as exc:  # noqa: BLE001
                     record_swallowed_exception(exc)
@@ -128,9 +128,9 @@ class ChunkRetriever(Retriever):
                             by_id[str(chunk.id)] = chunk
                     except Exception:
                         continue
-                if hydrate.is_recording():
-                    hydrate.set_attribute("agrag.hydrated_count", len(by_id))
-            parents = await self._hydrate_parents(list(by_id.values()))
+                if load.is_recording():
+                    load.set_attribute("agrag.loaded_count", len(by_id))
+            parents = await self._load_parents(list(by_id.values()))
             results: list[SearchResult] = []
             for hit in hits:
                 try:
@@ -153,7 +153,7 @@ class ChunkRetriever(Retriever):
             record_results(span, results)
             return results
 
-    async def _hydrate_parents(self, chunks: list[Chunk]) -> dict[str, Chunk]:
+    async def _load_parents(self, chunks: list[Chunk]) -> dict[str, Chunk]:
         """Load the distinct parents of child chunks with one query.
 
         A parent that is missing or closed is left out, so its child cannot become a
@@ -163,13 +163,13 @@ class ChunkRetriever(Retriever):
         if not parent_ids:
             return {}
         with get_tracer(self._tracer).start_as_current_span(
-            "agrag.retrieval.hydrate_parents",
+            "agrag.retrieval.load_parents",
             kind=SpanKind.INTERNAL,
             attributes={"agrag.parent_count": len(parent_ids)},
         ) as span:
             try:
                 rows = await self._graph_store.execute_read(
-                    hydrate_chunks_by_id_query(), {"ids": parent_ids, "job_id": None}
+                    load_chunks_by_id_query(), {"ids": parent_ids, "job_id": None}
                 )
             except Exception as exc:
                 record_swallowed_exception(exc)

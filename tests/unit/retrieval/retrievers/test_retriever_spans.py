@@ -45,26 +45,23 @@ def _named(spans: tuple[ReadableSpan, ...], name: str) -> list[ReadableSpan]:
 
 
 def _entity_node(entity_id) -> dict:
-    """Return one entity node in the mock wire shape."""
+    """Return one stored entity node."""
     return {
         "id": str(entity_id),
-        "labels": ["Person"],
-        "properties": {
-            "name": "Alice",
-            "merge_key": "Person:alice",
-            "merge_count": 1,
-            "source_chunk_ids": [],
-        },
+        "name": "Alice",
+        "merge_key": "Person:alice",
+        "merge_count": 1,
+        "source_chunk_ids": [],
     }
 
 
 def _entity_rows(entity_id) -> list[dict]:
-    """Return one hydrate_entities row."""
+    """Return one load_entities row."""
     return [{"n": _entity_node(entity_id)}]
 
 
 def _chunk_rows(chunk_id) -> list[dict]:
-    """Return one hydrate_chunks row."""
+    """Return one load_chunks row."""
     return [
         {
             "n": {
@@ -99,7 +96,7 @@ def _vector_searching_store(hits: list[VectorHit]) -> AsyncMock:
 
 
 class TestChunkRetrieverSpan:
-    """ChunkRetriever's span tree and its hydration swallow site."""
+    """ChunkRetriever's span tree and its loading swallow site."""
 
     async def test_exports_a_retriever_span_with_results(self) -> None:
         """The chunk span carries the kind, the query and the results."""
@@ -129,7 +126,7 @@ class TestChunkRetrieverSpan:
             str(result.item.id) for result in results
         ]
         assert len(attributes["agrag.result_texts"]) == len(results)
-        # The vector search and hydration spans nest under the chunk span.
+        # The vector search and loading spans nest under the chunk span.
         child_names = {
             span.name
             for span in spans
@@ -137,15 +134,15 @@ class TestChunkRetrieverSpan:
             and span.parent.span_id == chunk_spans[0].context.span_id
         }
         assert "agrag.retrieval.vector_search" in child_names
-        assert "agrag.retrieval.hydrate_chunks" in child_names
-        hydrate = _named(spans, "agrag.retrieval.hydrate_chunks")[0]
-        hydrate_attributes = hydrate.attributes
-        assert hydrate_attributes is not None
-        assert hydrate_attributes["agrag.requested_count"] == 1
-        assert hydrate_attributes["agrag.hydrated_count"] == 1
+        assert "agrag.retrieval.load_chunks" in child_names
+        load = _named(spans, "agrag.retrieval.load_chunks")[0]
+        load_attributes = load.attributes
+        assert load_attributes is not None
+        assert load_attributes["agrag.requested_count"] == 1
+        assert load_attributes["agrag.loaded_count"] == 1
 
-    async def test_a_failing_hydration_read_records_and_stays_unset(self) -> None:
-        """A hydration failure returns [] and records on hydrate_chunks."""
+    async def test_a_failing_loading_read_records_and_stays_unset(self) -> None:
+        """A loading failure returns [] and records on load_chunks."""
         provider, exporter = _provider()
         tracer = provider.get_tracer("t")
         store = _vector_searching_store([VectorHit(id=uuid4(), score=0.9, payload={})])
@@ -161,10 +158,10 @@ class TestChunkRetrieverSpan:
 
         assert results == []
         spans = exporter.get_finished_spans()
-        hydrate = _named(spans, "agrag.retrieval.hydrate_chunks")
-        assert len(hydrate) == 1
-        assert [e for e in hydrate[0].events if e.name == "exception"]
-        assert hydrate[0].status.status_code.name != "ERROR"
+        load = _named(spans, "agrag.retrieval.load_chunks")
+        assert len(load) == 1
+        assert [e for e in load[0].events if e.name == "exception"]
+        assert load[0].status.status_code.name != "ERROR"
         chunk_span = _named(spans, "agrag.retrieval.chunk")[0]
         assert chunk_span.status.status_code.name != "ERROR"
         chunk_attributes = chunk_span.attributes
@@ -309,6 +306,33 @@ class TestEntityRetrieverSpans:
         searches = _named(spans, "agrag.retrieval.vector_search")
         assert len(searches) == 2
 
+    async def test_a_failing_loading_read_marks_the_span_as_error(self) -> None:
+        """A failed entity read propagates and sets the retrieval span to ERROR."""
+        provider, exporter = _provider()
+        tracer = provider.get_tracer("t")
+        hits = [VectorHit(id=uuid4(), score=0.9, payload={})]
+        store = _vector_searching_store(hits)
+
+        async def _read(query, params=None, **kwargs):
+            if "ResolvedEntity" in query or "MATCHES" in query:
+                return []
+            raise RuntimeError("read failed")
+
+        store.execute_read.side_effect = _read
+        retriever = EntityRetriever(
+            graph_store=store,
+            embedder=_MockEmbedder(),
+            settings=RetrievalSettings(),
+            entity_labels=["Person"],
+            tracer=tracer,
+        )
+
+        with pytest.raises(RuntimeError, match="read failed"):
+            await retriever.retrieve("q")
+
+        entity_span = _named(exporter.get_finished_spans(), "agrag.retrieval.entity")[0]
+        assert entity_span.status.status_code.name == "ERROR"
+
     async def test_tracer_none_leaves_the_host_span_untouched(self) -> None:
         """An untraced EntityRetriever marks no host span."""
         provider, exporter = _provider()
@@ -390,10 +414,10 @@ class TestText2CypherSpans:
             str(result.item.id) for result in results
         ]
 
-    async def test_entity_row_hydration_exports_its_own_span(
+    async def test_entity_row_loading_exports_its_own_span(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Hydrating an entity row exports a hydrate_entities span with counts."""
+        """Loading an entity row exports a load_entities span with counts."""
         provider, exporter = _provider()
         tracer = provider.get_tracer("t")
         store = AsyncMock()
@@ -421,14 +445,12 @@ class TestText2CypherSpans:
 
         await retriever.retrieve("who knows alice")
 
-        hydrates = _named(
-            exporter.get_finished_spans(), "agrag.retrieval.hydrate_entities"
-        )
-        assert len(hydrates) == 1
-        attributes = hydrates[0].attributes
+        loads = _named(exporter.get_finished_spans(), "agrag.graphdb.load_entities")
+        assert len(loads) == 1
+        attributes = loads[0].attributes
         assert attributes is not None
         assert attributes["agrag.requested_count"] == 1
-        assert attributes["agrag.hydrated_count"] == 1
+        assert attributes["agrag.loaded_count"] == 1
 
     async def test_a_failed_generation_records_and_stays_unset(
         self, monkeypatch: pytest.MonkeyPatch

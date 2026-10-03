@@ -7,13 +7,10 @@ from uuid import UUID
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.vector_record import VectorHit
-from agrag.cypher.entities import (
-    fetch_entity_neighbors_query,
-    hydrate_entities_by_id_query,
-)
+from agrag.cypher.entities import fetch_entity_neighbors_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.serialize import parse_entity_node
+from agrag.graphdb.entities import load_entities
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.settings import RetrievalSettings
@@ -173,14 +170,14 @@ class GraphCandidateSource(CandidateSource):
         The GraphStore-native path's payload already carries the real node
         properties and is validated directly. The VectorStore path's payload
         only carries ``label`` and ``text`` (the embedding source text), so
-        candidates are hydrated from the graph by hit id instead; a hit that
-        fails to hydrate, for example a deleted node, is
-        skipped rather than reconstructed from ``text``.
+        candidates are loaded from the graph by hit id instead. A hit with no
+        committed node, for example a deleted node, is skipped rather than
+        reconstructed from ``text``.
 
         Each candidate is paired with the cosine similarity of the
         ``VectorHit`` it came from. The association is keyed by hit id, never
         by position: either branch can drop an entity (malformed payload,
-        label mismatch, failed hydration) without dropping the corresponding
+        label mismatch, missing node) without dropping the corresponding
         score, so zipping the two lists positionally would silently shift
         scores onto the wrong entities.
 
@@ -188,6 +185,10 @@ class GraphCandidateSource(CandidateSource):
             ``(Entity, score)`` pairs in hit order. ``score`` is ``0.0`` for
             an entity whose id is absent from the hit map, which should not
             happen since candidate ids come from those same hits.
+
+        Raises:
+            ValueError: A stored node under a hit id is not a valid entity.
+            Exception: Whatever the graph store raised while loading hit nodes.
         """
         hits = await vector_search(
             mention.text,
@@ -216,37 +217,19 @@ class GraphCandidateSource(CandidateSource):
                 except Exception:  # malformed payloads are not candidates
                     continue
             return [(entity, hit_scores.get(entity.id, 0.0)) for entity in entities]
-        hydrated = await self._hydrate_hits(hits, mention.label)
-        return [(entity, hit_scores.get(entity.id, 0.0)) for entity in hydrated]
+        loaded = await self._load_hits(hits, mention.label)
+        return [(entity, hit_scores.get(entity.id, 0.0)) for entity in loaded]
 
-    async def _hydrate_hits(
-        self, hits: Sequence[VectorHit], label: str
-    ) -> list[Entity]:
-        """Hydrate VectorStore hits into real entities by graph id.
+    async def _load_hits(self, hits: Sequence[VectorHit], label: str) -> list[Entity]:
+        """Load VectorStore hits into real entities by graph id.
 
         Reconstructing the name from the payload's display text corrupts
         any name containing ":" (e.g. "Star Trek: Voyager"), so this fetches
-        the actual nodes instead.
+        the actual nodes instead. Read errors and invalid stored nodes
+        propagate to the caller.
         """
-        ids = [str(hit.id) for hit in hits]
-        try:
-            rows = await self.graph_store.execute_read(
-                hydrate_entities_by_id_query(), {"ids": ids, "job_id": None}
-            )
-        except Exception:
-            return []
-        entities: list[Entity] = []
-        for row in rows:
-            try:
-                node = row.get("n") if isinstance(row, dict) and "n" in row else row
-                entity = parse_entity_node(node)
-                if entity is None:
-                    entity = parse_entity_node(row)  # type: ignore[arg-type]
-                if entity is not None and entity.label == label:
-                    entities.append(entity)
-            except Exception:
-                continue
-        return entities
+        entities_by_id = await load_entities(self.graph_store, [hit.id for hit in hits])
+        return [entity for entity in entities_by_id.values() if entity.label == label]
 
 
 class PersistedCandidateSource(CandidateSource):

@@ -10,6 +10,7 @@ Graph storage backends and the build shortcut.
 **Modules:**
 
 - [**base**](#agrag-graphdb-base) – The GraphStore abstraction and its build shortcut helpers.
+- [**entities**](#agrag-graphdb-entities) – Load persisted entities by id.
 - [**errors**](#agrag-graphdb-errors) – Errors that the graph-store layer raises.
 - [**neo4j**](#agrag-graphdb-neo4j) – Neo4j graph-store backend.
 - [**serialize**](#agrag-graphdb-serialize) – Convert graph records to driver parameters and graph node rows to models.
@@ -1058,6 +1059,52 @@ Build a graph store from a backend name, or return one unchanged.
 - <code>ValueError</code> – `tracer` is given together with an already-constructed
   `value`.
 
+### `agrag.graphdb.entities` \{#agrag-graphdb-entities}
+
+Load persisted entities by id.
+
+**Functions:**
+
+- [**load_entities**](#agrag-graphdb-entities-load_entities) – Load the committed entities stored under the given ids.
+
+**Attributes:**
+
+- [**LOAD_BATCH_SIZE**](#agrag-graphdb-entities-LOAD_BATCH_SIZE) –
+
+#### `agrag.graphdb.entities.LOAD_BATCH_SIZE` \{#agrag-graphdb-entities-LOAD_BATCH_SIZE}
+
+```python
+LOAD_BATCH_SIZE = 1000
+```
+
+#### `agrag.graphdb.entities.load_entities` \{#agrag-graphdb-entities-load_entities}
+
+```python
+load_entities(graph_store:GraphStore, ids:Sequence[UUID], *, tracer:Tracer | None = None) -> dict[UUID, Entity]
+```
+
+Load the committed entities stored under the given ids.
+
+Reads in batches of `LOAD_BATCH_SIZE`. Entities that an in-flight
+Cutover Job wrote are not returned.
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](#agrag-graphdb-base-GraphStore)</code>) – Where the entities live.
+- **ids** (<code>Sequence\[UUID\]</code>) – The entity ids to load. Duplicates are read once.
+- **tracer** (<code>Tracer | None</code>) – Opens the loading span. None opens no recorded span.
+
+**Returns:**
+
+- <code>dict\[UUID, [Entity](common.md#agrag-common-data_models-entity-Entity)\]</code> – The entities by id. An id with no committed entity is absent from the
+- <code>dict\[UUID, [Entity](common.md#agrag-common-data_models-entity-Entity)\]</code> – result, so the caller decides whether that is an error.
+
+**Raises:**
+
+- <code>ValueError</code> – A stored node under a requested id cannot be parsed into
+  an entity.
+- <code>Exception</code> – Whatever `graph_store` raised while reading.
+
 ### `agrag.graphdb.errors` \{#agrag-graphdb-errors}
 
 Errors that the graph-store layer raises.
@@ -1451,7 +1498,7 @@ Convert graph records to driver parameters and graph node rows to models.
 **Functions:**
 
 - [**node_params**](#agrag-graphdb-serialize-node_params) – Build the `$records` entry for a node upsert.
-- [**parse_entity_node**](#agrag-graphdb-serialize-parse_entity_node) – Parse a GraphStore node row into an Entity.
+- [**parse_entity_node**](#agrag-graphdb-serialize-parse_entity_node) – Parse one stored entity's property dict into an Entity.
 - [**relation_params**](#agrag-graphdb-serialize-relation_params) – Build the `$records` entry for a relationship upsert.
 
 #### `agrag.graphdb.serialize.node_params` \{#agrag-graphdb-serialize-node_params}
@@ -1486,9 +1533,19 @@ rows.
 parse_entity_node(node:object) -> Entity | None
 ```
 
-Parse a GraphStore node row into an Entity.
+Parse one stored entity's property dict into an Entity.
 
-Handles both neo4j Node objects and plain dict mocks used in unit tests.
+Neo4j rows carry no labels, so the label is the prefix of the node's
+`merge_key`.
+
+**Parameters:**
+
+- **node** (<code>object</code>) – The node's properties, as a `RETURN n` row holds them.
+
+**Returns:**
+
+- <code>[Entity](common.md#agrag-common-data_models-entity-Entity) | None</code> – The entity, or `None` when `node` is not a property dict or has no
+- <code>[Entity](common.md#agrag-common-data_models-entity-Entity) | None</code> – usable `id` or `merge_key`.
 
 #### `agrag.graphdb.serialize.relation_params` \{#agrag-graphdb-serialize-relation_params}
 
