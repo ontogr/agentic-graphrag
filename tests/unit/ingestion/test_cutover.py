@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.vector_record import VectorRecord
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
@@ -311,7 +312,9 @@ class _FakeVectorStore(VectorStore):
         """No-op close."""
 
 
-async def _noop_cleanup() -> None:
+async def _noop_cleanup(
+    affected_entity_ids: list[UUID], component_seed_ids: list[UUID]
+) -> None:
     """Default cleanup step for jobs whose cleanup does nothing."""
 
 
@@ -329,6 +332,11 @@ def _write_job(pending_write, cleanup=_noop_cleanup, **kwargs) -> dict[str, Any]
         "cleanup": cleanup,
         **kwargs,
     }
+
+
+def _entity(entity_id: UUID) -> Entity:
+    """Build a raw Entity with a fixed id."""
+    return Entity(id=entity_id, label="Person", name=str(entity_id))
 
 
 def _tag_node(job_id: UUID) -> dict[str, Any]:
@@ -525,7 +533,7 @@ class TestRunCutoverJobLeaseRenewal:
         async def pending(job_id: UUID) -> None:
             store.nodes.append(_tag_node(job_id))
 
-        async def cleanup() -> None:
+        async def cleanup(affected: list[UUID], seeds: list[UUID]) -> None:
             nonlocal cleanup_cancelled
             cleanup_started.set()
             try:
@@ -634,7 +642,7 @@ class TestRunCutoverJobRollForward:
         async def pending(job_id: UUID) -> None:
             store.nodes.append(_tag_node(job_id))
 
-        async def cleanup() -> None:
+        async def cleanup(affected: list[UUID], seeds: list[UUID]) -> None:
             raise RuntimeError("pruning blew up")
 
         with pytest.raises(RuntimeError, match="pruning blew up"):
@@ -686,7 +694,7 @@ class TestRunCutoverJobRollForward:
 
         cleaned = False
 
-        async def cleanup() -> None:
+        async def cleanup(affected: list[UUID], seeds: list[UUID]) -> None:
             nonlocal cleaned
             cleaned = True
 
@@ -696,6 +704,90 @@ class TestRunCutoverJobRollForward:
         assert cleaned
         assert store.nodes
         assert store.jobs["doc-1"]["status"] == "cleaning"
+
+
+class TestRunCutoverJobComponentSeeds:
+    """The commit records which components the cleanup phase must rebuild."""
+
+    async def test_commit_records_one_seed_per_component(self) -> None:
+        """The commit stores each component's lowest member id, and cleanup gets it."""
+        store = _FakeCutoverStore()
+        low, high, other_low, other_high = sorted(uuid4() for _ in range(4))
+        components = [
+            ([], [_entity(high), _entity(low)]),
+            ([], [_entity(other_high), _entity(other_low)]),
+        ]
+        received: list[tuple[list[UUID], list[UUID]]] = []
+
+        async def pending(job_id: UUID) -> None:
+            return None
+
+        async def cleanup(affected: list[UUID], seeds: list[UUID]) -> None:
+            received.append((affected, seeds))
+
+        affected = [uuid4()]
+        await run_cutover_job(
+            **_write_job(
+                pending,
+                cleanup,
+                graph_store=store,
+                affected_entity_ids=affected,
+                components=components,
+            )
+        )
+
+        committed = [
+            params
+            for transaction in store.transactions
+            for query, params in transaction
+            if query == commit_job_query()
+        ]
+        expected = sorted([low, other_low], key=str)
+        assert len(committed) == 1
+        assert sorted(committed[0]["component_seed_ids"]) == [
+            str(seed) for seed in expected
+        ]
+        assert len(received) == 1
+        assert received[0][0] == affected
+        assert sorted(received[0][1], key=str) == expected
+
+    async def test_components_found_by_pending_write_are_recorded(self) -> None:
+        """A component appended while pending_write runs still reaches the commit."""
+        store = _FakeCutoverStore()
+        components: list[Any] = []
+        member_ids = [uuid4(), uuid4()]
+
+        async def pending(job_id: UUID) -> None:
+            components.append(([], [_entity(member) for member in member_ids]))
+
+        await run_cutover_job(
+            **_write_job(pending, graph_store=store, components=components)
+        )
+
+        committed = [
+            params
+            for transaction in store.transactions
+            for query, params in transaction
+            if query == commit_job_query()
+        ]
+        assert committed[0]["component_seed_ids"] == [str(min(member_ids, key=str))]
+
+    async def test_commit_records_no_seeds_without_components(self) -> None:
+        """A job that rebuilt nothing commits an empty seed list."""
+        store = _FakeCutoverStore()
+
+        async def pending(job_id: UUID) -> None:
+            return None
+
+        await run_cutover_job(**_write_job(pending, graph_store=store))
+
+        committed = [
+            params
+            for transaction in store.transactions
+            for query, params in transaction
+            if query == commit_job_query()
+        ]
+        assert committed[0]["component_seed_ids"] == []
 
 
 class TestClearPendingVectors:

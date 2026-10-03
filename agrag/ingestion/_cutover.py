@@ -25,6 +25,7 @@ from agrag.cypher.cutover_job_write import (
 )
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._document_lifecycle import close_open_part_of_edges
+from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.observability import get_tracer
 from agrag.vectordb.base import VectorStore
@@ -197,6 +198,15 @@ async def _rollback(
         await graph_store.execute_write(rollback_job_query(), {"job_id": str(job_id)})
 
 
+def _component_seed_ids(components: Sequence[MatchComponent]) -> list[UUID]:
+    """Return one member id for each component, the lowest by string order."""
+    return [
+        min((member.id for member in members), key=str)
+        for _, members in components
+        if members
+    ]
+
+
 async def _commit_pending_writes(
     *,
     job_id: UUID,
@@ -204,6 +214,7 @@ async def _commit_pending_writes(
     graph_store: GraphStore,
     close_document_node_id: UUID | None,
     keep_chunk_ids: Sequence[UUID],
+    component_seed_ids: Sequence[UUID],
 ) -> int:
     """Atomically expose pending graph writes and close superseded edges."""
     job_arg = str(job_id)
@@ -211,7 +222,11 @@ async def _commit_pending_writes(
     async with graph_store.transaction() as txn:
         committed = await txn.execute_write(
             commit_job_query(),
-            {"job_id": job_arg, "lease_token": token_arg},
+            {
+                "job_id": job_arg,
+                "lease_token": token_arg,
+                "component_seed_ids": [str(seed_id) for seed_id in component_seed_ids],
+            },
         )
         if not committed:
             raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before commit.")
@@ -240,7 +255,8 @@ async def run_cutover_job(
     vector_collections: Sequence[str],
     settings: CutoverJobSettings,
     pending_write: Callable[[UUID], Awaitable[T]],
-    cleanup: Callable[[], Awaitable[S]],
+    cleanup: Callable[[list[UUID], list[UUID]], Awaitable[S]],
+    components: Sequence[MatchComponent] = (),
     close_document_node_id: UUID | None = None,
     keep_chunk_ids: Sequence[UUID] = (),
     tracer: Tracer | None = None,
@@ -254,6 +270,10 @@ async def run_cutover_job(
     runs against the snapshot: a crash before commit rolls back on the
     next open, a crash after rolls forward, so the graph always converges
     to as-if-never-happened or as-if-completed.
+
+    The commit also records one seed id for each component ``pending_write``
+    rebuilt, so a resumed job can rebuild those components with the
+    same ``cleanup`` the live call runs.
 
     Args:
         verb: Which public method created this job.
@@ -269,8 +289,12 @@ async def run_cutover_job(
             of the TTL while the job runs, so a phase can outlast the TTL.
         pending_write: The caller's pipeline stages, tagging every write
             with the passed job id.
-        cleanup: Post-commit work over the snapshot (closing is already
-            done; typically deletion-triggered pruning).
+        cleanup: Post-commit work. Receives the affected-entity snapshot and
+            the component seed ids, the same two lists resume reads from the
+            job node (closing is already done).
+        components: The components ``pending_write`` rebuilds. The list
+            may still be empty when this call starts: ``pending_write``
+            appends to it, and the commit reads it once that step returns.
         close_document_node_id: The persisted Document node whose open
             PART_OF edges close atomically with the commit. None closes
             nothing, for add.
@@ -326,6 +350,8 @@ async def run_cutover_job(
                 vector_collections=vector_collections,
                 pending_write=pending_write,
                 cleanup=cleanup,
+                affected_entity_ids=affected_entity_ids,
+                components=components,
                 close_document_node_id=close_document_node_id,
                 keep_chunk_ids=keep_chunk_ids,
                 stop_renewal=stop_renewal,
@@ -360,7 +386,9 @@ async def _run_leased(
     vector_store: VectorStore | None,
     vector_collections: Sequence[str],
     pending_write: Callable[[UUID], Awaitable[T]],
-    cleanup: Callable[[], Awaitable[S]],
+    cleanup: Callable[[list[UUID], list[UUID]], Awaitable[S]],
+    affected_entity_ids: list[UUID],
+    components: Sequence[MatchComponent],
     close_document_node_id: UUID | None,
     keep_chunk_ids: Sequence[UUID],
     stop_renewal: asyncio.Event,
@@ -377,6 +405,7 @@ async def _run_leased(
             job_id=job_id,
         )
         raise
+    component_seed_ids = _component_seed_ids(components)
     commit_task = asyncio.create_task(
         _commit_pending_writes(
             job_id=job_id,
@@ -384,6 +413,7 @@ async def _run_leased(
             graph_store=graph_store,
             close_document_node_id=close_document_node_id,
             keep_chunk_ids=keep_chunk_ids,
+            component_seed_ids=component_seed_ids,
         )
     )
     try:
@@ -414,7 +444,7 @@ async def _run_leased(
     )
     if not started:
         raise CutoverJobLeaseError(f"Job {job_arg} lost its lease before cleanup.")
-    cleanup_result = await cleanup()
+    cleanup_result = await cleanup(affected_entity_ids, component_seed_ids)
     await clear_pending_vectors(
         vector_store=vector_store, collections=vector_collections, job_id=job_id
     )

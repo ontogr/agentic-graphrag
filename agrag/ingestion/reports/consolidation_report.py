@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from agrag.common.data_models.stage_failure import StageFailure
-from agrag.ingestion.materialize import MatchDecision
+from agrag.ingestion.resolved_entities import MatchDecision
 
 
 class ConsolidationReport(BaseModel):
@@ -13,8 +13,8 @@ class ConsolidationReport(BaseModel):
 
     Attributes:
         would_match: Confirmed non-exact matches found, whether applied or not.
-        applied: Whether the matches were materialized.
-        failures: Failures writing a match graph or resolved materialization.
+        applied: Whether the matches were applied.
+        failures: Failures writing a match graph or rebuilding resolved entities.
             Always empty when apply is False.
         ambiguous_count: LLM verdicts that came back uncertain. These
             pairs never merge.

@@ -1,4 +1,4 @@
-"""Tests for non-destructive entity-resolution materialization."""
+"""Tests for non-destructive entity-resolution rebuild."""
 
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -13,15 +13,20 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import UpsertFailure, UpsertResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.resolved_entity import ResolvedEntity
-from agrag.ingestion.materialize import (
-    MatchDecision,
-    compute_resolved_entity,
-    deactivate_match_and_rematerialize,
-    decisions_by_component,
-    matches_id,
-    write_matches_and_materialize,
+from agrag.cypher.resolution_write import (
+    replace_component_resolved_entities_query,
+    upsert_matches_query,
 )
 from agrag.ingestion.resolve import ResolvedMatch
+from agrag.ingestion.resolved_entities import (
+    MatchDecision,
+    compute_resolved_entity,
+    deactivate_match_and_rebuild,
+    decisions_by_component,
+    matches_id,
+    rebuild_resolved_entities,
+    write_matches_and_rebuild,
+)
 
 
 def _schema() -> GraphSchema:
@@ -45,7 +50,7 @@ def _entity(name: str, entity_id=None) -> Entity:
 
 
 class TestComputeResolvedEntity:
-    """Pure resolved-entity materialization."""
+    """Pure resolved-entity rebuild."""
 
     async def test_is_order_independent(self) -> None:
         """Member order does not affect cluster identity or membership."""
@@ -56,7 +61,7 @@ class TestComputeResolvedEntity:
         assert forward.member_ids == reverse.member_ids
 
     async def test_rejects_singleton_membership(self) -> None:
-        """A materialized cluster must have at least two members."""
+        """A resolved cluster must have at least two members."""
         with pytest.raises(ValueError, match="at least two"):
             await compute_resolved_entity([_entity("Ada")], _schema())
 
@@ -83,11 +88,11 @@ def _store(
     )
 
 
-class TestWriteMatchesAndMaterialize:
-    """Match materialization uses one atomic graph transaction."""
+class TestWriteMatchesAndRebuild:
+    """Match rebuild uses one atomic graph transaction."""
 
     async def test_raises_when_a_bulk_write_reports_failure(self) -> None:
-        """A failed membership write prevents a partial materialization result."""
+        """A failed membership write prevents a partial rebuild result."""
         first, second = _entity("Ada"), _entity("Ada Lovelace")
         store = _store(
             node_result=UpsertResult(written=1),
@@ -108,25 +113,25 @@ class TestWriteMatchesAndMaterialize:
         )
 
         with pytest.raises(RuntimeError, match="failed"):
-            await write_matches_and_materialize(
+            await write_matches_and_rebuild(
                 [decision], graph_store=store, schema=_schema(), members=[first, second]
             )
 
-    async def test_pending_job_does_not_delete_committed_materialization(self) -> None:
-        """A pending materialization leaves rollback-owned old rows intact."""
+    async def test_pending_job_does_not_delete_committed_resolved_entity(self) -> None:
+        """A pending rebuild leaves rollback-owned old rows intact."""
         first, second = _entity("Ada"), _entity("Ada Lovelace")
         store = _store(
             node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
         )
 
-        async def replace_materializations(
+        async def replace_resolved_entities(
             _query: str, parameters: dict[str, Any]
         ) -> list[dict[str, Any]]:
             if "pending_job_id" in parameters:
                 return [{"removed_resolved_entity_ids": []}]
             return [{"removed_resolved_entity_ids": [str(uuid4())]}]
 
-        store.current_transaction.execute_write.side_effect = replace_materializations
+        store.current_transaction.execute_write.side_effect = replace_resolved_entities
         decision = MatchDecision(
             entity_a_id=first.id,
             entity_b_id=second.id,
@@ -134,7 +139,7 @@ class TestWriteMatchesAndMaterialize:
             decided_at=datetime.now(UTC),
         )
 
-        result = await write_matches_and_materialize(
+        result = await write_matches_and_rebuild(
             [decision],
             graph_store=store,
             schema=_schema(),
@@ -147,10 +152,122 @@ class TestWriteMatchesAndMaterialize:
         assert replacement_call.args[1]["pending_job_id"] is not None
 
 
-class TestDeactivateMatch:
-    """Match corrections report stale materializations for vector cleanup."""
+def _member_row(seed: Entity, member: Entity) -> dict[str, Any]:
+    """Build one active-component row as the graph store returns it."""
+    return {
+        "seed_id": str(seed.id),
+        "member": {
+            "id": str(member.id),
+            "labels": ["Person"],
+            "properties": {"name": member.name},
+        },
+    }
 
-    async def test_returns_deleted_materialization_ids(self, monkeypatch) -> None:
+
+class TestRebuildResolvedEntities:
+    """Committed components are rebuilt from seeds without new matches."""
+
+    async def test_rebuilds_the_component_and_reports_replaced_ids(self) -> None:
+        """A seed's component gets one resolved entity, replacing the old one."""
+        first, second = _entity("Ada"), _entity("Ada Lovelace")
+        stale_id = uuid4()
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
+        )
+        transaction = store.current_transaction
+        transaction.execute_read.return_value = [
+            _member_row(first, first),
+            _member_row(first, second),
+        ]
+        transaction.execute_write.return_value = [
+            {"removed_resolved_entity_ids": [str(stale_id)]}
+        ]
+
+        results = await rebuild_resolved_entities(
+            [first.id], graph_store=store, schema=_schema()
+        )
+
+        assert len(results) == 1
+        assert results[0].resolved_entity.member_ids == sorted(
+            [first.id, second.id], key=str
+        )
+        assert results[0].removed_entity_ids == [stale_id]
+        queries = [call.args[0] for call in transaction.execute_write.await_args_list]
+        assert queries == [replace_component_resolved_entities_query()]
+        assert upsert_matches_query() not in queries
+        assert transaction.execute_write.await_args.args[1]["pending_job_id"] is None
+
+    async def test_memberships_carry_the_newest_committed_match_time(self) -> None:
+        """Rebuilt memberships keep the newest committed match decision time."""
+        first, second = _entity("Ada"), _entity("Ada Lovelace")
+        older = datetime(2026, 1, 1, tzinfo=UTC)
+        newer = datetime(2026, 2, 1, 12, 30, tzinfo=UTC)
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
+        )
+        transaction = store.current_transaction
+        transaction.execute_read.side_effect = [
+            [_member_row(first, first), _member_row(first, second)],
+            [{"decided_at": older.isoformat()}, {"decided_at": newer.isoformat()}],
+        ]
+        transaction.execute_write.return_value = [{"removed_resolved_entity_ids": []}]
+
+        await rebuild_resolved_entities([first.id], graph_store=store, schema=_schema())
+
+        decided_at_call = transaction.execute_read.await_args_list[1]
+        assert set(decided_at_call.args[1]["member_ids"]) == {
+            str(first.id),
+            str(second.id),
+        }
+        records = transaction.upsert_relations.await_args.args[0]
+        assert [record.properties["decided_at"] for record in records] == [
+            newer.isoformat(),
+            newer.isoformat(),
+        ]
+
+    async def test_seeds_in_one_component_rebuild_it_once(self) -> None:
+        """A second seed that the first rebuild already covered is skipped."""
+        first, second = _entity("Ada"), _entity("Ada Lovelace")
+        store = _store(
+            node_result=UpsertResult(written=1), relation_result=UpsertResult(written=2)
+        )
+        store.current_transaction.execute_read.return_value = [
+            _member_row(first, first),
+            _member_row(first, second),
+        ]
+        store.current_transaction.execute_write.return_value = [
+            {"removed_resolved_entity_ids": []}
+        ]
+
+        results = await rebuild_resolved_entities(
+            [first.id, second.id], graph_store=store, schema=_schema()
+        )
+
+        assert len(results) == 1
+        store.current_transaction.upsert_nodes.assert_awaited_once()
+
+    @pytest.mark.parametrize("members", [0, 1])
+    async def test_skips_a_seed_with_no_component_left(self, members: int) -> None:
+        """A component that shrank below two members has nothing to rebuild."""
+        seed = _entity("Ada")
+        store = _store()
+        store.current_transaction.execute_read.return_value = [_member_row(seed, seed)][
+            :members
+        ]
+
+        results = await rebuild_resolved_entities(
+            [seed.id], graph_store=store, schema=_schema()
+        )
+
+        assert results == []
+        store.current_transaction.execute_write.assert_not_awaited()
+        store.current_transaction.upsert_nodes.assert_not_awaited()
+
+
+class TestDeactivateMatch:
+    """Match corrections report stale resolved entities for vector cleanup."""
+
+    async def test_returns_deleted_resolved_entity_ids(self, monkeypatch) -> None:
         """Only replaced derived IDs are returned after the transaction commits."""
         first, second, stale_id = _entity("Ada"), _entity("Ada Lovelace"), uuid4()
         store = _store(
@@ -168,10 +285,10 @@ class TestDeactivateMatch:
             [{"removed_resolved_entity_ids": [str(stale_id)]}],
         ]
         monkeypatch.setattr(
-            "agrag.ingestion.materialize.parse_entity_node", lambda node: node
+            "agrag.ingestion.resolved_entities.parse_entity_node", lambda node: node
         )
 
-        result = await deactivate_match_and_rematerialize(
+        result = await deactivate_match_and_rebuild(
             uuid4(), graph_store=store, schema=_schema()
         )
 
@@ -196,13 +313,13 @@ class TestDeactivateMatch:
             ],
         ]
         monkeypatch.setattr(
-            "agrag.ingestion.materialize.parse_entity_node", lambda node: node
+            "agrag.ingestion.resolved_entities.parse_entity_node", lambda node: node
         )
         recreated = ResolvedEntity(
             id=uuid4(), label="Person", name="Ada", member_ids=[first.id, second.id]
         )
         monkeypatch.setattr(
-            "agrag.ingestion.materialize.compute_resolved_entity",
+            "agrag.ingestion.resolved_entities.compute_resolved_entity",
             AsyncMock(return_value=recreated),
         )
         store.current_transaction.execute_write.side_effect = [
@@ -218,7 +335,7 @@ class TestDeactivateMatch:
             ],
         ]
 
-        result = await deactivate_match_and_rematerialize(
+        result = await deactivate_match_and_rebuild(
             uuid4(), graph_store=store, schema=_schema()
         )
 
@@ -230,7 +347,7 @@ class TestDeactivateMatch:
         store = _store()
 
         with pytest.raises(ValueError, match="does not exist"):
-            await deactivate_match_and_rematerialize(
+            await deactivate_match_and_rebuild(
                 uuid4(), graph_store=store, schema=_schema()
             )
 
@@ -240,11 +357,11 @@ class TestDeactivateMatch:
         store = _store()
         store.current_transaction.execute_read.return_value = [{"a": first, "b": first}]
         monkeypatch.setattr(
-            "agrag.ingestion.materialize.parse_entity_node", lambda node: node
+            "agrag.ingestion.resolved_entities.parse_entity_node", lambda node: node
         )
 
         with pytest.raises(ValueError, match="invalid endpoints"):
-            await deactivate_match_and_rematerialize(
+            await deactivate_match_and_rebuild(
                 uuid4(), graph_store=store, schema=_schema()
             )
 
@@ -259,11 +376,11 @@ class TestDeactivateMatch:
         ]
         store.current_transaction.execute_write.return_value = []
         monkeypatch.setattr(
-            "agrag.ingestion.materialize.parse_entity_node", lambda node: node
+            "agrag.ingestion.resolved_entities.parse_entity_node", lambda node: node
         )
 
         with pytest.raises(ValueError, match="does not exist"):
-            await deactivate_match_and_rematerialize(
+            await deactivate_match_and_rebuild(
                 uuid4(), graph_store=store, schema=_schema()
             )
 
@@ -272,7 +389,7 @@ class TestDecisionsByComponent:
     """Resolution evidence maps to the raw components it changes."""
 
     def test_groups_transitive_evidence_after_mapping_mentions(self) -> None:
-        """Two transitive decisions rematerialize their three raw entities once."""
+        """Two transitive decisions rebuild their three raw entities once."""
         first, second, third = uuid4(), uuid4(), uuid4()
         now = datetime.now(UTC)
         matches = [
@@ -325,7 +442,7 @@ class TestDecisionsByComponent:
         assert matches_id(first, second) == matches_id(second, first)
 
     async def test_rejects_decisions_outside_the_component(self) -> None:
-        """A write cannot create a match to a member it did not rematerialize."""
+        """A write cannot create a match to a member it did not rebuild."""
         first, second, outside = (
             _entity("Ada"),
             _entity("Ada Lovelace"),
@@ -340,6 +457,6 @@ class TestDecisionsByComponent:
         )
 
         with pytest.raises(ValueError, match="supplied component"):
-            await write_matches_and_materialize(
+            await write_matches_and_rebuild(
                 [decision], graph_store=store, schema=_schema(), members=[first, second]
             )

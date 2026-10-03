@@ -22,7 +22,7 @@ from agrag.common.data_models.vector_record import Distance, VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion import Graph
-from agrag.ingestion.materialize import prune_orphaned_entities
+from agrag.ingestion.resolved_entities import prune_orphaned_entities
 
 
 def _schema() -> GraphSchema:
@@ -228,19 +228,17 @@ class TestPruneOrphanedEntities:
 
         assert result.removed_entity_ids == [first, third]
         assert result.removed_resolved_entity_ids == [cluster]
-        assert result.rematerialized_entities == []
-        materialization_calls = [
+        assert result.rebuilt_entities == []
+        rebuild_calls = [
             parameters
             for query, parameters in store.write_calls
             if "$pending_job_id" in query and isinstance(parameters, dict)
         ]
-        assert materialization_calls == [
-            {"member_ids": [str(second)], "pending_job_id": None}
-        ]
+        assert rebuild_calls == [{"member_ids": [str(second)], "pending_job_id": None}]
         for deleted_ids in _delete_params(store):
             assert str(second) not in deleted_ids
 
-    async def test_rematerializes_over_remaining_pair(self) -> None:
+    async def test_rebuilds_over_remaining_pair(self) -> None:
         """Two survivors form a new cluster replacing the old one."""
         first, second, third, cluster = (uuid4() for _ in range(4))
         members = [first, second, third]
@@ -267,16 +265,14 @@ class TestPruneOrphanedEntities:
 
         assert result.removed_entity_ids == [first]
         assert result.removed_resolved_entity_ids == [cluster]
-        assert len(result.rematerialized_entities) == 1
-        assert result.rematerialized_entities[0].member_ids == sorted(
-            [second, third], key=str
-        )
-        materialization_calls = [
+        assert len(result.rebuilt_entities) == 1
+        assert result.rebuilt_entities[0].member_ids == sorted([second, third], key=str)
+        rebuild_calls = [
             parameters
             for query, parameters in store.write_calls
             if "$pending_job_id" in query and isinstance(parameters, dict)
         ]
-        assert materialization_calls == [
+        assert rebuild_calls == [
             {
                 "member_ids": [str(second), str(third)],
                 "pending_job_id": None,

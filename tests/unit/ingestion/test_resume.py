@@ -234,6 +234,128 @@ class TestResumeIncompleteJobs:
         assert handled == [job_id]
         assert store.jobs[job_id]["status"] == "done"
 
+    async def test_roll_forward_receives_both_recorded_lists(self) -> None:
+        """Cleanup gets the snapshot and component seeds the job recorded."""
+        job_id = str(uuid4())
+        affected, seed = uuid4(), uuid4()
+        store = _FakeResumeStore(
+            [
+                {
+                    "id": job_id,
+                    "status": "committed",
+                    "affected_entity_ids": [str(affected)],
+                    "component_seed_ids": [str(seed), "not-a-uuid"],
+                    "lease_expired": True,
+                }
+            ]
+        )
+        calls: list[tuple[list[Any], list[Any]]] = []
+
+        async def _record(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+            calls.append((entity_ids, seed_ids))
+
+        handled = await resume_incomplete_jobs(store, roll_forward=_record)
+
+        assert handled == [job_id]
+        assert calls == [([affected], [seed])]
+        assert store.jobs[job_id]["status"] == "done"
+
+    async def test_add_job_with_only_seeds_still_runs_cleanup(self) -> None:
+        """A job with no affected entities replays when it recorded components.
+
+        An add never has an affected-entity snapshot, so its seeds are the
+        only work its cleanup has.
+        """
+        job_id = str(uuid4())
+        seed = uuid4()
+        store = _FakeResumeStore(
+            [
+                {
+                    "id": job_id,
+                    "status": "committed",
+                    "affected_entity_ids": [],
+                    "component_seed_ids": [str(seed)],
+                    "lease_expired": True,
+                }
+            ]
+        )
+        calls: list[tuple[list[Any], list[Any]]] = []
+
+        async def _record(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+            calls.append((entity_ids, seed_ids))
+
+        handled = await resume_incomplete_jobs(store, roll_forward=_record)
+
+        assert handled == [job_id]
+        assert calls == [([], [seed])]
+
+    async def test_seed_cleanup_failure_leaves_the_job_cleaning(self) -> None:
+        """A failed rebuild keeps the job in cleaning so a later open retries it."""
+        job_id = str(uuid4())
+        store = _FakeResumeStore(
+            [
+                {
+                    "id": job_id,
+                    "status": "committed",
+                    "affected_entity_ids": [],
+                    "component_seed_ids": [str(uuid4())],
+                    "lease_expired": True,
+                }
+            ]
+        )
+
+        async def _failing(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+            raise RuntimeError("rebuild blew up")
+
+        handled = await resume_incomplete_jobs(store, roll_forward=_failing)
+
+        assert handled == []
+        assert store.jobs[job_id]["status"] == "cleaning"
+
+    async def test_job_with_seeds_is_not_finished_without_cleanup(self) -> None:
+        """Without a cleanup callable, a job that has work left stays cleaning."""
+        job_id = str(uuid4())
+        store = _FakeResumeStore(
+            [
+                {
+                    "id": job_id,
+                    "status": "committed",
+                    "affected_entity_ids": [],
+                    "component_seed_ids": [str(uuid4())],
+                    "lease_expired": True,
+                }
+            ]
+        )
+
+        handled = await resume_incomplete_jobs(store)
+
+        assert handled == []
+        assert store.jobs[job_id]["status"] == "cleaning"
+
+    async def test_job_without_work_skips_cleanup(self) -> None:
+        """A job that recorded neither list finishes without calling cleanup."""
+        job_id = str(uuid4())
+        store = _FakeResumeStore(
+            [
+                {
+                    "id": job_id,
+                    "status": "committed",
+                    "affected_entity_ids": [],
+                    "component_seed_ids": [],
+                    "lease_expired": True,
+                }
+            ]
+        )
+        calls: list[object] = []
+
+        async def _record(entity_ids: list[Any], seed_ids: list[Any]) -> None:
+            calls.append((entity_ids, seed_ids))
+
+        handled = await resume_incomplete_jobs(store, roll_forward=_record)
+
+        assert handled == [job_id]
+        assert calls == []
+
     async def test_committed_job_prune_failure_leaves_it_cleaning(self) -> None:
         """A pruning failure leaves the job claimed but not finished.
 
@@ -252,7 +374,7 @@ class TestResumeIncompleteJobs:
             ]
         )
 
-        async def _failing_prune(entity_ids: list[Any]) -> None:
+        async def _failing_prune(entity_ids: list[Any], seed_ids: list[Any]) -> None:
             raise RuntimeError("prune blew up")
 
         handled = await resume_incomplete_jobs(store, roll_forward=_failing_prune)
@@ -274,7 +396,7 @@ class TestResumeIncompleteJobs:
             ]
         )
 
-        async def _slow_prune(entity_ids: list[Any]) -> None:
+        async def _slow_prune(entity_ids: list[Any], seed_ids: list[Any]) -> None:
             await asyncio.sleep(1.1)
 
         handled = await resume_incomplete_jobs(

@@ -1,4 +1,4 @@
-"""Cypher reads for local entity-resolution materialization."""
+"""Cypher reads for local entity-resolution rebuild."""
 
 from agrag.common.data_models.resolved_entity import (
     MATCHES_RELATION,
@@ -22,7 +22,7 @@ def fetch_active_component_members_query() -> str:
     """Build Cypher returning active match components from seed ids.
 
     Pending visibility is job-scoped, not a plain exclusion: the
-    materialization pass runs inside its own job's pending phase and must
+    rebuild pass runs inside its own job's pending phase and must
     see the entities and matches that same job just wrote, while still
     excluding every other in-flight job's. A null ``$job_id`` reduces both
     guards to committed-only, which is what every caller outside a job
@@ -45,12 +45,32 @@ def fetch_active_component_members_query() -> str:
     )
 
 
+def fetch_committed_component_decided_at_query() -> str:
+    """Build Cypher returning when each committed match of a component was decided.
+
+    Reads the active committed matches between the given members directly,
+    so the cost does not depend on how many paths join them.
+
+    Returns:
+        Parameterized Cypher expecting $member_ids (list of string ids).
+        Returns one row per distinct ``decided_at`` value among the active,
+        committed matches whose two ends are both members.
+    """
+    return (
+        f"MATCH (a:{NODE_IDENTITY_LABEL})-[match:{MATCHES_RELATION}]->"
+        f"(b:{NODE_IDENTITY_LABEL}) "
+        "WHERE a.id IN $member_ids AND b.id IN $member_ids "
+        "AND match.active = true AND match._pending_job_id IS NULL "
+        "RETURN DISTINCT match.decided_at AS decided_at"
+    )
+
+
 def hydrate_resolved_entities_by_id_query() -> str:
-    """Build Cypher hydrating materializations returned by vector search.
+    """Build Cypher hydrating resolved entities returned by vector search.
 
     Pending visibility is job-scoped: a null ``$job_id`` reduces the
     guard to committed-only, so retrieval never hydrates a
-    ResolvedEntity an uncommitted job materialized.
+    ResolvedEntity an uncommitted job rebuilt.
 
     Returns:
         Parameterized Cypher expecting $ids (list of string ids) and
@@ -66,11 +86,11 @@ def hydrate_resolved_entities_by_id_query() -> str:
 
 
 def fetch_active_resolved_member_ids_query() -> str:
-    """Build Cypher finding raw hits hidden by an active materialization.
+    """Build Cypher finding raw hits hidden by an active resolved entity.
 
     Pending visibility is job-scoped on both the edge and the resolved
     node: a null ``$job_id`` reduces both guards to committed-only, so
-    an uncommitted job's materialization never hides a raw hit.
+    an uncommitted job's resolved entity never hides a raw hit.
 
     Returns:
         Parameterized Cypher expecting $ids (list of string ids) and
@@ -104,7 +124,7 @@ def fetch_active_matches_among_ids_query() -> str:
 def fetch_entities_with_open_evidence_query() -> str:
     """Build Cypher returning candidate ids with visible open evidence.
 
-    A null ``$job_id`` only counts committed evidence. A materialization
+    A null ``$job_id`` only counts committed evidence. A rebuild
     pass can instead supply its own pending job id to see its new writes.
     """
     return (

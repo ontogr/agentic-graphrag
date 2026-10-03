@@ -270,6 +270,102 @@ async def _cleanup(store: GraphStore, key: str, probe_name: str | None) -> None:
         )
 
 
+_PROBE_TEXT = "crashprobe alpha version one. " * 60
+_PLAIN_TEXT = "plain filler version one. " * 60
+
+
+async def _resolved_member_counts(store: GraphStore, names: list[str]) -> list[int]:
+    """Return the member count of every resolved entity the probes belong to."""
+    rows = await store.execute_read(
+        "MATCH (e:Person)-[:RESOLVED_AS]->(r:ResolvedEntity) "
+        "WHERE e.name IN $names "
+        "RETURN r.id AS id, count(DISTINCT e) AS members",
+        {"names": names},
+    )
+    return sorted(int(row["members"]) for row in rows)
+
+
+async def _grow_component(
+    prefix: str, *, verb: str, monkeypatch: pytest.MonkeyPatch | None
+) -> dict[str, Any]:
+    """Grow a two-member resolved entity with a third document's job.
+
+    Two documents mention names that match, so they share one resolved
+    entity. The third job adds a matching mention, by ``add`` or by
+    ``update`` of a mention-free document, and so replaces that resolved
+    entity with one that has three members.
+
+    Args:
+        prefix: The shared name stem. It must differ between scenarios so
+            their entities never match each other.
+        verb: ``"add"`` or ``"update"``, the call that grows the component.
+        monkeypatch: When set, the third job dies after its commit and
+            before its cleanup, and a reopened graph recovers it.
+
+    Returns:
+        The resolved-entity member counts after the job (``final``), and for
+        a crashed job also before recovery (``before_resume``) and the job
+        status after it (``status_after``).
+    """
+    store = build_graph_store("neo4j")
+    await store.connect()
+    names = [f"{prefix} {uuid4().hex[:6]}" for _ in range(3)]
+    keys = [
+        f"crash://{prefix.split(maxsplit=1)[0].lower()}-{i}-{uuid4().hex}"
+        for i in range(3)
+    ]
+    outcome: dict[str, Any] = {}
+    try:
+        for index in range(2):
+            graph = await _open_graph(store, _KeywordExtractor(names[index]))
+            await graph.add(documents=[_document(keys[index], _PROBE_TEXT)])
+        graph = await _open_graph(store, _KeywordExtractor(names[2]))
+        if verb == "update":
+            await graph.add(documents=[_document(keys[2], _PLAIN_TEXT)])
+
+        async def grow() -> object:
+            if verb == "update":
+                return await graph.update(keys[2], text=_PROBE_TEXT)
+            return await graph.add(documents=[_document(keys[2], _PROBE_TEXT)])
+
+        if monkeypatch is None:
+            await grow()
+        else:
+
+            async def _die(self: Graph, *args: object, **kwargs: object) -> None:
+                raise RuntimeError("cleanup died after commit")
+
+            monkeypatch.setattr(Graph, "_finish_job", _die)
+            with pytest.raises(RuntimeError, match="cleanup died after commit"):
+                await grow()
+            monkeypatch.undo()
+            outcome["before_resume"] = await _resolved_member_counts(store, names)
+            await _age_lease(store, keys[2])
+            recovered = build_graph_store("neo4j")
+            await recovered.connect()
+            try:
+                await Graph.open(
+                    schema=GENERIC,
+                    graph_store=recovered,
+                    embedder=_FixedEmbedder(),
+                    extractor=_KeywordExtractor(names[2]),
+                )
+            finally:
+                await recovered.close()
+            outcome["status_after"] = await _job_status(store, keys[2])
+        outcome["final"] = await _resolved_member_counts(store, names)
+        return outcome
+    finally:
+        await store.execute_write(
+            "MATCH (e:Person) WHERE e.name IN $names "
+            "OPTIONAL MATCH (e)-[:RESOLVED_AS]->(r:ResolvedEntity) DETACH DELETE r",
+            {"names": names},
+        )
+        for key, name in zip(keys, names, strict=True):
+            await _cleanup(store, key, name)
+        await store.close()
+
+
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestCrashBeforeCommit:
     """A worker that dies before its commit leaves nothing behind."""
@@ -511,6 +607,28 @@ class TestCrashAfterCommit:
             await _cleanup(store, control_key, control_probe)
             await _cleanup(store, crashed_key, crashed_probe)
             await store.close()
+
+    @pytest.mark.parametrize("verb", ["add", "update"])
+    async def test_roll_forward_replaces_superseded_resolved_entity(
+        self, monkeypatch: pytest.MonkeyPatch, verb: str
+    ) -> None:
+        """Recovery replaces the resolved entity a grown component supersedes.
+
+        Two documents already share one resolved entity. A third job grows
+        that component, then dies after its commit and before its cleanup.
+        Both resolved entities are live at that point, so recovery has to
+        delete the old one. An uninterrupted run of the same steps is the
+        control.
+        """
+        control = await _grow_component("Zzxqy Alphaprobe", verb=verb, monkeypatch=None)
+        crashed = await _grow_component(
+            "Qvwxz Betaprobe", verb=verb, monkeypatch=monkeypatch
+        )
+
+        assert control["final"] == [3]
+        assert sorted(crashed["before_resume"]) == [2, 3]
+        assert crashed["status_after"] == "done"
+        assert crashed["final"] == control["final"]
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")

@@ -39,7 +39,7 @@ class _Embedder(Embedder):
 
 
 def _entity() -> ResolvedEntity:
-    """Build one materialized entity."""
+    """Build one resolved entity."""
     return ResolvedEntity(
         id=uuid4(),
         label="Person",
@@ -157,7 +157,7 @@ class TestEmbedResolvedEntities:
         vector_store.delete.assert_awaited_once_with("resolved", [entity.id])
         assert entity.vector_sync_status == "failed"
 
-    async def test_retries_a_failed_synchronization_with_a_new_materialization_pass(
+    async def test_retries_a_failed_synchronization_with_a_new_rebuild_pass(
         self,
     ) -> None:
         """A later pass can make a previously failed derived vector searchable."""
@@ -218,8 +218,8 @@ class TestEmbedResolvedEntities:
         vector_store.delete.assert_awaited_once_with("resolved", [entity.id])
         assert entity.embedding is None
 
-    async def test_returns_without_writing_for_no_materialized_entities(self) -> None:
-        """An empty materialization batch avoids all external calls."""
+    async def test_returns_without_writing_for_no_rebuilt_entities(self) -> None:
+        """An empty rebuild batch avoids all external calls."""
         graph_store = SimpleNamespace(execute_write=AsyncMock())
         vector_store = SimpleNamespace(upsert=AsyncMock(), delete=AsyncMock())
 
@@ -265,7 +265,7 @@ class TestEmbedResolvedEntities:
         """An entity a concurrent pass already replaced keeps its prior status.
 
         Regression test: the guarded embedding write can match zero rows for
-        one entity in a batch (a concurrent materialization replaced or
+        one entity in a batch (a concurrent rebuild replaced or
         deleted it) while matching the rest. Only the matched entities may be
         mirrored to the vector store or marked synced.
         """
@@ -325,7 +325,7 @@ class TestEmbedResolvedEntities:
 
 
 class TestSynchronizeResolvedEntityVectors:
-    """Replacement vectors do not outlive their materialized graph nodes."""
+    """Replacement vectors do not outlive their rebuilt graph nodes."""
 
     async def test_deletes_replaced_vectors_before_embedding_current_entities(
         self,
@@ -368,7 +368,7 @@ class TestSynchronizeResolvedEntityVectors:
     async def test_skips_delete_for_a_republished_id(self) -> None:
         """A component recreated with its own deterministic id is not deleted.
 
-        Reprocessing an unchanged member set materializes the same
+        Reprocessing an unchanged member set rebuilds the same
         deterministic resolved id again, so it appears in both the removed
         and the republished set. Deleting it would race the republish that
         follows in the same call, and could delete a live vector if a
@@ -507,9 +507,9 @@ class TestSynchronizeResolvedEntityVectors:
     async def test_retries_deletion_for_an_id_superseded_within_the_batch(
         self,
     ) -> None:
-        """A materialization superseded by a later one in the batch is not orphaned.
+        """A rebuild superseded by a later one in the batch is not orphaned.
 
-        Consolidation can batch a materialization that recreated a
+        Consolidation can batch a rebuild that recreated a
         component under its old id together with a later one that merges
         it into a bigger component. Both ids get treated as "about to be
         republished" up front, but only the surviving entity's guarded

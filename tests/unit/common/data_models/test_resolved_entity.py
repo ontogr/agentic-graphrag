@@ -1,4 +1,4 @@
-"""Tests for materialized resolved-entity data models."""
+"""Tests for resolved-entity data models."""
 
 from uuid import uuid4
 

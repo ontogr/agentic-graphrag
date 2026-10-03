@@ -16,7 +16,7 @@ def exact_resolution_groups(
     A mention with a persisted exact match joins every other mention that
     resolves to the same raw Entity. Other mentions join only when their
     labels and normalized names match. Semantic matches deliberately remain
-    separate raw records and are materialized through ``MATCHES`` later.
+    separate raw records and become resolved entities through ``MATCHES`` later.
     """
     by_identity: dict[tuple[str, str], list[int]] = defaultdict(list)
     for index, mention in enumerate(mentions):

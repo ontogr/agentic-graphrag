@@ -12,11 +12,11 @@ The ingestion package.
 - [**community**](#agrag-ingestion-community) – Community detection: hierarchical Leiden over the entity graph.
 - [**extract**](#agrag-ingestion-extract) – The Extractor interface: reads one Chunk and produces an ExtractionResult.
 - [**graph**](#agrag-ingestion-graph) – The public Graph API for ingestion.
-- [**materialize**](#agrag-ingestion-materialize) – Non-destructive match persistence and resolved-entity computation.
 - [**merge**](#agrag-ingestion-merge) – Merge mechanics: computing how a resolved group of mentions and entities combine.
 - [**reports**](#agrag-ingestion-reports) – Reports returned by Graph pipeline operations.
 - [**resolve**](#agrag-ingestion-resolve) – Entity resolution public API.
-- [**resolved_embeddings**](#agrag-ingestion-resolved_embeddings) – Embedding and vector synchronization for materialized resolved entities.
+- [**resolved_embeddings**](#agrag-ingestion-resolved_embeddings) – Embedding and vector synchronization for resolved-entities.
+- [**resolved_entities**](#agrag-ingestion-resolved_entities) – Non-destructive match persistence and resolved-entity computation.
 - [**settings**](#agrag-ingestion-settings) – Configuration for the Cutover Job crash-recovery machine.
 - [**stats**](#agrag-ingestion-stats) – Per-stage observability types for the ingestion pipeline.
 
@@ -245,9 +245,9 @@ Report from Graph.consolidate().
 
 **Attributes:**
 
-- [**would_match**](#agrag-ingestion-ConsolidationReport-would_match) (<code>list\[[MatchDecision](#agrag-ingestion-materialize-MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
-- [**applied**](#agrag-ingestion-ConsolidationReport-applied) (<code>bool</code>) – Whether the matches were materialized.
-- [**failures**](#agrag-ingestion-ConsolidationReport-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
+- [**would_match**](#agrag-ingestion-ConsolidationReport-would_match) (<code>list\[[MatchDecision](#agrag-ingestion-resolved_entities-MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
+- [**applied**](#agrag-ingestion-ConsolidationReport-applied) (<code>bool</code>) – Whether the matches were applied.
+- [**failures**](#agrag-ingestion-ConsolidationReport-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Failures writing a match graph or rebuilding resolved entities.
   Always empty when apply is False.
 - [**ambiguous_count**](#agrag-ingestion-ConsolidationReport-ambiguous_count) (<code>int</code>) – LLM verdicts that came back uncertain. These
   pairs never merge.
@@ -684,7 +684,8 @@ ceil(L * MAX_LLM_PAIRS / 10) requests for L labels. See Graph.add.
 
 **Parameters:**
 
-- **apply** (<code>bool</code>) – Materialize the confirmed matches. False produces a report only.
+- **apply** (<code>bool</code>) – Write the confirmed matches and rebuild resolved entities.
+  False produces a report only.
 
 **Returns:**
 
@@ -930,7 +931,7 @@ Report from Graph.reevaluate().
 
 - [**entities_reevaluated**](#agrag-ingestion-ReevaluationReport-entities_reevaluated) (<code>list\[UUID\]</code>) – Input entity ids reevaluated, deduped with
   input order preserved.
-- [**matches_added**](#agrag-ingestion-ReevaluationReport-matches_added) (<code>list\[[MatchDecision](#agrag-ingestion-materialize-MatchDecision)\]</code>) – Confirmed matches with no active edge, now written.
+- [**matches_added**](#agrag-ingestion-ReevaluationReport-matches_added) (<code>list\[[MatchDecision](#agrag-ingestion-resolved_entities-MatchDecision)\]</code>) – Confirmed matches with no active edge, now written.
 - [**matches_removed**](#agrag-ingestion-ReevaluationReport-matches_removed) (<code>list\[UUID\]</code>) – Ids of active match edges the resolver did not
   confirm, now deactivated.
 - [**unchanged_count**](#agrag-ingestion-ReevaluationReport-unchanged_count) (<code>int</code>) – Input entities with no incident added or removed
@@ -1791,7 +1792,8 @@ ceil(L * MAX_LLM_PAIRS / 10) requests for L labels. See Graph.add.
 
 **Parameters:**
 
-- **apply** (<code>bool</code>) – Materialize the confirmed matches. False produces a report only.
+- **apply** (<code>bool</code>) – Write the confirmed matches and rebuild resolved entities.
+  False produces a report only.
 
 **Returns:**
 
@@ -2044,252 +2046,6 @@ SourceType = Union[str, Path]
 ```python
 SourcesType = Union[SourceType, Sequence[SourceType]]
 ```
-
-### `agrag.ingestion.materialize` \{#agrag-ingestion-materialize}
-
-Non-destructive match persistence and resolved-entity computation.
-
-**Classes:**
-
-- [**DeactivationResult**](#agrag-ingestion-materialize-DeactivationResult) – Materializations created after a match correction and stale ids removed.
-- [**MatchDecision**](#agrag-ingestion-materialize-MatchDecision) – A confirmed non-exact entity match ready to persist.
-- [**MaterializationResult**](#agrag-ingestion-materialize-MaterializationResult) – The derived entity created and prior derived ids it replaced.
-- [**PruningResult**](#agrag-ingestion-materialize-PruningResult) – Ids removed and clusters rebuilt by deletion-triggered pruning.
-
-**Functions:**
-
-- [**compute_resolved_entity**](#agrag-ingestion-materialize-compute_resolved_entity) – Compute a resolved entity from its current member data only.
-- [**deactivate_match_and_rematerialize**](#agrag-ingestion-materialize-deactivate_match_and_rematerialize) – Deactivate a match and return its replacements and deleted derived IDs.
-- [**decisions_by_component**](#agrag-ingestion-materialize-decisions_by_component) – Map resolution evidence to raw ids and group it by connected component.
-- [**match_decision_components**](#agrag-ingestion-materialize-match_decision_components) – Group persisted match decisions by their connected raw component.
-- [**matches_id**](#agrag-ingestion-materialize-matches_id) – Return the order-independent deterministic id for an entity match.
-- [**prune_orphaned_entities**](#agrag-ingestion-materialize-prune_orphaned_entities) – Delete candidates with no open-chunk evidence and rebuild clusters.
-- [**write_matches_and_materialize**](#agrag-ingestion-materialize-write_matches_and_materialize) – Persist matches and materialize their supplied connected component.
-
-**Attributes:**
-
-- [**MatchComponent**](#agrag-ingestion-materialize-MatchComponent) – One connected component: its match decisions and its raw member entities.
-
-#### `agrag.ingestion.materialize.DeactivationResult` \{#agrag-ingestion-materialize-DeactivationResult}
-
-Bases: <code>BaseModel</code>
-
-Materializations created after a match correction and stale ids removed.
-
-**Attributes:**
-
-- [**removed_entity_ids**](#agrag-ingestion-materialize-DeactivationResult-removed_entity_ids) (<code>list\[UUID\]</code>) –
-- [**resolved_entities**](#agrag-ingestion-materialize-DeactivationResult-resolved_entities) (<code>list\[[ResolvedEntity](common.md#agrag-common-data_models-resolved_entity-ResolvedEntity)\]</code>) –
-
-##### `agrag.ingestion.materialize.DeactivationResult.removed_entity_ids` \{#agrag-ingestion-materialize-DeactivationResult-removed_entity_ids}
-
-```python
-removed_entity_ids: list[UUID]
-```
-
-##### `agrag.ingestion.materialize.DeactivationResult.resolved_entities` \{#agrag-ingestion-materialize-DeactivationResult-resolved_entities}
-
-```python
-resolved_entities: list[ResolvedEntity]
-```
-
-#### `agrag.ingestion.materialize.MatchComponent` \{#agrag-ingestion-materialize-MatchComponent}
-
-```python
-MatchComponent = tuple[list[MatchDecision], list[Entity]]
-```
-
-One connected component: its match decisions and its raw member entities.
-
-#### `agrag.ingestion.materialize.MatchDecision` \{#agrag-ingestion-materialize-MatchDecision}
-
-Bases: <code>BaseModel</code>
-
-A confirmed non-exact entity match ready to persist.
-
-**Attributes:**
-
-- [**comparator**](#agrag-ingestion-materialize-MatchDecision-comparator) (<code>str</code>) –
-- [**decided_at**](#agrag-ingestion-materialize-MatchDecision-decided_at) (<code>datetime</code>) –
-- [**entity_a_id**](#agrag-ingestion-materialize-MatchDecision-entity_a_id) (<code>UUID</code>) –
-- [**entity_b_id**](#agrag-ingestion-materialize-MatchDecision-entity_b_id) (<code>UUID</code>) –
-- [**reasoning**](#agrag-ingestion-materialize-MatchDecision-reasoning) (<code>str | None</code>) –
-- [**score**](#agrag-ingestion-materialize-MatchDecision-score) (<code>float | None</code>) –
-
-##### `agrag.ingestion.materialize.MatchDecision.comparator` \{#agrag-ingestion-materialize-MatchDecision-comparator}
-
-```python
-comparator: str
-```
-
-##### `agrag.ingestion.materialize.MatchDecision.decided_at` \{#agrag-ingestion-materialize-MatchDecision-decided_at}
-
-```python
-decided_at: datetime
-```
-
-##### `agrag.ingestion.materialize.MatchDecision.entity_a_id` \{#agrag-ingestion-materialize-MatchDecision-entity_a_id}
-
-```python
-entity_a_id: UUID
-```
-
-##### `agrag.ingestion.materialize.MatchDecision.entity_b_id` \{#agrag-ingestion-materialize-MatchDecision-entity_b_id}
-
-```python
-entity_b_id: UUID
-```
-
-##### `agrag.ingestion.materialize.MatchDecision.reasoning` \{#agrag-ingestion-materialize-MatchDecision-reasoning}
-
-```python
-reasoning: str | None = None
-```
-
-##### `agrag.ingestion.materialize.MatchDecision.score` \{#agrag-ingestion-materialize-MatchDecision-score}
-
-```python
-score: float | None = None
-```
-
-#### `agrag.ingestion.materialize.MaterializationResult` \{#agrag-ingestion-materialize-MaterializationResult}
-
-Bases: <code>BaseModel</code>
-
-The derived entity created and prior derived ids it replaced.
-
-**Attributes:**
-
-- [**removed_entity_ids**](#agrag-ingestion-materialize-MaterializationResult-removed_entity_ids) (<code>list\[UUID\]</code>) –
-- [**resolved_entity**](#agrag-ingestion-materialize-MaterializationResult-resolved_entity) (<code>[ResolvedEntity](common.md#agrag-common-data_models-resolved_entity-ResolvedEntity)</code>) –
-
-##### `agrag.ingestion.materialize.MaterializationResult.removed_entity_ids` \{#agrag-ingestion-materialize-MaterializationResult-removed_entity_ids}
-
-```python
-removed_entity_ids: list[UUID]
-```
-
-##### `agrag.ingestion.materialize.MaterializationResult.resolved_entity` \{#agrag-ingestion-materialize-MaterializationResult-resolved_entity}
-
-```python
-resolved_entity: ResolvedEntity
-```
-
-#### `agrag.ingestion.materialize.PruningResult` \{#agrag-ingestion-materialize-PruningResult}
-
-Bases: <code>BaseModel</code>
-
-Ids removed and clusters rebuilt by deletion-triggered pruning.
-
-**Attributes:**
-
-- [**rematerialized_entities**](#agrag-ingestion-materialize-PruningResult-rematerialized_entities) (<code>list\[[ResolvedEntity](common.md#agrag-common-data_models-resolved_entity-ResolvedEntity)\]</code>) –
-- [**removed_entity_ids**](#agrag-ingestion-materialize-PruningResult-removed_entity_ids) (<code>list\[UUID\]</code>) –
-- [**removed_resolved_entity_ids**](#agrag-ingestion-materialize-PruningResult-removed_resolved_entity_ids) (<code>list\[UUID\]</code>) –
-
-##### `agrag.ingestion.materialize.PruningResult.rematerialized_entities` \{#agrag-ingestion-materialize-PruningResult-rematerialized_entities}
-
-```python
-rematerialized_entities: list[ResolvedEntity]
-```
-
-##### `agrag.ingestion.materialize.PruningResult.removed_entity_ids` \{#agrag-ingestion-materialize-PruningResult-removed_entity_ids}
-
-```python
-removed_entity_ids: list[UUID]
-```
-
-##### `agrag.ingestion.materialize.PruningResult.removed_resolved_entity_ids` \{#agrag-ingestion-materialize-PruningResult-removed_resolved_entity_ids}
-
-```python
-removed_resolved_entity_ids: list[UUID]
-```
-
-#### `agrag.ingestion.materialize.compute_resolved_entity` \{#agrag-ingestion-materialize-compute_resolved_entity}
-
-```python
-compute_resolved_entity(members:list[Entity], schema:GraphSchema, *, tracer:Tracer | None = None) -> ResolvedEntity
-```
-
-Compute a resolved entity from its current member data only.
-
-#### `agrag.ingestion.materialize.deactivate_match_and_rematerialize` \{#agrag-ingestion-materialize-deactivate_match_and_rematerialize}
-
-```python
-deactivate_match_and_rematerialize(match_id:UUID, *, graph_store:GraphStore, schema:GraphSchema, tracer:Tracer | None = None) -> DeactivationResult
-```
-
-Deactivate a match and return its replacements and deleted derived IDs.
-
-#### `agrag.ingestion.materialize.decisions_by_component` \{#agrag-ingestion-materialize-decisions_by_component}
-
-```python
-decisions_by_component(matches:list[ResolvedMatch], mention_to_entity:dict[int, UUID]) -> list[list[MatchDecision]]
-```
-
-Map resolution evidence to raw ids and group it by connected component.
-
-#### `agrag.ingestion.materialize.match_decision_components` \{#agrag-ingestion-materialize-match_decision_components}
-
-```python
-match_decision_components(decisions:list[MatchDecision]) -> list[list[MatchDecision]]
-```
-
-Group persisted match decisions by their connected raw component.
-
-#### `agrag.ingestion.materialize.matches_id` \{#agrag-ingestion-materialize-matches_id}
-
-```python
-matches_id(entity_a_id:UUID, entity_b_id:UUID) -> UUID
-```
-
-Return the order-independent deterministic id for an entity match.
-
-#### `agrag.ingestion.materialize.prune_orphaned_entities` \{#agrag-ingestion-materialize-prune_orphaned_entities}
-
-```python
-prune_orphaned_entities(candidate_entity_ids:list[UUID], *, graph_store:GraphStore, schema:GraphSchema, tracer:Tracer | None = None) -> PruningResult
-```
-
-Delete candidates with no open-chunk evidence and rebuild clusters.
-
-A candidate mentioned by any chunk with an open PART_OF edge keeps its
-node. Any other candidate loses its node with its incident MENTIONED_IN
-and RESOLVED_AS edges; each affected cluster is then recomputed over
-its remaining members, or deleted when fewer than two remain and the
-survivor returns to plain status. Merge aliases owned by removed
-entities are deleted too, so re-ingesting a pruned name starts clean
-instead of colliding with an alias pointing at a missing node.
-
-Only the supplied candidates are ever deleted. Evidence is checked per
-candidate id, never with a graph-wide scan.
-
-#### `agrag.ingestion.materialize.write_matches_and_materialize` \{#agrag-ingestion-materialize-write_matches_and_materialize}
-
-```python
-write_matches_and_materialize(decisions:list[MatchDecision], *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity], pending_job_id:str | None = None, tracer:Tracer | None = None) -> MaterializationResult
-```
-
-Persist matches and materialize their supplied connected component.
-
-Callers fetch the bounded affected component before invoking this function.
-The resolved node is always recomputed from that current membership.
-
-**Parameters:**
-
-- **decisions** (<code>list\[[MatchDecision](#agrag-ingestion-materialize-MatchDecision)\]</code>) – The confirmed matches to persist.
-- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where matches and materializations are written.
-- **schema** (<code>[GraphSchema](common.md#agrag-common-data_models-graph_schema-GraphSchema)</code>) – The schema the members belong to.
-- **members** (<code>list\[[Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – The component members the resolved node is computed from.
-- **pending_job_id** (<code>str | None</code>) – The in-flight Cutover Job's id, tagging the match
-  edges and materialized nodes until that job commits. None
-  writes untagged, for callers outside a job.
-- **tracer** (<code>Tracer | None</code>) – Passed to description summarization.
-
-**Raises:**
-
-- <code>ValueError</code> – No decisions are supplied, or a decision references a
-  member outside the supplied component.
 
 ### `agrag.ingestion.merge` \{#agrag-ingestion-merge}
 
@@ -2851,9 +2607,9 @@ Report from Graph.consolidate().
 
 **Attributes:**
 
-- [**would_match**](#agrag-ingestion-reports-ConsolidationReport-would_match) (<code>list\[[MatchDecision](#agrag-ingestion-materialize-MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
-- [**applied**](#agrag-ingestion-reports-ConsolidationReport-applied) (<code>bool</code>) – Whether the matches were materialized.
-- [**failures**](#agrag-ingestion-reports-ConsolidationReport-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
+- [**would_match**](#agrag-ingestion-reports-ConsolidationReport-would_match) (<code>list\[[MatchDecision](#agrag-ingestion-resolved_entities-MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
+- [**applied**](#agrag-ingestion-reports-ConsolidationReport-applied) (<code>bool</code>) – Whether the matches were applied.
+- [**failures**](#agrag-ingestion-reports-ConsolidationReport-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Failures writing a match graph or rebuilding resolved entities.
   Always empty when apply is False.
 - [**ambiguous_count**](#agrag-ingestion-reports-ConsolidationReport-ambiguous_count) (<code>int</code>) – LLM verdicts that came back uncertain. These
   pairs never merge.
@@ -2892,7 +2648,7 @@ Report from Graph.reevaluate().
 
 - [**entities_reevaluated**](#agrag-ingestion-reports-ReevaluationReport-entities_reevaluated) (<code>list\[UUID\]</code>) – Input entity ids reevaluated, deduped with
   input order preserved.
-- [**matches_added**](#agrag-ingestion-reports-ReevaluationReport-matches_added) (<code>list\[[MatchDecision](#agrag-ingestion-materialize-MatchDecision)\]</code>) – Confirmed matches with no active edge, now written.
+- [**matches_added**](#agrag-ingestion-reports-ReevaluationReport-matches_added) (<code>list\[[MatchDecision](#agrag-ingestion-resolved_entities-MatchDecision)\]</code>) – Confirmed matches with no active edge, now written.
 - [**matches_removed**](#agrag-ingestion-reports-ReevaluationReport-matches_removed) (<code>list\[UUID\]</code>) – Ids of active match edges the resolver did not
   confirm, now deactivated.
 - [**unchanged_count**](#agrag-ingestion-reports-ReevaluationReport-unchanged_count) (<code>int</code>) – Input entities with no incident added or removed
@@ -3140,9 +2896,9 @@ Report from Graph.consolidate().
 
 **Attributes:**
 
-- [**would_match**](#agrag-ingestion-reports-consolidation_report-ConsolidationReport-would_match) (<code>list\[[MatchDecision](#agrag-ingestion-materialize-MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
-- [**applied**](#agrag-ingestion-reports-consolidation_report-ConsolidationReport-applied) (<code>bool</code>) – Whether the matches were materialized.
-- [**failures**](#agrag-ingestion-reports-consolidation_report-ConsolidationReport-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Failures writing a match graph or resolved materialization.
+- [**would_match**](#agrag-ingestion-reports-consolidation_report-ConsolidationReport-would_match) (<code>list\[[MatchDecision](#agrag-ingestion-resolved_entities-MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
+- [**applied**](#agrag-ingestion-reports-consolidation_report-ConsolidationReport-applied) (<code>bool</code>) – Whether the matches were applied.
+- [**failures**](#agrag-ingestion-reports-consolidation_report-ConsolidationReport-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Failures writing a match graph or rebuilding resolved entities.
   Always empty when apply is False.
 - [**ambiguous_count**](#agrag-ingestion-reports-consolidation_report-ConsolidationReport-ambiguous_count) (<code>int</code>) – LLM verdicts that came back uncertain. These
   pairs never merge.
@@ -3189,7 +2945,7 @@ Report from Graph.reevaluate().
 
 - [**entities_reevaluated**](#agrag-ingestion-reports-reevaluation_report-ReevaluationReport-entities_reevaluated) (<code>list\[UUID\]</code>) – Input entity ids reevaluated, deduped with
   input order preserved.
-- [**matches_added**](#agrag-ingestion-reports-reevaluation_report-ReevaluationReport-matches_added) (<code>list\[[MatchDecision](#agrag-ingestion-materialize-MatchDecision)\]</code>) – Confirmed matches with no active edge, now written.
+- [**matches_added**](#agrag-ingestion-reports-reevaluation_report-ReevaluationReport-matches_added) (<code>list\[[MatchDecision](#agrag-ingestion-resolved_entities-MatchDecision)\]</code>) – Confirmed matches with no active edge, now written.
 - [**matches_removed**](#agrag-ingestion-reports-reevaluation_report-ReevaluationReport-matches_removed) (<code>list\[UUID\]</code>) – Ids of active match edges the resolver did not
   confirm, now deactivated.
 - [**unchanged_count**](#agrag-ingestion-reports-reevaluation_report-ReevaluationReport-unchanged_count) (<code>int</code>) – Input entities with no incident added or removed
@@ -4673,7 +4429,7 @@ Group mentions only when they share exact raw-entity identity.
 A mention with a persisted exact match joins every other mention that
 resolves to the same raw Entity. Other mentions join only when their
 labels and normalized names match. Semantic matches deliberately remain
-separate raw records and are materialized through `MATCHES` later.
+separate raw records and become resolved entities through `MATCHES` later.
 
 #### `agrag.ingestion.resolve.exact_match_lookup` \{#agrag-ingestion-resolve-exact_match_lookup}
 
@@ -4694,7 +4450,7 @@ Group mentions only when they share exact raw-entity identity.
 A mention with a persisted exact match joins every other mention that
 resolves to the same raw Entity. Other mentions join only when their
 labels and normalized names match. Semantic matches deliberately remain
-separate raw records and are materialized through `MATCHES` later.
+separate raw records and become resolved entities through `MATCHES` later.
 
 #### `agrag.ingestion.resolve.fetch_persisted_neighbors` \{#agrag-ingestion-resolve-fetch_persisted_neighbors}
 
@@ -5430,7 +5186,7 @@ Rank ambiguous candidates for LLM review, most similar first.
 
 ### `agrag.ingestion.resolved_embeddings` \{#agrag-ingestion-resolved_embeddings}
 
-Embedding and vector synchronization for materialized resolved entities.
+Embedding and vector synchronization for resolved-entities.
 
 **Functions:**
 
@@ -5447,14 +5203,290 @@ Write resolved-entity embeddings to the graph and optional vector store.
 Graph writes finish before vector-store synchronization because the two
 stores cannot share a transaction. A failed sync clears the graph vector,
 removes any old mirrored vector, and records `failed` for a later
-materialization pass to retry.
+rebuild pass to retry.
 
 Only entities whose guarded graph write actually matched a live node are
 mirrored to the vector store or have their sync status updated. A
-concurrent materialization can replace or delete a ResolvedEntity between
+concurrent rebuild can replace or delete a ResolvedEntity between
 this call reading it and writing its embedding; skipping the unmatched
 ones keeps this call from resurrecting a vector, or overwriting a status,
 that the concurrent call already owns.
+
+### `agrag.ingestion.resolved_entities` \{#agrag-ingestion-resolved_entities}
+
+Non-destructive match persistence and resolved-entity computation.
+
+**Classes:**
+
+- [**DeactivationResult**](#agrag-ingestion-resolved_entities-DeactivationResult) – Resolved entities created after a match correction and stale ids removed.
+- [**MatchDecision**](#agrag-ingestion-resolved_entities-MatchDecision) – A confirmed non-exact entity match ready to persist.
+- [**PruningResult**](#agrag-ingestion-resolved_entities-PruningResult) – Ids removed and clusters rebuilt by deletion-triggered pruning.
+- [**RebuildResult**](#agrag-ingestion-resolved_entities-RebuildResult) – The derived entity created and prior derived ids it replaced.
+
+**Functions:**
+
+- [**compute_resolved_entity**](#agrag-ingestion-resolved_entities-compute_resolved_entity) – Compute a resolved entity from its current member data only.
+- [**deactivate_match_and_rebuild**](#agrag-ingestion-resolved_entities-deactivate_match_and_rebuild) – Deactivate a match and return its replacements and deleted derived IDs.
+- [**decisions_by_component**](#agrag-ingestion-resolved_entities-decisions_by_component) – Map resolution evidence to raw ids and group it by connected component.
+- [**match_decision_components**](#agrag-ingestion-resolved_entities-match_decision_components) – Group persisted match decisions by their connected raw component.
+- [**matches_id**](#agrag-ingestion-resolved_entities-matches_id) – Return the order-independent deterministic id for an entity match.
+- [**prune_orphaned_entities**](#agrag-ingestion-resolved_entities-prune_orphaned_entities) – Delete candidates with no open-chunk evidence and rebuild clusters.
+- [**rebuild_resolved_entities**](#agrag-ingestion-resolved_entities-rebuild_resolved_entities) – Rebuild the resolved entity of each committed component from its seeds.
+- [**write_matches_and_rebuild**](#agrag-ingestion-resolved_entities-write_matches_and_rebuild) – Persist matches and rebuild their supplied connected component.
+
+**Attributes:**
+
+- [**MatchComponent**](#agrag-ingestion-resolved_entities-MatchComponent) – One connected component: its match decisions and its raw member entities.
+
+#### `agrag.ingestion.resolved_entities.DeactivationResult` \{#agrag-ingestion-resolved_entities-DeactivationResult}
+
+Bases: <code>BaseModel</code>
+
+Resolved entities created after a match correction and stale ids removed.
+
+**Attributes:**
+
+- [**removed_entity_ids**](#agrag-ingestion-resolved_entities-DeactivationResult-removed_entity_ids) (<code>list\[UUID\]</code>) –
+- [**resolved_entities**](#agrag-ingestion-resolved_entities-DeactivationResult-resolved_entities) (<code>list\[[ResolvedEntity](common.md#agrag-common-data_models-resolved_entity-ResolvedEntity)\]</code>) –
+
+##### `agrag.ingestion.resolved_entities.DeactivationResult.removed_entity_ids` \{#agrag-ingestion-resolved_entities-DeactivationResult-removed_entity_ids}
+
+```python
+removed_entity_ids: list[UUID]
+```
+
+##### `agrag.ingestion.resolved_entities.DeactivationResult.resolved_entities` \{#agrag-ingestion-resolved_entities-DeactivationResult-resolved_entities}
+
+```python
+resolved_entities: list[ResolvedEntity]
+```
+
+#### `agrag.ingestion.resolved_entities.MatchComponent` \{#agrag-ingestion-resolved_entities-MatchComponent}
+
+```python
+MatchComponent = tuple[list[MatchDecision], list[Entity]]
+```
+
+One connected component: its match decisions and its raw member entities.
+
+#### `agrag.ingestion.resolved_entities.MatchDecision` \{#agrag-ingestion-resolved_entities-MatchDecision}
+
+Bases: <code>BaseModel</code>
+
+A confirmed non-exact entity match ready to persist.
+
+**Attributes:**
+
+- [**comparator**](#agrag-ingestion-resolved_entities-MatchDecision-comparator) (<code>str</code>) –
+- [**decided_at**](#agrag-ingestion-resolved_entities-MatchDecision-decided_at) (<code>datetime</code>) –
+- [**entity_a_id**](#agrag-ingestion-resolved_entities-MatchDecision-entity_a_id) (<code>UUID</code>) –
+- [**entity_b_id**](#agrag-ingestion-resolved_entities-MatchDecision-entity_b_id) (<code>UUID</code>) –
+- [**reasoning**](#agrag-ingestion-resolved_entities-MatchDecision-reasoning) (<code>str | None</code>) –
+- [**score**](#agrag-ingestion-resolved_entities-MatchDecision-score) (<code>float | None</code>) –
+
+##### `agrag.ingestion.resolved_entities.MatchDecision.comparator` \{#agrag-ingestion-resolved_entities-MatchDecision-comparator}
+
+```python
+comparator: str
+```
+
+##### `agrag.ingestion.resolved_entities.MatchDecision.decided_at` \{#agrag-ingestion-resolved_entities-MatchDecision-decided_at}
+
+```python
+decided_at: datetime
+```
+
+##### `agrag.ingestion.resolved_entities.MatchDecision.entity_a_id` \{#agrag-ingestion-resolved_entities-MatchDecision-entity_a_id}
+
+```python
+entity_a_id: UUID
+```
+
+##### `agrag.ingestion.resolved_entities.MatchDecision.entity_b_id` \{#agrag-ingestion-resolved_entities-MatchDecision-entity_b_id}
+
+```python
+entity_b_id: UUID
+```
+
+##### `agrag.ingestion.resolved_entities.MatchDecision.reasoning` \{#agrag-ingestion-resolved_entities-MatchDecision-reasoning}
+
+```python
+reasoning: str | None = None
+```
+
+##### `agrag.ingestion.resolved_entities.MatchDecision.score` \{#agrag-ingestion-resolved_entities-MatchDecision-score}
+
+```python
+score: float | None = None
+```
+
+#### `agrag.ingestion.resolved_entities.PruningResult` \{#agrag-ingestion-resolved_entities-PruningResult}
+
+Bases: <code>BaseModel</code>
+
+Ids removed and clusters rebuilt by deletion-triggered pruning.
+
+**Attributes:**
+
+- [**rebuilt_entities**](#agrag-ingestion-resolved_entities-PruningResult-rebuilt_entities) (<code>list\[[ResolvedEntity](common.md#agrag-common-data_models-resolved_entity-ResolvedEntity)\]</code>) –
+- [**removed_entity_ids**](#agrag-ingestion-resolved_entities-PruningResult-removed_entity_ids) (<code>list\[UUID\]</code>) –
+- [**removed_resolved_entity_ids**](#agrag-ingestion-resolved_entities-PruningResult-removed_resolved_entity_ids) (<code>list\[UUID\]</code>) –
+
+##### `agrag.ingestion.resolved_entities.PruningResult.rebuilt_entities` \{#agrag-ingestion-resolved_entities-PruningResult-rebuilt_entities}
+
+```python
+rebuilt_entities: list[ResolvedEntity]
+```
+
+##### `agrag.ingestion.resolved_entities.PruningResult.removed_entity_ids` \{#agrag-ingestion-resolved_entities-PruningResult-removed_entity_ids}
+
+```python
+removed_entity_ids: list[UUID]
+```
+
+##### `agrag.ingestion.resolved_entities.PruningResult.removed_resolved_entity_ids` \{#agrag-ingestion-resolved_entities-PruningResult-removed_resolved_entity_ids}
+
+```python
+removed_resolved_entity_ids: list[UUID]
+```
+
+#### `agrag.ingestion.resolved_entities.RebuildResult` \{#agrag-ingestion-resolved_entities-RebuildResult}
+
+Bases: <code>BaseModel</code>
+
+The derived entity created and prior derived ids it replaced.
+
+**Attributes:**
+
+- [**removed_entity_ids**](#agrag-ingestion-resolved_entities-RebuildResult-removed_entity_ids) (<code>list\[UUID\]</code>) –
+- [**resolved_entity**](#agrag-ingestion-resolved_entities-RebuildResult-resolved_entity) (<code>[ResolvedEntity](common.md#agrag-common-data_models-resolved_entity-ResolvedEntity)</code>) –
+
+##### `agrag.ingestion.resolved_entities.RebuildResult.removed_entity_ids` \{#agrag-ingestion-resolved_entities-RebuildResult-removed_entity_ids}
+
+```python
+removed_entity_ids: list[UUID]
+```
+
+##### `agrag.ingestion.resolved_entities.RebuildResult.resolved_entity` \{#agrag-ingestion-resolved_entities-RebuildResult-resolved_entity}
+
+```python
+resolved_entity: ResolvedEntity
+```
+
+#### `agrag.ingestion.resolved_entities.compute_resolved_entity` \{#agrag-ingestion-resolved_entities-compute_resolved_entity}
+
+```python
+compute_resolved_entity(members:list[Entity], schema:GraphSchema, *, tracer:Tracer | None = None) -> ResolvedEntity
+```
+
+Compute a resolved entity from its current member data only.
+
+#### `agrag.ingestion.resolved_entities.deactivate_match_and_rebuild` \{#agrag-ingestion-resolved_entities-deactivate_match_and_rebuild}
+
+```python
+deactivate_match_and_rebuild(match_id:UUID, *, graph_store:GraphStore, schema:GraphSchema, tracer:Tracer | None = None) -> DeactivationResult
+```
+
+Deactivate a match and return its replacements and deleted derived IDs.
+
+#### `agrag.ingestion.resolved_entities.decisions_by_component` \{#agrag-ingestion-resolved_entities-decisions_by_component}
+
+```python
+decisions_by_component(matches:list[ResolvedMatch], mention_to_entity:dict[int, UUID]) -> list[list[MatchDecision]]
+```
+
+Map resolution evidence to raw ids and group it by connected component.
+
+#### `agrag.ingestion.resolved_entities.match_decision_components` \{#agrag-ingestion-resolved_entities-match_decision_components}
+
+```python
+match_decision_components(decisions:list[MatchDecision]) -> list[list[MatchDecision]]
+```
+
+Group persisted match decisions by their connected raw component.
+
+#### `agrag.ingestion.resolved_entities.matches_id` \{#agrag-ingestion-resolved_entities-matches_id}
+
+```python
+matches_id(entity_a_id:UUID, entity_b_id:UUID) -> UUID
+```
+
+Return the order-independent deterministic id for an entity match.
+
+#### `agrag.ingestion.resolved_entities.prune_orphaned_entities` \{#agrag-ingestion-resolved_entities-prune_orphaned_entities}
+
+```python
+prune_orphaned_entities(candidate_entity_ids:list[UUID], *, graph_store:GraphStore, schema:GraphSchema, tracer:Tracer | None = None) -> PruningResult
+```
+
+Delete candidates with no open-chunk evidence and rebuild clusters.
+
+A candidate mentioned by any chunk with an open PART_OF edge keeps its
+node. Any other candidate loses its node with its incident MENTIONED_IN
+and RESOLVED_AS edges; each affected cluster is then recomputed over
+its remaining members, or deleted when fewer than two remain and the
+survivor returns to plain status. Merge aliases owned by removed
+entities are deleted too, so re-ingesting a pruned name starts clean
+instead of colliding with an alias pointing at a missing node.
+
+Only the supplied candidates are ever deleted. Evidence is checked per
+candidate id, never with a graph-wide scan.
+
+#### `agrag.ingestion.resolved_entities.rebuild_resolved_entities` \{#agrag-ingestion-resolved_entities-rebuild_resolved_entities}
+
+```python
+rebuild_resolved_entities(seed_ids:list[UUID], *, graph_store:GraphStore, schema:GraphSchema, tracer:Tracer | None = None) -> list[RebuildResult]
+```
+
+Rebuild the resolved entity of each committed component from its seeds.
+
+The matches already exist, so no match decision is written or changed.
+The resolved nodes and their `RESOLVED_AS` memberships are rebuilt,
+each membership carrying the newest committed match time when one
+exists. Each component is read as it stands now, replacing whatever
+resolved entities its members belonged to. A seed whose entity is
+gone, or whose component has fewer than two members, is skipped:
+nothing is left to rebuild for it. Safe to run again on the same
+seeds.
+
+**Parameters:**
+
+- **seed_ids** (<code>list\[UUID\]</code>) – One member id per component to rebuild. Seeds that share a
+  component rebuild it once.
+- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where the components are read and rewritten.
+- **schema** (<code>[GraphSchema](common.md#agrag-common-data_models-graph_schema-GraphSchema)</code>) – The schema the members belong to.
+- **tracer** (<code>Tracer | None</code>) – Passed to description summarization.
+
+**Returns:**
+
+- <code>list\[[RebuildResult](#agrag-ingestion-resolved_entities-RebuildResult)\]</code> – One result per rebuilt component, in seed order.
+
+#### `agrag.ingestion.resolved_entities.write_matches_and_rebuild` \{#agrag-ingestion-resolved_entities-write_matches_and_rebuild}
+
+```python
+write_matches_and_rebuild(decisions:list[MatchDecision], *, graph_store:GraphStore, schema:GraphSchema, members:list[Entity], pending_job_id:str | None = None, tracer:Tracer | None = None) -> RebuildResult
+```
+
+Persist matches and rebuild their supplied connected component.
+
+Callers fetch the bounded affected component before invoking this function.
+The resolved node is always recomputed from that current membership.
+
+**Parameters:**
+
+- **decisions** (<code>list\[[MatchDecision](#agrag-ingestion-resolved_entities-MatchDecision)\]</code>) – The confirmed matches to persist.
+- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where matches and resolved entities are written.
+- **schema** (<code>[GraphSchema](common.md#agrag-common-data_models-graph_schema-GraphSchema)</code>) – The schema the members belong to.
+- **members** (<code>list\[[Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – The component members the resolved node is computed from.
+- **pending_job_id** (<code>str | None</code>) – The in-flight Cutover Job's id, tagging the match
+  edges and resolved entity nodes until that job commits. None
+  writes untagged, for callers outside a job.
+- **tracer** (<code>Tracer | None</code>) – Passed to description summarization.
+
+**Raises:**
+
+- <code>ValueError</code> – No decisions are supplied, or a decision references a
+  member outside the supplied component.
 
 ### `agrag.ingestion.settings` \{#agrag-ingestion-settings}
 
@@ -5740,7 +5772,7 @@ Merge-stage results.
 
 **Attributes:**
 
-- [**nodes_created**](#agrag-ingestion-stats-MergeStats-nodes_created) (<code>int</code>) – Brand-new entities materialized this call.
+- [**nodes_created**](#agrag-ingestion-stats-MergeStats-nodes_created) (<code>int</code>) – Brand-new entities created this call.
 - [**nodes_updated**](#agrag-ingestion-stats-MergeStats-nodes_updated) (<code>int</code>) – Existing entities that absorbed new mention data.
 - [**conflicts_resolved**](#agrag-ingestion-stats-MergeStats-conflicts_resolved) (<code>int</code>) – Total property/description conflicts resolved
   across every merge this call performed.
@@ -6135,7 +6167,7 @@ Merge-stage results.
 
 **Attributes:**
 
-- [**nodes_created**](#agrag-ingestion-stats-merge-MergeStats-nodes_created) (<code>int</code>) – Brand-new entities materialized this call.
+- [**nodes_created**](#agrag-ingestion-stats-merge-MergeStats-nodes_created) (<code>int</code>) – Brand-new entities created this call.
 - [**nodes_updated**](#agrag-ingestion-stats-merge-MergeStats-nodes_updated) (<code>int</code>) – Existing entities that absorbed new mention data.
 - [**conflicts_resolved**](#agrag-ingestion-stats-merge-MergeStats-conflicts_resolved) (<code>int</code>) – Total property/description conflicts resolved
   across every merge this call performed.

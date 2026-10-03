@@ -11,7 +11,7 @@ class RetrievalSettings(BaseSettings):
             search. Only read when a VectorStore is configured on
             SearchEngine; ignored on the GraphStore-native path.
         resolved_entity_collection: The VectorStore collection name for
-            materialized resolved-entity search. Same condition as
+            resolved-entity search. Same condition as
             entity_collection.
         chunk_collection: The VectorStore collection name for chunk
             search. Same condition as entity_collection.

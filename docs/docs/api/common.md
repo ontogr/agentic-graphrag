@@ -32,7 +32,7 @@ Shared data models used by agrag components.
 - [**provenance**](#agrag-common-data_models-provenance) – Provenance types for a chunk.
 - [**query_value**](#agrag-common-data_models-query_value) – A result row returned by a direct graph query.
 - [**relation**](#agrag-common-data_models-relation) – The canonical, deduped graph relationship that merge mechanics produces.
-- [**resolved_entity**](#agrag-common-data_models-resolved_entity) – Materialized identity clusters for non-destructive entity resolution.
+- [**resolved_entity**](#agrag-common-data_models-resolved_entity) – Identity clusters for non-destructive entity resolution.
 - [**search_result**](#agrag-common-data_models-search_result) – One retrieved item, tagged with source and relevance score.
 - [**stage_failure**](#agrag-common-data_models-stage_failure) – Per-stage failure record and its per-call cap.
 - [**vector_record**](#agrag-common-data_models-vector_record) – Vector storage record shapes shared by VectorStore and GraphStore.
@@ -53,7 +53,7 @@ Shared data models used by agrag components.
 - [**Relation**](#agrag-common-data_models-Relation) – A resolved relationship between two Entity nodes.
 - [**RelationRecord**](#agrag-common-data_models-RelationRecord) – One graph relationship, ready to write.
 - [**RelationType**](#agrag-common-data_models-RelationType) – One kind of relation a schema recognizes.
-- [**ResolvedEntity**](#agrag-common-data_models-ResolvedEntity) – A materialized cluster of entities that refer to the same thing.
+- [**ResolvedEntity**](#agrag-common-data_models-ResolvedEntity) – A cluster of entities that refer to the same thing.
 - [**SearchResult**](#agrag-common-data_models-SearchResult) – One retrieved item, tagged with where it came from.
 - [**SourceFormat**](#agrag-common-data_models-SourceFormat) – A source format that a loader can read.
 - [**TextProvenance**](#agrag-common-data_models-TextProvenance) – The location of a chunk inside flattened document text.
@@ -1257,7 +1257,7 @@ patterns: list[tuple[str, str]]
 
 Bases: <code>[DataPoint](#agrag-common-data_models-data_point-DataPoint)</code>
 
-A materialized cluster of entities that refer to the same thing.
+A cluster of entities that refer to the same thing.
 
 **Functions:**
 
@@ -1987,7 +1987,12 @@ Crash-recoverable state for one add/update/delete_document call.
 - [**verb**](#agrag-common-data_models-cutover_job-CutoverJob-verb) (<code>Literal['add', 'update', 'delete_document']</code>) – Which public method created this job.
 - [**status**](#agrag-common-data_models-cutover_job-CutoverJob-status) (<code>[CutoverJobStatus](#agrag-common-data_models-cutover_job-CutoverJobStatus)</code>) – Current phase, see CutoverJobStatus.
 - [**affected_entity_ids**](#agrag-common-data_models-cutover_job-CutoverJob-affected_entity_ids) (<code>list\[UUID\]</code>) – The snapshot taken before any pending write
-  began — the only entities the cleanup phase may touch.
+  began — the only entities pruning may remove.
+- [**component_seed_ids**](#agrag-common-data_models-cutover_job-CutoverJob-component_seed_ids) (<code>list\[UUID\]</code>) – One member id per match component the job
+  rebuilt, recorded at commit. The cleanup phase rebuilds
+  each component's resolved entity from these, in addition to
+  pruning, so a resumed job can replace the resolved entity
+  the commit left in place.
 - [**lease_token**](#agrag-common-data_models-cutover_job-CutoverJob-lease_token) (<code>UUID</code>) – Current lease holder's fencing token.
 - [**lease_expires_at**](#agrag-common-data_models-cutover_job-CutoverJob-lease_expires_at) (<code>datetime</code>) – When the current lease expires.
 
@@ -1999,6 +2004,12 @@ Crash-recoverable state for one add/update/delete_document call.
 
 ```python
 affected_entity_ids: list[UUID] = Field(default_factory=list)
+```
+
+###### `agrag.common.data_models.cutover_job.CutoverJob.component_seed_ids` \{#agrag-common-data_models-cutover_job-CutoverJob-component_seed_ids}
+
+```python
+component_seed_ids: list[UUID] = Field(default_factory=list)
 ```
 
 ###### `agrag.common.data_models.cutover_job.CutoverJob.created_at` \{#agrag-common-data_models-cutover_job-CutoverJob-created_at}
@@ -3644,11 +3655,11 @@ type: str
 
 #### `agrag.common.data_models.resolved_entity` \{#agrag-common-data_models-resolved_entity}
 
-Materialized identity clusters for non-destructive entity resolution.
+Identity clusters for non-destructive entity resolution.
 
 **Classes:**
 
-- [**ResolvedEntity**](#agrag-common-data_models-resolved_entity-ResolvedEntity) – A materialized cluster of entities that refer to the same thing.
+- [**ResolvedEntity**](#agrag-common-data_models-resolved_entity-ResolvedEntity) – A cluster of entities that refer to the same thing.
 
 **Attributes:**
 
@@ -3678,7 +3689,7 @@ RESOLVED_ENTITY_LABEL = 'ResolvedEntity'
 
 Bases: <code>[DataPoint](#agrag-common-data_models-data_point-DataPoint)</code>
 
-A materialized cluster of entities that refer to the same thing.
+A cluster of entities that refer to the same thing.
 
 **Functions:**
 

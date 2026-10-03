@@ -57,8 +57,8 @@ from agrag.ingestion.graph import (
     _resolve_paths,
     _synthesize_consolidation_mentions,
 )
-from agrag.ingestion.materialize import MaterializationResult
 from agrag.ingestion.reports import AddResult
+from agrag.ingestion.resolved_entities import RebuildResult
 from agrag.loaders.corpus.types import ErrorPolicy
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
@@ -2243,7 +2243,7 @@ class TestGraphAddPipeline:
         assert call_count == 2
 
     async def test_consolidate_dry_run_and_apply(self) -> None:
-        """Consolidate reports and materializes matches without merging raw nodes."""
+        """Consolidate reports and rebuilds matches without merging raw nodes."""
         store = MockStore()
         e1 = Entity(
             id=uuid4(),
@@ -2299,9 +2299,9 @@ class TestGraphAddPipeline:
                 with (
                     mock.patch.object(
                         gmod,
-                        "write_matches_and_materialize",
+                        "write_matches_and_rebuild",
                         new_callable=mock.AsyncMock,
-                    ) as materialize,
+                    ) as rebuild,
                     mock.patch.object(
                         gmod,
                         "_synchronize_resolved_entity_vectors",
@@ -2315,7 +2315,7 @@ class TestGraphAddPipeline:
                         member_ids=[e1.id, e2.id],
                     )
                     replaced_id = uuid4()
-                    materialize.return_value = MaterializationResult(
+                    rebuild.return_value = RebuildResult(
                         resolved_entity=resolved,
                         removed_entity_ids=[replaced_id],
                     )
@@ -2323,10 +2323,10 @@ class TestGraphAddPipeline:
                     report = await graph.consolidate(apply=False)
                     assert len(report.would_match) == 1
                     assert report.applied is False
-                    materialize.assert_not_awaited()
+                    rebuild.assert_not_awaited()
                     report2 = await graph.consolidate(apply=True)
                     assert report2.applied is True
-                    materialize.assert_awaited_once()
+                    rebuild.assert_awaited_once()
                     synchronize.assert_awaited_once()
                     assert synchronize.await_args.args[:2] == (
                         [resolved],
@@ -2376,8 +2376,8 @@ class TestGraphAddPipeline:
 
         assert mock_resolver.call_args.kwargs["max_llm_pairs"] == 7
 
-    async def test_consolidate_reports_materialization_failure(self) -> None:
-        """A failed materialization keeps raw entities intact and reports the error."""
+    async def test_consolidate_reports_rebuild_failure(self) -> None:
+        """A failed rebuild keeps raw entities intact and reports the error."""
         store = MockStore()
         e1 = Entity(
             id=uuid4(),
@@ -2432,7 +2432,7 @@ class TestGraphAddPipeline:
                 mock_resolver.return_value = mock_instance
                 with mock.patch.object(
                     gmod,
-                    "write_matches_and_materialize",
+                    "write_matches_and_rebuild",
                     new_callable=mock.AsyncMock,
                     side_effect=RuntimeError("database unavailable"),
                 ):

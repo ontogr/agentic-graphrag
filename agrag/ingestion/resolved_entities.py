@@ -17,6 +17,7 @@ from agrag.common.data_models.resolved_entity import (
 )
 from agrag.cypher.resolution_read import (
     fetch_active_component_members_query,
+    fetch_committed_component_decided_at_query,
     fetch_entities_with_open_evidence_query,
     fetch_entity_cluster_memberships_query,
     fetch_match_endpoints_query,
@@ -26,10 +27,10 @@ from agrag.cypher.resolution_write import (
     delete_entities_query,
     delete_merge_aliases_for_entities_query,
     delete_resolved_entities_query,
-    replace_component_materializations_query,
+    replace_component_resolved_entities_query,
     upsert_matches_query,
 )
-from agrag.graphdb.base import GraphStore
+from agrag.graphdb.base import GraphStore, GraphStoreTransaction
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion.merge import compute_merge
 from agrag.ingestion.resolve.resolver import ResolvedMatch
@@ -50,7 +51,7 @@ MatchComponent = tuple[list[MatchDecision], list[Entity]]
 """One connected component: its match decisions and its raw member entities."""
 
 
-class MaterializationResult(BaseModel):
+class RebuildResult(BaseModel):
     """The derived entity created and prior derived ids it replaced."""
 
     resolved_entity: ResolvedEntity
@@ -58,7 +59,7 @@ class MaterializationResult(BaseModel):
 
 
 class DeactivationResult(BaseModel):
-    """Materializations created after a match correction and stale ids removed."""
+    """Resolved entities created after a match correction and stale ids removed."""
 
     resolved_entities: list[ResolvedEntity]
     removed_entity_ids: list[UUID]
@@ -69,7 +70,7 @@ class PruningResult(BaseModel):
 
     removed_entity_ids: list[UUID]
     removed_resolved_entity_ids: list[UUID]
-    rematerialized_entities: list[ResolvedEntity]
+    rebuilt_entities: list[ResolvedEntity]
 
 
 def decisions_by_component(
@@ -188,10 +189,10 @@ def _raise_for_write_failure(result: UpsertResult | None) -> None:
     failures = "; ".join(
         f"{failure.id}: {failure.error_message}" for failure in result.failures
     )
-    raise RuntimeError(f"Could not materialize resolved entity: {failures}")
+    raise RuntimeError(f"Could not rebuild resolved entity: {failures}")
 
 
-async def write_matches_and_materialize(
+async def write_matches_and_rebuild(
     decisions: list[MatchDecision],
     *,
     graph_store: GraphStore,
@@ -199,19 +200,19 @@ async def write_matches_and_materialize(
     members: list[Entity],
     pending_job_id: str | None = None,
     tracer: Tracer | None = None,
-) -> MaterializationResult:
-    """Persist matches and materialize their supplied connected component.
+) -> RebuildResult:
+    """Persist matches and rebuild their supplied connected component.
 
     Callers fetch the bounded affected component before invoking this function.
     The resolved node is always recomputed from that current membership.
 
     Args:
         decisions: The confirmed matches to persist.
-        graph_store: Where matches and materializations are written.
+        graph_store: Where matches and resolved entities are written.
         schema: The schema the members belong to.
         members: The component members the resolved node is computed from.
         pending_job_id: The in-flight Cutover Job's id, tagging the match
-            edges and materialized nodes until that job commits. None
+            edges and resolved entity nodes until that job commits. None
             writes untagged, for callers outside a job.
         tracer: Passed to description summarization.
 
@@ -230,8 +231,6 @@ async def write_matches_and_materialize(
         raise ValueError(
             "Every match decision must reference a supplied component member"
         )
-    job_uuid = UUID(pending_job_id) if pending_job_id is not None else None
-
     async with graph_store.transaction() as transaction:
         for decision in decisions:
             first_id, second_id = sorted(
@@ -251,9 +250,7 @@ async def write_matches_and_materialize(
                 },
             )
             if not match_rows:
-                raise ValueError(
-                    "Cannot materialize a match whose entities do not exist"
-                )
+                raise ValueError("Cannot rebuild a match whose entities do not exist")
         component_rows = await transaction.execute_read(
             fetch_active_component_members_query(),
             {
@@ -271,55 +268,158 @@ async def write_matches_and_materialize(
                 members = sorted(
                     persisted_members.values(), key=lambda member: str(member.id)
                 )
-        resolved = await compute_resolved_entity(members, schema, tracer=tracer)
-        removed_rows = await transaction.execute_write(
-            replace_component_materializations_query(),
-            {
-                "member_ids": [str(member.id) for member in members],
-                "pending_job_id": pending_job_id,
-            },
+        return await _replace_resolved_entity(
+            transaction,
+            members,
+            schema=schema,
+            pending_job_id=pending_job_id,
+            decided_at=max(decision.decided_at for decision in decisions),
+            tracer=tracer,
         )
-        removed_entity_ids = [
-            UUID(str(entity_id))
-            for row in removed_rows
-            if isinstance(row, dict)
-            for entity_id in row.get("removed_resolved_entity_ids", [])
-        ]
-        _raise_for_write_failure(
-            await transaction.upsert_nodes(
-                RESOLVED_ENTITY_LABEL,
-                [resolved.to_node_record()],
-                pending_job_id=job_uuid,
+
+
+async def rebuild_resolved_entities(
+    seed_ids: list[UUID],
+    *,
+    graph_store: GraphStore,
+    schema: GraphSchema,
+    tracer: Tracer | None = None,
+) -> list[RebuildResult]:
+    """Rebuild the resolved entity of each committed component from its seeds.
+
+    The matches already exist, so no match decision is written or changed.
+    The resolved nodes and their ``RESOLVED_AS`` memberships are rebuilt,
+    each membership carrying the newest committed match time when one
+    exists. Each component is read as it stands now, replacing whatever
+    resolved entities its members belonged to. A seed whose entity is
+    gone, or whose component has fewer than two members, is skipped:
+    nothing is left to rebuild for it. Safe to run again on the same
+    seeds.
+
+    Args:
+        seed_ids: One member id per component to rebuild. Seeds that share a
+            component rebuild it once.
+        graph_store: Where the components are read and rewritten.
+        schema: The schema the members belong to.
+        tracer: Passed to description summarization.
+
+    Returns:
+        One result per rebuilt component, in seed order.
+    """
+    results: list[RebuildResult] = []
+    rebuilt_member_ids: set[UUID] = set()
+    for seed_id in dict.fromkeys(seed_ids):
+        if seed_id in rebuilt_member_ids:
+            continue
+        async with graph_store.transaction() as transaction:
+            component_rows = await transaction.execute_read(
+                fetch_active_component_members_query(),
+                {"seed_ids": [str(seed_id)], "job_id": None},
             )
-        )
-        _raise_for_write_failure(
-            await transaction.upsert_relations(
-                [
-                    RelationRecord(
-                        id=uuid5(
-                            NAMESPACE_OID, f"RESOLVED_AS:{member.id}:{resolved.id}"
-                        ),
-                        type=RESOLVED_AS_RELATION,
-                        start_id=member.id,
-                        end_id=resolved.id,
-                        properties={
-                            "decided_at": max(
-                                decision.decided_at for decision in decisions
-                            ).isoformat()
-                        },
-                    )
-                    for member in members
-                ],
-                pending_job_id=job_uuid,
+            members = sorted(
+                {
+                    entity.id: entity
+                    for row in component_rows
+                    if (entity := parse_entity_node(row.get("member"))) is not None
+                }.values(),
+                key=lambda member: str(member.id),
             )
+            if len(members) < 2:
+                continue
+            decided_at_rows = await transaction.execute_read(
+                fetch_committed_component_decided_at_query(),
+                {"member_ids": [str(member.id) for member in members]},
+            )
+            decided_at_values = [
+                datetime.fromisoformat(str(row["decided_at"]))
+                for row in decided_at_rows
+                if row.get("decided_at") is not None
+            ]
+            results.append(
+                await _replace_resolved_entity(
+                    transaction,
+                    members,
+                    schema=schema,
+                    pending_job_id=None,
+                    decided_at=max(decided_at_values, default=None),
+                    tracer=tracer,
+                )
+            )
+        rebuilt_member_ids.update(member.id for member in members)
+    return results
+
+
+async def _replace_resolved_entity(
+    transaction: GraphStoreTransaction,
+    members: list[Entity],
+    *,
+    schema: GraphSchema,
+    pending_job_id: str | None,
+    decided_at: datetime | None,
+    tracer: Tracer | None,
+) -> RebuildResult:
+    """Replace the resolved entity of one component inside an open transaction.
+
+    Args:
+        transaction: The transaction the writes join.
+        members: The component's current members.
+        schema: The schema the members belong to.
+        pending_job_id: The in-flight Cutover Job's id, or None outside a job.
+        decided_at: When the newest match was decided, stored on each
+            membership edge. None stores no timestamp.
+        tracer: Passed to description summarization.
+
+    Returns:
+        The new resolved entity and the resolved ids it replaced.
+    """
+    job_uuid = UUID(pending_job_id) if pending_job_id is not None else None
+    resolved = await compute_resolved_entity(members, schema, tracer=tracer)
+    removed_rows = await transaction.execute_write(
+        replace_component_resolved_entities_query(),
+        {
+            "member_ids": [str(member.id) for member in members],
+            "pending_job_id": pending_job_id,
+        },
+    )
+    removed_entity_ids = [
+        UUID(str(entity_id))
+        for row in removed_rows
+        if isinstance(row, dict)
+        for entity_id in row.get("removed_resolved_entity_ids", [])
+    ]
+    _raise_for_write_failure(
+        await transaction.upsert_nodes(
+            RESOLVED_ENTITY_LABEL,
+            [resolved.to_node_record()],
+            pending_job_id=job_uuid,
         )
-    return MaterializationResult(
+    )
+    _raise_for_write_failure(
+        await transaction.upsert_relations(
+            [
+                RelationRecord(
+                    id=uuid5(NAMESPACE_OID, f"RESOLVED_AS:{member.id}:{resolved.id}"),
+                    type=RESOLVED_AS_RELATION,
+                    start_id=member.id,
+                    end_id=resolved.id,
+                    properties=(
+                        {}
+                        if decided_at is None
+                        else {"decided_at": decided_at.isoformat()}
+                    ),
+                )
+                for member in members
+            ],
+            pending_job_id=job_uuid,
+        )
+    )
+    return RebuildResult(
         resolved_entity=resolved,
         removed_entity_ids=list(dict.fromkeys(removed_entity_ids)),
     )
 
 
-async def deactivate_match_and_rematerialize(
+async def deactivate_match_and_rebuild(
     match_id: UUID,
     *,
     graph_store: GraphStore,
@@ -366,7 +466,7 @@ async def deactivate_match_and_rematerialize(
             key=str,
         )
         replacement_rows = await transaction.execute_write(
-            replace_component_materializations_query(),
+            replace_component_resolved_entities_query(),
             {
                 "member_ids": [str(member_id) for member_id in all_member_ids],
                 "pending_job_id": None,
@@ -378,7 +478,7 @@ async def deactivate_match_and_rematerialize(
             if isinstance(row, dict)
             for entity_id in row.get("removed_resolved_entity_ids", [])
         ]
-        materialized: list[ResolvedEntity] = []
+        rebuilt: list[ResolvedEntity] = []
         for members in sorted(
             components.values(),
             key=lambda component: min(str(member.id) for member in component),
@@ -408,14 +508,14 @@ async def deactivate_match_and_rematerialize(
                     ]
                 )
             )
-            materialized.append(resolved)
-    materialized_ids = {entity.id for entity in materialized}
+            rebuilt.append(resolved)
+    rebuilt_ids = {entity.id for entity in rebuilt}
     return DeactivationResult(
-        resolved_entities=materialized,
+        resolved_entities=rebuilt,
         removed_entity_ids=[
             entity_id
             for entity_id in dict.fromkeys(removed_entity_ids)
-            if entity_id not in materialized_ids
+            if entity_id not in rebuilt_ids
         ],
     )
 
@@ -469,7 +569,7 @@ async def prune_orphaned_entities(
     empty = PruningResult(
         removed_entity_ids=[],
         removed_resolved_entity_ids=[],
-        rematerialized_entities=[],
+        rebuilt_entities=[],
     )
     if not unique_ids:
         return empty
@@ -504,7 +604,7 @@ async def prune_orphaned_entities(
     )
     removed_set = {str(entity_id) for entity_id in removed_entity_ids}
     removed_resolved_entity_ids: list[UUID] = []
-    rematerialized: list[ResolvedEntity] = []
+    rebuilt_resolved: list[ResolvedEntity] = []
     for resolved_id, member_ids in clusters.items():
         remaining_ids = [m for m in dict.fromkeys(member_ids) if m not in removed_set]
         hydrate_rows = (
@@ -529,7 +629,7 @@ async def prune_orphaned_entities(
         if len(members) >= 2:
             async with graph_store.transaction() as transaction:
                 replacement_rows = await transaction.execute_write(
-                    replace_component_materializations_query(),
+                    replace_component_resolved_entities_query(),
                     {
                         "member_ids": [str(member.id) for member in members],
                         "pending_job_id": None,
@@ -561,11 +661,11 @@ async def prune_orphaned_entities(
                         ]
                     )
                 )
-            rematerialized.append(resolved)
+            rebuilt_resolved.append(resolved)
         elif len(members) == 1:
             async with graph_store.transaction() as transaction:
                 replacement_rows = await transaction.execute_write(
-                    replace_component_materializations_query(),
+                    replace_component_resolved_entities_query(),
                     {
                         "member_ids": [str(members[0].id)],
                         "pending_job_id": None,
@@ -582,5 +682,5 @@ async def prune_orphaned_entities(
     return PruningResult(
         removed_entity_ids=removed_entity_ids,
         removed_resolved_entity_ids=list(dict.fromkeys(removed_resolved_entity_ids)),
-        rematerialized_entities=rematerialized,
+        rebuilt_entities=rebuilt_resolved,
     )

@@ -207,7 +207,8 @@ class TestCutoverJobLeaseLifetime:
             )
 
             transitioned = await store.execute_write(
-                transition, {"job_id": job_id, "lease_token": token}
+                transition,
+                {"job_id": job_id, "lease_token": token, "component_seed_ids": []},
             )
 
             assert transitioned == []
@@ -244,7 +245,8 @@ class TestCutoverJobLeaseLifetime:
                 },
             )
             assert await store.execute_write(
-                commit_job_query(), {"job_id": job_id, "lease_token": token}
+                commit_job_query(),
+                {"job_id": job_id, "lease_token": token, "component_seed_ids": []},
             )
             await store.execute_write(
                 "MATCH (job:CutoverJob {id: $job_id}) "
@@ -257,7 +259,7 @@ class TestCutoverJobLeaseLifetime:
                 },
             )
 
-            async def slow_prune(_: list[object]) -> None:
+            async def slow_prune(_: list[object], __: list[object]) -> None:
                 nonlocal prune_ran
                 prune_ran = True
                 await asyncio.sleep(1.1)
@@ -366,13 +368,19 @@ class TestCutoverJobLeaseLifetime:
                     "created_at": datetime.now(UTC).isoformat(),
                 },
             )
-            params = {"job_id": job_id, "lease_token": token}
+            seed_id = str(uuid4())
+            params = {
+                "job_id": job_id,
+                "lease_token": token,
+                "component_seed_ids": [seed_id],
+            }
             assert await store.execute_write(commit_job_query(), params)
             assert await store.execute_write(start_cleaning_query(), params)
 
             rows = await store.execute_read(find_incomplete_jobs_query())
             [row] = [r for r in rows if r["id"] == job_id]
             assert row["status"] == "cleaning"
+            assert row["component_seed_ids"] == [seed_id]
             assert row["lease_expired"] is False
         finally:
             await store.execute_write(
@@ -394,7 +402,7 @@ class TestCutoverJobLeaseLifetime:
             await asyncio.sleep(2.5)
             resumed.extend(await resume_incomplete_jobs(store))
 
-        async def cleanup() -> None:
+        async def cleanup(_: list[object], __: list[object]) -> None:
             return None
 
         try:

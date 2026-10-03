@@ -220,8 +220,8 @@ class TestAddSpanTracing:
                 if (span.attributes or {}).get("agrag.mention_count") == 2
             ]
             assert len(merge_groups) == 1
-            assert by_name.get("agrag.merge.materialize_component"), (
-                "the fuzzy-match materialization loop never ran"
+            assert by_name.get("agrag.merge.rebuild_component"), (
+                "the fuzzy-match rebuild loop never ran"
             )
 
             _write_span_tree(_span_tree_path(), spans)
