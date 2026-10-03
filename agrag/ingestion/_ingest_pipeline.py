@@ -14,7 +14,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from opentelemetry.trace import Tracer
 
@@ -29,15 +29,12 @@ from agrag.common.data_models.graph_record import (
     tag_pending,
 )
 from agrag.common.data_models.graph_schema import GraphSchema
-from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.data_models.vector_record import PENDING_VECTOR_FLAG, VectorRecord
-from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
     clear_chunk_embedding_query,
     clear_property_query,
-    fetch_by_merge_keys_query,
     fetch_relations_between_query,
     load_chunks_by_id_query,
     set_chunk_embedding_query,
@@ -45,7 +42,6 @@ from agrag.cypher.entities import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._lexical_backbone import (
     build_document_record,
     build_next_chunk_records,
@@ -60,17 +56,7 @@ from agrag.ingestion.merge import (
     relation_id,
 )
 from agrag.ingestion.reports import AddResult
-from agrag.ingestion.resolve import (
-    ExactMatch,
-    FuzzyMatch,
-    GraphCandidateSource,
-    LLMVerify,
-    PersistedCandidateSource,
-    Resolver,
-    build_relation_neighbors,
-    exact_resolution_groups,
-    fetch_persisted_neighbors,
-)
+from agrag.ingestion.resolve import resolve_batch
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
 from agrag.ingestion.resolved_entities import (
@@ -89,7 +75,6 @@ from agrag.loaders.corpus.types import ErrorPolicy
 from agrag.observability import (
     get_tracer,
     record_stage_failure,
-    record_swallowed_exception,
     stage_failure_context,
 )
 from agrag.retrieval.settings import RetrievalSettings
@@ -300,129 +285,32 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                 chunks=list(chunks) if return_chunks else [],
             )
 
-        # Zone-routed resolution over one combined mention list: real mentions
-        # plus one synthetic mention per persisted ANN candidate, so a new
-        # mention can join a persisted cluster through exactly one Resolver pass.
-        with resolved_tracer.start_as_current_span(
-            "agrag.resolution.global_exact_match",
-            attributes={"agrag.mention_count": len(entities)},
-        ) as span:
-            exact_matches = await _global_exact_match(
-                entities, graph_store=graph_store, job_id=job_id
-            )
-            span.set_attribute("agrag.exact_match_hits", len(exact_matches))
-
-        # Build chunks_by_id for LLMVerify
         chunks_by_id: dict[UUID, Chunk] = {}
         for ch in chunks:
             if ch.id is not None:
                 chunks_by_id[ch.id] = ch
 
-        # One candidate source for both paths: candidates_for is pure
-        # same-label in-batch blocking and never touches a store.
-        candidate_source = GraphCandidateSource(
+        resolution_batch = await resolve_batch(
+            entities,
+            relations,
+            chunks_by_id,
             graph_store=graph_store,
             embedder=embedder,
             vector_store=vector_store,
             vector_collection=retrieval_settings.entity_collection,
             entity_labels=[entity.label for entity in graph_schema.entities],
-        )
-        combined_mentions: list[ExtractedEntity] = list(entities)
-        persisted_candidates: dict[int, list[int]] = {}
-        persisted_ids: dict[int, UUID] = {}
-        candidate_entities: dict[UUID, Entity] = {}
-        similarity_by_pair: dict[tuple[int, int], float] = {}
-        with resolved_tracer.start_as_current_span(
-            "agrag.resolution.candidate_generation",
-            attributes={"agrag.mention_count": len(entities)},
-        ) as span:
-            for mention_index, mention in enumerate(entities):
-                try:
-                    candidates = await candidate_source.global_candidates_for(mention)
-                except Exception as exc:  # noqa: BLE001
-                    record_swallowed_exception(exc)
-                    candidates = []
-                seen_candidate_ids: set[UUID] = set()
-                exact_match = exact_matches.get(mention_index)
-                for candidate, candidate_similarity in candidates:
-                    if candidate.id in seen_candidate_ids:
-                        continue
-                    seen_candidate_ids.add(candidate.id)
-                    if exact_match is not None and candidate.id == exact_match.id:
-                        continue
-                    candidate_index = len(combined_mentions)
-                    candidate_mention, candidate_chunk = _synthetic_entity_mention(
-                        candidate
-                    )
-                    combined_mentions.append(candidate_mention)
-                    chunks_by_id[candidate_mention.chunk_id] = candidate_chunk
-                    persisted_candidates.setdefault(mention_index, []).append(
-                        candidate_index
-                    )
-                    persisted_ids[candidate_index] = candidate.id
-                    candidate_entities[candidate.id] = candidate
-                    pair = (
-                        min(mention_index, candidate_index),
-                        max(mention_index, candidate_index),
-                    )
-                    similarity_by_pair[pair] = candidate_similarity
-            # Same-label real pairs plus the persisted map. Synthetics never
-            # initiate: no entry is keyed by a synthetic index.
-            candidates_by_index: dict[int, list[int]] = {}
-            for index, _mention in enumerate(entities):
-                real_peers = await candidate_source.candidates_for(index, entities)
-                if real_peers:
-                    candidates_by_index[index] = list(real_peers)
-            for index, synthetic in persisted_candidates.items():
-                candidates_by_index.setdefault(index, []).extend(synthetic)
-            span.set_attribute(
-                "agrag.persisted_candidate_count",
-                sum(len(v) for v in persisted_candidates.values()),
-            )
-            span.set_attribute(
-                "agrag.in_batch_candidate_count",
-                sum(len(v) for v in candidates_by_index.values()),
-            )
-        # Neighbor context for LLM review: the batch's own mentions from their
-        # extracted relations, each persisted candidate from its stored edges.
-        from agrag.ingestion.graph import SYSTEM_RELATION_TYPES  # noqa: PLC0415
-
-        neighbors_by_index = build_relation_neighbors(entities, relations)
-        if persisted_ids:
-            persisted_neighbors = await fetch_persisted_neighbors(
-                list(persisted_ids.values()),
-                graph_store=graph_store,
-                exclude_relation_types=SYSTEM_RELATION_TYPES,
-            )
-            for candidate_index, entity_id in persisted_ids.items():
-                neighbors_by_index[candidate_index] = persisted_neighbors.get(
-                    entity_id, []
-                )
-        # Resolver: ExactMatch, FuzzyMatch, LLMVerify, routed by zone.
-        resolver = Resolver(
-            comparators=[
-                ExactMatch(),
-                FuzzyMatch(),
-                LLMVerify(chunks_by_id=chunks_by_id, tracer=tracer),
-            ],
-            candidate_source=PersistedCandidateSource(candidates_by_index),
-            embedder=embedder,
             tracer=tracer,
             max_llm_pairs=max_llm_pairs,
+            job_id=job_id,
         )
-        resolution_result = (
-            await resolver.resolve(
-                combined_mentions,
-                neighbors_by_index=neighbors_by_index,
-                similarity_by_pair=similarity_by_pair,
-            )
-            if entities
-            else None
-        )
+        exact_matches = resolution_batch.exact_matches
+        resolution_result = resolution_batch.result
+        persisted_ids = resolution_batch.persisted_ids
+        candidate_entities = resolution_batch.candidate_entities
         semantic_groups = (
             resolution_result.groups if resolution_result is not None else []
         )
-        groups = exact_resolution_groups(entities, exact_matches)
+        groups = resolution_batch.groups
 
         # Compute resolution stats. Groups over the combined list include
         # synthetic singletons, so only groups holding a real mention count.
@@ -1130,67 +1018,6 @@ async def _persisted_chunk_ids(
     return found
 
 
-async def _global_exact_match(
-    mentions: list[ExtractedEntity],
-    *,
-    graph_store: GraphStore,
-    job_id: UUID | str | None = None,
-) -> dict[int, Entity]:
-    """Return each mention index's matching persisted Entity, if it has one.
-
-    One batched read per distinct label present in mentions. A row is
-    mapped back to its mention(s) by the merge_key the row's alias was
-    matched on -- returned alongside the node by fetch_by_merge_keys_query
-    -- rather than by re-deriving a key from the resolved entity's current
-    name: an accepted alias can name an entity by something other than its
-    current canonical name (see upsert_merge_alias_query), so re-deriving
-    would silently fail to map those mentions back. Rows without a returned
-    merge_key (plain mocks) fall back to the resolved entity's own
-    merge_key.
-
-    Args:
-        mentions: The entity mentions to look up.
-        graph_store: Where the lookup runs.
-        job_id: The in-flight Cutover Job's id, so the alias/node guards
-            admit this job's own pending writes while excluding every
-            other in-flight job's. None reads committed-only.
-
-    Returns:
-        A map from mention index to its matching Entity.
-    """
-    if not mentions:
-        return {}
-    grouped: dict[str, list[str]] = defaultdict(list)
-    mk_to_indices: dict[str, list[int]] = defaultdict(list)
-    for idx, mention in enumerate(mentions):
-        mk = f"{mention.label}:{normalize_text(mention.text)}"
-        grouped[mention.label].append(mk)
-        mk_to_indices[mk].append(idx)
-
-    result: dict[int, Entity] = {}
-    for _label, mks in grouped.items():
-        unique_mks = list(dict.fromkeys(mks))
-        if not unique_mks:
-            continue
-        rows = await graph_store.execute_read(
-            fetch_by_merge_keys_query(),
-            {
-                "merge_keys": unique_mks,
-                "job_id": str(job_id) if job_id is not None else None,
-            },
-        )
-        for row in rows:
-            entity = parse_entity_node(row.get("n"))
-            if entity is None:
-                continue
-            queried_mk = row.get("merge_key")
-            mk = queried_mk if isinstance(queried_mk, str) else entity.merge_key
-            for idx in mk_to_indices.get(mk, []):
-                if mentions[idx].label == entity.label:
-                    result[idx] = entity
-    return result
-
-
 async def _global_relation_lookup(
     triples: list[tuple[UUID, UUID, str]],
     *,
@@ -1240,28 +1067,6 @@ async def _global_relation_lookup(
             except Exception:
                 continue
     return result
-
-
-def _synthetic_entity_mention(entity: Entity) -> tuple[ExtractedEntity, Chunk]:
-    """Build a mention and distinct name context for a persisted raw entity."""
-    chunk_id = uuid4()
-    chunk = Chunk(
-        id=chunk_id,
-        document_id=chunk_id,
-        index=0,
-        text=entity.name,
-        provenance=TextProvenance(char_start=0, char_end=len(entity.name)),
-    )
-    return (
-        ExtractedEntity(
-            chunk_id=chunk_id,
-            label=entity.label,
-            text=entity.name,
-            char_start=0,
-            char_end=len(entity.name),
-        ),
-        chunk,
-    )
 
 
 def _embedding_guard_fields(entity: Entity) -> dict[str, str]:

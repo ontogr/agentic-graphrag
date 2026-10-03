@@ -304,12 +304,3 @@ async def persisted_candidate_indices(
         },
         {},
     )
-
-
-async def exact_match_lookup(
-    mentions: list[ExtractedEntity], *, graph_store: GraphStore
-) -> dict[int, Entity]:
-    """Return persisted exact matches, including accepted merge-key aliases."""
-    from agrag.ingestion._ingest_pipeline import _global_exact_match  # noqa: PLC0415
-
-    return await _global_exact_match(mentions, graph_store=graph_store)
