@@ -24,6 +24,7 @@ import pytest_asyncio
 
 import agrag.ingestion._ingest as ingest_module
 import agrag.ingestion._job_cleanup as job_cleanup_module
+import agrag.ingestion.graph as graph_module
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
@@ -333,10 +334,10 @@ async def _grow_component(
             await grow()
         else:
 
-            async def _die(self: Graph, *args: object, **kwargs: object) -> None:
+            async def _die(*args: object, **kwargs: object) -> None:
                 raise RuntimeError("cleanup died after commit")
 
-            monkeypatch.setattr(Graph, "_finish_job", _die)
+            monkeypatch.setattr(graph_module, "finish_job", _die)
             with pytest.raises(RuntimeError, match="cleanup died after commit"):
                 await grow()
             monkeypatch.undo()
