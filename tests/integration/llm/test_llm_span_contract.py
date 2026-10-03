@@ -190,6 +190,26 @@ class _EmptyStore(Any):
         return GENERIC
 
 
+def _within(
+    spans: tuple[ReadableSpan, ...], root: ReadableSpan
+) -> tuple[ReadableSpan, ...]:
+    """Return ``root`` and every finished span that descends from it."""
+    by_id = {span.context.span_id: span for span in spans}
+
+    def descends(span: ReadableSpan) -> bool:
+        seen: set[int] = set()
+        parent = span.parent
+        while parent is not None and parent.span_id not in seen:
+            if parent.span_id == root.context.span_id:
+                return True
+            seen.add(parent.span_id)
+            holder = by_id.get(parent.span_id)
+            parent = holder.parent if holder is not None else None
+        return False
+
+    return tuple(span for span in spans if span is root or descends(span))
+
+
 def _assert_llm_subtree(spans: tuple[ReadableSpan, ...], root: str) -> ReadableSpan:
     """Assert the call > attempt > request subtree hangs under ``root``."""
     request = _one(spans, "agrag.llm.request")
@@ -348,12 +368,22 @@ class TestText2Cypher:
             graph_store=_EmptyStore(), schema=GENERIC, tracer=tracer
         )
 
-        assert await retriever.retrieve("who is Ada Lovelace?") == []
+        # Whether the first query passes the pending-row guard depends on the
+        # model, so a repair attempt is a valid outcome. The test checks the
+        # trace of the first attempt only.
+        await retriever.retrieve("who is Ada Lovelace?")
 
         spans = exporter.get_finished_spans()
-        generate = _one(spans, "agrag.retrieval.generate_cypher")
+        generates = sorted(
+            (s for s in spans if s.name == "agrag.retrieval.generate_cypher"),
+            key=lambda s: s.start_time or 0,
+        )
+        assert generates, "no agrag.retrieval.generate_cypher span was recorded"
+        generate = generates[0]
         assert (generate.attributes or {})["agrag.is_repair"] is False
-        call = _assert_llm_subtree(spans, "agrag.retrieval.generate_cypher")
+        call = _assert_llm_subtree(
+            _within(spans, generate), "agrag.retrieval.generate_cypher"
+        )
         assert (call.attributes or {})["agrag.llm.function"] == "GenerateCypherQuery"
         write_span_tree(span_tree_path("text2cypher.json"), spans)
 

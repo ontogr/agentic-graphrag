@@ -7,7 +7,10 @@ identifier-validation contract shared by every Cypher builder.
 from collections.abc import Sequence
 from typing import Any, Literal
 
-from agrag.cypher._pending_filter import pending_filter_clause
+from agrag.cypher._pending_filter import (
+    pending_filter_clause,
+    pending_path_filter_clause,
+)
 from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
 
 
@@ -123,10 +126,9 @@ def bfs_expand_query(
     filter_suffix = f" AND {where_clause[6:]}" if where_clause else ""
     base_where = (
         "neighbor:_AgragNode AND NOT neighbor:Chunk AND NOT neighbor.id IN $seed_ids "
-        "AND (neighbor._pending_job_id IS NULL "
-        "OR neighbor._pending_job_id = $job_id) "
-        "AND ALL(r IN relationships(path) WHERE r._pending_job_id IS NULL "
-        "OR r._pending_job_id = $job_id)"
+        f"AND {pending_filter_clause('neighbor', 'job_id')} "
+        f"AND ALL(r IN relationships(path) WHERE "
+        f"{pending_filter_clause('r', 'job_id')})"
     )
     document_suffix = (
         " AND EXISTS { "
@@ -175,14 +177,11 @@ def entities_in_documents_query() -> str:
         "WHERE EXISTS { "
         "MATCH (document:_AgragNode:Document)-[part:PART_OF]->(chunk) "
         "WHERE document.id IN $document_ids AND part.invalid_at IS NULL "
-        "AND (document._pending_job_id IS NULL "
-        "OR document._pending_job_id = $job_id) "
-        "AND (part._pending_job_id IS NULL OR part._pending_job_id = $job_id) } "
-        "AND (entity._pending_job_id IS NULL "
-        "OR entity._pending_job_id = $job_id) "
-        "AND (chunk._pending_job_id IS NULL OR chunk._pending_job_id = $job_id) "
-        "AND (mention._pending_job_id IS NULL "
-        "OR mention._pending_job_id = $job_id) "
+        f"AND {pending_filter_clause('document', 'job_id')} "
+        f"AND {pending_filter_clause('part', 'job_id')} }} "
+        f"AND {pending_filter_clause('entity', 'job_id')} "
+        f"AND {pending_filter_clause('chunk', 'job_id')} "
+        f"AND {pending_filter_clause('mention', 'job_id')} "
         "RETURN DISTINCT entity.id AS id"
     )
 
@@ -228,7 +227,7 @@ def relationship_types_from_query(
         f"MATCH (seed){left_arrow}[r{type_pattern}]{right_arrow}(neighbor) "
         f"WHERE NOT neighbor:Chunk AND NOT neighbor:Community "
         f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
-        f"AND (r._pending_job_id IS NULL OR r._pending_job_id = $job_id) "
+        f"AND {pending_filter_clause('r', 'job_id')} "
         f"RETURN DISTINCT type(r) AS rel_type"
     )
 
@@ -266,8 +265,8 @@ def chunks_mentioning_entities_query() -> str:
     return (
         "UNWIND $entity_ids AS entity_id "
         "MATCH (c:_AgragNode:Chunk)-[:MENTIONED_IN]-> "
-        "(e:_AgragNode {{id: entity_id}}) "
-        "WHERE (c._pending_job_id IS NULL OR c._pending_job_id = $job_id) "
+        "(e:_AgragNode {id: entity_id}) "
+        f"WHERE {pending_filter_clause('c', 'job_id')} "
         "RETURN DISTINCT c, c.id AS id"
     )
 
@@ -286,9 +285,9 @@ def entities_mentioned_in_chunks_query() -> str:
     """
     return (
         "UNWIND $chunk_ids AS chunk_id "
-        "MATCH (c:_AgragNode:Chunk {{id: chunk_id}})"
+        "MATCH (c:_AgragNode:Chunk {id: chunk_id})"
         "-[:MENTIONED_IN]->(e:_AgragNode) "
-        "WHERE (e._pending_job_id IS NULL OR e._pending_job_id = $job_id) "
+        f"WHERE {pending_filter_clause('e', 'job_id')} "
         "RETURN DISTINCT e, e.id AS id"
     )
 
@@ -316,7 +315,7 @@ def fetch_all_relations_query() -> str:
         f"WHERE NOT a:Chunk AND NOT b:Chunk "
         f"AND NOT a:Community AND NOT b:Community "
         f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
-        f"AND r._pending_job_id IS NULL "
+        f"AND {pending_filter_clause('r')} "
         f"RETURN a.id AS source_id, b.id AS target_id, "
         f"r.source_chunk_ids AS source_chunk_ids, "
         f"type(r) AS rel_type "
@@ -357,7 +356,7 @@ def fetch_all_relations_query_cursor() -> str:
         f"AND NOT a:Chunk AND NOT b:Chunk "
         f"AND NOT a:Community AND NOT b:Community "
         f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
-        f"AND r._pending_job_id IS NULL "
+        f"AND {pending_filter_clause('r')} "
         f"RETURN a.id AS source_id, b.id AS target_id, "
         f"r.source_chunk_ids AS source_chunk_ids, "
         f"type(r) AS rel_type, coalesce(r.id, '') AS rel_id "
@@ -434,4 +433,26 @@ def upsert_relation_query(rel_type: str) -> str:
         f"ELSE r.source_chunk_ids END "
         f"SET r.id = record.id "
         f"RETURN record.id AS id"
+    )
+
+
+def shortest_path_distance_query() -> str:
+    """Build Cypher measuring the shortest committed path between entities.
+
+    The path may cross committed nodes and relationships only, so an
+    in-flight Cutover Job never shortens a distance.
+
+    Returns:
+        Parameterized Cypher expecting ``$seed_ids`` and ``$target_ids``
+        (lists of string ids). Returns one ``dist`` per seed and target pair
+        joined by a path.
+    """
+    return (
+        "UNWIND $seed_ids AS seed_id "
+        "UNWIND $target_ids AS target_id "
+        "MATCH path = shortestPath("
+        f"(seed:{NODE_IDENTITY_LABEL} {{id: seed_id}})"
+        f"-[*]-(target:{NODE_IDENTITY_LABEL} {{id: target_id}})"
+        f") WHERE {pending_path_filter_clause('path')} "
+        "RETURN length(path) AS dist"
     )

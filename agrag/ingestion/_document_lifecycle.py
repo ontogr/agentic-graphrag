@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from agrag.cypher._pending_filter import pending_filter_clause
+from agrag.cypher.documents import current_chunker_hash_query, find_document_query
 from agrag.cypher.relations import close_part_of_query
 from agrag.graphdb.base import GraphStore
 
@@ -47,9 +47,7 @@ async def find_document(
         unreadable.
     """
     rows = await graph_store.execute_read(
-        "MATCH (n:_AgragNode:Document {document_key: $document_key}) "
-        "RETURN n.id AS id, n.current_content_hash AS current_content_hash",
-        {"document_key": document_key},
+        find_document_query(), {"document_key": document_key}
     )
     if not rows:
         return None
@@ -60,12 +58,7 @@ async def find_document(
     except (KeyError, TypeError, ValueError):
         return None
     chunk_rows = await graph_store.execute_read(
-        "MATCH (d:_AgragNode:Document {document_key: $document_key})"
-        "-[p:PART_OF]->(c:_AgragNode:Chunk) "
-        f"WHERE p.invalid_at IS NULL AND {pending_filter_clause('p')} "
-        f"AND {pending_filter_clause('c')} "
-        "RETURN c.chunker_hash AS chunker_hash LIMIT 1",
-        {"document_key": document_key},
+        current_chunker_hash_query(), {"document_key": document_key}
     )
     chunker_hash = chunk_rows[0].get("chunker_hash") if chunk_rows else None
     return DocumentLookup(

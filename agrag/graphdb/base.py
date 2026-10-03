@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Protocol
+from uuid import UUID
 
 from agrag.common.data_models.graph_record import (
     NodeRecord,
@@ -40,6 +41,7 @@ class GraphStoreTransaction(Protocol):
         nodes: Sequence[NodeRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult | None:
         """Write or merge nodes inside the surrounding transaction."""
         ...
@@ -49,6 +51,7 @@ class GraphStoreTransaction(Protocol):
         relations: Sequence[RelationRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult | None:
         """Write or merge relationships inside the surrounding transaction."""
         ...
@@ -168,6 +171,7 @@ class GraphStore(ABC):
         nodes: Sequence[NodeRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         """Write or merge nodes, honoring each record's full label set.
 
@@ -180,6 +184,11 @@ class GraphStore(ABC):
             batch_size: Records per backend write call, applied within each
                 distinct label set when ``nodes`` mixes more than one. Must
                 be positive.
+            pending_job_id: The in-flight Cutover Job's id. The store tags
+                each node it creates, so retrieval skips it until the job
+                commits. A node that already exists keeps its current pending
+                state: a node tagged by another in-flight job stays tagged,
+                and None does not commit it. None writes committed data.
 
         Returns:
             The number written and one failure entry for each isolated record.
@@ -194,12 +203,19 @@ class GraphStore(ABC):
         relations: Sequence[RelationRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         """Write or merge relationships between existing nodes.
 
         Args:
             relations: The relation records to upsert.
             batch_size: Records per backend write call. Must be positive.
+            pending_job_id: The in-flight Cutover Job's id. The store tags
+                each relationship it creates, so retrieval skips it until
+                the job commits. A relationship that already exists keeps its
+                current pending state: one tagged by another in-flight job
+                stays tagged, and None does not commit it. None writes
+                committed data.
 
         Returns:
             The number written and one failure entry for each isolated record.

@@ -1,6 +1,7 @@
 """Cypher for community retrieval reads."""
 
 from agrag.common.data_models.community import COMMUNITY_LABEL, MEMBER_OF_RELATION
+from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 
 
@@ -34,8 +35,20 @@ def communities_for_entities_query(where_clause: str = "") -> str:
         "UNWIND $entity_ids AS entity_id "
         f"MATCH (e:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
         f"-[r:{MEMBER_OF_RELATION}]->(c:{COMMUNITY_LABEL}) "
-        "WHERE r._pending_job_id IS NULL OR r._pending_job_id = $job_id "
+        f"WHERE {pending_filter_clause('r', 'job_id')} "
         f"{filter_suffix}"
         "WITH c, count(DISTINCT entity_id) AS overlap "
         "RETURN c, overlap ORDER BY overlap DESC LIMIT $top_k"
+    )
+
+
+def hydrate_communities_by_id_query() -> str:
+    """Build Cypher fetching committed community nodes by id.
+
+    Returns:
+        Parameterized Cypher expecting ``$ids`` (list of string ids).
+    """
+    return (
+        f"UNWIND $ids AS id MATCH (n:{NODE_IDENTITY_LABEL}:{COMMUNITY_LABEL} "
+        f"{{id: id}}) WHERE {pending_filter_clause('n')} RETURN n"
     )

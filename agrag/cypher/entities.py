@@ -137,9 +137,9 @@ def fetch_by_merge_keys_query() -> str:
     return (
         f"UNWIND $merge_keys AS merge_key "
         f"MATCH (a:{MERGE_ALIAS_LABEL} {{merge_key: merge_key}}) "
-        f"WHERE a._pending_job_id IS NULL OR a._pending_job_id = $job_id "
+        f"WHERE {pending_filter_clause('a', 'job_id')} "
         f"MATCH (n:{NODE_IDENTITY_LABEL} {{id: a.entity_id}}) "
-        f"WHERE n._pending_job_id IS NULL OR n._pending_job_id = $job_id "
+        f"WHERE {pending_filter_clause('n', 'job_id')} "
         f"RETURN merge_key, n"
     )
 
@@ -306,7 +306,10 @@ def clear_property_query(property_name: str) -> str:
 
 
 def fetch_all_by_label_query(label: str) -> str:
-    """Build Cypher paginating every node with label, for consolidate().
+    """Build Cypher paginating every committed node with label.
+
+    Nodes an in-flight Cutover Job wrote are excluded, so consolidation
+    never resolves against uncommitted entities.
 
     Args:
         label: The node label. Must already be validated.
@@ -316,6 +319,7 @@ def fetch_all_by_label_query(label: str) -> str:
     """
     return (
         f"MATCH (n:{validate_identifier(label)}) "
+        f"WHERE {pending_filter_clause('n')} "
         f"RETURN n ORDER BY n.id SKIP $skip LIMIT $limit"
     )
 
@@ -346,6 +350,9 @@ def fetch_relations_between_query(rel_type: str, *, job_id: str | None = None) -
 def fetch_entity_neighbors_query() -> str:
     """Build Cypher for a bounded, per-entity sample of neighboring relations.
 
+    Reads committed rows only: an entity or relation an in-flight Cutover
+    Job wrote is never sampled as context.
+
     Returns:
         Parameterized Cypher expecting ``$ids`` (entity id strings),
         ``$exclude_types`` (relation types to skip, such as resolution's own
@@ -359,6 +366,9 @@ def fetch_entity_neighbors_query() -> str:
         "MATCH (n:"
         f"{NODE_IDENTITY_LABEL} {{id: entity_id}})-[r]-(m:{NODE_IDENTITY_LABEL}) "
         "WHERE NOT type(r) IN $exclude_types "
+        f"AND {pending_filter_clause('n')} "
+        f"AND {pending_filter_clause('r')} "
+        f"AND {pending_filter_clause('m')} "
         "RETURN type(r) AS rel_type, m.name AS neighbor_name "
         "LIMIT $limit "
         "} "
@@ -453,12 +463,12 @@ def load_chunks_by_id_query() -> str:
         f"MATCH (n:{NODE_IDENTITY_LABEL}:Chunk {{id: id}}) "
         f"WHERE (NOT EXISTS {{ "
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
-        f"WHERE (p._pending_job_id IS NULL OR p._pending_job_id = $job_id) "
+        f"WHERE {pending_filter_clause('p', 'job_id')} "
         f"}} OR EXISTS {{ "
         f"MATCH (d:{NODE_IDENTITY_LABEL}:Document)-[p:PART_OF]->(n) "
         f"WHERE p.invalid_at IS NULL "
-        f"AND (p._pending_job_id IS NULL OR p._pending_job_id = $job_id) }}) "
-        f"AND (n._pending_job_id IS NULL OR n._pending_job_id = $job_id) "
+        f"AND {pending_filter_clause('p', 'job_id')} }}) "
+        f"AND {pending_filter_clause('n', 'job_id')} "
         f"RETURN n"
     )
 

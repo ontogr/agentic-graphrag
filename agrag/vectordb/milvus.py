@@ -11,7 +11,6 @@ from uuid import UUID
 from opentelemetry.trace import SpanKind, Tracer
 
 from agrag.common.data_models.vector_record import (
-    PENDING_VECTOR_FLAG,
     Distance,
     VectorHit,
     VectorRecord,
@@ -28,6 +27,7 @@ from agrag.vectordb.errors import (
     VectorStoreError,
     VectorStoreMissingExtraError,
 )
+from agrag.vectordb.pending import PENDING_FLAG, PENDING_JOB_KEY, stage_records
 from agrag.vectordb.settings import MilvusSettings
 
 
@@ -247,38 +247,37 @@ class MilvusVectorStore(VectorStore):
             Distance.DOT: "IP",
         }[distance]
 
-    def _compile_filter(self, filters: dict[str, Any] | None) -> str:
+    def _compile_filter(
+        self, filters: dict[str, Any] | None, pending_job_id: UUID | None = None
+    ) -> str:
         """Build a Milvus filter expression from a flat-dict payload filter.
 
-        A pending record (one whose ``_pending`` payload boolean is true)
-        is excluded unless the filter asks for pending records only. The
-        exclusion is written as a negation of the equality so records
-        written before the flag existed still match.
+        Staged records (``pending`` true) are excluded unless
+        ``pending_job_id`` names the job to read. The exclusion negates the
+        equality, so records written before the field existed still match.
 
         Args:
             filters: A flat-dict filter: a scalar value means exact match, a
                 list value means any of, and all keys are AND-ed together.
-                ``None`` means no filter. ``_pending='''True'''`` selects only
-                in-flight records; leaving the key out, or setting it
-                ``False``, excludes them.
+            pending_job_id: Select only this job's staged records instead of
+                the committed ones.
 
         Returns:
             A Milvus ``filter`` expression string.
         """
-        pending_field = _PENDING_FIELD
         clauses = []
         for key, value in (filters or {}).items():
-            if key == PENDING_VECTOR_FLAG:
-                continue
             field = _payload_field_path(key)
             if isinstance(value, list):
                 clauses.append(f"{field} in {_escape_list(value)}")
             else:
                 clauses.append(f"{field} == {_escape_scalar(value)}")
-        if (filters or {}).get(PENDING_VECTOR_FLAG) is True:
-            clauses.append(f"{pending_field} == true")
+        if pending_job_id is None:
+            clauses.append(f"not ({_PENDING_FIELD} == true)")
         else:
-            clauses.append(f"not ({pending_field} == true)")
+            job_field = _payload_field_path(PENDING_JOB_KEY)
+            clauses.append(f"{_PENDING_FIELD} == true")
+            clauses.append(f"{job_field} == {_escape_scalar(str(pending_job_id))}")
         return " and ".join(clauses)
 
     @staticmethod
@@ -604,6 +603,7 @@ class MilvusVectorStore(VectorStore):
         records: Sequence[VectorRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> None:
         """Write or overwrite records in a collection.
 
@@ -612,11 +612,15 @@ class MilvusVectorStore(VectorStore):
             records: The records to upsert, in order.
             batch_size: The number of records per backend write call. Must be
                 positive.
+            pending_job_id: The in-flight job staging these records.
 
         Raises:
-            ValueError: ``batch_size`` is not positive.
+            ValueError: ``batch_size`` is not positive, or a payload uses a
+                key the store reserves for pending records (``_pending``,
+                ``_pending_job_id``, ``_target_id``).
         """
         require_positive_batch_size(batch_size)
+        records = stage_records(records, pending_job_id)
         client = await self._ensure_client()
         with self._tracer.start_as_current_span(
             "agrag.vectordb.upsert",
@@ -634,9 +638,7 @@ class MilvusVectorStore(VectorStore):
                         _VECTOR_FIELD: record.vector,
                         _TEXT_FIELD: record.payload.get(_TEXT_FIELD, ""),
                         _PAYLOAD_FIELD: _normalize_payload(record.payload),
-                        _PENDING_FIELD: bool(
-                            record.payload.get(PENDING_VECTOR_FLAG, False)
-                        ),
+                        _PENDING_FIELD: bool(record.payload.get(PENDING_FLAG, False)),
                     }
                     for record in batch
                 ]
@@ -779,6 +781,7 @@ class MilvusVectorStore(VectorStore):
         page_offset: str | None = None,
         filters: dict[str, Any] | None = None,
         with_vectors: bool = False,
+        pending_job_id: UUID | None = None,
     ) -> tuple[list[VectorRecord], str | None]:
         """Iterate records in a collection, in batches.
 
@@ -797,6 +800,7 @@ class MilvusVectorStore(VectorStore):
             page_offset: The id cursor from a previous ``scroll`` call.
             filters: A flat-dict filter on scalar fields.
             with_vectors: Whether to return each record's vector.
+            pending_job_id: Read only this job's staged records.
 
         Returns:
             The page of records and the next page cursor, or ``None`` at the
@@ -807,7 +811,7 @@ class MilvusVectorStore(VectorStore):
         if with_vectors:
             output_fields.append(_VECTOR_FIELD)
         safe_limit = min(limit, MAX_RESPONSE_LIMIT)
-        expr = self._compile_filter(filters)
+        expr = self._compile_filter(filters, pending_job_id)
         if page_offset is not None:
             cursor_clause = f"id > {_escape_scalar(page_offset)}"
             expr = f"{cursor_clause} and {expr}" if expr else cursor_clause
@@ -878,13 +882,18 @@ class MilvusVectorStore(VectorStore):
         return records
 
     async def count(
-        self, collection: str, *, filters: dict[str, Any] | None = None
+        self,
+        collection: str,
+        *,
+        filters: dict[str, Any] | None = None,
+        pending_job_id: UUID | None = None,
     ) -> int:
         """Count records in a collection.
 
         Args:
             collection: The collection to count.
             filters: A flat-dict filter on scalar fields.
+            pending_job_id: Count only this job's staged records.
 
         Returns:
             The number of matching records.
@@ -900,7 +909,7 @@ class MilvusVectorStore(VectorStore):
         ):
             rows = await client.query(
                 collection_name=collection,
-                filter=self._compile_filter(filters),
+                filter=self._compile_filter(filters, pending_job_id),
                 output_fields=["count(*)"],
                 consistency_level=_READ_CONSISTENCY,
             )

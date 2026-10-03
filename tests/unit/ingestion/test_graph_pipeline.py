@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest import mock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -138,14 +138,23 @@ class MockStore(CutoverJobLeaseFake, GraphStore):
         self.setup_indexes_calls += 1
 
     async def upsert_nodes(
-        self, label: str, nodes: Sequence[NodeRecord], *, batch_size: int = 256
+        self,
+        label: str,
+        nodes: Sequence[NodeRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         """Record a node upsert."""
         self.upsert_nodes_calls.append((label, list(nodes)))
         return UpsertResult(written=len(nodes))
 
     async def upsert_relations(
-        self, relations: Sequence[RelationRecord], *, batch_size: int = 256
+        self,
+        relations: Sequence[RelationRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         """Record a relation upsert."""
         self.upsert_relations_calls.append(list(relations))
@@ -188,6 +197,7 @@ class RecordingVectorStore(VectorStore):
     def __init__(self) -> None:
         """Start with empty call logs."""
         self.upserts: list[tuple[str, list[VectorRecord]]] = []
+        self.upsert_jobs: list[UUID | None] = []
         self.deletes: list[tuple[str, list[object]]] = []
         self.fail: Exception | None = None
 
@@ -212,11 +222,13 @@ class RecordingVectorStore(VectorStore):
         records: Sequence[VectorRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> None:
         """Record the upsert, or raise the injected failure."""
         if self.fail is not None:
             raise self.fail
         self.upserts.append((collection, list(records)))
+        self.upsert_jobs.append(pending_job_id)
 
     async def search(
         self,
@@ -279,6 +291,7 @@ class _FailingUpsertVectorStore(RecordingVectorStore):
         records: Sequence[VectorRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> None:
         """Always fail."""
         raise RuntimeError("vector store down")
@@ -885,6 +898,32 @@ class TestEmbedChunksDualWrite:
         assert [str(r.id) for r in records] == [str(ch.id)]
         assert records[0].payload["text"] == "Hello world"
 
+    async def test_job_id_reaches_the_vector_store(self) -> None:
+        """A chunk written inside a job is staged for that job, not committed."""
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Hello world",
+            provenance=TextProvenance(char_start=0, char_end=11),
+        )
+        store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
+        vector_store = RecordingVectorStore()
+        job_id = uuid4()
+
+        await _embed_and_upsert_chunks(
+            [ch],
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.RAISE,
+            vector_store=vector_store,
+            vector_collection="chunks",
+            pending_job_id=job_id,
+        )
+
+        assert vector_store.upsert_jobs == [job_id]
+        assert "_pending" not in vector_store.upserts[0][1][0].payload
+
     async def test_chunk_payload_carries_document_id(self) -> None:
         """A document-scoped filter must match the VectorStore path too.
 
@@ -1282,8 +1321,11 @@ class TestGraphAddPipeline:
                 nodes: Sequence[NodeRecord],
                 *,
                 batch_size: int = 256,
+                pending_job_id: UUID | None = None,
             ) -> UpsertResult:
-                result = await super().upsert_nodes(label, nodes, batch_size=batch_size)
+                result = await super().upsert_nodes(
+                    label, nodes, batch_size=batch_size, pending_job_id=pending_job_id
+                )
                 if label != CHUNK_LABEL:
                     return result
                 for node in nodes:
@@ -1323,8 +1365,11 @@ class TestGraphAddPipeline:
                 nodes: Sequence[NodeRecord],
                 *,
                 batch_size: int = 256,
+                pending_job_id: UUID | None = None,
             ) -> UpsertResult:
-                result = await super().upsert_nodes(label, nodes, batch_size=batch_size)
+                result = await super().upsert_nodes(
+                    label, nodes, batch_size=batch_size, pending_job_id=pending_job_id
+                )
                 if label == CHUNK_LABEL:
                     return UpsertResult(
                         failures=[

@@ -6,10 +6,12 @@ storage/merge-mechanics work this decouples from.
 
 Pending-visibility convention: a node or edge *created* by an in-flight
 Cutover Job carries ``_pending_job_id`` (the job's id) in its properties;
-committed data never carries this key. Retrieval query builders exclude
-such rows with ``pending_filter_clause``. Vector-store payloads mirror the
-tag as an explicit boolean ``_pending`` field, cleared at commit, because
-payload filters match on present values rather than key absence.
+committed data never carries this key. ``GraphStore`` writes the tag when
+the caller passes ``pending_job_id`` to an upsert, so records never carry
+it and the validators below reject it. Retrieval query builders exclude
+tagged rows with ``pending_filter_clause``. Vector stores keep a job's
+records under staging ids with a ``_pending`` flag and the job id in the
+payload, and promote them to their real ids at commit.
 
 The tag is written with ``ON CREATE SET``, so a job that writes over a
 row that already exists leaves it untagged. Such a row was already
@@ -18,7 +20,7 @@ which deletes tagged rows, therefore cannot delete data a caller
 committed earlier.
 """
 
-from typing import Any, TypeVar
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -27,11 +29,11 @@ from pydantic import BaseModel, Field, field_validator
 PENDING_JOB_ID_PROPERTY = "_pending_job_id"
 """Graph property marking a node or edge as created by an in-flight job.
 
-Carried on every node or edge a Cutover Job creates; committed data and
-rows a job only writes over never carry it. Retrieval query builders
-exclude rows carrying it, the commit step removes it atomically, and
-rollback deletes every row carrying it. Vector-store payloads mirror it
-under the same key for commit-time clearing.
+Written by ``GraphStore`` on every node or edge a Cutover Job creates;
+committed data and rows a job only writes over never carry it. Retrieval
+query builders exclude rows carrying it, the commit step removes it
+atomically, and rollback deletes every row carrying it. Vector-store
+payloads hold the job id under the same key.
 """
 
 
@@ -115,34 +117,3 @@ class UpsertResult(BaseModel):
 
     written: int = 0
     failures: list[UpsertFailure] = Field(default_factory=list)
-
-
-_RecordT = TypeVar("_RecordT", NodeRecord, RelationRecord)
-
-
-def tag_pending(record: _RecordT, job_id: UUID | str | None) -> _RecordT:
-    """Stamp a write record with the Cutover Job that is writing it.
-
-    The tag reaches the graph only when the write creates its row; the
-    upsert queries apply it with ``ON CREATE SET``.
-
-    No-op outside a job, so pipeline stages thread their optional job id
-    through this unconditionally instead of branching at every write.
-
-    Args:
-        record: The node or relationship record about to be written.
-        job_id: The in-flight job's id, or None outside a job.
-
-    Returns:
-        A tagged copy when a job id was given; otherwise the original record.
-    """
-    if job_id is not None:
-        return record.model_copy(
-            update={
-                "properties": {
-                    **record.properties,
-                    PENDING_JOB_ID_PROPERTY: str(job_id),
-                }
-            }
-        )
-    return record

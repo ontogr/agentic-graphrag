@@ -7,7 +7,7 @@ from opentelemetry.trace import Tracer
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
-from agrag.cypher.entities import NODE_IDENTITY_LABEL
+from agrag.cypher.relations import shortest_path_distance_query
 from agrag.graphdb.base import GraphStore
 from agrag.observability import get_tracer
 from agrag.retrieval.tracing import record_results
@@ -80,13 +80,7 @@ async def node_distance_rerank(
 
             path_query_count += 1
             rows = await graph_store.execute_read(
-                f"UNWIND $seed_ids AS seed_id "
-                f"UNWIND $target_ids AS target_id "
-                f"MATCH path = shortestPath("
-                f"  (seed:{NODE_IDENTITY_LABEL} {{id: seed_id}})"
-                f"-[*]-(target:{NODE_IDENTITY_LABEL} {{id: target_id}})"
-                f") "
-                f"RETURN length(path) AS dist",
+                shortest_path_distance_query(),
                 {
                     "seed_ids": seed_strs,
                     "target_ids": [str(target_id) for target_id in target_ids],

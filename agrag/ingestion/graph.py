@@ -1818,6 +1818,9 @@ class Graph:
         if self._vector_store is None:
             return
         collection = self._retrieval_settings.community_collection
+        # Read every id before deleting: a backend may page by position, and
+        # deleting a page would shift the records the next page skips.
+        community_ids: list[UUID] = []
         page_offset: str | None = None
         while True:
             records, page_offset = await self._vector_store.scroll(
@@ -1826,12 +1829,13 @@ class Graph:
                 page_offset=page_offset,
                 filters={"label": COMMUNITY_LABEL},
             )
-            if records:
-                await self._vector_store.delete(
-                    collection, [record.id for record in records]
-                )
-            if page_offset is None:
+            community_ids.extend(record.id for record in records)
+            if page_offset is None or not records:
                 break
+        for start in range(0, len(community_ids), 1000):
+            await self._vector_store.delete(
+                collection, community_ids[start : start + 1000]
+            )
 
     async def detect_communities(  # noqa: PLR0912,PLR0915
         self,
