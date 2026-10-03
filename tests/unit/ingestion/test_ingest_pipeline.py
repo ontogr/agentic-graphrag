@@ -224,7 +224,7 @@ class TestIngestChunks:
         resolver_instance = AsyncMock()
         resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
         with mock.patch(
-            "agrag.ingestion._ingest_pipeline.Resolver",
+            "agrag.ingestion.resolve.resolution.Resolver",
             return_value=resolver_instance,
         ):
             result = await ingest_chunks(
@@ -277,7 +277,7 @@ class TestIngestChunks:
         resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
 
         with mock.patch(
-            "agrag.ingestion._ingest_pipeline.Resolver",
+            "agrag.ingestion.resolve.resolution.Resolver",
             return_value=resolver_instance,
         ) as resolver_class:
             await ingest_chunks(
@@ -688,7 +688,8 @@ class TestResolutionContextWiring:
         resolver_instance.resolve.return_value = ResolutionResult(groups=[], matches=[])
 
         with mock.patch(
-            "agrag.ingestion._ingest_pipeline.Resolver", return_value=resolver_instance
+            "agrag.ingestion.resolve.resolution.Resolver",
+            return_value=resolver_instance,
         ):
             await _ingest([doc], [chunk], store, extractor=_RelationExtractor())
 
@@ -726,11 +727,11 @@ class TestResolutionContextWiring:
                 new=fake_vector_search,
             ),
             mock.patch(
-                "agrag.ingestion._ingest_pipeline.Resolver",
+                "agrag.ingestion.resolve.resolution.Resolver",
                 return_value=resolver_instance,
             ),
             mock.patch(
-                "agrag.ingestion._ingest_pipeline.fetch_persisted_neighbors",
+                "agrag.ingestion.resolve.resolution.fetch_persisted_neighbors",
                 fetch_neighbors,
             ),
         ):

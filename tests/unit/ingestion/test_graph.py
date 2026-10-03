@@ -71,8 +71,7 @@ from agrag.ingestion._ingest_pipeline import (
     _vector_record,
 )
 from agrag.ingestion.extract import Extractor
-from agrag.ingestion.graph import SYSTEM_RELATION_TYPES
-from agrag.ingestion.resolve import ResolutionResult
+from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES, ResolutionResult
 from agrag.loaders.corpus.errors import UnsupportedFormatError
 from agrag.loaders.corpus.readers.prose import TextLoader
 from agrag.loaders.corpus.types import ErrorPolicy, ReadOptions
@@ -632,10 +631,12 @@ class TestConsolidateResolutionContext:
                 return_value=[first, second],
             ),
             mock.patch(
-                "agrag.ingestion.graph.Resolver", return_value=resolver_instance
+                "agrag.ingestion.resolve.resolution.Resolver",
+                return_value=resolver_instance,
             ),
             mock.patch(
-                "agrag.ingestion.graph.fetch_persisted_neighbors", fetch_neighbors
+                "agrag.ingestion.resolve.resolution.fetch_persisted_neighbors",
+                fetch_neighbors,
             ),
         ):
             await graph.consolidate(apply=False)
