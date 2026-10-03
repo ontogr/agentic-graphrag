@@ -10,8 +10,13 @@ from uuid import UUID, uuid4
 
 from opentelemetry.trace import Tracer
 
-from agrag.common.data_models.community import Community
+from agrag.common.data_models.community import (
+    COMMUNITY_LABEL,
+    MEMBER_OF_RELATION,
+    Community,
+)
 from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.validation import (
     require_positive_batch_size,
@@ -24,8 +29,13 @@ from agrag.cypher.relations import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore, GraphStoreTransaction
+from agrag.graphdb.entities import load_entities
+from agrag.ingestion._ingest_pipeline import _upsert_vectors, _vector_record
+from agrag.ingestion.reports import CommunityDetectionReport
 from agrag.loaders.corpus.types import ErrorPolicy
 from agrag.observability import get_tracer, record_stage_failure
+from agrag.retrieval.settings import RetrievalSettings
+from agrag.vectordb.base import VectorStore
 
 
 if TYPE_CHECKING:
@@ -146,7 +156,7 @@ def compute_communities(
     """Run hierarchical Leiden and return level-0 communities.
 
     CPU-bound and synchronous; callers on the event loop should run this via
-    asyncio.to_thread (see Graph._chunk_documents for the same pattern with
+    asyncio.to_thread (see chunk_documents for the same pattern with
     chunking). Only level 0 is kept -- higher levels are computed for
     max_cluster_size capping but never persisted.
 
@@ -667,3 +677,239 @@ def required_member_ids(
         else:
             needed.update(community.member_ids[:3])
     return needed
+
+
+_WRITE_BATCH_SIZE = 5000
+_VECTOR_SCROLL_LIMIT = 1000
+
+
+def _vector_store_failure(exc: Exception) -> StageFailure:
+    """Record a community vector store error as a stage failure."""
+    trace_id, span_id = record_stage_failure(exc)
+    return StageFailure(
+        item_id="community_vector_store",
+        error_type=type(exc).__name__,
+        error_message=str(exc),
+        trace_id=trace_id,
+        span_id=span_id,
+    )
+
+
+async def _delete_community_vectors(vector_store: VectorStore, collection: str) -> None:
+    """Delete every record labeled Community from the collection.
+
+    A detection run replaces all Community nodes, so the matching vectors must
+    go too. One collection belongs to one graph: a collection that several
+    graphs share loses their community vectors as well.
+    """
+    # Read every id before deleting: a backend may page by position, and
+    # deleting a page would shift the records the next page skips.
+    community_ids: list[UUID] = []
+    page_offset: str | None = None
+    while True:
+        records, page_offset = await vector_store.scroll(
+            collection,
+            limit=_VECTOR_SCROLL_LIMIT,
+            page_offset=page_offset,
+            filters={"label": COMMUNITY_LABEL},
+        )
+        community_ids.extend(record.id for record in records)
+        if page_offset is None or not records:
+            break
+    for start in range(0, len(community_ids), _VECTOR_SCROLL_LIMIT):
+        await vector_store.delete(
+            collection, community_ids[start : start + _VECTOR_SCROLL_LIMIT]
+        )
+
+
+async def _clear_communities(
+    graph_store: GraphStore, vector_store: VectorStore | None, collection: str
+) -> list[StageFailure]:
+    """Delete every stored community and return the vector store failures."""
+    async with graph_store.transaction() as tx:
+        await delete_all_communities(tx)
+    if vector_store is None:
+        return []
+    try:
+        await _delete_community_vectors(vector_store, collection)
+    except Exception as exc:  # noqa: BLE001
+        return [_vector_store_failure(exc)]
+    return []
+
+
+async def _replace_community_nodes(
+    graph_store: GraphStore, communities: list[Community]
+) -> None:
+    """Write the communities and their MEMBER_OF edges in one transaction.
+
+    The write first deletes every earlier community, so a failure leaves the
+    previous communities in place.
+    """
+    async with graph_store.transaction() as tx:
+        await delete_all_communities(tx)
+        for start in range(0, len(communities), _WRITE_BATCH_SIZE):
+            batch = communities[start : start + _WRITE_BATCH_SIZE]
+            await tx.upsert_nodes(COMMUNITY_LABEL, [c.to_node_record() for c in batch])
+        buffer: list = []
+        for community in communities:
+            for member_id in community.member_ids:
+                buffer.append(
+                    Relation(
+                        id=uuid4(),
+                        type=MEMBER_OF_RELATION,
+                        source_id=member_id,
+                        target_id=community.id,
+                    ).to_relation_record()
+                )
+                if len(buffer) >= _WRITE_BATCH_SIZE:
+                    await tx.upsert_relations(buffer)
+                    buffer = []
+        if buffer:
+            await tx.upsert_relations(buffer)
+
+
+async def _replace_community_vectors(
+    vector_store: VectorStore, collection: str, communities: list[Community]
+) -> list[StageFailure]:
+    """Replace the stored community vectors and return the failures."""
+    failures: list[StageFailure] = []
+    try:
+        await _delete_community_vectors(vector_store, collection)
+    except Exception as exc:  # noqa: BLE001
+        failures.append(_vector_store_failure(exc))
+    try:
+        await _upsert_vectors(
+            vector_store,
+            collection,
+            [
+                _vector_record(
+                    c.id,
+                    c.embedding or [],
+                    label=COMMUNITY_LABEL,
+                    text=c.embedding_text,
+                    properties=c.metadata,
+                )
+                for c in communities
+                if c.embedding is not None
+            ],
+        )
+    except Exception as exc:  # noqa: BLE001
+        failures.append(_vector_store_failure(exc))
+    return failures
+
+
+async def _write_communities(
+    graph_store: GraphStore,
+    communities: list[Community],
+    edges: list[WeightedEdge],
+    *,
+    vector_store: VectorStore | None,
+    embedder: Embedder,
+    settings: RetrievalSettings,
+    tracer: Tracer | None,
+) -> list[StageFailure]:
+    """Report, embed and store the communities, replacing earlier ones."""
+    entities_by_id = await load_entities(
+        graph_store, list(required_member_ids(communities)), tracer=tracer
+    )
+    failures = await generate_community_reports(
+        communities,
+        entities_by_id,
+        edges=edges,
+        error_policy=ErrorPolicy.SKIP,
+        tracer=tracer,
+    )
+    failures += await embed_communities(communities, embedder=embedder, tracer=tracer)
+    await _replace_community_nodes(graph_store, communities)
+    if vector_store is not None:
+        failures += await _replace_community_vectors(
+            vector_store, settings.community_collection, communities
+        )
+    return failures
+
+
+async def detect_communities(
+    graph_store: GraphStore,
+    *,
+    vector_store: VectorStore | None,
+    embedder: Embedder,
+    settings: RetrievalSettings,
+    tracer: Tracer | None = None,
+    apply: bool = False,
+    max_cluster_size: int = 10,
+    resolution: float = 1.0,
+    seed: int | None = 0xDEADBEEF,
+) -> CommunityDetectionReport:
+    """Detect entity communities via hierarchical Leiden.
+
+    Reads every live domain relation across the whole graph, not only one
+    entity label, because community structure spans entity types. It builds a
+    weighted edge list and runs hierarchical Leiden off the event loop. With
+    ``apply=True`` the run is a full recompute: it deletes every earlier
+    Community node, MEMBER_OF edge and community vector before it stores the
+    new ones.
+
+    Args:
+        graph_store: Where relations and entities are read and communities are
+            written.
+        vector_store: Holds the community vectors. None skips vector writes.
+        embedder: Embeds the community summaries.
+        settings: Names the community vector collection.
+        tracer: Opens the detection span. None opens no recorded span.
+        apply: Write the communities. False returns a report only.
+        max_cluster_size: Forwarded to ``compute_communities``.
+        resolution: Forwarded to ``compute_communities``.
+        seed: Forwarded to ``compute_communities``.
+
+    Returns:
+        A report of every community found, applied or not. A vector store or
+        community report failure appears in ``failures``.
+
+    Raises:
+        CommunityDetectionMissingExtraError: graspologic-native is not
+            installed.
+    """
+    with get_tracer(tracer).start_as_current_span("agrag.ingestion.detect_communities"):
+        edges = await fetch_relation_edges(graph_store)
+        if not edges:
+            if not apply:
+                return CommunityDetectionReport(
+                    communities=[], applied=False, failures=[]
+                )
+            failures = await _clear_communities(
+                graph_store, vector_store, settings.community_collection
+            )
+            return CommunityDetectionReport(
+                communities=[], applied=True, failures=failures
+            )
+
+        communities = await asyncio.to_thread(
+            compute_communities,
+            edges,
+            max_cluster_size=max_cluster_size,
+            resolution=resolution,
+            seed=seed,
+        )
+        if not apply:
+            return CommunityDetectionReport(
+                communities=communities, applied=False, failures=[]
+            )
+        if not communities:
+            failures = await _clear_communities(
+                graph_store, vector_store, settings.community_collection
+            )
+            return CommunityDetectionReport(
+                communities=[], applied=True, failures=failures
+            )
+        failures = await _write_communities(
+            graph_store,
+            communities,
+            edges,
+            vector_store=vector_store,
+            embedder=embedder,
+            settings=settings,
+            tracer=tracer,
+        )
+        return CommunityDetectionReport(
+            communities=communities, applied=True, failures=failures
+        )

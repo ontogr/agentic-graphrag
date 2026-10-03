@@ -614,7 +614,7 @@ Give exactly one of `source`, `text`, and `documents`.
 
 **Parameters:**
 
-- **source** (<code>[SourcesType](#agrag-ingestion-graph-SourcesType) | None</code>) – A file path, a directory, a glob, or a list of these.
+- **source** (<code>SourcesType | None</code>) – A file path, a directory, a glob, or a list of these.
 - **text** (<code>str | None</code>) – Raw text to add as one document.
 - **documents** (<code>Sequence\[[Document](common.md#agrag-common-data_models-document-Document)\] | None</code>) – Already-built documents to add directly.
 - **loader** (<code>[Loader](loaders.md#agrag-loaders-corpus-base-Loader) | None</code>) – A loader to use instead of the registry default. Requires a
@@ -890,7 +890,7 @@ must resolve to exactly one document.
 
 - **document_key** (<code>str</code>) – The stable key of the document to replace.
 - **text** (<code>str | None</code>) – Replacement text, exactly one of `text`/`source`.
-- **source** (<code>[SourcesType](#agrag-ingestion-graph-SourcesType) | None</code>) – A single-file source, glob, or path list resolving to
+- **source** (<code>SourcesType | None</code>) – A single-file source, glob, or path list resolving to
   exactly one document.
 - **loader** (<code>[Loader](loaders.md#agrag-loaders-corpus-base-Loader) | None</code>) – A loader override for a single-file `source`.
 - **error_policy** (<code>[ErrorPolicy](loaders.md#agrag-loaders-corpus-types-ErrorPolicy)</code>) – RAISE propagates a stage failure; any other
@@ -1024,6 +1024,7 @@ Community detection: hierarchical Leiden over the entity graph.
 
 - [**compute_communities**](#agrag-ingestion-community-compute_communities) – Run hierarchical Leiden and return level-0 communities.
 - [**delete_all_communities**](#agrag-ingestion-community-delete_all_communities) – Delete every Community node and its edges, in batches.
+- [**detect_communities**](#agrag-ingestion-community-detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**embed_communities**](#agrag-ingestion-community-embed_communities) – Compute each community's embedding from its report text, in place.
 - [**fetch_relation_edges**](#agrag-ingestion-community-fetch_relation_edges) – Return every live domain relation as a weighted edge tuple.
 - [**generate_community_reports**](#agrag-ingestion-community-generate_community_reports) – Generate a report for each community, in place.
@@ -1061,7 +1062,7 @@ compute_communities(edges:list[WeightedEdge], *, max_cluster_size:int = 10, reso
 Run hierarchical Leiden and return level-0 communities.
 
 CPU-bound and synchronous; callers on the event loop should run this via
-asyncio.to_thread (see Graph.\_chunk_documents for the same pattern with
+asyncio.to_thread (see chunk_documents for the same pattern with
 chunking). Only level 0 is kept -- higher levels are computed for
 max_cluster_size capping but never persisted.
 
@@ -1119,6 +1120,44 @@ batch_size rows deleted.
   caller inside `store.transaction()` can delete and rewrite
   communities atomically.
 - **batch_size** (<code>int</code>) – Community nodes deleted per statement.
+
+#### `agrag.ingestion.community.detect_communities` \{#agrag-ingestion-community-detect_communities}
+
+```python
+detect_communities(graph_store:GraphStore, *, vector_store:VectorStore | None, embedder:Embedder, settings:RetrievalSettings, tracer:Tracer | None = None, apply:bool = False, max_cluster_size:int = 10, resolution:float = 1.0, seed:int | None = 3735928559) -> CommunityDetectionReport
+```
+
+Detect entity communities via hierarchical Leiden.
+
+Reads every live domain relation across the whole graph, not only one
+entity label, because community structure spans entity types. It builds a
+weighted edge list and runs hierarchical Leiden off the event loop. With
+`apply=True` the run is a full recompute: it deletes every earlier
+Community node, MEMBER_OF edge and community vector before it stores the
+new ones.
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where relations and entities are read and communities are
+  written.
+- **vector_store** (<code>[VectorStore](vectordb.md#agrag-vectordb-base-VectorStore) | None</code>) – Holds the community vectors. None skips vector writes.
+- **embedder** (<code>[Embedder](embedding.md#agrag-embedding-base-Embedder)</code>) – Embeds the community summaries.
+- **settings** (<code>[RetrievalSettings](retrieval.md#agrag-retrieval-settings-RetrievalSettings)</code>) – Names the community vector collection.
+- **tracer** (<code>Tracer | None</code>) – Opens the detection span. None opens no recorded span.
+- **apply** (<code>bool</code>) – Write the communities. False returns a report only.
+- **max_cluster_size** (<code>int</code>) – Forwarded to `compute_communities`.
+- **resolution** (<code>float</code>) – Forwarded to `compute_communities`.
+- **seed** (<code>int | None</code>) – Forwarded to `compute_communities`.
+
+**Returns:**
+
+- <code>[CommunityDetectionReport](#agrag-ingestion-reports-CommunityDetectionReport)</code> – A report of every community found, applied or not. A vector store or
+- <code>[CommunityDetectionReport](#agrag-ingestion-reports-CommunityDetectionReport)</code> – community report failure appears in `failures`.
+
+**Raises:**
+
+- <code>[CommunityDetectionMissingExtraError](#agrag-ingestion-community-CommunityDetectionMissingExtraError)</code> – graspologic-native is not
+  installed.
 
 #### `agrag.ingestion.community.embed_communities` \{#agrag-ingestion-community-embed_communities}
 
@@ -1644,11 +1683,6 @@ The public Graph API for ingestion.
 
 - [**Graph**](#agrag-ingestion-graph-Graph) – A knowledge graph that a caller can open and add content to.
 
-**Attributes:**
-
-- [**SourceType**](#agrag-ingestion-graph-SourceType) –
-- [**SourcesType**](#agrag-ingestion-graph-SourcesType) –
-
 #### `agrag.ingestion.graph.Graph` \{#agrag-ingestion-graph-Graph}
 
 ```python
@@ -1721,7 +1755,7 @@ Give exactly one of `source`, `text`, and `documents`.
 
 **Parameters:**
 
-- **source** (<code>[SourcesType](#agrag-ingestion-graph-SourcesType) | None</code>) – A file path, a directory, a glob, or a list of these.
+- **source** (<code>SourcesType | None</code>) – A file path, a directory, a glob, or a list of these.
 - **text** (<code>str | None</code>) – Raw text to add as one document.
 - **documents** (<code>Sequence\[[Document](common.md#agrag-common-data_models-document-Document)\] | None</code>) – Already-built documents to add directly.
 - **loader** (<code>[Loader](loaders.md#agrag-loaders-corpus-base-Loader) | None</code>) – A loader to use instead of the registry default. Requires a
@@ -1997,7 +2031,7 @@ must resolve to exactly one document.
 
 - **document_key** (<code>str</code>) – The stable key of the document to replace.
 - **text** (<code>str | None</code>) – Replacement text, exactly one of `text`/`source`.
-- **source** (<code>[SourcesType](#agrag-ingestion-graph-SourcesType) | None</code>) – A single-file source, glob, or path list resolving to
+- **source** (<code>SourcesType | None</code>) – A single-file source, glob, or path list resolving to
   exactly one document.
 - **loader** (<code>[Loader](loaders.md#agrag-loaders-corpus-base-Loader) | None</code>) – A loader override for a single-file `source`.
 - **error_policy** (<code>[ErrorPolicy](loaders.md#agrag-loaders-corpus-types-ErrorPolicy)</code>) – RAISE propagates a stage failure; any other
@@ -2027,18 +2061,6 @@ The fresh-content path shares `ingest_chunks()` with
 for the same input.
 
 </details>
-
-#### `agrag.ingestion.graph.SourceType` \{#agrag-ingestion-graph-SourceType}
-
-```python
-SourceType = Union[str, Path]
-```
-
-#### `agrag.ingestion.graph.SourcesType` \{#agrag-ingestion-graph-SourcesType}
-
-```python
-SourcesType = Union[SourceType, Sequence[SourceType]]
-```
 
 ### `agrag.ingestion.merge` \{#agrag-ingestion-merge}
 
