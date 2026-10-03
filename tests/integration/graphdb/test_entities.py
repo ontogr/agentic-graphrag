@@ -1,4 +1,4 @@
-"""Integration tests for hydrate_entities against a real Neo4j instance.
+"""Integration tests for load_entities against a real Neo4j instance.
 
 Run against the Docker Compose Neo4j instance from ``docker/docker-compose.ci.yml``
 (``make dev-services-up``). The ``skipif`` only guards the missing extra; with
@@ -17,7 +17,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_record import tag_pending
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.entities import hydrate_entities
+from agrag.graphdb.entities import load_entities
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -37,8 +37,8 @@ async def store() -> AsyncIterator[GraphStore]:
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
-class TestHydrateEntitiesIntegration:
-    """Entities written to Neo4j come back through hydrate_entities."""
+class TestLoadEntitiesIntegration:
+    """Entities written to Neo4j come back through load_entities."""
 
     async def test_round_trips_stored_entities(self, store: GraphStore) -> None:
         """A written entity returns with its label, name, and properties."""
@@ -52,7 +52,7 @@ class TestHydrateEntitiesIntegration:
         try:
             await store.upsert_nodes("Show", [entity.to_node_record()])
 
-            result = await hydrate_entities(store, [entity.id, uuid4()])
+            result = await load_entities(store, [entity.id, uuid4()])
 
             assert set(result) == {entity.id}
             assert result[entity.id].label == "Show"
@@ -78,7 +78,7 @@ class TestHydrateEntitiesIntegration:
                 ],
             )
 
-            result = await hydrate_entities(store, [committed.id, pending.id])
+            result = await load_entities(store, [committed.id, pending.id])
 
             assert set(result) == {committed.id}
         finally:

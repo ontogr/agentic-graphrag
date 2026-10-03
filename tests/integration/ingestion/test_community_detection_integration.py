@@ -24,7 +24,7 @@ from agrag.common.data_models.stage_failure import StageFailure  # noqa: F401
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
-from agrag.graphdb.entities import hydrate_entities
+from agrag.graphdb.entities import load_entities
 from agrag.ingestion.community import (
     CommunityDetectionMissingExtraError,
     compute_communities,
@@ -446,7 +446,7 @@ class TestCommunityDetectionIntegration:
         # Check heuristic rating after direct call.
 
         needed = required_member_ids(comms)
-        entities_by_id = await hydrate_entities(self.store, list(needed))
+        entities_by_id = await load_entities(self.store, list(needed))
         # Patch LLM to count calls and verify truncation.
         batch_size = 1
         max_members = 2

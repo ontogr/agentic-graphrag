@@ -54,7 +54,7 @@ class CommunityRetriever(Retriever):
         filters: SearchFilters | None = None,
         limit: int | None = None,
     ) -> list[SearchResult]:
-        """Run community-report search and return hydrated results.
+        """Run community-report search and return loaded results.
 
         Args:
             query: The natural-language query text.
@@ -90,9 +90,9 @@ class CommunityRetriever(Retriever):
                 return []
             ids = [str(h.id) for h in hits]
             with get_tracer(self._tracer).start_as_current_span(
-                "agrag.retrieval.hydrate_communities",
+                "agrag.retrieval.load_communities",
                 attributes={"agrag.requested_count": len(hits)},
-            ) as hydrate:
+            ) as load:
                 try:
                     rows = await self._graph_store.execute_read(
                         f"UNWIND $ids AS id MATCH (n:{NODE_IDENTITY_LABEL}:"
@@ -113,8 +113,8 @@ class CommunityRetriever(Retriever):
                             by_id[str(community.id)] = community
                     except Exception:
                         continue
-                if hydrate.is_recording():
-                    hydrate.set_attribute("agrag.hydrated_count", len(by_id))
+                if load.is_recording():
+                    load.set_attribute("agrag.loaded_count", len(by_id))
             results: list[SearchResult] = []
             for hit in hits:
                 try:

@@ -45,11 +45,11 @@ def fetch_active_component_members_query() -> str:
     )
 
 
-def hydrate_resolved_entities_by_id_query() -> str:
-    """Build Cypher hydrating materializations returned by vector search.
+def load_resolved_entities_by_id_query() -> str:
+    """Build Cypher that loads materializations returned by vector search.
 
     Pending visibility is job-scoped: a null ``$job_id`` reduces the
-    guard to committed-only, so retrieval never hydrates a
+    guard to committed-only, so retrieval never loads a
     ResolvedEntity an uncommitted job materialized.
 
     Returns:

@@ -595,7 +595,7 @@ class _GuardedNodeStore(MockStore):
     Neo4j enforces those WHERE clauses; this fake reproduces them in
     memory so a concurrent-write test can prove a stale record is
     rejected without a live database. ``execute_read`` answers the by-id
-    hydration queries from the same ``nodes`` mapping, so a test can also
+    loading queries from the same ``nodes`` mapping, so a test can also
     drive the chunk-write recovery from it.
     """
 
@@ -610,7 +610,7 @@ class _GuardedNodeStore(MockStore):
         *,
         timeout: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Answer the by-id hydration reads from the in-memory nodes."""
+        """Answer the by-id loading reads from the in-memory nodes."""
         del timeout
         if "RETURN n" not in query:
             return await super().execute_read(query, parameters)

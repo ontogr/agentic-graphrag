@@ -61,12 +61,12 @@ def _entity_node(entity_id) -> dict:
 
 
 def _entity_rows(entity_id) -> list[dict]:
-    """Return one hydrate_entities row."""
+    """Return one load_entities row."""
     return [{"n": _entity_node(entity_id)}]
 
 
 def _chunk_rows(chunk_id) -> list[dict]:
-    """Return one hydrate_chunks row."""
+    """Return one load_chunks row."""
     return [
         {
             "n": {
@@ -96,8 +96,8 @@ class _MockEmbedder:
 def _routed_store() -> AsyncMock:
     """Return a store whose reads route by query text and echo hit ids.
 
-    Entity, chunk and resolved hydration rebuild their rows from the ids
-    the query asked for, so a hydrated item's id always matches the hit
+    Entity, chunk and resolved loading rebuild their rows from the ids
+    the query asked for, so a loaded item's id always matches the hit
     that requested it.
     """
     store = AsyncMock()

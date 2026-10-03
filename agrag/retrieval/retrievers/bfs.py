@@ -18,7 +18,7 @@ class BFSRetriever(Retriever):
     """Graph traversal from seed entity ids.
 
     Takes seed entity ids (from a prior EntityRetriever call, or
-    supplied directly), runs bfs_expand_query, and hydrates the
+    supplied directly), runs bfs_expand_query, and loads the
     returned entities and relations directly.
     Degree-capped by RetrievalSettings.traversal_limit.
     """

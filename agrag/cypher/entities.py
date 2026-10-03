@@ -415,7 +415,7 @@ def clear_chunk_embedding_query(vector_property: str) -> str:
     )
 
 
-def hydrate_entities_by_id_query() -> str:
+def load_entities_by_id_query() -> str:
     """Build Cypher fetching committed entities by id.
 
     Returns:
@@ -430,7 +430,7 @@ def hydrate_entities_by_id_query() -> str:
     )
 
 
-def hydrate_chunks_by_id_query() -> str:
+def load_chunks_by_id_query() -> str:
     """Build Cypher fetching chunks by id.
 
     The query follows only currently valid PART_OF edges, so superseded

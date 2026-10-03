@@ -415,7 +415,7 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
 
     detect_communities scans the whole graph, so the test first seeds a second
     set of entities under other labels and keeps it in place. It then checks
-    only the communities that contain its own members, and that hydration read
+    only the communities that contain its own members, and that loading read
     exactly the members those communities need.
     """
     # Unique labels keep this test from touching other tests' data.
@@ -478,12 +478,12 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
             "Eve works at Acme. Frank is isolated."
         )
         await graph.add(text=text, error_policy="skip")
-        # An entity with no edge must not be hydrated.
+        # An entity with no edge must not be loaded.
         isolated = Entity(id=uuid4(), label=person_label, name="Isolated")
         isolated.embedding = [0.1] * dim
         await store.upsert_nodes(person_label, [isolated.to_node_record()])
         names_by_id = await _entity_names(store, [person_label, org_label])
-        # Spy hydration: capture every id set requested via the "ids"
+        # Spy loading: capture every id set requested via the "ids"
         # parameter while detect_communities runs. The spy is removed right
         # after, so the chunk reads in engine.search do not fold into it.
         captured_ids: set[str] = set()
@@ -562,13 +562,13 @@ async def test_community_via_graph_add_e2e() -> None:  # noqa: PLR0915
                 "community_graph_add_with_residue",
                 {
                     "communities": member_sets,
-                    "hydrated_count": len(captured_ids & set(names_by_id)),
-                    "isolated_hydrated": False,
+                    "loaded_count": len(captured_ids & set(names_by_id)),
+                    "isolated_loaded": False,
                     "unrelated_community_found": True,
                     "thematic_finds_own_community": True,
                 },
             )
-        assert artifact["hydrated_count"] == len(own_needed)
+        assert artifact["loaded_count"] == len(own_needed)
     finally:
         await _cleanup_community_test_data(store, person_label, org_label)
         await _cleanup_community_test_data(store, other_person, other_org)

@@ -21,7 +21,7 @@ from agrag.cypher.safety import (
     strip_cypher_syntax,
 )
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.entities import hydrate_entities
+from agrag.graphdb.entities import load_entities
 from agrag.llm.retry import NO_RETRY, call_with_retry
 from agrag.observability import get_tracer, record_swallowed_exception
 from agrag.retrieval.filters import SearchFilters
@@ -417,7 +417,7 @@ class Text2CypherRetriever(Retriever):
     server-side transaction timeout before EXPLAIN and execution. A
     query that fails to plan or to execute is regenerated once, carrying
     a bounded, sanitized diagnostic of the failure. Rows that carry an
-    entity id are hydrated from the graph before becoming a
+    entity id are loaded from the graph before becoming a
     SearchResult; relationship and chunk rows are parsed directly, under
     the prompt's own aliases or any alias the model chose instead.
     Scalar rows (for example counts or property values) become cited
@@ -472,7 +472,7 @@ class Text2CypherRetriever(Retriever):
 
         Returns:
             SearchResults from the generated query: entity results
-                hydrated from the graph; relation, chunk, and
+                loaded from the graph; relation, chunk, and
                 scalar rows parsed directly.
         """
         with retrieval_span(
@@ -523,7 +523,7 @@ class Text2CypherRetriever(Retriever):
                 entity_id = self._extract_entity_id(row)
                 if entity_id is not None:
                     try:
-                        entities = await hydrate_entities(
+                        entities = await load_entities(
                             self._graph_store, [entity_id], tracer=self._tracer
                         )
                     except Exception as exc:  # noqa: BLE001

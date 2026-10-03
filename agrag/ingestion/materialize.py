@@ -30,7 +30,7 @@ from agrag.cypher.resolution_write import (
     upsert_matches_query,
 )
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.entities import hydrate_entities
+from agrag.graphdb.entities import load_entities
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion.merge import compute_merge
 from agrag.ingestion.resolve.resolver import ResolvedMatch
@@ -509,7 +509,7 @@ async def prune_orphaned_entities(
         remaining_ids = [m for m in dict.fromkeys(member_ids) if m not in removed_set]
         members = list(
             (
-                await hydrate_entities(
+                await load_entities(
                     graph_store, [UUID(m) for m in remaining_ids], tracer=tracer
                 )
             ).values()

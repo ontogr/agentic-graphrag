@@ -39,7 +39,7 @@ from agrag.cypher.entities import (
     clear_property_query,
     fetch_by_merge_keys_query,
     fetch_relations_between_query,
-    hydrate_chunks_by_id_query,
+    load_chunks_by_id_query,
     set_chunk_embedding_query,
     set_embedding_query,
 )
@@ -1112,7 +1112,7 @@ async def _persisted_chunk_ids(
         return set()
     try:
         rows = await graph_store.execute_read(
-            hydrate_chunks_by_id_query(),
+            load_chunks_by_id_query(),
             {
                 "ids": [str(cid) for cid in chunk_ids],
                 "job_id": str(job_id) if job_id is not None else None,
@@ -1317,7 +1317,7 @@ async def _embed_and_upsert_chunks(
     failed to replace would race a concurrent re-ingest and could remove
     the newer vector it just wrote. The stored record keeps its previous
     text until the next successful ingest rewrites it, and retrieval
-    hydrates every hit from the graph, so only that record's score is
+    loads every hit from the graph, so only that record's score is
     stale.
 
     Args:

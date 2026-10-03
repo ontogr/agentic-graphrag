@@ -1044,34 +1044,34 @@ Load persisted entities by id.
 
 **Functions:**
 
-- [**hydrate_entities**](#agrag-graphdb-entities-hydrate_entities) – Load the committed entities stored under the given ids.
+- [**load_entities**](#agrag-graphdb-entities-load_entities) – Load the committed entities stored under the given ids.
 
 **Attributes:**
 
-- [**HYDRATE_BATCH_SIZE**](#agrag-graphdb-entities-HYDRATE_BATCH_SIZE) –
+- [**LOAD_BATCH_SIZE**](#agrag-graphdb-entities-LOAD_BATCH_SIZE) –
 
-#### `agrag.graphdb.entities.HYDRATE_BATCH_SIZE` \{#agrag-graphdb-entities-HYDRATE_BATCH_SIZE}
+#### `agrag.graphdb.entities.LOAD_BATCH_SIZE` \{#agrag-graphdb-entities-LOAD_BATCH_SIZE}
 
 ```python
-HYDRATE_BATCH_SIZE = 1000
+LOAD_BATCH_SIZE = 1000
 ```
 
-#### `agrag.graphdb.entities.hydrate_entities` \{#agrag-graphdb-entities-hydrate_entities}
+#### `agrag.graphdb.entities.load_entities` \{#agrag-graphdb-entities-load_entities}
 
 ```python
-hydrate_entities(graph_store:GraphStore, ids:Sequence[UUID], *, tracer:Tracer | None = None) -> dict[UUID, Entity]
+load_entities(graph_store:GraphStore, ids:Sequence[UUID], *, tracer:Tracer | None = None) -> dict[UUID, Entity]
 ```
 
 Load the committed entities stored under the given ids.
 
-Reads in batches of `HYDRATE_BATCH_SIZE`. Entities that an in-flight
+Reads in batches of `LOAD_BATCH_SIZE`. Entities that an in-flight
 Cutover Job wrote are not returned.
 
 **Parameters:**
 
 - **graph_store** (<code>[GraphStore](#agrag-graphdb-base-GraphStore)</code>) – Where the entities live.
 - **ids** (<code>Sequence\[UUID\]</code>) – The entity ids to load. Duplicates are read once.
-- **tracer** (<code>Tracer | None</code>) – Opens the hydration span. None opens no recorded span.
+- **tracer** (<code>Tracer | None</code>) – Opens the loading span. None opens no recorded span.
 
 **Returns:**
 

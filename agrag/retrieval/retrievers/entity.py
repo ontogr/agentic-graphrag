@@ -14,11 +14,11 @@ from agrag.cypher.relations import entities_in_documents_query
 from agrag.cypher.resolution_read import fetch_active_resolved_member_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.entities import hydrate_entities
+from agrag.graphdb.entities import load_entities
 from agrag.observability import get_tracer, record_swallowed_exception
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
-from agrag.retrieval.resolved_entities import hydrate_resolved_entities
+from agrag.retrieval.resolved_entities import load_resolved_entities
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.retrieval.tracing import record_results, retrieval_span
@@ -29,7 +29,7 @@ class EntityRetriever(Retriever):
     """Dense entity search via vector similarity.
 
     Embeds the query, searches via the GraphStore-native or
-    VectorStore path, then hydrates every hit from the graph. A hit that
+    VectorStore path, then loads every hit from the graph. A hit that
     no longer exists in the graph is dropped.
 
     The native path searches one vector index per entity label, so it
@@ -81,7 +81,7 @@ class EntityRetriever(Retriever):
         filters: SearchFilters | None = None,
         limit: int | None = None,
     ) -> list[SearchResult]:
-        """Run entity search and return hydrated results.
+        """Run entity search and return loaded results.
 
         Args:
             query: The natural-language query text.
@@ -188,7 +188,7 @@ class EntityRetriever(Retriever):
                     hits = [hit for hit in hits if str(hit.id) in allowed_ids]
                 entities_by_id: dict[UUID, Entity] = {}
                 try:
-                    entities_by_id = await hydrate_entities(
+                    entities_by_id = await load_entities(
                         self._graph_store,
                         [hit.id for hit in hits],
                         tracer=self._tracer,
@@ -247,7 +247,7 @@ class EntityRetriever(Retriever):
                             query_vector=query_vector,
                             tracer=self._tracer,
                         )
-                        candidate_by_id = await hydrate_resolved_entities(
+                        candidate_by_id = await load_resolved_entities(
                             self._graph_store,
                             [hit.id for hit in candidate_hits],
                             tracer=self._tracer,

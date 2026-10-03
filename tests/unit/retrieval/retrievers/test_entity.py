@@ -1,9 +1,9 @@
 """Tests for EntityRetriever in agrag.retrieval.retrievers.entity.
 
 Patches ``agrag.retrieval.retrievers.entity.vector_search`` with AsyncMock,
-using an AsyncMock graph store that answers hydration reads and a minimal
-MockEmbedder. Covers hydrating hits from the graph, dropping hits the graph
-cannot hydrate, document scoping, and resolved-entity search.
+using an AsyncMock graph store that answers loading reads and a minimal
+MockEmbedder. Covers loading hits from the graph, dropping hits the graph
+cannot load, document scoping, and resolved-entity search.
 """
 
 from unittest.mock import AsyncMock, patch
@@ -12,7 +12,7 @@ from uuid import uuid4
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorHit
-from agrag.cypher.entities import hydrate_entities_by_id_query
+from agrag.cypher.entities import load_entities_by_id_query
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.retrievers.entity import EntityRetriever
 
@@ -34,17 +34,17 @@ def _graph_store(
     allowed_ids: tuple = (),
     superseded_ids: tuple = (),
 ) -> AsyncMock:
-    """Return a graph store that hydrates ``entities`` and scopes to ``allowed_ids``.
+    """Return a graph store that loads ``entities`` and scopes to ``allowed_ids``.
 
     ``superseded_ids`` are raw ids an active resolved entity replaces.
     """
-    hydrate_query = hydrate_entities_by_id_query()
+    load_query = load_entities_by_id_query()
 
     async def execute_read(query: str, params: dict) -> list[dict]:
-        """Answer the scope, hydration, and supersession reads."""
+        """Answer the scope, loading, and supersession reads."""
         if "document_ids" in params:
             return [{"id": str(item_id)} for item_id in allowed_ids]
-        if query == hydrate_query:
+        if query == load_query:
             return [
                 {
                     "n": {
@@ -68,10 +68,10 @@ def _graph_store(
 
 
 class TestEntityRetriever:
-    """EntityRetriever hydrates hits from the graph."""
+    """EntityRetriever loads hits from the graph."""
 
-    async def test_returns_hydrated_entities(self) -> None:
-        """Hits are hydrated from the graph and returned."""
+    async def test_returns_loaded_entities(self) -> None:
+        """Hits are loaded from the graph and returned."""
         ent = Entity(id=uuid4(), label="Person", name="Alice")
         gs = _graph_store(entities=(ent,))
         embedder = MockEmbedder()
@@ -115,7 +115,7 @@ class TestEntityRetriever:
                 ],
             ),
             patch(
-                "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
+                "agrag.retrieval.retrievers.entity.load_resolved_entities",
                 new_callable=AsyncMock,
                 return_value={resolved.id: resolved},
             ),
@@ -160,7 +160,7 @@ class TestEntityRetriever:
                 ],
             ) as vector_search_mock,
             patch(
-                "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
+                "agrag.retrieval.retrievers.entity.load_resolved_entities",
                 new_callable=AsyncMock,
                 return_value={
                     resolved.id: resolved,
@@ -245,7 +245,7 @@ class TestEntityRetriever:
                 ],
             ) as vector_search_mock,
             patch(
-                "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
+                "agrag.retrieval.retrievers.entity.load_resolved_entities",
                 new_callable=AsyncMock,
                 return_value={},
             ),
@@ -336,7 +336,7 @@ class TestEntityRetriever:
                 ],
             ) as vector_search_mock,
             patch(
-                "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
+                "agrag.retrieval.retrievers.entity.load_resolved_entities",
                 new_callable=AsyncMock,
                 side_effect=[
                     {
@@ -400,7 +400,7 @@ class TestEntityRetriever:
                 ],
             ) as vector_search_mock,
             patch(
-                "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
+                "agrag.retrieval.retrievers.entity.load_resolved_entities",
                 new_callable=AsyncMock,
                 return_value={outside.id: outside, scoped.id: scoped},
             ),
@@ -416,7 +416,7 @@ class TestEntityRetriever:
         limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
         assert limits == [2, 2, 4]
 
-    async def test_drops_hits_the_graph_cannot_hydrate(self) -> None:
+    async def test_drops_hits_the_graph_cannot_load(self) -> None:
         """A hit with no matching graph node is dropped; the others stay."""
         live = Entity(id=uuid4(), label="Person", name="Alice")
         gs = _graph_store(entities=(live,))
@@ -486,7 +486,7 @@ class TestEntityRetriever:
                 side_effect=[[], [VectorHit(id=resolved.id, score=0.8, payload={})]],
             ) as mock_vs,
             patch(
-                "agrag.retrieval.retrievers.entity.hydrate_resolved_entities",
+                "agrag.retrieval.retrievers.entity.load_resolved_entities",
                 new_callable=AsyncMock,
                 return_value={resolved.id: resolved},
             ),

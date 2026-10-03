@@ -1212,7 +1212,7 @@ given, each community's prompt also carries its internal
 "source REL_TYPE target" lines (most-attested first, truncated to
 max_relations_per_prompt), so the report can state connections the
 evidence actually attests; a relation whose endpoint Entity was not
-hydrated is omitted.
+loaded is omitted.
 
 When the `llm` extra (baml-py) is not installed, qualifying
 communities fall back to the heuristic report too: with ErrorPolicy
@@ -3555,14 +3555,14 @@ Return persisted entities found by the shared vector-search route.
 The GraphStore-native path's payload already carries the real node
 properties and is validated directly. The VectorStore path's payload
 only carries `label` and `text` (the embedding source text), so
-candidates are hydrated from the graph by hit id instead; a hit that
-fails to hydrate, for example a deleted node, is
+candidates are loaded from the graph by hit id instead; a hit that
+fails to load, for example a deleted node, is
 skipped rather than reconstructed from `text`.
 
 Each candidate is paired with the cosine similarity of the
 `VectorHit` it came from. The association is keyed by hit id, never
 by position: either branch can drop an entity (malformed payload,
-label mismatch, failed hydration) without dropping the corresponding
+label mismatch, failed load) without dropping the corresponding
 score, so zipping the two lists positionally would silently shift
 scores onto the wrong entities.
 
@@ -4180,14 +4180,14 @@ Return persisted entities found by the shared vector-search route.
 The GraphStore-native path's payload already carries the real node
 properties and is validated directly. The VectorStore path's payload
 only carries `label` and `text` (the embedding source text), so
-candidates are hydrated from the graph by hit id instead; a hit that
-fails to hydrate, for example a deleted node, is
+candidates are loaded from the graph by hit id instead; a hit that
+fails to load, for example a deleted node, is
 skipped rather than reconstructed from `text`.
 
 Each candidate is paired with the cosine similarity of the
 `VectorHit` it came from. The association is keyed by hit id, never
 by position: either branch can drop an entity (malformed payload,
-label mismatch, failed hydration) without dropping the corresponding
+label mismatch, failed load) without dropping the corresponding
 score, so zipping the two lists positionally would silently shift
 scores onto the wrong entities.
 

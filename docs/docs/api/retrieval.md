@@ -16,7 +16,7 @@ Retrieval package: search engine, fusion, reranking, and retrievers.
 - [**methods**](#agrag-retrieval-methods) – Low-level search method helpers shared by retrievers.
 - [**recipes**](#agrag-retrieval-recipes) – Named, data-only configurations of what SearchEngine runs.
 - [**rerank**](#agrag-retrieval-rerank) – Rerankers that reorder fused search results.
-- [**resolved_entities**](#agrag-retrieval-resolved_entities) – Hydration helpers for materialized resolved entities.
+- [**resolved_entities**](#agrag-retrieval-resolved_entities) – Loading helpers for materialized resolved entities.
 - [**retrievers**](#agrag-retrieval-retrievers) – Retriever implementations for entity, chunk, BFS, and text2cypher search.
 - [**search_engine**](#agrag-retrieval-search_engine) – Retrieval's public entry point, independent of Graph.
 - [**settings**](#agrag-retrieval-settings) – Env-backed configuration for retrieval methods and fusion.
@@ -84,7 +84,7 @@ Bases: <code>[Retriever](#agrag-retrieval-retrievers-base-Retriever)</code>
 Graph traversal from seed entity ids.
 
 Takes seed entity ids (from a prior EntityRetriever call, or
-supplied directly), runs bfs_expand_query, and hydrates the
+supplied directly), runs bfs_expand_query, and loads the
 returned entities and relations directly.
 Degree-capped by RetrievalSettings.traversal_limit.
 
@@ -155,13 +155,13 @@ Bases: <code>[Retriever](#agrag-retrieval-retrievers-base-Retriever)</code>
 Dense chunk search via vector similarity.
 
 Embeds the query, searches via the GraphStore-native or VectorStore
-path, then hydrates each hit into a Chunk. The native
+path, then loads each hit into a Chunk. The native
 path searches the `Chunk` vector index ingestion provisions; the
 VectorStore path searches `chunk_collection`.
 
 **Functions:**
 
-- [**retrieve**](#agrag-retrieval-ChunkRetriever-retrieve) – Run chunk search and return hydrated results.
+- [**retrieve**](#agrag-retrieval-ChunkRetriever-retrieve) – Run chunk search and return loaded results.
 
 **Attributes:**
 
@@ -190,7 +190,7 @@ name = 'chunk'
 retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None) -> list[SearchResult]
 ```
 
-Run chunk search and return hydrated results.
+Run chunk search and return loaded results.
 
 **Parameters:**
 
@@ -201,7 +201,7 @@ Run chunk search and return hydrated results.
 
 **Returns:**
 
-- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with hydrated Chunk items. A child chunk result
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with loaded Chunk items. A child chunk result
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – carries its parent chunk in `SearchResult.parent`.
 
 ### `agrag.retrieval.CommunityRetriever` \{#agrag-retrieval-CommunityRetriever}
@@ -216,7 +216,7 @@ Dense search over community reports, for direct thematic questions.
 
 **Functions:**
 
-- [**retrieve**](#agrag-retrieval-CommunityRetriever-retrieve) – Run community-report search and return hydrated results.
+- [**retrieve**](#agrag-retrieval-CommunityRetriever-retrieve) – Run community-report search and return loaded results.
 
 **Attributes:**
 
@@ -243,7 +243,7 @@ name = 'community'
 retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None) -> list[SearchResult]
 ```
 
-Run community-report search and return hydrated results.
+Run community-report search and return loaded results.
 
 **Parameters:**
 
@@ -269,7 +269,7 @@ Bases: <code>[Retriever](#agrag-retrieval-retrievers-base-Retriever)</code>
 Dense entity search via vector similarity.
 
 Embeds the query, searches via the GraphStore-native or
-VectorStore path, then hydrates every hit from the graph. A hit that
+VectorStore path, then loads every hit from the graph. A hit that
 no longer exists in the graph is dropped.
 
 The native path searches one vector index per entity label, so it
@@ -278,7 +278,7 @@ filter when the caller sets one, otherwise `entity_labels`.
 
 **Functions:**
 
-- [**retrieve**](#agrag-retrieval-EntityRetriever-retrieve) – Run entity search and return hydrated results.
+- [**retrieve**](#agrag-retrieval-EntityRetriever-retrieve) – Run entity search and return loaded results.
 
 **Attributes:**
 
@@ -309,7 +309,7 @@ name = 'entity'
 retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None) -> list[SearchResult]
 ```
 
-Run entity search and return hydrated results.
+Run entity search and return loaded results.
 
 **Parameters:**
 
@@ -614,7 +614,7 @@ Retriever a Recipe names and hands the combined output to Fusion.
 
 **Functions:**
 
-- [**retrieve**](#agrag-retrieval-Retriever-retrieve) – Run this retrieval method and return hydrated results.
+- [**retrieve**](#agrag-retrieval-Retriever-retrieve) – Run this retrieval method and return loaded results.
 
 **Attributes:**
 
@@ -632,7 +632,7 @@ name: str
 retrieve(query:str, *, filters:SearchFilters | None = None, limit:int = 10) -> list[SearchResult]
 ```
 
-Run this retrieval method and return hydrated results.
+Run this retrieval method and return loaded results.
 
 ### `agrag.retrieval.ScopeDeniedError` \{#agrag-retrieval-ScopeDeniedError}
 
@@ -974,7 +974,7 @@ safety pre-filter, then bounds the query with a row limit and a
 server-side transaction timeout before EXPLAIN and execution. A
 query that fails to plan or to execute is regenerated once, carrying
 a bounded, sanitized diagnostic of the failure. Rows that carry an
-entity id are hydrated from the graph before becoming a
+entity id are loaded from the graph before becoming a
 SearchResult; relationship and chunk rows are parsed directly, under
 the prompt's own aliases or any alias the model chose instead.
 Scalar rows (for example counts or property values) become cited
@@ -1027,7 +1027,7 @@ raising.
 **Returns:**
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – SearchResults from the generated query: entity results
-  hydrated from the graph; relation, chunk, and
+  loaded from the graph; relation, chunk, and
   scalar rows parsed directly.
 
 ### `agrag.retrieval.UnknownRecipeMethodError` \{#agrag-retrieval-UnknownRecipeMethodError}
@@ -1852,30 +1852,30 @@ at the end with a high distance penalty.
 
 ### `agrag.retrieval.resolved_entities` \{#agrag-retrieval-resolved_entities}
 
-Hydration helpers for materialized resolved entities.
+Loading helpers for materialized resolved entities.
 
 **Functions:**
 
-- [**hydrate_resolved_entities**](#agrag-retrieval-resolved_entities-hydrate_resolved_entities) – Hydrate resolved entities by vector-hit identifiers.
+- [**load_resolved_entities**](#agrag-retrieval-resolved_entities-load_resolved_entities) – Load resolved entities by vector-hit identifiers.
 - [**parse_resolved_entity_node**](#agrag-retrieval-resolved_entities-parse_resolved_entity_node) – Parse a graph-store node into a resolved entity when its shape is valid.
 
-#### `agrag.retrieval.resolved_entities.hydrate_resolved_entities` \{#agrag-retrieval-resolved_entities-hydrate_resolved_entities}
+#### `agrag.retrieval.resolved_entities.load_resolved_entities` \{#agrag-retrieval-resolved_entities-load_resolved_entities}
 
 ```python
-hydrate_resolved_entities(graph_store:GraphStore, ids:list[UUID], *, tracer:Tracer | None = None) -> dict[UUID, ResolvedEntity]
+load_resolved_entities(graph_store:GraphStore, ids:list[UUID], *, tracer:Tracer | None = None) -> dict[UUID, ResolvedEntity]
 ```
 
-Hydrate resolved entities by vector-hit identifiers.
+Load resolved entities by vector-hit identifiers.
 
 **Parameters:**
 
 - **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where the resolved entities live.
-- **ids** (<code>list\[UUID\]</code>) – The vector-hit ids to hydrate.
-- **tracer** (<code>Tracer | None</code>) – Opens the hydration span. None opens no recorded span.
+- **ids** (<code>list\[UUID\]</code>) – The vector-hit ids to load.
+- **tracer** (<code>Tracer | None</code>) – Opens the loading span. None opens no recorded span.
 
 **Returns:**
 
-- <code>dict\[UUID, [ResolvedEntity](common.md#agrag-common-data_models-resolved_entity-ResolvedEntity)\]</code> – The hydrated resolved entities by id; an empty dict when `ids` is
+- <code>dict\[UUID, [ResolvedEntity](common.md#agrag-common-data_models-resolved_entity-ResolvedEntity)\]</code> – The loaded resolved entities by id; an empty dict when `ids` is
 - <code>dict\[UUID, [ResolvedEntity](common.md#agrag-common-data_models-resolved_entity-ResolvedEntity)\]</code> – empty or nothing parsed.
 
 #### `agrag.retrieval.resolved_entities.parse_resolved_entity_node` \{#agrag-retrieval-resolved_entities-parse_resolved_entity_node}
@@ -1925,7 +1925,7 @@ Retriever a Recipe names and hands the combined output to Fusion.
 
 **Functions:**
 
-- [**retrieve**](#agrag-retrieval-retrievers-base-Retriever-retrieve) – Run this retrieval method and return hydrated results.
+- [**retrieve**](#agrag-retrieval-retrievers-base-Retriever-retrieve) – Run this retrieval method and return loaded results.
 
 **Attributes:**
 
@@ -1943,7 +1943,7 @@ name: str
 retrieve(query:str, *, filters:SearchFilters | None = None, limit:int = 10) -> list[SearchResult]
 ```
 
-Run this retrieval method and return hydrated results.
+Run this retrieval method and return loaded results.
 
 #### `agrag.retrieval.retrievers.bfs` \{#agrag-retrieval-retrievers-bfs}
 
@@ -1964,7 +1964,7 @@ Bases: <code>[Retriever](#agrag-retrieval-retrievers-base-Retriever)</code>
 Graph traversal from seed entity ids.
 
 Takes seed entity ids (from a prior EntityRetriever call, or
-supplied directly), runs bfs_expand_query, and hydrates the
+supplied directly), runs bfs_expand_query, and loads the
 returned entities and relations directly.
 Degree-capped by RetrievalSettings.traversal_limit.
 
@@ -2037,13 +2037,13 @@ Bases: <code>[Retriever](#agrag-retrieval-retrievers-base-Retriever)</code>
 Dense chunk search via vector similarity.
 
 Embeds the query, searches via the GraphStore-native or VectorStore
-path, then hydrates each hit into a Chunk. The native
+path, then loads each hit into a Chunk. The native
 path searches the `Chunk` vector index ingestion provisions; the
 VectorStore path searches `chunk_collection`.
 
 **Functions:**
 
-- [**retrieve**](#agrag-retrieval-retrievers-chunk-ChunkRetriever-retrieve) – Run chunk search and return hydrated results.
+- [**retrieve**](#agrag-retrieval-retrievers-chunk-ChunkRetriever-retrieve) – Run chunk search and return loaded results.
 
 **Attributes:**
 
@@ -2072,7 +2072,7 @@ name = 'chunk'
 retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None) -> list[SearchResult]
 ```
 
-Run chunk search and return hydrated results.
+Run chunk search and return loaded results.
 
 **Parameters:**
 
@@ -2083,7 +2083,7 @@ Run chunk search and return hydrated results.
 
 **Returns:**
 
-- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with hydrated Chunk items. A child chunk result
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with loaded Chunk items. A child chunk result
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – carries its parent chunk in `SearchResult.parent`.
 
 #### `agrag.retrieval.retrievers.community` \{#agrag-retrieval-retrievers-community}
@@ -2106,7 +2106,7 @@ Dense search over community reports, for direct thematic questions.
 
 **Functions:**
 
-- [**retrieve**](#agrag-retrieval-retrievers-community-CommunityRetriever-retrieve) – Run community-report search and return hydrated results.
+- [**retrieve**](#agrag-retrieval-retrievers-community-CommunityRetriever-retrieve) – Run community-report search and return loaded results.
 
 **Attributes:**
 
@@ -2133,7 +2133,7 @@ name = 'community'
 retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None) -> list[SearchResult]
 ```
 
-Run community-report search and return hydrated results.
+Run community-report search and return loaded results.
 
 **Parameters:**
 
@@ -2161,7 +2161,7 @@ Bases: <code>[Retriever](#agrag-retrieval-retrievers-base-Retriever)</code>
 Dense entity search via vector similarity.
 
 Embeds the query, searches via the GraphStore-native or
-VectorStore path, then hydrates every hit from the graph. A hit that
+VectorStore path, then loads every hit from the graph. A hit that
 no longer exists in the graph is dropped.
 
 The native path searches one vector index per entity label, so it
@@ -2170,7 +2170,7 @@ filter when the caller sets one, otherwise `entity_labels`.
 
 **Functions:**
 
-- [**retrieve**](#agrag-retrieval-retrievers-entity-EntityRetriever-retrieve) – Run entity search and return hydrated results.
+- [**retrieve**](#agrag-retrieval-retrievers-entity-EntityRetriever-retrieve) – Run entity search and return loaded results.
 
 **Attributes:**
 
@@ -2201,7 +2201,7 @@ name = 'entity'
 retrieve(query:str, *, filters:SearchFilters | None = None, limit:int | None = None) -> list[SearchResult]
 ```
 
-Run entity search and return hydrated results.
+Run entity search and return loaded results.
 
 **Parameters:**
 
@@ -2247,7 +2247,7 @@ safety pre-filter, then bounds the query with a row limit and a
 server-side transaction timeout before EXPLAIN and execution. A
 query that fails to plan or to execute is regenerated once, carrying
 a bounded, sanitized diagnostic of the failure. Rows that carry an
-entity id are hydrated from the graph before becoming a
+entity id are loaded from the graph before becoming a
 SearchResult; relationship and chunk rows are parsed directly, under
 the prompt's own aliases or any alias the model chose instead.
 Scalar rows (for example counts or property values) become cited
@@ -2300,7 +2300,7 @@ raising.
 **Returns:**
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – SearchResults from the generated query: entity results
-  hydrated from the graph; relation, chunk, and
+  loaded from the graph; relation, chunk, and
   scalar rows parsed directly.
 
 ##### `agrag.retrieval.retrievers.text2cypher.logger` \{#agrag-retrieval-retrievers-text2cypher-logger}
@@ -2715,7 +2715,7 @@ trace answers "what came back" without a second lookup.
 **Functions:**
 
 - [**filters_json**](#agrag-retrieval-tracing-filters_json) – Return the scope as JSON, an empty scope when `filters` is None.
-- [**record_chunks**](#agrag-retrieval-tracing-record_chunks) – Record hydrated chunks as OpenTelemetry-safe attributes.
+- [**record_chunks**](#agrag-retrieval-tracing-record_chunks) – Record loaded chunks as OpenTelemetry-safe attributes.
 - [**record_results**](#agrag-retrieval-tracing-record_results) – Write the results onto `span`.
 - [**result_text**](#agrag-retrieval-tracing-result_text) – Return the text a result stands for.
 - [**retrieval_span**](#agrag-retrieval-tracing-retrieval_span) – Open a `RETRIEVER` span that records the query and the scope.
@@ -2752,7 +2752,7 @@ Return the scope as JSON, an empty scope when `filters` is None.
 record_chunks(span:Span, chunks:Sequence[Chunk]) -> None
 ```
 
-Record hydrated chunks as OpenTelemetry-safe attributes.
+Record loaded chunks as OpenTelemetry-safe attributes.
 
 **Parameters:**
 

@@ -24,4 +24,4 @@ class Retriever(ABC):
         filters: SearchFilters | None = None,
         limit: int = 10,
     ) -> list[SearchResult]:
-        """Run this retrieval method and return hydrated results."""
+        """Run this retrieval method and return loaded results."""

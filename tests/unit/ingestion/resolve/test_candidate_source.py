@@ -6,7 +6,7 @@ VectorStore.hybrid_search, batch-bounded cost independent of graph size,
 both global_candidates_for routing branches, and exact_match_lookup alias
 behavior.
 
-Also covers the VectorStore-backed candidate path, which must hydrate the
+Also covers the VectorStore-backed candidate path, which must load the
 persisted Entity by id rather than reconstructing its name from the display
 text, and the neighbor-context builders LLMVerify's batched verification
 reads: ``build_relation_neighbors`` from a batch's own extraction, and
@@ -158,7 +158,7 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
 
         Regression: the payload only carries embedding_text under "text", so
         guessing the name by splitting on ":" turned "Star Trek: Voyager"
-        into "Star Trek". The fix hydrates the real node by id instead.
+        into "Star Trek". The fix loads the real node by id instead.
         """
         entity_id = uuid4()
         graph_store = AsyncMock()
@@ -197,8 +197,8 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
         assert candidates[0][0].name == "Star Trek: Voyager"
         assert candidates[0][1] == 0.9
 
-    async def test_skips_hits_that_fail_to_hydrate(self) -> None:
-        """A hit whose node cannot be hydrated is dropped, not guessed."""
+    async def test_skips_hits_that_fail_to_load(self) -> None:
+        """A hit whose node cannot be loaded is dropped, not guessed."""
         graph_store = AsyncMock()
         graph_store.execute_read.return_value = []
         source = GraphCandidateSource(
@@ -225,7 +225,7 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
 
         assert candidates == []
 
-    async def test_a_failing_hydration_read_yields_no_candidates(self) -> None:
+    async def test_a_failing_loading_read_yields_no_candidates(self) -> None:
         """A failed read returns no candidates and records the error."""
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
@@ -256,7 +256,7 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
     async def test_native_path_validates_payload_directly(self) -> None:
         """With no VectorStore, the native payload already has the real name.
 
-        The native path must not be touched by the hydrate-by-id fix, and
+        The native path must not be touched by the load-by-id fix, and
         must not issue a graph read to get the name.
         """
         entity_id = uuid4()
@@ -301,8 +301,8 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
 
         graph_store.execute_read.assert_not_called()
 
-    async def test_hydration_keeps_each_score_with_its_own_entity(self) -> None:
-        """Dropping an unhydrated hit does not shift scores onto other entities.
+    async def test_loading_keeps_each_score_with_its_own_entity(self) -> None:
+        """Dropping an unloaded hit does not shift scores onto other entities.
 
         Regression guard: associating scores with entities by position would
         give the surviving entity the dropped hit's score instead of its own.

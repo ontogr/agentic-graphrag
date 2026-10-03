@@ -10,7 +10,7 @@ from agrag.common.data_models.vector_record import VectorHit
 from agrag.cypher.entities import fetch_entity_neighbors_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.entities import hydrate_entities
+from agrag.graphdb.entities import load_entities
 from agrag.observability import record_swallowed_exception
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
@@ -171,14 +171,14 @@ class GraphCandidateSource(CandidateSource):
         The GraphStore-native path's payload already carries the real node
         properties and is validated directly. The VectorStore path's payload
         only carries ``label`` and ``text`` (the embedding source text), so
-        candidates are hydrated from the graph by hit id instead; a hit that
-        fails to hydrate, for example a deleted node, is
+        candidates are loaded from the graph by hit id instead; a hit that
+        fails to load, for example a deleted node, is
         skipped rather than reconstructed from ``text``.
 
         Each candidate is paired with the cosine similarity of the
         ``VectorHit`` it came from. The association is keyed by hit id, never
         by position: either branch can drop an entity (malformed payload,
-        label mismatch, failed hydration) without dropping the corresponding
+        label mismatch, failed load) without dropping the corresponding
         score, so zipping the two lists positionally would silently shift
         scores onto the wrong entities.
 
@@ -214,13 +214,11 @@ class GraphCandidateSource(CandidateSource):
                 except Exception:  # malformed payloads are not candidates
                     continue
             return [(entity, hit_scores.get(entity.id, 0.0)) for entity in entities]
-        hydrated = await self._hydrate_hits(hits, mention.label)
-        return [(entity, hit_scores.get(entity.id, 0.0)) for entity in hydrated]
+        loaded = await self._load_hits(hits, mention.label)
+        return [(entity, hit_scores.get(entity.id, 0.0)) for entity in loaded]
 
-    async def _hydrate_hits(
-        self, hits: Sequence[VectorHit], label: str
-    ) -> list[Entity]:
-        """Hydrate VectorStore hits into real entities by graph id.
+    async def _load_hits(self, hits: Sequence[VectorHit], label: str) -> list[Entity]:
+        """Load VectorStore hits into real entities by graph id.
 
         Reconstructing the name from the payload's display text corrupts
         any name containing ":" (e.g. "Star Trek: Voyager"), so this fetches
@@ -228,7 +226,7 @@ class GraphCandidateSource(CandidateSource):
         recorded on the current span.
         """
         try:
-            entities_by_id = await hydrate_entities(
+            entities_by_id = await load_entities(
                 self.graph_store, [hit.id for hit in hits]
             )
         except Exception as exc:  # noqa: BLE001

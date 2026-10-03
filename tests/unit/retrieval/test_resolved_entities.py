@@ -1,4 +1,4 @@
-"""Tests for resolved-entity retrieval hydration."""
+"""Tests for resolved-entity retrieval loading."""
 
 from uuid import uuid4
 
@@ -9,7 +9,7 @@ class TestParseResolvedEntityNode:
     """Resolved graph nodes retain their derived result type."""
 
     def test_parses_graph_node_properties(self) -> None:
-        """Graph node wrappers hydrate a resolved entity."""
+        """Graph node wrappers load a resolved entity."""
         resolved_id, member_id = uuid4(), uuid4()
 
         entity = parse_resolved_entity_node(

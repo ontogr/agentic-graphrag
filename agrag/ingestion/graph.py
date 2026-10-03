@@ -39,7 +39,7 @@ from agrag.cypher.relations import entities_in_documents_query
 from agrag.cypher.resolution_read import fetch_active_matches_among_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.entities import hydrate_entities
+from agrag.graphdb.entities import load_entities
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._document_lifecycle import find_document
@@ -1479,7 +1479,7 @@ class Graph:
             skip += limit
         return entities
 
-    async def _hydrate_input_entities(self, unique_ids: list[UUID]) -> list[Entity]:
+    async def _load_input_entities(self, unique_ids: list[UUID]) -> list[Entity]:
         """Fetch live entities for the given ids, preserving input order.
 
         Args:
@@ -1491,7 +1491,7 @@ class Graph:
         Raises:
             ValueError: An id has no live persisted entity.
         """
-        entities_by_id = await hydrate_entities(
+        entities_by_id = await load_entities(
             self._graph_store, unique_ids, tracer=self._tracer
         )
         missing = [e for e in unique_ids if e not in entities_by_id]
@@ -1678,7 +1678,7 @@ class Graph:
                 return ReevaluationReport()
             entities_by_id = {
                 entity.id: entity
-                for entity in await self._hydrate_input_entities(unique_ids)
+                for entity in await self._load_input_entities(unique_ids)
             }
             entities = [entities_by_id[e] for e in unique_ids]
             mentions, dummy_chunks = _synthesize_consolidation_mentions(entities)
@@ -1953,7 +1953,7 @@ class Graph:
                         communities=[], applied=True, failures=report_failures
                     )
                 needed_ids = required_member_ids(communities)
-                entities_by_id = await hydrate_entities(
+                entities_by_id = await load_entities(
                     self._graph_store, list(needed_ids), tracer=self._tracer
                 )
                 report_failures = await generate_community_reports(
