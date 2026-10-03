@@ -23,6 +23,7 @@ class TestCutoverJob:
         job_id = uuid4()
         token = uuid4()
         affected = [uuid4()]
+        seeds = [uuid4()]
         expires = datetime.now(UTC) + timedelta(seconds=60)
         job = CutoverJob(
             id=job_id,
@@ -30,6 +31,7 @@ class TestCutoverJob:
             verb="update",
             status=CutoverJobStatus.PENDING,
             affected_entity_ids=affected,
+            component_seed_ids=seeds,
             lease_token=token,
             lease_expires_at=expires,
         )
@@ -41,6 +43,7 @@ class TestCutoverJob:
             "verb": "update",
             "status": "pending",
             "affected_entity_ids": [str(affected[0])],
+            "component_seed_ids": [str(seeds[0])],
             "lease_token": str(token),
             "lease_expires_at": expires,
             "created_at": job.created_at,

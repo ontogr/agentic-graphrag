@@ -1,4 +1,4 @@
-"""Loading helpers for materialized resolved entities."""
+"""Loading helpers for resolved entities."""
 
 from typing import Any
 from uuid import UUID

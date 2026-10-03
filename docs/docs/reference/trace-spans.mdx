@@ -125,7 +125,7 @@ agrag.ingestion.add
       agrag.storage.upsert_relations
       agrag.storage.upsert_mentioned_in
       agrag.storage.embed_survivors
-    agrag.merge.materialize_components
+    agrag.merge.rebuild_components
 ```
 
 ## Resolution, merge, and storage spans
@@ -141,8 +141,8 @@ agrag.ingestion.add
 | `agrag.resolution.llm_tier` | `agrag.boundary_pair_count`, `agrag.selected_pair_count`, `agrag.cap_truncated_pairs`, `agrag.ambiguous_count`, `agrag.failed_llm_requests` |
 | `agrag.resolution.llm_batch` | `agrag.batch_size`, `agrag.uncertain_count` |
 | `agrag.merge.merge_group` | `agrag.mention_count`, `agrag.conflicts_resolved` |
-| `agrag.merge.materialize_components` | `agrag.component_count` |
-| `agrag.merge.materialize_component` | `agrag.member_count` |
+| `agrag.merge.rebuild_components` | `agrag.component_count` |
+| `agrag.merge.rebuild_component` | `agrag.member_count` |
 | `agrag.merge.deactivate_component` | `agrag.match_id` |
 | `agrag.storage.upsert_chunks` | `agrag.record_count`, `agrag.nodes_written` |
 | `agrag.storage.upsert_documents` | `agrag.record_count`, `agrag.nodes_written` |

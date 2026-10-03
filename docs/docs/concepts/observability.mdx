@@ -24,7 +24,7 @@ flowchart TD
     E --> X[gliner or baml extraction]
     A --> J[cutover job]
     J --> I[ingest chunks]
-    J --> M[materialize components]
+    J --> M[rebuild components]
     I --> R[resolve tiers]
     I --> G[merge group]
     I --> S[storage writes]

@@ -142,9 +142,14 @@ def commit_job_query() -> str:
     that lost its lease cannot complete a stale commit even if it is still
     alive and slow.
 
+    The flip also records ``$component_seed_ids``, so the post-commit
+    cleanup can rebuild the job's components after a crash.
+
     Returns:
-        Parameterized Cypher expecting $job_id and $lease_token. Returns
-        the job id when the flip applied, no row on fencing failure.
+        Parameterized Cypher expecting $job_id, $lease_token, and
+        $component_seed_ids (list of string ids, one per rebuilt
+        component). Returns the job id when the flip applied, no row on
+        fencing failure.
     """
     return (
         f"MATCH (job:{CUTOVER_JOB_LABEL} {{id: $job_id}}) "
@@ -152,7 +157,8 @@ def commit_job_query() -> str:
         "WHERE job.lease_token = $lease_token "
         "AND job.lease_expires_at >= datetime() "
         "AND job.status = 'pending' "
-        "SET job.status = 'committed' "
+        "SET job.status = 'committed', "
+        "job.component_seed_ids = $component_seed_ids "
         "RETURN job.id AS id"
     )
 
