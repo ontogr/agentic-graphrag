@@ -230,7 +230,7 @@ async def write_matches_and_materialize(
         raise ValueError(
             "Every match decision must reference a supplied component member"
         )
-    from agrag.common.data_models.graph_record import tag_pending  # noqa: PLC0415
+    job_uuid = UUID(pending_job_id) if pending_job_id is not None else None
 
     async with graph_store.transaction() as transaction:
         for decision in decisions:
@@ -288,30 +288,29 @@ async def write_matches_and_materialize(
         _raise_for_write_failure(
             await transaction.upsert_nodes(
                 RESOLVED_ENTITY_LABEL,
-                [tag_pending(resolved.to_node_record(), pending_job_id)],
+                [resolved.to_node_record()],
+                pending_job_id=job_uuid,
             )
         )
         _raise_for_write_failure(
             await transaction.upsert_relations(
                 [
-                    tag_pending(
-                        RelationRecord(
-                            id=uuid5(
-                                NAMESPACE_OID, f"RESOLVED_AS:{member.id}:{resolved.id}"
-                            ),
-                            type=RESOLVED_AS_RELATION,
-                            start_id=member.id,
-                            end_id=resolved.id,
-                            properties={
-                                "decided_at": max(
-                                    decision.decided_at for decision in decisions
-                                ).isoformat()
-                            },
+                    RelationRecord(
+                        id=uuid5(
+                            NAMESPACE_OID, f"RESOLVED_AS:{member.id}:{resolved.id}"
                         ),
-                        pending_job_id,
+                        type=RESOLVED_AS_RELATION,
+                        start_id=member.id,
+                        end_id=resolved.id,
+                        properties={
+                            "decided_at": max(
+                                decision.decided_at for decision in decisions
+                            ).isoformat()
+                        },
                     )
                     for member in members
-                ]
+                ],
+                pending_job_id=job_uuid,
             )
         )
     return MaterializationResult(

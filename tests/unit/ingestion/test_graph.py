@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
@@ -154,12 +154,21 @@ class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
         return None
 
     async def upsert_nodes(
-        self, label: str, nodes: Sequence[NodeRecord], *, batch_size: int = 256
+        self,
+        label: str,
+        nodes: Sequence[NodeRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         return UpsertResult(written=len(nodes))
 
     async def upsert_relations(
-        self, relations: Sequence[RelationRecord], *, batch_size: int = 256
+        self,
+        relations: Sequence[RelationRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         return UpsertResult(written=len(relations))
 

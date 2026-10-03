@@ -117,14 +117,23 @@ class _ScriptedStore(GraphStore):
         return
 
     async def upsert_nodes(
-        self, label: str, nodes: Sequence[NodeRecord], *, batch_size: int = 256
+        self,
+        label: str,
+        nodes: Sequence[NodeRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         """Record a node upsert."""
         self.upserted_nodes.append((label, list(nodes)))
         return UpsertResult(written=len(nodes))
 
     async def upsert_relations(
-        self, relations: Sequence[RelationRecord], *, batch_size: int = 256
+        self,
+        relations: Sequence[RelationRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         """Record a relation upsert."""
         self.upserted_relations.append(list(relations))

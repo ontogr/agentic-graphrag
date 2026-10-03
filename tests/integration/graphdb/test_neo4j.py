@@ -18,6 +18,7 @@ import pytest
 
 from agrag.common.data_models.graph_record import NodeRecord, RelationRecord
 from agrag.common.data_models.vector_record import Distance
+from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
 from agrag.cypher.schema import (
     node_id_constraint_name,
@@ -342,6 +343,67 @@ class TestNeo4jGraphStoreIntegration:
             assert set(rows[0]["labels"]) == {primary, secondary, NODE_IDENTITY_LABEL}
         finally:
             await store.execute_write(f"MATCH (n:{primary}) DETACH DELETE n")
+            await store.close()
+
+    async def test_job_write_tags_new_rows_and_spares_existing_ones(self) -> None:
+        """A job tags what it creates, leaves committed rows alone, and hides its own.
+
+        Reads that exclude pending rows see only the committed node, so the
+        job's new rows stay invisible until it commits.
+        """
+        store = build_graph_store("neo4j")
+        await store.connect()
+        label = validate_identifier(f"Chunk_{uuid4().hex[:8]}")
+        try:
+            job_id = uuid4()
+            committed_id, new_id = uuid4(), uuid4()
+            await store.upsert_nodes(
+                label,
+                [NodeRecord(id=committed_id, labels=[label], properties={"v": 1})],
+            )
+            await store.upsert_nodes(
+                label,
+                [
+                    NodeRecord(id=committed_id, labels=[label], properties={"v": 2}),
+                    NodeRecord(id=new_id, labels=[label], properties={"v": 1}),
+                ],
+                pending_job_id=job_id,
+            )
+            relation_id = uuid4()
+            await store.upsert_relations(
+                [
+                    RelationRecord(
+                        id=relation_id,
+                        type="PENDING_LINK",
+                        start_id=committed_id,
+                        end_id=new_id,
+                        properties={},
+                    )
+                ],
+                pending_job_id=job_id,
+            )
+
+            rows = await store.execute_read(
+                f"MATCH (n:{label}) RETURN n.id AS id, n.v AS v, "
+                f"n._pending_job_id AS tag",
+            )
+            tags = {row["id"]: row["tag"] for row in rows}
+            assert tags == {str(committed_id): None, str(new_id): str(job_id)}
+            assert {row["id"]: row["v"] for row in rows}[str(committed_id)] == 2
+
+            visible = await store.execute_read(
+                f"MATCH (n:{label}) WHERE {pending_filter_clause('n')} "
+                f"RETURN n.id AS id"
+            )
+            assert [row["id"] for row in visible] == [str(committed_id)]
+            edges = await store.execute_read(
+                f"MATCH ()-[r:PENDING_LINK]->() "
+                f"WHERE r.id = $id AND {pending_filter_clause('r')} RETURN r.id AS id",
+                {"id": str(relation_id)},
+            )
+            assert edges == []
+        finally:
+            await store.execute_write(f"MATCH (n:{label}) DETACH DELETE n")
             await store.close()
 
     async def test_label_addition_does_not_duplicate_node(self) -> None:

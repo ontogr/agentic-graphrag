@@ -227,6 +227,81 @@ class TestUpsertNodes:
         assert len(constraint_calls) == 1
 
 
+class TestPendingJobTag:
+    """A job id passed to an upsert tags the records the store writes."""
+
+    async def test_node_upsert_tags_records_with_the_job_id(self) -> None:
+        """Every node record sent to the driver carries the job id."""
+        store = _store()
+        store._identity_constraint_ready = True
+        store.execute_write = mock.AsyncMock(return_value=[])
+        job_id = uuid4()
+        nodes = [
+            NodeRecord(id=uuid4(), labels=["Chunk"], properties={"name": name})
+            for name in ("a", "b")
+        ]
+
+        await store.upsert_nodes("Chunk", nodes, pending_job_id=job_id)
+
+        sent = store.execute_write.await_args.args[1]["records"]
+        assert [r["pending_job_id"] for r in sent] == [str(job_id)] * 2
+        assert all("_pending_job_id" not in r["properties"] for r in sent)
+
+    async def test_node_upsert_without_job_id_sends_no_tag(self) -> None:
+        """A write outside a job sends a null tag."""
+        store = _store()
+        store._identity_constraint_ready = True
+        store.execute_write = mock.AsyncMock(return_value=[])
+        node = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
+
+        await store.upsert_nodes("Chunk", [node])
+
+        sent = store.execute_write.await_args.args[1]["records"]
+        assert sent[0]["pending_job_id"] is None
+
+    async def test_relation_upsert_tags_records_with_the_job_id(self) -> None:
+        """Every relation record sent to the driver carries the job id."""
+        store = _store()
+
+        async def write(
+            query: str, parameters: dict[str, Any] | None = None
+        ) -> list[dict[str, Any]]:
+            return [{"id": r["id"]} for r in (parameters or {}).get("records", [])]
+
+        store.execute_write = mock.AsyncMock(side_effect=write)
+        job_id = uuid4()
+        relation = RelationRecord(
+            id=uuid4(), type="MENTIONS", start_id=uuid4(), end_id=uuid4(), properties={}
+        )
+
+        await store.upsert_relations([relation], pending_job_id=job_id)
+
+        sent = store.execute_write.await_args.args[1]["records"]
+        assert sent[0]["pending_job_id"] == str(job_id)
+
+    async def test_transaction_upserts_tag_records_with_the_job_id(self) -> None:
+        """Node and relation writes inside a transaction carry the job id."""
+        store = _store()
+        store._identity_constraint_ready = True
+        job_id = uuid4()
+        node = NodeRecord(id=uuid4(), labels=["Chunk"], properties={})
+        relation = RelationRecord(
+            id=uuid4(), type="MENTIONS", start_id=uuid4(), end_id=uuid4(), properties={}
+        )
+
+        async with store.transaction() as txn:
+            await txn.upsert_nodes("Chunk", [node], pending_job_id=job_id)
+            await txn.upsert_relations([relation], pending_job_id=job_id)
+
+        tx = store._driver.last_session.begin_transaction.return_value
+        sent = [
+            call.args[1]["records"][0]
+            for call in tx.run.await_args_list
+            if "records" in call.args[1]
+        ]
+        assert [r["pending_job_id"] for r in sent] == [str(job_id)] * 2
+
+
 class TestBatchWritePerItemIsolation:
     """Batch fallback isolates only errors tied to record data."""
 

@@ -143,14 +143,23 @@ class MockStore(CutoverJobLeaseFake, GraphStore):
         self.setup_indexes_calls += 1
 
     async def upsert_nodes(
-        self, label: str, nodes: Sequence[NodeRecord], *, batch_size: int = 256
+        self,
+        label: str,
+        nodes: Sequence[NodeRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         """Record a node upsert."""
         self.upsert_nodes_calls.append((label, list(nodes)))
         return UpsertResult(written=len(nodes))
 
     async def upsert_relations(
-        self, relations: Sequence[RelationRecord], *, batch_size: int = 256
+        self,
+        relations: Sequence[RelationRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         """Record a relation upsert."""
         self.upsert_relations_calls.append(list(relations))
@@ -1520,8 +1529,11 @@ class TestGraphAddPipeline:
                 nodes: Sequence[NodeRecord],
                 *,
                 batch_size: int = 256,
+                pending_job_id: UUID | None = None,
             ) -> UpsertResult:
-                result = await super().upsert_nodes(label, nodes, batch_size=batch_size)
+                result = await super().upsert_nodes(
+                    label, nodes, batch_size=batch_size, pending_job_id=pending_job_id
+                )
                 if label != CHUNK_LABEL:
                     return result
                 for node in nodes:
@@ -1561,8 +1573,11 @@ class TestGraphAddPipeline:
                 nodes: Sequence[NodeRecord],
                 *,
                 batch_size: int = 256,
+                pending_job_id: UUID | None = None,
             ) -> UpsertResult:
-                result = await super().upsert_nodes(label, nodes, batch_size=batch_size)
+                result = await super().upsert_nodes(
+                    label, nodes, batch_size=batch_size, pending_job_id=pending_job_id
+                )
                 if label == CHUNK_LABEL:
                     return UpsertResult(
                         failures=[
