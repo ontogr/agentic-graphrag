@@ -396,7 +396,9 @@ class WeaviateVectorStore(VectorStore):
             pending_job_id: The in-flight job staging these records.
 
         Raises:
-            ValueError: ``batch_size`` is not positive.
+            ValueError: ``batch_size`` is not positive, or a payload uses a
+                key the store reserves for pending records (``_pending``,
+                ``_pending_job_id``, ``_target_id``).
             VectorStoreError: At least one record in a batch failed to write.
         """
         require_positive_batch_size(batch_size)

@@ -615,7 +615,9 @@ class MilvusVectorStore(VectorStore):
             pending_job_id: The in-flight job staging these records.
 
         Raises:
-            ValueError: ``batch_size`` is not positive.
+            ValueError: ``batch_size`` is not positive, or a payload uses a
+                key the store reserves for pending records (``_pending``,
+                ``_pending_job_id``, ``_target_id``).
         """
         require_positive_batch_size(batch_size)
         records = stage_records(records, pending_job_id)

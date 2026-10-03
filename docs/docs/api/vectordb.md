@@ -439,7 +439,9 @@ Write or overwrite records in a collection.
 
 **Raises:**
 
-- <code>ValueError</code> – `batch_size` is not positive.
+- <code>ValueError</code> – `batch_size` is not positive, or a payload uses a
+  key the store reserves for pending records (`_pending`,
+  `_pending_job_id`, `_target_id`).
 
 ### `agrag.vectordb.QdrantSettings` \{#agrag-vectordb-QdrantSettings}
 
@@ -820,7 +822,9 @@ search.
 
 **Raises:**
 
-- <code>ValueError</code> – `batch_size` is not positive.
+- <code>ValueError</code> – `batch_size` is not positive, or a payload uses a
+  key the store reserves for pending records (`_pending`,
+  `_pending_job_id`, `_target_id`).
 
 ### `agrag.vectordb.VectorStore` \{#agrag-vectordb-VectorStore}
 
@@ -1544,7 +1548,9 @@ insert-or-replace semantics and per-call batching in one request.
 
 **Raises:**
 
-- <code>ValueError</code> – `batch_size` is not positive.
+- <code>ValueError</code> – `batch_size` is not positive, or a payload uses a
+  key the store reserves for pending records (`_pending`,
+  `_pending_job_id`, `_target_id`).
 - <code>[VectorStoreError](#agrag-vectordb-errors-VectorStoreError)</code> – At least one record in a batch failed to write.
 
 ### `agrag.vectordb.base` \{#agrag-vectordb-base}
@@ -2326,7 +2332,9 @@ Write or overwrite records in a collection.
 
 **Raises:**
 
-- <code>ValueError</code> – `batch_size` is not positive.
+- <code>ValueError</code> – `batch_size` is not positive, or a payload uses a
+  key the store reserves for pending records (`_pending`,
+  `_pending_job_id`, `_target_id`).
 
 ### `agrag.vectordb.pending` \{#agrag-vectordb-pending}
 
@@ -2764,7 +2772,9 @@ search.
 
 **Raises:**
 
-- <code>ValueError</code> – `batch_size` is not positive.
+- <code>ValueError</code> – `batch_size` is not positive, or a payload uses a
+  key the store reserves for pending records (`_pending`,
+  `_pending_job_id`, `_target_id`).
 
 ### `agrag.vectordb.settings` \{#agrag-vectordb-settings}
 
@@ -3239,5 +3249,7 @@ insert-or-replace semantics and per-call batching in one request.
 
 **Raises:**
 
-- <code>ValueError</code> – `batch_size` is not positive.
+- <code>ValueError</code> – `batch_size` is not positive, or a payload uses a
+  key the store reserves for pending records (`_pending`,
+  `_pending_job_id`, `_target_id`).
 - <code>[VectorStoreError](#agrag-vectordb-errors-VectorStoreError)</code> – At least one record in a batch failed to write.
