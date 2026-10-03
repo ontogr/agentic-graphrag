@@ -7,7 +7,6 @@ whose request span lost an attribute, fails here. The captured span tree is
 written to a JSON artifact under ``reports/llm/`` for hand inspection.
 """
 
-import contextlib
 import importlib.util
 from typing import Any
 from uuid import UUID, uuid4
@@ -370,10 +369,9 @@ class TestText2Cypher:
         )
 
         # Whether the first query passes the pending-row guard depends on the
-        # model, so a repair attempt or a raised failure is a valid outcome.
-        # The test checks the trace of the first attempt only.
-        with contextlib.suppress(Exception):
-            await retriever.retrieve("who is Ada Lovelace?")
+        # model, so a repair attempt is a valid outcome. The test checks the
+        # trace of the first attempt only.
+        await retriever.retrieve("who is Ada Lovelace?")
 
         spans = exporter.get_finished_spans()
         generates = sorted(
