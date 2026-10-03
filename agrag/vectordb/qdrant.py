@@ -8,7 +8,6 @@ from uuid import UUID
 from opentelemetry.trace import SpanKind, Tracer
 
 from agrag.common.data_models.vector_record import (
-    PENDING_VECTOR_FLAG,
     Distance,
     VectorHit,
     VectorRecord,
@@ -27,6 +26,7 @@ from agrag.vectordb.errors import (
     VectorStoreError,
     VectorStoreMissingExtraError,
 )
+from agrag.vectordb.pending import PENDING_FLAG, PENDING_JOB_KEY, stage_records
 from agrag.vectordb.settings import QdrantSettings
 
 
@@ -173,33 +173,41 @@ class QdrantVectorStore(VectorStore):
             Distance.DOT: self._models.Distance.DOT,
         }[distance]
 
-    def _compile_filter(self, filters: dict[str, Any] | None) -> Any:
+    def _compile_filter(
+        self, filters: dict[str, Any] | None, pending_job_id: UUID | None = None
+    ) -> Any:
         """Build a Qdrant filter from a flat-dict payload filter.
 
-        A pending record (one whose ``_pending`` payload boolean is true)
-        is excluded unless the filter asks for pending records only. The
-        exclusion is a ``must_not`` on the flag, so records written before
-        the flag existed still match.
+        Staged records (``_pending`` true) are excluded unless
+        ``pending_job_id`` names the job to read. The exclusion is a
+        ``must_not``, so records written before the flag existed still match.
 
         Args:
             filters: A flat-dict filter: a scalar value means exact match, a
                 list value means any of, and all keys are AND-ed together.
-                ``None`` means no filter. ``_pending=True`` selects only
-                in-flight records; leaving the key out, or setting it
-                ``False``, excludes them.
+                ``None`` means no filter.
+            pending_job_id: Select only this job's staged records instead of
+                the committed ones.
 
         Returns:
             A Qdrant ``Filter``, or ``None`` when nothing would be filtered.
         """
         pending_condition = self._models.FieldCondition(
-            key=PENDING_VECTOR_FLAG, match=self._models.MatchValue(value=True)
+            key=PENDING_FLAG, match=self._models.MatchValue(value=True)
         )
-        pending_only = bool((filters or {}).get(PENDING_VECTOR_FLAG) is True)
-        must = [] if not pending_only else [pending_condition]
-        must_not = [] if pending_only else [pending_condition]
+        must: list[Any] = []
+        must_not: list[Any] = []
+        if pending_job_id is None:
+            must_not.append(pending_condition)
+        else:
+            must.append(pending_condition)
+            must.append(
+                self._models.FieldCondition(
+                    key=PENDING_JOB_KEY,
+                    match=self._models.MatchValue(value=str(pending_job_id)),
+                )
+            )
         for key, value in (filters or {}).items():
-            if key == PENDING_VECTOR_FLAG:
-                continue
             if isinstance(value, list):
                 must.append(
                     self._models.FieldCondition(
@@ -212,8 +220,6 @@ class QdrantVectorStore(VectorStore):
                         key=key, match=self._models.MatchValue(value=value)
                     )
                 )
-        if not must and not must_not:
-            return None
         return self._models.Filter(must=must or None, must_not=must_not or None)
 
     @staticmethod
@@ -453,8 +459,11 @@ class QdrantVectorStore(VectorStore):
         records: Sequence[VectorRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> None:
         """Write or overwrite records in a collection.
+
+        With ``pending_job_id`` the records are staged for that job.
 
         When ``collection`` has sparse-vector support (created or previously
         seen with ``ensure_collection(..., hybrid=True)``), each record's
@@ -469,11 +478,15 @@ class QdrantVectorStore(VectorStore):
             records: The records to upsert, in order.
             batch_size: The number of records per backend write call. Must be
                 positive.
+            pending_job_id: The in-flight job staging these records.
 
         Raises:
-            ValueError: ``batch_size`` is not positive.
+            ValueError: ``batch_size`` is not positive, or a payload uses a
+                key the store reserves for pending records (``_pending``,
+                ``_pending_job_id``, ``_target_id``).
         """
         require_positive_batch_size(batch_size)
+        records = stage_records(records, pending_job_id)
         client = await self._ensure_client()
         with self._tracer.start_as_current_span(
             "agrag.vectordb.upsert",
@@ -750,6 +763,7 @@ class QdrantVectorStore(VectorStore):
         page_offset: str | None = None,
         filters: dict[str, Any] | None = None,
         with_vectors: bool = False,
+        pending_job_id: UUID | None = None,
     ) -> tuple[list[VectorRecord], str | None]:
         """Iterate records in a collection, in batches.
 
@@ -759,6 +773,7 @@ class QdrantVectorStore(VectorStore):
             page_offset: The offset from a previous ``scroll`` call.
             filters: A flat-dict filter on payload fields.
             with_vectors: Whether to return each record's vector.
+            pending_job_id: Read only this job's staged records.
 
         Returns:
             The page of records and the next page offset, or ``None`` at the
@@ -778,7 +793,7 @@ class QdrantVectorStore(VectorStore):
                 collection_name=collection,
                 limit=limit,
                 offset=page_offset,
-                scroll_filter=self._compile_filter(filters),
+                scroll_filter=self._compile_filter(filters, pending_job_id),
                 with_payload=True,
                 with_vectors=with_vectors,
             )
@@ -816,13 +831,18 @@ class QdrantVectorStore(VectorStore):
         return [self._to_record(point) for point in points]
 
     async def count(
-        self, collection: str, *, filters: dict[str, Any] | None = None
+        self,
+        collection: str,
+        *,
+        filters: dict[str, Any] | None = None,
+        pending_job_id: UUID | None = None,
     ) -> int:
         """Count records in a collection.
 
         Args:
             collection: The collection to count.
             filters: A flat-dict filter on payload fields.
+            pending_job_id: Count only this job's staged records.
 
         Returns:
             The number of matching records.
@@ -837,7 +857,8 @@ class QdrantVectorStore(VectorStore):
             },
         ):
             result = await client.count(
-                collection_name=collection, count_filter=self._compile_filter(filters)
+                collection_name=collection,
+                count_filter=self._compile_filter(filters, pending_job_id),
             )
         return result.count
 

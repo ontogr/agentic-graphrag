@@ -4,7 +4,7 @@ from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.community import COMMUNITY_LABEL, Community
 from agrag.common.data_models.search_result import SearchResult
-from agrag.cypher.entities import NODE_IDENTITY_LABEL
+from agrag.cypher.community_read import hydrate_communities_by_id_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.observability import get_tracer, record_swallowed_exception
@@ -95,10 +95,7 @@ class CommunityRetriever(Retriever):
             ) as load:
                 try:
                     rows = await self._graph_store.execute_read(
-                        f"UNWIND $ids AS id MATCH (n:{NODE_IDENTITY_LABEL}:"
-                        f"{COMMUNITY_LABEL} {{id: id}}) "
-                        "WHERE n._pending_job_id IS NULL RETURN n",
-                        {"ids": ids},
+                        hydrate_communities_by_id_query(), {"ids": ids}
                     )
                 except Exception as exc:  # noqa: BLE001
                     record_swallowed_exception(exc)

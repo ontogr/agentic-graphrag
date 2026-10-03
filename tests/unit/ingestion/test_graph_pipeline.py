@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest import mock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -47,16 +47,11 @@ from agrag.ingestion._ingest_pipeline import (
     _delete_vectors,
     _embed_and_upsert_chunks,
     _embed_and_upsert_survivors,
-    _global_exact_match,
     _global_relation_lookup,
     _upsert_vectors,
 )
 from agrag.ingestion.extract import Extractor
-from agrag.ingestion.graph import (
-    Graph,
-    _resolve_paths,
-    _synthesize_consolidation_mentions,
-)
+from agrag.ingestion.graph import Graph, _resolve_paths
 from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolved_entities import RebuildResult
 from agrag.loaders.corpus.types import ErrorPolicy
@@ -143,14 +138,23 @@ class MockStore(CutoverJobLeaseFake, GraphStore):
         self.setup_indexes_calls += 1
 
     async def upsert_nodes(
-        self, label: str, nodes: Sequence[NodeRecord], *, batch_size: int = 256
+        self,
+        label: str,
+        nodes: Sequence[NodeRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         """Record a node upsert."""
         self.upsert_nodes_calls.append((label, list(nodes)))
         return UpsertResult(written=len(nodes))
 
     async def upsert_relations(
-        self, relations: Sequence[RelationRecord], *, batch_size: int = 256
+        self,
+        relations: Sequence[RelationRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         """Record a relation upsert."""
         self.upsert_relations_calls.append(list(relations))
@@ -193,6 +197,7 @@ class RecordingVectorStore(VectorStore):
     def __init__(self) -> None:
         """Start with empty call logs."""
         self.upserts: list[tuple[str, list[VectorRecord]]] = []
+        self.upsert_jobs: list[UUID | None] = []
         self.deletes: list[tuple[str, list[object]]] = []
         self.fail: Exception | None = None
 
@@ -217,11 +222,13 @@ class RecordingVectorStore(VectorStore):
         records: Sequence[VectorRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> None:
         """Record the upsert, or raise the injected failure."""
         if self.fail is not None:
             raise self.fail
         self.upserts.append((collection, list(records)))
+        self.upsert_jobs.append(pending_job_id)
 
     async def search(
         self,
@@ -284,6 +291,7 @@ class _FailingUpsertVectorStore(RecordingVectorStore):
         records: Sequence[VectorRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> None:
         """Always fail."""
         raise RuntimeError("vector store down")
@@ -433,116 +441,6 @@ class TestParseEntityNode:
     def test_unusable_node_returns_none(self, node: object) -> None:
         """A node without a usable id or merge key yields None."""
         assert parse_entity_node(node) is None
-
-
-class TestGlobalExactMatch:
-    """Tests for _global_exact_match."""
-
-    async def test_groups_by_label_and_dedups(self) -> None:
-        """One query per distinct label, deduped keys."""
-        store = MockStore()
-        cid = uuid4()
-        m1 = ExtractedEntity(
-            chunk_id=cid, label="Person", text="Alice", char_start=0, char_end=5
-        )
-        m2 = ExtractedEntity(
-            chunk_id=cid, label="Person", text="alice", char_start=6, char_end=11
-        )
-        m3 = ExtractedEntity(
-            chunk_id=cid, label="Organization", text="Acme", char_start=0, char_end=4
-        )
-        eid = uuid4()
-        store.execute_read_responses = [
-            [
-                {
-                    "n": {
-                        "id": str(eid),
-                        "name": "Alice",
-                        "merge_key": "Person:alice",
-                        "merge_count": 1,
-                        "source_chunk_ids": [],
-                        "created_at": "2020-01-01T00:00:00+00:00",
-                    }
-                }
-            ],
-            [],
-        ]
-        result = await _global_exact_match([m1, m2, m3], graph_store=store)
-        assert result[0].id == eid
-        assert result[1].id == eid
-        assert 2 not in result
-        assert len(store.execute_read_calls) == 2
-
-    async def test_accepted_alias_with_different_name_resolves_to_entity(self) -> None:
-        """A mention resolves via an alias even when it never was the entity's name.
-
-        Regression test: when resolution joins "Bob" and "Robert" into one
-        survivor named "Robert", an alias for "Person:bob" is written
-        pointing at that entity even though the entity's own name was never
-        "Bob". Mapping the returned row back to the "Bob" mention must use
-        the merge_key the row's alias was queried on, not one re-derived
-        from the entity's current name -- re-deriving would compute
-        "Person:robert" and silently fail to map "Bob" at all.
-        """
-        store = MockStore()
-        cid = uuid4()
-        mention = ExtractedEntity(
-            chunk_id=cid, label="Person", text="Bob", char_start=0, char_end=3
-        )
-        entity_id = uuid4()
-        store.execute_read_responses = [
-            [
-                {
-                    "merge_key": "Person:bob",
-                    "n": {
-                        "id": str(entity_id),
-                        "name": "Robert",
-                        "merge_key": "Person:robert",
-                        "merge_count": 2,
-                        "source_chunk_ids": [],
-                        "created_at": "2020-01-01T00:00:00+00:00",
-                    },
-                }
-            ]
-        ]
-        result = await _global_exact_match([mention], graph_store=store)
-        assert result[0].id == entity_id
-        assert result[0].name == "Robert"
-
-
-class TestSynthesizeConsolidationMentions:
-    """_synthesize_consolidation_mentions builds per-entity dummy context."""
-
-    def test_shared_source_chunk_does_not_cross_contaminate_context(self) -> None:
-        """Two entities sharing a first source chunk still get independent context.
-
-        Regression test: keying the dummy chunk by an entity's own first
-        source_chunk_id let a second entity sharing that same first chunk
-        silently reuse whichever entity had already registered a dummy
-        chunk under that id, corrupting the LLMVerify comparison context.
-        """
-        shared_chunk_id = uuid4()
-        alice = Entity(
-            id=uuid4(),
-            label="Person",
-            name="Alice",
-            properties={},
-            source_chunk_ids=[shared_chunk_id],
-        )
-        bob = Entity(
-            id=uuid4(),
-            label="Person",
-            name="Bob",
-            properties={},
-            source_chunk_ids=[shared_chunk_id],
-        )
-
-        mentions, dummy_chunks_by_id = _synthesize_consolidation_mentions([alice, bob])
-
-        assert len(mentions) == 2
-        assert mentions[0].chunk_id != mentions[1].chunk_id
-        assert dummy_chunks_by_id[mentions[0].chunk_id].text == "Alice"
-        assert dummy_chunks_by_id[mentions[1].chunk_id].text == "Bob"
 
 
 class TestGlobalRelationLookup:
@@ -1000,6 +898,32 @@ class TestEmbedChunksDualWrite:
         assert [str(r.id) for r in records] == [str(ch.id)]
         assert records[0].payload["text"] == "Hello world"
 
+    async def test_job_id_reaches_the_vector_store(self) -> None:
+        """A chunk written inside a job is staged for that job, not committed."""
+        ch = ChunkModel(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Hello world",
+            provenance=TextProvenance(char_start=0, char_end=11),
+        )
+        store = _GuardedNodeStore({str(ch.id): {"text": ch.text}})
+        vector_store = RecordingVectorStore()
+        job_id = uuid4()
+
+        await _embed_and_upsert_chunks(
+            [ch],
+            embedder=MockEmbedder(),
+            graph_store=store,
+            error_policy=ErrorPolicy.RAISE,
+            vector_store=vector_store,
+            vector_collection="chunks",
+            pending_job_id=job_id,
+        )
+
+        assert vector_store.upsert_jobs == [job_id]
+        assert "_pending" not in vector_store.upserts[0][1][0].payload
+
     async def test_chunk_payload_carries_document_id(self) -> None:
         """A document-scoped filter must match the VectorStore path too.
 
@@ -1397,8 +1321,11 @@ class TestGraphAddPipeline:
                 nodes: Sequence[NodeRecord],
                 *,
                 batch_size: int = 256,
+                pending_job_id: UUID | None = None,
             ) -> UpsertResult:
-                result = await super().upsert_nodes(label, nodes, batch_size=batch_size)
+                result = await super().upsert_nodes(
+                    label, nodes, batch_size=batch_size, pending_job_id=pending_job_id
+                )
                 if label != CHUNK_LABEL:
                     return result
                 for node in nodes:
@@ -1438,8 +1365,11 @@ class TestGraphAddPipeline:
                 nodes: Sequence[NodeRecord],
                 *,
                 batch_size: int = 256,
+                pending_job_id: UUID | None = None,
             ) -> UpsertResult:
-                result = await super().upsert_nodes(label, nodes, batch_size=batch_size)
+                result = await super().upsert_nodes(
+                    label, nodes, batch_size=batch_size, pending_job_id=pending_job_id
+                )
                 if label == CHUNK_LABEL:
                     return UpsertResult(
                         failures=[
@@ -2133,7 +2063,9 @@ class TestGraphAddPipeline:
             mock_all.return_value = [e1, e2]
             import agrag.ingestion.graph as gmod  # noqa: PLC0415
 
-            with mock.patch.object(gmod, "Resolver") as mock_resolver:
+            with mock.patch(
+                "agrag.ingestion.resolve.resolution.Resolver"
+            ) as mock_resolver:
                 mock_instance = mock.AsyncMock()
                 from agrag.ingestion.resolve import (  # noqa: PLC0415
                     ResolutionResult,
@@ -2214,14 +2146,13 @@ class TestGraphAddPipeline:
             )
             for name in ("Alice", "alice")
         ]
-        import agrag.ingestion.graph as gmod  # noqa: PLC0415
         from agrag.ingestion.resolve import ResolutionResult  # noqa: PLC0415
 
         with (
             mock.patch.object(
                 graph, "_all_entities_by_label", new_callable=mock.AsyncMock
             ) as mock_all,
-            mock.patch.object(gmod, "Resolver") as mock_resolver,
+            mock.patch("agrag.ingestion.resolve.resolution.Resolver") as mock_resolver,
         ):
             mock_all.return_value = entities
             mock_resolver.return_value.resolve = mock.AsyncMock(
@@ -2267,7 +2198,9 @@ class TestGraphAddPipeline:
             mock_all.return_value = [e1, e2]
             import agrag.ingestion.graph as gmod  # noqa: PLC0415
 
-            with mock.patch.object(gmod, "Resolver") as mock_resolver:
+            with mock.patch(
+                "agrag.ingestion.resolve.resolution.Resolver"
+            ) as mock_resolver:
                 mock_instance = mock.AsyncMock()
                 from agrag.ingestion.resolve import (  # noqa: PLC0415
                     ResolutionResult,

@@ -10,6 +10,7 @@ constraint behavior under concurrency by the integration test instead.
 """
 
 import asyncio
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -32,9 +33,12 @@ from agrag.cypher.relations import close_part_of_query
 from agrag.ingestion._cutover import (
     CutoverJobLeaseError,
     clear_pending_vectors,
+    delete_pending_vectors,
     run_cutover_job,
 )
 from agrag.ingestion.settings import CutoverJobSettings
+from agrag.vectordb.base import VectorStore
+from agrag.vectordb.pending import stage_records
 
 
 class _FakeCutoverStore:
@@ -224,13 +228,49 @@ class _CommitBlockingStore(_FakeCutoverStore):
         return _Txn()
 
 
-class _FakeVectorStore:
-    """Records upserts; scrolls back only what it was handed."""
+class _FakeVectorStore(VectorStore):
+    """In-memory VectorStore that keeps staged and committed records apart."""
 
     def __init__(self) -> None:
         """Create the fake with empty collections."""
-        self.records: dict[str, dict[str, Any]] = {}
+        self.records: dict[str, dict[str, VectorRecord]] = {}
         self.upsert_calls = 0
+
+    async def initialize(self) -> None:
+        """No-op init."""
+
+    async def ensure_collection(self, name: str, **kwargs: Any) -> None:
+        """No-op collection creation."""
+
+    async def collection_exists(self, name: str) -> bool:
+        """Every collection exists."""
+        return True
+
+    async def delete_collection(self, name: str) -> None:
+        """Drop the collection."""
+        self.records.pop(name, None)
+
+    async def upsert(
+        self,
+        collection: str,
+        records: Sequence[VectorRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
+    ) -> None:
+        """Store the records by id, staged when a job id is given."""
+        self.upsert_calls += 1
+        bucket = self.records.setdefault(collection, {})
+        for record in stage_records(records, pending_job_id):
+            bucket[str(record.id)] = record
+
+    async def search(self, *args: Any, **kwargs: Any) -> list[Any]:
+        """Return no hits."""
+        return []
+
+    async def hybrid_search(self, *args: Any, **kwargs: Any) -> list[Any]:
+        """Return no hits."""
+        return []
 
     async def scroll(
         self,
@@ -240,28 +280,36 @@ class _FakeVectorStore:
         page_offset: str | None = None,
         filters: dict[str, Any] | None = None,
         with_vectors: bool = False,
-    ) -> tuple[list[Any], str | None]:
-        """Return records whose payload matches the filter, in one page."""
-        job_id = (filters or {}).get("_pending_job_id")
+        pending_job_id: UUID | None = None,
+    ) -> tuple[list[VectorRecord], str | None]:
+        """Return the committed records, or one job's staged ones, in one page."""
         matches = [
             record
             for record in self.records.get(collection, {}).values()
-            if record.payload.get("_pending_job_id") == job_id
+            if (
+                record.payload.get("_pending_job_id") == str(pending_job_id)
+                if pending_job_id is not None
+                else not record.payload.get("_pending")
+            )
         ]
         return matches, None
 
-    async def upsert(self, collection: str, records: list[Any]) -> None:
-        """Store the records by id, like the real backends."""
-        self.upsert_calls += 1
-        bucket = self.records.setdefault(collection, {})
-        for record in records:
-            bucket[str(record.id)] = record
+    async def retrieve(self, collection: str, ids: Sequence[UUID]) -> list[Any]:
+        """Return no records."""
+        return []
 
-    async def delete(self, collection: str, ids: list[str]) -> None:
+    async def count(self, collection: str, **kwargs: Any) -> int:
+        """Return zero."""
+        return 0
+
+    async def delete(self, collection: str, ids: Sequence[UUID]) -> None:
         """Drop the ids from the collection."""
         bucket = self.records.get(collection, {})
         for record_id in ids:
             bucket.pop(str(record_id), None)
+
+    async def close(self) -> None:
+        """No-op close."""
 
 
 async def _noop_cleanup(
@@ -571,13 +619,8 @@ class TestRunCutoverJobRollback:
         async def pending(job_id: UUID) -> None:
             await vector_store.upsert(
                 "col-a",
-                [
-                    VectorRecord(
-                        id=uuid4(),
-                        vector=[0.0],
-                        payload={"_pending_job_id": str(job_id), "_pending": True},
-                    )
-                ],
+                [VectorRecord(id=uuid4(), vector=[0.0], payload={})],
+                pending_job_id=job_id,
             )
             raise RuntimeError("extraction blew up")
 
@@ -748,38 +791,66 @@ class TestRunCutoverJobComponentSeeds:
 
 
 class TestClearPendingVectors:
-    """The vector half of the commit clears only this job's payloads."""
+    """The vector half of the commit promotes only this job's records."""
 
-    async def test_clears_only_this_job_records(self) -> None:
-        """Only this job's payloads flip to committed; other records are untouched."""
+    async def test_promotes_this_jobs_records_and_leaves_others(self) -> None:
+        """Staged records land under their real ids; other records stay."""
         vector_store = _FakeVectorStore()
-        job_id = uuid4()
-        other = uuid4()
-
-        vector_store.records["col-a"] = {
-            str(job_id): VectorRecord(
-                id=job_id,
-                vector=[0.1],
-                payload={"text": "t", "_pending": True, "_pending_job_id": str(job_id)},
-            ),
-            str(other): VectorRecord(
-                id=other,
-                vector=[0.2],
-                payload={"text": "u", "_pending": False},
-            ),
-        }
+        job_id, other_job = uuid4(), uuid4()
+        mine = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "t"})
+        theirs = VectorRecord(id=uuid4(), vector=[0.2], payload={"text": "u"})
+        await vector_store.upsert("col-a", [mine], pending_job_id=job_id)
+        await vector_store.upsert("col-a", [theirs], pending_job_id=other_job)
 
         await clear_pending_vectors(
             vector_store=vector_store, collections=("col-a",), job_id=job_id
         )
 
-        cleared = vector_store.records["col-a"][str(job_id)]
-        untouched = vector_store.records["col-a"][str(other)]
-        assert cleared.payload["_pending"] is False
-        assert untouched.payload["_pending"] is False
+        records = vector_store.records["col-a"]
+        assert records[str(mine.id)].payload == {"text": "t"}
+        assert records[str(mine.id)].vector == [0.1]
+        (still_staged,) = [r for r in records.values() if r.payload.get("_pending")]
+        assert still_staged.payload["_target_id"] == str(theirs.id)
+        assert len(records) == 2
+
+    async def test_replaces_the_committed_record_with_the_same_id(self) -> None:
+        """A staged rewrite replaces the committed record when it commits."""
+        vector_store = _FakeVectorStore()
+        job_id = uuid4()
+        original = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "old"})
+        rewrite = VectorRecord(id=original.id, vector=[0.9], payload={"text": "new"})
+        await vector_store.upsert("col-a", [original])
+        await vector_store.upsert("col-a", [rewrite], pending_job_id=job_id)
+
+        await clear_pending_vectors(
+            vector_store=vector_store, collections=("col-a",), job_id=job_id
+        )
+
+        assert list(vector_store.records["col-a"]) == [str(original.id)]
+        assert vector_store.records["col-a"][str(original.id)].payload["text"] == "new"
 
     async def test_none_vector_store_is_a_noop(self) -> None:
         """A None vector store clears nothing and does not raise."""
         await clear_pending_vectors(
             vector_store=None, collections=("col-a",), job_id=uuid4()
         )
+
+
+class TestDeletePendingVectors:
+    """Rollback deletes staged records and keeps committed ones."""
+
+    async def test_keeps_the_committed_record_with_the_same_id(self) -> None:
+        """A rolled-back rewrite leaves the committed record untouched."""
+        vector_store = _FakeVectorStore()
+        job_id = uuid4()
+        original = VectorRecord(id=uuid4(), vector=[0.1], payload={"text": "old"})
+        rewrite = VectorRecord(id=original.id, vector=[0.9], payload={"text": "new"})
+        await vector_store.upsert("col-a", [original])
+        await vector_store.upsert("col-a", [rewrite], pending_job_id=job_id)
+
+        await delete_pending_vectors(
+            vector_store=vector_store, collections=("col-a",), job_id=job_id
+        )
+
+        assert list(vector_store.records["col-a"]) == [str(original.id)]
+        assert vector_store.records["col-a"][str(original.id)].payload["text"] == "old"

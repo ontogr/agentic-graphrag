@@ -1,10 +1,9 @@
-"""Tests for GraphCandidateSource and exact_match_lookup.
+"""Tests for GraphCandidateSource.
 
 Covers same-label in-batch blocking with exact index sets, the guarantee
 that the in-batch path never touches GraphStore.vector_search or
 VectorStore.hybrid_search, batch-bounded cost independent of graph size,
-both global_candidates_for routing branches, and exact_match_lookup alias
-behavior.
+and both global_candidates_for routing branches.
 
 Also covers the VectorStore-backed candidate path, which must load the
 persisted Entity by id rather than reconstructing its name from the display
@@ -24,7 +23,6 @@ from agrag.ingestion.resolve.candidate_source import (
     MAX_NEIGHBORS_PER_ENTITY,
     GraphCandidateSource,
     build_relation_neighbors,
-    exact_match_lookup,
     fetch_persisted_neighbors,
 )
 
@@ -356,87 +354,6 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
 
         assert [entity.id for entity, _ in candidates] == [kept_id]
         assert [score for _, score in candidates] == [0.88]
-
-
-class TestExactMatchLookup:
-    """exact_match_lookup mirrors _global_exact_match behavior."""
-
-    async def test_empty_returns_empty(self) -> None:
-        """Empty mentions returns empty."""
-        store = AsyncMock()
-        result = await exact_match_lookup([], graph_store=store)
-        assert result == {}
-        store.execute_read.assert_not_called()
-
-    async def test_groups_by_label_and_dedups(self) -> None:
-        """One query per distinct label, deduped keys."""
-        store = AsyncMock()
-        cid = uuid4()
-        m1 = ExtractedEntity(
-            chunk_id=cid, label="Person", text="Alice", char_start=0, char_end=5
-        )
-        m2 = ExtractedEntity(
-            chunk_id=cid, label="Person", text="alice", char_start=6, char_end=11
-        )
-        m3 = ExtractedEntity(
-            chunk_id=cid, label="Organization", text="Acme", char_start=0, char_end=4
-        )
-        eid = uuid4()
-        store.execute_read.side_effect = [
-            [
-                {
-                    "n": {
-                        "id": str(eid),
-                        "name": "Alice",
-                        "merge_key": "Person:alice",
-                        "merge_count": 1,
-                        "source_chunk_ids": [],
-                        "created_at": "2020-01-01T00:00:00+00:00",
-                    }
-                }
-            ],
-            [],
-        ]
-        result = await exact_match_lookup([m1, m2, m3], graph_store=store)
-        assert result[0].id == eid
-        assert result[1].id == eid
-        assert 2 not in result
-        assert store.execute_read.call_count == 2
-
-    async def test_skips_unparsable_rows(self) -> None:
-        """A row whose node is not a valid entity is skipped."""
-        store = AsyncMock()
-        cid = uuid4()
-        entity_id = uuid4()
-        m = ExtractedEntity(
-            chunk_id=cid, label="Person", text="Bob", char_start=0, char_end=3
-        )
-        store.execute_read.side_effect = [
-            [
-                {
-                    "n": {
-                        "id": str(entity_id),
-                        "merge_key": "Person:bob",
-                        "name": "Bob",
-                    }
-                },
-                {"n": {"id": "bad"}},
-            ]
-        ]
-        result = await exact_match_lookup([m], graph_store=store)
-        assert result[0].id == entity_id
-        assert set(result) == {0}
-
-    async def test_handles_no_rows(self) -> None:
-        """No rows yields empty map entry."""
-        store = AsyncMock()
-        cid = uuid4()
-        m = ExtractedEntity(
-            chunk_id=cid, label="Person", text="NoHit", char_start=0, char_end=5
-        )
-        store.execute_read.side_effect = [[]]
-        result = await exact_match_lookup([m], graph_store=store)
-        assert result == {}
 
 
 class TestBuildRelationNeighbors:

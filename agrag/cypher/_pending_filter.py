@@ -26,3 +26,26 @@ def pending_filter_clause(alias: str, job_id_param: str | None = None) -> str:
     if job_id_param is None:
         return f"{property_ref} IS NULL"
     return f"({property_ref} IS NULL OR {property_ref} = ${job_id_param})"
+
+
+def pending_path_filter_clause(path_alias: str, job_id_param: str | None = None) -> str:
+    """Return a WHERE fragment keeping a path inside committed rows.
+
+    Written as ``ALL`` predicates over the path's nodes and relationships,
+    the form Neo4j applies while it searches, so a ``shortestPath`` skips
+    pending rows instead of failing after it found a path through them.
+
+    Args:
+        path_alias: The Cypher path variable the filter applies to.
+        job_id_param: The parameter name holding the in-flight job's id, or
+            None for committed-only. See :func:`pending_filter_clause`.
+
+    Returns:
+        A ``WHERE`` fragment over every node and relationship of the path.
+    """
+    nodes = pending_filter_clause("path_node", job_id_param)
+    relations = pending_filter_clause("path_relation", job_id_param)
+    return (
+        f"ALL(path_node IN nodes({path_alias}) WHERE {nodes}) "
+        f"AND ALL(path_relation IN relationships({path_alias}) WHERE {relations})"
+    )

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
@@ -71,8 +71,7 @@ from agrag.ingestion._ingest_pipeline import (
     _vector_record,
 )
 from agrag.ingestion.extract import Extractor
-from agrag.ingestion.graph import SYSTEM_RELATION_TYPES
-from agrag.ingestion.resolve import ResolutionResult
+from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES, ResolutionResult
 from agrag.loaders.corpus.errors import UnsupportedFormatError
 from agrag.loaders.corpus.readers.prose import TextLoader
 from agrag.loaders.corpus.types import ErrorPolicy, ReadOptions
@@ -154,12 +153,21 @@ class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
         return None
 
     async def upsert_nodes(
-        self, label: str, nodes: Sequence[NodeRecord], *, batch_size: int = 256
+        self,
+        label: str,
+        nodes: Sequence[NodeRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         return UpsertResult(written=len(nodes))
 
     async def upsert_relations(
-        self, relations: Sequence[RelationRecord], *, batch_size: int = 256
+        self,
+        relations: Sequence[RelationRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         return UpsertResult(written=len(relations))
 
@@ -623,10 +631,12 @@ class TestConsolidateResolutionContext:
                 return_value=[first, second],
             ),
             mock.patch(
-                "agrag.ingestion.graph.Resolver", return_value=resolver_instance
+                "agrag.ingestion.resolve.resolution.Resolver",
+                return_value=resolver_instance,
             ),
             mock.patch(
-                "agrag.ingestion.graph.fetch_persisted_neighbors", fetch_neighbors
+                "agrag.ingestion.resolve.resolution.fetch_persisted_neighbors",
+                fetch_neighbors,
             ),
         ):
             await graph.consolidate(apply=False)
@@ -724,7 +734,6 @@ class TestGraphVectorStore:
             "label": "Community",
             "text": "Report",
             "tenant": "a",
-            "_pending": False,
         }
 
     async def test_vector_upsert_failures_leave_chunk_and_entity_vectors(self) -> None:

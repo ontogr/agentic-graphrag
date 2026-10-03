@@ -13,11 +13,6 @@ from uuid import UUID, uuid4
 
 from opentelemetry.trace import Tracer
 
-from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
-from agrag.common.data_models.vector_record import (
-    PENDING_VECTOR_FLAG,
-    VectorRecord,
-)
 from agrag.cypher.cutover_job_write import (
     acquire_lease_query,
     clear_pending_tag_query,
@@ -151,50 +146,19 @@ async def clear_pending_vectors(
     collections: Sequence[str],
     job_id: UUID,
 ) -> None:
-    """Flip one job's pending vector payloads to committed.
+    """Make one committed job's staged vectors searchable.
 
-    Scrolls each collection for this job's tag and re-upserts those records
-    with the pending flag cleared. Idempotent: re-running finds nothing
-    still flagged and writes nothing.
-
-    The scroll asks for pending records explicitly: the store's default
-    filter excludes them, which is exactly the set this call has to read.
+    Idempotent: re-running finds nothing still staged and writes nothing.
 
     Args:
-        vector_store: The store to clear in, or None to do nothing.
+        vector_store: The store to commit in, or None to do nothing.
         collections: The collections this job may have written to.
-        job_id: The committed job whose vectors clear.
+        job_id: The committed job whose vectors become visible.
     """
     if vector_store is None:
         return
     for collection in collections:
-        page_offset: str | None = None
-        while True:
-            records, page_offset = await vector_store.scroll(
-                collection,
-                limit=100,
-                page_offset=page_offset,
-                filters={
-                    PENDING_VECTOR_FLAG: True,
-                    PENDING_JOB_ID_PROPERTY: str(job_id),
-                },
-                with_vectors=True,
-            )
-            if not records:
-                break
-            await vector_store.upsert(
-                collection,
-                [
-                    VectorRecord(
-                        id=record.id,
-                        vector=record.vector,
-                        payload={**record.payload, PENDING_VECTOR_FLAG: False},
-                    )
-                    for record in records
-                ],
-            )
-            if page_offset is None:
-                break
+        await vector_store.commit_pending(collection, job_id=job_id)
 
 
 async def delete_pending_vectors(
@@ -203,12 +167,9 @@ async def delete_pending_vectors(
     collections: Sequence[str],
     job_id: UUID,
 ) -> None:
-    """Delete one job's pending vector payloads, for rollback.
+    """Delete one job's staged vectors, for rollback.
 
-    Scrolls each collection for this job's tag and deletes those records
-    outright. Unlike :func:`clear_pending_vectors`, which flips a
-    committed job's flag, a rolled-back job's writes were never
-    committed, so nothing about them should survive.
+    A committed record that shares an id with a staged one is not touched.
 
     Args:
         vector_store: The store to delete from, or None to do nothing.
@@ -218,22 +179,7 @@ async def delete_pending_vectors(
     if vector_store is None:
         return
     for collection in collections:
-        page_offset: str | None = None
-        while True:
-            records, page_offset = await vector_store.scroll(
-                collection,
-                limit=100,
-                page_offset=page_offset,
-                filters={
-                    PENDING_VECTOR_FLAG: True,
-                    PENDING_JOB_ID_PROPERTY: str(job_id),
-                },
-            )
-            if not records:
-                break
-            await vector_store.delete(collection, [record.id for record in records])
-            if page_offset is None:
-                break
+        await vector_store.delete_pending(collection, job_id=job_id)
 
 
 async def _rollback(

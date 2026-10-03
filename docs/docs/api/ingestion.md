@@ -1685,7 +1685,6 @@ The public Graph API for ingestion.
 
 **Attributes:**
 
-- [**SYSTEM_RELATION_TYPES**](#agrag-ingestion-graph-SYSTEM_RELATION_TYPES) –
 - [**SourceType**](#agrag-ingestion-graph-SourceType) –
 - [**SourcesType**](#agrag-ingestion-graph-SourcesType) –
 
@@ -2067,12 +2066,6 @@ The fresh-content path shares `ingest_chunks()` with
 for the same input.
 
 </details>
-
-#### `agrag.ingestion.graph.SYSTEM_RELATION_TYPES` \{#agrag-ingestion-graph-SYSTEM_RELATION_TYPES}
-
-```python
-SYSTEM_RELATION_TYPES = ['MENTIONED_IN', MEMBER_OF_RELATION, 'PART_OF', 'NEXT_CHUNK', 'MATCHES', 'RESOLVED_AS']
-```
 
 #### `agrag.ingestion.graph.SourceType` \{#agrag-ingestion-graph-SourceType}
 
@@ -3083,11 +3076,13 @@ Entity resolution public API.
 - [**candidate_source**](#agrag-ingestion-resolve-candidate_source) – Candidate generation for in-batch and persisted graph entities.
 - [**comparators**](#agrag-ingestion-resolve-comparators) – Comparison strategies used by entity resolution.
 - [**exact_groups**](#agrag-ingestion-resolve-exact_groups) – Exact-name grouping for permanent raw entity records.
+- [**resolution**](#agrag-ingestion-resolve-resolution) – Resolve mentions and persisted entities against the graph.
 - [**resolver**](#agrag-ingestion-resolve-resolver) – Entity resolution: deciding which ExtractedEntity mentions are the same thing.
 - [**zone_classifier**](#agrag-ingestion-resolve-zone_classifier) – Zone classification for entity-resolution candidate pairs.
 
 **Classes:**
 
+- [**BatchResolution**](#agrag-ingestion-resolve-BatchResolution) – The outcome of resolving one batch of mentions.
 - [**CandidateSource**](#agrag-ingestion-resolve-CandidateSource) – Narrows which in-batch entity pairs resolution compares.
 - [**Comparator**](#agrag-ingestion-resolve-Comparator) – One matching strategy a Resolver runs against a candidate pair.
 - [**ComparisonResult**](#agrag-ingestion-resolve-ComparisonResult) – The verdict and evidence produced by one comparator.
@@ -3105,10 +3100,66 @@ Entity resolution public API.
 **Functions:**
 
 - [**build_relation_neighbors**](#agrag-ingestion-resolve-build_relation_neighbors) – Build LLMVerify neighbor context from one batch's extracted relations.
-- [**exact_match_lookup**](#agrag-ingestion-resolve-exact_match_lookup) – Return persisted exact matches, including accepted merge-key aliases.
 - [**exact_resolution_groups**](#agrag-ingestion-resolve-exact_resolution_groups) – Group mentions only when they share exact raw-entity identity.
 - [**fetch_persisted_neighbors**](#agrag-ingestion-resolve-fetch_persisted_neighbors) – Fetch a bounded neighbor-relationship sample for persisted entities.
+- [**find_exact_matches**](#agrag-ingestion-resolve-find_exact_matches) – Return each mention index's matching persisted Entity, if it has one.
 - [**persisted_candidate_indices**](#agrag-ingestion-resolve-persisted_candidate_indices) – Return ANN candidate indices, with a bounded exhaustive fallback.
+- [**resolve_among**](#agrag-ingestion-resolve-resolve_among) – Resolve a fixed set of persisted entities by comparing same-label pairs.
+- [**resolve_batch**](#agrag-ingestion-resolve-resolve_batch) – Resolve one extraction batch against itself and the persisted graph.
+- [**resolve_persisted**](#agrag-ingestion-resolve-resolve_persisted) – Resolve persisted entities against each other.
+
+**Attributes:**
+
+- [**SYSTEM_RELATION_TYPES**](#agrag-ingestion-resolve-SYSTEM_RELATION_TYPES) –
+
+#### `agrag.ingestion.resolve.BatchResolution` \{#agrag-ingestion-resolve-BatchResolution}
+
+```python
+BatchResolution(exact_matches:dict[int, Entity], groups:list[ResolutionGroup], result:ResolutionResult | None, persisted_ids:dict[int, UUID] = dict(), candidate_entities:dict[UUID, Entity] = dict()) -> None
+```
+
+The outcome of resolving one batch of mentions.
+
+**Attributes:**
+
+- [**exact_matches**](#agrag-ingestion-resolve-BatchResolution-exact_matches) (<code>dict\[int, [Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – Mention index to the persisted entity it matches by
+  merge key.
+- [**groups**](#agrag-ingestion-resolve-BatchResolution-groups) (<code>list\[[ResolutionGroup](#agrag-ingestion-resolve-resolver-ResolutionGroup)\]</code>) – Mentions that share one raw entity identity.
+- [**result**](#agrag-ingestion-resolve-BatchResolution-result) (<code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult) | None</code>) – The semantic resolver pass over the mentions and their
+  persisted candidates. `None` when the batch has no mentions.
+- [**persisted_ids**](#agrag-ingestion-resolve-BatchResolution-persisted_ids) (<code>dict\[int, UUID\]</code>) – Index of each synthetic candidate mention to the id of
+  the persisted entity it stands for.
+- [**candidate_entities**](#agrag-ingestion-resolve-BatchResolution-candidate_entities) (<code>dict\[UUID, [Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – Persisted candidates by id.
+
+##### `agrag.ingestion.resolve.BatchResolution.candidate_entities` \{#agrag-ingestion-resolve-BatchResolution-candidate_entities}
+
+```python
+candidate_entities: dict[UUID, Entity] = field(default_factory=dict)
+```
+
+##### `agrag.ingestion.resolve.BatchResolution.exact_matches` \{#agrag-ingestion-resolve-BatchResolution-exact_matches}
+
+```python
+exact_matches: dict[int, Entity]
+```
+
+##### `agrag.ingestion.resolve.BatchResolution.groups` \{#agrag-ingestion-resolve-BatchResolution-groups}
+
+```python
+groups: list[ResolutionGroup]
+```
+
+##### `agrag.ingestion.resolve.BatchResolution.persisted_ids` \{#agrag-ingestion-resolve-BatchResolution-persisted_ids}
+
+```python
+persisted_ids: dict[int, UUID] = field(default_factory=dict)
+```
+
+##### `agrag.ingestion.resolve.BatchResolution.result` \{#agrag-ingestion-resolve-BatchResolution-result}
+
+```python
+result: ResolutionResult | None
+```
 
 #### `agrag.ingestion.resolve.CandidateSource` \{#agrag-ingestion-resolve-CandidateSource}
 
@@ -3811,6 +3862,12 @@ Resolve entity groups and retain each confirmed non-exact match.
 - <code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult)</code> – non-exact pair, the count of uncertain LLM verdicts, and the
 - <code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult)</code> – counts of failed LLM requests and cap-truncated pairs.
 
+#### `agrag.ingestion.resolve.SYSTEM_RELATION_TYPES` \{#agrag-ingestion-resolve-SYSTEM_RELATION_TYPES}
+
+```python
+SYSTEM_RELATION_TYPES = ['MENTIONED_IN', MEMBER_OF_RELATION, 'PART_OF', 'NEXT_CHUNK', 'MATCHES', 'RESOLVED_AS']
+```
+
 #### `agrag.ingestion.resolve.batch_validation` \{#agrag-ingestion-resolve-batch_validation}
 
 Validation for LLM batch entity-match verdicts.
@@ -3899,7 +3956,6 @@ Candidate generation for in-batch and persisted graph entities.
 **Functions:**
 
 - [**build_relation_neighbors**](#agrag-ingestion-resolve-candidate_source-build_relation_neighbors) – Build LLMVerify neighbor context from one batch's extracted relations.
-- [**exact_match_lookup**](#agrag-ingestion-resolve-candidate_source-exact_match_lookup) – Return persisted exact matches, including accepted merge-key aliases.
 - [**fetch_persisted_neighbors**](#agrag-ingestion-resolve-candidate_source-fetch_persisted_neighbors) – Fetch a bounded neighbor-relationship sample for persisted entities.
 - [**persisted_candidate_indices**](#agrag-ingestion-resolve-candidate_source-persisted_candidate_indices) – Return ANN candidate indices, with a bounded exhaustive fallback.
 
@@ -4086,14 +4142,6 @@ Build LLMVerify neighbor context from one batch's extracted relations.
 - <code>dict\[int, list\[str\]\]</code> – both endpoints, capped at `max_neighbors` per index. An index with no
 - <code>dict\[int, list\[str\]\]</code> – relation names has no key at all.
 
-##### `agrag.ingestion.resolve.candidate_source.exact_match_lookup` \{#agrag-ingestion-resolve-candidate_source-exact_match_lookup}
-
-```python
-exact_match_lookup(mentions:list[ExtractedEntity], *, graph_store:GraphStore) -> dict[int, Entity]
-```
-
-Return persisted exact matches, including accepted merge-key aliases.
-
 ##### `agrag.ingestion.resolve.candidate_source.fetch_persisted_neighbors` \{#agrag-ingestion-resolve-candidate_source-fetch_persisted_neighbors}
 
 ```python
@@ -4109,9 +4157,9 @@ Fetch a bounded neighbor-relationship sample for persisted entities.
 - **exclude_relation_types** (<code>Sequence\[str\]</code>) – Relation types to omit, such as resolution's
   own system relation types (`MATCHES`, `RESOLVED_AS`, etc.) —
   passed by the caller rather than imported here, since importing
-  `agrag.ingestion.graph`'s `SYSTEM_RELATION_TYPES` into this
-  module would invert the existing import direction
-  (`graph.py` already imports from this module).
+  `SYSTEM_RELATION_TYPES` from `agrag.ingestion.resolve.resolution`
+  into this module would create an import cycle (that module already
+  imports from this one).
 - **max_neighbors** (<code>int</code>) – Maximum neighbor strings kept per entity id.
 
 **Returns:**
@@ -4480,14 +4528,6 @@ resolves to the same raw Entity. Other mentions join only when their
 labels and normalized names match. Semantic matches deliberately remain
 separate raw records and become resolved entities through `MATCHES` later.
 
-#### `agrag.ingestion.resolve.exact_match_lookup` \{#agrag-ingestion-resolve-exact_match_lookup}
-
-```python
-exact_match_lookup(mentions:list[ExtractedEntity], *, graph_store:GraphStore) -> dict[int, Entity]
-```
-
-Return persisted exact matches, including accepted merge-key aliases.
-
 #### `agrag.ingestion.resolve.exact_resolution_groups` \{#agrag-ingestion-resolve-exact_resolution_groups}
 
 ```python
@@ -4516,9 +4556,9 @@ Fetch a bounded neighbor-relationship sample for persisted entities.
 - **exclude_relation_types** (<code>Sequence\[str\]</code>) – Relation types to omit, such as resolution's
   own system relation types (`MATCHES`, `RESOLVED_AS`, etc.) —
   passed by the caller rather than imported here, since importing
-  `agrag.ingestion.graph`'s `SYSTEM_RELATION_TYPES` into this
-  module would invert the existing import direction
-  (`graph.py` already imports from this module).
+  `SYSTEM_RELATION_TYPES` from `agrag.ingestion.resolve.resolution`
+  into this module would create an import cycle (that module already
+  imports from this one).
 - **max_neighbors** (<code>int</code>) – Maximum neighbor strings kept per entity id.
 
 **Returns:**
@@ -4527,6 +4567,36 @@ Fetch a bounded neighbor-relationship sample for persisted entities.
 - <code>dict\[UUID, list\[str\]\]</code> – id with no matching relations, and a malformed row, contribute
 - <code>dict\[UUID, list\[str\]\]</code> – nothing, so that id is simply absent from the map — every caller
 - <code>dict\[UUID, list\[str\]\]</code> – reads through `.get(id, [])`.
+
+#### `agrag.ingestion.resolve.find_exact_matches` \{#agrag-ingestion-resolve-find_exact_matches}
+
+```python
+find_exact_matches(mentions:list[ExtractedEntity], *, graph_store:GraphStore, job_id:UUID | str | None = None) -> dict[int, Entity]
+```
+
+Return each mention index's matching persisted Entity, if it has one.
+
+One batched read per distinct label present in mentions. A row is
+mapped back to its mention(s) by the merge_key the row's alias was
+matched on -- returned alongside the node by fetch_by_merge_keys_query
+-- rather than by re-deriving a key from the resolved entity's current
+name: an accepted alias can name an entity by something other than its
+current canonical name (see upsert_merge_alias_query), so re-deriving
+would silently fail to map those mentions back. Rows without a returned
+merge_key (plain mocks) fall back to the resolved entity's own
+merge_key.
+
+**Parameters:**
+
+- **mentions** (<code>list\[[ExtractedEntity](common.md#agrag-common-data_models-extraction-ExtractedEntity)\]</code>) – The entity mentions to look up.
+- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where the lookup runs.
+- **job_id** (<code>UUID | str | None</code>) – The in-flight Cutover Job's id, so the alias/node guards
+  admit this job's own pending writes while excluding every
+  other in-flight job's. None reads committed-only.
+
+**Returns:**
+
+- <code>dict\[int, [Entity](common.md#agrag-common-data_models-entity-Entity)\]</code> – A map from mention index to its matching Entity.
 
 #### `agrag.ingestion.resolve.persisted_candidate_indices` \{#agrag-ingestion-resolve-persisted_candidate_indices}
 
@@ -4547,6 +4617,268 @@ returning to an unbounded pairwise scan for established graphs.
 - <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\]\]</code> – index order (matching how `Resolver.resolve` builds its own pair
 - <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\]\]</code> – keys). The exhaustive-fallback branch reports no scores, so its
 - <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\]\]</code> – similarity map is empty.
+
+#### `agrag.ingestion.resolve.resolution` \{#agrag-ingestion-resolve-resolution}
+
+Resolve mentions and persisted entities against the graph.
+
+Ingestion, consolidation, and re-evaluation call the functions here. Each
+builds its candidates and neighbor context, runs one `Resolver` pass, and
+returns the result.
+
+**Classes:**
+
+- [**BatchResolution**](#agrag-ingestion-resolve-resolution-BatchResolution) – The outcome of resolving one batch of mentions.
+
+**Functions:**
+
+- [**find_exact_matches**](#agrag-ingestion-resolve-resolution-find_exact_matches) – Return each mention index's matching persisted Entity, if it has one.
+- [**resolve_among**](#agrag-ingestion-resolve-resolution-resolve_among) – Resolve a fixed set of persisted entities by comparing same-label pairs.
+- [**resolve_batch**](#agrag-ingestion-resolve-resolution-resolve_batch) – Resolve one extraction batch against itself and the persisted graph.
+- [**resolve_persisted**](#agrag-ingestion-resolve-resolution-resolve_persisted) – Resolve persisted entities against each other.
+
+**Attributes:**
+
+- [**SYSTEM_RELATION_TYPES**](#agrag-ingestion-resolve-resolution-SYSTEM_RELATION_TYPES) –
+
+##### `agrag.ingestion.resolve.resolution.BatchResolution` \{#agrag-ingestion-resolve-resolution-BatchResolution}
+
+```python
+BatchResolution(exact_matches:dict[int, Entity], groups:list[ResolutionGroup], result:ResolutionResult | None, persisted_ids:dict[int, UUID] = dict(), candidate_entities:dict[UUID, Entity] = dict()) -> None
+```
+
+The outcome of resolving one batch of mentions.
+
+**Attributes:**
+
+- [**exact_matches**](#agrag-ingestion-resolve-resolution-BatchResolution-exact_matches) (<code>dict\[int, [Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – Mention index to the persisted entity it matches by
+  merge key.
+- [**groups**](#agrag-ingestion-resolve-resolution-BatchResolution-groups) (<code>list\[[ResolutionGroup](#agrag-ingestion-resolve-resolver-ResolutionGroup)\]</code>) – Mentions that share one raw entity identity.
+- [**result**](#agrag-ingestion-resolve-resolution-BatchResolution-result) (<code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult) | None</code>) – The semantic resolver pass over the mentions and their
+  persisted candidates. `None` when the batch has no mentions.
+- [**persisted_ids**](#agrag-ingestion-resolve-resolution-BatchResolution-persisted_ids) (<code>dict\[int, UUID\]</code>) – Index of each synthetic candidate mention to the id of
+  the persisted entity it stands for.
+- [**candidate_entities**](#agrag-ingestion-resolve-resolution-BatchResolution-candidate_entities) (<code>dict\[UUID, [Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – Persisted candidates by id.
+
+###### `agrag.ingestion.resolve.resolution.BatchResolution.candidate_entities` \{#agrag-ingestion-resolve-resolution-BatchResolution-candidate_entities}
+
+```python
+candidate_entities: dict[UUID, Entity] = field(default_factory=dict)
+```
+
+###### `agrag.ingestion.resolve.resolution.BatchResolution.exact_matches` \{#agrag-ingestion-resolve-resolution-BatchResolution-exact_matches}
+
+```python
+exact_matches: dict[int, Entity]
+```
+
+###### `agrag.ingestion.resolve.resolution.BatchResolution.groups` \{#agrag-ingestion-resolve-resolution-BatchResolution-groups}
+
+```python
+groups: list[ResolutionGroup]
+```
+
+###### `agrag.ingestion.resolve.resolution.BatchResolution.persisted_ids` \{#agrag-ingestion-resolve-resolution-BatchResolution-persisted_ids}
+
+```python
+persisted_ids: dict[int, UUID] = field(default_factory=dict)
+```
+
+###### `agrag.ingestion.resolve.resolution.BatchResolution.result` \{#agrag-ingestion-resolve-resolution-BatchResolution-result}
+
+```python
+result: ResolutionResult | None
+```
+
+##### `agrag.ingestion.resolve.resolution.SYSTEM_RELATION_TYPES` \{#agrag-ingestion-resolve-resolution-SYSTEM_RELATION_TYPES}
+
+```python
+SYSTEM_RELATION_TYPES = ['MENTIONED_IN', MEMBER_OF_RELATION, 'PART_OF', 'NEXT_CHUNK', 'MATCHES', 'RESOLVED_AS']
+```
+
+##### `agrag.ingestion.resolve.resolution.find_exact_matches` \{#agrag-ingestion-resolve-resolution-find_exact_matches}
+
+```python
+find_exact_matches(mentions:list[ExtractedEntity], *, graph_store:GraphStore, job_id:UUID | str | None = None) -> dict[int, Entity]
+```
+
+Return each mention index's matching persisted Entity, if it has one.
+
+One batched read per distinct label present in mentions. A row is
+mapped back to its mention(s) by the merge_key the row's alias was
+matched on -- returned alongside the node by fetch_by_merge_keys_query
+-- rather than by re-deriving a key from the resolved entity's current
+name: an accepted alias can name an entity by something other than its
+current canonical name (see upsert_merge_alias_query), so re-deriving
+would silently fail to map those mentions back. Rows without a returned
+merge_key (plain mocks) fall back to the resolved entity's own
+merge_key.
+
+**Parameters:**
+
+- **mentions** (<code>list\[[ExtractedEntity](common.md#agrag-common-data_models-extraction-ExtractedEntity)\]</code>) – The entity mentions to look up.
+- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where the lookup runs.
+- **job_id** (<code>UUID | str | None</code>) – The in-flight Cutover Job's id, so the alias/node guards
+  admit this job's own pending writes while excluding every
+  other in-flight job's. None reads committed-only.
+
+**Returns:**
+
+- <code>dict\[int, [Entity](common.md#agrag-common-data_models-entity-Entity)\]</code> – A map from mention index to its matching Entity.
+
+##### `agrag.ingestion.resolve.resolution.resolve_among` \{#agrag-ingestion-resolve-resolution-resolve_among}
+
+```python
+resolve_among(entities:list[Entity], *, embedder:Embedder, tracer:Tracer | None, max_llm_pairs:int) -> ResolutionResult
+```
+
+Resolve a fixed set of persisted entities by comparing same-label pairs.
+
+**Parameters:**
+
+- **entities** (<code>list\[[Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – The persisted entities to compare. Nothing outside this
+  set is read or compared.
+- **embedder** (<code>[Embedder](embedding.md#agrag-embedding-base-Embedder)</code>) – Embeds entity names for fuzzy review.
+- **tracer** (<code>Tracer | None</code>) – Traces the resolver.
+- **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
+
+**Returns:**
+
+- <code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult)</code> – The resolver result, indexed like `entities`.
+
+##### `agrag.ingestion.resolve.resolution.resolve_batch` \{#agrag-ingestion-resolve-resolution-resolve_batch}
+
+```python
+resolve_batch(mentions:list[ExtractedEntity], relations:Sequence[ExtractedRelation], chunks_by_id:dict[UUID, Chunk], *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, vector_collection:str, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, job_id:UUID | str | None = None) -> BatchResolution
+```
+
+Resolve one extraction batch against itself and the persisted graph.
+
+The resolver sees the real mentions plus one synthetic mention per
+persisted ANN candidate, so a new mention can join a persisted cluster
+through one pass. Synthetic mentions never initiate a comparison.
+
+**Parameters:**
+
+- **mentions** (<code>list\[[ExtractedEntity](common.md#agrag-common-data_models-extraction-ExtractedEntity)\]</code>) – The batch's extracted mentions.
+- **relations** (<code>Sequence\[[ExtractedRelation](common.md#agrag-common-data_models-extraction-ExtractedRelation)\]</code>) – The relations addressing `mentions`, used as neighbor
+  context.
+- **chunks_by_id** (<code>dict\[UUID, [Chunk](common.md#agrag-common-data_models-chunk-Chunk)\]</code>) – The batch's chunks, for LLM verification context.
+- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where exact-match, candidate, and neighbor reads run.
+- **embedder** (<code>[Embedder](embedding.md#agrag-embedding-base-Embedder)</code>) – Embeds mention text for candidate search and fuzzy review.
+- **vector_store** (<code>[VectorStore](vectordb.md#agrag-vectordb-base-VectorStore) | None</code>) – Optional vector store the candidate search reads.
+- **vector_collection** (<code>str</code>) – Collection name for the candidate search.
+- **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
+- **tracer** (<code>Tracer | None</code>) – Opens the phase spans and traces the resolver.
+- **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
+- **job_id** (<code>UUID | str | None</code>) – The in-flight Cutover Job's id for the exact-match read.
+
+**Returns:**
+
+- <code>[BatchResolution](#agrag-ingestion-resolve-resolution-BatchResolution)</code> – The exact matches, exact groups, resolver result, and persisted
+- <code>[BatchResolution](#agrag-ingestion-resolve-resolution-BatchResolution)</code> – candidates for the batch.
+
+##### `agrag.ingestion.resolve.resolution.resolve_persisted` \{#agrag-ingestion-resolve-resolution-resolve_persisted}
+
+```python
+resolve_persisted(entities:list[Entity], *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, vector_collection:str, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int) -> ResolutionResult
+```
+
+Resolve persisted entities against each other.
+
+ANN search bounds the pairs the resolver compares.
+
+**Parameters:**
+
+- **entities** (<code>list\[[Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – The persisted entities to compare, all of one label.
+- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where the candidate and neighbor reads run.
+- **embedder** (<code>[Embedder](embedding.md#agrag-embedding-base-Embedder)</code>) – Embeds entity names for candidate search and fuzzy review.
+- **vector_store** (<code>[VectorStore](vectordb.md#agrag-vectordb-base-VectorStore) | None</code>) – Optional vector store the candidate search reads.
+- **vector_collection** (<code>str</code>) – Collection name for the candidate search.
+- **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
+- **tracer** (<code>Tracer | None</code>) – Traces the resolver.
+- **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
+
+**Returns:**
+
+- <code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult)</code> – The resolver result, indexed like `entities`.
+
+#### `agrag.ingestion.resolve.resolve_among` \{#agrag-ingestion-resolve-resolve_among}
+
+```python
+resolve_among(entities:list[Entity], *, embedder:Embedder, tracer:Tracer | None, max_llm_pairs:int) -> ResolutionResult
+```
+
+Resolve a fixed set of persisted entities by comparing same-label pairs.
+
+**Parameters:**
+
+- **entities** (<code>list\[[Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – The persisted entities to compare. Nothing outside this
+  set is read or compared.
+- **embedder** (<code>[Embedder](embedding.md#agrag-embedding-base-Embedder)</code>) – Embeds entity names for fuzzy review.
+- **tracer** (<code>Tracer | None</code>) – Traces the resolver.
+- **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
+
+**Returns:**
+
+- <code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult)</code> – The resolver result, indexed like `entities`.
+
+#### `agrag.ingestion.resolve.resolve_batch` \{#agrag-ingestion-resolve-resolve_batch}
+
+```python
+resolve_batch(mentions:list[ExtractedEntity], relations:Sequence[ExtractedRelation], chunks_by_id:dict[UUID, Chunk], *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, vector_collection:str, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, job_id:UUID | str | None = None) -> BatchResolution
+```
+
+Resolve one extraction batch against itself and the persisted graph.
+
+The resolver sees the real mentions plus one synthetic mention per
+persisted ANN candidate, so a new mention can join a persisted cluster
+through one pass. Synthetic mentions never initiate a comparison.
+
+**Parameters:**
+
+- **mentions** (<code>list\[[ExtractedEntity](common.md#agrag-common-data_models-extraction-ExtractedEntity)\]</code>) – The batch's extracted mentions.
+- **relations** (<code>Sequence\[[ExtractedRelation](common.md#agrag-common-data_models-extraction-ExtractedRelation)\]</code>) – The relations addressing `mentions`, used as neighbor
+  context.
+- **chunks_by_id** (<code>dict\[UUID, [Chunk](common.md#agrag-common-data_models-chunk-Chunk)\]</code>) – The batch's chunks, for LLM verification context.
+- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where exact-match, candidate, and neighbor reads run.
+- **embedder** (<code>[Embedder](embedding.md#agrag-embedding-base-Embedder)</code>) – Embeds mention text for candidate search and fuzzy review.
+- **vector_store** (<code>[VectorStore](vectordb.md#agrag-vectordb-base-VectorStore) | None</code>) – Optional vector store the candidate search reads.
+- **vector_collection** (<code>str</code>) – Collection name for the candidate search.
+- **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
+- **tracer** (<code>Tracer | None</code>) – Opens the phase spans and traces the resolver.
+- **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
+- **job_id** (<code>UUID | str | None</code>) – The in-flight Cutover Job's id for the exact-match read.
+
+**Returns:**
+
+- <code>[BatchResolution](#agrag-ingestion-resolve-resolution-BatchResolution)</code> – The exact matches, exact groups, resolver result, and persisted
+- <code>[BatchResolution](#agrag-ingestion-resolve-resolution-BatchResolution)</code> – candidates for the batch.
+
+#### `agrag.ingestion.resolve.resolve_persisted` \{#agrag-ingestion-resolve-resolve_persisted}
+
+```python
+resolve_persisted(entities:list[Entity], *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, vector_collection:str, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int) -> ResolutionResult
+```
+
+Resolve persisted entities against each other.
+
+ANN search bounds the pairs the resolver compares.
+
+**Parameters:**
+
+- **entities** (<code>list\[[Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – The persisted entities to compare, all of one label.
+- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where the candidate and neighbor reads run.
+- **embedder** (<code>[Embedder](embedding.md#agrag-embedding-base-Embedder)</code>) – Embeds entity names for candidate search and fuzzy review.
+- **vector_store** (<code>[VectorStore](vectordb.md#agrag-vectordb-base-VectorStore) | None</code>) – Optional vector store the candidate search reads.
+- **vector_collection** (<code>str</code>) – Collection name for the candidate search.
+- **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
+- **tracer** (<code>Tracer | None</code>) – Traces the resolver.
+- **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
+
+**Returns:**
+
+- <code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult)</code> – The resolver result, indexed like `entities`.
 
 #### `agrag.ingestion.resolve.resolver` \{#agrag-ingestion-resolve-resolver}
 

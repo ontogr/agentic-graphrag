@@ -16,7 +16,7 @@ from opentelemetry.trace import Tracer
 import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
 from agrag.chunking import DEFAULT_CHUNKING, Chunking
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
-from agrag.common.data_models.community import COMMUNITY_LABEL, MEMBER_OF_RELATION
+from agrag.common.data_models.community import COMMUNITY_LABEL
 from agrag.common.data_models.document import (
     DOCUMENT_LABEL,
     Document,
@@ -45,7 +45,6 @@ from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._document_lifecycle import find_document
 from agrag.ingestion._ingest_pipeline import (
     _delete_vectors,
-    _synthetic_entity_mention,
     extract_chunks,
     ingest_chunks,
 )
@@ -60,14 +59,9 @@ from agrag.ingestion.reports import (
     UpdateResult,
 )
 from agrag.ingestion.resolve import (
-    ExactMatch,
-    FuzzyMatch,
-    GraphCandidateSource,
-    LLMVerify,
-    PersistedCandidateSource,
-    Resolver,
-    fetch_persisted_neighbors,
-    persisted_candidate_indices,
+    SYSTEM_RELATION_TYPES,
+    resolve_among,
+    resolve_persisted,
 )
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
@@ -107,16 +101,6 @@ from agrag.vectordb.base import VectorStore
 SourceType = Union[str, Path]
 SourcesType = Union[SourceType, Sequence[SourceType]]
 
-# Relationship types Graph.open() always registers
-SYSTEM_RELATION_TYPES = [
-    "MENTIONED_IN",
-    MEMBER_OF_RELATION,
-    "PART_OF",
-    "NEXT_CHUNK",
-    "MATCHES",
-    "RESOLVED_AS",
-]
-
 
 def _resolve_paths(source: SourcesType) -> tuple[list[Path], bool]:
     """Expand a source argument into concrete file paths.
@@ -149,35 +133,6 @@ def _resolve_paths(source: SourcesType) -> tuple[list[Path], bool]:
         else:
             paths.append(path)
     return paths, single_file
-
-
-def _synthesize_consolidation_mentions(
-    entities: list[Entity],
-) -> tuple[list[ExtractedEntity], dict[UUID, Chunk]]:
-    """Build resolver mentions and per-entity dummy chunks for consolidate().
-
-    consolidate() has no real chunk text to compare persisted entities
-    against, so each gets a synthetic mention and a dummy chunk carrying its
-    own name as LLMVerify context. Each entity's dummy chunk id is its own,
-    independent of its real source_chunk_ids: two entities commonly share a
-    first source chunk (they were extracted from the same passage), and
-    keying the dummy chunk by that shared id would let the first entity
-    processed silently stand in as every later entity's own context.
-
-    Args:
-        entities: The persisted entities to synthesize mentions for.
-
-    Returns:
-        One ExtractedEntity mention per entity and the dummy Chunk each
-        mention's chunk_id resolves to, both index-aligned with entities.
-    """
-    synthetic_mentions: list[ExtractedEntity] = []
-    dummy_chunks_by_id: dict[UUID, Chunk] = {}
-    for ent in entities:
-        mention, chunk = _synthetic_entity_mention(ent)
-        synthetic_mentions.append(mention)
-        dummy_chunks_by_id[mention.chunk_id] = chunk
-    return synthetic_mentions, dummy_chunks_by_id
 
 
 async def _no_pending_write(job_id: UUID) -> None:
@@ -1646,49 +1601,15 @@ class Graph:
                 all_entities = await self._all_entities_by_label(label)
                 if len(all_entities) < 2:
                     continue
-                synthetic_mentions, dummy_chunks_by_id = (
-                    _synthesize_consolidation_mentions(all_entities)
-                )
-
-                candidate_source = GraphCandidateSource(
+                resolution_result = await resolve_persisted(
+                    all_entities,
                     graph_store=self._graph_store,
                     embedder=self._embedder,
                     vector_store=self._vector_store,
                     vector_collection=self._retrieval_settings.entity_collection,
                     entity_labels=[entity.label for entity in self._schema.entities],
-                )
-                persisted_neighbors = await fetch_persisted_neighbors(
-                    [entity.id for entity in all_entities],
-                    graph_store=self._graph_store,
-                    exclude_relation_types=SYSTEM_RELATION_TYPES,
-                )
-                neighbors_by_index = {
-                    index: persisted_neighbors.get(entity.id, [])
-                    for index, entity in enumerate(all_entities)
-                }
-                (
-                    candidate_indices,
-                    similarity_by_pair,
-                ) = await persisted_candidate_indices(
-                    synthetic_mentions,
-                    all_entities,
-                    source=candidate_source,
-                )
-                resolver = Resolver(
-                    comparators=[
-                        ExactMatch(),
-                        FuzzyMatch(),
-                        LLMVerify(chunks_by_id=dummy_chunks_by_id, tracer=self._tracer),
-                    ],
-                    candidate_source=PersistedCandidateSource(candidate_indices),
-                    embedder=self._embedder,
-                    max_llm_pairs=self._max_llm_pairs,
                     tracer=self._tracer,
-                )
-                resolution_result = await resolver.resolve(
-                    synthetic_mentions,
-                    neighbors_by_index=neighbors_by_index,
-                    similarity_by_pair=similarity_by_pair,
+                    max_llm_pairs=self._max_llm_pairs,
                 )
                 ambiguous_count += resolution_result.ambiguous_count
                 entities_by_id.update({entity.id: entity for entity in all_entities})
@@ -1769,43 +1690,22 @@ class Graph:
                 for entity in await self._load_input_entities(unique_ids)
             }
             entities = [entities_by_id[e] for e in unique_ids]
-            mentions, dummy_chunks = _synthesize_consolidation_mentions(entities)
-            candidates_by_index = {
-                index: [
-                    other
-                    for other, peer in enumerate(mentions)
-                    if other != index and peer.label == mention.label
-                ]
-                for index, mention in enumerate(mentions)
-            }
-            resolver = Resolver(
-                comparators=[
-                    ExactMatch(),
-                    FuzzyMatch(),
-                    LLMVerify(chunks_by_id=dummy_chunks, tracer=self._tracer),
-                ],
-                candidate_source=PersistedCandidateSource(
-                    {
-                        index: peers
-                        for index, peers in candidates_by_index.items()
-                        if peers
-                    }
-                ),
+            resolution = await resolve_among(
+                entities,
                 embedder=self._embedder,
-                max_llm_pairs=self._max_llm_pairs,
                 tracer=self._tracer,
+                max_llm_pairs=self._max_llm_pairs,
             )
-            resolution = await resolver.resolve(mentions)
             confirmed = {
                 frozenset((unique_ids[m.left_index], unique_ids[m.right_index])): m
                 for m in resolution.matches
             }
             exact_pairs = {
                 frozenset((unique_ids[left], unique_ids[right]))
-                for left in range(len(mentions))
-                for right in range(left + 1, len(mentions))
-                if normalize_text(mentions[left].text)
-                == normalize_text(mentions[right].text)
+                for left in range(len(entities))
+                for right in range(left + 1, len(entities))
+                if normalize_text(entities[left].name)
+                == normalize_text(entities[right].name)
             }
             edge_rows = await self._graph_store.execute_read(
                 fetch_active_matches_among_ids_query(),

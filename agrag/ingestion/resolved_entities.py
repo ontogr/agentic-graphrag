@@ -373,8 +373,7 @@ async def _replace_resolved_entity(
     Returns:
         The new resolved entity and the resolved ids it replaced.
     """
-    from agrag.common.data_models.graph_record import tag_pending  # noqa: PLC0415
-
+    job_uuid = UUID(pending_job_id) if pending_job_id is not None else None
     resolved = await compute_resolved_entity(members, schema, tracer=tracer)
     removed_rows = await transaction.execute_write(
         replace_component_resolved_entities_query(),
@@ -392,30 +391,27 @@ async def _replace_resolved_entity(
     _raise_for_write_failure(
         await transaction.upsert_nodes(
             RESOLVED_ENTITY_LABEL,
-            [tag_pending(resolved.to_node_record(), pending_job_id)],
+            [resolved.to_node_record()],
+            pending_job_id=job_uuid,
         )
     )
     _raise_for_write_failure(
         await transaction.upsert_relations(
             [
-                tag_pending(
-                    RelationRecord(
-                        id=uuid5(
-                            NAMESPACE_OID, f"RESOLVED_AS:{member.id}:{resolved.id}"
-                        ),
-                        type=RESOLVED_AS_RELATION,
-                        start_id=member.id,
-                        end_id=resolved.id,
-                        properties=(
-                            {}
-                            if decided_at is None
-                            else {"decided_at": decided_at.isoformat()}
-                        ),
+                RelationRecord(
+                    id=uuid5(NAMESPACE_OID, f"RESOLVED_AS:{member.id}:{resolved.id}"),
+                    type=RESOLVED_AS_RELATION,
+                    start_id=member.id,
+                    end_id=resolved.id,
+                    properties=(
+                        {}
+                        if decided_at is None
+                        else {"decided_at": decided_at.isoformat()}
                     ),
-                    pending_job_id,
                 )
                 for member in members
-            ]
+            ],
+            pending_job_id=job_uuid,
         )
     )
     return RebuildResult(

@@ -2966,10 +2966,12 @@ storage/merge-mechanics work this decouples from.
 
 Pending-visibility convention: a node or edge *created* by an in-flight
 Cutover Job carries `_pending_job_id` (the job's id) in its properties;
-committed data never carries this key. Retrieval query builders exclude
-such rows with `pending_filter_clause`. Vector-store payloads mirror the
-tag as an explicit boolean `_pending` field, cleared at commit, because
-payload filters match on present values rather than key absence.
+committed data never carries this key. `GraphStore` writes the tag when
+the caller passes `pending_job_id` to an upsert, so records never carry
+it and the validators below reject it. Retrieval query builders exclude
+tagged rows with `pending_filter_clause`. Vector stores keep a job's
+records under staging ids with a `_pending` flag and the job id in the
+payload, and promote them to their real ids at commit.
 
 The tag is written with `ON CREATE SET`, so a job that writes over a
 row that already exists leaves it untagged. Such a row was already
@@ -2983,10 +2985,6 @@ committed earlier.
 - [**RelationRecord**](#agrag-common-data_models-graph_record-RelationRecord) – One graph relationship, ready to write.
 - [**UpsertFailure**](#agrag-common-data_models-graph_record-UpsertFailure) – One record that failed to write within a bulk upsert call.
 - [**UpsertResult**](#agrag-common-data_models-graph_record-UpsertResult) – Outcome of a bulk `upsert_nodes`/`upsert_relations` call.
-
-**Functions:**
-
-- [**tag_pending**](#agrag-common-data_models-graph_record-tag_pending) – Stamp a write record with the Cutover Job that is writing it.
 
 **Attributes:**
 
@@ -3047,11 +3045,11 @@ PENDING_JOB_ID_PROPERTY = '_pending_job_id'
 
 Graph property marking a node or edge as created by an in-flight job.
 
-Carried on every node or edge a Cutover Job creates; committed data and
-rows a job only writes over never carry it. Retrieval query builders
-exclude rows carrying it, the commit step removes it atomically, and
-rollback deletes every row carrying it. Vector-store payloads mirror it
-under the same key for commit-time clearing.
+Written by `GraphStore` on every node or edge a Cutover Job creates;
+committed data and rows a job only writes over never carry it. Retrieval
+query builders exclude rows carrying it, the commit step removes it
+atomically, and rollback deletes every row carrying it. Vector-store
+payloads hold the job id under the same key.
 
 ##### `agrag.common.data_models.graph_record.RelationRecord` \{#agrag-common-data_models-graph_record-RelationRecord}
 
@@ -3164,29 +3162,6 @@ failures: list[UpsertFailure] = Field(default_factory=list)
 ```python
 written: int = 0
 ```
-
-##### `agrag.common.data_models.graph_record.tag_pending` \{#agrag-common-data_models-graph_record-tag_pending}
-
-```python
-tag_pending(record:_RecordT, job_id:UUID | str | None) -> _RecordT
-```
-
-Stamp a write record with the Cutover Job that is writing it.
-
-The tag reaches the graph only when the write creates its row; the
-upsert queries apply it with `ON CREATE SET`.
-
-No-op outside a job, so pipeline stages thread their optional job id
-through this unconditionally instead of branching at every write.
-
-**Parameters:**
-
-- **record** (<code>\_RecordT</code>) – The node or relationship record about to be written.
-- **job_id** (<code>UUID | str | None</code>) – The in-flight job's id, or None outside a job.
-
-**Returns:**
-
-- <code>\_RecordT</code> – A tagged copy when a job id was given; otherwise the original record.
 
 #### `agrag.common.data_models.graph_schema` \{#agrag-common-data_models-graph_schema}
 
@@ -4009,10 +3984,6 @@ Vector storage record shapes shared by VectorStore and GraphStore.
 - [**VectorHit**](#agrag-common-data_models-vector_record-VectorHit) – One search result: a matched id, its score, and its stored payload.
 - [**VectorRecord**](#agrag-common-data_models-vector_record-VectorRecord) – One vector and its payload, ready to write to a collection or index.
 
-**Attributes:**
-
-- [**PENDING_VECTOR_FLAG**](#agrag-common-data_models-vector_record-PENDING_VECTOR_FLAG) – Payload flag marking a vector as written by an in-flight Cutover Job.
-
 ##### `agrag.common.data_models.vector_record.Distance` \{#agrag-common-data_models-vector_record-Distance}
 
 Bases: <code>StrEnum</code>
@@ -4042,24 +4013,6 @@ DOT = 'Dot'
 ```python
 EUCLID = 'Euclid'
 ```
-
-##### `agrag.common.data_models.vector_record.PENDING_VECTOR_FLAG` \{#agrag-common-data_models-vector_record-PENDING_VECTOR_FLAG}
-
-```python
-PENDING_VECTOR_FLAG = '_pending'
-```
-
-Payload flag marking a vector as written by an in-flight Cutover Job.
-
-Mirrored at write time and cleared at commit. Payload filters only match
-on present values, so pending-exclusion needs this explicit boolean
-rather than relying on the job-id key's absence.
-
-Every backend's filter compiler reads the flag two ways: a filter that
-omits it, or sets it `False`, excludes records flagged true while
-still returning records written before the flag existed, and a filter
-that sets it `True` returns only the flagged records, which is the
-maintenance path that has to see a job's own in-flight vectors.
 
 ##### `agrag.common.data_models.vector_record.VectorHit` \{#agrag-common-data_models-vector_record-VectorHit}
 
