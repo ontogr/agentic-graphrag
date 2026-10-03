@@ -53,11 +53,6 @@ from agrag.ingestion._lexical_backbone import (
     distinct_documents,
 )
 from agrag.ingestion.extract import Extractor
-from agrag.ingestion.materialize import (
-    MatchComponent,
-    decisions_by_component,
-    write_matches_and_materialize,
-)
 from agrag.ingestion.merge import (
     apply_merge,
     compute_merge,
@@ -78,6 +73,11 @@ from agrag.ingestion.resolve import (
 )
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
+from agrag.ingestion.resolved_entities import (
+    MatchComponent,
+    decisions_by_component,
+    write_matches_and_rebuild,
+)
 from agrag.ingestion.stats import (
     ExtractionStats,
     IngestStats,
@@ -209,7 +209,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     ingestion: IngestStats,
     return_chunks: bool = False,
     job_id: UUID | str | None = None,
-    materialized_components: list[MatchComponent] | None = None,
+    rebuilt_components: list[MatchComponent] | None = None,
     tracer: Tracer | None = None,
     embed_heading_path: bool = True,
     max_llm_pairs: int = MAX_LLM_PAIRS,
@@ -249,9 +249,9 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             commits; brand-new entities derive deterministic ids from it.
             None writes untagged with random new-entity ids, for callers
             outside a job.
-        materialized_components: Receives each component this call
-            materialized. A pending job never deletes the materialization
-            it supersedes, so the caller materializes these again after
+        rebuilt_components: Receives each component this call
+            rebuilt. A pending job never deletes the resolved entity
+            it supersedes, so the caller rebuilds these again after
             the job commits to replace it.
         tracer: Opens this call's span and every phase span below it.
         embed_heading_path: Whether chunk embeddings include the chunk's heading
@@ -544,11 +544,11 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                     for member_id in member_ids
                 ]
                 with resolved_tracer.start_as_current_span(
-                    "agrag.merge.materialize_component",
+                    "agrag.merge.rebuild_component",
                     attributes={"agrag.member_count": len(members)},
                 ):
                     try:
-                        materialization = await write_matches_and_materialize(
+                        rebuild = await write_matches_and_rebuild(
                             decisions,
                             graph_store=graph_store,
                             schema=graph_schema,
@@ -572,15 +572,15 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                             )
                         )
                         continue
-                    if materialized_components is not None:
-                        materialized_components.append((decisions, members))
+                    if rebuilt_components is not None:
+                        rebuilt_components.append((decisions, members))
                     # Synchronized per component, not batched after the loop: a
                     # later component's failure under ErrorPolicy.RAISE must not
                     # skip vector cleanup for components already committed above.
                     resolved_vector_failures.extend(
                         await _synchronize_resolved_entity_vectors(
-                            [materialization.resolved_entity],
-                            materialization.removed_entity_ids,
+                            [rebuild.resolved_entity],
+                            rebuild.removed_entity_ids,
                             embedder=embedder,
                             graph_store=graph_store,
                             vector_store=vector_store,
@@ -626,7 +626,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             triples_list, graph_store=graph_store, job_id=pending_job_id
         )
 
-        # Materialize Relation objects
+        # Build Relation objects
         relation_records: list[RelationRecord] = []
         relation_storage_failures: list[StageFailure] = []
 

@@ -288,10 +288,10 @@ class TestGraphAdd:
         assert result.ingestion.sources == 1
 
     @pytest.mark.parametrize("verb", ["add", "update"])
-    async def test_reports_materialization_failures_in_storage_stats(
+    async def test_reports_rebuild_failures_in_storage_stats(
         self, monkeypatch: pytest.MonkeyPatch, verb: str
     ) -> None:
-        """A skipped materialization failure appears in the result storage stats."""
+        """A skipped rebuild failure appears in the result storage stats."""
         graph = await _open_graph()
         graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
             return_value=[]
@@ -302,13 +302,13 @@ class TestGraphAdd:
         real_ingest = graph_module.ingest_chunks
 
         async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
-            kwargs["materialized_components"].append(([], [member]))
+            kwargs["rebuilt_components"].append(([], [member]))
             return await real_ingest(*args, **kwargs)
 
         monkeypatch.setattr(graph_module, "ingest_chunks", _ingest_with_component)
         monkeypatch.setattr(
             graph_module,
-            "rematerialize_components",
+            "rebuild_resolved_entities",
             AsyncMock(side_effect=RuntimeError("database unavailable")),
         )
 
@@ -326,10 +326,10 @@ class TestGraphAdd:
         assert result.storage.failures[0].error_message == "database unavailable"
 
     @pytest.mark.parametrize("verb", ["add", "update"])
-    async def test_rebuilds_materialized_components_after_commit(
+    async def test_rebuilds_components_after_commit(
         self, monkeypatch: pytest.MonkeyPatch, verb: str
     ) -> None:
-        """The cleanup phase rebuilds each component the job materialized."""
+        """The cleanup phase rebuilds each component the job rebuilt."""
         graph = await _open_graph()
         graph._graph_store.execute_read = AsyncMock(  # type: ignore[method-assign]
             return_value=[]
@@ -342,12 +342,12 @@ class TestGraphAdd:
         real_ingest = graph_module.ingest_chunks
 
         async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
-            kwargs["materialized_components"].append(([], members))
+            kwargs["rebuilt_components"].append(([], members))
             return await real_ingest(*args, **kwargs)
 
         rebuild = AsyncMock(return_value=[])
         monkeypatch.setattr(graph_module, "ingest_chunks", _ingest_with_component)
-        monkeypatch.setattr(graph_module, "rematerialize_components", rebuild)
+        monkeypatch.setattr(graph_module, "rebuild_resolved_entities", rebuild)
 
         if verb == "add":
             await graph.add(text="a short note")

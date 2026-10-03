@@ -18,7 +18,7 @@ class TestExactResolutionGroups:
     """Only exact identity can merge raw mentions."""
 
     def test_keeps_fuzzy_mentions_as_separate_raw_entities(self) -> None:
-        """Near names do not share a raw entity before MATCHES materialization."""
+        """Near names do not share a raw entity before MATCHES edges exist."""
         groups = exact_resolution_groups(
             [_mention("Ada"), _mention("Ada Lovelace")], {}
         )

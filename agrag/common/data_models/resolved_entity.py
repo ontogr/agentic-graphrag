@@ -1,4 +1,4 @@
-"""Materialized identity clusters for non-destructive entity resolution."""
+"""Identity clusters for non-destructive entity resolution."""
 
 from typing import Literal
 from uuid import UUID
@@ -15,7 +15,7 @@ RESOLVED_AS_RELATION = "RESOLVED_AS"
 
 
 class ResolvedEntity(DataPoint):
-    """A materialized cluster of entities that refer to the same thing."""
+    """A cluster of entities that refer to the same thing."""
 
     label: str
     name: str

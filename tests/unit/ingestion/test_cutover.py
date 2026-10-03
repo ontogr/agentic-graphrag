@@ -730,7 +730,7 @@ class TestRunCutoverJobComponentSeeds:
         assert committed[0]["component_seed_ids"] == [str(min(member_ids, key=str))]
 
     async def test_commit_records_no_seeds_without_components(self) -> None:
-        """A job that materialized nothing commits an empty seed list."""
+        """A job that rebuilt nothing commits an empty seed list."""
         store = _FakeCutoverStore()
 
         async def pending(job_id: UUID) -> None:

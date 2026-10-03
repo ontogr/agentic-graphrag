@@ -143,11 +143,11 @@ def commit_job_query() -> str:
     alive and slow.
 
     The flip also records ``$component_seed_ids``, so the post-commit
-    cleanup can rebuild the materialized components after a crash.
+    cleanup can rebuild the job's components after a crash.
 
     Returns:
         Parameterized Cypher expecting $job_id, $lease_token, and
-        $component_seed_ids (list of string ids, one per materialized
+        $component_seed_ids (list of string ids, one per rebuilt
         component). Returns the job id when the flip applied, no row on
         fencing failure.
     """

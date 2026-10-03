@@ -30,7 +30,7 @@ from agrag.cypher.cutover_job_write import (
 )
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion._document_lifecycle import close_open_part_of_edges
-from agrag.ingestion.materialize import MatchComponent
+from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.observability import get_tracer
 from agrag.vectordb.base import VectorStore
@@ -326,7 +326,7 @@ async def run_cutover_job(
     to as-if-never-happened or as-if-completed.
 
     The commit also records one seed id for each component ``pending_write``
-    materialized, so a resumed job can rebuild those components with the
+    rebuilt, so a resumed job can rebuild those components with the
     same ``cleanup`` the live call runs.
 
     Args:
@@ -346,7 +346,7 @@ async def run_cutover_job(
         cleanup: Post-commit work. Receives the affected-entity snapshot and
             the component seed ids, the same two lists resume reads from the
             job node (closing is already done).
-        components: The components ``pending_write`` materializes. The list
+        components: The components ``pending_write`` rebuilds. The list
             may still be empty when this call starts: ``pending_write``
             appends to it, and the commit reads it once that step returns.
         close_document_node_id: The persisted Document node whose open

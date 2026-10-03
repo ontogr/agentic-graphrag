@@ -60,11 +60,11 @@ def deactivate_match_query() -> str:
     )
 
 
-def replace_component_materializations_query() -> str:
+def replace_component_resolved_entities_query() -> str:
     """Build Cypher replacing memberships outside a pending cutover.
 
     A pending cutover must not delete the previously committed
-    materialization: rollback can remove only rows created by that cutover.
+    resolved entity: rollback can remove only rows created by that cutover.
     The pending node remains alongside the old one until a later
     consolidation pass replaces it after commit.
     """

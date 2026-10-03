@@ -1,4 +1,4 @@
-"""Integration tests for non-destructive entity-match materialization."""
+"""Integration tests for non-destructive entity-match rebuild."""
 
 import importlib.util
 from datetime import UTC, datetime
@@ -11,11 +11,11 @@ from agrag.common.data_models.graph_record import RelationRecord
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema, RelationType
 from agrag.cypher.entities import validate_identifier
 from agrag.graphdb import build_graph_store
-from agrag.ingestion.materialize import (
+from agrag.ingestion.resolved_entities import (
     MatchDecision,
-    deactivate_match_and_rematerialize,
+    deactivate_match_and_rebuild,
     matches_id,
-    write_matches_and_materialize,
+    write_matches_and_rebuild,
 )
 
 
@@ -39,8 +39,8 @@ def _schema(label: str) -> GraphSchema:
 
 
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
-class TestMatchMaterializationIntegration:
-    """Materialization preserves raw graph records in a real transaction."""
+class TestMatchRebuildIntegration:
+    """Rebuild preserves raw graph records in a real transaction."""
 
     async def test_preserves_raw_nodes_and_domain_relationships(self) -> None:
         """A fuzzy match creates derived state without replacing raw graph state."""
@@ -68,7 +68,7 @@ class TestMatchMaterializationIntegration:
                 ]
             )
 
-            materialization = await write_matches_and_materialize(
+            rebuild = await write_matches_and_rebuild(
                 [
                     MatchDecision(
                         entity_a_id=first.id,
@@ -100,7 +100,7 @@ class TestMatchMaterializationIntegration:
                 str(first.id),
                 str(second.id),
             }
-            assert rows[0]["resolved_id"] == str(materialization.resolved_entity.id)
+            assert rows[0]["resolved_id"] == str(rebuild.resolved_entity.id)
             assert rows[0]["domain_count"] == 1
             raw_rows = await store.execute_read(
                 f"MATCH (entity:{label}) WHERE entity.id IN $ids "
@@ -144,7 +144,7 @@ class TestMatchMaterializationIntegration:
                 (first.id, second.id),
                 (second.id, first.id),
             ):
-                await write_matches_and_materialize(
+                await write_matches_and_rebuild(
                     [
                         MatchDecision(
                             entity_a_id=entity_a_id,
@@ -204,7 +204,7 @@ class TestMatchMaterializationIntegration:
                 ],
             )
             now = datetime.now(UTC)
-            await write_matches_and_materialize(
+            await write_matches_and_rebuild(
                 [
                     MatchDecision(
                         entity_a_id=first.id,
@@ -224,7 +224,7 @@ class TestMatchMaterializationIntegration:
                 members=[first, second, third],
             )
 
-            result = await deactivate_match_and_rematerialize(
+            result = await deactivate_match_and_rebuild(
                 matches_id(second.id, third.id), graph_store=store, schema=schema
             )
 

@@ -54,16 +54,6 @@ from agrag.ingestion._ingest_pipeline import (
 )
 from agrag.ingestion._resume import resume_incomplete_jobs
 from agrag.ingestion.extract import Extractor
-from agrag.ingestion.materialize import (
-    MatchComponent,
-    MatchDecision,
-    deactivate_match_and_rematerialize,
-    match_decision_components,
-    matches_id,
-    prune_orphaned_entities,
-    rematerialize_components,
-    write_matches_and_materialize,
-)
 from agrag.ingestion.reports import (
     AddResult,
     CommunityDetectionReport,
@@ -83,6 +73,16 @@ from agrag.ingestion.resolve import (
 )
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
+from agrag.ingestion.resolved_entities import (
+    MatchComponent,
+    MatchDecision,
+    deactivate_match_and_rebuild,
+    match_decision_components,
+    matches_id,
+    prune_orphaned_entities,
+    rebuild_resolved_entities,
+    write_matches_and_rebuild,
+)
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.ingestion.stats import (
     ChunkingMatch,
@@ -189,7 +189,7 @@ async def _no_pending_write(job_id: UUID) -> None:
 def _with_cleanup_failures(
     result: AddResult, failures: list[StageFailure]
 ) -> AddResult:
-    """Record post-commit materialization failures in the storage stats.
+    """Record post-commit rebuild failures in the storage stats.
 
     Args:
         result: The pending-write result of one document job.
@@ -986,7 +986,7 @@ class Graph:
                         ingestion=IngestStats(documents=1),
                         return_chunks=return_chunks,
                         job_id=job_id,
-                        materialized_components=_components,
+                        rebuilt_components=_components,
                         tracer=self._tracer,
                         embed_heading_path=self._embed_heading_path,
                         max_llm_pairs=self._max_llm_pairs,
@@ -1171,7 +1171,7 @@ class Graph:
                     ingestion=IngestStats(documents=1),
                     return_chunks=False,
                     job_id=job_id,
-                    materialized_components=components,
+                    rebuilt_components=components,
                     tracer=self._tracer,
                     embed_heading_path=self._embed_heading_path,
                     max_llm_pairs=self._max_llm_pairs,
@@ -1303,9 +1303,9 @@ class Graph:
     ) -> list[StageFailure]:
         """Run the cleanup phase of one committed Cutover Job.
 
-        A pending job never deletes the materialization it supersedes, so
+        A pending job never deletes the resolved entity it supersedes, so
         after the commit this rebuilds the resolved entity of each component
-        the job materialized, then prunes the entities that lost their last
+        the job rebuilt, then prunes the entities that lost their last
         evidence. The live calls and crash recovery both run it, with the
         lists the job recorded. Running it again changes nothing.
 
@@ -1320,13 +1320,13 @@ class Graph:
         Returns:
             The failures recorded while rebuilding components.
         """
-        failures = await self._rematerialize_components(
+        failures = await self._rebuild_resolved_entities(
             component_seed_ids, error_policy=error_policy
         )
         await self._prune_document_entities(affected_entity_ids)
         return failures
 
-    async def _rematerialize_components(
+    async def _rebuild_resolved_entities(
         self, component_seed_ids: list[UUID], *, error_policy: ErrorPolicy
     ) -> list[StageFailure]:
         """Rebuild committed components' resolved entities and sync vectors.
@@ -1344,18 +1344,18 @@ class Graph:
             The recorded failures.
         """
         with self._tracer.start_as_current_span(
-            "agrag.merge.materialize_components",
+            "agrag.merge.rebuild_components",
             attributes={"agrag.component_count": len(component_seed_ids)},
         ):
             failures: list[StageFailure] = []
-            materialized: list[ResolvedEntity] = []
+            rebuilt: list[ResolvedEntity] = []
             replaced_ids: list[UUID] = []
             for seed_id in component_seed_ids:
                 with self._tracer.start_as_current_span(
-                    "agrag.merge.materialize_component"
+                    "agrag.merge.rebuild_component"
                 ) as span:
                     try:
-                        results = await rematerialize_components(
+                        results = await rebuild_resolved_entities(
                             [seed_id],
                             graph_store=self._graph_store,
                             schema=self._schema,
@@ -1379,11 +1379,11 @@ class Graph:
                         span.set_attribute(
                             "agrag.member_count", len(result.resolved_entity.member_ids)
                         )
-                        materialized.append(result.resolved_entity)
+                        rebuilt.append(result.resolved_entity)
                         replaced_ids.extend(result.removed_entity_ids)
             failures.extend(
                 await _synchronize_resolved_entity_vectors(
-                    materialized,
+                    rebuilt,
                     replaced_ids,
                     embedder=self._embedder,
                     graph_store=self._graph_store,
@@ -1394,39 +1394,39 @@ class Graph:
             )
             return failures
 
-    async def _materialize_components(
+    async def _rebuild_components(
         self, components: list[MatchComponent], *, error_policy: ErrorPolicy
     ) -> tuple[list[ResolvedEntity], list[StageFailure]]:
-        """Materialize committed match components and sync their vectors.
+        """Rebuild committed match components and sync their vectors.
 
         Runs outside any Cutover Job, so each write replaces the previous
-        materialization of the components it grows or merges, including its
+        rebuild of the components it grows or merges, including its
         ``RESOLVED_AS`` edges. The replaced vectors are then deleted and the
         new ones written to the graph and the external vector store.
 
         Args:
             components: The match decisions and raw members of each
-                component to materialize.
+                component to rebuild.
             error_policy: RAISE propagates the first failure; any other
                 policy records it and continues.
 
         Returns:
-            The materialized resolved entities and the recorded failures.
+            The resolved-entities and the recorded failures.
         """
         with self._tracer.start_as_current_span(
-            "agrag.merge.materialize_components",
+            "agrag.merge.rebuild_components",
             attributes={"agrag.component_count": len(components)},
         ):
             failures: list[StageFailure] = []
-            materialized: list[ResolvedEntity] = []
+            rebuilt: list[ResolvedEntity] = []
             replaced_ids: list[UUID] = []
             for decisions, members in components:
                 with self._tracer.start_as_current_span(
-                    "agrag.merge.materialize_component",
+                    "agrag.merge.rebuild_component",
                     attributes={"agrag.member_count": len(members)},
                 ):
                     try:
-                        materialization = await write_matches_and_materialize(
+                        rebuild = await write_matches_and_rebuild(
                             decisions,
                             graph_store=self._graph_store,
                             schema=self._schema,
@@ -1447,11 +1447,11 @@ class Graph:
                             )
                         )
                         continue
-                materialized.append(materialization.resolved_entity)
-                replaced_ids.extend(materialization.removed_entity_ids)
+                rebuilt.append(rebuild.resolved_entity)
+                replaced_ids.extend(rebuild.removed_entity_ids)
             failures.extend(
                 await _synchronize_resolved_entity_vectors(
-                    materialized,
+                    rebuilt,
                     replaced_ids,
                     embedder=self._embedder,
                     graph_store=self._graph_store,
@@ -1460,7 +1460,7 @@ class Graph:
                     error_policy=error_policy,
                 )
             )
-            return materialized, failures
+            return rebuilt, failures
 
     async def _prune_document_entities(self, candidates: list[UUID]) -> None:
         """Prune orphaned candidates and drop their stale vectors.
@@ -1604,7 +1604,7 @@ class Graph:
             "agrag.ingestion.deactivate_match",
             attributes={"agrag.match_id": str(match_id)},
         ):
-            result = await deactivate_match_and_rematerialize(
+            result = await deactivate_match_and_rebuild(
                 match_id,
                 graph_store=self._graph_store,
                 schema=self._schema,
@@ -1639,7 +1639,8 @@ class Graph:
         ceil(L * MAX_LLM_PAIRS / 10) requests for L labels. See Graph.add.
 
         Args:
-            apply: Materialize the confirmed matches. False produces a report only.
+            apply: Write the confirmed matches and rebuild resolved entities.
+                False produces a report only.
 
         Returns:
             A report of every confirmed non-exact match, applied or not,
@@ -1714,7 +1715,7 @@ class Graph:
                     )
 
             consolidation_failures: list[StageFailure] = []
-            materialized_entities: list[ResolvedEntity] = []
+            rebuilt_entities: list[ResolvedEntity] = []
             if apply:
                 components: list[MatchComponent] = []
                 for decisions in match_decision_components(would_match):
@@ -1728,15 +1729,15 @@ class Graph:
                         )
                     )
                 (
-                    materialized_entities,
+                    rebuilt_entities,
                     consolidation_failures,
-                ) = await self._materialize_components(
+                ) = await self._rebuild_components(
                     components, error_policy=ErrorPolicy.SKIP
                 )
 
             return ConsolidationReport(
                 would_match=would_match,
-                applied=apply and bool(materialized_entities),
+                applied=apply and bool(rebuilt_entities),
                 failures=consolidation_failures,
                 ambiguous_count=ambiguous_count,
             )
@@ -1847,7 +1848,7 @@ class Graph:
                 ),
                 key=lambda d: str(matches_id(d.entity_a_id, d.entity_b_id)),
             )
-            materialized: list[ResolvedEntity] = []
+            rebuilt: list[ResolvedEntity] = []
             replaced: list[UUID] = []
             matches_added: list[MatchDecision] = []
             for component in match_decision_components(decisions):
@@ -1855,18 +1856,18 @@ class Graph:
                     d.entity_b_id for d in component
                 }
                 with self._tracer.start_as_current_span(
-                    "agrag.merge.materialize_component",
+                    "agrag.merge.rebuild_component",
                     attributes={"agrag.member_count": len(member_ids)},
                 ):
-                    materialization = await write_matches_and_materialize(
+                    rebuild = await write_matches_and_rebuild(
                         component,
                         graph_store=self._graph_store,
                         schema=self._schema,
                         members=[entities_by_id[m] for m in member_ids],
                         tracer=self._tracer,
                     )
-                materialized.append(materialization.resolved_entity)
-                replaced.extend(materialization.removed_entity_ids)
+                rebuilt.append(rebuild.resolved_entity)
+                replaced.extend(rebuild.removed_entity_ids)
                 matches_added.extend(component)
             matches_removed: list[UUID] = []
             removed_pairs: set[frozenset[UUID]] = set()
@@ -1877,18 +1878,18 @@ class Graph:
                     "agrag.merge.deactivate_component",
                     attributes={"agrag.match_id": str(match_id)},
                 ):
-                    deactivation = await deactivate_match_and_rematerialize(
+                    deactivation = await deactivate_match_and_rebuild(
                         match_id,
                         graph_store=self._graph_store,
                         schema=self._schema,
                         tracer=self._tracer,
                     )
-                materialized.extend(deactivation.resolved_entities)
+                rebuilt.extend(deactivation.resolved_entities)
                 replaced.extend(deactivation.removed_entity_ids)
                 matches_removed.append(match_id)
                 removed_pairs.add(pair)
             await _synchronize_resolved_entity_vectors(
-                materialized,
+                rebuilt,
                 list(dict.fromkeys(replaced)),
                 embedder=self._embedder,
                 graph_store=self._graph_store,

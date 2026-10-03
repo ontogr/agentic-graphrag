@@ -90,7 +90,7 @@ class TestEntityRetriever:
             assert results[0].item.name == ent.name
             assert results[0].method == "entity"
 
-    async def test_returns_materialization_without_its_raw_member(self) -> None:
+    async def test_returns_resolved_entity_without_its_raw_member(self) -> None:
         """An active resolved entity replaces its member in user-facing search."""
         raw = Entity(id=uuid4(), label="Person", name="Ada")
         resolved = ResolvedEntity(

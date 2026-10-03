@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from agrag.ingestion.materialize import MatchDecision
+from agrag.ingestion.resolved_entities import MatchDecision
 
 
 class ReevaluationReport(BaseModel):

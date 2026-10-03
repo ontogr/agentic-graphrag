@@ -1,4 +1,4 @@
-"""Embedding and vector synchronization for materialized resolved entities."""
+"""Embedding and vector synchronization for resolved-entities."""
 
 import contextlib
 from typing import Literal
@@ -51,7 +51,7 @@ async def _set_sync_status(
     status: Literal["pending", "synced", "failed"],
     error: str | None = None,
 ) -> None:
-    """Persist a resolved-vector synchronization state after graph materialization."""
+    """Persist a resolved-vector synchronization state after graph rebuild."""
     await graph_store.execute_write(
         set_resolved_entity_sync_status_query(),
         {
@@ -81,11 +81,11 @@ async def embed_resolved_entities(
     Graph writes finish before vector-store synchronization because the two
     stores cannot share a transaction. A failed sync clears the graph vector,
     removes any old mirrored vector, and records ``failed`` for a later
-    materialization pass to retry.
+    rebuild pass to retry.
 
     Only entities whose guarded graph write actually matched a live node are
     mirrored to the vector store or have their sync status updated. A
-    concurrent materialization can replace or delete a ResolvedEntity between
+    concurrent rebuild can replace or delete a ResolvedEntity between
     this call reading it and writing its embedding; skipping the unmatched
     ones keeps this call from resurrecting a vector, or overwriting a status,
     that the concurrent call already owns.
@@ -185,10 +185,10 @@ async def _synchronize_resolved_entity_vectors(
     error_policy: ErrorPolicy,
     pending_job_id: UUID | str | None = None,
 ) -> list[StageFailure]:
-    """Replace stale resolved vectors and synchronize current materializations.
+    """Replace stale resolved vectors and synchronize current resolved entities.
 
     The stale-vector delete runs before a later graph write can fail after
-    materialization. This keeps an external vector store from serving a
+    rebuild. This keeps an external vector store from serving a
     resolved node the graph has already replaced. A delete that fails is
     persisted so a later synchronization pass retries it.
 
@@ -202,7 +202,7 @@ async def _synchronize_resolved_entity_vectors(
     survive alongside a freshly republished vector for a later pass to
     wrongly delete.
 
-    Consolidation can also batch a materialization that recreated a
+    Consolidation can also batch a rebuild that recreated a
     component under its prior id together with a later one, in the same
     call, that supersedes it with a bigger merged component. Both ids look
     "about to be republished" up front, but only the later one's node
