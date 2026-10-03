@@ -250,12 +250,19 @@ class TestEntityResolutionEndToEnd:
             f"E2e Consolidate {suffix}",
             f"E2e Consolidates {suffix}",
         )
-        first = Entity(id=uuid4(), label="Person", name=first_name)
-        second = Entity(id=uuid4(), label="Person", name=second_name)
+        first = Entity(
+            id=uuid4(), label="Person", name=first_name, embedding=[1.0, 0.0, 0.0, 0.0]
+        )
+        second = Entity(
+            id=uuid4(),
+            label="Person",
+            name=second_name,
+            embedding=[1.0, 0.0, 0.0, 0.0],
+        )
         graph = await Graph.open(
             schema=GENERIC,
             graph_store=store,
-            embedder=_ZeroEmbedder(),
+            embedder=_SuffixEmbedder(suffix),
             extractor=_ProbeExtractor({}),
         )
         try:
