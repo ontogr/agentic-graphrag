@@ -219,8 +219,8 @@ class TestGraphCandidateSourceGlobalCandidatesFor:
 
         assert candidates == []
 
-    async def test_a_failing_loading_read_propagates(self) -> None:
-        """A failed read is raised, not reported as no candidates."""
+    async def test_a_failing_loading_read_raises(self) -> None:
+        """A failed read raises, so it is not read as no candidates."""
         graph_store = AsyncMock()
         graph_store.execute_read.side_effect = RuntimeError("read failed")
         source = GraphCandidateSource(

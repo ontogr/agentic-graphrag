@@ -14,8 +14,10 @@ class ConsolidationReport(BaseModel):
     Attributes:
         would_match: Confirmed non-exact matches found, whether applied or not.
         applied: Whether the matches were applied.
-        failures: Failures writing a match graph or rebuilding resolved entities.
-            Always empty when apply is False.
+        failures: Failures reading the candidates of an entity, which that
+            entity then skips, and failures writing a match graph or
+            rebuilding resolved entities. Only the candidate read failures
+            appear when apply is False.
         ambiguous_count: LLM verdicts that came back uncertain. These
             pairs never merge.
     """

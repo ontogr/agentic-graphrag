@@ -24,7 +24,7 @@ from agrag.cypher.safety import (
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
 from agrag.llm.retry import NO_RETRY, call_with_retry
-from agrag.observability import get_tracer, record_swallowed_exception
+from agrag.observability import get_tracer
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
@@ -462,9 +462,9 @@ class Text2CypherRetriever(Retriever):
 
         A query that fails to plan or to execute is regenerated once, with a
         bounded, sanitized diagnostic of the first failure attached to the
-        generation call. A failure at any stage of the second attempt, or a
-        query rejected by the write gate, returns no results rather than
-        raising.
+        generation call. A failure at any stage of the second attempt, a
+        query rejected by the write gate, or an unavailable database
+        raises. An empty list means the query ran and returned no rows.
 
         Args:
             query: The natural-language question.
@@ -475,6 +475,14 @@ class Text2CypherRetriever(Retriever):
             SearchResults from the generated query: entity results
                 loaded from the graph; relation, chunk, and
                 scalar rows parsed directly.
+
+        Raises:
+            UnsafeCypherError: The generated query contains a write
+                clause.
+            ValueError: A stored entity node cannot be parsed.
+            Exception: The LLM call failed, the BAML client is not
+                installed, or the query failed to plan or run after the
+                repair attempt.
         """
         with retrieval_span(
             self._tracer,
@@ -483,36 +491,22 @@ class Text2CypherRetriever(Retriever):
             filters=filters,
             attributes={"agrag.limit": limit},
         ) as span:
-            try:
-                cypher_query = await self._generate_cypher(query)
-            except Exception as exc:
-                record_swallowed_exception(exc)
-                record_results(span, [])
-                return []
+            cypher_query = await self._generate_cypher(query)
 
             if span.is_recording():
                 span.set_attribute("agrag.cypher", cypher_query)
 
             try:
                 rows = await self._execute_query(cypher_query, is_repair=False)
-            except UnsafeCypherError as exc:
-                record_swallowed_exception(exc)
-                record_results(span, [])
-                return []
+            except UnsafeCypherError:
+                raise
             except Exception as exc:
                 if _is_environment_failure(exc):
-                    record_swallowed_exception(exc)
-                    record_results(span, [])
-                    return []
-                try:
-                    cypher_query = await self._generate_cypher(
-                        query, failure_context=_format_retry_diagnostic(exc)
-                    )
-                    rows = await self._execute_query(cypher_query, is_repair=True)
-                except Exception as repair_exc:
-                    record_swallowed_exception(repair_exc)
-                    record_results(span, [])
-                    return []
+                    raise
+                cypher_query = await self._generate_cypher(
+                    query, failure_context=_format_retry_diagnostic(exc)
+                )
+                rows = await self._execute_query(cypher_query, is_repair=True)
 
             if span.is_recording():
                 span.set_attribute("agrag.cypher", cypher_query)
@@ -616,8 +610,7 @@ class Text2CypherRetriever(Retriever):
 
         Raises:
             ImportError: The BAML client is not installed, so no query
-                can be generated. ``retrieve`` turns this into an empty
-                result set.
+                can be generated.
         """
         from agrag.llm.baml_client import b as baml_client  # noqa: PLC0415
 

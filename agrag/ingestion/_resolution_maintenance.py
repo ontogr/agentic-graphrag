@@ -221,13 +221,14 @@ async def consolidate(
         would_match: list[MatchDecision] = []
         ambiguous_count = 0
         entities_by_id: dict[UUID, Entity] = {}
+        candidate_read_failures: list[StageFailure] = []
         # For each label, fetch all entities, then pairwise compare via Resolver
         for entity_type in schema.entities:
             label = entity_type.label
             all_entities = await all_entities_by_label(graph_store, label)
             if len(all_entities) < 2:
                 continue
-            resolution_result = await resolve_persisted(
+            resolution_result, candidate_failures = await resolve_persisted(
                 all_entities,
                 graph_store=graph_store,
                 embedder=embedder,
@@ -236,7 +237,9 @@ async def consolidate(
                 entity_labels=[entity.label for entity in schema.entities],
                 tracer=tracer,
                 max_llm_pairs=max_llm_pairs,
+                error_policy=ErrorPolicy.SKIP,
             )
+            candidate_read_failures.extend(candidate_failures)
             ambiguous_count += resolution_result.ambiguous_count
             entities_by_id.update({entity.id: entity for entity in all_entities})
             for match in resolution_result.matches:
@@ -251,7 +254,7 @@ async def consolidate(
                     )
                 )
 
-        consolidation_failures: list[StageFailure] = []
+        consolidation_failures: list[StageFailure] = list(candidate_read_failures)
         rebuilt_entities: list[ResolvedEntity] = []
         if apply:
             components: list[MatchComponent] = []
@@ -267,7 +270,7 @@ async def consolidate(
                 )
             (
                 rebuilt_entities,
-                consolidation_failures,
+                rebuild_failures,
             ) = await write_and_rebuild_components(
                 components,
                 schema=schema,
@@ -278,6 +281,7 @@ async def consolidate(
                 tracer=tracer,
                 error_policy=ErrorPolicy.SKIP,
             )
+            consolidation_failures.extend(rebuild_failures)
 
         return ConsolidationReport(
             would_match=would_match,

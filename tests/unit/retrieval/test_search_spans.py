@@ -135,7 +135,12 @@ def _hybrid_store() -> tuple[AsyncMock, list[VectorHit]]:
     chunk_hit = VectorHit(id=uuid4(), score=0.8, payload={})
     hits = [entity_hit, chunk_hit]
     store = _routed_store()
-    store.vector_search.side_effect = [[entity_hit], [chunk_hit]]
+
+    async def _vector_search(*, label, **kwargs):
+        """Serve one hit per label; resolved entities have none."""
+        return {"Person": [entity_hit], "Chunk": [chunk_hit]}.get(label, [])
+
+    store.vector_search.side_effect = _vector_search
     return store, hits
 
 
@@ -230,7 +235,14 @@ class TestSearchFailureRecording:
 
         entity_hit = VectorHit(id=uuid4(), score=0.9, payload={})
         store = _routed_store()
-        store.vector_search.side_effect = [[entity_hit], RuntimeError("boom")]
+
+        async def _vector_search(*, label, **kwargs):
+            """Serve the entity hit; the chunk search fails."""
+            if label == "Chunk":
+                raise RuntimeError("boom")
+            return [entity_hit] if label == "Person" else []
+
+        store.vector_search.side_effect = _vector_search
         engine = _engine(store, tracer)
 
         results = await engine.search("who is alice", HYBRID)

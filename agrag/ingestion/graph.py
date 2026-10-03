@@ -556,9 +556,12 @@ class Graph:
             apply: Write the confirmed matches and rebuild resolved entities.
                 False produces a report only.
 
+        A failed read of an entity's candidates does not stop the pass. That
+        entity is not compared in this call and the report lists the failure.
+
         Returns:
             A report of every confirmed non-exact match, applied or not,
-            plus the count of uncertain LLM verdicts.
+            plus the count of uncertain LLM verdicts and every failure.
         """
         return await consolidate(
             apply=apply,

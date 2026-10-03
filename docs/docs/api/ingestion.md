@@ -247,8 +247,10 @@ Report from Graph.consolidate().
 
 - [**would_match**](#agrag-ingestion-ConsolidationReport-would_match) (<code>list\[[MatchDecision](#agrag-ingestion-resolved_entities-MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
 - [**applied**](#agrag-ingestion-ConsolidationReport-applied) (<code>bool</code>) – Whether the matches were applied.
-- [**failures**](#agrag-ingestion-ConsolidationReport-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Failures writing a match graph or rebuilding resolved entities.
-  Always empty when apply is False.
+- [**failures**](#agrag-ingestion-ConsolidationReport-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Failures reading the candidates of an entity, which that
+  entity then skips, and failures writing a match graph or
+  rebuilding resolved entities. Only the candidate read failures
+  appear when apply is False.
 - [**ambiguous_count**](#agrag-ingestion-ConsolidationReport-ambiguous_count) (<code>int</code>) – LLM verdicts that came back uncertain. These
   pairs never merge.
 
@@ -687,10 +689,13 @@ ceil(L * MAX_LLM_PAIRS / 10) requests for L labels. See Graph.add.
 - **apply** (<code>bool</code>) – Write the confirmed matches and rebuild resolved entities.
   False produces a report only.
 
+A failed read of an entity's candidates does not stop the pass. That
+entity is not compared in this call and the report lists the failure.
+
 **Returns:**
 
 - <code>[ConsolidationReport](#agrag-ingestion-reports-ConsolidationReport)</code> – A report of every confirmed non-exact match, applied or not,
-- <code>[ConsolidationReport](#agrag-ingestion-reports-ConsolidationReport)</code> – plus the count of uncertain LLM verdicts.
+- <code>[ConsolidationReport](#agrag-ingestion-reports-ConsolidationReport)</code> – plus the count of uncertain LLM verdicts and every failure.
 
 #### `agrag.ingestion.Graph.deactivate_match` \{#agrag-ingestion-Graph-deactivate_match}
 
@@ -1828,10 +1833,13 @@ ceil(L * MAX_LLM_PAIRS / 10) requests for L labels. See Graph.add.
 - **apply** (<code>bool</code>) – Write the confirmed matches and rebuild resolved entities.
   False produces a report only.
 
+A failed read of an entity's candidates does not stop the pass. That
+entity is not compared in this call and the report lists the failure.
+
 **Returns:**
 
 - <code>[ConsolidationReport](#agrag-ingestion-reports-ConsolidationReport)</code> – A report of every confirmed non-exact match, applied or not,
-- <code>[ConsolidationReport](#agrag-ingestion-reports-ConsolidationReport)</code> – plus the count of uncertain LLM verdicts.
+- <code>[ConsolidationReport](#agrag-ingestion-reports-ConsolidationReport)</code> – plus the count of uncertain LLM verdicts and every failure.
 
 ##### `agrag.ingestion.graph.Graph.deactivate_match` \{#agrag-ingestion-graph-Graph-deactivate_match}
 
@@ -2624,8 +2632,10 @@ Report from Graph.consolidate().
 
 - [**would_match**](#agrag-ingestion-reports-ConsolidationReport-would_match) (<code>list\[[MatchDecision](#agrag-ingestion-resolved_entities-MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
 - [**applied**](#agrag-ingestion-reports-ConsolidationReport-applied) (<code>bool</code>) – Whether the matches were applied.
-- [**failures**](#agrag-ingestion-reports-ConsolidationReport-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Failures writing a match graph or rebuilding resolved entities.
-  Always empty when apply is False.
+- [**failures**](#agrag-ingestion-reports-ConsolidationReport-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Failures reading the candidates of an entity, which that
+  entity then skips, and failures writing a match graph or
+  rebuilding resolved entities. Only the candidate read failures
+  appear when apply is False.
 - [**ambiguous_count**](#agrag-ingestion-reports-ConsolidationReport-ambiguous_count) (<code>int</code>) – LLM verdicts that came back uncertain. These
   pairs never merge.
 
@@ -2913,8 +2923,10 @@ Report from Graph.consolidate().
 
 - [**would_match**](#agrag-ingestion-reports-consolidation_report-ConsolidationReport-would_match) (<code>list\[[MatchDecision](#agrag-ingestion-resolved_entities-MatchDecision)\]</code>) – Confirmed non-exact matches found, whether applied or not.
 - [**applied**](#agrag-ingestion-reports-consolidation_report-ConsolidationReport-applied) (<code>bool</code>) – Whether the matches were applied.
-- [**failures**](#agrag-ingestion-reports-consolidation_report-ConsolidationReport-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Failures writing a match graph or rebuilding resolved entities.
-  Always empty when apply is False.
+- [**failures**](#agrag-ingestion-reports-consolidation_report-ConsolidationReport-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Failures reading the candidates of an entity, which that
+  entity then skips, and failures writing a match graph or
+  rebuilding resolved entities. Only the candidate read failures
+  appear when apply is False.
 - [**ambiguous_count**](#agrag-ingestion-reports-consolidation_report-ConsolidationReport-ambiguous_count) (<code>int</code>) – LLM verdicts that came back uncertain. These
   pairs never merge.
 
@@ -3098,7 +3110,7 @@ Entity resolution public API.
 #### `agrag.ingestion.resolve.BatchResolution` \{#agrag-ingestion-resolve-BatchResolution}
 
 ```python
-BatchResolution(exact_matches:dict[int, Entity], groups:list[ResolutionGroup], result:ResolutionResult | None, persisted_ids:dict[int, UUID] = dict(), candidate_entities:dict[UUID, Entity] = dict()) -> None
+BatchResolution(exact_matches:dict[int, Entity], groups:list[ResolutionGroup], result:ResolutionResult | None, persisted_ids:dict[int, UUID] = dict(), candidate_entities:dict[UUID, Entity] = dict(), failures:list[StageFailure] = list(), unresolved_indices:set[int] = set()) -> None
 ```
 
 The outcome of resolving one batch of mentions.
@@ -3113,6 +3125,9 @@ The outcome of resolving one batch of mentions.
 - [**persisted_ids**](#agrag-ingestion-resolve-BatchResolution-persisted_ids) (<code>dict\[int, UUID\]</code>) – Index of each synthetic candidate mention to the id of
   the persisted entity it stands for.
 - [**candidate_entities**](#agrag-ingestion-resolve-BatchResolution-candidate_entities) (<code>dict\[UUID, [Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – Persisted candidates by id.
+- [**failures**](#agrag-ingestion-resolve-BatchResolution-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – One StageFailure per mention whose candidate read failed.
+- [**unresolved_indices**](#agrag-ingestion-resolve-BatchResolution-unresolved_indices) (<code>set\[int\]</code>) – Indices of the mentions in `failures`. A
+  mention whose read failed neither starts nor joins a comparison.
 
 ##### `agrag.ingestion.resolve.BatchResolution.candidate_entities` \{#agrag-ingestion-resolve-BatchResolution-candidate_entities}
 
@@ -3124,6 +3139,12 @@ candidate_entities: dict[UUID, Entity] = field(default_factory=dict)
 
 ```python
 exact_matches: dict[int, Entity]
+```
+
+##### `agrag.ingestion.resolve.BatchResolution.failures` \{#agrag-ingestion-resolve-BatchResolution-failures}
+
+```python
+failures: list[StageFailure] = field(default_factory=list)
 ```
 
 ##### `agrag.ingestion.resolve.BatchResolution.groups` \{#agrag-ingestion-resolve-BatchResolution-groups}
@@ -3142,6 +3163,12 @@ persisted_ids: dict[int, UUID] = field(default_factory=dict)
 
 ```python
 result: ResolutionResult | None
+```
+
+##### `agrag.ingestion.resolve.BatchResolution.unresolved_indices` \{#agrag-ingestion-resolve-BatchResolution-unresolved_indices}
+
+```python
+unresolved_indices: set[int] = field(default_factory=set)
 ```
 
 #### `agrag.ingestion.resolve.CandidateSource` \{#agrag-ingestion-resolve-CandidateSource}
@@ -3384,14 +3411,14 @@ Return persisted entities found by the shared vector-search route.
 The GraphStore-native path's payload already carries the real node
 properties and is validated directly. The VectorStore path's payload
 only carries `label` and `text` (the embedding source text), so
-candidates are loaded from the graph by hit id instead. A hit with no
-committed node, for example a deleted node, is skipped rather than
-reconstructed from `text`.
+candidates are loaded from the graph by hit id instead; a hit that
+fails to load, for example a deleted node, is
+skipped rather than reconstructed from `text`.
 
 Each candidate is paired with the cosine similarity of the
 `VectorHit` it came from. The association is keyed by hit id, never
 by position: either branch can drop an entity (malformed payload,
-label mismatch, missing node) without dropping the corresponding
+label mismatch, failed load) without dropping the corresponding
 score, so zipping the two lists positionally would silently shift
 scores onto the wrong entities.
 
@@ -3403,8 +3430,9 @@ scores onto the wrong entities.
 
 **Raises:**
 
-- <code>ValueError</code> – A stored node under a hit id is not a valid entity.
-- <code>Exception</code> – Whatever the graph store raised while loading hit nodes.
+- <code>Exception</code> – The embedding, the vector search, or the graph read
+  failed. An empty list means the search ran and found no
+  candidate.
 
 ##### `agrag.ingestion.resolve.GraphCandidateSource.graph_store` \{#agrag-ingestion-resolve-GraphCandidateSource-graph_store}
 
@@ -3941,6 +3969,7 @@ Candidate generation for in-batch and persisted graph entities.
 - [**build_relation_neighbors**](#agrag-ingestion-resolve-candidate_source-build_relation_neighbors) – Build LLMVerify neighbor context from one batch's extracted relations.
 - [**fetch_persisted_neighbors**](#agrag-ingestion-resolve-candidate_source-fetch_persisted_neighbors) – Fetch a bounded neighbor-relationship sample for persisted entities.
 - [**persisted_candidate_indices**](#agrag-ingestion-resolve-candidate_source-persisted_candidate_indices) – Return ANN candidate indices, with a bounded exhaustive fallback.
+- [**read_candidates**](#agrag-ingestion-resolve-candidate_source-read_candidates) – Read the persisted candidates for one mention, or report the failure.
 
 **Attributes:**
 
@@ -4019,14 +4048,14 @@ Return persisted entities found by the shared vector-search route.
 The GraphStore-native path's payload already carries the real node
 properties and is validated directly. The VectorStore path's payload
 only carries `label` and `text` (the embedding source text), so
-candidates are loaded from the graph by hit id instead. A hit with no
-committed node, for example a deleted node, is skipped rather than
-reconstructed from `text`.
+candidates are loaded from the graph by hit id instead; a hit that
+fails to load, for example a deleted node, is
+skipped rather than reconstructed from `text`.
 
 Each candidate is paired with the cosine similarity of the
 `VectorHit` it came from. The association is keyed by hit id, never
 by position: either branch can drop an entity (malformed payload,
-label mismatch, missing node) without dropping the corresponding
+label mismatch, failed load) without dropping the corresponding
 score, so zipping the two lists positionally would silently shift
 scores onto the wrong entities.
 
@@ -4038,8 +4067,9 @@ scores onto the wrong entities.
 
 **Raises:**
 
-- <code>ValueError</code> – A stored node under a hit id is not a valid entity.
-- <code>Exception</code> – Whatever the graph store raised while loading hit nodes.
+- <code>Exception</code> – The embedding, the vector search, or the graph read
+  failed. An empty list means the search ran and found no
+  candidate.
 
 ###### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.graph_store` \{#agrag-ingestion-resolve-candidate_source-GraphCandidateSource-graph_store}
 
@@ -4155,7 +4185,7 @@ Fetch a bounded neighbor-relationship sample for persisted entities.
 ##### `agrag.ingestion.resolve.candidate_source.persisted_candidate_indices` \{#agrag-ingestion-resolve-candidate_source-persisted_candidate_indices}
 
 ```python
-persisted_candidate_indices(mentions:list[ExtractedEntity], entities:list[Entity], *, source:GraphCandidateSource, fallback_limit:int = 128) -> tuple[dict[int, list[int]], dict[tuple[int, int], float]]
+persisted_candidate_indices(mentions:list[ExtractedEntity], entities:list[Entity], *, source:GraphCandidateSource, error_policy:ErrorPolicy, fallback_limit:int = 128) -> tuple[dict[int, list[int]], dict[tuple[int, int], float], list[StageFailure]]
 ```
 
 Return ANN candidate indices, with a bounded exhaustive fallback.
@@ -4168,9 +4198,42 @@ returning to an unbounded pairwise scan for established graphs.
 
 - <code>dict\[int, list\[int\]\]</code> – Mention index to its candidate entity indices, plus each compared
 - <code>dict\[tuple\[int, int\], float\]</code> – pair's real embedding cosine similarity keyed by `(min, max)`
-- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\]\]</code> – index order (matching how `Resolver.resolve` builds its own pair
-- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\]\]</code> – keys). The exhaustive-fallback branch reports no scores, so its
-- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\]\]</code> – similarity map is empty.
+- <code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code> – index order (matching how `Resolver.resolve` builds its own pair
+- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\], list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]\]</code> – keys), plus one StageFailure per mention whose candidate read
+- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\], list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]\]</code> – failed. The exhaustive-fallback branch reports no scores, so its
+- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\], list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]\]</code> – similarity map is empty. A mention whose read failed neither starts
+- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\], list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]\]</code> – nor joins a comparison, so it is not resolved in this call.
+
+**Raises:**
+
+- <code>Exception</code> – A candidate read failed and `error_policy` is RAISE.
+
+##### `agrag.ingestion.resolve.candidate_source.read_candidates` \{#agrag-ingestion-resolve-candidate_source-read_candidates}
+
+```python
+read_candidates(source:GraphCandidateSource, mention:ExtractedEntity, *, error_policy:ErrorPolicy) -> tuple[list[tuple[Entity, float]], StageFailure | None]
+```
+
+Read the persisted candidates for one mention, or report the failure.
+
+A failed read is not an empty result: a mention with no candidates would
+become a new entity, so the caller must skip a mention whose read failed.
+
+**Parameters:**
+
+- **source** (<code>[GraphCandidateSource](#agrag-ingestion-resolve-candidate_source-GraphCandidateSource)</code>) – The candidate source to read.
+- **mention** (<code>[ExtractedEntity](common.md#agrag-common-data_models-extraction-ExtractedEntity)</code>) – The mention to find persisted candidates for.
+- **error_policy** (<code>[ErrorPolicy](loaders.md#agrag-loaders-corpus-types-ErrorPolicy)</code>) – RAISE propagates the failure; any other policy
+  returns it as a StageFailure.
+
+**Returns:**
+
+- <code>list\[tuple\[[Entity](common.md#agrag-common-data_models-entity-Entity), float\]\]</code> – The `(Entity, score)` pairs and None when the read succeeded, or
+- <code>[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure) | None</code> – an empty list and the StageFailure when it failed.
+
+**Raises:**
+
+- <code>Exception</code> – The read failed and `error_policy` is RAISE.
 
 #### `agrag.ingestion.resolve.comparators` \{#agrag-ingestion-resolve-comparators}
 
@@ -4584,7 +4647,7 @@ merge_key.
 #### `agrag.ingestion.resolve.persisted_candidate_indices` \{#agrag-ingestion-resolve-persisted_candidate_indices}
 
 ```python
-persisted_candidate_indices(mentions:list[ExtractedEntity], entities:list[Entity], *, source:GraphCandidateSource, fallback_limit:int = 128) -> tuple[dict[int, list[int]], dict[tuple[int, int], float]]
+persisted_candidate_indices(mentions:list[ExtractedEntity], entities:list[Entity], *, source:GraphCandidateSource, error_policy:ErrorPolicy, fallback_limit:int = 128) -> tuple[dict[int, list[int]], dict[tuple[int, int], float], list[StageFailure]]
 ```
 
 Return ANN candidate indices, with a bounded exhaustive fallback.
@@ -4597,9 +4660,15 @@ returning to an unbounded pairwise scan for established graphs.
 
 - <code>dict\[int, list\[int\]\]</code> – Mention index to its candidate entity indices, plus each compared
 - <code>dict\[tuple\[int, int\], float\]</code> – pair's real embedding cosine similarity keyed by `(min, max)`
-- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\]\]</code> – index order (matching how `Resolver.resolve` builds its own pair
-- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\]\]</code> – keys). The exhaustive-fallback branch reports no scores, so its
-- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\]\]</code> – similarity map is empty.
+- <code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code> – index order (matching how `Resolver.resolve` builds its own pair
+- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\], list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]\]</code> – keys), plus one StageFailure per mention whose candidate read
+- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\], list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]\]</code> – failed. The exhaustive-fallback branch reports no scores, so its
+- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\], list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]\]</code> – similarity map is empty. A mention whose read failed neither starts
+- <code>tuple\[dict\[int, list\[int\]\], dict\[tuple\[int, int\], float\], list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]\]</code> – nor joins a comparison, so it is not resolved in this call.
+
+**Raises:**
+
+- <code>Exception</code> – A candidate read failed and `error_policy` is RAISE.
 
 #### `agrag.ingestion.resolve.resolution` \{#agrag-ingestion-resolve-resolution}
 
@@ -4627,7 +4696,7 @@ returns the result.
 ##### `agrag.ingestion.resolve.resolution.BatchResolution` \{#agrag-ingestion-resolve-resolution-BatchResolution}
 
 ```python
-BatchResolution(exact_matches:dict[int, Entity], groups:list[ResolutionGroup], result:ResolutionResult | None, persisted_ids:dict[int, UUID] = dict(), candidate_entities:dict[UUID, Entity] = dict()) -> None
+BatchResolution(exact_matches:dict[int, Entity], groups:list[ResolutionGroup], result:ResolutionResult | None, persisted_ids:dict[int, UUID] = dict(), candidate_entities:dict[UUID, Entity] = dict(), failures:list[StageFailure] = list(), unresolved_indices:set[int] = set()) -> None
 ```
 
 The outcome of resolving one batch of mentions.
@@ -4642,6 +4711,9 @@ The outcome of resolving one batch of mentions.
 - [**persisted_ids**](#agrag-ingestion-resolve-resolution-BatchResolution-persisted_ids) (<code>dict\[int, UUID\]</code>) – Index of each synthetic candidate mention to the id of
   the persisted entity it stands for.
 - [**candidate_entities**](#agrag-ingestion-resolve-resolution-BatchResolution-candidate_entities) (<code>dict\[UUID, [Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – Persisted candidates by id.
+- [**failures**](#agrag-ingestion-resolve-resolution-BatchResolution-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – One StageFailure per mention whose candidate read failed.
+- [**unresolved_indices**](#agrag-ingestion-resolve-resolution-BatchResolution-unresolved_indices) (<code>set\[int\]</code>) – Indices of the mentions in `failures`. A
+  mention whose read failed neither starts nor joins a comparison.
 
 ###### `agrag.ingestion.resolve.resolution.BatchResolution.candidate_entities` \{#agrag-ingestion-resolve-resolution-BatchResolution-candidate_entities}
 
@@ -4653,6 +4725,12 @@ candidate_entities: dict[UUID, Entity] = field(default_factory=dict)
 
 ```python
 exact_matches: dict[int, Entity]
+```
+
+###### `agrag.ingestion.resolve.resolution.BatchResolution.failures` \{#agrag-ingestion-resolve-resolution-BatchResolution-failures}
+
+```python
+failures: list[StageFailure] = field(default_factory=list)
 ```
 
 ###### `agrag.ingestion.resolve.resolution.BatchResolution.groups` \{#agrag-ingestion-resolve-resolution-BatchResolution-groups}
@@ -4671,6 +4749,12 @@ persisted_ids: dict[int, UUID] = field(default_factory=dict)
 
 ```python
 result: ResolutionResult | None
+```
+
+###### `agrag.ingestion.resolve.resolution.BatchResolution.unresolved_indices` \{#agrag-ingestion-resolve-resolution-BatchResolution-unresolved_indices}
+
+```python
+unresolved_indices: set[int] = field(default_factory=set)
 ```
 
 ##### `agrag.ingestion.resolve.resolution.SYSTEM_RELATION_TYPES` \{#agrag-ingestion-resolve-resolution-SYSTEM_RELATION_TYPES}
@@ -4732,7 +4816,7 @@ Resolve a fixed set of persisted entities by comparing same-label pairs.
 ##### `agrag.ingestion.resolve.resolution.resolve_batch` \{#agrag-ingestion-resolve-resolution-resolve_batch}
 
 ```python
-resolve_batch(mentions:list[ExtractedEntity], relations:Sequence[ExtractedRelation], chunks_by_id:dict[UUID, Chunk], *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, vector_collection:str, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, job_id:UUID | str | None = None) -> BatchResolution
+resolve_batch(mentions:list[ExtractedEntity], relations:Sequence[ExtractedRelation], chunks_by_id:dict[UUID, Chunk], *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, vector_collection:str, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy, job_id:UUID | str | None = None) -> BatchResolution
 ```
 
 Resolve one extraction batch against itself and the persisted graph.
@@ -4754,17 +4838,23 @@ through one pass. Synthetic mentions never initiate a comparison.
 - **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
 - **tracer** (<code>Tracer | None</code>) – Opens the phase spans and traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
+- **error_policy** (<code>[ErrorPolicy](loaders.md#agrag-loaders-corpus-types-ErrorPolicy)</code>) – RAISE propagates a failed candidate read; any other
+  policy records it and leaves that mention unresolved.
 - **job_id** (<code>UUID | str | None</code>) – The in-flight Cutover Job's id for the exact-match read.
 
 **Returns:**
 
-- <code>[BatchResolution](#agrag-ingestion-resolve-resolution-BatchResolution)</code> – The exact matches, exact groups, resolver result, and persisted
-- <code>[BatchResolution](#agrag-ingestion-resolve-resolution-BatchResolution)</code> – candidates for the batch.
+- <code>[BatchResolution](#agrag-ingestion-resolve-resolution-BatchResolution)</code> – The exact matches, exact groups, resolver result, persisted
+- <code>[BatchResolution](#agrag-ingestion-resolve-resolution-BatchResolution)</code> – candidates, and candidate-read failures for the batch.
+
+**Raises:**
+
+- <code>Exception</code> – A candidate read failed and `error_policy` is RAISE.
 
 ##### `agrag.ingestion.resolve.resolution.resolve_persisted` \{#agrag-ingestion-resolve-resolution-resolve_persisted}
 
 ```python
-resolve_persisted(entities:list[Entity], *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, vector_collection:str, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int) -> ResolutionResult
+resolve_persisted(entities:list[Entity], *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, vector_collection:str, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy) -> tuple[ResolutionResult, list[StageFailure]]
 ```
 
 Resolve persisted entities against each other.
@@ -4781,10 +4871,17 @@ ANN search bounds the pairs the resolver compares.
 - **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
 - **tracer** (<code>Tracer | None</code>) – Traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
+- **error_policy** (<code>[ErrorPolicy](loaders.md#agrag-loaders-corpus-types-ErrorPolicy)</code>) – RAISE propagates a failed candidate read; any other
+  policy records it and leaves that entity out of this pass.
 
 **Returns:**
 
-- <code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult)</code> – The resolver result, indexed like `entities`.
+- <code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult)</code> – The resolver result, indexed like `entities`, and one StageFailure
+- <code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code> – per entity whose candidate read failed.
+
+**Raises:**
+
+- <code>Exception</code> – A candidate read failed and `error_policy` is RAISE.
 
 #### `agrag.ingestion.resolve.resolve_among` \{#agrag-ingestion-resolve-resolve_among}
 
@@ -4809,7 +4906,7 @@ Resolve a fixed set of persisted entities by comparing same-label pairs.
 #### `agrag.ingestion.resolve.resolve_batch` \{#agrag-ingestion-resolve-resolve_batch}
 
 ```python
-resolve_batch(mentions:list[ExtractedEntity], relations:Sequence[ExtractedRelation], chunks_by_id:dict[UUID, Chunk], *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, vector_collection:str, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, job_id:UUID | str | None = None) -> BatchResolution
+resolve_batch(mentions:list[ExtractedEntity], relations:Sequence[ExtractedRelation], chunks_by_id:dict[UUID, Chunk], *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, vector_collection:str, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy, job_id:UUID | str | None = None) -> BatchResolution
 ```
 
 Resolve one extraction batch against itself and the persisted graph.
@@ -4831,17 +4928,23 @@ through one pass. Synthetic mentions never initiate a comparison.
 - **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
 - **tracer** (<code>Tracer | None</code>) – Opens the phase spans and traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
+- **error_policy** (<code>[ErrorPolicy](loaders.md#agrag-loaders-corpus-types-ErrorPolicy)</code>) – RAISE propagates a failed candidate read; any other
+  policy records it and leaves that mention unresolved.
 - **job_id** (<code>UUID | str | None</code>) – The in-flight Cutover Job's id for the exact-match read.
 
 **Returns:**
 
-- <code>[BatchResolution](#agrag-ingestion-resolve-resolution-BatchResolution)</code> – The exact matches, exact groups, resolver result, and persisted
-- <code>[BatchResolution](#agrag-ingestion-resolve-resolution-BatchResolution)</code> – candidates for the batch.
+- <code>[BatchResolution](#agrag-ingestion-resolve-resolution-BatchResolution)</code> – The exact matches, exact groups, resolver result, persisted
+- <code>[BatchResolution](#agrag-ingestion-resolve-resolution-BatchResolution)</code> – candidates, and candidate-read failures for the batch.
+
+**Raises:**
+
+- <code>Exception</code> – A candidate read failed and `error_policy` is RAISE.
 
 #### `agrag.ingestion.resolve.resolve_persisted` \{#agrag-ingestion-resolve-resolve_persisted}
 
 ```python
-resolve_persisted(entities:list[Entity], *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, vector_collection:str, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int) -> ResolutionResult
+resolve_persisted(entities:list[Entity], *, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None, vector_collection:str, entity_labels:Sequence[str], tracer:Tracer | None, max_llm_pairs:int, error_policy:ErrorPolicy) -> tuple[ResolutionResult, list[StageFailure]]
 ```
 
 Resolve persisted entities against each other.
@@ -4858,10 +4961,17 @@ ANN search bounds the pairs the resolver compares.
 - **entity_labels** (<code>Sequence\[str\]</code>) – The labels the schema defines.
 - **tracer** (<code>Tracer | None</code>) – Traces the resolver.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous pairs per label sent to the LLM.
+- **error_policy** (<code>[ErrorPolicy](loaders.md#agrag-loaders-corpus-types-ErrorPolicy)</code>) – RAISE propagates a failed candidate read; any other
+  policy records it and leaves that entity out of this pass.
 
 **Returns:**
 
-- <code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult)</code> – The resolver result, indexed like `entities`.
+- <code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult)</code> – The resolver result, indexed like `entities`, and one StageFailure
+- <code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code> – per entity whose candidate read failed.
+
+**Raises:**
+
+- <code>Exception</code> – A candidate read failed and `error_policy` is RAISE.
 
 #### `agrag.ingestion.resolve.resolver` \{#agrag-ingestion-resolve-resolver}
 
@@ -6142,7 +6252,9 @@ Merge-stage results.
   across every merge this call performed.
 - [**failures**](#agrag-ingestion-stats-MergeStats-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Includes an LLM failure during description
   summarization. The merge still falls back to concatenation and
-  completes, but the failure is recorded here.
+  completes, but the failure is recorded here. Also includes a
+  failed read of a mention's persisted candidates: that mention
+  is not merged in this call.
 - [**failures_total**](#agrag-ingestion-stats-MergeStats-failures_total) (<code>int</code>) – Failures recorded before capping.
 - [**failures_truncated**](#agrag-ingestion-stats-MergeStats-failures_truncated) (<code>bool</code>) – Whether `failures` was cut to the cap.
 
@@ -6537,7 +6649,9 @@ Merge-stage results.
   across every merge this call performed.
 - [**failures**](#agrag-ingestion-stats-merge-MergeStats-failures) (<code>list\[[StageFailure](common.md#agrag-common-data_models-stage_failure-StageFailure)\]</code>) – Includes an LLM failure during description
   summarization. The merge still falls back to concatenation and
-  completes, but the failure is recorded here.
+  completes, but the failure is recorded here. Also includes a
+  failed read of a mention's persisted candidates: that mention
+  is not merged in this call.
 - [**failures_total**](#agrag-ingestion-stats-merge-MergeStats-failures_total) (<code>int</code>) – Failures recorded before capping.
 - [**failures_truncated**](#agrag-ingestion-stats-merge-MergeStats-failures_truncated) (<code>bool</code>) – Whether `failures` was cut to the cap.
 

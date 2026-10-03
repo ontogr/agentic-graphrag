@@ -221,8 +221,11 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         vector_store: Optional second write target for embeddings.
         graph_schema: The entity/relation types merges are computed against.
         retrieval_settings: Collection names for the VectorStore writes.
-        error_policy: RAISE propagates a stage failure; any other policy
-            records it and continues with the remaining items.
+        error_policy: RAISE propagates a stage failure, including a failed
+            read of a mention's persisted candidates; any other policy
+            records it and continues with the remaining items. A mention
+            whose candidate read failed is not resolved or stored in this
+            call, and its failure appears in ``merge.failures``.
         ingestion: The ingestion-stage summary the caller already computed
             from its own walk.
         return_chunks: Whether to include the ingested chunks in the
@@ -301,9 +304,11 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             entity_labels=[entity.label for entity in graph_schema.entities],
             tracer=tracer,
             max_llm_pairs=max_llm_pairs,
+            error_policy=error_policy,
             job_id=job_id,
         )
         exact_matches = resolution_batch.exact_matches
+        unresolved_indices = resolution_batch.unresolved_indices
         resolution_result = resolution_batch.result
         persisted_ids = resolution_batch.persisted_ids
         candidate_entities = resolution_batch.candidate_entities
@@ -333,7 +338,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         # Merge and write
         merge_stats = MergeStats()
         storage_stats = StorageStats()
-        merge_failures: list[StageFailure] = []
+        merge_failures: list[StageFailure] = list(resolution_batch.failures)
 
         # Track survivors and mention->entity map
         mention_to_entity: dict[int, UUID] = {}
@@ -345,7 +350,13 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         conflicts_resolved = 0
 
         for group in groups:
-            group_indices = list(group.entity_indices)
+            group_indices = [
+                index
+                for index in group.entity_indices
+                if index not in unresolved_indices
+            ]
+            if not group_indices:
+                continue
             group_mentions = [entities[i] for i in group_indices]
             with resolved_tracer.start_as_current_span(
                 "agrag.merge.merge_group",

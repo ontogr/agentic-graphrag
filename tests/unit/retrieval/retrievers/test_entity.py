@@ -15,6 +15,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.cypher.entities import load_entities_by_id_query
+from agrag.cypher.resolution_read import fetch_active_resolved_member_ids_query
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.retrievers.entity import EntityRetriever
 
@@ -91,23 +92,6 @@ class TestEntityRetriever:
             assert results[0].item.id == ent.id
             assert results[0].item.name == ent.name
             assert results[0].method == "entity"
-
-    async def test_loading_read_failure_propagates(self) -> None:
-        """A failed loading read is raised, not returned as missing hits."""
-        graph_store = AsyncMock()
-        graph_store.execute_read.side_effect = ConnectionError("read failed")
-
-        with (
-            patch(
-                "agrag.retrieval.retrievers.entity.vector_search",
-                new_callable=AsyncMock,
-                return_value=[VectorHit(id=uuid4(), score=0.9, payload={})],
-            ),
-            pytest.raises(ConnectionError, match="read failed"),
-        ):
-            await EntityRetriever(
-                graph_store=graph_store, embedder=MockEmbedder()
-            ).retrieve("Ada")
 
     async def test_returns_resolved_entity_without_its_raw_member(self) -> None:
         """An active resolved entity replaces its member in user-facing search."""
@@ -280,10 +264,8 @@ class TestEntityRetriever:
         limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
         assert limits == [2, 4, 2]
 
-    async def test_document_scope_keeps_raw_results_when_backfill_fails(
-        self,
-    ) -> None:
-        """A failed raw backfill keeps the scoped result from the first search."""
+    async def test_document_scope_raises_when_raw_backfill_fails(self) -> None:
+        """A failed raw backfill raises instead of returning a partial list."""
         scoped_id = uuid4()
         scoped = Entity(id=scoped_id, label="Person", name="Ada")
         graph_store = _graph_store(entities=(scoped,), allowed_ids=(scoped_id,))
@@ -296,20 +278,16 @@ class TestEntityRetriever:
                 side_effect=[
                     [outside, VectorHit(id=scoped_id, score=0.8, payload={})],
                     RuntimeError("temporary vector failure"),
-                    [],
                 ],
-            ) as vector_search_mock,
+            ),
         ):
             retriever = EntityRetriever(
                 graph_store=graph_store, embedder=MockEmbedder()
             )
-            results = await retriever.retrieve(
-                "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
-            )
-
-        assert [result.item.id for result in results] == [scoped.id]
-        limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
-        assert limits == [2, 4, 2]
+            with pytest.raises(RuntimeError, match="temporary vector failure"):
+                await retriever.retrieve(
+                    "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
+                )
 
     async def test_document_scope_expands_resolved_search_for_in_scope_member(
         self,
@@ -385,10 +363,8 @@ class TestEntityRetriever:
             for call in vector_search_mock.await_args_list
         )
 
-    async def test_document_scope_keeps_resolved_results_when_backfill_fails(
-        self,
-    ) -> None:
-        """A failed resolved backfill keeps the scoped result from the first search."""
+    async def test_document_scope_raises_when_resolved_backfill_fails(self) -> None:
+        """A failed resolved backfill raises instead of returning a partial list."""
         scoped_member_id = uuid4()
         scoped = ResolvedEntity(
             id=uuid4(),
@@ -427,11 +403,11 @@ class TestEntityRetriever:
             retriever = EntityRetriever(
                 graph_store=graph_store, embedder=MockEmbedder()
             )
-            results = await retriever.retrieve(
-                "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
-            )
+            with pytest.raises(RuntimeError, match="temporary vector failure"):
+                await retriever.retrieve(
+                    "Ada", filters=SearchFilters(document_ids=["doc-1"]), limit=2
+                )
 
-        assert [result.item.id for result in results] == [scoped.id]
         limits = [call.kwargs["limit"] for call in vector_search_mock.await_args_list]
         assert limits == [2, 2, 4]
 
@@ -538,10 +514,8 @@ class TestEntityRetriever:
         assert resolved_filters.labels == []
         assert resolved_filters.properties["label"] == ["Person"]
 
-    async def test_missing_resolved_collection_falls_back_to_raw_results(
-        self,
-    ) -> None:
-        """A resolved-collection search failure keeps the raw results."""
+    async def test_resolved_collection_search_failure_raises(self) -> None:
+        """A resolved-collection search failure raises, not a raw-only list."""
         ent = Entity(id=uuid4(), label="Person", name="Alice")
         gs = _graph_store(entities=(ent,))
 
@@ -556,6 +530,55 @@ class TestEntityRetriever:
             ),
         ):
             retriever = EntityRetriever(graph_store=gs, embedder=MockEmbedder())
+            with pytest.raises(RuntimeError, match="collection not found"):
+                await retriever.retrieve("Alice")
+
+    async def test_loading_read_failure_raises(self) -> None:
+        """A failed entity load raises, so it is not read as no results."""
+        gs = AsyncMock()
+        gs.execute_read.side_effect = RuntimeError("db down")
+
+        with patch(
+            "agrag.retrieval.retrievers.entity.vector_search",
+            new_callable=AsyncMock,
+            return_value=[VectorHit(id=uuid4(), score=0.9, payload={})],
+        ):
+            retriever = EntityRetriever(graph_store=gs, embedder=MockEmbedder())
+            with pytest.raises(RuntimeError, match="db down"):
+                await retriever.retrieve("Alice")
+
+    async def test_supersession_read_failure_raises(self) -> None:
+        """A failed resolved-member read raises instead of keeping raw members."""
+        ent = Entity(id=uuid4(), label="Person", name="Alice")
+        gs = _graph_store(entities=(ent,))
+        base_read = gs.execute_read.side_effect
+
+        async def execute_read(query: str, params: dict) -> list[dict]:
+            if query == fetch_active_resolved_member_ids_query():
+                raise RuntimeError("db down")
+            return await base_read(query, params)
+
+        gs.execute_read.side_effect = execute_read
+
+        with patch(
+            "agrag.retrieval.retrievers.entity.vector_search",
+            new_callable=AsyncMock,
+            return_value=[VectorHit(id=ent.id, score=0.9, payload={})],
+        ):
+            retriever = EntityRetriever(graph_store=gs, embedder=MockEmbedder())
+            with pytest.raises(RuntimeError, match="db down"):
+                await retriever.retrieve("Alice")
+
+    async def test_returns_empty_when_nothing_matches(self) -> None:
+        """Searches that run and find nothing return an empty list."""
+        gs = _graph_store()
+
+        with patch(
+            "agrag.retrieval.retrievers.entity.vector_search",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            retriever = EntityRetriever(graph_store=gs, embedder=MockEmbedder())
             results = await retriever.retrieve("Alice")
 
-        assert [result.item.id for result in results] == [ent.id]
+        assert results == []

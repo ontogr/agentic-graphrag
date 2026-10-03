@@ -312,6 +312,10 @@ class WeaviateVectorStore(VectorStore):
             properties=[
                 Property(name=_PENDING_PROPERTY, data_type=DataType.BOOL),
                 Property(name=PENDING_JOB_ID_PROPERTY, data_type=DataType.TEXT),
+                # Declared up front: Weaviate rejects a filter on a property
+                # no object has set yet, and a label filter on an empty
+                # collection must find nothing instead of failing.
+                Property(name="label", data_type=DataType.TEXT),
             ],
         )
 

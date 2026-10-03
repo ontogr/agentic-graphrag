@@ -141,7 +141,7 @@ The order of the names, and the name of the group, can differ in your run.
 
 - `would_match` lists every confirmed match. Each item has the two entity ids, the tier, a score when the tier has one, and the reason when an LLM decided. The tier is `fuzzy_fast_path`, `embedding`, or `llm`.
 - `ambiguous_count` is the number of pairs that an LLM called uncertain. These pairs never merge.
-- `applied` is `True` when the matches were written. `failures` lists any match that could not be written.
+- `applied` is `True` when the matches were written. `failures` lists any match that could not be written, and any entity whose candidates could not be read. Consolidate does not compare that entity in this call. Run it again after you fix the cause.
 
 The report lists matches that the graph already stores. Applying the same matches again is safe.
 

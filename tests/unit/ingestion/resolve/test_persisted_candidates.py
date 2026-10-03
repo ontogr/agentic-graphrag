@@ -2,9 +2,12 @@
 
 from uuid import uuid4
 
+import pytest
+
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.ingestion.resolve.candidate_source import persisted_candidate_indices
+from agrag.loaders.corpus.types import ErrorPolicy
 
 
 def _entity(name: str, label: str = "Person") -> Entity:
@@ -55,10 +58,11 @@ class TestPersistedCandidateIndices:
         """Only returned same-label raw nodes become resolver pairs."""
         first, second, other = _entity("Ada"), _entity("Ada L."), _entity("Org", "Org")
 
-        indices, similarity = await persisted_candidate_indices(
+        indices, similarity, failures = await persisted_candidate_indices(
             [_mention(first), _mention(second), _mention(other)],
             [first, second, other],
             source=_CandidateSource({"Ada": [second, other]}),  # type: ignore[arg-type]
+            error_policy=ErrorPolicy.SKIP,
         )
 
         assert indices == {0: [1]}
@@ -68,10 +72,11 @@ class TestPersistedCandidateIndices:
         """Small first-time graphs still compare every same-label raw entity."""
         first, second = _entity("Ada"), _entity("Ada L.")
 
-        indices, similarity = await persisted_candidate_indices(
+        indices, similarity, failures = await persisted_candidate_indices(
             [_mention(first), _mention(second)],
             [first, second],
             source=_CandidateSource({}),  # type: ignore[arg-type]
+            error_policy=ErrorPolicy.SKIP,
         )
 
         assert indices == {0: [1], 1: [0]}
@@ -81,38 +86,72 @@ class TestPersistedCandidateIndices:
         """A large, first-time population does not fall back to a full scan."""
         entities = [_entity(f"Person {i}") for i in range(130)]
 
-        indices, similarity = await persisted_candidate_indices(
+        indices, similarity, failures = await persisted_candidate_indices(
             [_mention(entity) for entity in entities],
             entities,
             source=_CandidateSource({}),  # type: ignore[arg-type]
+            error_policy=ErrorPolicy.SKIP,
         )
 
         assert indices == {}
         assert similarity == {}
 
-    async def test_lookup_failure_leaves_only_that_mention_without_candidates(
-        self,
-    ) -> None:
-        """A candidate-lookup failure for one mention does not affect others."""
+    async def test_failed_read_skips_that_mention_and_reports_it(self) -> None:
+        """A mention whose read failed neither starts nor joins a comparison."""
         first, second, third = _entity("Ada"), _entity("Ada L."), _entity("Grace")
 
-        indices, similarity = await persisted_candidate_indices(
+        indices, similarity, failures = await persisted_candidate_indices(
             [_mention(first), _mention(second), _mention(third)],
             [first, second, third],
-            source=_CandidateSource({"Grace": [second]}, raises_for={"Ada"}),  # type: ignore[arg-type]
+            source=_CandidateSource(
+                {"Grace": [first, second]},
+                raises_for={"Ada"},
+            ),  # type: ignore[arg-type]
+            error_policy=ErrorPolicy.SKIP,
         )
 
         assert indices == {2: [1]}
         assert similarity == {(1, 2): 0.0}
+        assert [failure.item_id for failure in failures] == ["Ada"]
+        assert failures[0].error_message == "candidate lookup failed"
+
+    async def test_failed_read_is_not_resolved_by_the_full_scan_fallback(
+        self,
+    ) -> None:
+        """A failed read does not turn into a full scan for that mention."""
+        first, second, third = _entity("Ada"), _entity("Ada L."), _entity("Grace")
+
+        indices, _, failures = await persisted_candidate_indices(
+            [_mention(first), _mention(second), _mention(third)],
+            [first, second, third],
+            source=_CandidateSource({}, raises_for={"Ada"}),  # type: ignore[arg-type]
+            error_policy=ErrorPolicy.SKIP,
+        )
+
+        assert indices == {1: [2], 2: [1]}
+        assert len(failures) == 1
+
+    async def test_failed_read_raises_under_raise_policy(self) -> None:
+        """RAISE propagates the read failure."""
+        first, second = _entity("Ada"), _entity("Grace")
+
+        with pytest.raises(RuntimeError, match="candidate lookup failed"):
+            await persisted_candidate_indices(
+                [_mention(first), _mention(second)],
+                [first, second],
+                source=_CandidateSource({}, raises_for={"Ada"}),  # type: ignore[arg-type]
+                error_policy=ErrorPolicy.RAISE,
+            )
 
     async def test_reports_real_embedding_similarity_per_pair(self) -> None:
         """Each compared pair keeps the ANN score of its own candidate hit."""
         first, second = _entity("Ada"), _entity("Ada L.")
 
-        indices, similarity = await persisted_candidate_indices(
+        indices, similarity, failures = await persisted_candidate_indices(
             [_mention(first), _mention(second)],
             [first, second],
             source=_CandidateSource({"Ada": [second]}, scores={"Ada": [0.93]}),  # type: ignore[arg-type]
+            error_policy=ErrorPolicy.SKIP,
         )
 
         assert indices == {0: [1]}

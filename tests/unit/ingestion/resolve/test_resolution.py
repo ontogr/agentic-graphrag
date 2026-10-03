@@ -12,6 +12,7 @@ from agrag.ingestion.resolve.resolution import (
     resolve_among,
     resolve_batch,
 )
+from agrag.loaders.corpus.types import ErrorPolicy
 
 
 class _Embedder:
@@ -176,6 +177,7 @@ class TestResolveBatch:
             entity_labels=["Person"],
             tracer=None,
             max_llm_pairs=0,
+            error_policy=ErrorPolicy.RAISE,
         )
 
         assert batch.result is None
@@ -218,8 +220,41 @@ class TestResolveBatch:
                 entity_labels=["Person"],
                 tracer=None,
                 max_llm_pairs=0,
+                error_policy=ErrorPolicy.RAISE,
             )
 
         assert batch.exact_matches[0].id == exact_id
         assert list(batch.persisted_ids.values()) == [other_id]
         assert set(batch.candidate_entities) == {other_id}
+
+    async def test_failed_candidate_read_leaves_the_mention_unresolved(self) -> None:
+        """A mention whose read failed is reported and compared with no peer."""
+        store = AsyncMock()
+        store.execute_read.return_value = []
+        mentions = [_mention("Ada"), _mention("Ada L.")]
+
+        with patch(
+            "agrag.ingestion.resolve.candidate_source.vector_search",
+            new=AsyncMock(side_effect=[RuntimeError("vector store down"), []]),
+        ):
+            batch = await resolve_batch(
+                mentions,
+                [],
+                {},
+                graph_store=store,
+                embedder=_Embedder(),
+                vector_store=None,
+                vector_collection="",
+                entity_labels=["Person"],
+                tracer=None,
+                max_llm_pairs=0,
+                error_policy=ErrorPolicy.SKIP,
+            )
+
+        assert batch.unresolved_indices == {0}
+        assert len(batch.failures) == 1
+        assert batch.result is not None
+        assert all(
+            0 not in group.entity_indices or len(group.entity_indices) == 1
+            for group in batch.result.groups
+        )

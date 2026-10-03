@@ -7,6 +7,7 @@ Run against the Docker Compose Neo4j instance from
 import importlib.util
 import os
 from collections.abc import AsyncGenerator, Sequence
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -436,6 +437,30 @@ class TestSearchEngineIntegration:
             await self.store.execute_write(f"MATCH (n:{org_label}) DETACH DELETE n")
 
 
+class _NoResolvedEntityIndexStore:
+    """Store wrapper that serves no vector hits for resolved entities.
+
+    The shared instance holds one ``ResolvedEntity`` vector index whose size
+    other tests set, so this suite's 64-dimension query vectors cannot search
+    it. These tests seed no resolved entities, so an empty answer is the true
+    one. Every other call reaches the real store.
+    """
+
+    def __init__(self, store: Any) -> None:
+        """Wrap the real store."""
+        self._store = store
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate to the real store."""
+        return getattr(self._store, name)
+
+    async def vector_search(self, *, label: str, **kwargs: Any) -> list[Any]:
+        """Return no hits for resolved entities; search the real store otherwise."""
+        if label == "ResolvedEntity":
+            return []
+        return await self._store.vector_search(label=label, **kwargs)
+
+
 @pytest.mark.skipif(neo4j_missing, reason="neo4j extra not installed")
 class TestTraversalIntegration:
     """SearchEngine and its traversal tools walk a real, directed graph."""
@@ -460,7 +485,7 @@ class TestTraversalIntegration:
             relations=[],
         )
         self.engine = SearchEngine(
-            graph_store=self.store,
+            graph_store=_NoResolvedEntityIndexStore(self.store),
             embedder=self.embedder,
             settings=self.settings,
             graph_schema=self.schema,

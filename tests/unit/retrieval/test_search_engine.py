@@ -42,7 +42,7 @@ from agrag.retrieval.errors import (
 )
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.traversal import extract_entity_ids
-from agrag.retrieval.recipes import ENTITY, HYBRID, Recipe
+from agrag.retrieval.recipes import ENTITY, HYBRID, TEXT2CYPHER, Recipe
 from agrag.retrieval.search_engine import SearchEngine
 from agrag.retrieval.settings import RetrievalSettings
 
@@ -755,6 +755,63 @@ class TestSearchEngine:
 
         assert set(excinfo.value.failures) == {"entity", "chunk"}
         assert isinstance(excinfo.value.__cause__, RuntimeError)
+
+    async def test_text2cypher_alone_failing_raises(self) -> None:
+        """A text2cypher failure counts, so a text2cypher-only recipe raises."""
+        engine = SearchEngine(graph_store=AsyncMock(), embedder=MockEmbedder())
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.text2cypher.Text2CypherRetriever."
+                "_generate_cypher",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("llm down"),
+            ),
+            pytest.raises(AllRetrievalMethodsFailedError) as excinfo,
+        ):
+            await engine.search("how many drugs?", TEXT2CYPHER)
+
+        assert set(excinfo.value.failures) == {"text2cypher"}
+
+    async def test_text2cypher_partial_failure_keeps_other_methods(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A failing text2cypher does not sink a succeeding chunk method."""
+        ch = Chunk(
+            id=uuid4(),
+            document_id=uuid4(),
+            index=0,
+            text="Some text",
+            provenance=TextProvenance(char_start=0, char_end=9),
+        )
+        gs = AsyncMock()
+        engine = SearchEngine(graph_store=gs, embedder=MockEmbedder())
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.text2cypher.Text2CypherRetriever."
+                "_generate_cypher",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("llm down"),
+            ),
+            patch(
+                "agrag.retrieval.retrievers.chunk.vector_search",
+                new_callable=AsyncMock,
+                return_value=[VectorHit(id=ch.id, score=0.8, payload={})],
+            ),
+            patch(
+                "agrag.retrieval.retrievers.chunk.ChunkRetriever._parse_chunk_node",
+                return_value=ch,
+            ),
+            caplog.at_level(logging.WARNING, logger="agrag.retrieval.search_engine"),
+        ):
+            gs.execute_read.return_value = [{"n": {"id": str(ch.id)}}]
+            results = await engine.search(
+                "test", Recipe(methods=["chunk", "text2cypher"], limit=10)
+            )
+
+        assert [r.item.id for r in results] == [ch.id]
+        assert any("text2cypher" in record.message for record in caplog.records)
 
     async def test_partial_failure_keeps_surviving_methods(
         self, caplog: pytest.LogCaptureFixture

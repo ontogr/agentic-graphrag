@@ -3,6 +3,8 @@
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
+import pytest
+
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.retrieval.retrievers.community import CommunityRetriever
 from agrag.retrieval.settings import RetrievalSettings
@@ -11,8 +13,8 @@ from agrag.retrieval.settings import RetrievalSettings
 class TestCommunityRetriever:
     """CommunityRetriever uses community collection/top_k, not chunk's."""
 
-    async def test_loading_query_raises_returns_empty(self) -> None:
-        """A loading query failure returns no results, not an exception."""
+    async def test_loading_query_failure_raises(self) -> None:
+        """A loading query failure raises, so it is not read as no results."""
         mock_store = AsyncMock()
         mock_embedder = AsyncMock()
         mock_embedder.embed.return_value = [[0.1]]
@@ -23,8 +25,23 @@ class TestCommunityRetriever:
         ) as mock_vs:
             mock_vs.return_value = [VectorHit(id=uuid4(), score=0.9, payload={})]
             retr = CommunityRetriever(graph_store=mock_store, embedder=mock_embedder)
+            with pytest.raises(RuntimeError, match="db down"):
+                await retr.retrieve("q")
+
+    async def test_returns_empty_when_search_finds_nothing(self) -> None:
+        """A search with no hits returns an empty list without a graph read."""
+        mock_store = AsyncMock()
+        mock_embedder = AsyncMock()
+
+        with patch(
+            "agrag.retrieval.retrievers.community.vector_search", new_callable=AsyncMock
+        ) as mock_vs:
+            mock_vs.return_value = []
+            retr = CommunityRetriever(graph_store=mock_store, embedder=mock_embedder)
             res = await retr.retrieve("q")
-            assert res == []
+
+        assert res == []
+        mock_store.execute_read.assert_not_awaited()
 
     async def test_unparsable_row_is_skipped(self) -> None:
         """A row that fails to parse is skipped; other rows still load.

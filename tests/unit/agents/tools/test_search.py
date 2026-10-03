@@ -26,6 +26,7 @@ from agrag.agents.tools.search import (
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.query_value import QueryValue
 from agrag.common.data_models.search_result import SearchResult
+from agrag.retrieval.errors import AllRetrievalMethodsFailedError
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.recipes import (
     CHUNK,
@@ -287,6 +288,19 @@ class TestSearch:
         rendered = await tool.ainvoke({"query": "how many people?"})
 
         assert rendered == "[V1] Value: {'count': 3}"
+
+    async def test_returns_an_error_message_when_the_query_fails(self) -> None:
+        """A failed generated query is an error message, not "no results"."""
+        engine = AsyncMock()
+        engine.search.side_effect = AllRetrievalMethodsFailedError(
+            {"text2cypher": RuntimeError("llm down")}
+        )
+        tool = make_query_graph_directly_tool(engine, Ledger())
+
+        rendered = await tool.ainvoke({"query": "how many people?"})
+
+        assert rendered.startswith("Error:")
+        assert "No results" not in rendered
 
     def test_exposes_query_only(self) -> None:
         """The tool's schema offers no limit or filter parameters."""

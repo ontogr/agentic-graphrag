@@ -17,6 +17,7 @@ from agrag.common.data_models.community import MEMBER_OF_RELATION
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import fetch_by_merge_keys_query
 from agrag.embedding.base import Embedder
@@ -28,6 +29,7 @@ from agrag.ingestion.resolve.candidate_source import (
     build_relation_neighbors,
     fetch_persisted_neighbors,
     persisted_candidate_indices,
+    read_candidates,
 )
 from agrag.ingestion.resolve.exact_groups import exact_resolution_groups
 from agrag.ingestion.resolve.resolver import (
@@ -39,7 +41,8 @@ from agrag.ingestion.resolve.resolver import (
     ResolutionResult,
     Resolver,
 )
-from agrag.observability import get_tracer, record_swallowed_exception
+from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.observability import get_tracer
 from agrag.vectordb.base import VectorStore
 
 
@@ -68,6 +71,9 @@ class BatchResolution:
         persisted_ids: Index of each synthetic candidate mention to the id of
             the persisted entity it stands for.
         candidate_entities: Persisted candidates by id.
+        failures: One StageFailure per mention whose candidate read failed.
+        unresolved_indices: Indices of the mentions in ``failures``. A
+            mention whose read failed neither starts nor joins a comparison.
     """
 
     exact_matches: dict[int, Entity]
@@ -75,6 +81,8 @@ class BatchResolution:
     result: ResolutionResult | None
     persisted_ids: dict[int, UUID] = field(default_factory=dict)
     candidate_entities: dict[UUID, Entity] = field(default_factory=dict)
+    failures: list[StageFailure] = field(default_factory=list)
+    unresolved_indices: set[int] = field(default_factory=set)
 
 
 def _synthetic_entity_mention(entity: Entity) -> tuple[ExtractedEntity, Chunk]:
@@ -189,7 +197,7 @@ async def find_exact_matches(
     return result
 
 
-async def resolve_batch(
+async def resolve_batch(  # noqa: PLR0915
     mentions: list[ExtractedEntity],
     relations: Sequence[ExtractedRelation],
     chunks_by_id: dict[UUID, Chunk],
@@ -201,6 +209,7 @@ async def resolve_batch(
     entity_labels: Sequence[str],
     tracer: Tracer | None,
     max_llm_pairs: int,
+    error_policy: ErrorPolicy,
     job_id: UUID | str | None = None,
 ) -> BatchResolution:
     """Resolve one extraction batch against itself and the persisted graph.
@@ -221,11 +230,16 @@ async def resolve_batch(
         entity_labels: The labels the schema defines.
         tracer: Opens the phase spans and traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
+        error_policy: RAISE propagates a failed candidate read; any other
+            policy records it and leaves that mention unresolved.
         job_id: The in-flight Cutover Job's id for the exact-match read.
 
     Returns:
-        The exact matches, exact groups, resolver result, and persisted
-        candidates for the batch.
+        The exact matches, exact groups, resolver result, persisted
+        candidates, and candidate-read failures for the batch.
+
+    Raises:
+        Exception: A candidate read failed and ``error_policy`` is RAISE.
     """
     resolved_tracer = get_tracer(tracer)
     with resolved_tracer.start_as_current_span(
@@ -252,16 +266,20 @@ async def resolve_batch(
     persisted_ids: dict[int, UUID] = {}
     candidate_entities: dict[UUID, Entity] = {}
     similarity_by_pair: dict[tuple[int, int], float] = {}
+    candidate_failures: list[StageFailure] = []
+    unresolved_indices: set[int] = set()
     with resolved_tracer.start_as_current_span(
         "agrag.resolution.candidate_generation",
         attributes={"agrag.mention_count": len(mentions)},
     ) as span:
         for mention_index, mention in enumerate(mentions):
-            try:
-                candidates = await candidate_source.global_candidates_for(mention)
-            except Exception as exc:  # noqa: BLE001
-                record_swallowed_exception(exc)
-                candidates = []
+            candidates, candidate_failure = await read_candidates(
+                candidate_source, mention, error_policy=error_policy
+            )
+            if candidate_failure is not None:
+                candidate_failures.append(candidate_failure)
+                unresolved_indices.add(mention_index)
+                continue
             seen_candidate_ids: set[UUID] = set()
             exact_match = exact_matches.get(mention_index)
             for candidate, candidate_similarity in candidates:
@@ -290,9 +308,15 @@ async def resolve_batch(
         # initiate: no entry is keyed by a synthetic index.
         candidates_by_index: dict[int, list[int]] = {}
         for index, _mention in enumerate(mentions):
-            real_peers = await candidate_source.candidates_for(index, mentions)
+            if index in unresolved_indices:
+                continue
+            real_peers = [
+                peer
+                for peer in await candidate_source.candidates_for(index, mentions)
+                if peer not in unresolved_indices
+            ]
             if real_peers:
-                candidates_by_index[index] = list(real_peers)
+                candidates_by_index[index] = real_peers
         for index, synthetic in persisted_candidates.items():
             candidates_by_index.setdefault(index, []).extend(synthetic)
         span.set_attribute(
@@ -336,6 +360,8 @@ async def resolve_batch(
         result=result,
         persisted_ids=persisted_ids,
         candidate_entities=candidate_entities,
+        failures=candidate_failures,
+        unresolved_indices=unresolved_indices,
     )
 
 
@@ -349,7 +375,8 @@ async def resolve_persisted(
     entity_labels: Sequence[str],
     tracer: Tracer | None,
     max_llm_pairs: int,
-) -> ResolutionResult:
+    error_policy: ErrorPolicy,
+) -> tuple[ResolutionResult, list[StageFailure]]:
     """Resolve persisted entities against each other.
 
     ANN search bounds the pairs the resolver compares.
@@ -363,9 +390,15 @@ async def resolve_persisted(
         entity_labels: The labels the schema defines.
         tracer: Traces the resolver.
         max_llm_pairs: The most ambiguous pairs per label sent to the LLM.
+        error_policy: RAISE propagates a failed candidate read; any other
+            policy records it and leaves that entity out of this pass.
 
     Returns:
-        The resolver result, indexed like ``entities``.
+        The resolver result, indexed like ``entities``, and one StageFailure
+        per entity whose candidate read failed.
+
+    Raises:
+        Exception: A candidate read failed and ``error_policy`` is RAISE.
     """
     mentions, chunks_by_id = _synthesize_mentions(entities)
     candidate_source = GraphCandidateSource(
@@ -384,8 +417,12 @@ async def resolve_persisted(
         index: persisted_neighbors.get(entity.id, [])
         for index, entity in enumerate(entities)
     }
-    candidate_indices, similarity_by_pair = await persisted_candidate_indices(
-        mentions, entities, source=candidate_source
+    (
+        candidate_indices,
+        similarity_by_pair,
+        failures,
+    ) = await persisted_candidate_indices(
+        mentions, entities, source=candidate_source, error_policy=error_policy
     )
     resolver = _build_resolver(
         chunks_by_id,
@@ -394,11 +431,12 @@ async def resolve_persisted(
         tracer=tracer,
         max_llm_pairs=max_llm_pairs,
     )
-    return await resolver.resolve(
+    result = await resolver.resolve(
         mentions,
         neighbors_by_index=neighbors_by_index,
         similarity_by_pair=similarity_by_pair,
     )
+    return result, failures
 
 
 async def resolve_among(
