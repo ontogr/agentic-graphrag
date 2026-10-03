@@ -162,11 +162,17 @@ class _FlakyVectorStore(QdrantVectorStore):
         records: Sequence[VectorRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> None:
         """Write records, or raise when this collection is set to fail."""
         if collection == self.failing_collection:
             raise RuntimeError("vector store unavailable")
-        await super().upsert(collection, records, batch_size=batch_size)
+        await super().upsert(
+            collection,
+            records,
+            batch_size=batch_size,
+            pending_job_id=pending_job_id,
+        )
 
 
 @dataclass

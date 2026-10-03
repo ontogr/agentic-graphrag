@@ -2,6 +2,8 @@
 
 import re
 
+from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
+
 
 _WRITE_KEYWORDS = frozenset({"CREATE", "MERGE", "DELETE", "SET", "REMOVE", "DROP"})
 # CALL is allowed only for these read-only procedures. Anything else,
@@ -13,6 +15,30 @@ _READ_ONLY_CALL_PROCEDURES = frozenset({"db.index.vector.queryNodes"})
 
 class UnsafeCypherError(Exception):
     """Raised when a generated Cypher query contains a write clause."""
+
+
+class MissingPendingGuardError(ValueError):
+    """Raised when generated Cypher can return rows an in-flight job wrote."""
+
+
+# A node pattern such as ``(n:Person {name: ""})``. The lookbehind skips a
+# function call like ``count(n)``.
+_NODE_PATTERN = re.compile(
+    r"(?<![\w)\]])\(\s*([A-Za-z_]\w*)?\s*(?::[^(){}\[\]]*)?(?:\{[^{}]*\})?\s*\)"
+)
+_RELATION_PATTERN = re.compile(r"-\s*\[([^\]]*)\]\s*-")
+_ANONYMOUS_ARROW = re.compile(r"--")
+_YIELD_PATTERN = re.compile(r"\bYIELD\s+([A-Za-z_]\w*)(?:\s*,\s*([A-Za-z_]\w*))?")
+_PATH_NODE_GUARD = re.compile(
+    rf"\bALL\s*\(\s*(\w+)\s+IN\s+nodes\s*\([^)]*\)\s+WHERE\s+\1\."
+    rf"{PENDING_JOB_ID_PROPERTY}\s+IS\s+NULL",
+    flags=re.IGNORECASE,
+)
+_PATH_RELATION_GUARD = re.compile(
+    rf"\bALL\s*\(\s*(\w+)\s+IN\s+(?:relationships\s*\([^)]*\)|\w+)\s+WHERE\s+\1\."
+    rf"{PENDING_JOB_ID_PROPERTY}\s+IS\s+NULL",
+    flags=re.IGNORECASE,
+)
 
 
 def strip_cypher_syntax(query: str) -> str:
@@ -139,3 +165,66 @@ def reject_write_cypher(query: str) -> None:
                 f"Generated Cypher calls disallowed procedure "
                 f"'{procedure}': {query[:200]}"
             )
+
+
+def require_pending_guard(query: str) -> None:
+    """Raise unless every bound node and relationship excludes pending rows.
+
+    A Cutover Job tags its uncommitted writes with ``_pending_job_id``.
+    Generated Cypher reads the graph directly, so it must filter on that
+    property itself: every named node and relationship variable needs
+    ``alias._pending_job_id IS NULL``, and a variable-length path needs the
+    same test over ``nodes(path)`` and ``relationships(path)``.
+
+    This is a conservative text check, not a proof. It does not track which
+    clause a guard sits in, so a guard in one branch of a query satisfies a
+    variable bound in another. It rejects unnamed variables, because they
+    have no name to guard. A query that fails the check can be regenerated.
+
+    Args:
+        query: The Cypher text a BAML call produced.
+
+    Raises:
+        MissingPendingGuardError: A bound variable has no guard, or a
+            node or relationship has no variable.
+    """
+    stripped = strip_cypher_syntax(query)
+    if _ANONYMOUS_ARROW.search(stripped):
+        raise MissingPendingGuardError(
+            "Generated Cypher has a relationship with no variable to filter"
+        )
+    aliases: set[str] = set()
+    for match in _NODE_PATTERN.finditer(stripped):
+        if match.group(1) is None:
+            raise MissingPendingGuardError(
+                "Generated Cypher has a node with no variable to filter"
+            )
+        aliases.add(match.group(1))
+    variable_length = False
+    for match in _RELATION_PATTERN.finditer(stripped):
+        body = match.group(1)
+        alias = re.match(r"\s*([A-Za-z_]\w*)", body)
+        if alias is None:
+            raise MissingPendingGuardError(
+                "Generated Cypher has a relationship with no variable to filter"
+            )
+        if "*" in body:
+            variable_length = True
+        else:
+            aliases.add(alias.group(1))
+    for match in _YIELD_PATTERN.finditer(stripped):
+        aliases.update(name for name in match.groups() if name and name != "score")
+    for alias in sorted(aliases):
+        guard = rf"\b{alias}\.{PENDING_JOB_ID_PROPERTY}\s+IS\s+NULL\b"
+        if not re.search(guard, stripped, flags=re.IGNORECASE):
+            raise MissingPendingGuardError(
+                f"Generated Cypher does not require "
+                f"{alias}.{PENDING_JOB_ID_PROPERTY} IS NULL"
+            )
+    if variable_length and not (
+        _PATH_NODE_GUARD.search(stripped) and _PATH_RELATION_GUARD.search(stripped)
+    ):
+        raise MissingPendingGuardError(
+            "Generated Cypher has a variable-length path without a pending guard "
+            "on its nodes and relationships"
+        )

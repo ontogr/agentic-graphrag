@@ -354,7 +354,7 @@ class TestText2CypherSpans:
         store.execute_read.side_effect = _read
 
         async def _generate(self, question, *, failure_context=None):
-            return "MATCH (n) RETURN n"
+            return "MATCH (n) WHERE n._pending_job_id IS NULL RETURN n"
 
         monkeypatch.setattr(
             t2c_module.Text2CypherRetriever, "_generate_cypher", _generate
@@ -382,7 +382,10 @@ class TestText2CypherSpans:
         t2c_span = _named(spans, "agrag.retrieval.text2cypher")[0]
         t2c_attributes = t2c_span.attributes
         assert t2c_attributes is not None
-        assert t2c_attributes["agrag.cypher"] == "MATCH (n) RETURN n"
+        assert (
+            t2c_attributes["agrag.cypher"]
+            == "MATCH (n) WHERE n._pending_job_id IS NULL RETURN n"
+        )
         assert list(t2c_attributes["agrag.result_ids"]) == [
             str(result.item.id) for result in results
         ]
@@ -404,7 +407,7 @@ class TestText2CypherSpans:
         store.execute_read.side_effect = _read
 
         async def _generate(self, question, *, failure_context=None):
-            return "MATCH (n) RETURN n"
+            return "MATCH (n) WHERE n._pending_job_id IS NULL RETURN n"
 
         monkeypatch.setattr(
             t2c_module.Text2CypherRetriever, "_generate_cypher", _generate

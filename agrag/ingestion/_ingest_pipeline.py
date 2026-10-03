@@ -23,7 +23,6 @@ from agrag.common.data_models.document import DOCUMENT_LABEL, Document
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.graph_record import (
-    PENDING_JOB_ID_PROPERTY,
     RelationRecord,
     UpsertResult,
     tag_pending,
@@ -32,7 +31,7 @@ from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
-from agrag.common.data_models.vector_record import PENDING_VECTOR_FLAG, VectorRecord
+from agrag.common.data_models.vector_record import VectorRecord
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
     clear_chunk_embedding_query,
@@ -990,7 +989,6 @@ def _vector_record(
     label: str,
     text: str,
     properties: dict[str, object] | None = None,
-    pending_job_id: UUID | str | None = None,
 ) -> VectorRecord:
     """Build a VectorRecord whose payload matches the retrievers' reads.
 
@@ -1004,10 +1002,6 @@ def _vector_record(
         label: The graph label the domain object carries.
         text: The embedding_text the vector was computed from.
         properties: Additional payload fields for metadata filtering.
-        pending_job_id: The in-flight Cutover Job's id, mirrored into the
-            payload as an explicit boolean plus the job id for
-            commit-time clearing. None writes an untagged payload, for
-            callers outside a job.
 
     Returns:
         The record ready for VectorStore.upsert.
@@ -1015,14 +1009,6 @@ def _vector_record(
     payload = {"label": label, "text": text}
     if properties:
         payload.update(properties)
-    # The pending flag is always written explicitly: committed records
-    # carry False, so a search's committed-only default filter (an
-    # equality on this key) never excludes a pre-existing record.
-    if pending_job_id is not None:
-        payload[PENDING_VECTOR_FLAG] = True
-        payload[PENDING_JOB_ID_PROPERTY] = str(pending_job_id)
-    else:
-        payload[PENDING_VECTOR_FLAG] = False
     return VectorRecord(id=record_id, vector=vector, payload=payload)
 
 
@@ -1030,6 +1016,8 @@ async def _upsert_vectors(
     vector_store: VectorStore | None,
     collection: str,
     records: list[VectorRecord],
+    *,
+    pending_job_id: UUID | str | None = None,
 ) -> None:
     """Upsert records to the VectorStore when one is configured.
 
@@ -1041,13 +1029,19 @@ async def _upsert_vectors(
         vector_store: The store to write to, or None to do nothing.
         collection: The collection name to write into.
         records: The records to upsert.
+        pending_job_id: The in-flight Cutover Job staging these records. None
+            writes committed records, for callers outside a job.
     """
     if vector_store is None:
         return
     writable = [record for record in records if record.vector]
     if not writable:
         return
-    await vector_store.upsert(collection, writable)
+    await vector_store.upsert(
+        collection,
+        writable,
+        pending_job_id=UUID(str(pending_job_id)) if pending_job_id else None,
+    )
 
 
 async def _delete_vectors(
@@ -1404,11 +1398,15 @@ async def _embed_and_upsert_chunks(
                     label=CHUNK_LABEL,
                     text=ch.text,
                     properties={"document_id": str(ch.document_id)},
-                    pending_job_id=pending_job_id,
                 )
             )
         try:
-            await _upsert_vectors(vector_store, vector_collection, vector_records)
+            await _upsert_vectors(
+                vector_store,
+                vector_collection,
+                vector_records,
+                pending_job_id=pending_job_id,
+            )
         except Exception as exc:  # noqa: BLE001
             if error_policy is ErrorPolicy.RAISE:
                 raise
@@ -1542,13 +1540,17 @@ async def _embed_and_upsert_survivors(
                 label=label_map.get(ent.id, ""),
                 text=ent.embedding_text,
                 properties=dict(ent.properties),
-                pending_job_id=pending_job_id,
             )
             for ent in survivors.values()
             if ent.id in matched_ids
         ]
         try:
-            await _upsert_vectors(vector_store, vector_collection, vector_records)
+            await _upsert_vectors(
+                vector_store,
+                vector_collection,
+                vector_records,
+                pending_job_id=pending_job_id,
+            )
         except Exception as exc:  # noqa: BLE001
             if error_policy is ErrorPolicy.RAISE:
                 raise

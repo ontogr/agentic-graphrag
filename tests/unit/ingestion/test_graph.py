@@ -692,7 +692,6 @@ class TestGraphVectorStore:
             "label": "Community",
             "text": "Report",
             "tenant": "a",
-            "_pending": False,
         }
 
     async def test_vector_upsert_failures_leave_chunk_and_entity_vectors(self) -> None:

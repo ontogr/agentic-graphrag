@@ -12,6 +12,7 @@ Vector storage backends and the build shortcut.
 - [**base**](#agrag-vectordb-base) – The VectorStore abstraction and its build shortcut.
 - [**errors**](#agrag-vectordb-errors) – Errors that the vector-store layer raises.
 - [**milvus**](#agrag-vectordb-milvus) – Milvus vector-store backend.
+- [**pending**](#agrag-vectordb-pending) – Pending-record bookkeeping shared by the VectorStore adapters.
 - [**qdrant**](#agrag-vectordb-qdrant) – Qdrant vector-store backend.
 - [**settings**](#agrag-vectordb-settings) – Settings for vector-store backends.
 - [**weaviate**](#agrag-vectordb-weaviate) – Weaviate vector-store backend.
@@ -126,9 +127,11 @@ by a Milvus `Function` from the `text` field on write and at query time.
 
 - [**close**](#agrag-vectordb-MilvusVectorStore-close) – Release the backend connection.
 - [**collection_exists**](#agrag-vectordb-MilvusVectorStore-collection_exists) – Report whether a collection exists.
+- [**commit_pending**](#agrag-vectordb-MilvusVectorStore-commit_pending) – Promote one job's staged records to committed records.
 - [**count**](#agrag-vectordb-MilvusVectorStore-count) – Count records in a collection.
 - [**delete**](#agrag-vectordb-MilvusVectorStore-delete) – Delete records by id.
 - [**delete_collection**](#agrag-vectordb-MilvusVectorStore-delete_collection) – Delete a collection and all its entities.
+- [**delete_pending**](#agrag-vectordb-MilvusVectorStore-delete_pending) – Delete one job's staged records, leaving committed records alone.
 - [**ensure_collection**](#agrag-vectordb-MilvusVectorStore-ensure_collection) – Create the collection if it does not exist.
 - [**hybrid_search**](#agrag-vectordb-MilvusVectorStore-hybrid_search) – Search by dense vector and keyword text in one fused call.
 - [**initialize**](#agrag-vectordb-MilvusVectorStore-initialize) – Check connectivity and authentication.
@@ -171,10 +174,27 @@ Report whether a collection exists.
 
 - <code>bool</code> – `True` if the collection exists.
 
+#### `agrag.vectordb.MilvusVectorStore.commit_pending` \{#agrag-vectordb-MilvusVectorStore-commit_pending}
+
+```python
+commit_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Promote one job's staged records to committed records.
+
+Each staged record is written under its real id, which replaces any
+committed record with that id, and the staged copy is deleted.
+Re-running after a failure finishes the remaining records.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
 #### `agrag.vectordb.MilvusVectorStore.count` \{#agrag-vectordb-MilvusVectorStore-count}
 
 ```python
-count(collection:str, *, filters:dict[str, Any] | None = None) -> int
+count(collection:str, *, filters:dict[str, Any] | None = None, pending_job_id:UUID | None = None) -> int
 ```
 
 Count records in a collection.
@@ -183,6 +203,7 @@ Count records in a collection.
 
 - **collection** (<code>str</code>) – The collection to count.
 - **filters** (<code>dict\[str, Any\] | None</code>) – A flat-dict filter on scalar fields.
+- **pending_job_id** (<code>UUID | None</code>) – Count only this job's staged records.
 
 **Returns:**
 
@@ -212,6 +233,19 @@ Delete a collection and all its entities.
 **Parameters:**
 
 - **name** (<code>str</code>) – The collection name.
+
+#### `agrag.vectordb.MilvusVectorStore.delete_pending` \{#agrag-vectordb-MilvusVectorStore-delete_pending}
+
+```python
+delete_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Delete one job's staged records, leaving committed records alone.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
 
 #### `agrag.vectordb.MilvusVectorStore.ensure_collection` \{#agrag-vectordb-MilvusVectorStore-ensure_collection}
 
@@ -325,7 +359,7 @@ request the way sending every id at once would.
 #### `agrag.vectordb.MilvusVectorStore.scroll` \{#agrag-vectordb-MilvusVectorStore-scroll}
 
 ```python
-scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False) -> tuple[list[VectorRecord], str | None]
+scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False, pending_job_id:UUID | None = None) -> tuple[list[VectorRecord], str | None]
 ```
 
 Iterate records in a collection, in batches.
@@ -346,6 +380,7 @@ below the next cursor, permanently skipping them on the next page.
 - **page_offset** (<code>str | None</code>) – The id cursor from a previous `scroll` call.
 - **filters** (<code>dict\[str, Any\] | None</code>) – A flat-dict filter on scalar fields.
 - **with_vectors** (<code>bool</code>) – Whether to return each record's vector.
+- **pending_job_id** (<code>UUID | None</code>) – Read only this job's staged records.
 
 **Returns:**
 
@@ -379,7 +414,7 @@ Search by dense vector only.
 #### `agrag.vectordb.MilvusVectorStore.upsert` \{#agrag-vectordb-MilvusVectorStore-upsert}
 
 ```python
-upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256) -> None
+upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> None
 ```
 
 Write or overwrite records in a collection.
@@ -390,6 +425,7 @@ Write or overwrite records in a collection.
 - **records** (<code>Sequence\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code>) – The records to upsert, in order.
 - **batch_size** (<code>int</code>) – The number of records per backend write call. Must be
   positive.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight job staging these records.
 
 **Raises:**
 
@@ -460,9 +496,11 @@ hybrid call first runs, not at construction.
 
 - [**close**](#agrag-vectordb-QdrantVectorStore-close) – Release the backend connection.
 - [**collection_exists**](#agrag-vectordb-QdrantVectorStore-collection_exists) – Report whether a collection exists.
+- [**commit_pending**](#agrag-vectordb-QdrantVectorStore-commit_pending) – Promote one job's staged records to committed records.
 - [**count**](#agrag-vectordb-QdrantVectorStore-count) – Count records in a collection.
 - [**delete**](#agrag-vectordb-QdrantVectorStore-delete) – Delete records by id.
 - [**delete_collection**](#agrag-vectordb-QdrantVectorStore-delete_collection) – Delete a collection and all its points.
+- [**delete_pending**](#agrag-vectordb-QdrantVectorStore-delete_pending) – Delete one job's staged records, leaving committed records alone.
 - [**ensure_collection**](#agrag-vectordb-QdrantVectorStore-ensure_collection) – Create the collection if it does not exist.
 - [**hybrid_search**](#agrag-vectordb-QdrantVectorStore-hybrid_search) – Search by dense vector and keyword text, fused by a weighted blend.
 - [**initialize**](#agrag-vectordb-QdrantVectorStore-initialize) – Check connectivity and authentication.
@@ -510,10 +548,27 @@ Report whether a collection exists.
 
 - <code>bool</code> – `True` if the collection exists.
 
+#### `agrag.vectordb.QdrantVectorStore.commit_pending` \{#agrag-vectordb-QdrantVectorStore-commit_pending}
+
+```python
+commit_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Promote one job's staged records to committed records.
+
+Each staged record is written under its real id, which replaces any
+committed record with that id, and the staged copy is deleted.
+Re-running after a failure finishes the remaining records.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
 #### `agrag.vectordb.QdrantVectorStore.count` \{#agrag-vectordb-QdrantVectorStore-count}
 
 ```python
-count(collection:str, *, filters:dict[str, Any] | None = None) -> int
+count(collection:str, *, filters:dict[str, Any] | None = None, pending_job_id:UUID | None = None) -> int
 ```
 
 Count records in a collection.
@@ -522,6 +577,7 @@ Count records in a collection.
 
 - **collection** (<code>str</code>) – The collection to count.
 - **filters** (<code>dict\[str, Any\] | None</code>) – A flat-dict filter on payload fields.
+- **pending_job_id** (<code>UUID | None</code>) – Count only this job's staged records.
 
 **Returns:**
 
@@ -551,6 +607,19 @@ Delete a collection and all its points.
 **Parameters:**
 
 - **name** (<code>str</code>) – The collection name.
+
+#### `agrag.vectordb.QdrantVectorStore.delete_pending` \{#agrag-vectordb-QdrantVectorStore-delete_pending}
+
+```python
+delete_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Delete one job's staged records, leaving committed records alone.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
 
 #### `agrag.vectordb.QdrantVectorStore.ensure_collection` \{#agrag-vectordb-QdrantVectorStore-ensure_collection}
 
@@ -660,7 +729,7 @@ Fetch records by id.
 #### `agrag.vectordb.QdrantVectorStore.scroll` \{#agrag-vectordb-QdrantVectorStore-scroll}
 
 ```python
-scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False) -> tuple[list[VectorRecord], str | None]
+scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False, pending_job_id:UUID | None = None) -> tuple[list[VectorRecord], str | None]
 ```
 
 Iterate records in a collection, in batches.
@@ -672,6 +741,7 @@ Iterate records in a collection, in batches.
 - **page_offset** (<code>str | None</code>) – The offset from a previous `scroll` call.
 - **filters** (<code>dict\[str, Any\] | None</code>) – A flat-dict filter on payload fields.
 - **with_vectors** (<code>bool</code>) – Whether to return each record's vector.
+- **pending_job_id** (<code>UUID | None</code>) – Read only this job's staged records.
 
 **Returns:**
 
@@ -705,10 +775,12 @@ Search by dense vector only.
 #### `agrag.vectordb.QdrantVectorStore.upsert` \{#agrag-vectordb-QdrantVectorStore-upsert}
 
 ```python
-upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256) -> None
+upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> None
 ```
 
 Write or overwrite records in a collection.
+
+With `pending_job_id` the records are staged for that job.
 
 When `collection` has sparse-vector support (created or previously
 seen with `ensure_collection(..., hybrid=True)`), each record's
@@ -724,6 +796,7 @@ search.
 - **records** (<code>Sequence\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code>) – The records to upsert, in order.
 - **batch_size** (<code>int</code>) – The number of records per backend write call. Must be
   positive.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight job staging these records.
 
 **Raises:**
 
@@ -739,9 +812,11 @@ A vector database backend: collection lifecycle, writes, and search.
 
 - [**close**](#agrag-vectordb-VectorStore-close) – Release the backend connection.
 - [**collection_exists**](#agrag-vectordb-VectorStore-collection_exists) – Report whether a collection exists.
+- [**commit_pending**](#agrag-vectordb-VectorStore-commit_pending) – Promote one job's staged records to committed records.
 - [**count**](#agrag-vectordb-VectorStore-count) – Count records in a collection.
 - [**delete**](#agrag-vectordb-VectorStore-delete) – Delete records by id.
 - [**delete_collection**](#agrag-vectordb-VectorStore-delete_collection) – Delete a collection and all its points.
+- [**delete_pending**](#agrag-vectordb-VectorStore-delete_pending) – Delete one job's staged records, leaving committed records alone.
 - [**ensure_collection**](#agrag-vectordb-VectorStore-ensure_collection) – Create the collection if it does not exist.
 - [**hybrid_search**](#agrag-vectordb-VectorStore-hybrid_search) – Search by dense vector and keyword text in one fused call.
 - [**initialize**](#agrag-vectordb-VectorStore-initialize) – Check connectivity and authentication.
@@ -774,13 +849,32 @@ Report whether a collection exists.
 
 - <code>bool</code> – `True` if the collection exists.
 
+#### `agrag.vectordb.VectorStore.commit_pending` \{#agrag-vectordb-VectorStore-commit_pending}
+
+```python
+commit_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Promote one job's staged records to committed records.
+
+Each staged record is written under its real id, which replaces any
+committed record with that id, and the staged copy is deleted.
+Re-running after a failure finishes the remaining records.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
 #### `agrag.vectordb.VectorStore.count` \{#agrag-vectordb-VectorStore-count}
 
 ```python
-count(collection:str, *, filters:dict[str, Any] | None = None) -> int
+count(collection:str, *, filters:dict[str, Any] | None = None, pending_job_id:UUID | None = None) -> int
 ```
 
 Count records in a collection.
+
+Counts committed records only, unless `pending_job_id` names a job.
 
 **Parameters:**
 
@@ -793,6 +887,8 @@ Count records in a collection.
   counterpart compiles them into Cypher, so both reject other
   characters, while Qdrant and Weaviate accept arbitrary payload
   keys.
+- **pending_job_id** (<code>UUID | None</code>) – Count only that job's staged records instead of
+  the committed ones.
 
 **Returns:**
 
@@ -822,6 +918,19 @@ Delete a collection and all its points.
 **Parameters:**
 
 - **name** (<code>str</code>) – The collection name.
+
+#### `agrag.vectordb.VectorStore.delete_pending` \{#agrag-vectordb-VectorStore-delete_pending}
+
+```python
+delete_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Delete one job's staged records, leaving committed records alone.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
 
 #### `agrag.vectordb.VectorStore.ensure_collection` \{#agrag-vectordb-VectorStore-ensure_collection}
 
@@ -853,6 +962,8 @@ hybrid_search(collection:str, query_vector:Sequence[float], query_text:str, *, l
 ```
 
 Search by dense vector and keyword text in one fused call.
+
+Searches committed records only; staged records stay hidden.
 
 **Parameters:**
 
@@ -921,10 +1032,14 @@ Fetch records by id.
 #### `agrag.vectordb.VectorStore.scroll` \{#agrag-vectordb-VectorStore-scroll}
 
 ```python
-scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False) -> tuple[list[VectorRecord], str | None]
+scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False, pending_job_id:UUID | None = None) -> tuple[list[VectorRecord], str | None]
 ```
 
 Iterate records in a collection, in batches.
+
+Reads committed records only, unless `pending_job_id` names a job.
+Do not write or delete records of the set being read between pages:
+a backend may page by position.
 
 **Parameters:**
 
@@ -941,6 +1056,8 @@ Iterate records in a collection, in batches.
   characters, while Qdrant and Weaviate accept arbitrary payload
   keys.
 - **with_vectors** (<code>bool</code>) – Whether to return each record's vector.
+- **pending_job_id** (<code>UUID | None</code>) – Read only that job's staged records instead of
+  the committed ones.
 
 **Returns:**
 
@@ -954,6 +1071,8 @@ search(collection:str, query_vector:Sequence[float], *, limit:int = 10, filters:
 ```
 
 Search by dense vector only.
+
+Searches committed records only; staged records stay hidden.
 
 **Parameters:**
 
@@ -983,7 +1102,7 @@ Search by dense vector only.
 #### `agrag.vectordb.VectorStore.upsert` \{#agrag-vectordb-VectorStore-upsert}
 
 ```python
-upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256) -> None
+upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> None
 ```
 
 Write or overwrite records in a collection.
@@ -994,6 +1113,12 @@ Write or overwrite records in a collection.
 - **records** (<code>Sequence\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code>) – The records to upsert, in order.
 - **batch_size** (<code>int</code>) – The number of records per backend write call. Must be
   positive.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job writing these records.
+  The store keeps them under staging ids, hidden from search,
+  scroll and count until :meth:`commit_pending` promotes them,
+  so a committed record with the same id stays searchable and
+  survives :meth:`delete_pending`. None writes committed
+  records.
 
 **Raises:**
 
@@ -1109,9 +1234,11 @@ hybrid search needs no client-side sparse embedder.
 
 - [**close**](#agrag-vectordb-WeaviateVectorStore-close) – Release the backend connection.
 - [**collection_exists**](#agrag-vectordb-WeaviateVectorStore-collection_exists) – Report whether a collection exists.
+- [**commit_pending**](#agrag-vectordb-WeaviateVectorStore-commit_pending) – Promote one job's staged records to committed records.
 - [**count**](#agrag-vectordb-WeaviateVectorStore-count) – Count records in a collection.
 - [**delete**](#agrag-vectordb-WeaviateVectorStore-delete) – Delete records by id.
 - [**delete_collection**](#agrag-vectordb-WeaviateVectorStore-delete_collection) – Delete a collection and all its objects.
+- [**delete_pending**](#agrag-vectordb-WeaviateVectorStore-delete_pending) – Delete one job's staged records, leaving committed records alone.
 - [**ensure_collection**](#agrag-vectordb-WeaviateVectorStore-ensure_collection) – Create the collection if it does not exist.
 - [**hybrid_search**](#agrag-vectordb-WeaviateVectorStore-hybrid_search) – Search by dense vector and keyword text in one fused call.
 - [**initialize**](#agrag-vectordb-WeaviateVectorStore-initialize) – Open the connection and check authentication.
@@ -1153,10 +1280,27 @@ Report whether a collection exists.
 
 - <code>bool</code> – `True` if the collection exists.
 
+#### `agrag.vectordb.WeaviateVectorStore.commit_pending` \{#agrag-vectordb-WeaviateVectorStore-commit_pending}
+
+```python
+commit_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Promote one job's staged records to committed records.
+
+Each staged record is written under its real id, which replaces any
+committed record with that id, and the staged copy is deleted.
+Re-running after a failure finishes the remaining records.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
 #### `agrag.vectordb.WeaviateVectorStore.count` \{#agrag-vectordb-WeaviateVectorStore-count}
 
 ```python
-count(collection:str, *, filters:dict[str, Any] | None = None) -> int
+count(collection:str, *, filters:dict[str, Any] | None = None, pending_job_id:UUID | None = None) -> int
 ```
 
 Count records in a collection.
@@ -1165,6 +1309,7 @@ Count records in a collection.
 
 - **collection** (<code>str</code>) – The collection to count.
 - **filters** (<code>dict\[str, Any\] | None</code>) – A flat-dict filter on payload fields.
+- **pending_job_id** (<code>UUID | None</code>) – Count only this job's staged records.
 
 **Returns:**
 
@@ -1194,6 +1339,19 @@ Delete a collection and all its objects.
 **Parameters:**
 
 - **name** (<code>str</code>) – The collection name.
+
+#### `agrag.vectordb.WeaviateVectorStore.delete_pending` \{#agrag-vectordb-WeaviateVectorStore-delete_pending}
+
+```python
+delete_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Delete one job's staged records, leaving committed records alone.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
 
 #### `agrag.vectordb.WeaviateVectorStore.ensure_collection` \{#agrag-vectordb-WeaviateVectorStore-ensure_collection}
 
@@ -1274,22 +1432,28 @@ Fetch records by id.
 #### `agrag.vectordb.WeaviateVectorStore.scroll` \{#agrag-vectordb-WeaviateVectorStore-scroll}
 
 ```python
-scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False) -> tuple[list[VectorRecord], str | None]
+scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False, pending_job_id:UUID | None = None) -> tuple[list[VectorRecord], str | None]
 ```
 
 Iterate records in a collection, in batches.
+
+Weaviate rejects a cursor (`after`) combined with a filter, and
+every read here carries the pending filter, so pages use a numeric
+offset. Weaviate caps `offset + limit` at its
+`QUERY_MAXIMUM_RESULTS` setting, 10000 by default.
 
 **Parameters:**
 
 - **collection** (<code>str</code>) – The collection to read.
 - **limit** (<code>int</code>) – The maximum number of records per page.
-- **page_offset** (<code>str | None</code>) – The cursor id from a previous `scroll` call.
+- **page_offset** (<code>str | None</code>) – The offset from a previous `scroll` call.
 - **filters** (<code>dict\[str, Any\] | None</code>) – A flat-dict filter on payload fields.
 - **with_vectors** (<code>bool</code>) – Whether to return each record's vector.
+- **pending_job_id** (<code>UUID | None</code>) – Read only this job's staged records.
 
 **Returns:**
 
-- <code>list\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code> – The page of records and the next page cursor, or `None` at the
+- <code>list\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code> – The page of records and the next page offset, or `None` at the
 - <code>str | None</code> – end.
 
 #### `agrag.vectordb.WeaviateVectorStore.search` \{#agrag-vectordb-WeaviateVectorStore-search}
@@ -1319,7 +1483,7 @@ Search by dense vector only.
 #### `agrag.vectordb.WeaviateVectorStore.upsert` \{#agrag-vectordb-WeaviateVectorStore-upsert}
 
 ```python
-upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256) -> None
+upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> None
 ```
 
 Write or overwrite records in a collection.
@@ -1334,6 +1498,7 @@ insert-or-replace semantics and per-call batching in one request.
 - **records** (<code>Sequence\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code>) – The records to upsert, in order.
 - **batch_size** (<code>int</code>) – The number of records per backend write call. Must be
   positive.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight job staging these records.
 
 **Raises:**
 
@@ -1358,9 +1523,11 @@ A vector database backend: collection lifecycle, writes, and search.
 
 - [**close**](#agrag-vectordb-base-VectorStore-close) – Release the backend connection.
 - [**collection_exists**](#agrag-vectordb-base-VectorStore-collection_exists) – Report whether a collection exists.
+- [**commit_pending**](#agrag-vectordb-base-VectorStore-commit_pending) – Promote one job's staged records to committed records.
 - [**count**](#agrag-vectordb-base-VectorStore-count) – Count records in a collection.
 - [**delete**](#agrag-vectordb-base-VectorStore-delete) – Delete records by id.
 - [**delete_collection**](#agrag-vectordb-base-VectorStore-delete_collection) – Delete a collection and all its points.
+- [**delete_pending**](#agrag-vectordb-base-VectorStore-delete_pending) – Delete one job's staged records, leaving committed records alone.
 - [**ensure_collection**](#agrag-vectordb-base-VectorStore-ensure_collection) – Create the collection if it does not exist.
 - [**hybrid_search**](#agrag-vectordb-base-VectorStore-hybrid_search) – Search by dense vector and keyword text in one fused call.
 - [**initialize**](#agrag-vectordb-base-VectorStore-initialize) – Check connectivity and authentication.
@@ -1393,13 +1560,32 @@ Report whether a collection exists.
 
 - <code>bool</code> – `True` if the collection exists.
 
+##### `agrag.vectordb.base.VectorStore.commit_pending` \{#agrag-vectordb-base-VectorStore-commit_pending}
+
+```python
+commit_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Promote one job's staged records to committed records.
+
+Each staged record is written under its real id, which replaces any
+committed record with that id, and the staged copy is deleted.
+Re-running after a failure finishes the remaining records.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
 ##### `agrag.vectordb.base.VectorStore.count` \{#agrag-vectordb-base-VectorStore-count}
 
 ```python
-count(collection:str, *, filters:dict[str, Any] | None = None) -> int
+count(collection:str, *, filters:dict[str, Any] | None = None, pending_job_id:UUID | None = None) -> int
 ```
 
 Count records in a collection.
+
+Counts committed records only, unless `pending_job_id` names a job.
 
 **Parameters:**
 
@@ -1412,6 +1598,8 @@ Count records in a collection.
   counterpart compiles them into Cypher, so both reject other
   characters, while Qdrant and Weaviate accept arbitrary payload
   keys.
+- **pending_job_id** (<code>UUID | None</code>) – Count only that job's staged records instead of
+  the committed ones.
 
 **Returns:**
 
@@ -1441,6 +1629,19 @@ Delete a collection and all its points.
 **Parameters:**
 
 - **name** (<code>str</code>) – The collection name.
+
+##### `agrag.vectordb.base.VectorStore.delete_pending` \{#agrag-vectordb-base-VectorStore-delete_pending}
+
+```python
+delete_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Delete one job's staged records, leaving committed records alone.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
 
 ##### `agrag.vectordb.base.VectorStore.ensure_collection` \{#agrag-vectordb-base-VectorStore-ensure_collection}
 
@@ -1472,6 +1673,8 @@ hybrid_search(collection:str, query_vector:Sequence[float], query_text:str, *, l
 ```
 
 Search by dense vector and keyword text in one fused call.
+
+Searches committed records only; staged records stay hidden.
 
 **Parameters:**
 
@@ -1540,10 +1743,14 @@ Fetch records by id.
 ##### `agrag.vectordb.base.VectorStore.scroll` \{#agrag-vectordb-base-VectorStore-scroll}
 
 ```python
-scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False) -> tuple[list[VectorRecord], str | None]
+scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False, pending_job_id:UUID | None = None) -> tuple[list[VectorRecord], str | None]
 ```
 
 Iterate records in a collection, in batches.
+
+Reads committed records only, unless `pending_job_id` names a job.
+Do not write or delete records of the set being read between pages:
+a backend may page by position.
 
 **Parameters:**
 
@@ -1560,6 +1767,8 @@ Iterate records in a collection, in batches.
   characters, while Qdrant and Weaviate accept arbitrary payload
   keys.
 - **with_vectors** (<code>bool</code>) – Whether to return each record's vector.
+- **pending_job_id** (<code>UUID | None</code>) – Read only that job's staged records instead of
+  the committed ones.
 
 **Returns:**
 
@@ -1573,6 +1782,8 @@ search(collection:str, query_vector:Sequence[float], *, limit:int = 10, filters:
 ```
 
 Search by dense vector only.
+
+Searches committed records only; staged records stay hidden.
 
 **Parameters:**
 
@@ -1602,7 +1813,7 @@ Search by dense vector only.
 ##### `agrag.vectordb.base.VectorStore.upsert` \{#agrag-vectordb-base-VectorStore-upsert}
 
 ```python
-upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256) -> None
+upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> None
 ```
 
 Write or overwrite records in a collection.
@@ -1613,6 +1824,12 @@ Write or overwrite records in a collection.
 - **records** (<code>Sequence\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code>) – The records to upsert, in order.
 - **batch_size** (<code>int</code>) – The number of records per backend write call. Must be
   positive.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job writing these records.
+  The store keeps them under staging ids, hidden from search,
+  scroll and count until :meth:`commit_pending` promotes them,
+  so a committed record with the same id stays searchable and
+  survives :meth:`delete_pending`. None writes committed
+  records.
 
 **Raises:**
 
@@ -1743,9 +1960,11 @@ by a Milvus `Function` from the `text` field on write and at query time.
 
 - [**close**](#agrag-vectordb-milvus-MilvusVectorStore-close) – Release the backend connection.
 - [**collection_exists**](#agrag-vectordb-milvus-MilvusVectorStore-collection_exists) – Report whether a collection exists.
+- [**commit_pending**](#agrag-vectordb-milvus-MilvusVectorStore-commit_pending) – Promote one job's staged records to committed records.
 - [**count**](#agrag-vectordb-milvus-MilvusVectorStore-count) – Count records in a collection.
 - [**delete**](#agrag-vectordb-milvus-MilvusVectorStore-delete) – Delete records by id.
 - [**delete_collection**](#agrag-vectordb-milvus-MilvusVectorStore-delete_collection) – Delete a collection and all its entities.
+- [**delete_pending**](#agrag-vectordb-milvus-MilvusVectorStore-delete_pending) – Delete one job's staged records, leaving committed records alone.
 - [**ensure_collection**](#agrag-vectordb-milvus-MilvusVectorStore-ensure_collection) – Create the collection if it does not exist.
 - [**hybrid_search**](#agrag-vectordb-milvus-MilvusVectorStore-hybrid_search) – Search by dense vector and keyword text in one fused call.
 - [**initialize**](#agrag-vectordb-milvus-MilvusVectorStore-initialize) – Check connectivity and authentication.
@@ -1788,10 +2007,27 @@ Report whether a collection exists.
 
 - <code>bool</code> – `True` if the collection exists.
 
+##### `agrag.vectordb.milvus.MilvusVectorStore.commit_pending` \{#agrag-vectordb-milvus-MilvusVectorStore-commit_pending}
+
+```python
+commit_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Promote one job's staged records to committed records.
+
+Each staged record is written under its real id, which replaces any
+committed record with that id, and the staged copy is deleted.
+Re-running after a failure finishes the remaining records.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
 ##### `agrag.vectordb.milvus.MilvusVectorStore.count` \{#agrag-vectordb-milvus-MilvusVectorStore-count}
 
 ```python
-count(collection:str, *, filters:dict[str, Any] | None = None) -> int
+count(collection:str, *, filters:dict[str, Any] | None = None, pending_job_id:UUID | None = None) -> int
 ```
 
 Count records in a collection.
@@ -1800,6 +2036,7 @@ Count records in a collection.
 
 - **collection** (<code>str</code>) – The collection to count.
 - **filters** (<code>dict\[str, Any\] | None</code>) – A flat-dict filter on scalar fields.
+- **pending_job_id** (<code>UUID | None</code>) – Count only this job's staged records.
 
 **Returns:**
 
@@ -1829,6 +2066,19 @@ Delete a collection and all its entities.
 **Parameters:**
 
 - **name** (<code>str</code>) – The collection name.
+
+##### `agrag.vectordb.milvus.MilvusVectorStore.delete_pending` \{#agrag-vectordb-milvus-MilvusVectorStore-delete_pending}
+
+```python
+delete_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Delete one job's staged records, leaving committed records alone.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
 
 ##### `agrag.vectordb.milvus.MilvusVectorStore.ensure_collection` \{#agrag-vectordb-milvus-MilvusVectorStore-ensure_collection}
 
@@ -1942,7 +2192,7 @@ request the way sending every id at once would.
 ##### `agrag.vectordb.milvus.MilvusVectorStore.scroll` \{#agrag-vectordb-milvus-MilvusVectorStore-scroll}
 
 ```python
-scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False) -> tuple[list[VectorRecord], str | None]
+scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False, pending_job_id:UUID | None = None) -> tuple[list[VectorRecord], str | None]
 ```
 
 Iterate records in a collection, in batches.
@@ -1963,6 +2213,7 @@ below the next cursor, permanently skipping them on the next page.
 - **page_offset** (<code>str | None</code>) – The id cursor from a previous `scroll` call.
 - **filters** (<code>dict\[str, Any\] | None</code>) – A flat-dict filter on scalar fields.
 - **with_vectors** (<code>bool</code>) – Whether to return each record's vector.
+- **pending_job_id** (<code>UUID | None</code>) – Read only this job's staged records.
 
 **Returns:**
 
@@ -1996,7 +2247,7 @@ Search by dense vector only.
 ##### `agrag.vectordb.milvus.MilvusVectorStore.upsert` \{#agrag-vectordb-milvus-MilvusVectorStore-upsert}
 
 ```python
-upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256) -> None
+upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> None
 ```
 
 Write or overwrite records in a collection.
@@ -2007,10 +2258,93 @@ Write or overwrite records in a collection.
 - **records** (<code>Sequence\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code>) – The records to upsert, in order.
 - **batch_size** (<code>int</code>) – The number of records per backend write call. Must be
   positive.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight job staging these records.
 
 **Raises:**
 
 - <code>ValueError</code> – `batch_size` is not positive.
+
+### `agrag.vectordb.pending` \{#agrag-vectordb-pending}
+
+Pending-record bookkeeping shared by the VectorStore adapters.
+
+A record written for an in-flight Cutover Job lands under a staging id, so a
+committed record with the real id stays searchable until the job commits and
+survives the job's rollback.
+
+**Functions:**
+
+- [**promote_record**](#agrag-vectordb-pending-promote_record) – Return the committed record a staged record stands for.
+- [**stage_records**](#agrag-vectordb-pending-stage_records) – Return records ready to write for one job, or unchanged outside a job.
+
+**Attributes:**
+
+- [**PENDING_FLAG**](#agrag-vectordb-pending-PENDING_FLAG) – Payload boolean that is true while a record belongs to an in-flight job.
+- [**PENDING_JOB_KEY**](#agrag-vectordb-pending-PENDING_JOB_KEY) – Payload key holding the id of the job that wrote a staged record.
+- [**TARGET_ID_KEY**](#agrag-vectordb-pending-TARGET_ID_KEY) – Payload key holding the real id a staged record is promoted to.
+
+#### `agrag.vectordb.pending.PENDING_FLAG` \{#agrag-vectordb-pending-PENDING_FLAG}
+
+```python
+PENDING_FLAG = '_pending'
+```
+
+Payload boolean that is true while a record belongs to an in-flight job.
+
+#### `agrag.vectordb.pending.PENDING_JOB_KEY` \{#agrag-vectordb-pending-PENDING_JOB_KEY}
+
+```python
+PENDING_JOB_KEY = PENDING_JOB_ID_PROPERTY
+```
+
+Payload key holding the id of the job that wrote a staged record.
+
+#### `agrag.vectordb.pending.TARGET_ID_KEY` \{#agrag-vectordb-pending-TARGET_ID_KEY}
+
+```python
+TARGET_ID_KEY = '_target_id'
+```
+
+Payload key holding the real id a staged record is promoted to.
+
+#### `agrag.vectordb.pending.promote_record` \{#agrag-vectordb-pending-promote_record}
+
+```python
+promote_record(record:VectorRecord) -> VectorRecord
+```
+
+Return the committed record a staged record stands for.
+
+**Parameters:**
+
+- **record** (<code>[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)</code>) – A record read back from the store with a staging id.
+
+**Returns:**
+
+- <code>[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)</code> – A record under the real id, without the pending keys.
+
+**Raises:**
+
+- <code>KeyError</code> – The record carries no real id, so it is not staged.
+
+#### `agrag.vectordb.pending.stage_records` \{#agrag-vectordb-pending-stage_records}
+
+```python
+stage_records(records:Sequence[VectorRecord], pending_job_id:UUID | None) -> list[VectorRecord]
+```
+
+Return records ready to write for one job, or unchanged outside a job.
+
+**Parameters:**
+
+- **records** (<code>Sequence\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code>) – The records the caller wants to write.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight job's id. None writes the records as
+  committed.
+
+**Returns:**
+
+- <code>list\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code> – With a job id, copies under staging ids that carry the pending flag,
+- <code>list\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code> – the job id and the real id. Without one, the records unchanged.
 
 ### `agrag.vectordb.qdrant` \{#agrag-vectordb-qdrant}
 
@@ -2039,9 +2373,11 @@ hybrid call first runs, not at construction.
 
 - [**close**](#agrag-vectordb-qdrant-QdrantVectorStore-close) – Release the backend connection.
 - [**collection_exists**](#agrag-vectordb-qdrant-QdrantVectorStore-collection_exists) – Report whether a collection exists.
+- [**commit_pending**](#agrag-vectordb-qdrant-QdrantVectorStore-commit_pending) – Promote one job's staged records to committed records.
 - [**count**](#agrag-vectordb-qdrant-QdrantVectorStore-count) – Count records in a collection.
 - [**delete**](#agrag-vectordb-qdrant-QdrantVectorStore-delete) – Delete records by id.
 - [**delete_collection**](#agrag-vectordb-qdrant-QdrantVectorStore-delete_collection) – Delete a collection and all its points.
+- [**delete_pending**](#agrag-vectordb-qdrant-QdrantVectorStore-delete_pending) – Delete one job's staged records, leaving committed records alone.
 - [**ensure_collection**](#agrag-vectordb-qdrant-QdrantVectorStore-ensure_collection) – Create the collection if it does not exist.
 - [**hybrid_search**](#agrag-vectordb-qdrant-QdrantVectorStore-hybrid_search) – Search by dense vector and keyword text, fused by a weighted blend.
 - [**initialize**](#agrag-vectordb-qdrant-QdrantVectorStore-initialize) – Check connectivity and authentication.
@@ -2089,10 +2425,27 @@ Report whether a collection exists.
 
 - <code>bool</code> – `True` if the collection exists.
 
+##### `agrag.vectordb.qdrant.QdrantVectorStore.commit_pending` \{#agrag-vectordb-qdrant-QdrantVectorStore-commit_pending}
+
+```python
+commit_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Promote one job's staged records to committed records.
+
+Each staged record is written under its real id, which replaces any
+committed record with that id, and the staged copy is deleted.
+Re-running after a failure finishes the remaining records.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
 ##### `agrag.vectordb.qdrant.QdrantVectorStore.count` \{#agrag-vectordb-qdrant-QdrantVectorStore-count}
 
 ```python
-count(collection:str, *, filters:dict[str, Any] | None = None) -> int
+count(collection:str, *, filters:dict[str, Any] | None = None, pending_job_id:UUID | None = None) -> int
 ```
 
 Count records in a collection.
@@ -2101,6 +2454,7 @@ Count records in a collection.
 
 - **collection** (<code>str</code>) – The collection to count.
 - **filters** (<code>dict\[str, Any\] | None</code>) – A flat-dict filter on payload fields.
+- **pending_job_id** (<code>UUID | None</code>) – Count only this job's staged records.
 
 **Returns:**
 
@@ -2130,6 +2484,19 @@ Delete a collection and all its points.
 **Parameters:**
 
 - **name** (<code>str</code>) – The collection name.
+
+##### `agrag.vectordb.qdrant.QdrantVectorStore.delete_pending` \{#agrag-vectordb-qdrant-QdrantVectorStore-delete_pending}
+
+```python
+delete_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Delete one job's staged records, leaving committed records alone.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
 
 ##### `agrag.vectordb.qdrant.QdrantVectorStore.ensure_collection` \{#agrag-vectordb-qdrant-QdrantVectorStore-ensure_collection}
 
@@ -2239,7 +2606,7 @@ Fetch records by id.
 ##### `agrag.vectordb.qdrant.QdrantVectorStore.scroll` \{#agrag-vectordb-qdrant-QdrantVectorStore-scroll}
 
 ```python
-scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False) -> tuple[list[VectorRecord], str | None]
+scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False, pending_job_id:UUID | None = None) -> tuple[list[VectorRecord], str | None]
 ```
 
 Iterate records in a collection, in batches.
@@ -2251,6 +2618,7 @@ Iterate records in a collection, in batches.
 - **page_offset** (<code>str | None</code>) – The offset from a previous `scroll` call.
 - **filters** (<code>dict\[str, Any\] | None</code>) – A flat-dict filter on payload fields.
 - **with_vectors** (<code>bool</code>) – Whether to return each record's vector.
+- **pending_job_id** (<code>UUID | None</code>) – Read only this job's staged records.
 
 **Returns:**
 
@@ -2284,10 +2652,12 @@ Search by dense vector only.
 ##### `agrag.vectordb.qdrant.QdrantVectorStore.upsert` \{#agrag-vectordb-qdrant-QdrantVectorStore-upsert}
 
 ```python
-upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256) -> None
+upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> None
 ```
 
 Write or overwrite records in a collection.
+
+With `pending_job_id` the records are staged for that job.
 
 When `collection` has sparse-vector support (created or previously
 seen with `ensure_collection(..., hybrid=True)`), each record's
@@ -2303,6 +2673,7 @@ search.
 - **records** (<code>Sequence\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code>) – The records to upsert, in order.
 - **batch_size** (<code>int</code>) – The number of records per backend write call. Must be
   positive.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight job staging these records.
 
 **Raises:**
 
@@ -2503,9 +2874,11 @@ hybrid search needs no client-side sparse embedder.
 
 - [**close**](#agrag-vectordb-weaviate-WeaviateVectorStore-close) – Release the backend connection.
 - [**collection_exists**](#agrag-vectordb-weaviate-WeaviateVectorStore-collection_exists) – Report whether a collection exists.
+- [**commit_pending**](#agrag-vectordb-weaviate-WeaviateVectorStore-commit_pending) – Promote one job's staged records to committed records.
 - [**count**](#agrag-vectordb-weaviate-WeaviateVectorStore-count) – Count records in a collection.
 - [**delete**](#agrag-vectordb-weaviate-WeaviateVectorStore-delete) – Delete records by id.
 - [**delete_collection**](#agrag-vectordb-weaviate-WeaviateVectorStore-delete_collection) – Delete a collection and all its objects.
+- [**delete_pending**](#agrag-vectordb-weaviate-WeaviateVectorStore-delete_pending) – Delete one job's staged records, leaving committed records alone.
 - [**ensure_collection**](#agrag-vectordb-weaviate-WeaviateVectorStore-ensure_collection) – Create the collection if it does not exist.
 - [**hybrid_search**](#agrag-vectordb-weaviate-WeaviateVectorStore-hybrid_search) – Search by dense vector and keyword text in one fused call.
 - [**initialize**](#agrag-vectordb-weaviate-WeaviateVectorStore-initialize) – Open the connection and check authentication.
@@ -2547,10 +2920,27 @@ Report whether a collection exists.
 
 - <code>bool</code> – `True` if the collection exists.
 
+##### `agrag.vectordb.weaviate.WeaviateVectorStore.commit_pending` \{#agrag-vectordb-weaviate-WeaviateVectorStore-commit_pending}
+
+```python
+commit_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Promote one job's staged records to committed records.
+
+Each staged record is written under its real id, which replaces any
+committed record with that id, and the staged copy is deleted.
+Re-running after a failure finishes the remaining records.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
 ##### `agrag.vectordb.weaviate.WeaviateVectorStore.count` \{#agrag-vectordb-weaviate-WeaviateVectorStore-count}
 
 ```python
-count(collection:str, *, filters:dict[str, Any] | None = None) -> int
+count(collection:str, *, filters:dict[str, Any] | None = None, pending_job_id:UUID | None = None) -> int
 ```
 
 Count records in a collection.
@@ -2559,6 +2949,7 @@ Count records in a collection.
 
 - **collection** (<code>str</code>) – The collection to count.
 - **filters** (<code>dict\[str, Any\] | None</code>) – A flat-dict filter on payload fields.
+- **pending_job_id** (<code>UUID | None</code>) – Count only this job's staged records.
 
 **Returns:**
 
@@ -2588,6 +2979,19 @@ Delete a collection and all its objects.
 **Parameters:**
 
 - **name** (<code>str</code>) – The collection name.
+
+##### `agrag.vectordb.weaviate.WeaviateVectorStore.delete_pending` \{#agrag-vectordb-weaviate-WeaviateVectorStore-delete_pending}
+
+```python
+delete_pending(collection:str, *, job_id:UUID) -> None
+```
+
+Delete one job's staged records, leaving committed records alone.
+
+**Parameters:**
+
+- **collection** (<code>str</code>) – The collection the job wrote to.
+- **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
 
 ##### `agrag.vectordb.weaviate.WeaviateVectorStore.ensure_collection` \{#agrag-vectordb-weaviate-WeaviateVectorStore-ensure_collection}
 
@@ -2668,22 +3072,28 @@ Fetch records by id.
 ##### `agrag.vectordb.weaviate.WeaviateVectorStore.scroll` \{#agrag-vectordb-weaviate-WeaviateVectorStore-scroll}
 
 ```python
-scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False) -> tuple[list[VectorRecord], str | None]
+scroll(collection:str, *, limit:int = 100, page_offset:str | None = None, filters:dict[str, Any] | None = None, with_vectors:bool = False, pending_job_id:UUID | None = None) -> tuple[list[VectorRecord], str | None]
 ```
 
 Iterate records in a collection, in batches.
+
+Weaviate rejects a cursor (`after`) combined with a filter, and
+every read here carries the pending filter, so pages use a numeric
+offset. Weaviate caps `offset + limit` at its
+`QUERY_MAXIMUM_RESULTS` setting, 10000 by default.
 
 **Parameters:**
 
 - **collection** (<code>str</code>) – The collection to read.
 - **limit** (<code>int</code>) – The maximum number of records per page.
-- **page_offset** (<code>str | None</code>) – The cursor id from a previous `scroll` call.
+- **page_offset** (<code>str | None</code>) – The offset from a previous `scroll` call.
 - **filters** (<code>dict\[str, Any\] | None</code>) – A flat-dict filter on payload fields.
 - **with_vectors** (<code>bool</code>) – Whether to return each record's vector.
+- **pending_job_id** (<code>UUID | None</code>) – Read only this job's staged records.
 
 **Returns:**
 
-- <code>list\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code> – The page of records and the next page cursor, or `None` at the
+- <code>list\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code> – The page of records and the next page offset, or `None` at the
 - <code>str | None</code> – end.
 
 ##### `agrag.vectordb.weaviate.WeaviateVectorStore.search` \{#agrag-vectordb-weaviate-WeaviateVectorStore-search}
@@ -2713,7 +3123,7 @@ Search by dense vector only.
 ##### `agrag.vectordb.weaviate.WeaviateVectorStore.upsert` \{#agrag-vectordb-weaviate-WeaviateVectorStore-upsert}
 
 ```python
-upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256) -> None
+upsert(collection:str, records:Sequence[VectorRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> None
 ```
 
 Write or overwrite records in a collection.
@@ -2728,6 +3138,7 @@ insert-or-replace semantics and per-call batching in one request.
 - **records** (<code>Sequence\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code>) – The records to upsert, in order.
 - **batch_size** (<code>int</code>) – The number of records per backend write call. Must be
   positive.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight job staging these records.
 
 **Raises:**
 

@@ -11,7 +11,6 @@ from opentelemetry.trace import SpanKind, Tracer
 
 from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.vector_record import (
-    PENDING_VECTOR_FLAG,
     Distance,
     VectorHit,
     VectorRecord,
@@ -28,6 +27,7 @@ from agrag.vectordb.errors import (
     VectorStoreError,
     VectorStoreMissingExtraError,
 )
+from agrag.vectordb.pending import PENDING_FLAG, PENDING_JOB_KEY, stage_records
 from agrag.vectordb.settings import WeaviateSettings
 
 
@@ -159,18 +159,19 @@ class WeaviateVectorStore(VectorStore):
             raise ValueError(f"unsupported distance metric for Weaviate: {distance}")
         return mapping[distance]
 
-    def _compile_filter(self, filters: dict[str, Any] | None) -> Any:
+    def _compile_filter(
+        self, filters: dict[str, Any] | None, pending_job_id: UUID | None = None
+    ) -> Any:
         """Build a Weaviate filter from a flat-dict payload filter.
 
-        A pending record (one whose ``_pending`` payload boolean is true)
-        is excluded unless the filter asks for pending records only.
+        Staged records are excluded unless ``pending_job_id`` names the job
+        to read.
 
         Args:
             filters: A flat-dict filter: a scalar value means exact match, a
                 list value means any of, and all keys are AND-ed together.
-                ``None`` means no filter. ``_pending=True`` selects only
-                in-flight records; leaving the key out, or setting it
-                ``False``, excludes them.
+            pending_job_id: Select only this job's staged records instead of
+                the committed ones.
 
         Returns:
             A Weaviate ``Filter`` matching the requested records.
@@ -179,8 +180,6 @@ class WeaviateVectorStore(VectorStore):
 
         conditions = []
         for key, value in (filters or {}).items():
-            if key == PENDING_VECTOR_FLAG:
-                continue
             if key == _PENDING_PROPERTY:
                 raise ValueError(f"{_PENDING_PROPERTY!r} is reserved for internal use")
             prop = WeaviateFilter.by_property(key)
@@ -189,10 +188,13 @@ class WeaviateVectorStore(VectorStore):
             else:
                 conditions.append(prop.equal(value))
         pending = WeaviateFilter.by_property(_PENDING_PROPERTY)
-        if (filters or {}).get(PENDING_VECTOR_FLAG) is True:
-            conditions.append(pending.equal(True))
-        else:
+        if pending_job_id is None:
             conditions.append(pending.equal(False))
+        else:
+            conditions.append(pending.equal(True))
+            conditions.append(
+                WeaviateFilter.by_property(PENDING_JOB_KEY).equal(str(pending_job_id))
+            )
         return WeaviateFilter.all_of(conditions)
 
     @staticmethod
@@ -233,7 +235,7 @@ class WeaviateVectorStore(VectorStore):
             id=UUID(str(obj.uuid)),
             score=score,
             payload={
-                (PENDING_VECTOR_FLAG if key == _PENDING_PROPERTY else key): value
+                (PENDING_FLAG if key == _PENDING_PROPERTY else key): value
                 for key, value in (obj.properties or {}).items()
             },
         )
@@ -253,7 +255,7 @@ class WeaviateVectorStore(VectorStore):
             id=UUID(str(obj.uuid)),
             vector=vector,
             payload={
-                (PENDING_VECTOR_FLAG if key == _PENDING_PROPERTY else key): value
+                (PENDING_FLAG if key == _PENDING_PROPERTY else key): value
                 for key, value in (obj.properties or {}).items()
             },
         )
@@ -378,6 +380,7 @@ class WeaviateVectorStore(VectorStore):
         records: Sequence[VectorRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> None:
         """Write or overwrite records in a collection.
 
@@ -390,12 +393,14 @@ class WeaviateVectorStore(VectorStore):
             records: The records to upsert, in order.
             batch_size: The number of records per backend write call. Must be
                 positive.
+            pending_job_id: The in-flight job staging these records.
 
         Raises:
             ValueError: ``batch_size`` is not positive.
             VectorStoreError: At least one record in a batch failed to write.
         """
         require_positive_batch_size(batch_size)
+        records = stage_records(records, pending_job_id)
         for record in records:
             self._validate_payload(record.payload)
         client = await self._ensure_client()
@@ -418,16 +423,10 @@ class WeaviateVectorStore(VectorStore):
                 objects = [
                     DataObject(
                         properties={
-                            (
-                                _PENDING_PROPERTY if key == PENDING_VECTOR_FLAG else key
-                            ): value
+                            (_PENDING_PROPERTY if key == PENDING_FLAG else key): value
                             for key, value in record.payload.items()
                         }
-                        | {
-                            _PENDING_PROPERTY: record.payload.get(
-                                PENDING_VECTOR_FLAG, False
-                            )
-                        },
+                        | {_PENDING_PROPERTY: record.payload.get(PENDING_FLAG, False)},
                         vector={_VECTOR_NAME: record.vector},
                         uuid=str(record.id),
                     )
@@ -568,22 +567,30 @@ class WeaviateVectorStore(VectorStore):
         page_offset: str | None = None,
         filters: dict[str, Any] | None = None,
         with_vectors: bool = False,
+        pending_job_id: UUID | None = None,
     ) -> tuple[list[VectorRecord], str | None]:
         """Iterate records in a collection, in batches.
+
+        Weaviate rejects a cursor (``after``) combined with a filter, and
+        every read here carries the pending filter, so pages use a numeric
+        offset. Weaviate caps ``offset + limit`` at its
+        ``QUERY_MAXIMUM_RESULTS`` setting, 10000 by default.
 
         Args:
             collection: The collection to read.
             limit: The maximum number of records per page.
-            page_offset: The cursor id from a previous ``scroll`` call.
+            page_offset: The offset from a previous ``scroll`` call.
             filters: A flat-dict filter on payload fields.
             with_vectors: Whether to return each record's vector.
+            pending_job_id: Read only this job's staged records.
 
         Returns:
-            The page of records and the next page cursor, or ``None`` at the
+            The page of records and the next page offset, or ``None`` at the
             end.
         """
         client = await self._ensure_client()
         target = client.collections.get(collection)
+        offset = int(page_offset) if page_offset is not None else 0
         with self._tracer.start_as_current_span(
             "agrag.vectordb.scroll",
             kind=SpanKind.CLIENT,
@@ -595,14 +602,13 @@ class WeaviateVectorStore(VectorStore):
         ):
             response = await target.query.fetch_objects(
                 limit=limit,
-                after=page_offset,
-                filters=self._compile_filter(filters),
+                offset=offset,
+                filters=self._compile_filter(filters, pending_job_id),
                 include_vector=with_vectors,
             )
         objects = response.objects if hasattr(response, "objects") else response
         records = [self._to_record(obj) for obj in objects]
-        has_more_page = bool(objects) and len(objects) == limit
-        next_offset = str(objects[-1].uuid) if has_more_page else None
+        next_offset = str(offset + limit) if objects and len(objects) == limit else None
         return records, next_offset
 
     async def retrieve(
@@ -638,13 +644,18 @@ class WeaviateVectorStore(VectorStore):
         return records
 
     async def count(
-        self, collection: str, *, filters: dict[str, Any] | None = None
+        self,
+        collection: str,
+        *,
+        filters: dict[str, Any] | None = None,
+        pending_job_id: UUID | None = None,
     ) -> int:
         """Count records in a collection.
 
         Args:
             collection: The collection to count.
             filters: A flat-dict filter on payload fields.
+            pending_job_id: Count only this job's staged records.
 
         Returns:
             The number of matching records.
@@ -660,7 +671,7 @@ class WeaviateVectorStore(VectorStore):
             },
         ):
             result = await target.aggregate.over_all(
-                filters=self._compile_filter(filters), total_count=True
+                filters=self._compile_filter(filters, pending_job_id), total_count=True
             )
         return result.total_count
 

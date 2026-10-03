@@ -20,6 +20,7 @@ from agrag.cypher.entities import hydrate_entities_by_id_query
 from agrag.cypher.safety import (
     UnsafeCypherError,
     reject_write_cypher,
+    require_pending_guard,
     strip_cypher_syntax,
 )
 from agrag.graphdb.base import GraphStore
@@ -579,6 +580,8 @@ class Text2CypherRetriever(Retriever):
 
         Raises:
             UnsafeCypherError: The query contains a write clause.
+            MissingPendingGuardError: The query can return rows an
+                uncommitted job wrote. The repair attempt regenerates it.
             Exception: The query failed to plan or to execute.
         """
         with get_tracer(self._tracer).start_as_current_span(
@@ -586,6 +589,7 @@ class Text2CypherRetriever(Retriever):
             attributes={"agrag.is_repair": is_repair},
         ) as span:
             reject_write_cypher(cypher_query)
+            require_pending_guard(cypher_query)
             bounded_query = _append_row_limit(
                 cypher_query, self._settings.text2cypher_max_rows
             )

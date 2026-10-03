@@ -61,7 +61,7 @@ class TestEmbedResolvedEntities:
             calls.append("graph")
             return [{"id": str(entity.id)}]
 
-        async def upsert(*_args: object) -> None:
+        async def upsert(*_args: object, **_kwargs: object) -> None:
             calls.append("vector")
 
         graph_store = SimpleNamespace(
@@ -341,7 +341,7 @@ class TestSynchronizeResolvedEntityVectors:
         async def delete(*_args: object) -> None:
             calls.append("delete")
 
-        async def upsert(*_args: object) -> None:
+        async def upsert(*_args: object, **_kwargs: object) -> None:
             calls.append("upsert")
 
         replaced_id = uuid4()

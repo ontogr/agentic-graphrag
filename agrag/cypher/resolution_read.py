@@ -5,6 +5,7 @@ from agrag.common.data_models.resolved_entity import (
     RESOLVED_AS_RELATION,
     RESOLVED_ENTITY_LABEL,
 )
+from agrag.cypher._pending_filter import pending_filter_clause
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 
 
@@ -37,10 +38,9 @@ def fetch_active_component_members_query() -> str:
         f"MATCH (seed:{NODE_IDENTITY_LABEL} {{id: seed_id}})"
         f"-[matches:{MATCHES_RELATION}*0..]-(member:{NODE_IDENTITY_LABEL}) "
         "WHERE ALL(match IN matches WHERE match.active = true) "
-        "AND ALL(match IN matches WHERE match._pending_job_id IS NULL "
-        "OR match._pending_job_id = $job_id) "
-        "AND (seed._pending_job_id IS NULL OR seed._pending_job_id = $job_id) "
-        "AND (member._pending_job_id IS NULL OR member._pending_job_id = $job_id) "
+        f"AND ALL(match IN matches WHERE {pending_filter_clause('match', 'job_id')}) "
+        f"AND {pending_filter_clause('seed', 'job_id')} "
+        f"AND {pending_filter_clause('member', 'job_id')} "
         "RETURN DISTINCT seed_id, member"
     )
 
@@ -60,8 +60,7 @@ def hydrate_resolved_entities_by_id_query() -> str:
         "UNWIND $ids AS resolved_entity_id "
         f"MATCH (resolved:{RESOLVED_ENTITY_LABEL} {{id: resolved_entity_id}}) "
         "WHERE resolved.vector_sync_status = 'synced' "
-        "AND (resolved._pending_job_id IS NULL "
-        "OR resolved._pending_job_id = $job_id) "
+        f"AND {pending_filter_clause('resolved', 'job_id')} "
         "RETURN resolved"
     )
 
@@ -82,9 +81,8 @@ def fetch_active_resolved_member_ids_query() -> str:
         f"MATCH (entity:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
         f"-[edge:{RESOLVED_AS_RELATION}]->(resolved:{RESOLVED_ENTITY_LABEL}) "
         "WHERE resolved.vector_sync_status = 'synced' "
-        "AND (edge._pending_job_id IS NULL OR edge._pending_job_id = $job_id) "
-        "AND (resolved._pending_job_id IS NULL "
-        "OR resolved._pending_job_id = $job_id) "
+        f"AND {pending_filter_clause('edge', 'job_id')} "
+        f"AND {pending_filter_clause('resolved', 'job_id')} "
         "RETURN entity_id"
     )
 
@@ -96,10 +94,9 @@ def fetch_active_matches_among_ids_query() -> str:
         f"MATCH (a:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
         f"-[match:{MATCHES_RELATION}]->(b:{NODE_IDENTITY_LABEL}) "
         "WHERE match.active = true AND b.id IN $ids "
-        "AND (a._pending_job_id IS NULL OR a._pending_job_id = $job_id) "
-        "AND (b._pending_job_id IS NULL OR b._pending_job_id = $job_id) "
-        "AND (match._pending_job_id IS NULL "
-        "OR match._pending_job_id = $job_id) "
+        f"AND {pending_filter_clause('a', 'job_id')} "
+        f"AND {pending_filter_clause('b', 'job_id')} "
+        f"AND {pending_filter_clause('match', 'job_id')} "
         "RETURN match.id AS match_id, a.id AS a_id, b.id AS b_id"
     )
 
@@ -116,11 +113,11 @@ def fetch_entities_with_open_evidence_query() -> str:
         f"(entity:{NODE_IDENTITY_LABEL} {{id: entity_id}}) "
         f"MATCH (document:{NODE_IDENTITY_LABEL}:Document)-[part:PART_OF]->(chunk) "
         "WHERE part.invalid_at IS NULL "
-        "AND (entity._pending_job_id IS NULL OR entity._pending_job_id = $job_id) "
-        "AND (chunk._pending_job_id IS NULL OR chunk._pending_job_id = $job_id) "
-        "AND (mention._pending_job_id IS NULL OR mention._pending_job_id = $job_id) "
-        "AND (document._pending_job_id IS NULL OR document._pending_job_id = $job_id) "
-        "AND (part._pending_job_id IS NULL OR part._pending_job_id = $job_id) "
+        f"AND {pending_filter_clause('entity', 'job_id')} "
+        f"AND {pending_filter_clause('chunk', 'job_id')} "
+        f"AND {pending_filter_clause('mention', 'job_id')} "
+        f"AND {pending_filter_clause('document', 'job_id')} "
+        f"AND {pending_filter_clause('part', 'job_id')} "
         "RETURN DISTINCT entity.id AS id"
     )
 
@@ -131,11 +128,9 @@ def fetch_entity_cluster_memberships_query() -> str:
         "UNWIND $ids AS entity_id "
         f"MATCH (entity:{NODE_IDENTITY_LABEL} {{id: entity_id}})"
         f"-[membership:{RESOLVED_AS_RELATION}]->(resolved:{RESOLVED_ENTITY_LABEL}) "
-        "WHERE (entity._pending_job_id IS NULL OR entity._pending_job_id = $job_id) "
-        "AND (membership._pending_job_id IS NULL "
-        "OR membership._pending_job_id = $job_id) "
-        "AND (resolved._pending_job_id IS NULL "
-        "OR resolved._pending_job_id = $job_id) "
+        f"WHERE {pending_filter_clause('entity', 'job_id')} "
+        f"AND {pending_filter_clause('membership', 'job_id')} "
+        f"AND {pending_filter_clause('resolved', 'job_id')} "
         "RETURN entity_id, resolved.id AS resolved_id, "
         "resolved.member_ids AS member_ids"
     )
