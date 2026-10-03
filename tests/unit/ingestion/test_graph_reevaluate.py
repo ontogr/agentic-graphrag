@@ -4,7 +4,7 @@ The real zone-routed Resolver runs against a one-hot fake embedder, so
 no LLM or network is involved: names sharing a vector merge in the
 embedding tier, orthogonal names are discarded, and identical names meet
 as exact-text pairs. Active MATCHES edges come from canned reads, and
-the real materialize functions persist through the fake's transaction.
+the real rebuild functions persist through the fake's transaction.
 """
 
 from collections.abc import Mapping, Sequence

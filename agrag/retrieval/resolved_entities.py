@@ -1,4 +1,4 @@
-"""Hydration helpers for materialized resolved entities."""
+"""Hydration helpers for resolved-entities."""
 
 from typing import Any
 from uuid import UUID

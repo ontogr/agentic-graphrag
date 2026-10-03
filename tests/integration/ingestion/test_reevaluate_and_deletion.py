@@ -27,7 +27,7 @@ from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
-from agrag.ingestion.materialize import MatchDecision, write_matches_and_materialize
+from agrag.ingestion.resolved_entities import MatchDecision, write_matches_and_rebuild
 
 
 neo4j_missing = importlib.util.find_spec("neo4j") is None
@@ -244,7 +244,7 @@ class TestDeletionPruningIntegration:
                 for name in probe_names
             ]
             now = datetime.now(UTC)
-            await write_matches_and_materialize(
+            await write_matches_and_rebuild(
                 [
                     MatchDecision(
                         entity_a_id=members[0].id,

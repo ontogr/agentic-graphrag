@@ -11,7 +11,7 @@ class MergeStats(BaseModel):
     """Merge-stage results.
 
     Attributes:
-        nodes_created: Brand-new entities materialized this call.
+        nodes_created: Brand-new entities created this call.
         nodes_updated: Existing entities that absorbed new mention data.
         conflicts_resolved: Total property/description conflicts resolved
             across every merge this call performed.

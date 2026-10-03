@@ -16,7 +16,7 @@ Retrieval package: search engine, fusion, reranking, and retrievers.
 - [**methods**](#agrag-retrieval-methods) – Low-level search method helpers shared by retrievers.
 - [**recipes**](#agrag-retrieval-recipes) – Named, data-only configurations of what SearchEngine runs.
 - [**rerank**](#agrag-retrieval-rerank) – Rerankers that reorder fused search results.
-- [**resolved_entities**](#agrag-retrieval-resolved_entities) – Hydration helpers for materialized resolved entities.
+- [**resolved_entities**](#agrag-retrieval-resolved_entities) – Hydration helpers for resolved-entities.
 - [**retrievers**](#agrag-retrieval-retrievers) – Retriever implementations for entity, chunk, BFS, and text2cypher search.
 - [**search_engine**](#agrag-retrieval-search_engine) – Retrieval's public entry point, independent of Graph.
 - [**settings**](#agrag-retrieval-settings) – Env-backed configuration for retrieval methods and fusion.
@@ -441,7 +441,7 @@ Configuration for retrieval methods and fusion.
   search. Only read when a VectorStore is configured on
   SearchEngine; ignored on the GraphStore-native path.
 - [**resolved_entity_collection**](#agrag-retrieval-RetrievalSettings-resolved_entity_collection) (<code>str</code>) – The VectorStore collection name for
-  materialized resolved-entity search. Same condition as
+  resolved-entity search. Same condition as
   entity_collection.
 - [**chunk_collection**](#agrag-retrieval-RetrievalSettings-chunk_collection) (<code>str</code>) – The VectorStore collection name for chunk
   search. Same condition as entity_collection.
@@ -1852,7 +1852,7 @@ at the end with a high distance penalty.
 
 ### `agrag.retrieval.resolved_entities` \{#agrag-retrieval-resolved_entities}
 
-Hydration helpers for materialized resolved entities.
+Hydration helpers for resolved-entities.
 
 **Functions:**
 
@@ -2544,7 +2544,7 @@ Configuration for retrieval methods and fusion.
   search. Only read when a VectorStore is configured on
   SearchEngine; ignored on the GraphStore-native path.
 - [**resolved_entity_collection**](#agrag-retrieval-settings-RetrievalSettings-resolved_entity_collection) (<code>str</code>) – The VectorStore collection name for
-  materialized resolved-entity search. Same condition as
+  resolved-entity search. Same condition as
   entity_collection.
 - [**chunk_collection**](#agrag-retrieval-settings-RetrievalSettings-chunk_collection) (<code>str</code>) – The VectorStore collection name for chunk
   search. Same condition as entity_collection.

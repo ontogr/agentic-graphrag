@@ -178,7 +178,11 @@ class TestCutoverJobLease:
         assert stolen == [{"lease_token": second_token}]
         stale_commit = await store.execute_write(
             commit_job_query(),
-            {"job_id": first_params["job_id"], "lease_token": first_token},
+            {
+                "job_id": first_params["job_id"],
+                "lease_token": first_token,
+                "component_seed_ids": [],
+            },
         )
         assert stale_commit == []
 
