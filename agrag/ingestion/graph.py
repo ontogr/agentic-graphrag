@@ -3,12 +3,8 @@
 import asyncio
 import contextlib
 import functools
-import glob
 import hashlib
-import json
 from collections.abc import Callable, Sequence
-from pathlib import Path
-from typing import Union
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
@@ -49,6 +45,7 @@ from agrag.ingestion._ingest_pipeline import (
     ingest_chunks,
 )
 from agrag.ingestion._resume import resume_incomplete_jobs
+from agrag.ingestion._walk import SourcesType, chunk_documents, iter_document_batches
 from agrag.ingestion.community import detect_communities
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.reports import (
@@ -86,53 +83,12 @@ from agrag.ingestion.stats import (
     StorageStats,
 )
 from agrag.loaders.corpus import registry as _corpus_registry
-from agrag.loaders.corpus._walk import (
-    _CorpusWalk,
-    _InMemoryWalk,
-    normalize_inline_text,
-)
+from agrag.loaders.corpus._walk import normalize_inline_text
 from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions
 from agrag.observability import get_tracer, record_stage_failure
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
-
-
-SourceType = Union[str, Path]
-SourcesType = Union[SourceType, Sequence[SourceType]]
-
-
-def _resolve_paths(source: SourcesType) -> tuple[list[Path], bool]:
-    """Expand a source argument into concrete file paths.
-
-    Args:
-        source: A file path, a directory, a glob, or a list of these.
-
-    Returns:
-        The resolved file paths in sorted order and whether the input was a single plain
-        file (not a directory or glob).
-    """
-    items = source if isinstance(source, (list, tuple)) else [source]
-    paths: list[Path] = []
-    single_file = len(items) == 1
-    for item in items:
-        text = str(item)
-        path = Path(text)
-        if path.is_dir():
-            single_file = False
-            paths.extend(sorted(p for p in path.rglob("*") if p.is_file()))
-        elif any(ch in text for ch in "*?["):
-            single_file = False
-            paths.extend(
-                sorted(
-                    Path(m)
-                    for m in glob.glob(text, recursive=True)
-                    if Path(m).is_file()
-                )
-            )
-        else:
-            paths.append(path)
-    return paths, single_file
 
 
 async def _no_pending_write(job_id: UUID) -> None:
@@ -755,21 +711,33 @@ class Graph:
                     chunks=list(chunks) if return_chunks else [],
                 )
 
-            # Stream ingestion + extraction per walk-batch, collecting all mentions
-            if documents is not None:
-                # Single synthetic batch from provided documents
-                docs_list = list(documents)
-                _record_document_keys(docs_list)
-                final_stats.documents = len(docs_list)
-                final_stats.sources = 0
-                # Chunk all at once (still via thread)
+            async for batch, stats in iter_document_batches(
+                source=source,
+                text=text,
+                documents=documents,
+                registry=self._registry,
+                opts=opts,
+                error_policy=error_policy,
+                loader=loader,
+                tracer=self._tracer,
+            ):
+                _record_document_keys(batch)
+                final_stats.documents = stats.documents
+                final_stats.sources = stats.sources
+                final_stats.skipped = stats.skipped
+                final_stats.quarantined = stats.quarantined
+                final_stats.quarantined_items = list(stats.quarantined_items)
                 chunk_batch, batch_matches = await asyncio.to_thread(
-                    self._chunk_documents, docs_list
+                    chunk_documents, batch, chunking=self._chunking, tracer=self._tracer
                 )
                 chunks.extend(chunk_batch)
                 chunk_matches.extend(batch_matches)
-                documents_seen.extend(docs_list)
-                batch_entities, batch_relations, batch_failures = await extract_chunks(
+                documents_seen.extend(batch)
+                (
+                    batch_entities,
+                    batch_relations,
+                    batch_failures,
+                ) = await extract_chunks(
                     chunk_batch,
                     start_index=len(entities),
                     extractor=self._extractor,
@@ -780,94 +748,9 @@ class Graph:
                 entities.extend(batch_entities)
                 relations.extend(batch_relations)
                 extraction_failures.extend(batch_failures)
-                # Fire on_progress once for the synthetic batch (partial)
                 if on_progress is not None:
                     with contextlib.suppress(Exception):
                         on_progress(_build_partial_add_result())
-            elif text is not None:
-                walk = _InMemoryWalk(text, opts=opts)
-                batches = walk.iter_batches()
-                async for batch, _cursor, stats in batches:
-                    _record_document_keys(batch)
-                    # Stats is LoadStats
-                    final_stats.documents = stats.documents
-                    final_stats.sources = stats.sources
-                    final_stats.skipped = stats.skipped
-                    final_stats.quarantined = stats.quarantined
-                    final_stats.quarantined_items = list(stats.quarantined_items)
-                    # Chunk this batch
-                    chunk_batch, batch_matches = await asyncio.to_thread(
-                        self._chunk_documents, batch
-                    )
-                    chunks.extend(chunk_batch)
-                    chunk_matches.extend(batch_matches)
-                    documents_seen.extend(batch)
-                    (
-                        batch_entities,
-                        batch_relations,
-                        batch_failures,
-                    ) = await extract_chunks(
-                        chunk_batch,
-                        start_index=len(entities),
-                        extractor=self._extractor,
-                        schema=self._schema,
-                        error_policy=error_policy,
-                        tracer=self._tracer,
-                    )
-                    entities.extend(batch_entities)
-                    relations.extend(batch_relations)
-                    extraction_failures.extend(batch_failures)
-                    if on_progress is not None:
-                        with contextlib.suppress(Exception):
-                            on_progress(_build_partial_add_result())
-            else:
-                assert source is not None
-                paths, single_file = _resolve_paths(source)
-                if loader is not None and not single_file:
-                    raise ValueError(
-                        "A loader override requires a single-file source, not a "
-                        "directory, glob, or list of sources."
-                    )
-                walk = _CorpusWalk(
-                    paths,
-                    registry=self._registry,
-                    opts=opts,
-                    error_policy=error_policy,
-                    loader=loader,
-                    tracer=self._tracer,
-                )
-                batches = walk.iter_batches()
-                async for batch, _cursor, stats in batches:
-                    _record_document_keys(batch)
-                    final_stats.documents = stats.documents
-                    final_stats.sources = stats.sources
-                    final_stats.skipped = stats.skipped
-                    final_stats.quarantined = stats.quarantined
-                    final_stats.quarantined_items = list(stats.quarantined_items)
-                    chunk_batch, batch_matches = await asyncio.to_thread(
-                        self._chunk_documents, batch
-                    )
-                    chunks.extend(chunk_batch)
-                    chunk_matches.extend(batch_matches)
-                    documents_seen.extend(batch)
-                    (
-                        batch_entities,
-                        batch_relations,
-                        batch_failures,
-                    ) = await extract_chunks(
-                        chunk_batch,
-                        start_index=len(entities),
-                        extractor=self._extractor,
-                        schema=self._schema,
-                        error_policy=error_policy,
-                        tracer=self._tracer,
-                    )
-                    entities.extend(batch_entities)
-                    relations.extend(batch_relations)
-                    extraction_failures.extend(batch_failures)
-                    if on_progress is not None:
-                        with contextlib.suppress(Exception):
-                            on_progress(_build_partial_add_result())
 
             # Assemble the ingestion summary from this call's own walk, then run
             # each document's slice as its own Cutover Job through the shared
@@ -1051,23 +934,15 @@ class Graph:
                     normalization=normalization,
                 )
             else:
-                assert source is not None
-                paths, single_file = _resolve_paths(source)
-                if loader is not None and not single_file:
-                    raise ValueError(
-                        "A loader override requires a single-file source, not a "
-                        "directory, glob, or list of sources."
-                    )
-                walk = _CorpusWalk(
-                    paths,
+                documents_from_source: list[Document] = []
+                async for batch, _stats in iter_document_batches(
+                    source=source,
                     registry=self._registry,
                     opts=opts,
                     error_policy=error_policy,
                     loader=loader,
                     tracer=self._tracer,
-                )
-                documents_from_source: list[Document] = []
-                async for batch, _cursor, _stats in walk.iter_batches():
+                ):
                     documents_from_source.extend(batch)
                 if len(documents_from_source) != 1:
                     raise ValueError("The source must produce exactly one document.")
@@ -1095,7 +970,10 @@ class Graph:
                     found.document_node_id
                 )
             chunks, chunk_matches = await asyncio.to_thread(
-                self._chunk_documents, [document]
+                chunk_documents,
+                [document],
+                chunking=self._chunking,
+                tracer=self._tracer,
             )
             entities, relations, extraction_failures = await extract_chunks(
                 chunks,
@@ -1445,51 +1323,6 @@ class Graph:
                 self._retrieval_settings.resolved_entity_collection,
                 pruning.removed_resolved_entity_ids,
             )
-
-    def _chunk_documents(
-        self, documents: list[Document]
-    ) -> tuple[list[Chunk], list[ChunkingMatch]]:
-        """Chunk a batch of documents, each with the chunker its rule picks.
-
-        Args:
-            documents: The documents to chunk.
-
-        Returns:
-            The chunks in document then chunk order, and one match per document
-            that records the rule and chunker it got.
-        """
-        chunks: list[Chunk] = []
-        matches: list[ChunkingMatch] = []
-        for document in documents:
-            rule, chunker = self._chunking.select(document)
-            with self._tracer.start_as_current_span(
-                "agrag.ingestion.chunk_document",
-                attributes={
-                    "agrag.document_key": document.resolved_document_key,
-                    "agrag.chunker.strategy": chunker.strategy,
-                    "agrag.chunker.hash": chunker.fingerprint(),
-                    "agrag.chunker.settings": json.dumps(chunker.settings()),
-                    "agrag.chunker.rule": "fallback" if rule is None else str(rule),
-                },
-            ) as span:
-                document_chunks = chunker.chunk(document)
-                span.set_attribute("agrag.chunks_produced", len(document_chunks))
-            chunks.extend(document_chunks)
-            by_chunker: dict[str, int] = {}
-            for chunk in document_chunks:
-                name = chunk.chunker or chunker.strategy
-                by_chunker[name] = by_chunker.get(name, 0) + 1
-            matches.append(
-                ChunkingMatch(
-                    document_key=document.resolved_document_key,
-                    rule=rule,
-                    strategy=chunker.strategy,
-                    chunker_hash=chunker.fingerprint(),
-                    chunks=len(document_chunks),
-                    chunks_by_chunker=by_chunker,
-                )
-            )
-        return chunks, matches
 
     async def _all_entities_by_label(self, label: str) -> list[Entity]:
         """Return every persisted entity with label, for consolidate().

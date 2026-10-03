@@ -50,8 +50,9 @@ from agrag.ingestion._ingest_pipeline import (
     _global_relation_lookup,
     _upsert_vectors,
 )
+from agrag.ingestion._walk import resolve_paths
 from agrag.ingestion.extract import Extractor
-from agrag.ingestion.graph import Graph, _resolve_paths
+from agrag.ingestion.graph import Graph
 from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolved_entities import RebuildResult
 from agrag.loaders.corpus.types import ErrorPolicy
@@ -1248,13 +1249,13 @@ class TestGraphOpenVectorStore:
 
 
 class TestResolvePaths:
-    """Tests for _resolve_paths."""
+    """Tests for resolve_paths."""
 
     def test_single_file(self, tmp_path: Path) -> None:
         """Single file returns single path and single_file True."""
         f = tmp_path / "a.txt"
         f.write_text("hi")
-        paths, single = _resolve_paths(str(f))
+        paths, single = resolve_paths(str(f))
         assert paths == [f]
         assert single is True
 
@@ -1264,7 +1265,7 @@ class TestResolvePaths:
         d.mkdir()
         (d / "a.txt").write_text("a")
         (d / "b.txt").write_text("b")
-        paths, single = _resolve_paths(str(d))
+        paths, single = resolve_paths(str(d))
         assert len(paths) == 2
         assert single is False
 
@@ -1273,7 +1274,7 @@ class TestResolvePaths:
         (tmp_path / "a.txt").write_text("a")
         (tmp_path / "sub").mkdir()
         (tmp_path / "sub" / "b.txt").write_text("b")
-        paths, single = _resolve_paths(str(tmp_path / "*.txt"))
+        paths, single = resolve_paths(str(tmp_path / "*.txt"))
         assert any(p.name == "a.txt" for p in paths)
         assert single is False
 
@@ -1283,7 +1284,7 @@ class TestResolvePaths:
         f2 = tmp_path / "b.txt"
         f1.write_text("a")
         f2.write_text("b")
-        paths, single = _resolve_paths([str(f1), str(f2)])
+        paths, single = resolve_paths([str(f1), str(f2)])
         assert len(paths) == 2
         assert single is False
 
@@ -1575,7 +1576,7 @@ class TestGraphAddPipeline:
         graph = await Graph.open(
             schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
         )
-        with mock.patch.object(graph, "_chunk_documents", return_value=([], [])):
+        with mock.patch("agrag.ingestion.graph.chunk_documents", return_value=([], [])):
             result = await graph.add(text="hi", on_progress=lambda _: None)
             assert result.extraction.chunks_processed == 0
             assert result.storage.nodes_written == 0

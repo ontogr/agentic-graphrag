@@ -614,7 +614,7 @@ Give exactly one of `source`, `text`, and `documents`.
 
 **Parameters:**
 
-- **source** (<code>[SourcesType](#agrag-ingestion-graph-SourcesType) | None</code>) – A file path, a directory, a glob, or a list of these.
+- **source** (<code>SourcesType | None</code>) – A file path, a directory, a glob, or a list of these.
 - **text** (<code>str | None</code>) – Raw text to add as one document.
 - **documents** (<code>Sequence\[[Document](common.md#agrag-common-data_models-document-Document)\] | None</code>) – Already-built documents to add directly.
 - **loader** (<code>[Loader](loaders.md#agrag-loaders-corpus-base-Loader) | None</code>) – A loader to use instead of the registry default. Requires a
@@ -890,7 +890,7 @@ must resolve to exactly one document.
 
 - **document_key** (<code>str</code>) – The stable key of the document to replace.
 - **text** (<code>str | None</code>) – Replacement text, exactly one of `text`/`source`.
-- **source** (<code>[SourcesType](#agrag-ingestion-graph-SourcesType) | None</code>) – A single-file source, glob, or path list resolving to
+- **source** (<code>SourcesType | None</code>) – A single-file source, glob, or path list resolving to
   exactly one document.
 - **loader** (<code>[Loader](loaders.md#agrag-loaders-corpus-base-Loader) | None</code>) – A loader override for a single-file `source`.
 - **error_policy** (<code>[ErrorPolicy](loaders.md#agrag-loaders-corpus-types-ErrorPolicy)</code>) – RAISE propagates a stage failure; any other
@@ -1062,7 +1062,7 @@ compute_communities(edges:list[WeightedEdge], *, max_cluster_size:int = 10, reso
 Run hierarchical Leiden and return level-0 communities.
 
 CPU-bound and synchronous; callers on the event loop should run this via
-asyncio.to_thread (see Graph.\_chunk_documents for the same pattern with
+asyncio.to_thread (see chunk_documents for the same pattern with
 chunking). Only level 0 is kept -- higher levels are computed for
 max_cluster_size capping but never persisted.
 
@@ -1683,11 +1683,6 @@ The public Graph API for ingestion.
 
 - [**Graph**](#agrag-ingestion-graph-Graph) – A knowledge graph that a caller can open and add content to.
 
-**Attributes:**
-
-- [**SourceType**](#agrag-ingestion-graph-SourceType) –
-- [**SourcesType**](#agrag-ingestion-graph-SourcesType) –
-
 #### `agrag.ingestion.graph.Graph` \{#agrag-ingestion-graph-Graph}
 
 ```python
@@ -1760,7 +1755,7 @@ Give exactly one of `source`, `text`, and `documents`.
 
 **Parameters:**
 
-- **source** (<code>[SourcesType](#agrag-ingestion-graph-SourcesType) | None</code>) – A file path, a directory, a glob, or a list of these.
+- **source** (<code>SourcesType | None</code>) – A file path, a directory, a glob, or a list of these.
 - **text** (<code>str | None</code>) – Raw text to add as one document.
 - **documents** (<code>Sequence\[[Document](common.md#agrag-common-data_models-document-Document)\] | None</code>) – Already-built documents to add directly.
 - **loader** (<code>[Loader](loaders.md#agrag-loaders-corpus-base-Loader) | None</code>) – A loader to use instead of the registry default. Requires a
@@ -2036,7 +2031,7 @@ must resolve to exactly one document.
 
 - **document_key** (<code>str</code>) – The stable key of the document to replace.
 - **text** (<code>str | None</code>) – Replacement text, exactly one of `text`/`source`.
-- **source** (<code>[SourcesType](#agrag-ingestion-graph-SourcesType) | None</code>) – A single-file source, glob, or path list resolving to
+- **source** (<code>SourcesType | None</code>) – A single-file source, glob, or path list resolving to
   exactly one document.
 - **loader** (<code>[Loader](loaders.md#agrag-loaders-corpus-base-Loader) | None</code>) – A loader override for a single-file `source`.
 - **error_policy** (<code>[ErrorPolicy](loaders.md#agrag-loaders-corpus-types-ErrorPolicy)</code>) – RAISE propagates a stage failure; any other
@@ -2066,18 +2061,6 @@ The fresh-content path shares `ingest_chunks()` with
 for the same input.
 
 </details>
-
-#### `agrag.ingestion.graph.SourceType` \{#agrag-ingestion-graph-SourceType}
-
-```python
-SourceType = Union[str, Path]
-```
-
-#### `agrag.ingestion.graph.SourcesType` \{#agrag-ingestion-graph-SourcesType}
-
-```python
-SourcesType = Union[SourceType, Sequence[SourceType]]
-```
 
 ### `agrag.ingestion.merge` \{#agrag-ingestion-merge}
 

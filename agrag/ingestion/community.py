@@ -156,7 +156,7 @@ def compute_communities(
     """Run hierarchical Leiden and return level-0 communities.
 
     CPU-bound and synchronous; callers on the event loop should run this via
-    asyncio.to_thread (see Graph._chunk_documents for the same pattern with
+    asyncio.to_thread (see chunk_documents for the same pattern with
     chunking). Only level 0 is kept -- higher levels are computed for
     max_cluster_size capping but never persisted.
 

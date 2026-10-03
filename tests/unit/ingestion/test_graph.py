@@ -26,6 +26,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
+from opentelemetry.trace import Tracer
 
 import agrag.ingestion._cutover as cutover_module
 import agrag.ingestion.graph as graph_module
@@ -70,11 +71,13 @@ from agrag.ingestion._ingest_pipeline import (
     _embed_and_upsert_survivors,
     _vector_record,
 )
+from agrag.ingestion._walk import chunk_documents
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES, ResolutionResult
 from agrag.loaders.corpus.errors import UnsupportedFormatError
 from agrag.loaders.corpus.readers.prose import TextLoader
 from agrag.loaders.corpus.types import ErrorPolicy, ReadOptions
+from agrag.observability import get_tracer
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
@@ -91,12 +94,16 @@ class _DoclingItem:
     text = "chunk"
 
 
-def _chunk_docling(graph: Graph, document: Document) -> list[Chunk]:
+def _chunk_docling(
+    graph: Graph, document: Document, tracer: Tracer | None = None
+) -> list[Chunk]:
     """Chunk a docling document with docling's chunker replaced by one chunk."""
     docling_chunking = importlib.import_module("docling.chunking")
     with patch.object(docling_chunking, "HybridChunker") as hybrid:
         hybrid.return_value.chunk.return_value = [_DoclingItem()]
-        chunks, _ = graph._chunk_documents([document])
+        chunks, _ = chunk_documents(
+            [document], chunking=graph.chunking, tracer=get_tracer(tracer)
+        )
     return chunks
 
 
@@ -947,7 +954,9 @@ class TestChunkDocumentSpans:
             tracer=provider.get_tracer("test"),
         )
         document = self._document()
-        chunks, matches = graph._chunk_documents([document])
+        chunks, matches = chunk_documents(
+            [document], chunking=graph.chunking, tracer=provider.get_tracer("test")
+        )
         assert chunks
         assert [m.strategy for m in matches] == ["recursive"]
         spans = [
@@ -994,7 +1003,7 @@ class TestChunkDocumentSpans:
             line_count=1,
             metadata={"_docling_document": object()},
         )
-        chunks = _chunk_docling(graph, document)
+        chunks = _chunk_docling(graph, document, provider.get_tracer("test"))
         assert chunks
         spans = [
             span
