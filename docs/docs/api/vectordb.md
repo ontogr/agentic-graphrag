@@ -183,13 +183,19 @@ commit_pending(collection:str, *, job_id:UUID) -> None
 Promote one job's staged records to committed records.
 
 Each staged record is written under its real id, which replaces any
-committed record with that id, and the staged copy is deleted.
-Re-running after a failure finishes the remaining records.
+committed record with that id, and the staged copy is deleted. The
+method reads the first page of staged records again after each
+delete, so it needs no offset. Re-running after a failure finishes
+the remaining records.
 
 **Parameters:**
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 #### `agrag.vectordb.MilvusVectorStore.count` \{#agrag-vectordb-MilvusVectorStore-count}
 
@@ -246,6 +252,10 @@ Delete one job's staged records, leaving committed records alone.
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 #### `agrag.vectordb.MilvusVectorStore.ensure_collection` \{#agrag-vectordb-MilvusVectorStore-ensure_collection}
 
@@ -557,13 +567,19 @@ commit_pending(collection:str, *, job_id:UUID) -> None
 Promote one job's staged records to committed records.
 
 Each staged record is written under its real id, which replaces any
-committed record with that id, and the staged copy is deleted.
-Re-running after a failure finishes the remaining records.
+committed record with that id, and the staged copy is deleted. The
+method reads the first page of staged records again after each
+delete, so it needs no offset. Re-running after a failure finishes
+the remaining records.
 
 **Parameters:**
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 #### `agrag.vectordb.QdrantVectorStore.count` \{#agrag-vectordb-QdrantVectorStore-count}
 
@@ -620,6 +636,10 @@ Delete one job's staged records, leaving committed records alone.
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 #### `agrag.vectordb.QdrantVectorStore.ensure_collection` \{#agrag-vectordb-QdrantVectorStore-ensure_collection}
 
@@ -858,13 +878,19 @@ commit_pending(collection:str, *, job_id:UUID) -> None
 Promote one job's staged records to committed records.
 
 Each staged record is written under its real id, which replaces any
-committed record with that id, and the staged copy is deleted.
-Re-running after a failure finishes the remaining records.
+committed record with that id, and the staged copy is deleted. The
+method reads the first page of staged records again after each
+delete, so it needs no offset. Re-running after a failure finishes
+the remaining records.
 
 **Parameters:**
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 #### `agrag.vectordb.VectorStore.count` \{#agrag-vectordb-VectorStore-count}
 
@@ -931,6 +957,10 @@ Delete one job's staged records, leaving committed records alone.
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 #### `agrag.vectordb.VectorStore.ensure_collection` \{#agrag-vectordb-VectorStore-ensure_collection}
 
@@ -1122,7 +1152,9 @@ Write or overwrite records in a collection.
 
 **Raises:**
 
-- <code>ValueError</code> – `batch_size` is not positive.
+- <code>ValueError</code> – `batch_size` is not positive, or a payload uses a
+  key the store reserves for pending records (`_pending`,
+  `_pending_job_id`, `_target_id`).
 
 ### `agrag.vectordb.VectorStoreError` \{#agrag-vectordb-VectorStoreError}
 
@@ -1289,13 +1321,19 @@ commit_pending(collection:str, *, job_id:UUID) -> None
 Promote one job's staged records to committed records.
 
 Each staged record is written under its real id, which replaces any
-committed record with that id, and the staged copy is deleted.
-Re-running after a failure finishes the remaining records.
+committed record with that id, and the staged copy is deleted. The
+method reads the first page of staged records again after each
+delete, so it needs no offset. Re-running after a failure finishes
+the remaining records.
 
 **Parameters:**
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 #### `agrag.vectordb.WeaviateVectorStore.count` \{#agrag-vectordb-WeaviateVectorStore-count}
 
@@ -1352,6 +1390,10 @@ Delete one job's staged records, leaving committed records alone.
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 #### `agrag.vectordb.WeaviateVectorStore.ensure_collection` \{#agrag-vectordb-WeaviateVectorStore-ensure_collection}
 
@@ -1569,13 +1611,19 @@ commit_pending(collection:str, *, job_id:UUID) -> None
 Promote one job's staged records to committed records.
 
 Each staged record is written under its real id, which replaces any
-committed record with that id, and the staged copy is deleted.
-Re-running after a failure finishes the remaining records.
+committed record with that id, and the staged copy is deleted. The
+method reads the first page of staged records again after each
+delete, so it needs no offset. Re-running after a failure finishes
+the remaining records.
 
 **Parameters:**
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 ##### `agrag.vectordb.base.VectorStore.count` \{#agrag-vectordb-base-VectorStore-count}
 
@@ -1642,6 +1690,10 @@ Delete one job's staged records, leaving committed records alone.
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 ##### `agrag.vectordb.base.VectorStore.ensure_collection` \{#agrag-vectordb-base-VectorStore-ensure_collection}
 
@@ -1833,7 +1885,9 @@ Write or overwrite records in a collection.
 
 **Raises:**
 
-- <code>ValueError</code> – `batch_size` is not positive.
+- <code>ValueError</code> – `batch_size` is not positive, or a payload uses a
+  key the store reserves for pending records (`_pending`,
+  `_pending_job_id`, `_target_id`).
 
 ### `agrag.vectordb.build_vector_store` \{#agrag-vectordb-build_vector_store}
 
@@ -2016,13 +2070,19 @@ commit_pending(collection:str, *, job_id:UUID) -> None
 Promote one job's staged records to committed records.
 
 Each staged record is written under its real id, which replaces any
-committed record with that id, and the staged copy is deleted.
-Re-running after a failure finishes the remaining records.
+committed record with that id, and the staged copy is deleted. The
+method reads the first page of staged records again after each
+delete, so it needs no offset. Re-running after a failure finishes
+the remaining records.
 
 **Parameters:**
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 ##### `agrag.vectordb.milvus.MilvusVectorStore.count` \{#agrag-vectordb-milvus-MilvusVectorStore-count}
 
@@ -2079,6 +2139,10 @@ Delete one job's staged records, leaving committed records alone.
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 ##### `agrag.vectordb.milvus.MilvusVectorStore.ensure_collection` \{#agrag-vectordb-milvus-MilvusVectorStore-ensure_collection}
 
@@ -2281,6 +2345,7 @@ survives the job's rollback.
 
 - [**PENDING_FLAG**](#agrag-vectordb-pending-PENDING_FLAG) – Payload boolean that is true while a record belongs to an in-flight job.
 - [**PENDING_JOB_KEY**](#agrag-vectordb-pending-PENDING_JOB_KEY) – Payload key holding the id of the job that wrote a staged record.
+- [**RESERVED_KEYS**](#agrag-vectordb-pending-RESERVED_KEYS) – Payload keys the stores own; a caller payload may not use them.
 - [**TARGET_ID_KEY**](#agrag-vectordb-pending-TARGET_ID_KEY) – Payload key holding the real id a staged record is promoted to.
 
 #### `agrag.vectordb.pending.PENDING_FLAG` \{#agrag-vectordb-pending-PENDING_FLAG}
@@ -2298,6 +2363,14 @@ PENDING_JOB_KEY = PENDING_JOB_ID_PROPERTY
 ```
 
 Payload key holding the id of the job that wrote a staged record.
+
+#### `agrag.vectordb.pending.RESERVED_KEYS` \{#agrag-vectordb-pending-RESERVED_KEYS}
+
+```python
+RESERVED_KEYS = frozenset({PENDING_FLAG, PENDING_JOB_KEY, TARGET_ID_KEY})
+```
+
+Payload keys the stores own; a caller payload may not use them.
 
 #### `agrag.vectordb.pending.TARGET_ID_KEY` \{#agrag-vectordb-pending-TARGET_ID_KEY}
 
@@ -2345,6 +2418,10 @@ Return records ready to write for one job, or unchanged outside a job.
 
 - <code>list\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code> – With a job id, copies under staging ids that carry the pending flag,
 - <code>list\[[VectorRecord](common.md#agrag-common-data_models-vector_record-VectorRecord)\]</code> – the job id and the real id. Without one, the records unchanged.
+
+**Raises:**
+
+- <code>ValueError</code> – A record payload uses a reserved pending key.
 
 ### `agrag.vectordb.qdrant` \{#agrag-vectordb-qdrant}
 
@@ -2434,13 +2511,19 @@ commit_pending(collection:str, *, job_id:UUID) -> None
 Promote one job's staged records to committed records.
 
 Each staged record is written under its real id, which replaces any
-committed record with that id, and the staged copy is deleted.
-Re-running after a failure finishes the remaining records.
+committed record with that id, and the staged copy is deleted. The
+method reads the first page of staged records again after each
+delete, so it needs no offset. Re-running after a failure finishes
+the remaining records.
 
 **Parameters:**
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 ##### `agrag.vectordb.qdrant.QdrantVectorStore.count` \{#agrag-vectordb-qdrant-QdrantVectorStore-count}
 
@@ -2497,6 +2580,10 @@ Delete one job's staged records, leaving committed records alone.
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 ##### `agrag.vectordb.qdrant.QdrantVectorStore.ensure_collection` \{#agrag-vectordb-qdrant-QdrantVectorStore-ensure_collection}
 
@@ -2929,13 +3016,19 @@ commit_pending(collection:str, *, job_id:UUID) -> None
 Promote one job's staged records to committed records.
 
 Each staged record is written under its real id, which replaces any
-committed record with that id, and the staged copy is deleted.
-Re-running after a failure finishes the remaining records.
+committed record with that id, and the staged copy is deleted. The
+method reads the first page of staged records again after each
+delete, so it needs no offset. Re-running after a failure finishes
+the remaining records.
 
 **Parameters:**
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The committed job whose records become visible.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 ##### `agrag.vectordb.weaviate.WeaviateVectorStore.count` \{#agrag-vectordb-weaviate-WeaviateVectorStore-count}
 
@@ -2992,6 +3085,10 @@ Delete one job's staged records, leaving committed records alone.
 
 - **collection** (<code>str</code>) – The collection the job wrote to.
 - **job_id** (<code>UUID</code>) – The rolled-back job whose records are deleted.
+
+**Raises:**
+
+- <code>RuntimeError</code> – A delete left the same staged records in place.
 
 ##### `agrag.vectordb.weaviate.WeaviateVectorStore.ensure_collection` \{#agrag-vectordb-weaviate-WeaviateVectorStore-ensure_collection}
 

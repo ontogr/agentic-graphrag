@@ -21,6 +21,9 @@ PENDING_JOB_KEY = PENDING_JOB_ID_PROPERTY
 TARGET_ID_KEY = "_target_id"
 """Payload key holding the real id a staged record is promoted to."""
 
+RESERVED_KEYS = frozenset({PENDING_FLAG, PENDING_JOB_KEY, TARGET_ID_KEY})
+"""Payload keys the stores own; a caller payload may not use them."""
+
 
 def stage_records(
     records: Sequence[VectorRecord], pending_job_id: UUID | None
@@ -35,7 +38,16 @@ def stage_records(
     Returns:
         With a job id, copies under staging ids that carry the pending flag,
         the job id and the real id. Without one, the records unchanged.
+
+    Raises:
+        ValueError: A record payload uses a reserved pending key.
     """
+    for record in records:
+        reserved = sorted(RESERVED_KEYS & record.payload.keys())
+        if reserved:
+            raise ValueError(
+                f"Payload key '{reserved[0]}' is reserved for pending records"
+            )
     if pending_job_id is None:
         return list(records)
     return [
@@ -66,9 +78,7 @@ def promote_record(record: VectorRecord) -> VectorRecord:
         KeyError: The record carries no real id, so it is not staged.
     """
     payload = {
-        key: value
-        for key, value in record.payload.items()
-        if key not in {PENDING_FLAG, PENDING_JOB_KEY, TARGET_ID_KEY}
+        key: value for key, value in record.payload.items() if key not in RESERVED_KEYS
     }
     return VectorRecord(
         id=UUID(str(record.payload[TARGET_ID_KEY])),

@@ -370,7 +370,7 @@ class TestNeo4jGraphStoreIntegration:
                 pending_job_id=job_id,
             )
             relation_id = uuid4()
-            await store.upsert_relations(
+            relation_result = await store.upsert_relations(
                 [
                     RelationRecord(
                         id=relation_id,
@@ -396,6 +396,13 @@ class TestNeo4jGraphStoreIntegration:
                 f"RETURN n.id AS id"
             )
             assert [row["id"] for row in visible] == [str(committed_id)]
+            assert relation_result.failures == []
+            tagged = await store.execute_read(
+                "MATCH ()-[r:PENDING_LINK]->() WHERE r.id = $id "
+                "RETURN r._pending_job_id AS tag",
+                {"id": str(relation_id)},
+            )
+            assert [row["tag"] for row in tagged] == [str(job_id)]
             edges = await store.execute_read(
                 f"MATCH ()-[r:PENDING_LINK]->() "
                 f"WHERE r.id = $id AND {pending_filter_clause('r')} RETURN r.id AS id",

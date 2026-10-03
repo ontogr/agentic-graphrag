@@ -56,7 +56,7 @@ class TestPendingVisibility:
     async def test_all_by_label_skips_pending_nodes(self, store: GraphStore) -> None:
         """Consolidation never sees an entity an in-flight job wrote."""
         tag, job = uuid4().hex, str(uuid4())
-        label = "PendingProbeAll"
+        label = f"PendingProbeAll{tag[:12]}"
         committed, pending = str(uuid4()), str(uuid4())
         try:
             await _create(
@@ -198,5 +198,29 @@ class TestPendingVisibility:
 
             assert found is not None
             assert found.current_chunker_hash is None
+        finally:
+            await _drop(store, tag)
+
+    async def test_document_lookup_skips_pending_documents(
+        self, store: GraphStore
+    ) -> None:
+        """An uncommitted document hash is never read as the current one."""
+        tag, job = uuid4().hex, str(uuid4())
+        key = f"pending-visibility://{tag}"
+        try:
+            await _create(
+                store,
+                tag,
+                "CREATE (:_AgragNode:Document {id: $doc, probe: $tag, "
+                "document_key: $key, current_content_hash: 'staged', "
+                "_pending_job_id: $job})",
+                doc=str(uuid4()),
+                key=key,
+                job=job,
+            )
+
+            found = await find_document(store, document_key=key)
+
+            assert found is None
         finally:
             await _drop(store, tag)

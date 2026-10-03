@@ -72,6 +72,10 @@ class TestPendingContract:
         assert await store.count(name) == 1
         assert await store.count(name, pending_job_id=job) == 1
         assert await _committed_texts(store, name, "zebra") == {"alpha committed"}
+        dense = await store.search(name, [0.0, 1.0, 0.0, 0.0], limit=10)
+        assert staged.id not in {hit.id for hit in dense}
+        visible, _ = await store.scroll(name, limit=100)
+        assert {record.payload["text"] for record in visible} == {"alpha committed"}
 
         await store.commit_pending(name, job_id=job)
 

@@ -5,7 +5,10 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
+from opentelemetry.trace import SpanKind, Tracer
+
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
+from agrag.observability import DB_COLLECTION_NAME, get_tracer
 from agrag.vectordb.pending import promote_record
 
 
@@ -15,6 +18,8 @@ _DELETE_BATCH_SIZE = 256
 
 class VectorStore(ABC):
     """A vector database backend: collection lifecycle, writes, and search."""
+
+    _tracer: Tracer = get_tracer(None)
 
     @abstractmethod
     async def initialize(self) -> None:
@@ -88,7 +93,9 @@ class VectorStore(ABC):
                 records.
 
         Raises:
-            ValueError: ``batch_size`` is not positive.
+            ValueError: ``batch_size`` is not positive, or a payload uses a
+                key the store reserves for pending records (``_pending``,
+                ``_pending_job_id``, ``_target_id``).
         """
 
     @abstractmethod
@@ -269,31 +276,24 @@ class VectorStore(ABC):
         """Promote one job's staged records to committed records.
 
         Each staged record is written under its real id, which replaces any
-        committed record with that id, and the staged copy is deleted.
-        Re-running after a failure finishes the remaining records.
+        committed record with that id, and the staged copy is deleted. The
+        method reads the first page of staged records again after each
+        delete, so it needs no offset. Re-running after a failure finishes
+        the remaining records.
 
         Args:
             collection: The collection the job wrote to.
             job_id: The committed job whose records become visible.
+
+        Raises:
+            RuntimeError: A delete left the same staged records in place.
         """
-        staged: list[UUID] = []
-        page_offset: str | None = None
-        while True:
-            records, page_offset = await self.scroll(
-                collection,
-                limit=_PAGE_SIZE,
-                page_offset=page_offset,
-                with_vectors=True,
-                pending_job_id=job_id,
-            )
-            if records:
-                await self.upsert(
-                    collection, [promote_record(record) for record in records]
-                )
-                staged.extend(record.id for record in records)
-            if page_offset is None or not records:
-                break
-        await self._delete_in_batches(collection, staged)
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.commit_pending",
+            kind=SpanKind.INTERNAL,
+            attributes={DB_COLLECTION_NAME: collection, "agrag.job_id": str(job_id)},
+        ):
+            await self._drain_pending(collection, job_id, promote=True)
 
     async def delete_pending(self, collection: str, *, job_id: UUID) -> None:
         """Delete one job's staged records, leaving committed records alone.
@@ -301,20 +301,43 @@ class VectorStore(ABC):
         Args:
             collection: The collection the job wrote to.
             job_id: The rolled-back job whose records are deleted.
+
+        Raises:
+            RuntimeError: A delete left the same staged records in place.
         """
-        staged: list[UUID] = []
-        page_offset: str | None = None
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.delete_pending",
+            kind=SpanKind.INTERNAL,
+            attributes={DB_COLLECTION_NAME: collection, "agrag.job_id": str(job_id)},
+        ):
+            await self._drain_pending(collection, job_id, promote=False)
+
+    async def _drain_pending(
+        self, collection: str, job_id: UUID, *, promote: bool
+    ) -> None:
+        """Delete a job's staged records page by page, promoting them if asked."""
+        previous_ids: set[UUID] = set()
         while True:
-            records, page_offset = await self.scroll(
+            records, _ = await self.scroll(
                 collection,
                 limit=_PAGE_SIZE,
-                page_offset=page_offset,
+                with_vectors=promote,
                 pending_job_id=job_id,
             )
-            staged.extend(record.id for record in records)
-            if page_offset is None or not records:
-                break
-        await self._delete_in_batches(collection, staged)
+            if not records:
+                return
+            ids = [record.id for record in records]
+            if set(ids) == previous_ids:
+                raise RuntimeError(
+                    f"Deleting staged records of job {job_id} from "
+                    f"'{collection}' removed nothing"
+                )
+            if promote:
+                await self.upsert(
+                    collection, [promote_record(record) for record in records]
+                )
+            await self._delete_in_batches(collection, ids)
+            previous_ids = set(ids)
 
     async def _delete_in_batches(self, collection: str, ids: Sequence[UUID]) -> None:
         """Delete ids in bounded batches."""

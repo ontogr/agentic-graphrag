@@ -186,8 +186,9 @@ class GraphStore(ABC):
                 be positive.
             pending_job_id: The in-flight Cutover Job's id. The store tags
                 each node it creates, so retrieval skips it until the job
-                commits. A node that already exists stays untagged. None
-                writes committed data.
+                commits. A node that already exists keeps its current pending
+                state: a node tagged by another in-flight job stays tagged,
+                and None does not commit it. None writes committed data.
 
         Returns:
             The number written and one failure entry for each isolated record.
@@ -211,8 +212,10 @@ class GraphStore(ABC):
             batch_size: Records per backend write call. Must be positive.
             pending_job_id: The in-flight Cutover Job's id. The store tags
                 each relationship it creates, so retrieval skips it until
-                the job commits. A relationship that already exists stays
-                untagged. None writes committed data.
+                the job commits. A relationship that already exists keeps its
+                current pending state: one tagged by another in-flight job
+                stays tagged, and None does not commit it. None writes
+                committed data.
 
         Returns:
             The number written and one failure entry for each isolated record.

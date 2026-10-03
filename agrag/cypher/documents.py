@@ -9,10 +9,12 @@ def find_document_query() -> str:
 
     Returns:
         Parameterized Cypher expecting ``$document_key``. Returns the node's
-        ``id`` and ``current_content_hash``.
+        ``id`` and ``current_content_hash``. Skips a node an in-flight job
+        wrote, so an uncommitted hash never counts as the current one.
     """
     return (
         f"MATCH (n:{NODE_IDENTITY_LABEL}:Document {{document_key: $document_key}}) "
+        f"WHERE {pending_filter_clause('n')} "
         "RETURN n.id AS id, n.current_content_hash AS current_content_hash"
     )
 

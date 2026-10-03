@@ -253,8 +253,9 @@ Write or merge nodes, honoring each record's full label set.
   be positive.
 - **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job's id. The store tags
   each node it creates, so retrieval skips it until the job
-  commits. A node that already exists stays untagged. None
-  writes committed data.
+  commits. A node that already exists keeps its current pending
+  state: a node tagged by another in-flight job stays tagged,
+  and None does not commit it. None writes committed data.
 
 **Returns:**
 
@@ -278,8 +279,10 @@ Write or merge relationships between existing nodes.
 - **batch_size** (<code>int</code>) – Records per backend write call. Must be positive.
 - **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job's id. The store tags
   each relationship it creates, so retrieval skips it until
-  the job commits. A relationship that already exists stays
-  untagged. None writes committed data.
+  the job commits. A relationship that already exists keeps its
+  current pending state: one tagged by another in-flight job
+  stays tagged, and None does not commit it. None writes
+  committed data.
 
 **Returns:**
 
@@ -929,8 +932,9 @@ Write or merge nodes, honoring each record's full label set.
   be positive.
 - **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job's id. The store tags
   each node it creates, so retrieval skips it until the job
-  commits. A node that already exists stays untagged. None
-  writes committed data.
+  commits. A node that already exists keeps its current pending
+  state: a node tagged by another in-flight job stays tagged,
+  and None does not commit it. None writes committed data.
 
 **Returns:**
 
@@ -954,8 +958,10 @@ Write or merge relationships between existing nodes.
 - **batch_size** (<code>int</code>) – Records per backend write call. Must be positive.
 - **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job's id. The store tags
   each relationship it creates, so retrieval skips it until
-  the job commits. A relationship that already exists stays
-  untagged. None writes committed data.
+  the job commits. A relationship that already exists keeps its
+  current pending state: one tagged by another in-flight job
+  stays tagged, and None does not commit it. None writes
+  committed data.
 
 **Returns:**
 
