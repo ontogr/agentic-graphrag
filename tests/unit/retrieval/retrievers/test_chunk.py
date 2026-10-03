@@ -12,6 +12,7 @@ from typing import NotRequired, TypedDict
 from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
+import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
@@ -162,8 +163,24 @@ class TestChunkRetriever:
 
             assert len(results) == 0
 
-    async def test_loading_query_raises_returns_empty(self) -> None:
-        """A loading query failure returns no results, not an exception."""
+    async def test_returns_empty_when_search_finds_nothing(self) -> None:
+        """A search with no hits returns an empty list without a graph read."""
+        gs = AsyncMock()
+
+        with patch(
+            "agrag.retrieval.retrievers.chunk.vector_search",
+            new_callable=AsyncMock,
+        ) as mock_vs:
+            mock_vs.return_value = []
+            results = await ChunkRetriever(
+                graph_store=gs, embedder=MockEmbedder()
+            ).retrieve("test")
+
+        assert results == []
+        gs.execute_read.assert_not_awaited()
+
+    async def test_loading_query_failure_raises(self) -> None:
+        """A loading query failure raises, so it is not read as no results."""
         gs = AsyncMock()
         gs.execute_read.side_effect = RuntimeError("db down")
         embedder = MockEmbedder()
@@ -175,9 +192,8 @@ class TestChunkRetriever:
             mock_vs.return_value = [VectorHit(id=uuid4(), score=0.9, payload={})]
 
             retriever = ChunkRetriever(graph_store=gs, embedder=embedder)
-            results = await retriever.retrieve("test")
-
-            assert results == []
+            with pytest.raises(RuntimeError, match="db down"):
+                await retriever.retrieve("test")
 
     async def test_unparsable_row_is_skipped(self) -> None:
         """A row that fails to parse is skipped; other rows still load."""
@@ -345,23 +361,22 @@ class TestParentAttachment:
 
         assert results == []
 
-    async def test_parent_query_failure_omits_the_child_results(self) -> None:
-        """A failed parent query omits child results without their context."""
+    async def test_parent_query_failure_raises(self) -> None:
+        """A failed parent query raises instead of dropping the child results."""
         child, document_id, parent_id = uuid4(), uuid4(), uuid4()
         child_node = _node(child, document_id, "kept", parent_id=parent_id)
         store = AsyncMock()
         store.execute_read.side_effect = [[child_node], RuntimeError("down")]
 
-        results = await self._retrieve(store, [child])
-
-        assert results == []
+        with pytest.raises(RuntimeError, match="down"):
+            await self._retrieve(store, [child])
 
 
 class TestParentLoadingTracing:
-    """Parent loading records an observable best-effort fallback."""
+    """Parent loading records its spans."""
 
-    async def test_parent_query_failure_records_unset_loading_span(self) -> None:
-        """A failed parent read records its exception while returning the child."""
+    async def test_parent_query_failure_marks_loading_span_error(self) -> None:
+        """A failed parent read raises and marks the loading span ERROR."""
         provider = TracerProvider()
         exporter = InMemorySpanExporter()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -375,12 +390,14 @@ class TestParentLoadingTracing:
             "agrag.retrieval.retrievers.chunk.vector_search", new_callable=AsyncMock
         ) as search:
             search.return_value = [VectorHit(id=child, score=0.9, payload={})]
-            with tracer.start_as_current_span("test.retrieve") as parent_span:
-                results = await ChunkRetriever(
+            with (
+                tracer.start_as_current_span("test.retrieve") as parent_span,
+                pytest.raises(RuntimeError, match="down"),
+            ):
+                await ChunkRetriever(
                     graph_store=store, embedder=MockEmbedder(), tracer=tracer
                 ).retrieve("q")
 
-        assert results == []
         finished = list(exporter.get_finished_spans())
         (span,) = [s for s in finished if s.name == "agrag.retrieval.load_parents"]
         (retrieval,) = [s for s in finished if s.name == "agrag.retrieval.chunk"]
@@ -388,9 +405,9 @@ class TestParentLoadingTracing:
         assert span.parent.span_id == retrieval.get_span_context().span_id
         assert retrieval.parent is not None
         assert retrieval.parent.span_id == parent_span.get_span_context().span_id
-        assert span.status.status_code is StatusCode.UNSET
+        assert span.status.status_code is StatusCode.ERROR
         assert (span.attributes or {})["agrag.parent_count"] == 1
-        assert len(list(span.events)) == 1
+        assert [event.name for event in span.events] == ["exception"]
 
     async def test_parent_loading_records_attached_parent_attributes(
         self,

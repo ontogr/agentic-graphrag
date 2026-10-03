@@ -5,7 +5,6 @@ from uuid import UUID
 
 from opentelemetry.trace import Tracer
 
-from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.search_result import SearchResult
 from agrag.common.data_models.vector_record import VectorHit
@@ -15,7 +14,7 @@ from agrag.cypher.resolution_read import fetch_active_resolved_member_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
-from agrag.observability import get_tracer, record_swallowed_exception
+from agrag.observability import get_tracer
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.resolved_entities import load_resolved_entities
@@ -90,11 +89,16 @@ class EntityRetriever(Retriever):
                 Zero or negative returns no results without searching.
 
         Returns:
-            Ranked SearchResults with resolved entity ids.
+            Ranked SearchResults with resolved entity ids. The list is
+                empty only when the search ran and found nothing.
 
         Raises:
             ValueError: Native search was selected and neither the
-                filter nor the configuration names an entity label.
+                filter nor the configuration names an entity label, or a
+                stored entity node cannot be parsed.
+            Exception: Any embedding, vector search, or graph read
+                failure propagates, so a failed search is not mistaken
+                for an empty one.
         """
         effective_limit = limit if limit is not None else self._settings.entity_top_k
         with retrieval_span(
@@ -131,25 +135,19 @@ class EntityRetriever(Retriever):
             ) as entity_search:
                 while True:
                     passes += 1
-                    try:
-                        candidate_hits = await vector_search(
-                            query,
-                            embedder=self._embedder,
-                            graph_store=self._graph_store,
-                            vector_store=self._vector_store,
-                            collection=self._settings.entity_collection,
-                            labels=labels,
-                            limit=raw_candidate_limit,
-                            filters=search_filters,
-                            settings=self._settings,
-                            query_vector=query_vector,
-                            tracer=self._tracer,
-                        )
-                    except Exception as exc:
-                        if hits is None:
-                            raise
-                        record_swallowed_exception(exc)
-                        break
+                    candidate_hits = await vector_search(
+                        query,
+                        embedder=self._embedder,
+                        graph_store=self._graph_store,
+                        vector_store=self._vector_store,
+                        collection=self._settings.entity_collection,
+                        labels=labels,
+                        limit=raw_candidate_limit,
+                        filters=search_filters,
+                        settings=self._settings,
+                        query_vector=query_vector,
+                        tracer=self._tracer,
+                    )
                     candidate_active_member_ids = (
                         await self._active_resolved_member_ids(
                             [hit.id for hit in candidate_hits]
@@ -186,15 +184,11 @@ class EntityRetriever(Retriever):
             if hits:
                 if allowed_ids is not None:
                     hits = [hit for hit in hits if str(hit.id) in allowed_ids]
-                entities_by_id: dict[UUID, Entity] = {}
-                try:
-                    entities_by_id = await load_entities(
-                        self._graph_store,
-                        [hit.id for hit in hits],
-                        tracer=self._tracer,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    record_swallowed_exception(exc)
+                entities_by_id = await load_entities(
+                    self._graph_store,
+                    [hit.id for hit in hits],
+                    tracer=self._tracer,
+                )
                 if active_member_ids is None:
                     active_member_ids = await self._active_resolved_member_ids(
                         [hit.id for hit in hits]
@@ -231,60 +225,56 @@ class EntityRetriever(Retriever):
                 attributes={"agrag.limit": resolved_limit},
             ) as resolved_search:
                 resolved_passes = 0
-                try:
-                    while True:
-                        resolved_passes += 1
-                        candidate_hits = await vector_search(
-                            query,
-                            embedder=self._embedder,
-                            graph_store=self._graph_store,
-                            vector_store=self._vector_store,
-                            collection=self._settings.resolved_entity_collection,
-                            labels=("ResolvedEntity",),
-                            limit=resolved_candidate_limit,
-                            filters=resolved_filters,
-                            settings=self._settings,
-                            query_vector=query_vector,
-                            tracer=self._tracer,
-                        )
-                        candidate_by_id = await load_resolved_entities(
-                            self._graph_store,
-                            [hit.id for hit in candidate_hits],
-                            tracer=self._tracer,
-                        )
-                        in_scope_count = (
-                            sum(
-                                entity is not None
-                                and (
-                                    not filters
-                                    or not filters.labels
-                                    or entity.label in filters.labels
-                                )
-                                and any(
-                                    str(member_id) in allowed_ids
-                                    for member_id in entity.member_ids
-                                )
-                                for hit in candidate_hits
-                                if (entity := candidate_by_id.get(hit.id)) is not None
+                while True:
+                    resolved_passes += 1
+                    candidate_hits = await vector_search(
+                        query,
+                        embedder=self._embedder,
+                        graph_store=self._graph_store,
+                        vector_store=self._vector_store,
+                        collection=self._settings.resolved_entity_collection,
+                        labels=("ResolvedEntity",),
+                        limit=resolved_candidate_limit,
+                        filters=resolved_filters,
+                        settings=self._settings,
+                        query_vector=query_vector,
+                        tracer=self._tracer,
+                    )
+                    candidate_by_id = await load_resolved_entities(
+                        self._graph_store,
+                        [hit.id for hit in candidate_hits],
+                        tracer=self._tracer,
+                    )
+                    in_scope_count = (
+                        sum(
+                            entity is not None
+                            and (
+                                not filters
+                                or not filters.labels
+                                or entity.label in filters.labels
                             )
-                            if allowed_ids
-                            else 0
+                            and any(
+                                str(member_id) in allowed_ids
+                                for member_id in entity.member_ids
+                            )
+                            for hit in candidate_hits
+                            if (entity := candidate_by_id.get(hit.id)) is not None
                         )
-                        resolved_hits = candidate_hits
-                        resolved_by_id = candidate_by_id
-                        if (
-                            not allowed_ids
-                            or len(resolved_hits) < resolved_candidate_limit
-                            or in_scope_count >= resolved_limit
-                            or resolved_candidate_limit >= MAX_SEARCH_LIMIT
-                        ):
-                            break
-                        resolved_candidate_limit = min(
-                            resolved_candidate_limit * 2, MAX_SEARCH_LIMIT
-                        )
-                except Exception as exc:
-                    # Keep candidates from the last successful search.
-                    record_swallowed_exception(exc)
+                        if allowed_ids
+                        else 0
+                    )
+                    resolved_hits = candidate_hits
+                    resolved_by_id = candidate_by_id
+                    if (
+                        not allowed_ids
+                        or len(resolved_hits) < resolved_candidate_limit
+                        or in_scope_count >= resolved_limit
+                        or resolved_candidate_limit >= MAX_SEARCH_LIMIT
+                    ):
+                        break
+                    resolved_candidate_limit = min(
+                        resolved_candidate_limit * 2, MAX_SEARCH_LIMIT
+                    )
                 if resolved_search.is_recording():
                     resolved_search.set_attribute("agrag.passes", resolved_passes)
                     resolved_search.set_attribute("agrag.hit_count", len(resolved_hits))
@@ -341,14 +331,10 @@ class EntityRetriever(Retriever):
             "agrag.retrieval.active_member_ids",
             attributes={"agrag.requested_count": len(ids)},
         ) as span:
-            try:
-                rows = await self._graph_store.execute_read(
-                    fetch_active_resolved_member_ids_query(),
-                    {"ids": [str(item_id) for item_id in ids], "job_id": None},
-                )
-            except Exception as exc:  # noqa: BLE001
-                record_swallowed_exception(exc)
-                return set()
+            rows = await self._graph_store.execute_read(
+                fetch_active_resolved_member_ids_query(),
+                {"ids": [str(item_id) for item_id in ids], "job_id": None},
+            )
             superseded = {
                 hit_id
                 for row in rows

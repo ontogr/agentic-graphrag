@@ -7,7 +7,7 @@ from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.entities import NODE_IDENTITY_LABEL
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.observability import get_tracer, record_swallowed_exception
+from agrag.observability import get_tracer
 from agrag.retrieval.community_context import _parse_community_node
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
@@ -61,6 +61,15 @@ class CommunityRetriever(Retriever):
             filters: Constraints applied to the search.
             limit: Maximum results. None uses settings.community_top_k.
                 Zero or negative returns no results without searching.
+
+        Returns:
+            Ranked SearchResults with loaded Community items. The list is
+                empty only when the search ran and found nothing.
+
+        Raises:
+            Exception: Any embedding, vector search, or graph read
+                failure propagates, so a failed search is not mistaken
+                for an empty one.
         """
         effective_limit = limit if limit is not None else self._settings.community_top_k
         with retrieval_span(
@@ -93,17 +102,12 @@ class CommunityRetriever(Retriever):
                 "agrag.retrieval.load_communities",
                 attributes={"agrag.requested_count": len(hits)},
             ) as load:
-                try:
-                    rows = await self._graph_store.execute_read(
-                        f"UNWIND $ids AS id MATCH (n:{NODE_IDENTITY_LABEL}:"
-                        f"{COMMUNITY_LABEL} {{id: id}}) "
-                        "WHERE n._pending_job_id IS NULL RETURN n",
-                        {"ids": ids},
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    record_swallowed_exception(exc)
-                    record_results(span, [])
-                    return []
+                rows = await self._graph_store.execute_read(
+                    f"UNWIND $ids AS id MATCH (n:{NODE_IDENTITY_LABEL}:"
+                    f"{COMMUNITY_LABEL} {{id: id}}) "
+                    "WHERE n._pending_job_id IS NULL RETURN n",
+                    {"ids": ids},
+                )
                 by_id: dict[str, Community] = {}
                 for row in rows:
                     try:

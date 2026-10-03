@@ -261,6 +261,70 @@ class TestIngestChunks:
         assert len(mentioned) == 1
         assert mentioned[0].start_id == chunk_id
 
+    async def _ingest_two_mentions(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        store: AsyncMock,
+        error_policy: ErrorPolicy,
+    ) -> Any:
+        """Ingest "Ada" and "Grace" when the candidate read for "Ada" fails."""
+        doc = _doc(key="candidates")
+        chunk = _chunk(doc, text="Ada and Grace.")
+
+        async def _candidates(
+            self: GraphCandidateSource, mention: ExtractedEntity
+        ) -> list[tuple[Entity, float]]:
+            if mention.text == "Ada":
+                raise RuntimeError("candidate read failed")
+            return []
+
+        monkeypatch.setattr(GraphCandidateSource, "global_candidates_for", _candidates)
+        mentions = [
+            ExtractedEntity(
+                chunk_id=chunk.id,
+                label="Person",
+                text=text,
+                char_start=start,
+                char_end=start + len(text),
+            )
+            for text, start in (("Ada", 0), ("Grace", 8))
+        ]
+        return await ingest_chunks(
+            [chunk],
+            [doc],
+            mentions,
+            [],
+            [],
+            graph_store=store,
+            embedder=_ZeroEmbedder(),
+            vector_store=None,
+            graph_schema=GENERIC,
+            retrieval_settings=RetrievalSettings(),
+            error_policy=error_policy,
+            ingestion=IngestStats(documents=1),
+        )
+
+    async def test_failed_candidate_read_is_recorded_and_mention_not_stored(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed candidate read is reported and its mention is not resolved."""
+        store, _ = _store()
+
+        result = await self._ingest_two_mentions(monkeypatch, store, ErrorPolicy.SKIP)
+
+        assert [failure.item_id for failure in result.merge.failures] == ["Ada"]
+        assert result.merge.failures[0].error_message == "candidate read failed"
+        assert result.merge.nodes_created == 1
+
+    async def test_failed_candidate_read_raises_under_raise_policy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """RAISE propagates a failed candidate read."""
+        store, _ = _store()
+
+        with pytest.raises(RuntimeError, match="candidate read failed"):
+            await self._ingest_two_mentions(monkeypatch, store, ErrorPolicy.RAISE)
+
     async def test_passes_max_llm_pairs_to_the_resolver(self) -> None:
         """The pair limit reaches the resolver that ``ingest_chunks`` builds."""
         store, _ = _store()

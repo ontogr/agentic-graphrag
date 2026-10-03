@@ -2,8 +2,9 @@
 
 Uses an AsyncMock graph store, and patches ``_generate_cypher`` directly to
 control the LLM-generated query without a real BAML call. Covers falling
-back to empty results on generation failure or a missing BAML client
-(simulated via ``sys.modules`` patching), rejecting write Cypher while
+raising on generation failure or a missing BAML client (simulated via
+``sys.modules`` patching) and returning an empty list only for a query that
+ran and found nothing, rejecting write Cypher while
 appending a configured row LIMIT when the generated query lacks one (without
 being fooled by a quoted "LIMIT" inside a string literal), and parsing result
 rows into Entity/Relation/Chunk SearchResults, loading entity rows from the
@@ -24,6 +25,7 @@ import types
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
+import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
@@ -36,6 +38,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.relation import Relation
 from agrag.cypher.entities import load_entities_by_id_query
+from agrag.cypher.safety import UnsafeCypherError
 from agrag.retrieval.retrievers.text2cypher import (
     Text2CypherRetriever,
     _format_retry_diagnostic,
@@ -45,38 +48,95 @@ from agrag.retrieval.retrievers.text2cypher import (
 class TestText2CypherRetriever:
     """Text2CypherRetriever generates and executes Cypher."""
 
-    async def test_returns_empty_on_generation_failure(self) -> None:
-        """Failed Cypher generation returns empty results."""
+    async def test_raises_on_generation_failure(self) -> None:
+        """A failed Cypher generation raises, so it is not read as no results."""
         gs = AsyncMock()
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
 
-        with patch.object(retriever, "_generate_cypher", side_effect=Exception("fail")):
-            results = await retriever.retrieve("what is X?")
-            assert results == []
+        with (
+            patch.object(retriever, "_generate_cypher", side_effect=Exception("fail")),
+            pytest.raises(Exception, match="fail"),
+        ):
+            await retriever.retrieve("what is X?")
 
-    async def test_returns_empty_without_baml_client(self) -> None:
-        """A missing BAML client yields no results and no query."""
+    async def test_raises_without_baml_client(self) -> None:
+        """A missing BAML client raises and runs no query."""
         gs = AsyncMock()
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
 
-        with patch.dict(sys.modules, {"agrag.llm.baml_client": None}):
-            results = await retriever.retrieve("what is X?")
+        with (
+            patch.dict(sys.modules, {"agrag.llm.baml_client": None}),
+            pytest.raises(ImportError),
+        ):
+            await retriever.retrieve("what is X?")
 
-        assert results == []
         gs.execute_read.assert_not_awaited()
 
     async def test_rejects_write_cypher(self) -> None:
-        """Generated Cypher with write clauses returns empty."""
+        """Generated Cypher with write clauses raises and never runs."""
         gs = AsyncMock()
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
 
-        with patch.object(
-            retriever,
-            "_generate_cypher",
-            return_value="MATCH (n) DELETE n",
+        with (
+            patch.object(
+                retriever,
+                "_generate_cypher",
+                return_value="MATCH (n) DELETE n",
+            ),
+            pytest.raises(UnsafeCypherError),
         ):
-            results = await retriever.retrieve("delete everything")
-            assert results == []
+            await retriever.retrieve("delete everything")
+
+        gs.execute_read.assert_not_awaited()
+
+    async def test_returns_empty_when_query_returns_no_rows(self) -> None:
+        """A query that ran and matched nothing returns an empty list."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+
+        with patch.object(
+            retriever, "_generate_cypher", return_value="MATCH (n:Person) RETURN n"
+        ):
+            results = await retriever.retrieve("who is Alice?")
+
+        assert results == []
+
+    async def test_raises_on_database_outage_without_repair(self) -> None:
+        """An unavailable database raises and skips the repair attempt."""
+        gs = AsyncMock()
+        gs.execute_read.side_effect = ConnectionError("database down")
+        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        generate = AsyncMock(return_value="MATCH (n:Person) RETURN n")
+
+        with (
+            patch(
+                "agrag.llm.baml_client.b",
+                types.SimpleNamespace(GenerateCypherQuery=generate),
+            ),
+            pytest.raises(ConnectionError, match="database down"),
+        ):
+            await retriever.retrieve("who is Alice?")
+
+        assert generate.await_count == 1
+
+    async def test_raises_when_repaired_query_fails_to_run(self) -> None:
+        """A query that fails again after the repair attempt raises."""
+        gs = AsyncMock()
+        gs.execute_read.side_effect = Exception("plan failed")
+        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        generate = AsyncMock(return_value="MATCH (n:Person) RETURN n")
+
+        with (
+            patch(
+                "agrag.llm.baml_client.b",
+                types.SimpleNamespace(GenerateCypherQuery=generate),
+            ),
+            pytest.raises(Exception, match="plan failed"),
+        ):
+            await retriever.retrieve("who is Alice?")
+
+        assert generate.await_count == 2
 
 
 class TestText2CypherBounds:
@@ -200,8 +260,8 @@ class TestText2CypherRowShapes:
 
         assert results == []
 
-    async def test_entity_loading_failure_keeps_other_rows(self) -> None:
-        """A failed loading read skips that row and keeps the others."""
+    async def test_entity_loading_failure_raises(self) -> None:
+        """A failed loading read raises instead of dropping that row."""
         failing_id = uuid4()
         healthy_id = uuid4()
         load_query = load_entities_by_id_query()
@@ -229,12 +289,13 @@ class TestText2CypherRowShapes:
         gs.execute_read.side_effect = read
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
 
-        with patch.object(
-            retriever, "_generate_cypher", return_value="MATCH (n:Person) RETURN n"
+        with (
+            patch.object(
+                retriever, "_generate_cypher", return_value="MATCH (n:Person) RETURN n"
+            ),
+            pytest.raises(RuntimeError, match="loading failed"),
         ):
-            results = await retriever.retrieve("who is Alice?")
-
-        assert [result.item.id for result in results] == [healthy_id]
+            await retriever.retrieve("who is Alice?")
 
     async def test_relation_row_becomes_search_result(self) -> None:
         """A relationship row is wrapped in a Relation, not dropped."""
@@ -494,8 +555,8 @@ class TestText2CypherRetry:
             "transaction timed out"
         )
 
-    async def test_retry_rejected_by_write_gate_returns_empty(self) -> None:
-        """A regenerated write query is not retried a third time."""
+    async def test_retry_rejected_by_write_gate_raises(self) -> None:
+        """A regenerated write query raises and is not retried a third time."""
         gs = AsyncMock()
         gs.execute_read.side_effect = Exception("plan failed")
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
@@ -503,13 +564,15 @@ class TestText2CypherRetry:
             side_effect=["MATCH (n:Person) RETURN n", "MATCH (n) DELETE n"]
         )
 
-        with patch(
-            "agrag.llm.baml_client.b",
-            types.SimpleNamespace(GenerateCypherQuery=generate),
+        with (
+            patch(
+                "agrag.llm.baml_client.b",
+                types.SimpleNamespace(GenerateCypherQuery=generate),
+            ),
+            pytest.raises(UnsafeCypherError),
         ):
-            results = await retriever.retrieve("who is Alice?")
+            await retriever.retrieve("who is Alice?")
 
-        assert results == []
         assert generate.await_count == 2
 
 
@@ -523,7 +586,7 @@ class TestText2CypherTracing:
         return provider, exporter
 
     async def test_failed_generation_marks_call_span_error(self) -> None:
-        """A raising client still returns [] with an ERROR call span."""
+        """A raising client raises and leaves an ERROR call span."""
         provider, exporter = self._provider()
         gs = AsyncMock()
         retriever = Text2CypherRetriever(
@@ -531,13 +594,15 @@ class TestText2CypherTracing:
         )
         generate = AsyncMock(side_effect=RuntimeError("down"))
 
-        with patch(
-            "agrag.llm.baml_client.b",
-            types.SimpleNamespace(GenerateCypherQuery=generate),
+        with (
+            patch(
+                "agrag.llm.baml_client.b",
+                types.SimpleNamespace(GenerateCypherQuery=generate),
+            ),
+            pytest.raises(RuntimeError, match="down"),
         ):
-            results = await retriever.retrieve("what is X?")
+            await retriever.retrieve("what is X?")
 
-        assert results == []
         assert generate.await_count == 1
         call_spans = [
             span

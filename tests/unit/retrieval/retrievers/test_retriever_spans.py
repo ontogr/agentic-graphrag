@@ -2,8 +2,8 @@
 
 Each retriever exports one ``RETRIEVER`` span with ``input.value`` equal to
 the query and results matching what it returned; its stage and helper spans
-nest under it. Swallow sites record an exception event and leave the span
-status UNSET. Stores are mocks at the driver boundary; the real vector_search
+nest under it. A failure raises, records an exception event and marks the span
+status ERROR. Stores are mocks at the driver boundary; the real vector_search
 runs against them, so the exported spans are the real ones.
 """
 
@@ -96,7 +96,7 @@ def _vector_searching_store(hits: list[VectorHit]) -> AsyncMock:
 
 
 class TestChunkRetrieverSpan:
-    """ChunkRetriever's span tree and its loading swallow site."""
+    """ChunkRetriever span tree and its loading failure."""
 
     async def test_exports_a_retriever_span_with_results(self) -> None:
         """The chunk span carries the kind, the query and the results."""
@@ -141,8 +141,8 @@ class TestChunkRetrieverSpan:
         assert load_attributes["agrag.requested_count"] == 1
         assert load_attributes["agrag.loaded_count"] == 1
 
-    async def test_a_failing_loading_read_records_and_stays_unset(self) -> None:
-        """A loading failure returns [] and records on load_chunks."""
+    async def test_a_failing_loading_read_marks_the_spans_error(self) -> None:
+        """A loading failure raises and marks load_chunks and the root ERROR."""
         provider, exporter = _provider()
         tracer = provider.get_tracer("t")
         store = _vector_searching_store([VectorHit(id=uuid4(), score=0.9, payload={})])
@@ -154,19 +154,16 @@ class TestChunkRetrieverSpan:
             tracer=tracer,
         )
 
-        results = await retriever.retrieve("q")
+        with pytest.raises(RuntimeError, match="read failed"):
+            await retriever.retrieve("q")
 
-        assert results == []
         spans = exporter.get_finished_spans()
         load = _named(spans, "agrag.retrieval.load_chunks")
         assert len(load) == 1
-        assert [e for e in load[0].events if e.name == "exception"]
-        assert load[0].status.status_code.name != "ERROR"
+        assert [e.name for e in load[0].events] == ["exception"]
+        assert load[0].status.status_code.name == "ERROR"
         chunk_span = _named(spans, "agrag.retrieval.chunk")[0]
-        assert chunk_span.status.status_code.name != "ERROR"
-        chunk_attributes = chunk_span.attributes
-        assert chunk_attributes is not None
-        assert chunk_attributes["agrag.result_count"] == 0
+        assert chunk_span.status.status_code.name == "ERROR"
 
     async def test_tracer_none_leaves_the_host_span_untouched(self) -> None:
         """An untraced retriever opens nothing and marks no host span."""
@@ -306,10 +303,8 @@ class TestEntityRetrieverSpans:
         searches = _named(spans, "agrag.retrieval.vector_search")
         assert len(searches) == 2
 
-    async def test_a_failing_loading_read_is_recorded_and_returns_nothing(
-        self,
-    ) -> None:
-        """A failed entity read returns no results and leaves the span unset."""
+    async def test_a_failing_loading_read_marks_the_span_error(self) -> None:
+        """A failed entity read raises and marks the entity span ERROR."""
         provider, exporter = _provider()
         tracer = provider.get_tracer("t")
         hits = [VectorHit(id=uuid4(), score=0.9, payload={})]
@@ -329,12 +324,12 @@ class TestEntityRetrieverSpans:
             tracer=tracer,
         )
 
-        results = await retriever.retrieve("q")
+        with pytest.raises(RuntimeError, match="read failed"):
+            await retriever.retrieve("q")
 
-        assert results == []
         entity_span = _named(exporter.get_finished_spans(), "agrag.retrieval.entity")[0]
         assert [e for e in entity_span.events if e.name == "exception"]
-        assert entity_span.status.status_code.name != "ERROR"
+        assert entity_span.status.status_code.name == "ERROR"
 
     async def test_tracer_none_leaves_the_host_span_untouched(self) -> None:
         """An untraced EntityRetriever marks no host span."""
@@ -452,10 +447,10 @@ class TestText2CypherSpans:
         assert attributes["agrag.requested_count"] == 1
         assert attributes["agrag.loaded_count"] == 1
 
-    async def test_a_failed_generation_records_and_stays_unset(
+    async def test_a_failed_generation_marks_the_span_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A generation failure records on the text2cypher span."""
+        """A generation failure raises and marks the text2cypher span ERROR."""
         provider, exporter = _provider()
         tracer = provider.get_tracer("t")
 
@@ -472,14 +467,14 @@ class TestText2CypherSpans:
             tracer=tracer,
         )
 
-        results = await retriever.retrieve("q")
+        with pytest.raises(RuntimeError, match="no baml client"):
+            await retriever.retrieve("q")
 
-        assert results == []
         t2c_span = _named(exporter.get_finished_spans(), "agrag.retrieval.text2cypher")[
             0
         ]
         assert [e for e in t2c_span.events if e.name == "exception"]
-        assert t2c_span.status.status_code.name != "ERROR"
+        assert t2c_span.status.status_code.name == "ERROR"
 
 
 class TestEntityResultShape:

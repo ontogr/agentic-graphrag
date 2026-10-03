@@ -1215,12 +1215,19 @@ tool finds and what each argument narrows.
 **Attributes:**
 
 - [**MAX_TOOL_LIMIT**](#agrag-agents-tools-search-MAX_TOOL_LIMIT) –
+- [**QUERY_FAILED**](#agrag-agents-tools-search-QUERY_FAILED) –
 - [**SCOPE_DENIED**](#agrag-agents-tools-search-SCOPE_DENIED) –
 
 ##### `agrag.agents.tools.search.MAX_TOOL_LIMIT` \{#agrag-agents-tools-search-MAX_TOOL_LIMIT}
 
 ```python
 MAX_TOOL_LIMIT = 100
+```
+
+##### `agrag.agents.tools.search.QUERY_FAILED` \{#agrag-agents-tools-search-QUERY_FAILED}
+
+```python
+QUERY_FAILED = 'Error: the graph query failed, so this is not an empty result. Rephrase the question or use another tool.'
 ```
 
 ##### `agrag.agents.tools.search.SCOPE_DENIED` \{#agrag-agents-tools-search-SCOPE_DENIED}
@@ -1318,7 +1325,9 @@ Build the query_graph_directly tool.
 
 **Returns:**
 
-- <code>Any</code> – A decorated tool function.
+- <code>Any</code> – A decorated tool function. When the generated query fails, the tool
+  returns an error message, not "No results found.", so the agent
+  can tell a failure from an empty answer and try another tool.
 
 ##### `agrag.agents.tools.search.make_search_source_text_tool` \{#agrag-agents-tools-search-make_search_source_text_tool}
 

@@ -30,6 +30,7 @@ from agrag.common.data_models.graph_schema import EntityType, GraphSchema, Relat
 from agrag.cypher.entities import validate_identifier
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
+from agrag.retrieval.errors import AllRetrievalMethodsFailedError
 from agrag.retrieval.recipes import TEXT2CYPHER
 from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
 from agrag.retrieval.search_engine import SearchEngine
@@ -224,15 +225,45 @@ class TestText2CypherIntegration:
         assert "ClientError" in contexts[1]
         assert [result.item.id for result in results] == [self.person_id]
 
-    async def test_both_attempts_failing_returns_no_results(self) -> None:
-        """Two unplannable queries name no results and stop at one retry."""
-        results, contexts = await self._retrieve_with_stubbed_generation(
-            "Who is in the graph?",
-            "MATCH (n RETURN n",
+    async def test_both_attempts_failing_raises(self) -> None:
+        """Two unplannable queries raise and stop at one retry."""
+        calls: list[object] = []
+
+        async def generate(**kwargs: object) -> str:
+            calls.append(kwargs.get("failure_context"))
+            return "MATCH (n RETURN n"
+
+        retriever = Text2CypherRetriever(graph_store=self.store, schema=self.schema)
+        with (
+            patch(
+                "agrag.llm.baml_client.b",
+                types.SimpleNamespace(GenerateCypherQuery=generate),
+            ),
+            pytest.raises(Exception, match="Invalid input"),
+        ):
+            await retriever.retrieve("Who is in the graph?")
+
+        assert len(calls) == 2
+
+    async def test_unplannable_query_fails_the_text2cypher_search(self) -> None:
+        """A text2cypher-only search over a failing query raises as a whole."""
+        engine = SearchEngine(
+            graph_store=self.store,
+            embedder=_FixedEmbedder(),
+            graph_schema=self.schema,
         )
 
-        assert results == []
-        assert len(contexts) == 2
+        async def generate(**kwargs: object) -> str:
+            return "MATCH (n RETURN n"
+
+        with (
+            patch(
+                "agrag.llm.baml_client.b",
+                types.SimpleNamespace(GenerateCypherQuery=generate),
+            ),
+            pytest.raises(AllRetrievalMethodsFailedError),
+        ):
+            await engine.search("Who is in the graph?", TEXT2CYPHER)
 
     async def test_search_engine_grounds_text2cypher_in_its_schema(self) -> None:
         """The TEXT2CYPHER recipe reaches a retriever holding engine's schema."""

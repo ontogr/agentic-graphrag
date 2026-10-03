@@ -202,7 +202,14 @@ Run chunk search and return loaded results.
 **Returns:**
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with loaded Chunk items. A child chunk result
-- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – carries its parent chunk in `SearchResult.parent`.
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – carries its parent chunk in `SearchResult.parent`. The list is
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – empty only when the search ran and found nothing.
+
+**Raises:**
+
+- <code>Exception</code> – Any embedding, vector search, or graph read
+  failure propagates, so a failed search is not mistaken
+  for an empty one.
 
 ### `agrag.retrieval.CommunityRetriever` \{#agrag-retrieval-CommunityRetriever}
 
@@ -251,6 +258,17 @@ Run community-report search and return loaded results.
 - **filters** (<code>[SearchFilters](#agrag-retrieval-filters-SearchFilters) | None</code>) – Constraints applied to the search.
 - **limit** (<code>int | None</code>) – Maximum results. None uses settings.community_top_k.
   Zero or negative returns no results without searching.
+
+**Returns:**
+
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with loaded Community items. The list is
+  empty only when the search ran and found nothing.
+
+**Raises:**
+
+- <code>Exception</code> – Any embedding, vector search, or graph read
+  failure propagates, so a failed search is not mistaken
+  for an empty one.
 
 ### `agrag.retrieval.ENTITY` \{#agrag-retrieval-ENTITY}
 
@@ -320,12 +338,17 @@ Run entity search and return loaded results.
 
 **Returns:**
 
-- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with resolved entity ids.
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with resolved entity ids. The list is
+  empty only when the search ran and found nothing.
 
 **Raises:**
 
 - <code>ValueError</code> – Native search was selected and neither the
-  filter nor the configuration names an entity label.
+  filter nor the configuration names an entity label, or a
+  stored entity node cannot be parsed.
+- <code>Exception</code> – Any embedding, vector search, or graph read
+  failure propagates, so a failed search is not mistaken
+  for an empty one.
 
 ### `agrag.retrieval.GRAPH_EXPAND` \{#agrag-retrieval-GRAPH_EXPAND}
 
@@ -1014,9 +1037,9 @@ Generate and execute a Cypher query for the question.
 
 A query that fails to plan or to execute is regenerated once, with a
 bounded, sanitized diagnostic of the first failure attached to the
-generation call. A failure at any stage of the second attempt, or a
-query rejected by the write gate, returns no results rather than
-raising.
+generation call. A failure at any stage of the second attempt, a
+query rejected by the write gate, or an unavailable database
+raises. An empty list means the query ran and returned no rows.
 
 **Parameters:**
 
@@ -1029,6 +1052,15 @@ raising.
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – SearchResults from the generated query: entity results
   loaded from the graph; relation, chunk, and
   scalar rows parsed directly.
+
+**Raises:**
+
+- <code>UnsafeCypherError</code> – The generated query contains a write
+  clause.
+- <code>ValueError</code> – A stored entity node cannot be parsed.
+- <code>Exception</code> – The LLM call failed, the BAML client is not
+  installed, or the query failed to plan or run after the
+  repair attempt.
 
 ### `agrag.retrieval.UnknownRecipeMethodError` \{#agrag-retrieval-UnknownRecipeMethodError}
 
@@ -2084,7 +2116,14 @@ Run chunk search and return loaded results.
 **Returns:**
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with loaded Chunk items. A child chunk result
-- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – carries its parent chunk in `SearchResult.parent`.
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – carries its parent chunk in `SearchResult.parent`. The list is
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – empty only when the search ran and found nothing.
+
+**Raises:**
+
+- <code>Exception</code> – Any embedding, vector search, or graph read
+  failure propagates, so a failed search is not mistaken
+  for an empty one.
 
 #### `agrag.retrieval.retrievers.community` \{#agrag-retrieval-retrievers-community}
 
@@ -2141,6 +2180,17 @@ Run community-report search and return loaded results.
 - **filters** (<code>[SearchFilters](#agrag-retrieval-filters-SearchFilters) | None</code>) – Constraints applied to the search.
 - **limit** (<code>int | None</code>) – Maximum results. None uses settings.community_top_k.
   Zero or negative returns no results without searching.
+
+**Returns:**
+
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with loaded Community items. The list is
+  empty only when the search ran and found nothing.
+
+**Raises:**
+
+- <code>Exception</code> – Any embedding, vector search, or graph read
+  failure propagates, so a failed search is not mistaken
+  for an empty one.
 
 #### `agrag.retrieval.retrievers.entity` \{#agrag-retrieval-retrievers-entity}
 
@@ -2212,12 +2262,17 @@ Run entity search and return loaded results.
 
 **Returns:**
 
-- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with resolved entity ids.
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with resolved entity ids. The list is
+  empty only when the search ran and found nothing.
 
 **Raises:**
 
 - <code>ValueError</code> – Native search was selected and neither the
-  filter nor the configuration names an entity label.
+  filter nor the configuration names an entity label, or a
+  stored entity node cannot be parsed.
+- <code>Exception</code> – Any embedding, vector search, or graph read
+  failure propagates, so a failed search is not mistaken
+  for an empty one.
 
 #### `agrag.retrieval.retrievers.text2cypher` \{#agrag-retrieval-retrievers-text2cypher}
 
@@ -2287,9 +2342,9 @@ Generate and execute a Cypher query for the question.
 
 A query that fails to plan or to execute is regenerated once, with a
 bounded, sanitized diagnostic of the first failure attached to the
-generation call. A failure at any stage of the second attempt, or a
-query rejected by the write gate, returns no results rather than
-raising.
+generation call. A failure at any stage of the second attempt, a
+query rejected by the write gate, or an unavailable database
+raises. An empty list means the query ran and returned no rows.
 
 **Parameters:**
 
@@ -2302,6 +2357,15 @@ raising.
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – SearchResults from the generated query: entity results
   loaded from the graph; relation, chunk, and
   scalar rows parsed directly.
+
+**Raises:**
+
+- <code>UnsafeCypherError</code> – The generated query contains a write
+  clause.
+- <code>ValueError</code> – A stored entity node cannot be parsed.
+- <code>Exception</code> – The LLM call failed, the BAML client is not
+  installed, or the query failed to plan or run after the
+  repair attempt.
 
 ##### `agrag.retrieval.retrievers.text2cypher.logger` \{#agrag-retrieval-retrievers-text2cypher-logger}
 

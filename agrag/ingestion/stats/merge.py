@@ -17,7 +17,9 @@ class MergeStats(BaseModel):
             across every merge this call performed.
         failures: Includes an LLM failure during description
             summarization. The merge still falls back to concatenation and
-            completes, but the failure is recorded here.
+            completes, but the failure is recorded here. Also includes a
+            failed read of a mention's persisted candidates: that mention
+            is not merged in this call.
         failures_total: Failures recorded before capping.
         failures_truncated: Whether ``failures`` was cut to the cap.
     """

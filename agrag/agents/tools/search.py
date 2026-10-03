@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from agrag.agents.tracing import tool_span_context
-from agrag.retrieval.errors import ScopeDeniedError
+from agrag.retrieval.errors import AllRetrievalMethodsFailedError, ScopeDeniedError
 
 
 if TYPE_CHECKING:
@@ -24,6 +24,11 @@ if TYPE_CHECKING:
 SCOPE_DENIED = (
     "Refused: the requested data is outside this agent's permitted scope. "
     "Retry within the scope this agent was given."
+)
+
+QUERY_FAILED = (
+    "Error: the graph query failed, so this is not an empty result. "
+    "Rephrase the question or use another tool."
 )
 
 MAX_TOOL_LIMIT = 100
@@ -432,7 +437,9 @@ def make_query_graph_directly_tool(
             caller scope means make_tools() leaves it out entirely.
 
     Returns:
-        A decorated tool function.
+        A decorated tool function. When the generated query fails, the tool
+            returns an error message, not "No results found.", so the agent
+            can tell a failure from an empty answer and try another tool.
     """
     from langchain_core.tools import tool  # noqa: PLC0415
 
@@ -459,7 +466,10 @@ def make_query_graph_directly_tool(
             query: The question to translate into one Cypher query.
         """
         with tool_span_context(callbacks):
-            results = await engine.search(query, TEXT2CYPHER, filters=filters)
+            try:
+                results = await engine.search(query, TEXT2CYPHER, filters=filters)
+            except AllRetrievalMethodsFailedError:
+                return QUERY_FAILED
         return render_results(ledger, results)
 
     return query_graph_directly

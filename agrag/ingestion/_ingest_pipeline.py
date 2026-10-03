@@ -71,6 +71,7 @@ from agrag.ingestion.resolve import (
     exact_resolution_groups,
     fetch_persisted_neighbors,
 )
+from agrag.ingestion.resolve.candidate_source import read_candidates
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
 from agrag.ingestion.resolved_entities import (
@@ -89,7 +90,6 @@ from agrag.loaders.corpus.types import ErrorPolicy
 from agrag.observability import (
     get_tracer,
     record_stage_failure,
-    record_swallowed_exception,
     stage_failure_context,
 )
 from agrag.retrieval.settings import RetrievalSettings
@@ -238,8 +238,11 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         vector_store: Optional second write target for embeddings.
         graph_schema: The entity/relation types merges are computed against.
         retrieval_settings: Collection names for the VectorStore writes.
-        error_policy: RAISE propagates a stage failure; any other policy
-            records it and continues with the remaining items.
+        error_policy: RAISE propagates a stage failure, including a failed
+            read of a mention's persisted candidates; any other policy
+            records it and continues with the remaining items. A mention
+            whose candidate read failed is not resolved or stored in this
+            call, and its failure appears in ``merge.failures``.
         ingestion: The ingestion-stage summary the caller already computed
             from its own walk.
         return_chunks: Whether to include the ingested chunks in the
@@ -332,16 +335,20 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         persisted_ids: dict[int, UUID] = {}
         candidate_entities: dict[UUID, Entity] = {}
         similarity_by_pair: dict[tuple[int, int], float] = {}
+        candidate_failures: list[StageFailure] = []
+        unresolved_indices: set[int] = set()
         with resolved_tracer.start_as_current_span(
             "agrag.resolution.candidate_generation",
             attributes={"agrag.mention_count": len(entities)},
         ) as span:
             for mention_index, mention in enumerate(entities):
-                try:
-                    candidates = await candidate_source.global_candidates_for(mention)
-                except Exception as exc:  # noqa: BLE001
-                    record_swallowed_exception(exc)
-                    candidates = []
+                candidates, candidate_failure = await read_candidates(
+                    candidate_source, mention, error_policy=error_policy
+                )
+                if candidate_failure is not None:
+                    candidate_failures.append(candidate_failure)
+                    unresolved_indices.add(mention_index)
+                    continue
                 seen_candidate_ids: set[UUID] = set()
                 exact_match = exact_matches.get(mention_index)
                 for candidate, candidate_similarity in candidates:
@@ -445,7 +452,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         # Merge and write
         merge_stats = MergeStats()
         storage_stats = StorageStats()
-        merge_failures: list[StageFailure] = []
+        merge_failures: list[StageFailure] = list(candidate_failures)
 
         # Track survivors and mention->entity map
         mention_to_entity: dict[int, UUID] = {}
@@ -457,7 +464,13 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         conflicts_resolved = 0
 
         for group in groups:
-            group_indices = list(group.entity_indices)
+            group_indices = [
+                index
+                for index in group.entity_indices
+                if index not in unresolved_indices
+            ]
+            if not group_indices:
+                continue
             group_mentions = [entities[i] for i in group_indices]
             with resolved_tracer.start_as_current_span(
                 "agrag.merge.merge_group",

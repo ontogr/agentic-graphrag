@@ -1634,14 +1634,18 @@ class Graph:
             apply: Write the confirmed matches and rebuild resolved entities.
                 False produces a report only.
 
+        A failed read of an entity's candidates does not stop the pass. That
+        entity is not compared in this call and the report lists the failure.
+
         Returns:
             A report of every confirmed non-exact match, applied or not,
-            plus the count of uncertain LLM verdicts.
+            plus the count of uncertain LLM verdicts and every failure.
         """
         with self._tracer.start_as_current_span("agrag.ingestion.consolidate"):
             would_match: list[MatchDecision] = []
             ambiguous_count = 0
             entities_by_id: dict[UUID, Entity] = {}
+            candidate_read_failures: list[StageFailure] = []
             # For each label, fetch all entities, then pairwise compare via Resolver
             for entity_type in self._schema.entities:
                 label = entity_type.label
@@ -1671,11 +1675,14 @@ class Graph:
                 (
                     candidate_indices,
                     similarity_by_pair,
+                    candidate_failures,
                 ) = await persisted_candidate_indices(
                     synthetic_mentions,
                     all_entities,
                     source=candidate_source,
+                    error_policy=ErrorPolicy.SKIP,
                 )
+                candidate_read_failures.extend(candidate_failures)
                 resolver = Resolver(
                     comparators=[
                         ExactMatch(),
@@ -1706,7 +1713,7 @@ class Graph:
                         )
                     )
 
-            consolidation_failures: list[StageFailure] = []
+            consolidation_failures: list[StageFailure] = list(candidate_read_failures)
             rebuilt_entities: list[ResolvedEntity] = []
             if apply:
                 components: list[MatchComponent] = []
@@ -1722,10 +1729,11 @@ class Graph:
                     )
                 (
                     rebuilt_entities,
-                    consolidation_failures,
+                    rebuild_failures,
                 ) = await self._rebuild_components(
                     components, error_policy=ErrorPolicy.SKIP
                 )
+                consolidation_failures.extend(rebuild_failures)
 
             return ConsolidationReport(
                 would_match=would_match,

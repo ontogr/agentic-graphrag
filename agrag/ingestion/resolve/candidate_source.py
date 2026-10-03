@@ -6,12 +6,14 @@ from uuid import UUID
 
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.cypher.entities import fetch_entity_neighbors_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
-from agrag.observability import record_swallowed_exception
+from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.observability import record_stage_failure
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.settings import RetrievalSettings
@@ -186,6 +188,11 @@ class GraphCandidateSource(CandidateSource):
             ``(Entity, score)`` pairs in hit order. ``score`` is ``0.0`` for
             an entity whose id is absent from the hit map, which should not
             happen since candidate ids come from those same hits.
+
+        Raises:
+            Exception: The embedding, the vector search, or the graph read
+                failed. An empty list means the search ran and found no
+                candidate.
         """
         hits = await vector_search(
             mention.text,
@@ -222,17 +229,53 @@ class GraphCandidateSource(CandidateSource):
 
         Reconstructing the name from the payload's display text corrupts
         any name containing ":" (e.g. "Star Trek: Voyager"), so this fetches
-        the actual nodes instead. A failed read yields no candidates and is
-        recorded on the current span.
+        the actual nodes instead.
+
+        Raises:
+            Exception: The graph read failed. An empty list means no hit
+                matched the label, never a failed read.
         """
-        try:
-            entities_by_id = await load_entities(
-                self.graph_store, [hit.id for hit in hits]
-            )
-        except Exception as exc:  # noqa: BLE001
-            record_swallowed_exception(exc)
-            return []
+        entities_by_id = await load_entities(self.graph_store, [hit.id for hit in hits])
         return [entity for entity in entities_by_id.values() if entity.label == label]
+
+
+async def read_candidates(
+    source: GraphCandidateSource,
+    mention: ExtractedEntity,
+    *,
+    error_policy: ErrorPolicy,
+) -> tuple[list[tuple[Entity, float]], StageFailure | None]:
+    """Read the persisted candidates for one mention, or report the failure.
+
+    A failed read is not an empty result: a mention with no candidates would
+    become a new entity, so the caller must skip a mention whose read failed.
+
+    Args:
+        source: The candidate source to read.
+        mention: The mention to find persisted candidates for.
+        error_policy: RAISE propagates the failure; any other policy
+            returns it as a StageFailure.
+
+    Returns:
+        The ``(Entity, score)`` pairs and None when the read succeeded, or
+        an empty list and the StageFailure when it failed.
+
+    Raises:
+        Exception: The read failed and ``error_policy`` is RAISE.
+    """
+    try:
+        return await source.global_candidates_for(mention), None
+    except Exception as exc:  # noqa: BLE001
+        if error_policy is ErrorPolicy.RAISE:
+            raise
+        trace_id, span_id = record_stage_failure(exc)
+        return [], StageFailure(
+            item_id=str(mention.text),
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            trace_id=trace_id,
+            span_id=span_id,
+        )
 
 
 class PersistedCandidateSource(CandidateSource):
@@ -254,8 +297,9 @@ async def persisted_candidate_indices(
     entities: list[Entity],
     *,
     source: GraphCandidateSource,
+    error_policy: ErrorPolicy,
     fallback_limit: int = 128,
-) -> tuple[dict[int, list[int]], dict[tuple[int, int], float]]:
+) -> tuple[dict[int, list[int]], dict[tuple[int, int], float], list[StageFailure]]:
     """Return ANN candidate indices, with a bounded exhaustive fallback.
 
     The fallback only applies when no indexed candidates are available. It
@@ -266,16 +310,26 @@ async def persisted_candidate_indices(
         Mention index to its candidate entity indices, plus each compared
         pair's real embedding cosine similarity keyed by ``(min, max)``
         index order (matching how ``Resolver.resolve`` builds its own pair
-        keys). The exhaustive-fallback branch reports no scores, so its
-        similarity map is empty.
+        keys), plus one StageFailure per mention whose candidate read
+        failed. The exhaustive-fallback branch reports no scores, so its
+        similarity map is empty. A mention whose read failed neither starts
+        nor joins a comparison, so it is not resolved in this call.
+
+    Raises:
+        Exception: A candidate read failed and ``error_policy`` is RAISE.
     """
     index_by_id = {entity.id: index for index, entity in enumerate(entities)}
     candidates_by_index: dict[int, list[int]] = {}
     similarity_by_pair: dict[tuple[int, int], float] = {}
+    failures: list[StageFailure] = []
+    failed_indices: set[int] = set()
     for index, mention in enumerate(mentions):
-        try:
-            candidates = await source.global_candidates_for(mention)
-        except Exception:  # noqa: BLE001
+        candidates, failure = await read_candidates(
+            source, mention, error_policy=error_policy
+        )
+        if failure is not None:
+            failures.append(failure)
+            failed_indices.add(index)
             continue
         candidate_indices: set[int] = set()
         for candidate, score in candidates:
@@ -291,18 +345,28 @@ async def persisted_candidate_indices(
             similarity_by_pair[pair] = score
         if candidate_indices:
             candidates_by_index[index] = sorted(candidate_indices)
+    if failed_indices:
+        candidates_by_index = {
+            index: kept
+            for index, indices in candidates_by_index.items()
+            if (kept := [other for other in indices if other not in failed_indices])
+        }
     if candidates_by_index or len(entities) > fallback_limit:
-        return candidates_by_index, similarity_by_pair
+        return candidates_by_index, similarity_by_pair, failures
     return (
         {
             index: [
                 candidate_index
                 for candidate_index, entity in enumerate(entities)
-                if candidate_index != index and entity.label == mention.label
+                if candidate_index != index
+                and candidate_index not in failed_indices
+                and entity.label == mention.label
             ]
             for index, mention in enumerate(mentions)
+            if index not in failed_indices
         },
         {},
+        failures,
     )
 
 

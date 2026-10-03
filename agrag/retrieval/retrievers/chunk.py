@@ -10,7 +10,7 @@ from agrag.common.data_models.search_result import SearchResult
 from agrag.cypher.entities import load_chunks_by_id_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.observability import get_tracer, record_swallowed_exception
+from agrag.observability import get_tracer
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.retrievers.base import Retriever
@@ -74,7 +74,13 @@ class ChunkRetriever(Retriever):
 
         Returns:
             Ranked SearchResults with loaded Chunk items. A child chunk result
-            carries its parent chunk in ``SearchResult.parent``.
+            carries its parent chunk in ``SearchResult.parent``. The list is
+            empty only when the search ran and found nothing.
+
+        Raises:
+            Exception: Any embedding, vector search, or graph read
+                failure propagates, so a failed search is not mistaken
+                for an empty one.
         """
         effective_limit = limit if limit is not None else self._settings.chunk_top_k
         with retrieval_span(
@@ -107,14 +113,9 @@ class ChunkRetriever(Retriever):
                 "agrag.retrieval.load_chunks",
                 attributes={"agrag.requested_count": len(hits)},
             ) as load:
-                try:
-                    rows = await self._graph_store.execute_read(
-                        load_chunks_by_id_query(), {"ids": ids, "job_id": None}
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    record_swallowed_exception(exc)
-                    record_results(span, [])
-                    return []
+                rows = await self._graph_store.execute_read(
+                    load_chunks_by_id_query(), {"ids": ids, "job_id": None}
+                )
                 by_id: dict[str, Chunk] = {}
                 for row in rows:
                     try:
@@ -157,7 +158,10 @@ class ChunkRetriever(Retriever):
         """Load the distinct parents of child chunks with one query.
 
         A parent that is missing or closed is left out, so its child cannot become a
-        result. A failed query returns no parents.
+        result.
+
+        Raises:
+            Exception: The graph read failed.
         """
         parent_ids = sorted({str(c.parent_id) for c in chunks if c.parent_id})
         if not parent_ids:
@@ -167,13 +171,9 @@ class ChunkRetriever(Retriever):
             kind=SpanKind.INTERNAL,
             attributes={"agrag.parent_count": len(parent_ids)},
         ) as span:
-            try:
-                rows = await self._graph_store.execute_read(
-                    load_chunks_by_id_query(), {"ids": parent_ids, "job_id": None}
-                )
-            except Exception as exc:
-                record_swallowed_exception(exc)
-                return {}
+            rows = await self._graph_store.execute_read(
+                load_chunks_by_id_query(), {"ids": parent_ids, "job_id": None}
+            )
             parents: dict[str, Chunk] = {}
             for row in rows:
                 node = row.get("n") if isinstance(row, dict) and "n" in row else row

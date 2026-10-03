@@ -2020,6 +2020,9 @@ class TestGraphAddPipeline:
         store = MockStore()
 
         class _FailingEmbedder(MockEmbedder):
+            async def embed_one(self, text: str) -> list[float]:
+                return [1.0, 2.0, 3.0]
+
             async def embed(self, texts: Sequence[str]) -> list[list[float]]:
                 raise RuntimeError("embed backend down")
 
@@ -2231,6 +2234,52 @@ class TestGraphAddPipeline:
             await graph.consolidate(apply=False)
 
         assert mock_resolver.call_args.kwargs["max_llm_pairs"] == 7
+
+    async def test_consolidate_reports_candidate_read_failure(self) -> None:
+        """A failed candidate read is reported and that entity is not compared."""
+        e1 = Entity(id=uuid4(), label="Person", name="Alice", source_chunk_ids=[])
+        e2 = Entity(id=uuid4(), label="Person", name="alice", source_chunk_ids=[])
+        small_schema = GraphSchema(
+            name="test",
+            version="1",
+            entities=[EntityType(label="Person", description="p")],
+            relations=[],
+        )
+        graph = await Graph.open(
+            schema=small_schema,
+            graph_store=MockStore(),
+            embedder=MockEmbedder(),
+            extractor=MockExtractor(),
+        )
+        import agrag.ingestion.graph as gmod  # noqa: PLC0415
+        from agrag.ingestion.resolve import ResolutionResult  # noqa: PLC0415
+
+        async def candidates(_self, mention):
+            raise RuntimeError("candidate read failed")
+
+        with (
+            mock.patch.object(
+                graph, "_all_entities_by_label", new_callable=mock.AsyncMock
+            ) as mock_all,
+            mock.patch.object(gmod, "Resolver") as mock_resolver,
+            mock.patch.object(
+                gmod.GraphCandidateSource, "global_candidates_for", candidates
+            ),
+        ):
+            mock_all.return_value = [e1, e2]
+            mock_resolver.return_value.resolve = mock.AsyncMock(
+                return_value=ResolutionResult(groups=[], matches=[])
+            )
+
+            report = await graph.consolidate(apply=False)
+
+        assert [failure.error_message for failure in report.failures] == [
+            "candidate read failed",
+            "candidate read failed",
+        ]
+        compared = mock_resolver.call_args.kwargs["candidate_source"]
+        assert await compared.candidates_for(0, []) == []
+        assert await compared.candidates_for(1, []) == []
 
     async def test_consolidate_reports_rebuild_failure(self) -> None:
         """A failed rebuild keeps raw entities intact and reports the error."""
