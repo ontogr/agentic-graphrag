@@ -5,7 +5,7 @@ from collections.abc import Sequence
 
 from opentelemetry.trace import Tracer
 
-from agrag.common.data_models.vector_record import PENDING_VECTOR_FLAG, VectorHit
+from agrag.common.data_models.vector_record import VectorHit
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.observability import get_tracer
@@ -90,7 +90,6 @@ async def vector_search(
 
         if vector_store is not None:
             payload_filters = dict(filters.to_payload_filter()) if filters else {}
-            payload_filters[PENDING_VECTOR_FLAG] = False
             hits = await vector_store.hybrid_search(
                 collection,
                 dense_vector,

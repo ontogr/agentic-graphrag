@@ -422,24 +422,6 @@ class TestFilterEscaping:
         expr = store._compile_filter({"kind": 'x" or 1==1'})
         assert 'payload["kind"] == "x\\" or 1==1"' in expr
 
-    def test_compile_excludes_pending_records_by_default(self) -> None:
-        """No pending flag requested still excludes an in-flight job's vectors."""
-        store = MilvusVectorStore(settings=MilvusSettings())
-
-        assert store._compile_filter(None) == "not (pending == true)"
-        assert store._compile_filter({}) == "not (pending == true)"
-        assert store._compile_filter({"_pending": False}) == "not (pending == true)"
-
-    def test_compile_selects_only_pending_when_asked(self) -> None:
-        """An explicit pending request spends the filter on in-flight records."""
-        store = MilvusVectorStore(settings=MilvusSettings())
-
-        expr = store._compile_filter({"_pending": True, "_pending_job_id": "j"})
-
-        assert "pending == true" in expr
-        assert 'payload["_pending_job_id"] == "j"' in expr
-        assert "not (" not in expr
-
 
 class TestMissingExtra:
     """Without the extra installed, use raises, not ImportError."""

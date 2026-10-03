@@ -240,6 +240,7 @@ class _Neo4jTransaction(GraphStoreTransaction):
         nodes: Sequence[NodeRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> None:
         """Write or merge nodes against this transaction.
 
@@ -259,7 +260,9 @@ class _Neo4jTransaction(GraphStoreTransaction):
         for labels, group_nodes in groups.items():
             await self._store.register_labels(labels)
             query = upsert_node_query(labels)
-            records = [node_params(n) for n in group_nodes]
+            records = [
+                node_params(n, pending_job_id=pending_job_id) for n in group_nodes
+            ]
             for start in range(0, len(records), batch_size):
                 batch = records[start : start + batch_size]
                 await self.execute_write(query, {"records": batch})
@@ -269,6 +272,7 @@ class _Neo4jTransaction(GraphStoreTransaction):
         relations: Sequence[RelationRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> None:
         """Write or merge relationships against this transaction.
 
@@ -283,7 +287,9 @@ class _Neo4jTransaction(GraphStoreTransaction):
         by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for rel in relations:
             validate_identifier(rel.type)
-            by_type[rel.type].append(relation_params(rel))
+            by_type[rel.type].append(
+                relation_params(rel, pending_job_id=pending_job_id)
+            )
         for rel_type, params in by_type.items():
             await self._store.ensure_relation_constraint(rel_type)
             await self._store.register_relation_types([rel_type])
@@ -741,6 +747,7 @@ class Neo4jGraphStore(GraphStore):
         nodes: Sequence[NodeRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         """Write or merge nodes, honoring each record's full label set.
 
@@ -752,6 +759,10 @@ class Neo4jGraphStore(GraphStore):
         queries, since Cypher requires labels to be literal in the query text
         rather than a runtime parameter, so ``batch_size`` chunks apply within
         each group rather than across the whole call.
+
+        ``pending_job_id`` tags only the nodes this call creates, through
+        ``ON CREATE SET``. A node that already exists keeps its state, so a
+        job's rollback cannot delete data committed earlier.
 
         Returns:
             The number written and one failure entry for each isolated record.
@@ -788,7 +799,7 @@ class Neo4jGraphStore(GraphStore):
                     )
                     continue
                 self._known_labels.update(labels)
-                groups[labels].append(node_params(node))
+                groups[labels].append(node_params(node, pending_job_id=pending_job_id))
             # Records are chunked within each label group, so the largest
             # group bounds the biggest batch any of them can submit.
             self._record_batch_size(
@@ -810,12 +821,14 @@ class Neo4jGraphStore(GraphStore):
         relations: Sequence[RelationRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         """Write or merge relationships between existing nodes.
 
         Relationship identity is each record's ``id``, not its endpoints: see
         ``upsert_relation_query`` for how endpoint changes and same-id
-        parallel relationships are handled.
+        parallel relationships are handled. ``pending_job_id`` tags only the
+        relationships this call creates.
 
         Returns:
             The number written and one failure entry for each isolated record.
@@ -845,7 +858,9 @@ class Neo4jGraphStore(GraphStore):
                         )
                     )
                     continue
-                by_type[rel.type].append(relation_params(rel))
+                by_type[rel.type].append(
+                    relation_params(rel, pending_job_id=pending_job_id)
+                )
             # Records are chunked within each type group, so the largest
             # group bounds the biggest batch any of them can submit.
             self._record_batch_size(

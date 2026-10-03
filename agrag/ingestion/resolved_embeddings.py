@@ -4,10 +4,9 @@ import contextlib
 from typing import Literal
 from uuid import UUID
 
-from agrag.common.data_models.graph_record import PENDING_JOB_ID_PROPERTY
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.stage_failure import StageFailure
-from agrag.common.data_models.vector_record import PENDING_VECTOR_FLAG, VectorRecord
+from agrag.common.data_models.vector_record import VectorRecord
 from agrag.cypher.entities import clear_property_query, set_embedding_query
 from agrag.cypher.resolution_write import (
     clear_resolved_entity_vector_deletions_query,
@@ -107,15 +106,6 @@ async def embed_resolved_entities(
                 "resolved": True,
                 **entity.properties,
             }
-            # The pending flag is always written explicitly: committed
-            # records carry False, so a search's committed-only default
-            # filter (an equality on this key) never excludes a
-            # pre-existing record.
-            if pending_job_id is not None:
-                payload[PENDING_VECTOR_FLAG] = True
-                payload[PENDING_JOB_ID_PROPERTY] = str(pending_job_id)
-            else:
-                payload[PENDING_VECTOR_FLAG] = False
             vector_records_by_id[entity.id] = VectorRecord(
                 id=entity.id,
                 vector=vector,
@@ -130,6 +120,9 @@ async def embed_resolved_entities(
             await vector_store.upsert(
                 vector_collection,
                 [vector_records_by_id[entity.id] for entity in synced_entities],
+                pending_job_id=(
+                    UUID(str(pending_job_id)) if pending_job_id is not None else None
+                ),
             )
         if synced_entities:
             await _set_sync_status(

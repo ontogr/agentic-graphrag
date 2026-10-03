@@ -13,7 +13,12 @@ write keyword used as a property name is still conservatively rejected.
 
 import pytest
 
-from agrag.cypher.safety import UnsafeCypherError, reject_write_cypher
+from agrag.cypher.safety import (
+    MissingPendingGuardError,
+    UnsafeCypherError,
+    reject_write_cypher,
+    require_pending_guard,
+)
 
 
 class TestRejectWriteCypher:
@@ -163,3 +168,60 @@ class TestRejectWriteCypher:
         reject_write_cypher(
             "call db.index.vector.queryNodes('idx', 10, $v) YIELD node RETURN node"
         )
+
+
+_NODE = "n._pending_job_id IS NULL"
+
+
+class TestRequirePendingGuard:
+    """require_pending_guard demands a pending filter on every bound variable."""
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            f"MATCH (n:Person) WHERE {_NODE} RETURN count(n)",
+            "MATCH (a:Person)-[r:KNOWS]->(b:Person) "
+            "WHERE a._pending_job_id IS NULL AND b._pending_job_id IS NULL "
+            "AND r._pending_job_id IS NULL RETURN a.name",
+            "MATCH p = (a:Person)-[r:KNOWS*1..3]-(b) "
+            "WHERE a._pending_job_id IS NULL AND b._pending_job_id IS NULL "
+            "AND ALL(x IN nodes(p) WHERE x._pending_job_id IS NULL) "
+            "AND ALL(y IN r WHERE y._pending_job_id IS NULL) RETURN b",
+            "CALL db.index.vector.queryNodes('idx', 3, $v) YIELD node, score "
+            "WHERE node._pending_job_id IS NULL RETURN node",
+            "MATCH (n:Person) WHERE n._pending_job_id is null RETURN n",
+            f"MATCH (n:Person) WHERE {_NODE} AND (n.a = 1 OR n.b = 2) RETURN n",
+            f"MATCH (n:Person) WHERE (n.a = 1 OR n.b = 2) AND {_NODE} RETURN n",
+            f"MATCH (n:Person) WHERE n.a = 1 OR n.b = 2 WITH n WHERE {_NODE} RETURN n",
+            f"MATCH (n:Person) WHERE {_NODE} RETURN n ORDER BY n.name",
+        ],
+    )
+    def test_accepts_guarded_queries(self, query: str) -> None:
+        """A query that filters every variable passes."""
+        require_pending_guard(query)
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "MATCH (n:Person) RETURN n",
+            f"MATCH (n:Person)-[:KNOWS]->(m) WHERE {_NODE} RETURN m",
+            "MATCH ()-[r]->(m) WHERE m._pending_job_id IS NULL RETURN m",
+            "MATCH (a)-->(b) WHERE a._pending_job_id IS NULL "
+            "AND b._pending_job_id IS NULL RETURN b",
+            "MATCH (a)-[r*1..2]-(b) WHERE a._pending_job_id IS NULL "
+            "AND b._pending_job_id IS NULL RETURN b",
+            "CALL db.index.vector.queryNodes('idx', 3, $v) YIELD node, score "
+            "RETURN node",
+            "MATCH (n:Person) WHERE n.note = 'n._pending_job_id IS NULL' RETURN n",
+            f"MATCH (n:Person) WHERE {_NODE} OR true RETURN n",
+            f"MATCH (n:Person) WHERE true OR {_NODE} RETURN n",
+            f"MATCH (n:Person) WHERE n.a = 1 OR n.b = 2 AND {_NODE} RETURN n",
+            f"MATCH (n:Person) WHERE ({_NODE}) OR n.a = 1 RETURN n",
+            f"MATCH (n:Person) WHERE ({_NODE} AND n.a = 1) OR n.b = 2 RETURN n",
+            f"MATCH (n:Person) WHERE {_NODE} RETURN n UNION MATCH (m:Person) RETURN m",
+        ],
+    )
+    def test_rejects_queries_that_can_return_pending_rows(self, query: str) -> None:
+        """A missing, unnamed or only-quoted guard is rejected."""
+        with pytest.raises(MissingPendingGuardError):
+            require_pending_guard(query)

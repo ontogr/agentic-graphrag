@@ -5,11 +5,21 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
+from opentelemetry.trace import SpanKind, Tracer
+
 from agrag.common.data_models.vector_record import Distance, VectorHit, VectorRecord
+from agrag.observability import DB_COLLECTION_NAME, get_tracer
+from agrag.vectordb.pending import promote_record
+
+
+_PAGE_SIZE = 100
+_DELETE_BATCH_SIZE = 256
 
 
 class VectorStore(ABC):
     """A vector database backend: collection lifecycle, writes, and search."""
+
+    _tracer: Tracer = get_tracer(None)
 
     @abstractmethod
     async def initialize(self) -> None:
@@ -66,6 +76,7 @@ class VectorStore(ABC):
         records: Sequence[VectorRecord],
         *,
         batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> None:
         """Write or overwrite records in a collection.
 
@@ -74,9 +85,17 @@ class VectorStore(ABC):
             records: The records to upsert, in order.
             batch_size: The number of records per backend write call. Must be
                 positive.
+            pending_job_id: The in-flight Cutover Job writing these records.
+                The store keeps them under staging ids, hidden from search,
+                scroll and count until :meth:`commit_pending` promotes them,
+                so a committed record with the same id stays searchable and
+                survives :meth:`delete_pending`. None writes committed
+                records.
 
         Raises:
-            ValueError: ``batch_size`` is not positive.
+            ValueError: ``batch_size`` is not positive, or a payload uses a
+                key the store reserves for pending records (``_pending``,
+                ``_pending_job_id``, ``_target_id``).
         """
 
     @abstractmethod
@@ -89,6 +108,8 @@ class VectorStore(ABC):
         filters: dict[str, Any] | None = None,
     ) -> list[VectorHit]:
         """Search by dense vector only.
+
+        Searches committed records only; staged records stay hidden.
 
         Args:
             collection: The collection to search.
@@ -125,6 +146,8 @@ class VectorStore(ABC):
         alpha: float = 0.5,
     ) -> list[VectorHit]:
         """Search by dense vector and keyword text in one fused call.
+
+        Searches committed records only; staged records stay hidden.
 
         Args:
             collection: The collection to search. Must have been created with
@@ -166,8 +189,13 @@ class VectorStore(ABC):
         page_offset: str | None = None,
         filters: dict[str, Any] | None = None,
         with_vectors: bool = False,
+        pending_job_id: UUID | None = None,
     ) -> tuple[list[VectorRecord], str | None]:
         """Iterate records in a collection, in batches.
+
+        Reads committed records only, unless ``pending_job_id`` names a job.
+        Do not write or delete records of the set being read between pages:
+        a backend may page by position.
 
         Args:
             collection: The collection to read.
@@ -183,6 +211,8 @@ class VectorStore(ABC):
                 characters, while Qdrant and Weaviate accept arbitrary payload
                 keys.
             with_vectors: Whether to return each record's vector.
+            pending_job_id: Read only that job's staged records instead of
+                the committed ones.
 
         Returns:
             The page of records and the next page offset, or ``None`` at the
@@ -206,9 +236,15 @@ class VectorStore(ABC):
 
     @abstractmethod
     async def count(
-        self, collection: str, *, filters: dict[str, Any] | None = None
+        self,
+        collection: str,
+        *,
+        filters: dict[str, Any] | None = None,
+        pending_job_id: UUID | None = None,
     ) -> int:
         """Count records in a collection.
+
+        Counts committed records only, unless ``pending_job_id`` names a job.
 
         Args:
             collection: The collection to count.
@@ -220,6 +256,8 @@ class VectorStore(ABC):
                 counterpart compiles them into Cypher, so both reject other
                 characters, while Qdrant and Weaviate accept arbitrary payload
                 keys.
+            pending_job_id: Count only that job's staged records instead of
+                the committed ones.
 
         Returns:
             The number of matching records.
@@ -233,6 +271,78 @@ class VectorStore(ABC):
             collection: The collection to delete from.
             ids: The ids to delete.
         """
+
+    async def commit_pending(self, collection: str, *, job_id: UUID) -> None:
+        """Promote one job's staged records to committed records.
+
+        Each staged record is written under its real id, which replaces any
+        committed record with that id, and the staged copy is deleted. The
+        method reads the first page of staged records again after each
+        delete, so it needs no offset. Re-running after a failure finishes
+        the remaining records.
+
+        Args:
+            collection: The collection the job wrote to.
+            job_id: The committed job whose records become visible.
+
+        Raises:
+            RuntimeError: A delete left the same staged records in place.
+        """
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.commit_pending",
+            kind=SpanKind.INTERNAL,
+            attributes={DB_COLLECTION_NAME: collection, "agrag.job_id": str(job_id)},
+        ):
+            await self._drain_pending(collection, job_id, promote=True)
+
+    async def delete_pending(self, collection: str, *, job_id: UUID) -> None:
+        """Delete one job's staged records, leaving committed records alone.
+
+        Args:
+            collection: The collection the job wrote to.
+            job_id: The rolled-back job whose records are deleted.
+
+        Raises:
+            RuntimeError: A delete left the same staged records in place.
+        """
+        with self._tracer.start_as_current_span(
+            "agrag.vectordb.delete_pending",
+            kind=SpanKind.INTERNAL,
+            attributes={DB_COLLECTION_NAME: collection, "agrag.job_id": str(job_id)},
+        ):
+            await self._drain_pending(collection, job_id, promote=False)
+
+    async def _drain_pending(
+        self, collection: str, job_id: UUID, *, promote: bool
+    ) -> None:
+        """Delete a job's staged records page by page, promoting them if asked."""
+        previous_ids: set[UUID] = set()
+        while True:
+            records, _ = await self.scroll(
+                collection,
+                limit=_PAGE_SIZE,
+                with_vectors=promote,
+                pending_job_id=job_id,
+            )
+            if not records:
+                return
+            ids = [record.id for record in records]
+            if set(ids) == previous_ids:
+                raise RuntimeError(
+                    f"Deleting staged records of job {job_id} from "
+                    f"'{collection}' removed nothing"
+                )
+            if promote:
+                await self.upsert(
+                    collection, [promote_record(record) for record in records]
+                )
+            await self._delete_in_batches(collection, ids)
+            previous_ids = set(ids)
+
+    async def _delete_in_batches(self, collection: str, ids: Sequence[UUID]) -> None:
+        """Delete ids in bounded batches."""
+        for start in range(0, len(ids), _DELETE_BATCH_SIZE):
+            await self.delete(collection, ids[start : start + _DELETE_BATCH_SIZE])
 
     @abstractmethod
     async def close(self) -> None:
