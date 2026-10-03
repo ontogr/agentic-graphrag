@@ -7,6 +7,7 @@ whose request span lost an attribute, fails here. The captured span tree is
 written to a JSON artifact under ``reports/llm/`` for hand inspection.
 """
 
+import contextlib
 import importlib.util
 from typing import Any
 from uuid import UUID, uuid4
@@ -24,6 +25,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.provenance import TextProvenance
+from agrag.cypher.safety import MissingPendingGuardError
 from agrag.eval.judge import ChatModelJudge
 from agrag.ingestion.community import generate_community_reports
 from agrag.ingestion.extract import BAMLExtractor, ExtractionLLMSettings
@@ -368,10 +370,11 @@ class TestText2Cypher:
             graph_store=_EmptyStore(), schema=GENERIC, tracer=tracer
         )
 
-        # Whether the first query passes the pending-row guard depends on the
-        # model, so a repair attempt is a valid outcome. The test checks the
-        # trace of the first attempt only.
-        await retriever.retrieve("who is Ada Lovelace?")
+        # Whether a query passes the pending-row guard depends on the model,
+        # so a repair attempt, or a rejection after it, is a valid outcome.
+        # The test checks the trace of the first attempt only.
+        with contextlib.suppress(MissingPendingGuardError):
+            await retriever.retrieve("who is Ada Lovelace?")
 
         spans = exporter.get_finished_spans()
         generates = sorted(

@@ -119,15 +119,20 @@ class TestEnsureCollection:
     async def test_new_collection_declares_every_filtered_property(
         self, store: WeaviateVectorStore, client
     ) -> None:
-        """A new collection declares the pending flag and pending job id.
+        """A new collection declares the pending flag, job id, and label.
 
-        Weaviate rejects a filter on an undeclared property, and cutover
-        scrolls on both.
+        Weaviate rejects a filter on an undeclared property. Cutover scrolls
+        on the first two, and a label filter on an empty collection must
+        find nothing instead of failing.
         """
         client.collections.exists.return_value = False
         await store.ensure_collection("c", dimensions=4, distance=Distance.COSINE)
         properties = client.collections.create.call_args.kwargs["properties"]
-        assert {p.name for p in properties} == {"agrag_pending", "_pending_job_id"}
+        assert {p.name for p in properties} == {
+            "agrag_pending",
+            "_pending_job_id",
+            "label",
+        }
 
     async def test_dimension_check_skips_vectorless_object_before_a_real_one(
         self, store: WeaviateVectorStore, client
