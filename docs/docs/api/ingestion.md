@@ -3362,14 +3362,14 @@ Return persisted entities found by the shared vector-search route.
 The GraphStore-native path's payload already carries the real node
 properties and is validated directly. The VectorStore path's payload
 only carries `label` and `text` (the embedding source text), so
-candidates are loaded from the graph by hit id instead; a hit that
-fails to load, for example a deleted node, is
-skipped rather than reconstructed from `text`.
+candidates are loaded from the graph by hit id instead. A hit with no
+committed node, for example a deleted node, is skipped rather than
+reconstructed from `text`.
 
 Each candidate is paired with the cosine similarity of the
 `VectorHit` it came from. The association is keyed by hit id, never
 by position: either branch can drop an entity (malformed payload,
-label mismatch, failed load) without dropping the corresponding
+label mismatch, missing node) without dropping the corresponding
 score, so zipping the two lists positionally would silently shift
 scores onto the wrong entities.
 
@@ -3378,6 +3378,11 @@ scores onto the wrong entities.
 - <code>list\[tuple\[[Entity](common.md#agrag-common-data_models-entity-Entity), float\]\]</code> – `(Entity, score)` pairs in hit order. `score` is `0.0` for
 - <code>list\[tuple\[[Entity](common.md#agrag-common-data_models-entity-Entity), float\]\]</code> – an entity whose id is absent from the hit map, which should not
 - <code>list\[tuple\[[Entity](common.md#agrag-common-data_models-entity-Entity), float\]\]</code> – happen since candidate ids come from those same hits.
+
+**Raises:**
+
+- <code>ValueError</code> – A stored node under a hit id is not a valid entity.
+- <code>Exception</code> – Whatever the graph store raised while loading hit nodes.
 
 ##### `agrag.ingestion.resolve.GraphCandidateSource.graph_store` \{#agrag-ingestion-resolve-GraphCandidateSource-graph_store}
 
@@ -3992,14 +3997,14 @@ Return persisted entities found by the shared vector-search route.
 The GraphStore-native path's payload already carries the real node
 properties and is validated directly. The VectorStore path's payload
 only carries `label` and `text` (the embedding source text), so
-candidates are loaded from the graph by hit id instead; a hit that
-fails to load, for example a deleted node, is
-skipped rather than reconstructed from `text`.
+candidates are loaded from the graph by hit id instead. A hit with no
+committed node, for example a deleted node, is skipped rather than
+reconstructed from `text`.
 
 Each candidate is paired with the cosine similarity of the
 `VectorHit` it came from. The association is keyed by hit id, never
 by position: either branch can drop an entity (malformed payload,
-label mismatch, failed load) without dropping the corresponding
+label mismatch, missing node) without dropping the corresponding
 score, so zipping the two lists positionally would silently shift
 scores onto the wrong entities.
 
@@ -4008,6 +4013,11 @@ scores onto the wrong entities.
 - <code>list\[tuple\[[Entity](common.md#agrag-common-data_models-entity-Entity), float\]\]</code> – `(Entity, score)` pairs in hit order. `score` is `0.0` for
 - <code>list\[tuple\[[Entity](common.md#agrag-common-data_models-entity-Entity), float\]\]</code> – an entity whose id is absent from the hit map, which should not
 - <code>list\[tuple\[[Entity](common.md#agrag-common-data_models-entity-Entity), float\]\]</code> – happen since candidate ids come from those same hits.
+
+**Raises:**
+
+- <code>ValueError</code> – A stored node under a hit id is not a valid entity.
+- <code>Exception</code> – Whatever the graph store raised while loading hit nodes.
 
 ###### `agrag.ingestion.resolve.candidate_source.GraphCandidateSource.graph_store` \{#agrag-ingestion-resolve-candidate_source-GraphCandidateSource-graph_store}
 

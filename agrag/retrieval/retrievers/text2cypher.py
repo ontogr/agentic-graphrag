@@ -522,13 +522,9 @@ class Text2CypherRetriever(Retriever):
                 # Try to find an entity id in the row.
                 entity_id = self._extract_entity_id(row)
                 if entity_id is not None:
-                    try:
-                        entities = await load_entities(
-                            self._graph_store, [entity_id], tracer=self._tracer
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        record_swallowed_exception(exc)
-                        continue
+                    entities = await load_entities(
+                        self._graph_store, [entity_id], tracer=self._tracer
+                    )
                     if entity_id in entities:
                         results.append(
                             SearchResult(

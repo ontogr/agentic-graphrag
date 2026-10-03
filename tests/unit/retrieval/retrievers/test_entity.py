@@ -9,6 +9,8 @@ cannot load, document scoping, and resolved-entity search.
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
+import pytest
+
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.resolved_entity import ResolvedEntity
 from agrag.common.data_models.vector_record import VectorHit
@@ -89,6 +91,23 @@ class TestEntityRetriever:
             assert results[0].item.id == ent.id
             assert results[0].item.name == ent.name
             assert results[0].method == "entity"
+
+    async def test_loading_read_failure_propagates(self) -> None:
+        """A failed loading read is raised, not returned as missing hits."""
+        graph_store = AsyncMock()
+        graph_store.execute_read.side_effect = ConnectionError("read failed")
+
+        with (
+            patch(
+                "agrag.retrieval.retrievers.entity.vector_search",
+                new_callable=AsyncMock,
+                return_value=[VectorHit(id=uuid4(), score=0.9, payload={})],
+            ),
+            pytest.raises(ConnectionError, match="read failed"),
+        ):
+            await EntityRetriever(
+                graph_store=graph_store, embedder=MockEmbedder()
+            ).retrieve("Ada")
 
     async def test_returns_resolved_entity_without_its_raw_member(self) -> None:
         """An active resolved entity replaces its member in user-facing search."""
