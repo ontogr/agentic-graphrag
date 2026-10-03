@@ -8,8 +8,8 @@ import hashlib
 import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, Union
-from uuid import UUID, uuid4
+from typing import Union
+from uuid import UUID
 
 from opentelemetry.trace import Tracer
 
@@ -26,7 +26,6 @@ from agrag.common.data_models.document import (
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.graph_schema import GraphSchema
-from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
     ResolvedEntity,
@@ -47,12 +46,11 @@ from agrag.ingestion._document_lifecycle import find_document
 from agrag.ingestion._ingest_pipeline import (
     _delete_vectors,
     _synthetic_entity_mention,
-    _upsert_vectors,
-    _vector_record,
     extract_chunks,
     ingest_chunks,
 )
 from agrag.ingestion._resume import resume_incomplete_jobs
+from agrag.ingestion.community import detect_communities
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.reports import (
     AddResult,
@@ -1898,42 +1896,7 @@ class Graph:
                 unchanged_count=sum(1 for e in unique_ids if e not in touched),
             )
 
-    async def _delete_stale_community_vectors(self) -> None:
-        """Remove every community vector from the VectorStore, then return.
-
-        detect_communities is a full recompute: every prior run's Community
-        nodes are deleted from the graph, so the matching vectors must go
-        too, or the VectorStore keeps serving communities the graph no
-        longer has. This clears every record labeled Community in the
-        configured collection, matching delete_all_communities deleting
-        every Community node in the database: one collection belongs to one
-        graph, and a collection shared by several graphs lets this wipe
-        remove another graph's community vectors. Best effort: a failure is
-        logged and swallowed so it never blocks the recompute itself.
-
-        Raises:
-            Exception: Whatever the VectorStore delete raises. Callers wrap
-                this; the method itself adds no suppression beyond logging.
-        """
-        if self._vector_store is None:
-            return
-        collection = self._retrieval_settings.community_collection
-        page_offset: str | None = None
-        while True:
-            records, page_offset = await self._vector_store.scroll(
-                collection,
-                limit=1000,
-                page_offset=page_offset,
-                filters={"label": COMMUNITY_LABEL},
-            )
-            if records:
-                await self._vector_store.delete(
-                    collection, [record.id for record in records]
-                )
-            if page_offset is None:
-                break
-
-    async def detect_communities(  # noqa: PLR0912,PLR0915
+    async def detect_communities(
         self,
         *,
         apply: bool = False,
@@ -1968,164 +1931,14 @@ class Graph:
             agrag.ingestion.community.CommunityDetectionMissingExtraError:
                 graspologic-native is not installed.
         """
-        with self._tracer.start_as_current_span("agrag.ingestion.detect_communities"):
-            from agrag.common.data_models.community import (  # noqa: PLC0415
-                COMMUNITY_LABEL,
-                MEMBER_OF_RELATION,
-            )
-            from agrag.ingestion.community import (  # noqa: PLC0415
-                compute_communities,
-                delete_all_communities,
-                embed_communities,
-                fetch_relation_edges,
-                generate_community_reports,
-                required_member_ids,
-            )
-
-            edges = await fetch_relation_edges(self._graph_store)
-            if not edges:
-                if apply:
-                    async with self._graph_store.transaction() as tx:
-                        await delete_all_communities(tx)
-                    if self._vector_store is not None:
-                        try:
-                            await self._delete_stale_community_vectors()
-                        except Exception as exc:  # noqa: BLE001
-                            trace_id, span_id = record_stage_failure(exc)
-                            return CommunityDetectionReport(
-                                communities=[],
-                                applied=True,
-                                failures=[
-                                    StageFailure(
-                                        item_id="community_vector_store",
-                                        error_type=type(exc).__name__,
-                                        error_message=str(exc),
-                                        trace_id=trace_id,
-                                        span_id=span_id,
-                                    )
-                                ],
-                            )
-                    return CommunityDetectionReport(
-                        communities=[], applied=True, failures=[]
-                    )
-                return CommunityDetectionReport(
-                    communities=[], applied=False, failures=[]
-                )
-
-            communities = await asyncio.to_thread(
-                compute_communities,
-                edges,
-                max_cluster_size=max_cluster_size,
-                resolution=resolution,
-                seed=seed,
-            )
-
-            report_failures: list[StageFailure] = []
-            if apply:
-                if not communities:
-                    async with self._graph_store.transaction() as tx:
-                        await delete_all_communities(tx)
-                    if self._vector_store is not None:
-                        try:
-                            await self._delete_stale_community_vectors()
-                        except Exception as exc:  # noqa: BLE001
-                            trace_id, span_id = record_stage_failure(exc)
-                            report_failures.append(
-                                StageFailure(
-                                    item_id="community_vector_store",
-                                    error_type=type(exc).__name__,
-                                    error_message=str(exc),
-                                    trace_id=trace_id,
-                                    span_id=span_id,
-                                )
-                            )
-                    return CommunityDetectionReport(
-                        communities=[], applied=True, failures=report_failures
-                    )
-                needed_ids = required_member_ids(communities)
-                entities_by_id = await load_entities(
-                    self._graph_store, list(needed_ids), tracer=self._tracer
-                )
-                report_failures = await generate_community_reports(
-                    communities,
-                    entities_by_id,
-                    edges=edges,
-                    error_policy=ErrorPolicy.SKIP,
-                    tracer=self._tracer,
-                )
-                report_failures += await embed_communities(
-                    communities, embedder=self._embedder, tracer=self._tracer
-                )
-
-                async with self._graph_store.transaction() as tx:
-                    await delete_all_communities(tx)
-                    for i in range(0, len(communities), 5000):
-                        batch = communities[i : i + 5000]
-                        await tx.upsert_nodes(
-                            COMMUNITY_LABEL,
-                            [c.to_node_record() for c in batch],
-                        )
-                    buf: list[Any] = []
-                    for community in communities:
-                        for member_id in community.member_ids:
-                            buf.append(
-                                Relation(
-                                    id=uuid4(),
-                                    type=MEMBER_OF_RELATION,
-                                    source_id=member_id,
-                                    target_id=community.id,
-                                ).to_relation_record()
-                            )
-                            if len(buf) >= 5000:
-                                await tx.upsert_relations(buf)
-                                buf = []
-                    if buf:
-                        await tx.upsert_relations(buf)
-
-                if self._vector_store is not None:
-                    try:
-                        await self._delete_stale_community_vectors()
-                    except Exception as exc:  # noqa: BLE001
-                        trace_id, span_id = record_stage_failure(exc)
-                        report_failures.append(
-                            StageFailure(
-                                item_id="community_vector_store",
-                                error_type=type(exc).__name__,
-                                error_message=str(exc),
-                                trace_id=trace_id,
-                                span_id=span_id,
-                            )
-                        )
-                    try:
-                        await _upsert_vectors(
-                            self._vector_store,
-                            self._retrieval_settings.community_collection,
-                            [
-                                _vector_record(
-                                    c.id,
-                                    c.embedding or [],
-                                    label=COMMUNITY_LABEL,
-                                    text=c.embedding_text,
-                                    properties=c.metadata,
-                                )
-                                for c in communities
-                                if c.embedding is not None
-                            ],
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        trace_id, span_id = record_stage_failure(exc)
-                        report_failures.append(
-                            StageFailure(
-                                item_id="community_vector_store",
-                                error_type=type(exc).__name__,
-                                error_message=str(exc),
-                                trace_id=trace_id,
-                                span_id=span_id,
-                            )
-                        )
-
-            return CommunityDetectionReport(
-                communities=communities,
-                applied=apply and bool(communities),
-                failures=report_failures,
-            )
+        return await detect_communities(
+            self._graph_store,
+            vector_store=self._vector_store,
+            embedder=self._embedder,
+            settings=self._retrieval_settings,
+            tracer=self._tracer,
+            apply=apply,
+            max_cluster_size=max_cluster_size,
+            resolution=resolution,
+            seed=seed,
+        )

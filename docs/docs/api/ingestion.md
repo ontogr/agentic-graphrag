@@ -1024,6 +1024,7 @@ Community detection: hierarchical Leiden over the entity graph.
 
 - [**compute_communities**](#agrag-ingestion-community-compute_communities) – Run hierarchical Leiden and return level-0 communities.
 - [**delete_all_communities**](#agrag-ingestion-community-delete_all_communities) – Delete every Community node and its edges, in batches.
+- [**detect_communities**](#agrag-ingestion-community-detect_communities) – Detect entity communities via hierarchical Leiden.
 - [**embed_communities**](#agrag-ingestion-community-embed_communities) – Compute each community's embedding from its report text, in place.
 - [**fetch_relation_edges**](#agrag-ingestion-community-fetch_relation_edges) – Return every live domain relation as a weighted edge tuple.
 - [**generate_community_reports**](#agrag-ingestion-community-generate_community_reports) – Generate a report for each community, in place.
@@ -1119,6 +1120,44 @@ batch_size rows deleted.
   caller inside `store.transaction()` can delete and rewrite
   communities atomically.
 - **batch_size** (<code>int</code>) – Community nodes deleted per statement.
+
+#### `agrag.ingestion.community.detect_communities` \{#agrag-ingestion-community-detect_communities}
+
+```python
+detect_communities(graph_store:GraphStore, *, vector_store:VectorStore | None, embedder:Embedder, settings:RetrievalSettings, tracer:Tracer | None = None, apply:bool = False, max_cluster_size:int = 10, resolution:float = 1.0, seed:int | None = 3735928559) -> CommunityDetectionReport
+```
+
+Detect entity communities via hierarchical Leiden.
+
+Reads every live domain relation across the whole graph, not only one
+entity label, because community structure spans entity types. It builds a
+weighted edge list and runs hierarchical Leiden off the event loop. With
+`apply=True` the run is a full recompute: it deletes every earlier
+Community node, MEMBER_OF edge and community vector before it stores the
+new ones.
+
+**Parameters:**
+
+- **graph_store** (<code>[GraphStore](graphdb.md#agrag-graphdb-base-GraphStore)</code>) – Where relations and entities are read and communities are
+  written.
+- **vector_store** (<code>[VectorStore](vectordb.md#agrag-vectordb-base-VectorStore) | None</code>) – Holds the community vectors. None skips vector writes.
+- **embedder** (<code>[Embedder](embedding.md#agrag-embedding-base-Embedder)</code>) – Embeds the community summaries.
+- **settings** (<code>[RetrievalSettings](retrieval.md#agrag-retrieval-settings-RetrievalSettings)</code>) – Names the community vector collection.
+- **tracer** (<code>Tracer | None</code>) – Opens the detection span. None opens no recorded span.
+- **apply** (<code>bool</code>) – Write the communities. False returns a report only.
+- **max_cluster_size** (<code>int</code>) – Forwarded to `compute_communities`.
+- **resolution** (<code>float</code>) – Forwarded to `compute_communities`.
+- **seed** (<code>int | None</code>) – Forwarded to `compute_communities`.
+
+**Returns:**
+
+- <code>[CommunityDetectionReport](#agrag-ingestion-reports-CommunityDetectionReport)</code> – A report of every community found, applied or not. A vector store or
+- <code>[CommunityDetectionReport](#agrag-ingestion-reports-CommunityDetectionReport)</code> – community report failure appears in `failures`.
+
+**Raises:**
+
+- <code>[CommunityDetectionMissingExtraError](#agrag-ingestion-community-CommunityDetectionMissingExtraError)</code> – graspologic-native is not
+  installed.
 
 #### `agrag.ingestion.community.embed_communities` \{#agrag-ingestion-community-embed_communities}
 
