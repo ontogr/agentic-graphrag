@@ -691,7 +691,7 @@ async def test_agent_tools_over_seeded_graph(  # noqa: PLR0915
         with pytest.raises(UnsafeCypherError):
             reject_write_cypher(cypher)
         outcome = await ask(cypher)
-        assert outcome == "No results found.", name
+        assert outcome.startswith("Error:"), name
         refusals[name] = "refused"
     unknown_label = await ask(
         f"MATCH (n:Ghost_{injected}) WHERE n._pending_job_id IS NULL RETURN n"
