@@ -11,7 +11,6 @@ from agrag.cypher.entities import fetch_entity_neighbors_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
-from agrag.observability import record_swallowed_exception
 from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.settings import RetrievalSettings
@@ -222,16 +221,10 @@ class GraphCandidateSource(CandidateSource):
 
         Reconstructing the name from the payload's display text corrupts
         any name containing ":" (e.g. "Star Trek: Voyager"), so this fetches
-        the actual nodes instead. A failed read yields no candidates and is
-        recorded on the current span.
+        the actual nodes instead. Read errors and invalid stored nodes
+        propagate to the caller.
         """
-        try:
-            entities_by_id = await load_entities(
-                self.graph_store, [hit.id for hit in hits]
-            )
-        except Exception as exc:  # noqa: BLE001
-            record_swallowed_exception(exc)
-            return []
+        entities_by_id = await load_entities(self.graph_store, [hit.id for hit in hits])
         return [entity for entity in entities_by_id.values() if entity.label == label]
 
 
