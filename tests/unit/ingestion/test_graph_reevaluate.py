@@ -47,7 +47,7 @@ _FALLBACK_VECTOR = [0.0, 0.0, 0.0, 0.0, 1.0]
 
 def _node(entity_id: UUID, name: str) -> dict[str, Any]:
     """Build a flat entity node row the pipeline parser accepts."""
-    return {"id": str(entity_id), "labels": ["Person"], "name": name}
+    return {"id": str(entity_id), "name": name, "merge_key": f"Person:{name}"}
 
 
 class _ScriptedStore(GraphStore):
@@ -171,8 +171,8 @@ class _OneHotEmbedder(Embedder):
         return [list(_VECTORS.get(text, _FALLBACK_VECTOR)) for text in texts]
 
 
-def _hydrate_rows(names: dict[UUID, str]) -> list[dict[str, Any]]:
-    """Build hydrate-by-id rows for the given entity names."""
+def _load_rows(names: dict[UUID, str]) -> list[dict[str, Any]]:
+    """Build load-by-id rows for the given entity names."""
     return [{"n": _node(entity_id, name)} for entity_id, name in names.items()]
 
 
@@ -212,7 +212,7 @@ class TestGraphReevaluate:
         }
         store = _ScriptedStore(
             reads=[
-                _hydrate_rows(names),
+                _load_rows(names),
                 [
                     _edge_row(stale_match, third, fourth),
                     _edge_row(kept_match, sixth, seventh),
@@ -260,7 +260,7 @@ class TestGraphReevaluate:
     async def test_raises_for_unknown_id(self) -> None:
         """An id with no live persisted entity raises ValueError."""
         known, unknown = uuid4(), uuid4()
-        store = _ScriptedStore(reads=[_hydrate_rows({known: _C_NAME})])
+        store = _ScriptedStore(reads=[_load_rows({known: _C_NAME})])
 
         with pytest.raises(ValueError, match="Unknown entity"):
             await _graph(store).reevaluate([known, unknown])

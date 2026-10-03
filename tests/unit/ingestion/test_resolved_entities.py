@@ -158,8 +158,8 @@ def _member_row(seed: Entity, member: Entity) -> dict[str, Any]:
         "seed_id": str(seed.id),
         "member": {
             "id": str(member.id),
-            "labels": ["Person"],
-            "properties": {"name": member.name},
+            "merge_key": f"Person:{member.name}",
+            "name": member.name,
         },
     }
 

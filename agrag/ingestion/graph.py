@@ -35,12 +35,12 @@ from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
     fetch_all_by_label_query,
-    hydrate_entities_by_id_query,
 )
 from agrag.cypher.relations import entities_in_documents_query
 from agrag.cypher.resolution_read import fetch_active_matches_among_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.graphdb.entities import load_entities
 from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._document_lifecycle import find_document
@@ -1560,8 +1560,7 @@ class Graph:
             if not rows:
                 break
             for row in rows:
-                node = row.get("n") if isinstance(row, dict) and "n" in row else row
-                ent = parse_entity_node(node) or parse_entity_node(row)
+                ent = parse_entity_node(row.get("n"))
                 if ent is not None:
                     entities.append(ent)
             if len(rows) < limit:
@@ -1569,7 +1568,7 @@ class Graph:
             skip += limit
         return entities
 
-    async def _hydrate_input_entities(self, unique_ids: list[UUID]) -> list[Entity]:
+    async def _load_input_entities(self, unique_ids: list[UUID]) -> list[Entity]:
         """Fetch live entities for the given ids, preserving input order.
 
         Args:
@@ -1581,16 +1580,9 @@ class Graph:
         Raises:
             ValueError: An id has no live persisted entity.
         """
-        rows = await self._graph_store.execute_read(
-            hydrate_entities_by_id_query(),
-            {"ids": [str(e) for e in unique_ids], "job_id": None},
+        entities_by_id = await load_entities(
+            self._graph_store, unique_ids, tracer=self._tracer
         )
-        entities_by_id: dict[UUID, Entity] = {}
-        for row in rows:
-            node = row.get("n", row) if isinstance(row, dict) else row
-            entity = parse_entity_node(node)
-            if entity is not None:
-                entities_by_id[entity.id] = entity
         missing = [e for e in unique_ids if e not in entities_by_id]
         if missing:
             raise ValueError(
@@ -1776,7 +1768,7 @@ class Graph:
                 return ReevaluationReport()
             entities_by_id = {
                 entity.id: entity
-                for entity in await self._hydrate_input_entities(unique_ids)
+                for entity in await self._load_input_entities(unique_ids)
             }
             entities = [entities_by_id[e] for e in unique_ids]
             mentions, dummy_chunks = _synthesize_consolidation_mentions(entities)
@@ -1981,9 +1973,6 @@ class Graph:
                 COMMUNITY_LABEL,
                 MEMBER_OF_RELATION,
             )
-            from agrag.cypher.entities import (  # noqa: PLC0415
-                hydrate_entities_by_id_query,
-            )
             from agrag.ingestion.community import (  # noqa: PLC0415
                 compute_communities,
                 delete_all_communities,
@@ -2054,25 +2043,9 @@ class Graph:
                         communities=[], applied=True, failures=report_failures
                     )
                 needed_ids = required_member_ids(communities)
-                entities_by_id: dict[UUID, Entity] = {}
-                ids = list(needed_ids)
-                HYDRATE_BATCH = 1000  # noqa: N806
-                for i in range(0, len(ids), HYDRATE_BATCH):
-                    chunk_ids = ids[i : i + HYDRATE_BATCH]
-                    rows = await self._graph_store.execute_read(
-                        hydrate_entities_by_id_query(),
-                        {"ids": [str(x) for x in chunk_ids], "job_id": None},
-                    )
-                    entities_by_id.update(
-                        {
-                            ent.id: ent
-                            for row in rows
-                            if (
-                                ent := parse_entity_node(row.get("n", row))  # type: ignore[arg-type]
-                            )
-                            is not None
-                        }
-                    )
+                entities_by_id = await load_entities(
+                    self._graph_store, list(needed_ids), tracer=self._tracer
+                )
                 report_failures = await generate_community_reports(
                     communities,
                     entities_by_id,

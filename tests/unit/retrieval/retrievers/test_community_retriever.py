@@ -11,8 +11,8 @@ from agrag.retrieval.settings import RetrievalSettings
 class TestCommunityRetriever:
     """CommunityRetriever uses community collection/top_k, not chunk's."""
 
-    async def test_hydration_query_raises_returns_empty(self) -> None:
-        """A hydration query failure returns no results, not an exception."""
+    async def test_loading_query_raises_returns_empty(self) -> None:
+        """A loading query failure returns no results, not an exception."""
         mock_store = AsyncMock()
         mock_embedder = AsyncMock()
         mock_embedder.embed.return_value = [[0.1]]
@@ -27,7 +27,7 @@ class TestCommunityRetriever:
             assert res == []
 
     async def test_unparsable_row_is_skipped(self) -> None:
-        """A row that fails to parse is skipped; other rows still hydrate.
+        """A row that fails to parse is skipped; other rows still load.
 
         The bad row carries the bad hit's id, so the hit is dropped by its
         row's parse failure rather than a by-id lookup miss.

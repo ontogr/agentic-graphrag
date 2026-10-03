@@ -1,7 +1,7 @@
 """Tests for the retrieval helper spans.
 
 Pins the span names, attributes and swallow-site behavior of the shared
-helpers: ``vector_search``, ``hydrate_resolved_entities``, ``fuse``, the community
+helpers: ``vector_search``, ``load_resolved_entities``, ``fuse``, the community
 helpers and both rerankers. Runs real spans through an
 in-memory exporter; stores are mocks at the driver boundary.
 """

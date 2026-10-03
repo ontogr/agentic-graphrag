@@ -19,7 +19,7 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.relation import Relation
-from agrag.cypher.entities import hydrate_chunks_by_id_query
+from agrag.cypher.entities import load_chunks_by_id_query
 from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
 from agrag.embedding.settings import EmbeddingSettings
 from agrag.eval import ChatModelJudge, EvalJudgeSettings, final_answer
@@ -234,7 +234,7 @@ class AgragSystem:
         if not ids:
             return []
         rows = await self._store.execute_read(
-            hydrate_chunks_by_id_query(),
+            load_chunks_by_id_query(),
             {"ids": list(dict.fromkeys(ids)), "job_id": None},
         )
         chunks = []

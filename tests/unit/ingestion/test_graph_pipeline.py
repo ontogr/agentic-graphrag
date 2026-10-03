@@ -349,177 +349,90 @@ def _distinct_doc(
 class TestParseEntityNode:
     """Tests for parse_entity_node."""
 
-    def test_parses_labels_properties_form(self) -> None:
-        """Labels+properties mock is parsed."""
+    def test_parses_stored_node(self) -> None:
+        """A stored node's properties become an Entity."""
         cid = uuid4()
         eid = uuid4()
         node = {
             "id": str(eid),
-            "labels": ["Person", "_AgragNode"],
-            "properties": {
-                "name": "Alice",
-                "merge_key": "Person:alice",
-                "merge_count": 1,
-                "source_chunk_ids": [str(cid)],
-                "created_at": "2020-01-01T00:00:00+00:00",
-                "_pending_job_id": str(uuid4()),
-                "age": "30",
-            },
+            "name": "Alice",
+            "merge_key": "Person:alice",
+            "merge_count": 2,
+            "source_chunk_ids": [str(cid)],
+            "created_at": "2020-01-01T00:00:00+00:00",
+            "_pending_job_id": str(uuid4()),
+            "age": "30",
         }
         ent = parse_entity_node(node)
         assert ent is not None
+        assert ent.id == eid
         assert ent.label == "Person"
         assert ent.name == "Alice"
-        assert ent.properties["age"] == "30"
-        assert "_pending_job_id" not in ent.properties
+        assert ent.merge_count == 2
+        assert ent.properties == {"age": "30"}
         assert ent.source_chunk_ids == [cid]
 
-    def test_parses_flat_mock(self) -> None:
-        """Flat dict with id and properties top-level is parsed."""
-        eid = uuid4()
+    def test_label_is_the_merge_key_prefix(self) -> None:
+        """The label comes from the merge key, and a name may hold a colon."""
         node = {
-            "id": str(eid),
-            "name": "Bob",
-            "merge_key": "Person:bob",
-            "merge_count": 1,
-            "source_chunk_ids": [],
-            "created_at": "2020-01-01T00:00:00+00:00",
-            "labels": ["Person"],
+            "id": str(uuid4()),
+            "name": "Star Trek: Voyager",
+            "merge_key": "Show:star trek: voyager",
         }
         ent = parse_entity_node(node)
         assert ent is not None
-        assert ent.label == "Person"
-        assert ent.name == "Bob"
-
-    def test_parses_neo4j_node_style(self) -> None:
-        """Object with dict() properties and .labels attribute is parsed."""
-        eid = uuid4()
-
-        class MockNode(dict):
-            labels = ["Person", "_AgragNode"]
-
-            def __init__(self) -> None:
-                super().__init__(
-                    {
-                        "id": str(eid),
-                        "name": "Carol",
-                        "merge_key": "Person:carol",
-                        "merge_count": 1,
-                        "source_chunk_ids": [],
-                        "created_at": "2020-01-01T00:00:00+00:00",
-                    }
-                )
-
-        ent = parse_entity_node(MockNode())
-        assert ent is not None
-        assert ent.label == "Person"
-
-    def test_wrapped_n_key(self) -> None:
-        """Node wrapped as {'n': inner} is unwrapped."""
-        eid = uuid4()
-        inner = {
-            "id": str(eid),
-            "labels": ["Person"],
-            "properties": {
-                "name": "Dave",
-                "merge_key": "Person:dave",
-                "merge_count": 1,
-                "source_chunk_ids": [],
-                "created_at": "2020-01-01T00:00:00+00:00",
-            },
-        }
-        ent = parse_entity_node({"n": inner})
-        assert ent is not None
-        assert ent.name == "Dave"
-
-    def test_fallback_from_merge_key(self) -> None:
-        """Label inferred from merge_key when labels are system only."""
-        eid = uuid4()
-        node = {
-            "id": str(eid),
-            "labels": [],
-            "properties": {
-                "name": "Eve",
-                "merge_key": "Person:eve",
-                "merge_count": 1,
-                "source_chunk_ids": [],
-                "created_at": "2020-01-01T00:00:00+00:00",
-            },
-        }
-        ent = parse_entity_node(node)
-        assert ent is not None
-        assert ent.label == "Person"
-
-    def test_missing_label_and_id_returns_none(self) -> None:
-        """No label and no id yields None."""
-        node = {"labels": [], "properties": {"name": "x"}}
-        assert parse_entity_node(node) is None
-        assert (
-            parse_entity_node({"id": None, "labels": ["Person"], "properties": {}})
-            is None
-        )
+        assert ent.label == "Show"
+        assert ent.name == "Star Trek: Voyager"
 
     def test_filters_system_keys(self) -> None:
         """System keys are not kept in properties."""
-        eid = uuid4()
         node = {
-            "id": str(eid),
-            "labels": ["Person"],
-            "properties": {
-                "name": "Frank",
-                "merge_key": "Person:frank",
-                "merge_count": 1,
-                "source_chunk_ids": [],
-                "created_at": "2020-01-01T00:00:00+00:00",
-                "embedding": [1, 2, 3],
-                "custom": "keep",
-            },
+            "id": str(uuid4()),
+            "name": "Frank",
+            "merge_key": "Person:frank",
+            "embedding": [1, 2, 3],
+            "custom": "keep",
         }
         ent = parse_entity_node(node)
         assert ent is not None
-        assert "custom" in ent.properties
-        assert "embedding" not in ent.properties
+        assert ent.properties == {"custom": "keep"}
         assert ent.embedding == [1, 2, 3]
 
-    def test_handles_malformed_created_at(self) -> None:
-        """Bad created_at string is ignored."""
-        eid = uuid4()
+    def test_ignores_malformed_created_at_and_merge_count(self) -> None:
+        """A bad created_at or merge_count falls back to its default."""
         node = {
-            "id": str(eid),
-            "labels": ["Person"],
-            "properties": {
-                "name": "Grace",
-                "merge_key": "Person:grace",
-                "merge_count": "not_an_int",
-                "source_chunk_ids": [],
-                "created_at": "bad-date",
-            },
+            "id": str(uuid4()),
+            "name": "Grace",
+            "merge_key": "Person:grace",
+            "merge_count": "not_an_int",
+            "created_at": "bad-date",
         }
         ent = parse_entity_node(node)
         assert ent is not None
         assert ent.name == "Grace"
+        assert ent.merge_count == 1
 
-    def test_name_fallback_from_merge_key(self) -> None:
-        """Name missing falls back to merge_key suffix."""
-        eid = uuid4()
-        node = {
-            "id": str(eid),
-            "labels": ["Person"],
-            "properties": {
-                "merge_key": "Person:heidi",
-                "merge_count": 1,
-                "source_chunk_ids": [],
-                "created_at": "2020-01-01T00:00:00+00:00",
-            },
-        }
-        ent = parse_entity_node(node)
+    def test_name_falls_back_to_merge_key_suffix(self) -> None:
+        """A missing name falls back to the merge key suffix."""
+        ent = parse_entity_node({"id": str(uuid4()), "merge_key": "Person:heidi"})
         assert ent is not None
         assert ent.name == "heidi"
 
-    def test_exception_returns_none(self) -> None:
-        """Any exception yields None."""
-        assert parse_entity_node(None) is None  # type: ignore[arg-type]
-        assert parse_entity_node(object()) is None
+    @pytest.mark.parametrize(
+        "node",
+        [
+            {"name": "x", "merge_key": "Person:x"},
+            {"id": str(uuid4()), "name": "x"},
+            {"id": str(uuid4()), "merge_key": "nocolon"},
+            {"id": "not-a-uuid", "merge_key": "Person:x"},
+            {"id": str(uuid4()), "merge_key": "Person:x", "source_chunk_ids": ["bad"]},
+            None,
+            object(),
+        ],
+    )
+    def test_unusable_node_returns_none(self, node: object) -> None:
+        """A node without a usable id or merge key yields None."""
+        assert parse_entity_node(node) is None
 
 
 class TestGlobalExactMatch:
@@ -544,14 +457,11 @@ class TestGlobalExactMatch:
                 {
                     "n": {
                         "id": str(eid),
-                        "labels": ["Person"],
-                        "properties": {
-                            "name": "Alice",
-                            "merge_key": "Person:alice",
-                            "merge_count": 1,
-                            "source_chunk_ids": [],
-                            "created_at": "2020-01-01T00:00:00+00:00",
-                        },
+                        "name": "Alice",
+                        "merge_key": "Person:alice",
+                        "merge_count": 1,
+                        "source_chunk_ids": [],
+                        "created_at": "2020-01-01T00:00:00+00:00",
                     }
                 }
             ],
@@ -586,14 +496,11 @@ class TestGlobalExactMatch:
                     "merge_key": "Person:bob",
                     "n": {
                         "id": str(entity_id),
-                        "labels": ["Person"],
-                        "properties": {
-                            "name": "Robert",
-                            "merge_key": "Person:robert",
-                            "merge_count": 2,
-                            "source_chunk_ids": [],
-                            "created_at": "2020-01-01T00:00:00+00:00",
-                        },
+                        "name": "Robert",
+                        "merge_key": "Person:robert",
+                        "merge_count": 2,
+                        "source_chunk_ids": [],
+                        "created_at": "2020-01-01T00:00:00+00:00",
                     },
                 }
             ]
@@ -688,7 +595,7 @@ class _GuardedNodeStore(MockStore):
     Neo4j enforces those WHERE clauses; this fake reproduces them in
     memory so a concurrent-write test can prove a stale record is
     rejected without a live database. ``execute_read`` answers the by-id
-    hydration queries from the same ``nodes`` mapping, so a test can also
+    loading queries from the same ``nodes`` mapping, so a test can also
     drive the chunk-write recovery from it.
     """
 
@@ -703,7 +610,7 @@ class _GuardedNodeStore(MockStore):
         *,
         timeout: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Answer the by-id hydration reads from the in-memory nodes."""
+        """Answer the by-id loading reads from the in-memory nodes."""
         del timeout
         if "RETURN n" not in query:
             return await super().execute_read(query, parameters)
@@ -1754,14 +1661,11 @@ class TestGraphAddPipeline:
                 {
                     "n": {
                         "id": str(eid),
-                        "labels": ["Person"],
-                        "properties": {
-                            "name": "Alice",
-                            "merge_key": "Person:alice",
-                            "merge_count": 1,
-                            "source_chunk_ids": [str(cid)],
-                            "created_at": "2020-01-01T00:00:00+00:00",
-                        },
+                        "name": "Alice",
+                        "merge_key": "Person:alice",
+                        "merge_count": 1,
+                        "source_chunk_ids": [str(cid)],
+                        "created_at": "2020-01-01T00:00:00+00:00",
                     }
                 }
             ]
@@ -2163,14 +2067,11 @@ class TestGraphAddPipeline:
         row = {
             "n": {
                 "id": str(eid),
-                "labels": ["Person"],
-                "properties": {
-                    "name": "Alice",
-                    "merge_key": "Person:alice",
-                    "merge_count": 1,
-                    "source_chunk_ids": [],
-                    "created_at": "2020-01-01T00:00:00+00:00",
-                },
+                "name": "Alice",
+                "merge_key": "Person:alice",
+                "merge_count": 1,
+                "source_chunk_ids": [],
+                "created_at": "2020-01-01T00:00:00+00:00",
             }
         }
         store.execute_read_responses = [[row] * 256, [row], []]

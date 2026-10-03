@@ -39,13 +39,10 @@ class TestBFSRetriever:
             {
                 "neighbor": {
                     "id": str(ent.id),
-                    "labels": ["Person"],
-                    "properties": {
-                        "name": "Neighbor",
-                        "merge_key": "Person:neighbor",
-                        "merge_count": 1,
-                        "source_chunk_ids": [],
-                    },
+                    "name": "Neighbor",
+                    "merge_key": "Person:neighbor",
+                    "merge_count": 1,
+                    "source_chunk_ids": [],
                 }
             }
         ]

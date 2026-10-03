@@ -37,7 +37,7 @@ def _schema() -> GraphSchema:
 
 def _node(entity_id: UUID, name: str) -> dict[str, Any]:
     """Build a flat entity node row the pipeline parser accepts."""
-    return {"id": str(entity_id), "labels": ["Person"], "name": name}
+    return {"id": str(entity_id), "name": name, "merge_key": f"Person:{name}"}
 
 
 class _ScriptedStore(GraphStore):

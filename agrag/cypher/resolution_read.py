@@ -65,11 +65,11 @@ def fetch_committed_component_decided_at_query() -> str:
     )
 
 
-def hydrate_resolved_entities_by_id_query() -> str:
-    """Build Cypher hydrating resolved entities returned by vector search.
+def load_resolved_entities_by_id_query() -> str:
+    """Build Cypher that loads resolved entities returned by vector search.
 
     Pending visibility is job-scoped: a null ``$job_id`` reduces the
-    guard to committed-only, so retrieval never hydrates a
+    guard to committed-only, so retrieval never loads a
     ResolvedEntity an uncommitted job rebuilt.
 
     Returns:
