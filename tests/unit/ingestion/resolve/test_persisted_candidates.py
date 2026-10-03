@@ -111,7 +111,7 @@ class TestPersistedCandidateIndices:
         )
 
         assert indices == {2: [1]}
-        assert similarity == {(0, 2): 0.0, (1, 2): 0.0}
+        assert similarity == {(1, 2): 0.0}
         assert [failure.item_id for failure in failures] == ["Ada"]
         assert failures[0].error_message == "candidate lookup failed"
 

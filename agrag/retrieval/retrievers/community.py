@@ -64,7 +64,8 @@ class CommunityRetriever(Retriever):
 
         Returns:
             Ranked SearchResults with loaded Community items. The list is
-                empty only when the search ran and found nothing.
+                empty when the limit is not positive, or when the search ran and
+                found nothing.
 
         Raises:
             Exception: Any embedding, vector search, or graph read

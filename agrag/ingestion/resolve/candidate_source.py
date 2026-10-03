@@ -351,6 +351,11 @@ async def persisted_candidate_indices(
             for index, indices in candidates_by_index.items()
             if (kept := [other for other in indices if other not in failed_indices])
         }
+        similarity_by_pair = {
+            pair: score
+            for pair, score in similarity_by_pair.items()
+            if failed_indices.isdisjoint(pair)
+        }
     if candidates_by_index or len(entities) > fallback_limit:
         return candidates_by_index, similarity_by_pair, failures
     return (

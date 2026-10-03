@@ -377,9 +377,15 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             # initiate: no entry is keyed by a synthetic index.
             candidates_by_index: dict[int, list[int]] = {}
             for index, _mention in enumerate(entities):
-                real_peers = await candidate_source.candidates_for(index, entities)
+                if index in unresolved_indices:
+                    continue
+                real_peers = [
+                    peer
+                    for peer in await candidate_source.candidates_for(index, entities)
+                    if peer not in unresolved_indices
+                ]
                 if real_peers:
-                    candidates_by_index[index] = list(real_peers)
+                    candidates_by_index[index] = real_peers
             for index, synthetic in persisted_candidates.items():
                 candidates_by_index.setdefault(index, []).extend(synthetic)
             span.set_attribute(

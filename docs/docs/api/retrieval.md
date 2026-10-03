@@ -203,7 +203,8 @@ Run chunk search and return loaded results.
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with loaded Chunk items. A child chunk result
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – carries its parent chunk in `SearchResult.parent`. The list is
-- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – empty only when the search ran and found nothing.
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – empty when the limit is not positive, or when the search ran
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – and found nothing.
 
 **Raises:**
 
@@ -262,7 +263,8 @@ Run community-report search and return loaded results.
 **Returns:**
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with loaded Community items. The list is
-  empty only when the search ran and found nothing.
+  empty when the limit is not positive, or when the search ran and
+  found nothing.
 
 **Raises:**
 
@@ -339,7 +341,8 @@ Run entity search and return loaded results.
 **Returns:**
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with resolved entity ids. The list is
-  empty only when the search ran and found nothing.
+  empty when the limit is not positive, or when the search ran and
+  found nothing.
 
 **Raises:**
 
@@ -2117,7 +2120,8 @@ Run chunk search and return loaded results.
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with loaded Chunk items. A child chunk result
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – carries its parent chunk in `SearchResult.parent`. The list is
-- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – empty only when the search ran and found nothing.
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – empty when the limit is not positive, or when the search ran
+- <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – and found nothing.
 
 **Raises:**
 
@@ -2184,7 +2188,8 @@ Run community-report search and return loaded results.
 **Returns:**
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with loaded Community items. The list is
-  empty only when the search ran and found nothing.
+  empty when the limit is not positive, or when the search ran and
+  found nothing.
 
 **Raises:**
 
@@ -2263,7 +2268,8 @@ Run entity search and return loaded results.
 **Returns:**
 
 - <code>list\[[SearchResult](common.md#agrag-common-data_models-search_result-SearchResult)\]</code> – Ranked SearchResults with resolved entity ids. The list is
-  empty only when the search ran and found nothing.
+  empty when the limit is not positive, or when the search ran and
+  found nothing.
 
 **Raises:**
 

@@ -130,7 +130,7 @@ The query is "Who worked with Babbage?" and the recipe is `HYBRID`. Entity searc
 
 **How do community reports survive the re-rank?** The cross-encoder orders only the passages and entities. After it runs, the recipe keeps up to three slots for community reports. The re-rank cannot push every report out of the results.
 
-**Why does one failed method not fail the search?** A timeout in one method should not hide good results from another. The engine logs the failure and records it on the trace. If every method fails, the engine raises an error. Every method follows one rule: it returns an empty list only when it ran and found nothing, and it raises on any failure. This includes `text2cypher`, so a failed query or a failed model call counts as a failure and not as an empty result.
+**Why does one failed method not fail the search?** A timeout in one method should not hide good results from another. The engine logs the failure and records it on the trace. If every method fails, the engine raises an error. Every method follows one rule: with a positive limit, it returns an empty list only when the search ran and found nothing, and it raises on any failure it cannot recover from. This includes `text2cypher`, which repairs a failed query once and raises if the repair also fails, so a failed query or model call is never an empty result.
 
 </details>
 

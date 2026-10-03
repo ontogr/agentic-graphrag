@@ -90,7 +90,8 @@ class EntityRetriever(Retriever):
 
         Returns:
             Ranked SearchResults with resolved entity ids. The list is
-                empty only when the search ran and found nothing.
+                empty when the limit is not positive, or when the search ran and
+                found nothing.
 
         Raises:
             ValueError: Native search was selected and neither the

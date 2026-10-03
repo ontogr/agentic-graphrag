@@ -43,19 +43,20 @@ class TestLoadEntitiesIntegration:
     async def test_round_trips_stored_entities(self, store: GraphStore) -> None:
         """A written entity returns with its label, name, and properties."""
         tag = uuid4().hex[:8]
+        label = f"Show{tag}"
         entity = Entity(
             id=uuid4(),
-            label="Show",
+            label=label,
             name=f"Star Trek: Voyager {tag}",
             properties={"network": "UPN"},
         )
         try:
-            await store.upsert_nodes("Show", [entity.to_node_record()])
+            await store.upsert_nodes(label, [entity.to_node_record()])
 
             result = await load_entities(store, [entity.id, uuid4()])
 
             assert set(result) == {entity.id}
-            assert result[entity.id].label == "Show"
+            assert result[entity.id].label == label
             assert result[entity.id].name == entity.name
             assert result[entity.id].properties == {"network": "UPN"}
         finally:
@@ -67,11 +68,12 @@ class TestLoadEntitiesIntegration:
         self, store: GraphStore
     ) -> None:
         """A node tagged with a pending job id is not returned."""
-        committed = Entity(id=uuid4(), label="Person", name=f"Ada {uuid4().hex[:8]}")
-        pending = Entity(id=uuid4(), label="Person", name=f"Bob {uuid4().hex[:8]}")
+        label = f"Person{uuid4().hex[:8]}"
+        committed = Entity(id=uuid4(), label=label, name="Ada")
+        pending = Entity(id=uuid4(), label=label, name="Bob")
         try:
             await store.upsert_nodes(
-                "Person",
+                label,
                 [
                     committed.to_node_record(),
                     tag_pending(pending.to_node_record(), uuid4()),
