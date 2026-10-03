@@ -12,26 +12,14 @@ import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
 from agrag.chunking import DEFAULT_CHUNKING, Chunking
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.community import COMMUNITY_LABEL
-from agrag.common.data_models.document import (
-    DOCUMENT_LABEL,
-    Document,
-)
-from agrag.common.data_models.entity import Entity
+from agrag.common.data_models.document import DOCUMENT_LABEL, Document
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
     ResolvedEntity,
 )
-from agrag.common.data_models.stage_failure import StageFailure
-from agrag.common.text import normalize_text
-from agrag.cypher.entities import (
-    fetch_all_by_label_query,
-)
-from agrag.cypher.resolution_read import fetch_active_matches_among_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.graphdb.entities import load_entities
-from agrag.graphdb.serialize import parse_entity_node
 from agrag.ingestion._ingest import (
     CleanupStep,
     add_documents,
@@ -39,6 +27,11 @@ from agrag.ingestion._ingest import (
     update_document,
 )
 from agrag.ingestion._job_cleanup import finish_job
+from agrag.ingestion._resolution_maintenance import (
+    consolidate,
+    deactivate_match,
+    reevaluate,
+)
 from agrag.ingestion._resume import resume_incomplete_jobs
 from agrag.ingestion._walk import SourcesType
 from agrag.ingestion.community import detect_communities
@@ -50,26 +43,13 @@ from agrag.ingestion.reports import (
     ReevaluationReport,
     UpdateResult,
 )
-from agrag.ingestion.resolve import (
-    SYSTEM_RELATION_TYPES,
-    resolve_among,
-    resolve_persisted,
-)
+from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
-from agrag.ingestion.resolved_embeddings import _synchronize_resolved_entity_vectors
-from agrag.ingestion.resolved_entities import (
-    MatchComponent,
-    MatchDecision,
-    deactivate_match_and_rebuild,
-    match_decision_components,
-    matches_id,
-    write_matches_and_rebuild,
-)
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.loaders.corpus import registry as _corpus_registry
 from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.types import ErrorPolicy, ReadOptions
-from agrag.observability import get_tracer, record_stage_failure
+from agrag.observability import get_tracer
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 
@@ -543,148 +523,17 @@ class Graph:
             error_policy=error_policy,
         )
 
-    async def _rebuild_components(
-        self, components: list[MatchComponent], *, error_policy: ErrorPolicy
-    ) -> tuple[list[ResolvedEntity], list[StageFailure]]:
-        """Rebuild committed match components and sync their vectors.
-
-        Runs outside any Cutover Job, so each write replaces the previous
-        rebuild of the components it grows or merges, including its
-        ``RESOLVED_AS`` edges. The replaced vectors are then deleted and the
-        new ones written to the graph and the external vector store.
-
-        Args:
-            components: The match decisions and raw members of each
-                component to rebuild.
-            error_policy: RAISE propagates the first failure; any other
-                policy records it and continues.
-
-        Returns:
-            The resolved-entities and the recorded failures.
-        """
-        with self._tracer.start_as_current_span(
-            "agrag.merge.rebuild_components",
-            attributes={"agrag.component_count": len(components)},
-        ):
-            failures: list[StageFailure] = []
-            rebuilt: list[ResolvedEntity] = []
-            replaced_ids: list[UUID] = []
-            for decisions, members in components:
-                with self._tracer.start_as_current_span(
-                    "agrag.merge.rebuild_component",
-                    attributes={"agrag.member_count": len(members)},
-                ):
-                    try:
-                        rebuild = await write_matches_and_rebuild(
-                            decisions,
-                            graph_store=self._graph_store,
-                            schema=self._schema,
-                            members=members,
-                            tracer=self._tracer,
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        if error_policy is ErrorPolicy.RAISE:
-                            raise
-                        trace_id, span_id = record_stage_failure(exc)
-                        failures.append(
-                            StageFailure(
-                                item_id=",".join(str(member.id) for member in members),
-                                error_type=type(exc).__name__,
-                                error_message=str(exc),
-                                trace_id=trace_id,
-                                span_id=span_id,
-                            )
-                        )
-                        continue
-                rebuilt.append(rebuild.resolved_entity)
-                replaced_ids.extend(rebuild.removed_entity_ids)
-            failures.extend(
-                await _synchronize_resolved_entity_vectors(
-                    rebuilt,
-                    replaced_ids,
-                    embedder=self._embedder,
-                    graph_store=self._graph_store,
-                    vector_store=self._vector_store,
-                    vector_collection=self._retrieval_settings.resolved_entity_collection,
-                    error_policy=error_policy,
-                )
-            )
-            return rebuilt, failures
-
-    async def _all_entities_by_label(self, label: str) -> list[Entity]:
-        """Return every persisted entity with label, for consolidate().
-
-        Plain pagination through GraphStore.
-
-        Args:
-            label: The entity label to fetch.
-
-        Returns:
-            All entities with that label.
-        """
-        entities: list[Entity] = []
-        skip = 0
-        limit = 256
-        while True:
-            query = fetch_all_by_label_query(label)
-            rows = await self._graph_store.execute_read(
-                query, {"skip": skip, "limit": limit}
-            )
-            if not rows:
-                break
-            for row in rows:
-                ent = parse_entity_node(row.get("n"))
-                if ent is not None:
-                    entities.append(ent)
-            if len(rows) < limit:
-                break
-            skip += limit
-        return entities
-
-    async def _load_input_entities(self, unique_ids: list[UUID]) -> list[Entity]:
-        """Fetch live entities for the given ids, preserving input order.
-
-        Args:
-            unique_ids: Deduped entity ids to fetch.
-
-        Returns:
-            The live entities in input order.
-
-        Raises:
-            ValueError: An id has no live persisted entity.
-        """
-        entities_by_id = await load_entities(
-            self._graph_store, unique_ids, tracer=self._tracer
-        )
-        missing = [e for e in unique_ids if e not in entities_by_id]
-        if missing:
-            raise ValueError(
-                "Unknown entity ids: " + ", ".join(str(m) for m in missing)
-            )
-        return [entities_by_id[e] for e in unique_ids]
-
     async def deactivate_match(self, match_id: UUID) -> list[ResolvedEntity]:
         """Deactivate a semantic match and synchronize replacement retrieval vectors."""
-        with self._tracer.start_as_current_span(
-            "agrag.ingestion.deactivate_match",
-            attributes={"agrag.match_id": str(match_id)},
-        ):
-            result = await deactivate_match_and_rebuild(
-                match_id,
-                graph_store=self._graph_store,
-                schema=self._schema,
-                tracer=self._tracer,
-            )
-            await _synchronize_resolved_entity_vectors(
-                result.resolved_entities,
-                result.removed_entity_ids,
-                embedder=self._embedder,
-                graph_store=self._graph_store,
-                vector_store=self._vector_store,
-                vector_collection=self._retrieval_settings.resolved_entity_collection,
-                error_policy=ErrorPolicy.RAISE,
-            )
-            return result.resolved_entities
+        return await deactivate_match(
+            match_id,
+            schema=self._schema,
+            graph_store=self._graph_store,
+            embedder=self._embedder,
+            vector_store=self._vector_store,
+            retrieval_settings=self._retrieval_settings,
+            tracer=self._tracer,
+        )
 
     async def consolidate(self, *, apply: bool = False) -> ConsolidationReport:
         """Run non-destructive resolution against every persisted raw entity.
@@ -711,67 +560,16 @@ class Graph:
             A report of every confirmed non-exact match, applied or not,
             plus the count of uncertain LLM verdicts.
         """
-        with self._tracer.start_as_current_span("agrag.ingestion.consolidate"):
-            would_match: list[MatchDecision] = []
-            ambiguous_count = 0
-            entities_by_id: dict[UUID, Entity] = {}
-            # For each label, fetch all entities, then pairwise compare via Resolver
-            for entity_type in self._schema.entities:
-                label = entity_type.label
-                all_entities = await self._all_entities_by_label(label)
-                if len(all_entities) < 2:
-                    continue
-                resolution_result = await resolve_persisted(
-                    all_entities,
-                    graph_store=self._graph_store,
-                    embedder=self._embedder,
-                    vector_store=self._vector_store,
-                    vector_collection=self._retrieval_settings.entity_collection,
-                    entity_labels=[entity.label for entity in self._schema.entities],
-                    tracer=self._tracer,
-                    max_llm_pairs=self._max_llm_pairs,
-                )
-                ambiguous_count += resolution_result.ambiguous_count
-                entities_by_id.update({entity.id: entity for entity in all_entities})
-                for match in resolution_result.matches:
-                    would_match.append(
-                        MatchDecision(
-                            entity_a_id=all_entities[match.left_index].id,
-                            entity_b_id=all_entities[match.right_index].id,
-                            comparator=match.comparator,
-                            score=match.score,
-                            reasoning=match.reasoning,
-                            decided_at=match.decided_at,
-                        )
-                    )
-
-            consolidation_failures: list[StageFailure] = []
-            rebuilt_entities: list[ResolvedEntity] = []
-            if apply:
-                components: list[MatchComponent] = []
-                for decisions in match_decision_components(would_match):
-                    member_ids = {decision.entity_a_id for decision in decisions} | {
-                        decision.entity_b_id for decision in decisions
-                    }
-                    components.append(
-                        (
-                            decisions,
-                            [entities_by_id[member_id] for member_id in member_ids],
-                        )
-                    )
-                (
-                    rebuilt_entities,
-                    consolidation_failures,
-                ) = await self._rebuild_components(
-                    components, error_policy=ErrorPolicy.SKIP
-                )
-
-            return ConsolidationReport(
-                would_match=would_match,
-                applied=apply and bool(rebuilt_entities),
-                failures=consolidation_failures,
-                ambiguous_count=ambiguous_count,
-            )
+        return await consolidate(
+            apply=apply,
+            schema=self._schema,
+            graph_store=self._graph_store,
+            embedder=self._embedder,
+            vector_store=self._vector_store,
+            retrieval_settings=self._retrieval_settings,
+            tracer=self._tracer,
+            max_llm_pairs=self._max_llm_pairs,
+        )
 
     async def reevaluate(self, entity_ids: list[UUID]) -> ReevaluationReport:
         """Reevaluate matches among the given entities, adding and removing edges.
@@ -798,123 +596,16 @@ class Graph:
         Raises:
             ValueError: An id has no live persisted entity.
         """
-        with self._tracer.start_as_current_span(
-            "agrag.ingestion.reevaluate",
-            attributes={"agrag.entity_count": len(entity_ids)},
-        ):
-            unique_ids = list(dict.fromkeys(entity_ids))
-            if not unique_ids:
-                return ReevaluationReport()
-            entities_by_id = {
-                entity.id: entity
-                for entity in await self._load_input_entities(unique_ids)
-            }
-            entities = [entities_by_id[e] for e in unique_ids]
-            resolution = await resolve_among(
-                entities,
-                embedder=self._embedder,
-                tracer=self._tracer,
-                max_llm_pairs=self._max_llm_pairs,
-            )
-            confirmed = {
-                frozenset((unique_ids[m.left_index], unique_ids[m.right_index])): m
-                for m in resolution.matches
-            }
-            exact_pairs = {
-                frozenset((unique_ids[left], unique_ids[right]))
-                for left in range(len(entities))
-                for right in range(left + 1, len(entities))
-                if normalize_text(entities[left].name)
-                == normalize_text(entities[right].name)
-            }
-            edge_rows = await self._graph_store.execute_read(
-                fetch_active_matches_among_ids_query(),
-                {"ids": [str(e) for e in unique_ids], "job_id": None},
-            )
-            active: dict[frozenset[UUID], UUID] = {}
-            for row in edge_rows:
-                if not isinstance(row, dict):
-                    continue
-                try:
-                    pair = frozenset((UUID(str(row["a_id"])), UUID(str(row["b_id"]))))
-                    match_id = UUID(str(row["match_id"]))
-                except (KeyError, TypeError, ValueError):
-                    continue
-                if len(pair) == 2:
-                    active.setdefault(pair, match_id)
-            decisions = sorted(
-                (
-                    MatchDecision(
-                        entity_a_id=first,
-                        entity_b_id=second,
-                        comparator=match.comparator,
-                        score=match.score,
-                        reasoning=match.reasoning,
-                        decided_at=match.decided_at,
-                    )
-                    for pair, match in confirmed.items()
-                    if pair not in active
-                    for first, second in (sorted(pair, key=str),)
-                ),
-                key=lambda d: str(matches_id(d.entity_a_id, d.entity_b_id)),
-            )
-            rebuilt: list[ResolvedEntity] = []
-            replaced: list[UUID] = []
-            matches_added: list[MatchDecision] = []
-            for component in match_decision_components(decisions):
-                member_ids = {d.entity_a_id for d in component} | {
-                    d.entity_b_id for d in component
-                }
-                with self._tracer.start_as_current_span(
-                    "agrag.merge.rebuild_component",
-                    attributes={"agrag.member_count": len(member_ids)},
-                ):
-                    rebuild = await write_matches_and_rebuild(
-                        component,
-                        graph_store=self._graph_store,
-                        schema=self._schema,
-                        members=[entities_by_id[m] for m in member_ids],
-                        tracer=self._tracer,
-                    )
-                rebuilt.append(rebuild.resolved_entity)
-                replaced.extend(rebuild.removed_entity_ids)
-                matches_added.extend(component)
-            matches_removed: list[UUID] = []
-            removed_pairs: set[frozenset[UUID]] = set()
-            for pair, match_id in sorted(active.items(), key=lambda item: str(item[1])):
-                if pair in confirmed or pair in exact_pairs:
-                    continue
-                with self._tracer.start_as_current_span(
-                    "agrag.merge.deactivate_component",
-                    attributes={"agrag.match_id": str(match_id)},
-                ):
-                    deactivation = await deactivate_match_and_rebuild(
-                        match_id,
-                        graph_store=self._graph_store,
-                        schema=self._schema,
-                        tracer=self._tracer,
-                    )
-                rebuilt.extend(deactivation.resolved_entities)
-                replaced.extend(deactivation.removed_entity_ids)
-                matches_removed.append(match_id)
-                removed_pairs.add(pair)
-            await _synchronize_resolved_entity_vectors(
-                rebuilt,
-                list(dict.fromkeys(replaced)),
-                embedder=self._embedder,
-                graph_store=self._graph_store,
-                vector_store=self._vector_store,
-                vector_collection=self._retrieval_settings.resolved_entity_collection,
-                error_policy=ErrorPolicy.SKIP,
-            )
-            touched = {e for d in matches_added for e in (d.entity_a_id, d.entity_b_id)}
-            touched |= {e for pair in removed_pairs for e in pair}
-            return ReevaluationReport(
-                entities_reevaluated=unique_ids,
-                matches_added=matches_added,
-                matches_removed=matches_removed,
-                unchanged_count=sum(1 for e in unique_ids if e not in touched),
-            )
+        return await reevaluate(
+            entity_ids,
+            schema=self._schema,
+            graph_store=self._graph_store,
+            embedder=self._embedder,
+            vector_store=self._vector_store,
+            retrieval_settings=self._retrieval_settings,
+            tracer=self._tracer,
+            max_llm_pairs=self._max_llm_pairs,
+        )
 
     async def detect_communities(
         self,

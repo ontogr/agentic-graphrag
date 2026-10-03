@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+import agrag.ingestion._resolution_maintenance as maintenance_module
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.chunk import Chunk as ChunkModel
 from agrag.common.data_models.document import (
@@ -50,6 +51,7 @@ from agrag.ingestion._ingest_pipeline import (
     _global_relation_lookup,
     _upsert_vectors,
 )
+from agrag.ingestion._resolution_maintenance import all_entities_by_label
 from agrag.ingestion._walk import resolve_paths
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
@@ -2021,13 +2023,7 @@ class TestGraphAddPipeline:
             return []
 
         store.execute_read = fake_read  # type: ignore[method-assign]
-        graph = await Graph.open(
-            schema=GENERIC,
-            graph_store=store,
-            embedder=MockEmbedder(),
-            extractor=MockExtractor(),
-        )
-        ents = await graph._all_entities_by_label("Person")
+        ents = await all_entities_by_label(store, "Person")
         assert len(ents) == 257
         assert call_count == 2
 
@@ -2060,11 +2056,11 @@ class TestGraphAddPipeline:
             embedder=MockEmbedder(),
             extractor=MockExtractor(),
         )
+
         with mock.patch.object(
-            graph, "_all_entities_by_label", new_callable=mock.AsyncMock
+            maintenance_module, "all_entities_by_label", new_callable=mock.AsyncMock
         ) as mock_all:
             mock_all.return_value = [e1, e2]
-            import agrag.ingestion.graph as gmod  # noqa: PLC0415
 
             with mock.patch(
                 "agrag.ingestion.resolve.resolution.Resolver"
@@ -2089,12 +2085,12 @@ class TestGraphAddPipeline:
                 mock_resolver.return_value = mock_instance
                 with (
                     mock.patch.object(
-                        gmod,
+                        maintenance_module,
                         "write_matches_and_rebuild",
                         new_callable=mock.AsyncMock,
                     ) as rebuild,
                     mock.patch.object(
-                        gmod,
+                        maintenance_module,
                         "_synchronize_resolved_entity_vectors",
                         new_callable=mock.AsyncMock,
                     ) as synchronize,
@@ -2153,7 +2149,7 @@ class TestGraphAddPipeline:
 
         with (
             mock.patch.object(
-                graph, "_all_entities_by_label", new_callable=mock.AsyncMock
+                maintenance_module, "all_entities_by_label", new_callable=mock.AsyncMock
             ) as mock_all,
             mock.patch("agrag.ingestion.resolve.resolution.Resolver") as mock_resolver,
         ):
@@ -2195,11 +2191,11 @@ class TestGraphAddPipeline:
             embedder=MockEmbedder(),
             extractor=MockExtractor(),
         )
+
         with mock.patch.object(
-            graph, "_all_entities_by_label", new_callable=mock.AsyncMock
+            maintenance_module, "all_entities_by_label", new_callable=mock.AsyncMock
         ) as mock_all:
             mock_all.return_value = [e1, e2]
-            import agrag.ingestion.graph as gmod  # noqa: PLC0415
 
             with mock.patch(
                 "agrag.ingestion.resolve.resolution.Resolver"
@@ -2223,7 +2219,7 @@ class TestGraphAddPipeline:
                 )
                 mock_resolver.return_value = mock_instance
                 with mock.patch.object(
-                    gmod,
+                    maintenance_module,
                     "write_matches_and_rebuild",
                     new_callable=mock.AsyncMock,
                     side_effect=RuntimeError("database unavailable"),

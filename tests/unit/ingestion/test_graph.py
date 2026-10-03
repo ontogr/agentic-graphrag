@@ -31,6 +31,7 @@ from opentelemetry.trace import Tracer
 import agrag.ingestion._cutover as cutover_module
 import agrag.ingestion._ingest as ingest_module
 import agrag.ingestion._job_cleanup as job_cleanup_module
+import agrag.ingestion._resolution_maintenance as maintenance_module
 from agrag.chunking import (
     DEFAULT_CHUNKING,
     Chunking,
@@ -633,8 +634,8 @@ class TestConsolidateResolutionContext:
 
         with (
             mock.patch.object(
-                graph,
-                "_all_entities_by_label",
+                maintenance_module,
+                "all_entities_by_label",
                 new_callable=AsyncMock,
                 return_value=[first, second],
             ),
