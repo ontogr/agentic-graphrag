@@ -684,10 +684,7 @@ async def apply_merge(
             concurrent writer accepted that name as an alias of, or
             created it as the canonical name of, a different entity.
     """
-    from agrag.common.data_models.graph_record import (  # noqa: PLC0415
-        NodeRecord,
-        tag_pending,
-    )
+    from agrag.common.data_models.graph_record import NodeRecord  # noqa: PLC0415
     from agrag.cypher.entities import (  # noqa: PLC0415
         upsert_merge_alias_query,
         upsert_survivor_query,
@@ -709,12 +706,10 @@ async def apply_merge(
         survivor_properties.pop("source_chunk_ids", None)
         survivor_properties.pop("merge_count", None)
         params = node_params(
-            tag_pending(
-                NodeRecord(
-                    id=record.id, labels=record.labels, properties=survivor_properties
-                ),
-                pending_job_id,
-            )
+            NodeRecord(
+                id=record.id, labels=record.labels, properties=survivor_properties
+            ),
+            pending_job_id=UUID(pending_job_id) if pending_job_id else None,
         )
         params["new_source_chunk_ids"] = [str(cid) for cid in plan.new_source_chunk_ids]
         params["merge_count_delta"] = plan.merge_count_delta

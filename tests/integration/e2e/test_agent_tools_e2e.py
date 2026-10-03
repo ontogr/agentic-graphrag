@@ -599,14 +599,23 @@ async def test_agent_tools_over_seeded_graph(  # noqa: PLR0915
                 {"query": "a question"}
             )
 
-    read_orgs = await ask(f"MATCH (n:{org}) RETURN n")
+    read_orgs = await ask(f"MATCH (n:{org}) WHERE n._pending_job_id IS NULL RETURN n")
     assert sorted(names(read_orgs)) == ["Acme", "Globex", "Zeta"]
-    fenced = await ask(f"```cypher\nMATCH (n:{org}) RETURN n\n```")
+    fenced = await ask(
+        f"```cypher\nMATCH (n:{org}) WHERE n._pending_job_id IS NULL RETURN n\n```"
+    )
     assert sorted(names(fenced)) == ["Acme", "Globex", "Zeta"]
-    recovered = await ask([f"MATCH (n:{org} RETURN n", f"MATCH (n:{org}) RETURN n"])
+    recovered = await ask(
+        [
+            f"MATCH (n:{org} WHERE n._pending_job_id IS NULL RETURN n",
+            f"MATCH (n:{org}) WHERE n._pending_job_id IS NULL RETURN n",
+        ]
+    )
     assert sorted(names(recovered)) == ["Acme", "Globex", "Zeta"]
     founders = await ask(
-        f"MATCH (a:{person})-[:FOUNDED]->(b:{org}) "
+        f"MATCH (a:{person})-[r:FOUNDED]->(b:{org}) "
+        "WHERE a._pending_job_id IS NULL AND r._pending_job_id IS NULL "
+        "AND b._pending_job_id IS NULL "
         "RETURN a.name AS founder, b.name AS company ORDER BY founder"
     )
     founder_rows = [
@@ -617,25 +626,31 @@ async def test_agent_tools_over_seeded_graph(  # noqa: PLR0915
         {"founder": "Zed", "company": "Zeta"},
     ]
     commented = await ask(
-        f"MATCH (n:{org}) /* CREATE */ WHERE n.name <> 'it\\'s DELETE' "
-        "RETURN n // MERGE"
+        f"MATCH (n:{org}) /* CREATE */ WHERE n._pending_job_id IS NULL "
+        "AND n.name <> 'it\\'s DELETE' RETURN n // MERGE"
     )
     assert sorted(names(commented)) == ["Acme", "Globex", "Zeta"]
     quoted_keyword = await ask(
-        f"MATCH (n:{org}) WHERE n.name = 'CREATE or DELETE' RETURN n"
+        f"MATCH (n:{org}) WHERE n._pending_job_id IS NULL "
+        "AND n.name = 'CREATE or DELETE' RETURN n"
     )
     assert quoted_keyword == "No results found."
     capped = await ask(
-        f"MATCH (n:{org}) RETURN n.name AS name",
+        f"MATCH (n:{org}) WHERE n._pending_job_id IS NULL RETURN n.name AS name",
         _engine(env, text2cypher_max_rows=2),
     )
     assert len(re.findall(r"Value: ", capped)) == 2
-    uncapped = await ask(f"MATCH (n:{org}) RETURN n.name AS name")
+    uncapped = await ask(
+        f"MATCH (n:{org}) WHERE n._pending_job_id IS NULL RETURN n.name AS name"
+    )
     assert len(re.findall(r"Value: ", uncapped)) == 3
 
     counts: dict[str, int] = {}
     for kind in ("person", "org", "place"):
-        rendered = await ask(f"MATCH (n:{labels[kind]}) RETURN count(n) AS total")
+        rendered = await ask(
+            f"MATCH (n:{labels[kind]}) WHERE n._pending_job_id IS NULL "
+            "RETURN count(n) AS total"
+        )
         counts[kind] = ast.literal_eval(re.findall(r"Value: (\{.*\})", rendered)[0])[
             "total"
         ]
@@ -678,7 +693,9 @@ async def test_agent_tools_over_seeded_graph(  # noqa: PLR0915
         outcome = await ask(cypher)
         assert outcome == "No results found.", name
         refusals[name] = "refused"
-    unknown_label = await ask(f"MATCH (n:Ghost_{injected}) RETURN n")
+    unknown_label = await ask(
+        f"MATCH (n:Ghost_{injected}) WHERE n._pending_job_id IS NULL RETURN n"
+    )
     assert unknown_label == "No results found."
 
     after = await _snapshot(store, env["all_labels"], env["document_ids"])

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
@@ -26,9 +26,12 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
+from opentelemetry.trace import Tracer
 
 import agrag.ingestion._cutover as cutover_module
-import agrag.ingestion.graph as graph_module
+import agrag.ingestion._ingest as ingest_module
+import agrag.ingestion._job_cleanup as job_cleanup_module
+import agrag.ingestion._resolution_maintenance as maintenance_module
 from agrag.chunking import (
     DEFAULT_CHUNKING,
     Chunking,
@@ -70,12 +73,13 @@ from agrag.ingestion._ingest_pipeline import (
     _embed_and_upsert_survivors,
     _vector_record,
 )
+from agrag.ingestion._walk import chunk_documents
 from agrag.ingestion.extract import Extractor
-from agrag.ingestion.graph import SYSTEM_RELATION_TYPES
-from agrag.ingestion.resolve import ResolutionResult
+from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES, ResolutionResult
 from agrag.loaders.corpus.errors import UnsupportedFormatError
 from agrag.loaders.corpus.readers.prose import TextLoader
 from agrag.loaders.corpus.types import ErrorPolicy, ReadOptions
+from agrag.observability import get_tracer
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
@@ -92,12 +96,16 @@ class _DoclingItem:
     text = "chunk"
 
 
-def _chunk_docling(graph: Graph, document: Document) -> list[Chunk]:
+def _chunk_docling(
+    graph: Graph, document: Document, tracer: Tracer | None = None
+) -> list[Chunk]:
     """Chunk a docling document with docling's chunker replaced by one chunk."""
     docling_chunking = importlib.import_module("docling.chunking")
     with patch.object(docling_chunking, "HybridChunker") as hybrid:
         hybrid.return_value.chunk.return_value = [_DoclingItem()]
-        chunks, _ = graph._chunk_documents([document])
+        chunks, _ = chunk_documents(
+            [document], chunking=graph.chunking, tracer=get_tracer(tracer)
+        )
     return chunks
 
 
@@ -154,12 +162,21 @@ class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
         return None
 
     async def upsert_nodes(
-        self, label: str, nodes: Sequence[NodeRecord], *, batch_size: int = 256
+        self,
+        label: str,
+        nodes: Sequence[NodeRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         return UpsertResult(written=len(nodes))
 
     async def upsert_relations(
-        self, relations: Sequence[RelationRecord], *, batch_size: int = 256
+        self,
+        relations: Sequence[RelationRecord],
+        *,
+        batch_size: int = 256,
+        pending_job_id: UUID | None = None,
     ) -> UpsertResult:
         return UpsertResult(written=len(relations))
 
@@ -299,15 +316,15 @@ class TestGraphAdd:
         member = Entity(
             id=uuid4(), label="Person", name="Alice", properties={}, source_chunk_ids=[]
         )
-        real_ingest = graph_module.ingest_chunks
+        real_ingest = ingest_module.ingest_chunks
 
         async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
             kwargs["rebuilt_components"].append(([], [member]))
             return await real_ingest(*args, **kwargs)
 
-        monkeypatch.setattr(graph_module, "ingest_chunks", _ingest_with_component)
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _ingest_with_component)
         monkeypatch.setattr(
-            graph_module,
+            job_cleanup_module,
             "rebuild_resolved_entities",
             AsyncMock(side_effect=RuntimeError("database unavailable")),
         )
@@ -339,15 +356,15 @@ class TestGraphAdd:
             Entity(id=entity_id, label="Person", name=str(entity_id))
             for entity_id in (high, low)
         ]
-        real_ingest = graph_module.ingest_chunks
+        real_ingest = ingest_module.ingest_chunks
 
         async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
             kwargs["rebuilt_components"].append(([], members))
             return await real_ingest(*args, **kwargs)
 
         rebuild = AsyncMock(return_value=[])
-        monkeypatch.setattr(graph_module, "ingest_chunks", _ingest_with_component)
-        monkeypatch.setattr(graph_module, "rebuild_resolved_entities", rebuild)
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _ingest_with_component)
+        monkeypatch.setattr(job_cleanup_module, "rebuild_resolved_entities", rebuild)
 
         if verb == "add":
             await graph.add(text="a short note")
@@ -402,7 +419,7 @@ class TestGraphAdd:
             return await real_close(*args, **kwargs)
 
         monkeypatch.setattr(cutover_module, "close_open_part_of_edges", _spy_close)
-        real_ingest = graph_module.ingest_chunks
+        real_ingest = ingest_module.ingest_chunks
         ingest_calls = 0
 
         async def _count_ingest(*args: object, **kwargs: object) -> object:
@@ -410,7 +427,7 @@ class TestGraphAdd:
             ingest_calls += 1
             return await real_ingest(*args, **kwargs)
 
-        monkeypatch.setattr(graph_module, "ingest_chunks", _count_ingest)
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _count_ingest)
 
         result = await graph.update("memory://doc", text="brand new")
 
@@ -617,16 +634,18 @@ class TestConsolidateResolutionContext:
 
         with (
             mock.patch.object(
-                graph,
-                "_all_entities_by_label",
+                maintenance_module,
+                "all_entities_by_label",
                 new_callable=AsyncMock,
                 return_value=[first, second],
             ),
             mock.patch(
-                "agrag.ingestion.graph.Resolver", return_value=resolver_instance
+                "agrag.ingestion.resolve.resolution.Resolver",
+                return_value=resolver_instance,
             ),
             mock.patch(
-                "agrag.ingestion.graph.fetch_persisted_neighbors", fetch_neighbors
+                "agrag.ingestion.resolve.resolution.fetch_persisted_neighbors",
+                fetch_neighbors,
             ),
         ):
             await graph.consolidate(apply=False)
@@ -724,7 +743,6 @@ class TestGraphVectorStore:
             "label": "Community",
             "text": "Report",
             "tenant": "a",
-            "_pending": False,
         }
 
     async def test_vector_upsert_failures_leave_chunk_and_entity_vectors(self) -> None:
@@ -938,7 +956,9 @@ class TestChunkDocumentSpans:
             tracer=provider.get_tracer("test"),
         )
         document = self._document()
-        chunks, matches = graph._chunk_documents([document])
+        chunks, matches = chunk_documents(
+            [document], chunking=graph.chunking, tracer=provider.get_tracer("test")
+        )
         assert chunks
         assert [m.strategy for m in matches] == ["recursive"]
         spans = [
@@ -985,7 +1005,7 @@ class TestChunkDocumentSpans:
             line_count=1,
             metadata={"_docling_document": object()},
         )
-        chunks = _chunk_docling(graph, document)
+        chunks = _chunk_docling(graph, document, provider.get_tracer("test"))
         assert chunks
         spans = [
             span

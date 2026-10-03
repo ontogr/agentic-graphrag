@@ -118,6 +118,9 @@ class TestSearchTracingEndToEnd:
         await self.store.connect()
         self.label = validate_identifier(f"Person_{uuid4().hex[:8]}")
         self.chunk_ids: list[UUID] = []
+        # Every seeded node carries this id so a search can be scoped to this
+        # test; chunks share one label with tests running in parallel.
+        self.document_id = uuid4()
         self.embedder = _OrthogonalEmbedder()
         self.settings = RetrievalSettings(entity_top_k=10, chunk_top_k=10)
         self.schema = GraphSchema(
@@ -158,6 +161,7 @@ class TestSearchTracingEndToEnd:
                     labels=[self.label],
                     properties={
                         "name": entity.name,
+                        "document_id": str(self.document_id),
                         "merge_key": entity.merge_key,
                         "merge_count": 1,
                         "source_chunk_ids": [],
@@ -184,7 +188,7 @@ class TestSearchTracingEndToEnd:
         chunks: list[Chunk] = []
         for text in texts:
             chunk = Chunk(
-                document_id=uuid4(),
+                document_id=self.document_id,
                 index=0,
                 text=text,
                 provenance=TextProvenance(char_start=0, char_end=len(text)),
@@ -460,16 +464,20 @@ class TestSearchTracingEndToEnd:
         )
         await self._seed_entities(["Alice"])
         await self._seed_chunks(["Alice works at Acme Corp"])
+        scope = SearchFilters(document_ids=[str(self.document_id)])
         self.exporter.clear()
         try:
-            untraced_results = await untraced_engine.search("Alice", HYBRID)
+            untraced_results = await untraced_engine.search(
+                "Alice", HYBRID, filters=scope
+            )
         finally:
             await untraced_store.close()
         assert self.exporter.get_finished_spans() == ()
         self.exporter.clear()
 
-        traced_results = await self.engine.search("Alice", HYBRID)
+        traced_results = await self.engine.search("Alice", HYBRID, filters=scope)
 
+        assert untraced_results
         assert [str(r.item.id) for r in untraced_results] == [
             str(r.item.id) for r in traced_results
         ]

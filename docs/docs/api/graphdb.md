@@ -236,7 +236,7 @@ or none do, such as `apply_merge`'s survivor upsert and alias claim.
 #### `agrag.graphdb.GraphStore.upsert_nodes` \{#agrag-graphdb-GraphStore-upsert_nodes}
 
 ```python
-upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> UpsertResult
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
 ```
 
 Write or merge nodes, honoring each record's full label set.
@@ -251,6 +251,11 @@ Write or merge nodes, honoring each record's full label set.
 - **batch_size** (<code>int</code>) – Records per backend write call, applied within each
   distinct label set when `nodes` mixes more than one. Must
   be positive.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job's id. The store tags
+  each node it creates, so retrieval skips it until the job
+  commits. A node that already exists keeps its current pending
+  state: a node tagged by another in-flight job stays tagged,
+  and None does not commit it. None writes committed data.
 
 **Returns:**
 
@@ -263,7 +268,7 @@ Write or merge nodes, honoring each record's full label set.
 #### `agrag.graphdb.GraphStore.upsert_relations` \{#agrag-graphdb-GraphStore-upsert_relations}
 
 ```python
-upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> UpsertResult
+upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
 ```
 
 Write or merge relationships between existing nodes.
@@ -272,6 +277,12 @@ Write or merge relationships between existing nodes.
 
 - **relations** (<code>Sequence\[[RelationRecord](common.md#agrag-common-data_models-graph_record-RelationRecord)\]</code>) – The relation records to upsert.
 - **batch_size** (<code>int</code>) – Records per backend write call. Must be positive.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job's id. The store tags
+  each relationship it creates, so retrieval skips it until
+  the job commits. A relationship that already exists keeps its
+  current pending state: one tagged by another in-flight job
+  stays tagged, and None does not commit it. None writes
+  committed data.
 
 **Returns:**
 
@@ -559,7 +570,7 @@ check to avoid a nested write racing the transaction it belongs to.
 #### `agrag.graphdb.Neo4jGraphStore.upsert_nodes` \{#agrag-graphdb-Neo4jGraphStore-upsert_nodes}
 
 ```python
-upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> UpsertResult
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
 ```
 
 Write or merge nodes, honoring each record's full label set.
@@ -573,6 +584,10 @@ queries, since Cypher requires labels to be literal in the query text
 rather than a runtime parameter, so `batch_size` chunks apply within
 each group rather than across the whole call.
 
+`pending_job_id` tags only the nodes this call creates, through
+`ON CREATE SET`. A node that already exists keeps its state, so a
+job's rollback cannot delete data committed earlier.
+
 **Returns:**
 
 - <code>[UpsertResult](common.md#agrag-common-data_models-graph_record-UpsertResult)</code> – The number written and one failure entry for each isolated record.
@@ -584,14 +599,15 @@ each group rather than across the whole call.
 #### `agrag.graphdb.Neo4jGraphStore.upsert_relations` \{#agrag-graphdb-Neo4jGraphStore-upsert_relations}
 
 ```python
-upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> UpsertResult
+upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
 ```
 
 Write or merge relationships between existing nodes.
 
 Relationship identity is each record's `id`, not its endpoints: see
 `upsert_relation_query` for how endpoint changes and same-id
-parallel relationships are handled.
+parallel relationships are handled. `pending_job_id` tags only the
+relationships this call creates.
 
 **Returns:**
 
@@ -899,7 +915,7 @@ or none do, such as `apply_merge`'s survivor upsert and alias claim.
 ##### `agrag.graphdb.base.GraphStore.upsert_nodes` \{#agrag-graphdb-base-GraphStore-upsert_nodes}
 
 ```python
-upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> UpsertResult
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
 ```
 
 Write or merge nodes, honoring each record's full label set.
@@ -914,6 +930,11 @@ Write or merge nodes, honoring each record's full label set.
 - **batch_size** (<code>int</code>) – Records per backend write call, applied within each
   distinct label set when `nodes` mixes more than one. Must
   be positive.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job's id. The store tags
+  each node it creates, so retrieval skips it until the job
+  commits. A node that already exists keeps its current pending
+  state: a node tagged by another in-flight job stays tagged,
+  and None does not commit it. None writes committed data.
 
 **Returns:**
 
@@ -926,7 +947,7 @@ Write or merge nodes, honoring each record's full label set.
 ##### `agrag.graphdb.base.GraphStore.upsert_relations` \{#agrag-graphdb-base-GraphStore-upsert_relations}
 
 ```python
-upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> UpsertResult
+upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
 ```
 
 Write or merge relationships between existing nodes.
@@ -935,6 +956,12 @@ Write or merge relationships between existing nodes.
 
 - **relations** (<code>Sequence\[[RelationRecord](common.md#agrag-common-data_models-graph_record-RelationRecord)\]</code>) – The relation records to upsert.
 - **batch_size** (<code>int</code>) – Records per backend write call. Must be positive.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight Cutover Job's id. The store tags
+  each relationship it creates, so retrieval skips it until
+  the job commits. A relationship that already exists keeps its
+  current pending state: one tagged by another in-flight job
+  stays tagged, and None does not commit it. None writes
+  committed data.
 
 **Returns:**
 
@@ -1001,7 +1028,7 @@ Run a write inside the surrounding transaction.
 ##### `agrag.graphdb.base.GraphStoreTransaction.upsert_nodes` \{#agrag-graphdb-base-GraphStoreTransaction-upsert_nodes}
 
 ```python
-upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> UpsertResult | None
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult | None
 ```
 
 Write or merge nodes inside the surrounding transaction.
@@ -1009,7 +1036,7 @@ Write or merge nodes inside the surrounding transaction.
 ##### `agrag.graphdb.base.GraphStoreTransaction.upsert_relations` \{#agrag-graphdb-base-GraphStoreTransaction-upsert_relations}
 
 ```python
-upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> UpsertResult | None
+upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult | None
 ```
 
 Write or merge relationships inside the surrounding transaction.
@@ -1398,7 +1425,7 @@ check to avoid a nested write racing the transaction it belongs to.
 ##### `agrag.graphdb.neo4j.Neo4jGraphStore.upsert_nodes` \{#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_nodes}
 
 ```python
-upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256) -> UpsertResult
+upsert_nodes(label:str, nodes:Sequence[NodeRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
 ```
 
 Write or merge nodes, honoring each record's full label set.
@@ -1412,6 +1439,10 @@ queries, since Cypher requires labels to be literal in the query text
 rather than a runtime parameter, so `batch_size` chunks apply within
 each group rather than across the whole call.
 
+`pending_job_id` tags only the nodes this call creates, through
+`ON CREATE SET`. A node that already exists keeps its state, so a
+job's rollback cannot delete data committed earlier.
+
 **Returns:**
 
 - <code>[UpsertResult](common.md#agrag-common-data_models-graph_record-UpsertResult)</code> – The number written and one failure entry for each isolated record.
@@ -1423,14 +1454,15 @@ each group rather than across the whole call.
 ##### `agrag.graphdb.neo4j.Neo4jGraphStore.upsert_relations` \{#agrag-graphdb-neo4j-Neo4jGraphStore-upsert_relations}
 
 ```python
-upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256) -> UpsertResult
+upsert_relations(relations:Sequence[RelationRecord], *, batch_size:int = 256, pending_job_id:UUID | None = None) -> UpsertResult
 ```
 
 Write or merge relationships between existing nodes.
 
 Relationship identity is each record's `id`, not its endpoints: see
 `upsert_relation_query` for how endpoint changes and same-id
-parallel relationships are handled.
+parallel relationships are handled. `pending_job_id` tags only the
+relationships this call creates.
 
 **Returns:**
 
@@ -1478,27 +1510,28 @@ Convert graph records to driver parameters and graph node rows to models.
 #### `agrag.graphdb.serialize.node_params` \{#agrag-graphdb-serialize-node_params}
 
 ```python
-node_params(record:NodeRecord) -> dict[str, Any]
+node_params(record:NodeRecord, *, pending_job_id:UUID | None = None) -> dict[str, Any]
 ```
 
 Build the `$records` entry for a node upsert.
 
-The Cutover Job tag is split out of `properties` into its own key
+The Cutover Job tag travels in its own key, not inside `properties`,
 because the upsert queries apply it with `ON CREATE SET`: a job tags
 the nodes it creates, never a node it writes over. Left inside the
 applied property map it would be set on existing nodes too, which
 would hide a committed node from retrieval for the job's duration and
-put it in reach of the job's rollback — and rollback deletes tagged
+put it in reach of the job's rollback, and rollback deletes tagged
 rows.
 
 **Parameters:**
 
 - **record** (<code>[NodeRecord](common.md#agrag-common-data_models-graph_record-NodeRecord)</code>) – The node record to serialize.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight job's id, or None outside a job.
 
 **Returns:**
 
-- <code>dict\[str, Any\]</code> – A dict with `id` (string), `properties` (converted, without
-- <code>dict\[str, Any\]</code> – the pending tag), and `pending_job_id` (the tag, or None).
+- <code>dict\[str, Any\]</code> – A dict with `id` (string), `properties` (converted), and
+- <code>dict\[str, Any\]</code> – `pending_job_id` (the tag as a string, or None).
 
 #### `agrag.graphdb.serialize.parse_entity_node` \{#agrag-graphdb-serialize-parse_entity_node}
 
@@ -1523,23 +1556,23 @@ Neo4j rows carry no labels, so the label is the prefix of the node's
 #### `agrag.graphdb.serialize.relation_params` \{#agrag-graphdb-serialize-relation_params}
 
 ```python
-relation_params(record:RelationRecord) -> dict[str, Any]
+relation_params(record:RelationRecord, *, pending_job_id:UUID | None = None) -> dict[str, Any]
 ```
 
 Build the `$records` entry for a relationship upsert.
 
-The Cutover Job tag is split out of `properties` for the same reason
-as in :func:`node_params`: only an edge the job creates carries it.
+The Cutover Job tag travels in its own key for the same reason as in
+:func:`node_params`: only an edge the job creates carries it.
 
 **Parameters:**
 
 - **record** (<code>[RelationRecord](common.md#agrag-common-data_models-graph_record-RelationRecord)</code>) – The relation record to serialize.
+- **pending_job_id** (<code>UUID | None</code>) – The in-flight job's id, or None outside a job.
 
 **Returns:**
 
 - <code>dict\[str, Any\]</code> – A dict with `id`, `start_id`, `end_id`, `properties`
-- <code>dict\[str, Any\]</code> – (converted, without the pending tag), and `pending_job_id` (the
-- <code>dict\[str, Any\]</code> – tag, or None).
+- <code>dict\[str, Any\]</code> – (converted), and `pending_job_id` (the tag as a string, or None).
 
 ### `agrag.graphdb.settings` \{#agrag-graphdb-settings}
 

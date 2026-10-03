@@ -191,7 +191,7 @@ class TestText2CypherIntegration:
         """A generated query runs on Neo4j and its rows become entities."""
         results, contexts = await self._retrieve_with_stubbed_generation(
             "Who is in the graph?",
-            f"MATCH (n:{self.person_label}) RETURN n",
+            f"MATCH (n:{self.person_label}) WHERE n._pending_job_id IS NULL RETURN n",
         )
 
         assert contexts == [None]
@@ -203,7 +203,7 @@ class TestText2CypherIntegration:
         """A query naming its returned node freely still yields entities."""
         results, contexts = await self._retrieve_with_stubbed_generation(
             "Who is in the graph?",
-            f"MATCH (p:{self.person_label}) RETURN p",
+            f"MATCH (p:{self.person_label}) WHERE p._pending_job_id IS NULL RETURN p",
         )
 
         assert contexts == [None]
@@ -214,7 +214,7 @@ class TestText2CypherIntegration:
         results, contexts = await self._retrieve_with_stubbed_generation(
             "Who is in the graph?",
             "MATCH (n RETURN n",
-            f"MATCH (n:{self.person_label}) RETURN n",
+            f"MATCH (n:{self.person_label}) WHERE n._pending_job_id IS NULL RETURN n",
         )
 
         assert len(contexts) == 2
@@ -276,7 +276,10 @@ class TestText2CypherIntegration:
 
         async def generate(**kwargs: object) -> str:
             prompts.append(str(kwargs["schema_description"]))
-            return f"MATCH (n:{self.person_label}) RETURN n"
+            return (
+                f"MATCH (n:{self.person_label}) "
+                "WHERE n._pending_job_id IS NULL RETURN n"
+            )
 
         with patch(
             "agrag.llm.baml_client.b",

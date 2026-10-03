@@ -4,7 +4,7 @@ from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.community import COMMUNITY_LABEL, Community
 from agrag.common.data_models.search_result import SearchResult
-from agrag.cypher.entities import NODE_IDENTITY_LABEL
+from agrag.cypher.community_read import hydrate_communities_by_id_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.observability import get_tracer
@@ -104,10 +104,7 @@ class CommunityRetriever(Retriever):
                 attributes={"agrag.requested_count": len(hits)},
             ) as load:
                 rows = await self._graph_store.execute_read(
-                    f"UNWIND $ids AS id MATCH (n:{NODE_IDENTITY_LABEL}:"
-                    f"{COMMUNITY_LABEL} {{id: id}}) "
-                    "WHERE n._pending_job_id IS NULL RETURN n",
-                    {"ids": ids},
+                    hydrate_communities_by_id_query(), {"ids": ids}
                 )
                 by_id: dict[str, Community] = {}
                 for row in rows:

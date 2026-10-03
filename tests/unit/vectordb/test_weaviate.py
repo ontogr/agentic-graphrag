@@ -291,7 +291,7 @@ class TestWritesAndReads:
     async def test_scroll_returns_records_and_offset(
         self, store: WeaviateVectorStore, client
     ) -> None:
-        """Scroll returns the page and the next cursor."""
+        """Scroll returns the page and the next numeric offset."""
         obj_id = str(uuid4())
         obj = make_object(obj_id, {"text": "a"}, vector=[0.1])
         client._collection.query.fetch_objects.return_value = make_response([obj])
@@ -299,7 +299,7 @@ class TestWritesAndReads:
         assert len(records) == 1
         assert records[0].id == UUID(obj_id)
         assert records[0].vector == [0.1]
-        assert offset == obj_id
+        assert offset == "1"
 
     async def test_scroll_zero_limit_returns_empty_page(
         self, store: WeaviateVectorStore, client
@@ -651,7 +651,7 @@ class TestTracingDirectCalls:
         )
         records, next_offset = await store.scroll("c", limit=1)
         assert len(records) == 1
-        assert next_offset == obj_id
+        assert next_offset == "1"
         (span,) = [
             s
             for s in exporter.get_finished_spans()

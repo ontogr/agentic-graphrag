@@ -38,11 +38,14 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.common.data_models.relation import Relation
 from agrag.cypher.entities import load_entities_by_id_query
-from agrag.cypher.safety import UnsafeCypherError
+from agrag.cypher.safety import MissingPendingGuardError, UnsafeCypherError
 from agrag.retrieval.retrievers.text2cypher import (
     Text2CypherRetriever,
     _format_retry_diagnostic,
 )
+
+
+GUARDED = "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n"
 
 
 class TestText2CypherRetriever:
@@ -95,9 +98,7 @@ class TestText2CypherRetriever:
         gs.execute_read.return_value = []
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
 
-        with patch.object(
-            retriever, "_generate_cypher", return_value="MATCH (n:Person) RETURN n"
-        ):
+        with patch.object(retriever, "_generate_cypher", return_value=GUARDED):
             results = await retriever.retrieve("who is Alice?")
 
         assert results == []
@@ -107,7 +108,7 @@ class TestText2CypherRetriever:
         gs = AsyncMock()
         gs.execute_read.side_effect = ConnectionError("database down")
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-        generate = AsyncMock(return_value="MATCH (n:Person) RETURN n")
+        generate = AsyncMock(return_value=GUARDED)
 
         with (
             patch(
@@ -125,7 +126,7 @@ class TestText2CypherRetriever:
         gs = AsyncMock()
         gs.execute_read.side_effect = Exception("plan failed")
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-        generate = AsyncMock(return_value="MATCH (n:Person) RETURN n")
+        generate = AsyncMock(return_value=GUARDED)
 
         with (
             patch(
@@ -151,7 +152,11 @@ class TestText2CypherBounds:
         with patch.object(
             retriever,
             "_generate_cypher",
-            return_value="MATCH (n:Person) RETURN count(n) AS count",
+            return_value=(
+                "MATCH (n:Person) "
+                "WHERE n._pending_job_id IS NULL "
+                "RETURN count(n) AS count"
+            ),
         ):
             results = await retriever.retrieve("how many people?")
 
@@ -179,12 +184,17 @@ class TestText2CypherBounds:
         with patch.object(
             retriever,
             "_generate_cypher",
-            return_value="MATCH (n:Person) RETURN n LIMIT 5",
+            return_value=(
+                "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n LIMIT 5"
+            ),
         ):
             await retriever.retrieve("who is Alice?")
 
         executed = gs.execute_read.await_args_list[-1].args[0]
-        assert executed == "MATCH (n:Person) RETURN n LIMIT 5"
+        assert (
+            executed
+            == "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n LIMIT 5"
+        )
 
     async def test_limit_inside_string_literal_does_not_suppress_bound(self) -> None:
         """A quoted LIMIT in a predicate does not count as a row bound."""
@@ -195,7 +205,11 @@ class TestText2CypherBounds:
         with patch.object(
             retriever,
             "_generate_cypher",
-            return_value="MATCH (n:Person) WHERE n.name = 'LIMIT 5' RETURN n",
+            return_value=(
+                "MATCH (n:Person) "
+                "WHERE n.name = 'LIMIT 5' AND n._pending_job_id IS NULL "
+                "RETURN n"
+            ),
         ):
             await retriever.retrieve("who is Alice?")
 
@@ -230,7 +244,9 @@ class TestText2CypherRowShapes:
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
 
         with patch.object(
-            retriever, "_generate_cypher", return_value="MATCH (n:Person) RETURN n"
+            retriever,
+            "_generate_cypher",
+            return_value="MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n",
         ):
             results = await retriever.retrieve("who is Alice?")
 
@@ -254,7 +270,9 @@ class TestText2CypherRowShapes:
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
 
         with patch.object(
-            retriever, "_generate_cypher", return_value="MATCH (n:Person) RETURN n"
+            retriever,
+            "_generate_cypher",
+            return_value="MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n",
         ):
             results = await retriever.retrieve("who is Ghost?")
 
@@ -291,7 +309,11 @@ class TestText2CypherRowShapes:
 
         with (
             patch.object(
-                retriever, "_generate_cypher", return_value="MATCH (n:Person) RETURN n"
+                retriever,
+                "_generate_cypher",
+                return_value=(
+                    "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n"
+                ),
             ),
             pytest.raises(RuntimeError, match="loading failed"),
         ):
@@ -316,7 +338,12 @@ class TestText2CypherRowShapes:
         with patch.object(
             retriever,
             "_generate_cypher",
-            return_value="MATCH ()-[r:KNOWS]->() RETURN r",
+            return_value=(
+                "MATCH (a)-[r:KNOWS]->(b) "
+                "WHERE a._pending_job_id IS NULL AND b._pending_job_id IS NULL "
+                "AND r._pending_job_id IS NULL "
+                "RETURN r"
+            ),
         ):
             results = await retriever.retrieve("who knows who?")
 
@@ -352,7 +379,9 @@ class TestText2CypherRowShapes:
         with patch.object(
             retriever,
             "_generate_cypher",
-            return_value="MATCH (c:Chunk) RETURN c LIMIT 5",
+            return_value=(
+                "MATCH (c:Chunk) WHERE c._pending_job_id IS NULL RETURN c LIMIT 5"
+            ),
         ):
             results = await retriever.retrieve("hello world")
 
@@ -379,7 +408,12 @@ class TestText2CypherRowShapes:
         with patch.object(
             retriever,
             "_generate_cypher",
-            return_value="MATCH ()-[r]->() RETURN r",
+            return_value=(
+                "MATCH (a)-[r]->(b) "
+                "WHERE a._pending_job_id IS NULL AND b._pending_job_id IS NULL "
+                "AND r._pending_job_id IS NULL "
+                "RETURN r"
+            ),
         ):
             results = await retriever.retrieve("edges")
 
@@ -416,7 +450,12 @@ class TestText2CypherRowAliases:
         with patch.object(
             retriever,
             "_generate_cypher",
-            return_value="MATCH ()-[edge]->() RETURN edge",
+            return_value=(
+                "MATCH (a)-[edge]->(b) "
+                "WHERE a._pending_job_id IS NULL AND b._pending_job_id IS NULL "
+                "AND edge._pending_job_id IS NULL "
+                "RETURN edge"
+            ),
         ):
             results = await retriever.retrieve("who knows who?")
 
@@ -449,7 +488,9 @@ class TestText2CypherRowAliases:
         with patch.object(
             retriever,
             "_generate_cypher",
-            return_value="MATCH (passage) RETURN passage",
+            return_value=(
+                "MATCH (passage) WHERE passage._pending_job_id IS NULL RETURN passage"
+            ),
         ):
             results = await retriever.retrieve("hello")
 
@@ -464,7 +505,9 @@ class TestText2CypherRowAliases:
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
 
         with patch.object(
-            retriever, "_generate_cypher", return_value="MATCH (n) RETURN count(n)"
+            retriever,
+            "_generate_cypher",
+            return_value="MATCH (n) WHERE n._pending_job_id IS NULL RETURN count(n)",
         ):
             results = await retriever.retrieve("how many?")
 
@@ -479,7 +522,13 @@ class TestText2CypherRetry:
         gs = AsyncMock()
         gs.execute_read.return_value = []
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-        generate = AsyncMock(return_value="```cypher\nMATCH (n:Person) RETURN n\n```")
+        generate = AsyncMock(
+            return_value=(
+                "```cypher\nMATCH (n:Person) "
+                "WHERE n._pending_job_id IS NULL "
+                "RETURN n\n```"
+            )
+        )
 
         with patch(
             "agrag.llm.baml_client.b",
@@ -489,7 +538,10 @@ class TestText2CypherRetry:
 
         assert generate.await_count == 1
         executed = gs.execute_read.await_args_list[-1].args[0]
-        assert executed == "MATCH (n:Person) RETURN n LIMIT 1000"
+        assert (
+            executed
+            == "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n LIMIT 1000"
+        )
 
     async def test_retries_once_on_explain_failure_with_sanitized_diagnostic(
         self,
@@ -508,7 +560,9 @@ class TestText2CypherRetry:
             [],
         ]
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-        generate = AsyncMock(return_value="MATCH (n:Person) RETURN n")
+        generate = AsyncMock(
+            return_value="MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n"
+        )
 
         with patch(
             "agrag.llm.baml_client.b",
@@ -540,7 +594,9 @@ class TestText2CypherRetry:
             [],
         ]
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
-        generate = AsyncMock(return_value="MATCH (n:Person) RETURN n")
+        generate = AsyncMock(
+            return_value="MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n"
+        )
 
         with patch(
             "agrag.llm.baml_client.b",
@@ -555,13 +611,57 @@ class TestText2CypherRetry:
             "transaction timed out"
         )
 
+    async def test_query_without_a_pending_guard_is_regenerated(self) -> None:
+        """A query that can return pending rows never runs; the repair does."""
+        gs = AsyncMock()
+        gs.execute_read.return_value = []
+        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        generate = AsyncMock(
+            side_effect=[
+                "MATCH (n:Person) RETURN n",
+                "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n",
+            ]
+        )
+
+        with patch(
+            "agrag.llm.baml_client.b",
+            types.SimpleNamespace(GenerateCypherQuery=generate),
+        ):
+            await retriever.retrieve("who is Alice?")
+
+        assert generate.await_count == 2
+        diagnostic = generate.await_args_list[1].kwargs["failure_context"]
+        assert diagnostic.startswith("MissingPendingGuardError")
+        executed = [call.args[0] for call in gs.execute_read.await_args_list]
+        assert all("_pending_job_id IS NULL" in query for query in executed)
+
+    async def test_query_that_never_gets_a_guard_raises(self) -> None:
+        """Two unguarded queries raise and run nothing."""
+        gs = AsyncMock()
+        retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
+        generate = AsyncMock(return_value="MATCH (n:Person) RETURN n")
+
+        with (
+            patch(
+                "agrag.llm.baml_client.b",
+                types.SimpleNamespace(GenerateCypherQuery=generate),
+            ),
+            pytest.raises(MissingPendingGuardError),
+        ):
+            await retriever.retrieve("who is Alice?")
+
+        gs.execute_read.assert_not_awaited()
+
     async def test_retry_rejected_by_write_gate_raises(self) -> None:
         """A regenerated write query raises and is not retried a third time."""
         gs = AsyncMock()
         gs.execute_read.side_effect = Exception("plan failed")
         retriever = Text2CypherRetriever(graph_store=gs, schema=GENERIC)
         generate = AsyncMock(
-            side_effect=["MATCH (n:Person) RETURN n", "MATCH (n) DELETE n"]
+            side_effect=[
+                "MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n",
+                "MATCH (n) DELETE n",
+            ]
         )
 
         with (
@@ -627,7 +727,9 @@ class TestText2CypherTracing:
         retriever = Text2CypherRetriever(
             graph_store=gs, schema=GENERIC, tracer=provider.get_tracer("test")
         )
-        generate = AsyncMock(return_value="MATCH (n:Person) RETURN n")
+        generate = AsyncMock(
+            return_value="MATCH (n:Person) WHERE n._pending_job_id IS NULL RETURN n"
+        )
 
         with patch(
             "agrag.llm.baml_client.b",
