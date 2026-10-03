@@ -3,7 +3,6 @@
 import asyncio
 import contextlib
 import functools
-import hashlib
 from collections.abc import Callable, Sequence
 from uuid import UUID
 
@@ -11,41 +10,37 @@ from opentelemetry.trace import Tracer
 
 import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
 from agrag.chunking import DEFAULT_CHUNKING, Chunking
-from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
+from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.community import COMMUNITY_LABEL
 from agrag.common.data_models.document import (
     DOCUMENT_LABEL,
     Document,
-    DocumentFamily,
-    SourceFormat,
 )
 from agrag.common.data_models.entity import Entity
-from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
     ResolvedEntity,
 )
-from agrag.common.data_models.stage_failure import StageFailure, cap_failures
+from agrag.common.data_models.stage_failure import StageFailure
 from agrag.common.text import normalize_text
 from agrag.cypher.entities import (
     fetch_all_by_label_query,
 )
-from agrag.cypher.relations import entities_in_documents_query
 from agrag.cypher.resolution_read import fetch_active_matches_among_ids_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
 from agrag.graphdb.entities import load_entities
 from agrag.graphdb.serialize import parse_entity_node
-from agrag.ingestion._cutover import run_cutover_job
-from agrag.ingestion._document_lifecycle import find_document
-from agrag.ingestion._ingest_pipeline import (
-    _delete_vectors,
-    extract_chunks,
-    ingest_chunks,
+from agrag.ingestion._ingest import (
+    CleanupStep,
+    add_documents,
+    delete_document,
+    update_document,
 )
+from agrag.ingestion._job_cleanup import finish_job
 from agrag.ingestion._resume import resume_incomplete_jobs
-from agrag.ingestion._walk import SourcesType, chunk_documents, iter_document_batches
+from agrag.ingestion._walk import SourcesType
 from agrag.ingestion.community import detect_communities
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.reports import (
@@ -68,272 +63,15 @@ from agrag.ingestion.resolved_entities import (
     deactivate_match_and_rebuild,
     match_decision_components,
     matches_id,
-    prune_orphaned_entities,
-    rebuild_resolved_entities,
     write_matches_and_rebuild,
 )
 from agrag.ingestion.settings import CutoverJobSettings
-from agrag.ingestion.stats import (
-    ChunkingMatch,
-    ChunkingStats,
-    ExtractionStats,
-    IngestStats,
-    MergeStats,
-    ResolutionStats,
-    StorageStats,
-)
 from agrag.loaders.corpus import registry as _corpus_registry
-from agrag.loaders.corpus._walk import normalize_inline_text
 from agrag.loaders.corpus.base import Loader
-from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions
+from agrag.loaders.corpus.types import ErrorPolicy, ReadOptions
 from agrag.observability import get_tracer, record_stage_failure
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
-
-
-async def _no_pending_write(job_id: UUID) -> None:
-    """Pending-write step for delete_document, which writes nothing new."""
-
-
-def _with_cleanup_failures(
-    result: AddResult, failures: list[StageFailure]
-) -> AddResult:
-    """Record post-commit rebuild failures in the storage stats.
-
-    Args:
-        result: The pending-write result of one document job.
-        failures: Failures the cleanup phase recorded under a non-RAISE policy.
-
-    Returns:
-        The result with ``failures`` appended under the per-stage cap, or the
-        same result when there are none.
-    """
-    if not failures:
-        return result
-    capped = cap_failures([*result.storage.failures, *failures])
-    storage = result.storage.model_copy(
-        update={
-            "failures": capped.items,
-            "failures_total": result.storage.failures_total + len(failures),
-            "failures_truncated": result.storage.failures_truncated or capped.truncated,
-        }
-    )
-    return result.model_copy(update={"storage": storage})
-
-
-def _group_by_document(
-    chunks: list[Chunk],
-    documents: list[Document],
-    entities: list[ExtractedEntity],
-    relations: list[ExtractedRelation],
-    extraction_failures: list[StageFailure],
-) -> list[
-    tuple[
-        str,
-        list[Chunk],
-        list[Document],
-        list[ExtractedEntity],
-        list[ExtractedRelation],
-        list[StageFailure],
-    ]
-]:
-    """Split one call's pipeline inputs into per-document slices.
-
-    Each slice carries one document's chunks, mentions, relations, and
-    extraction failures, so it can ingest as its own Cutover Job. Order
-    follows the documents' first occurrence. A chunk, mention, or failure
-    that maps to no listed document joins the first slice rather than
-    being dropped; with no documents at all but stray chunks, the first
-    chunk's document linkage keys the single slice.
-
-    Args:
-        chunks: The call's chunks, in document then chunk order.
-        documents: The call's documents, possibly repeating.
-        entities: Mentions addressing chunks by id.
-        relations: Relations whose indices address ``entities``. Each slice
-            rebases them to its own entity list; a relation whose endpoints
-            fall in different slices is dropped.
-        extraction_failures: Failures keyed by chunk id.
-
-    Returns:
-        One (document_key, chunks, documents, entities, relations,
-        failures) tuple per document.
-    """
-    ordered_keys: list[str] = []
-    for document in documents:
-        key = document.resolved_document_key
-        if key not in ordered_keys:
-            ordered_keys.append(key)
-    if not ordered_keys and chunks:
-        first_link = chunks[0].document_id
-        ordered_keys = [str(first_link)]
-    key_by_node_id = {
-        Document.node_id_for(document_key=key): key for key in ordered_keys
-    }
-    chunks_by_key: dict[str, list[Chunk]] = {key: [] for key in ordered_keys}
-    for chunk in chunks:
-        chunks_by_key.setdefault(
-            key_by_node_id.get(chunk.document_id, ordered_keys[0]), []
-        ).append(chunk)
-    chunk_ids_by_key = {
-        key: {chunk.id for chunk in group if chunk.id is not None}
-        for key, group in chunks_by_key.items()
-    }
-    key_by_chunk_id: dict[UUID, str] = {}
-    for key, chunk_ids in chunk_ids_by_key.items():
-        for chunk_id in chunk_ids:
-            key_by_chunk_id[chunk_id] = key
-    entities_by_key: dict[str, list[ExtractedEntity]] = {
-        key: [] for key in ordered_keys
-    }
-    slice_position: list[tuple[str, int]] = []
-    for entity in entities:
-        entity_key = key_by_chunk_id.get(entity.chunk_id, ordered_keys[0])
-        group = entities_by_key.setdefault(entity_key, [])
-        slice_position.append((entity_key, len(group)))
-        group.append(entity)
-    relations_by_key: dict[str, list[ExtractedRelation]] = {
-        key: [] for key in ordered_keys
-    }
-    for relation in relations:
-        source_key, source_index = slice_position[relation.source_index]
-        target_key, target_index = slice_position[relation.target_index]
-        if source_key != target_key:
-            continue
-        relations_by_key[source_key].append(
-            relation.model_copy(
-                update={"source_index": source_index, "target_index": target_index}
-            )
-        )
-    failures_by_key: dict[str, list[StageFailure]] = {key: [] for key in ordered_keys}
-    for failure in extraction_failures:
-        try:
-            failure_key = key_by_chunk_id.get(UUID(str(failure.item_id)))
-        except ValueError:
-            failure_key = None
-        failures_by_key.setdefault(failure_key or ordered_keys[0], []).append(failure)
-    documents_by_key: dict[str, list[Document]] = {key: [] for key in ordered_keys}
-    for document in documents:
-        documents_by_key[document.resolved_document_key].append(document)
-    return [
-        (
-            key,
-            chunks_by_key[key],
-            documents_by_key[key],
-            entities_by_key[key],
-            relations_by_key[key],
-            failures_by_key[key],
-        )
-        for key in ordered_keys
-    ]
-
-
-def _merge_add_results(
-    results: list[AddResult], *, ingestion: IngestStats, chunking: ChunkingStats
-) -> AddResult:
-    """Combine per-document job results into one call-level summary.
-
-    Each document in an add() call commits as its own Cutover Job; the
-    caller still gets a single AddResult shaped exactly like a one-job
-    call's. Counters sum, failure lists concatenate re-capped against the
-    per-stage cap with true totals preserved, and chunks concatenate in
-    job order. The call-level ingestion and chunking summaries passed in replace
-    the per-slice placeholders.
-
-    Args:
-        results: One AddResult per document job, in job order.
-        ingestion: The call-level ingestion summary from the walk.
-        chunking: The call-level chunking summary.
-
-    Returns:
-        The merged summary, or a zero-stage summary when no job ran.
-    """
-
-    def _combine(
-        item_lists: list[list[StageFailure]], totals: list[int], truncs: list[bool]
-    ) -> tuple[list[StageFailure], int, bool]:
-        combined = [failure for items in item_lists for failure in items]
-        capped = cap_failures(combined)
-        return capped.items, sum(totals), any(truncs) or capped.truncated
-
-    if not results:
-        return AddResult(
-            ingestion=ingestion,
-            chunking=chunking,
-            extraction=ExtractionStats(),
-            resolution=ResolutionStats(),
-            merge=MergeStats(),
-            storage=StorageStats(),
-            chunks=[],
-        )
-    if len(results) == 1:
-        return results[0].model_copy(
-            update={"ingestion": ingestion, "chunking": chunking}
-        )
-    extraction_items, extraction_total, extraction_truncated = _combine(
-        [result.extraction.failures for result in results],
-        [result.extraction.failures_total for result in results],
-        [result.extraction.failures_truncated for result in results],
-    )
-    merge_items, merge_total, merge_truncated = _combine(
-        [result.merge.failures for result in results],
-        [result.merge.failures_total for result in results],
-        [result.merge.failures_truncated for result in results],
-    )
-    storage_items, storage_total, storage_truncated = _combine(
-        [result.storage.failures for result in results],
-        [result.storage.failures_total for result in results],
-        [result.storage.failures_truncated for result in results],
-    )
-    return AddResult(
-        ingestion=ingestion,
-        chunking=chunking,
-        extraction=ExtractionStats(
-            chunks_processed=sum(
-                result.extraction.chunks_processed for result in results
-            ),
-            entities_extracted=sum(
-                result.extraction.entities_extracted for result in results
-            ),
-            relations_extracted=sum(
-                result.extraction.relations_extracted for result in results
-            ),
-            failures=extraction_items,
-            failures_total=extraction_total,
-            failures_truncated=extraction_truncated,
-        ),
-        resolution=ResolutionStats(
-            exact_match_hits=sum(
-                result.resolution.exact_match_hits for result in results
-            ),
-            in_batch_groups=sum(
-                result.resolution.in_batch_groups for result in results
-            ),
-            ambiguous_count=sum(
-                result.resolution.ambiguous_count for result in results
-            ),
-        ),
-        merge=MergeStats(
-            nodes_created=sum(result.merge.nodes_created for result in results),
-            nodes_updated=sum(result.merge.nodes_updated for result in results),
-            conflicts_resolved=sum(
-                result.merge.conflicts_resolved for result in results
-            ),
-            failures=merge_items,
-            failures_total=merge_total,
-            failures_truncated=merge_truncated,
-        ),
-        storage=StorageStats(
-            nodes_written=sum(result.storage.nodes_written for result in results),
-            relationships_written=sum(
-                result.storage.relationships_written for result in results
-            ),
-            failures=storage_items,
-            failures_total=storage_total,
-            failures_truncated=storage_truncated,
-        ),
-        chunks=[chunk for result in results for chunk in result.chunks],
-    )
 
 
 class Graph:
@@ -578,7 +316,7 @@ class Graph:
                         graph_store,
                         vector_store=vector_store,
                         vector_collections=recovery_collections,
-                        roll_forward=graph._finish_job,
+                        roll_forward=graph._cleanup(),
                         lease_ttl_seconds=graph._cutover_settings.lease_ttl_seconds,
                         tracer=resolved_tracer,
                     )
@@ -648,213 +386,29 @@ class Graph:
             ValueError: The input contains multiple documents with the same
                 ``document_key``.
         """
-        with self._tracer.start_as_current_span("agrag.ingestion.add"):
-            opts = read_options or ReadOptions()
-            given = sum(x is not None for x in (source, text, documents))
-            if given != 1:
-                raise ValueError(
-                    "Provide exactly one of 'source', 'text', or 'documents'; "
-                    f"got {given}."
-                )
-            if loader is not None and source is None:
-                raise ValueError(
-                    "A loader override requires 'source'; it has no effect on "
-                    "'text' or 'documents'."
-                )
-
-            chunks: list[Chunk] = []
-            chunk_matches: list[ChunkingMatch] = []
-            documents_seen: list[Document] = []
-            document_keys_seen: set[str] = set()
-            entities: list[ExtractedEntity] = []
-            relations: list[ExtractedRelation] = []
-            extraction_failures: list[StageFailure] = []
-
-            def _record_document_keys(batch: Sequence[Document]) -> None:
-                for document in batch:
-                    document_key = document.resolved_document_key
-                    if document_key in document_keys_seen:
-                        raise ValueError(
-                            "Each add call requires distinct document keys; "
-                            f"duplicate: {document_key!r}."
-                        )
-                    document_keys_seen.add(document_key)
-
-            # For ingestion stats accumulation
-            final_stats = LoadStats()
-
-            # For on_progress partial result helper
-            def _build_partial_add_result() -> AddResult:
-                ingest = IngestStats(
-                    documents=final_stats.documents,
-                    sources=final_stats.sources,
-                    skipped=final_stats.skipped,
-                    quarantined=final_stats.quarantined,
-                    quarantined_items=list(final_stats.quarantined_items),
-                )
-                extraction_failures_capped = cap_failures(list(extraction_failures))
-                extraction = ExtractionStats(
-                    chunks_processed=sum(c.parent_id is None for c in chunks),
-                    entities_extracted=len(entities),
-                    relations_extracted=len(relations),
-                    failures=extraction_failures_capped.items,
-                    failures_total=extraction_failures_capped.total,
-                    failures_truncated=extraction_failures_capped.truncated,
-                )
-                return AddResult(
-                    ingestion=ingest,
-                    chunking=ChunkingStats.from_matches(list(chunk_matches)),
-                    extraction=extraction,
-                    resolution=ResolutionStats(),
-                    merge=MergeStats(),
-                    storage=StorageStats(),
-                    chunks=list(chunks) if return_chunks else [],
-                )
-
-            async for batch, stats in iter_document_batches(
-                source=source,
-                text=text,
-                documents=documents,
-                registry=self._registry,
-                opts=opts,
-                error_policy=error_policy,
-                loader=loader,
-                tracer=self._tracer,
-            ):
-                _record_document_keys(batch)
-                final_stats.documents = stats.documents
-                final_stats.sources = stats.sources
-                final_stats.skipped = stats.skipped
-                final_stats.quarantined = stats.quarantined
-                final_stats.quarantined_items = list(stats.quarantined_items)
-                chunk_batch, batch_matches = await asyncio.to_thread(
-                    chunk_documents, batch, chunking=self._chunking, tracer=self._tracer
-                )
-                chunks.extend(chunk_batch)
-                chunk_matches.extend(batch_matches)
-                documents_seen.extend(batch)
-                (
-                    batch_entities,
-                    batch_relations,
-                    batch_failures,
-                ) = await extract_chunks(
-                    chunk_batch,
-                    start_index=len(entities),
-                    extractor=self._extractor,
-                    schema=self._schema,
-                    error_policy=error_policy,
-                    tracer=self._tracer,
-                )
-                entities.extend(batch_entities)
-                relations.extend(batch_relations)
-                extraction_failures.extend(batch_failures)
-                if on_progress is not None:
-                    with contextlib.suppress(Exception):
-                        on_progress(_build_partial_add_result())
-
-            # Assemble the ingestion summary from this call's own walk, then run
-            # each document's slice as its own Cutover Job through the shared
-            # pipeline core. A job holds only its own document's lease and
-            # commits only its own slice; a lease failure aborts the documents
-            # still queued while documents that already committed stay
-            # committed.
-            ingestion = IngestStats(
-                documents=final_stats.documents,
-                sources=final_stats.sources,
-                skipped=final_stats.skipped,
-                quarantined=final_stats.quarantined,
-                quarantined_items=list(final_stats.quarantined_items),
-            )
-            vector_collections = (
-                self._retrieval_settings.entity_collection,
-                self._retrieval_settings.chunk_collection,
-                self._retrieval_settings.resolved_entity_collection,
-            )
-            partials: list[AddResult] = []
-            for (
-                document_key,
-                doc_chunks,
-                doc_documents,
-                doc_entities,
-                doc_relations,
-                doc_failures,
-            ) in _group_by_document(
-                chunks, documents_seen, entities, relations, extraction_failures
-            ):
-                components: list[MatchComponent] = []
-
-                async def _pending(
-                    job_id: UUID,
-                    _components: list[MatchComponent] = components,
-                    _slice: tuple[
-                        list[Chunk],
-                        list[Document],
-                        list[ExtractedEntity],
-                        list[ExtractedRelation],
-                        list[StageFailure],
-                    ] = (
-                        doc_chunks,
-                        doc_documents,
-                        doc_entities,
-                        doc_relations,
-                        doc_failures,
-                    ),
-                ) -> AddResult:
-                    (
-                        slice_chunks,
-                        slice_documents,
-                        slice_entities,
-                        slice_relations,
-                        slice_failures,
-                    ) = _slice
-                    return await ingest_chunks(
-                        slice_chunks,
-                        slice_documents,
-                        slice_entities,
-                        slice_relations,
-                        slice_failures,
-                        graph_store=self._graph_store,
-                        embedder=self._embedder,
-                        vector_store=self._vector_store,
-                        graph_schema=self._schema,
-                        retrieval_settings=self._retrieval_settings,
-                        error_policy=error_policy,
-                        ingestion=IngestStats(documents=1),
-                        return_chunks=return_chunks,
-                        job_id=job_id,
-                        rebuilt_components=_components,
-                        tracer=self._tracer,
-                        embed_heading_path=self._embed_heading_path,
-                        max_llm_pairs=self._max_llm_pairs,
-                    )
-
-                partial, cleanup_failures, _ = await run_cutover_job(
-                    verb="add",
-                    document_key=document_key,
-                    affected_entity_ids=[],
-                    graph_store=self._graph_store,
-                    vector_store=self._vector_store,
-                    vector_collections=vector_collections,
-                    settings=self._cutover_settings,
-                    pending_write=_pending,
-                    cleanup=functools.partial(
-                        self._finish_job, error_policy=error_policy
-                    ),
-                    components=components,
-                    tracer=self._tracer,
-                )
-                partials.append(_with_cleanup_failures(partial, cleanup_failures))
-            result = _merge_add_results(
-                partials,
-                ingestion=ingestion,
-                chunking=ChunkingStats.from_matches(chunk_matches),
-            )
-
-            if on_progress is not None:
-                with contextlib.suppress(Exception):
-                    on_progress(result)
-
-            return result
+        return await add_documents(
+            source,
+            text=text,
+            documents=documents,
+            loader=loader,
+            error_policy=error_policy,
+            on_progress=on_progress,
+            return_chunks=return_chunks,
+            read_options=read_options,
+            schema=self._schema,
+            graph_store=self._graph_store,
+            embedder=self._embedder,
+            extractor=self._extractor,
+            vector_store=self._vector_store,
+            retrieval_settings=self._retrieval_settings,
+            cutover_settings=self._cutover_settings,
+            chunking=self._chunking,
+            registry=self._registry,
+            embed_heading_path=self._embed_heading_path,
+            max_llm_pairs=self._max_llm_pairs,
+            cleanup=self._cleanup(error_policy),
+            tracer=self._tracer,
+        )
 
     async def update(
         self,
@@ -911,136 +465,27 @@ class Graph:
             ``Graph.add()``; both callers observe the same pipeline behavior
             for the same input.
         """
-        with self._tracer.start_as_current_span("agrag.ingestion.update"):
-            if (text is None) == (source is None):
-                raise ValueError("Provide exactly one of 'text' or 'source'.")
-
-            opts = read_options or ReadOptions()
-            if text is not None:
-                normalized, normalization = normalize_inline_text(text, opts)
-                content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-                document = Document(
-                    text=normalized,
-                    title="inline",
-                    uri=document_key,
-                    document_key=document_key,
-                    source_format=SourceFormat.TXT,
-                    family=DocumentFamily.PROSE,
-                    content_hash=content_hash,
-                    loader_name="inline",
-                    encoding="utf-8",
-                    char_count=len(normalized),
-                    line_count=normalized.count("\n") + 1,
-                    normalization=normalization,
-                )
-            else:
-                documents_from_source: list[Document] = []
-                async for batch, _stats in iter_document_batches(
-                    source=source,
-                    registry=self._registry,
-                    opts=opts,
-                    error_policy=error_policy,
-                    loader=loader,
-                    tracer=self._tracer,
-                ):
-                    documents_from_source.extend(batch)
-                if len(documents_from_source) != 1:
-                    raise ValueError("The source must produce exactly one document.")
-                document = documents_from_source[0].model_copy(
-                    update={"document_key": document_key}
-                )
-
-            found = await find_document(self._graph_store, document_key=document_key)
-            _, chunker = self._chunking.select(document)
-            if (
-                found is not None
-                and found.current_content_hash == document.content_hash
-                and found.current_chunker_hash in (None, chunker.fingerprint())
-            ):
-                return UpdateResult(
-                    document_key=document_key,
-                    no_op=True,
-                    previous_content_hash=found.current_content_hash,
-                    new_content_hash=document.content_hash,
-                )
-
-            candidates: list[UUID] = []
-            if found is not None:
-                candidates = await self._document_entity_candidates(
-                    found.document_node_id
-                )
-            chunks, chunk_matches = await asyncio.to_thread(
-                chunk_documents,
-                [document],
-                chunking=self._chunking,
-                tracer=self._tracer,
-            )
-            entities, relations, extraction_failures = await extract_chunks(
-                chunks,
-                start_index=0,
-                extractor=self._extractor,
-                schema=self._schema,
-                error_policy=error_policy,
-                tracer=self._tracer,
-            )
-
-            components: list[MatchComponent] = []
-
-            async def _pending(job_id: UUID) -> AddResult:
-                return await ingest_chunks(
-                    chunks,
-                    [document],
-                    entities,
-                    relations,
-                    extraction_failures,
-                    graph_store=self._graph_store,
-                    embedder=self._embedder,
-                    vector_store=self._vector_store,
-                    graph_schema=self._schema,
-                    retrieval_settings=self._retrieval_settings,
-                    error_policy=error_policy,
-                    ingestion=IngestStats(documents=1),
-                    return_chunks=False,
-                    job_id=job_id,
-                    rebuilt_components=components,
-                    tracer=self._tracer,
-                    embed_heading_path=self._embed_heading_path,
-                    max_llm_pairs=self._max_llm_pairs,
-                )
-
-            add_result, cleanup_failures, chunks_closed = await run_cutover_job(
-                verb="update",
-                document_key=document_key,
-                affected_entity_ids=candidates,
-                graph_store=self._graph_store,
-                vector_store=self._vector_store,
-                vector_collections=(
-                    self._retrieval_settings.entity_collection,
-                    self._retrieval_settings.chunk_collection,
-                    self._retrieval_settings.resolved_entity_collection,
-                ),
-                settings=self._cutover_settings,
-                pending_write=_pending,
-                cleanup=functools.partial(self._finish_job, error_policy=error_policy),
-                components=components,
-                close_document_node_id=(
-                    found.document_node_id if found is not None else None
-                ),
-                keep_chunk_ids=[chunk.id for chunk in chunks if chunk.id is not None],
-                tracer=self._tracer,
-            )
-            return UpdateResult(
-                document_key=document_key,
-                no_op=False,
-                previous_content_hash=(found.current_content_hash if found else None),
-                new_content_hash=document.content_hash,
-                chunks_closed=chunks_closed,
-                add_result=_with_cleanup_failures(
-                    add_result, cleanup_failures
-                ).model_copy(
-                    update={"chunking": ChunkingStats.from_matches(chunk_matches)}
-                ),
-            )
+        return await update_document(
+            document_key,
+            text=text,
+            source=source,
+            loader=loader,
+            error_policy=error_policy,
+            read_options=read_options,
+            schema=self._schema,
+            graph_store=self._graph_store,
+            embedder=self._embedder,
+            extractor=self._extractor,
+            vector_store=self._vector_store,
+            retrieval_settings=self._retrieval_settings,
+            cutover_settings=self._cutover_settings,
+            chunking=self._chunking,
+            registry=self._registry,
+            embed_heading_path=self._embed_heading_path,
+            max_llm_pairs=self._max_llm_pairs,
+            cleanup=self._cleanup(error_policy),
+            tracer=self._tracer,
+        )
 
     async def delete_document(self, document_key: str) -> UpdateResult:
         """Soft-delete a document by closing its current PART_OF edges.
@@ -1067,163 +512,36 @@ class Graph:
             call into the same shared document-lifecycle helpers. See
             ``Graph.add()`` for the shared ingestion behavior.
         """
-        with self._tracer.start_as_current_span("agrag.ingestion.delete_document"):
-            found = await find_document(self._graph_store, document_key=document_key)
-            if found is None:
-                return UpdateResult(document_key=document_key, no_op=True)
-            candidates = await self._document_entity_candidates(found.document_node_id)
-
-            _, _, chunks_closed = await run_cutover_job(
-                verb="delete_document",
-                document_key=document_key,
-                affected_entity_ids=candidates,
-                graph_store=self._graph_store,
-                vector_store=self._vector_store,
-                vector_collections=(
-                    self._retrieval_settings.entity_collection,
-                    self._retrieval_settings.chunk_collection,
-                    self._retrieval_settings.resolved_entity_collection,
-                ),
-                settings=self._cutover_settings,
-                pending_write=_no_pending_write,
-                cleanup=self._finish_job,
-                close_document_node_id=found.document_node_id,
-                tracer=self._tracer,
-            )
-            return UpdateResult(
-                document_key=document_key,
-                no_op=False,
-                previous_content_hash=found.current_content_hash,
-                chunks_closed=chunks_closed,
-            )
-
-    async def _document_entity_candidates(self, document_node_id: UUID) -> list[UUID]:
-        """Return live entity ids mentioned by a document's open chunks.
-
-        Args:
-            document_node_id: The persisted Document node's id.
-
-        Returns:
-            The mentioned entity ids in first-seen order.
-        """
-        rows = await self._graph_store.execute_read(
-            entities_in_documents_query(),
-            {
-                "document_ids": [str(document_node_id)],
-                "job_id": None,
-            },
+        return await delete_document(
+            document_key,
+            graph_store=self._graph_store,
+            vector_store=self._vector_store,
+            retrieval_settings=self._retrieval_settings,
+            cutover_settings=self._cutover_settings,
+            cleanup=self._cleanup(),
+            tracer=self._tracer,
         )
-        candidates: list[UUID] = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            try:
-                candidate = UUID(str(row["id"]))
-            except (KeyError, TypeError, ValueError):
-                continue
-            if candidate not in candidates:
-                candidates.append(candidate)
-        return candidates
 
-    async def _finish_job(
-        self,
-        affected_entity_ids: list[UUID],
-        component_seed_ids: list[UUID],
-        *,
-        error_policy: ErrorPolicy = ErrorPolicy.RAISE,
-    ) -> list[StageFailure]:
-        """Run the cleanup phase of one committed Cutover Job.
-
-        A pending job never deletes the resolved entity it supersedes, so
-        after the commit this rebuilds the resolved entity of each component
-        the job rebuilt, then prunes the entities that lost their last
-        evidence. The live calls and crash recovery both run it, with the
-        lists the job recorded. Running it again changes nothing.
+    def _cleanup(self, error_policy: ErrorPolicy = ErrorPolicy.RAISE) -> CleanupStep:
+        """Bind the post-commit cleanup of a Cutover Job to this graph.
 
         Args:
-            affected_entity_ids: Entities that may have lost their last
-                evidence; the only ones pruning may remove.
-            component_seed_ids: One member id per component to rebuild.
-            error_policy: RAISE propagates the first failure; any other
-                policy records it and continues. Recovery uses RAISE, so a
-                failure leaves the job in ``cleaning`` for a later open.
-
-        Returns:
-            The failures recorded while rebuilding components.
-        """
-        failures = await self._rebuild_resolved_entities(
-            component_seed_ids, error_policy=error_policy
-        )
-        await self._prune_document_entities(affected_entity_ids)
-        return failures
-
-    async def _rebuild_resolved_entities(
-        self, component_seed_ids: list[UUID], *, error_policy: ErrorPolicy
-    ) -> list[StageFailure]:
-        """Rebuild committed components' resolved entities and sync vectors.
-
-        The replaced resolved entities' vectors are deleted and the new ones
-        written to the graph and the external vector store. Persisted vector
-        deletions from earlier passes are retried even when no seed is given.
-
-        Args:
-            component_seed_ids: One member id per component to rebuild.
             error_policy: RAISE propagates the first failure; any other
                 policy records it and continues.
 
         Returns:
-            The recorded failures.
+            The cleanup step the live calls and crash recovery both run.
         """
-        with self._tracer.start_as_current_span(
-            "agrag.merge.rebuild_components",
-            attributes={"agrag.component_count": len(component_seed_ids)},
-        ):
-            failures: list[StageFailure] = []
-            rebuilt: list[ResolvedEntity] = []
-            replaced_ids: list[UUID] = []
-            for seed_id in component_seed_ids:
-                with self._tracer.start_as_current_span(
-                    "agrag.merge.rebuild_component"
-                ) as span:
-                    try:
-                        results = await rebuild_resolved_entities(
-                            [seed_id],
-                            graph_store=self._graph_store,
-                            schema=self._schema,
-                            tracer=self._tracer,
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        if error_policy is ErrorPolicy.RAISE:
-                            raise
-                        trace_id, span_id = record_stage_failure(exc)
-                        failures.append(
-                            StageFailure(
-                                item_id=str(seed_id),
-                                error_type=type(exc).__name__,
-                                error_message=str(exc),
-                                trace_id=trace_id,
-                                span_id=span_id,
-                            )
-                        )
-                        continue
-                    for result in results:
-                        span.set_attribute(
-                            "agrag.member_count", len(result.resolved_entity.member_ids)
-                        )
-                        rebuilt.append(result.resolved_entity)
-                        replaced_ids.extend(result.removed_entity_ids)
-            failures.extend(
-                await _synchronize_resolved_entity_vectors(
-                    rebuilt,
-                    replaced_ids,
-                    embedder=self._embedder,
-                    graph_store=self._graph_store,
-                    vector_store=self._vector_store,
-                    vector_collection=self._retrieval_settings.resolved_entity_collection,
-                    error_policy=error_policy,
-                )
-            )
-            return failures
+        return functools.partial(
+            finish_job,
+            graph_store=self._graph_store,
+            schema=self._schema,
+            embedder=self._embedder,
+            vector_store=self._vector_store,
+            retrieval_settings=self._retrieval_settings,
+            tracer=self._tracer,
+            error_policy=error_policy,
+        )
 
     async def _rebuild_components(
         self, components: list[MatchComponent], *, error_policy: ErrorPolicy
@@ -1292,37 +610,6 @@ class Graph:
                 )
             )
             return rebuilt, failures
-
-    async def _prune_document_entities(self, candidates: list[UUID]) -> None:
-        """Prune orphaned candidates and drop their stale vectors.
-
-        Best effort: a vector-store failure never fails the document
-        operation that already committed its graph writes.
-
-        Args:
-            candidates: Entity ids that may have lost their last evidence.
-                Empty skips the pruning pass entirely.
-        """
-        if not candidates:
-            return
-        pruning = await prune_orphaned_entities(
-            candidates,
-            graph_store=self._graph_store,
-            schema=self._schema,
-            tracer=self._tracer,
-        )
-        with contextlib.suppress(Exception):
-            await _delete_vectors(
-                self._vector_store,
-                self._retrieval_settings.entity_collection,
-                pruning.removed_entity_ids,
-            )
-        with contextlib.suppress(Exception):
-            await _delete_vectors(
-                self._vector_store,
-                self._retrieval_settings.resolved_entity_collection,
-                pruning.removed_resolved_entity_ids,
-            )
 
     async def _all_entities_by_label(self, label: str) -> list[Entity]:
         """Return every persisted entity with label, for consolidate().

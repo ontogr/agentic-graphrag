@@ -29,7 +29,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from opentelemetry.trace import Tracer
 
 import agrag.ingestion._cutover as cutover_module
-import agrag.ingestion.graph as graph_module
+import agrag.ingestion._ingest as ingest_module
+import agrag.ingestion._job_cleanup as job_cleanup_module
 from agrag.chunking import (
     DEFAULT_CHUNKING,
     Chunking,
@@ -314,15 +315,15 @@ class TestGraphAdd:
         member = Entity(
             id=uuid4(), label="Person", name="Alice", properties={}, source_chunk_ids=[]
         )
-        real_ingest = graph_module.ingest_chunks
+        real_ingest = ingest_module.ingest_chunks
 
         async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
             kwargs["rebuilt_components"].append(([], [member]))
             return await real_ingest(*args, **kwargs)
 
-        monkeypatch.setattr(graph_module, "ingest_chunks", _ingest_with_component)
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _ingest_with_component)
         monkeypatch.setattr(
-            graph_module,
+            job_cleanup_module,
             "rebuild_resolved_entities",
             AsyncMock(side_effect=RuntimeError("database unavailable")),
         )
@@ -354,15 +355,15 @@ class TestGraphAdd:
             Entity(id=entity_id, label="Person", name=str(entity_id))
             for entity_id in (high, low)
         ]
-        real_ingest = graph_module.ingest_chunks
+        real_ingest = ingest_module.ingest_chunks
 
         async def _ingest_with_component(*args: object, **kwargs: Any) -> Any:
             kwargs["rebuilt_components"].append(([], members))
             return await real_ingest(*args, **kwargs)
 
         rebuild = AsyncMock(return_value=[])
-        monkeypatch.setattr(graph_module, "ingest_chunks", _ingest_with_component)
-        monkeypatch.setattr(graph_module, "rebuild_resolved_entities", rebuild)
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _ingest_with_component)
+        monkeypatch.setattr(job_cleanup_module, "rebuild_resolved_entities", rebuild)
 
         if verb == "add":
             await graph.add(text="a short note")
@@ -417,7 +418,7 @@ class TestGraphAdd:
             return await real_close(*args, **kwargs)
 
         monkeypatch.setattr(cutover_module, "close_open_part_of_edges", _spy_close)
-        real_ingest = graph_module.ingest_chunks
+        real_ingest = ingest_module.ingest_chunks
         ingest_calls = 0
 
         async def _count_ingest(*args: object, **kwargs: object) -> object:
@@ -425,7 +426,7 @@ class TestGraphAdd:
             ingest_calls += 1
             return await real_ingest(*args, **kwargs)
 
-        monkeypatch.setattr(graph_module, "ingest_chunks", _count_ingest)
+        monkeypatch.setattr(ingest_module, "ingest_chunks", _count_ingest)
 
         result = await graph.update("memory://doc", text="brand new")
 

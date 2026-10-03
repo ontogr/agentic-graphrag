@@ -22,7 +22,8 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 
-import agrag.ingestion.graph as graph_module
+import agrag.ingestion._ingest as ingest_module
+import agrag.ingestion._job_cleanup as job_cleanup_module
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractionResult
@@ -161,13 +162,13 @@ def _kill_recovery(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _die_after_pending_writes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Kill the worker once its pending writes have landed."""
-    real_ingest = graph_module.ingest_chunks
+    real_ingest = ingest_module.ingest_chunks
 
     async def _die(*args: object, **kwargs: object) -> object:
         await real_ingest(*args, **kwargs)
         raise RuntimeError("worker died before commit")
 
-    monkeypatch.setattr(graph_module, "ingest_chunks", _die)
+    monkeypatch.setattr(ingest_module, "ingest_chunks", _die)
 
 
 async def _graph_state(store: GraphStore, key: str) -> dict[str, Any]:
@@ -570,16 +571,20 @@ class TestCrashAfterCommit:
             graph = await _open_graph(store, _KeywordExtractor(crashed_probe))
             await graph.add(documents=[_document(crashed_key, first_text)])
 
-            real_prune = Graph._prune_document_entities
+            real_prune = job_cleanup_module.prune_document_entities
 
-            async def _die_in_cleanup(self: Graph, candidates: list[Any]) -> None:
-                del self, candidates
+            async def _die_in_cleanup(*args: Any, **kwargs: Any) -> None:
+                del args, kwargs
                 raise RuntimeError("cleanup died after commit")
 
-            monkeypatch.setattr(Graph, "_prune_document_entities", _die_in_cleanup)
+            monkeypatch.setattr(
+                job_cleanup_module, "prune_document_entities", _die_in_cleanup
+            )
             with pytest.raises(RuntimeError, match="cleanup died after commit"):
                 await graph.update(crashed_key, text=second_text)
-            monkeypatch.setattr(Graph, "_prune_document_entities", real_prune)
+            monkeypatch.setattr(
+                job_cleanup_module, "prune_document_entities", real_prune
+            )
 
             assert await _job_status(store, crashed_key) == "cleaning"
             assert await _probe_count(store, crashed_probe) == 1
