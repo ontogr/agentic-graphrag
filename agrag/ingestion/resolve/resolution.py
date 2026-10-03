@@ -77,7 +77,7 @@ class BatchResolution:
     candidate_entities: dict[UUID, Entity] = field(default_factory=dict)
 
 
-def synthetic_entity_mention(entity: Entity) -> tuple[ExtractedEntity, Chunk]:
+def _synthetic_entity_mention(entity: Entity) -> tuple[ExtractedEntity, Chunk]:
     """Build a mention and distinct name context for a persisted raw entity."""
     chunk_id = uuid4()
     chunk = Chunk(
@@ -99,7 +99,7 @@ def synthetic_entity_mention(entity: Entity) -> tuple[ExtractedEntity, Chunk]:
     )
 
 
-def synthesize_mentions(
+def _synthesize_mentions(
     entities: list[Entity],
 ) -> tuple[list[ExtractedEntity], dict[UUID, Chunk]]:
     """Build resolver mentions and per-entity dummy chunks for persisted entities.
@@ -122,7 +122,7 @@ def synthesize_mentions(
     synthetic_mentions: list[ExtractedEntity] = []
     dummy_chunks_by_id: dict[UUID, Chunk] = {}
     for ent in entities:
-        mention, chunk = synthetic_entity_mention(ent)
+        mention, chunk = _synthetic_entity_mention(ent)
         synthetic_mentions.append(mention)
         dummy_chunks_by_id[mention.chunk_id] = chunk
     return synthetic_mentions, dummy_chunks_by_id
@@ -271,7 +271,9 @@ async def resolve_batch(
                 if exact_match is not None and candidate.id == exact_match.id:
                     continue
                 candidate_index = len(combined_mentions)
-                candidate_mention, candidate_chunk = synthetic_entity_mention(candidate)
+                candidate_mention, candidate_chunk = _synthetic_entity_mention(
+                    candidate
+                )
                 combined_mentions.append(candidate_mention)
                 chunks_by_id[candidate_mention.chunk_id] = candidate_chunk
                 persisted_candidates.setdefault(mention_index, []).append(
@@ -365,7 +367,7 @@ async def resolve_persisted(
     Returns:
         The resolver result, indexed like ``entities``.
     """
-    mentions, chunks_by_id = synthesize_mentions(entities)
+    mentions, chunks_by_id = _synthesize_mentions(entities)
     candidate_source = GraphCandidateSource(
         graph_store=graph_store,
         embedder=embedder,
@@ -418,7 +420,7 @@ async def resolve_among(
     Returns:
         The resolver result, indexed like ``entities``.
     """
-    mentions, chunks_by_id = synthesize_mentions(entities)
+    mentions, chunks_by_id = _synthesize_mentions(entities)
     candidates_by_index = {
         index: [
             other

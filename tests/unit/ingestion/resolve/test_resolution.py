@@ -7,10 +7,10 @@ from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.vector_record import VectorHit
 from agrag.ingestion.resolve.resolution import (
+    _synthesize_mentions,
     find_exact_matches,
     resolve_among,
     resolve_batch,
-    synthesize_mentions,
 )
 
 
@@ -133,7 +133,7 @@ class TestSynthesizeMentions:
             source_chunk_ids=[shared_chunk_id],
         )
 
-        mentions, chunks_by_id = synthesize_mentions([alice, bob])
+        mentions, chunks_by_id = _synthesize_mentions([alice, bob])
 
         assert mentions[0].chunk_id != mentions[1].chunk_id
         assert chunks_by_id[mentions[0].chunk_id].text == "Alice"
@@ -153,8 +153,9 @@ class TestResolveAmong:
             [ada, ada_lower, org], embedder=_Embedder(), tracer=None, max_llm_pairs=0
         )
 
-        assert {(m.left_index, m.right_index) for m in result.matches} <= {(0, 1)}
-        assert all(2 not in (m.left_index, m.right_index) for m in result.matches)
+        groups = [set(group.entity_indices) for group in result.groups]
+        assert {0, 1} in groups
+        assert {2} in groups
 
 
 class TestResolveBatch:

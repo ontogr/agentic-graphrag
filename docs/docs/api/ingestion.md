@@ -4118,9 +4118,9 @@ Fetch a bounded neighbor-relationship sample for persisted entities.
 - **exclude_relation_types** (<code>Sequence\[str\]</code>) – Relation types to omit, such as resolution's
   own system relation types (`MATCHES`, `RESOLVED_AS`, etc.) —
   passed by the caller rather than imported here, since importing
-  `agrag.ingestion.graph`'s `SYSTEM_RELATION_TYPES` into this
-  module would invert the existing import direction
-  (`graph.py` already imports from this module).
+  `SYSTEM_RELATION_TYPES` from `agrag.ingestion.resolve.resolution`
+  into this module would create an import cycle (that module already
+  imports from this one).
 - **max_neighbors** (<code>int</code>) – Maximum neighbor strings kept per entity id.
 
 **Returns:**
@@ -4517,9 +4517,9 @@ Fetch a bounded neighbor-relationship sample for persisted entities.
 - **exclude_relation_types** (<code>Sequence\[str\]</code>) – Relation types to omit, such as resolution's
   own system relation types (`MATCHES`, `RESOLVED_AS`, etc.) —
   passed by the caller rather than imported here, since importing
-  `agrag.ingestion.graph`'s `SYSTEM_RELATION_TYPES` into this
-  module would invert the existing import direction
-  (`graph.py` already imports from this module).
+  `SYSTEM_RELATION_TYPES` from `agrag.ingestion.resolve.resolution`
+  into this module would create an import cycle (that module already
+  imports from this one).
 - **max_neighbors** (<code>int</code>) – Maximum neighbor strings kept per entity id.
 
 **Returns:**
@@ -4597,8 +4597,6 @@ returns the result.
 - [**resolve_among**](#agrag-ingestion-resolve-resolution-resolve_among) – Resolve a fixed set of persisted entities by comparing same-label pairs.
 - [**resolve_batch**](#agrag-ingestion-resolve-resolution-resolve_batch) – Resolve one extraction batch against itself and the persisted graph.
 - [**resolve_persisted**](#agrag-ingestion-resolve-resolution-resolve_persisted) – Resolve persisted entities against each other.
-- [**synthesize_mentions**](#agrag-ingestion-resolve-resolution-synthesize_mentions) – Build resolver mentions and per-entity dummy chunks for persisted entities.
-- [**synthetic_entity_mention**](#agrag-ingestion-resolve-resolution-synthetic_entity_mention) – Build a mention and distinct name context for a persisted raw entity.
 
 **Attributes:**
 
@@ -4765,39 +4763,6 @@ ANN search bounds the pairs the resolver compares.
 **Returns:**
 
 - <code>[ResolutionResult](#agrag-ingestion-resolve-resolver-ResolutionResult)</code> – The resolver result, indexed like `entities`.
-
-##### `agrag.ingestion.resolve.resolution.synthesize_mentions` \{#agrag-ingestion-resolve-resolution-synthesize_mentions}
-
-```python
-synthesize_mentions(entities:list[Entity]) -> tuple[list[ExtractedEntity], dict[UUID, Chunk]]
-```
-
-Build resolver mentions and per-entity dummy chunks for persisted entities.
-
-Persisted entities have no real chunk text to compare against, so each
-gets a synthetic mention and a dummy chunk carrying its own name as
-LLMVerify context. Each entity's dummy chunk id is its own, independent
-of its real source_chunk_ids: two entities commonly share a first source
-chunk (they were extracted from the same passage), and keying the dummy
-chunk by that shared id would let the first entity processed silently
-stand in as every later entity's own context.
-
-**Parameters:**
-
-- **entities** (<code>list\[[Entity](common.md#agrag-common-data_models-entity-Entity)\]</code>) – The persisted entities to synthesize mentions for.
-
-**Returns:**
-
-- <code>list\[[ExtractedEntity](common.md#agrag-common-data_models-extraction-ExtractedEntity)\]</code> – One ExtractedEntity mention per entity and the dummy Chunk each
-- <code>dict\[UUID, [Chunk](common.md#agrag-common-data_models-chunk-Chunk)\]</code> – mention's chunk_id resolves to, both index-aligned with entities.
-
-##### `agrag.ingestion.resolve.resolution.synthetic_entity_mention` \{#agrag-ingestion-resolve-resolution-synthetic_entity_mention}
-
-```python
-synthetic_entity_mention(entity:Entity) -> tuple[ExtractedEntity, Chunk]
-```
-
-Build a mention and distinct name context for a persisted raw entity.
 
 #### `agrag.ingestion.resolve.resolve_among` \{#agrag-ingestion-resolve-resolve_among}
 

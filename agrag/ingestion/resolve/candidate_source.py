@@ -85,9 +85,9 @@ async def fetch_persisted_neighbors(
         exclude_relation_types: Relation types to omit, such as resolution's
             own system relation types (``MATCHES``, ``RESOLVED_AS``, etc.) —
             passed by the caller rather than imported here, since importing
-            ``agrag.ingestion.graph``'s ``SYSTEM_RELATION_TYPES`` into this
-            module would invert the existing import direction
-            (``graph.py`` already imports from this module).
+            ``SYSTEM_RELATION_TYPES`` from ``agrag.ingestion.resolve.resolution``
+            into this module would create an import cycle (that module already
+            imports from this one).
         max_neighbors: Maximum neighbor strings kept per entity id.
 
     Returns:
