@@ -77,7 +77,7 @@ Pushing to `main` with changes under `docs/`, `agrag/`, or `pyproject.toml` buil
 | `make test-eval-trajectory` | Score agent trajectories on the tiny corpus (needs Neo4j and an LLM key) |
 | `make lint-all` | Format, lint, and type check |
 | `make lint-check` | Check formatting and lint without modifying files |
-| `make security` | Run Bandit, pip-audit, and uv audit |
+| `make security` | Run Bandit and uv audit |
 | `make wheel-test` | Build the wheel and import it from a clean environment |
 | `make docs-dev` | Run the docs site locally with live reload |
 | `make docs-build` | Regenerate the API reference and build the docs site |

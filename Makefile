@@ -1,4 +1,4 @@
-.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security-lock security build wheel-test clean help docs-api docs-install docs-dev docs-build docs-test
+.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build docs-test
 
 export UV_LOCKED = 1
 
@@ -32,8 +32,7 @@ help:
 	@echo "  make lint-actions     - Audit GitHub Actions workflows with zizmor"
 	@echo "  make lint-all         - Run formatting, linting, and type checking"
 	@echo "  make security-bandit  - Run Bandit security scan"
-	@echo "  make security-audit   - Run pip-audit dependency vulnerability scan"
-	@echo "  make security-lock    - Audit the locked dependencies with uv audit"
+	@echo "  make security-audit   - Audit the locked dependencies with uv audit"
 	@echo "  make security         - Run all security scans"
 	@echo "  make build            - Build sdist and wheel into dist/"
 	@echo "  make wheel-test       - Install the built wheel in a clean env and import it"
@@ -219,12 +218,9 @@ security-bandit:
 	uv run bandit -c pyproject.toml -r agrag/ --severity-level high --confidence-level high
 
 security-audit:
-	uv run pip-audit --desc
-
-security-lock:
 	uv audit --preview-features audit-command
 
-security: security-bandit security-audit security-lock
+security: security-bandit security-audit
 
 build:
 	rm -rf dist

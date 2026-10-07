@@ -224,14 +224,10 @@ jobs:
       - name: Generate Bandit JSON report
         if: always()
         run: uv run bandit -c pyproject.toml -r agrag/ -f json -o bandit-report.json || true
-      - name: Run pip-audit
-        run: make security-audit
-        continue-on-error: true
-      # pip-audit skips the CPU builds of torch and torchvision, because their
-      # +cpu versions are not on PyPI. uv audit reads uv.lock and matches
-      # advisories by package name and version, so it covers them.
+      # uv audit reads uv.lock and matches advisories by package name and
+      # version, so it also covers the +cpu builds of torch and torchvision.
       - name: Run uv audit
-        run: make security-lock
+        run: make security-audit
         continue-on-error: true
       # gitleaks-action needs GITLEAKS_LICENSE, which a fork pull request cannot
       # read, so it is skipped there; the license-free CLI scan below covers it.
