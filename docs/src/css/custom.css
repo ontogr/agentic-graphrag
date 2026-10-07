@@ -400,3 +400,110 @@ details.alert {
 .docs-doc-id-changelog .container {
   max-width: 1080px;
 }
+
+/* Changelog. Each release is a row with a sticky column (version, date, and jump links
+   to its sections) beside the sections themselves. The remark plugin in
+   plugins/remarkChangelog.mjs builds the markup. */
+.changelog-release {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  gap: 0 3rem;
+  padding: 2.25rem 0;
+  border-top: 1px solid var(--agrag-border);
+}
+
+.changelog-release[hidden],
+.changelog-section[hidden] {
+  display: none;
+}
+
+.changelog-meta {
+  position: sticky;
+  top: calc(var(--ifm-navbar-height) + 1.5rem);
+  align-self: start;
+}
+
+.changelog-meta h2 {
+  display: inline-block;
+  margin: 0;
+  padding: 0.15rem 0.65rem;
+  border-radius: 8px;
+  background: var(--ifm-menu-color-background-active);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.6;
+}
+
+.changelog-meta h2 a {
+  color: var(--ifm-color-primary);
+  text-decoration: none;
+}
+
+.changelog-meta .hash-link {
+  display: none;
+}
+
+.changelog-unreleased .changelog-meta h2 {
+  border: 1px dashed var(--ifm-color-primary);
+  background: transparent;
+}
+
+.changelog-date {
+  margin: 0.6rem 0 0.9rem;
+  color: var(--ifm-color-content-secondary);
+  font-size: 0.8rem;
+}
+
+.changelog-jump {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.changelog-jump-link {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.changelog-jump-link a {
+  color: var(--ifm-color-content-secondary);
+  text-decoration: none;
+}
+
+.changelog-jump-link a:hover {
+  color: var(--ifm-font-color-base);
+}
+
+.changelog-empty {
+  margin: 0;
+  color: var(--ifm-color-content-secondary);
+}
+
+.changelog-section + .changelog-section {
+  margin-top: 1.75rem;
+}
+
+.changelog-section h3 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.changelog-section ul {
+  margin-bottom: 0;
+}
+
+@media (max-width: 996px) {
+  .changelog-release {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem 0;
+  }
+
+  .changelog-meta {
+    position: static;
+  }
+
+  .changelog-jump {
+    display: none;
+  }
+}

@@ -6,8 +6,12 @@
 
 import {themes as prismThemes} from 'prism-react-renderer';
 import {iconLinkHtml} from './navbarIcons.js';
+import remarkChangelog from './plugins/remarkChangelog.mjs';
+import {syncChangelog} from './plugins/syncChangelog.mjs';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
+
+syncChangelog();
 
 // Preview deploys override the base URL with the BASE_URL env var (e.g. BASE_URL=/).
 const baseUrl = process.env.BASE_URL ?? '/agentic-graphrag/';
@@ -66,6 +70,7 @@ const config = {
           path: 'docs',
           routeBasePath: '/',
           sidebarPath: './sidebars.js',
+          remarkPlugins: [remarkChangelog],
         },
         blog: false,
         theme: {
@@ -116,7 +121,7 @@ const config = {
       },
       navbar: {
         title: 'Agentic GraphRAG',
-        logo: {alt: 'Agentic GraphRAG logo', src: 'img/logo.svg'},
+        logo: {alt: 'Agentic GraphRAG logo', src: 'img/logo.svg', srcDark: 'img/logo-dark.svg'},
         items: [
           {type: 'docSidebar', sidebarId: 'docsSidebar', position: 'left', label: 'Documentation', 'data-text': 'Documentation'},
           {type: 'docSidebar', sidebarId: 'referenceSidebar', position: 'left', label: 'API reference', 'data-text': 'API reference'},
