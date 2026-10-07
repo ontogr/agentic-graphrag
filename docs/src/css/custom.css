@@ -185,9 +185,14 @@ details.alert [class*="collapsibleContent"] > :last-child {
   margin-bottom: 0.75rem;
 }
 
-/* Infima tints inline code in an alert. Keep the usual code background, as the Docling docs do. */
-details.alert code {
-  background-color: var(--ifm-code-background);
+/* Infima tints inline code in an alert through this variable. Keep a plain grey chip,
+   as the Docling docs do. */
+details.alert {
+  --ifm-code-background: #f5f5f5;
+}
+
+[data-theme="dark"] details.alert {
+  --ifm-code-background: rgba(255, 255, 255, 0.1);
 }
 
 /* A category's own landing page opens from the category link, so it is not listed twice. */
