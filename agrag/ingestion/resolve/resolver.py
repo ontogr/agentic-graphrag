@@ -274,9 +274,9 @@ class LLMVerify(Comparator):
 
         Returns:
             The per-pair results and the count of raw uncertain verdicts,
-            before the fail-safe maps them to NO_MATCH. A request that
-            errors maps its pairs to NO_MATCH and increments
-            failed_requests.
+                before the fail-safe maps them to NO_MATCH. A request that
+                errors maps its pairs to NO_MATCH and increments
+                failed_requests.
         """
         if not pairs:
             return {}, 0

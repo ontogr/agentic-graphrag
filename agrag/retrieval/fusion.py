@@ -40,7 +40,7 @@ def fuse(
 
     Returns:
         One list, ranked by fused score descending, one entry per
-        distinct identity_key.
+            distinct identity_key.
     """
     with get_tracer(tracer).start_as_current_span("agrag.retrieval.fuse") as span:
         if span.is_recording():

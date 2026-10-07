@@ -347,13 +347,13 @@ class Graph:
 
         Returns:
             A summary of what was added per pipeline stage. Resolution runs
-            automatically: exact identity plus fuzzy, embedding, and
-            capped LLM zones over one combined mention list, with
-            confirmed matches persisted as MATCHES edges and derived
-            ResolvedEntity nodes. LLM verification calls stay bounded
-            at ceil(L * MAX_LLM_PAIRS / 10) requests for L labels;
-            inspect result.resolution.ambiguous_count for the pairs no
-            tier could decide.
+                automatically: exact identity plus fuzzy, embedding, and
+                capped LLM zones over one combined mention list, with
+                confirmed matches persisted as MATCHES edges and derived
+                ResolvedEntity nodes. LLM verification calls stay bounded
+                at ceil(L * MAX_LLM_PAIRS / 10) requests for L labels;
+                inspect result.resolution.ambiguous_count for the pairs no
+                tier could decide.
 
         Raises:
             ValueError: The call got zero, or more than one, of ``source``, ``text``,
@@ -430,10 +430,10 @@ class Graph:
 
         Returns:
             The update summary. A no-op reports ``no_op=True`` with no
-            ``add_result``. A change reports ``chunks_closed`` plus the
-            fresh ingestion's ``add_result``. An unknown ``document_key``
-            ingests fresh with ``previous_content_hash=None`` and
-            ``chunks_closed=0``.
+                ``add_result``. A change reports ``chunks_closed`` plus the
+                fresh ingestion's ``add_result``. An unknown ``document_key``
+                ingests fresh with ``previous_content_hash=None`` and
+                ``chunks_closed=0``.
 
         Raises:
             ValueError: Both or neither of ``text`` and ``source`` are given, a loader
@@ -484,8 +484,8 @@ class Graph:
 
         Returns:
             The deletion summary: ``no_op=True`` when nothing was stored
-            under the key, otherwise ``chunks_closed`` with
-            ``new_content_hash=None`` and no ``add_result``.
+                under the key, otherwise ``chunks_closed`` with
+                ``new_content_hash=None`` and no ``add_result``.
 
         Note:
             The close-only degenerate case of ``Graph.update()``. Both
@@ -561,7 +561,7 @@ class Graph:
 
         Returns:
             A report of every confirmed non-exact match, applied or not,
-            plus the count of uncertain LLM verdicts and every failure.
+                plus the count of uncertain LLM verdicts and every failure.
         """
         return await consolidate(
             apply=apply,
@@ -593,8 +593,8 @@ class Graph:
 
         Returns:
             Which entities were reevaluated, which matches were added,
-            which match edges were deactivated, and how many inputs had no
-            incident added or removed edge.
+                which match edges were deactivated, and how many inputs had no
+                incident added or removed edge.
 
         Raises:
             ValueError: An id has no live persisted entity.

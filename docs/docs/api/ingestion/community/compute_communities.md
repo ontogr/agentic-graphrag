@@ -44,9 +44,9 @@ based on).
 **Returns:**
 
 - <code>list\[[Community](../../common/data_models/community/Community-ref.md)\]</code> – One Community per level-0 cluster with two or more members, with
-- <code>list\[[Community](../../common/data_models/community/Community-ref.md)\]</code> – member_ids ordered by local weight descending and internal_weight
-- <code>list\[[Community](../../common/data_models/community/Community-ref.md)\]</code> – set. Reports (title, summary, rating, findings) are left empty.
-- <code>list\[[Community](../../common/data_models/community/Community-ref.md)\]</code> – Report generation fills them.
+  member_ids ordered by local weight descending and internal_weight
+  set. Reports (title, summary, rating, findings) are left empty.
+  Report generation fills them.
 
 **Raises:**
 

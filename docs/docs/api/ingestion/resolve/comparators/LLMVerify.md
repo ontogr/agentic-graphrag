@@ -110,10 +110,10 @@ Verify pairs and count how many verdicts came back uncertain.
 
 **Returns:**
 
-- <code>dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\]</code> – The per-pair results and the count of raw uncertain verdicts,
-- <code>int</code> – before the fail-safe maps them to NO_MATCH. A request that
-- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\], int\]</code> – errors maps its pairs to NO_MATCH and increments
-- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\], int\]</code> – failed_requests.
+- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\], int\]</code> – The per-pair results and the count of raw uncertain verdicts,
+  before the fail-safe maps them to NO_MATCH. A request that
+  errors maps its pairs to NO_MATCH and increments
+  failed_requests.
 
 ## `compare_with_evidence` \{#agrag-ingestion-resolve-comparators-LLMVerify-compare_with_evidence}
 

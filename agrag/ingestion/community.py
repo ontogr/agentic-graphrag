@@ -186,9 +186,9 @@ def compute_communities(
 
     Returns:
         One Community per level-0 cluster with two or more members, with
-        member_ids ordered by local weight descending and internal_weight
-        set. Reports (title, summary, rating, findings) are left empty.
-        Report generation fills them.
+            member_ids ordered by local weight descending and internal_weight
+            set. Reports (title, summary, rating, findings) are left empty.
+            Report generation fills them.
 
     Raises:
         CommunityDetectionMissingExtraError: graspologic-native is not

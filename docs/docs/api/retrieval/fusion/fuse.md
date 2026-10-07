@@ -38,4 +38,4 @@ SearchResult carries.
 **Returns:**
 
 - <code>list\[[SearchResult](../../common/data_models/search_result/SearchResult.md)\]</code> – One list, ranked by fused score descending, one entry per
-- <code>list\[[SearchResult](../../common/data_models/search_result/SearchResult.md)\]</code> – distinct identity_key.
+  distinct identity_key.

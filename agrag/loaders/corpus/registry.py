@@ -69,7 +69,7 @@ class LoaderRegistry:
 
         Returns:
             The registered loader with the highest precedence for the source's
-            extension.
+                extension.
 
         When the top-precedence loader needs a package extra that is not installed,
         the first non-preferred loader for the extension whose extra (if any) is
