@@ -1,27 +1,37 @@
 """Tests for RetryConfig and call_with_retry in agrag.llm.retry.
 
 Patches ``agrag.llm.retry.sleep`` to record delays instead of actually
-sleeping. Covers RetryConfig rejecting negative backoff fields, immediate
-success without retrying, retrying transient failures with exponential
-backoff up to ``max_delay_ms``, raising the final exception after
-exhausting retries, ``max_retries=0`` making exactly one attempt, and
-NO_RETRY disabling retries entirely. TestPermanentBamlFailures verifies
-BAML client errors are classified correctly: invalid-argument and HTTP 401
-fail once without retrying, while HTTP 429 and 500 are retried.
+sleeping, and pins ``random.uniform`` where exact schedules are asserted.
+Covers RetryConfig rejecting negative backoff fields, immediate success
+without retrying, retrying transient failures with exponential backoff up to
+``max_delay_ms``, jitter bounds on every sleep, raising the final exception
+after exhausting retries, ``max_retries=0`` making exactly one attempt,
+NO_RETRY disabling retries entirely, the overall ``timeout_ms`` deadline
+cutting retries short, and ``accept_result`` retrying unusable results until
+they pass or budget runs out. TestPermanentBamlFailures verifies BAML client
+errors are classified correctly: invalid-argument and HTTP 401 fail once
+without retrying, while HTTP 429 and 500 are retried.
 """
+
+import logging
 
 import pytest
 from pydantic import ValidationError
 
 from agrag.llm.client_config import RetryConfig
-from agrag.llm.retry import NO_RETRY, call_with_retry
+from agrag.llm.retry import NO_RETRY, UnusableResultError, call_with_retry
+
+
+def _pin_jitter(monkeypatch) -> None:
+    """Make jitter deterministic by always taking the top of its range."""
+    monkeypatch.setattr("agrag.llm.retry.random.uniform", lambda low, high: high)
 
 
 class TestRetryConfig:
     """RetryConfig rejects negative backoff settings at construction."""
 
     @pytest.mark.parametrize(
-        "field", ["max_retries", "delay_ms", "multiplier", "max_delay_ms"]
+        "field", ["max_retries", "delay_ms", "multiplier", "max_delay_ms", "timeout_ms"]
     )
     def test_rejects_negative_value(self, field: str) -> None:
         """A negative value for any backoff field raises ValidationError."""
@@ -53,6 +63,7 @@ class TestCallWithRetry:
             sleeps.append(seconds)
 
         monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
+        _pin_jitter(monkeypatch)
 
         calls = 0
 
@@ -108,6 +119,7 @@ class TestCallWithRetry:
             sleeps.append(seconds)
 
         monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
+        _pin_jitter(monkeypatch)
 
         calls = 0
 
@@ -209,3 +221,133 @@ class TestNoRetry:
     def test_no_retry_has_zero_max_retries(self) -> None:
         """NO_RETRY disables retrying entirely."""
         assert NO_RETRY.max_retries == 0
+
+
+async def _no_sleep(seconds: float) -> None:
+    """Stand-in for sleep that records nothing and waits no time."""
+
+
+class TestJitter:
+    """Every sleep carries jitter within half to full of the nominal delay."""
+
+    async def test_sleeps_stay_within_jitter_bounds(self, monkeypatch) -> None:
+        """Jittered sleeps never leave [0.5x, 1.0x] of the capped delay."""
+        sleeps: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+
+        monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
+
+        calls = 0
+
+        async def call(options) -> str:
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                raise RuntimeError("transient")
+            return "ok"
+
+        result = await call_with_retry(
+            call,
+            RetryConfig(max_retries=2, delay_ms=100, multiplier=1),
+        )
+        assert result == "ok"
+        assert len(sleeps) == 2
+        assert all(0.05 <= s <= 0.1 for s in sleeps)
+
+    async def test_retry_logs_the_wait_at_debug(
+        self, monkeypatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A retry emits the attempt and the jittered wait for log readers."""
+        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
+        _pin_jitter(monkeypatch)
+
+        async def call(options) -> str:
+            raise RuntimeError("transient")
+
+        with (
+            caplog.at_level(logging.DEBUG, logger="agrag.llm.retry"),
+            pytest.raises(RuntimeError),
+        ):
+            await call_with_retry(call, RetryConfig(max_retries=1, delay_ms=100))
+        assert "attempt 1" in caplog.text
+        assert "retrying" in caplog.text
+
+
+class TestTimeout:
+    """timeout_ms bounds the whole call without interrupting an attempt."""
+
+    async def test_elapsed_deadline_raises_the_last_failure(self, monkeypatch) -> None:
+        """A blown deadline stops retrying and raises what the call raised."""
+        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
+        ticks = iter([0.0, 2000.0])
+        monkeypatch.setattr(
+            "agrag.llm.retry.time.monotonic", lambda: next(ticks, 2000.0)
+        )
+
+        calls = 0
+
+        async def call(options) -> str:
+            nonlocal calls
+            calls += 1
+            raise RuntimeError("still failing")
+
+        with pytest.raises(RuntimeError, match="still failing"):
+            await call_with_retry(call, RetryConfig(max_retries=5, timeout_ms=1000))
+        assert calls == 1
+
+    async def test_zero_timeout_disables_the_deadline(self, monkeypatch) -> None:
+        """timeout_ms=0 keeps the attempt budget as the only limit."""
+        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
+
+        calls = 0
+
+        async def call(options) -> str:
+            nonlocal calls
+            calls += 1
+            raise RuntimeError("still failing")
+
+        with pytest.raises(RuntimeError):
+            await call_with_retry(call, RetryConfig(max_retries=2, timeout_ms=0))
+        assert calls == 3
+
+
+class TestAcceptResult:
+    """accept_result retries successful calls whose result is unusable."""
+
+    async def test_later_usable_result_is_returned(self, monkeypatch) -> None:
+        """A rejected result retries; the first accepted one returns."""
+        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
+
+        calls = 0
+
+        async def call(options) -> str:
+            nonlocal calls
+            calls += 1
+            return "bad" if calls < 2 else "good"
+
+        result = await call_with_retry(
+            call, RetryConfig(max_retries=3), accept_result=lambda r: r == "good"
+        )
+        assert result == "good"
+        assert calls == 2
+
+    async def test_always_rejected_result_raises_after_budget(
+        self, monkeypatch
+    ) -> None:
+        """Rejecting every result exhausts the budget like repeated failures."""
+        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
+
+        calls = 0
+
+        async def call(options) -> str:
+            nonlocal calls
+            calls += 1
+            return "bad"
+
+        with pytest.raises(UnusableResultError, match="unusable"):
+            await call_with_retry(
+                call, RetryConfig(max_retries=2), accept_result=lambda r: False
+            )
+        assert calls == 3
