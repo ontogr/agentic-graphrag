@@ -264,8 +264,7 @@ uv pip install "agentic-graphrag[community]"
 You need a Neo4j database, version 5.23 or newer. The free [Neo4j Aura](https://ontogr.github.io/agentic-graphrag/get-started/quickstart) tier works, and the full [Quickstart](https://ontogr.github.io/agentic-graphrag/get-started/quickstart) shows the setup. Install the extras for this page and save your credentials as `.env` in the working directory. The file sets `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD`.
 
 ```bash
-uv pip install torch --default-index https://download.pytorch.org/whl/cpu   # skip on a GPU machine
-uv pip install "agentic-graphrag[neo4j,extract,embed-local,agents]"
+uv pip install "agentic-graphrag[neo4j,extract,embed-local,agents]" --torch-backend=auto
 ```
 
 ### Build a graph

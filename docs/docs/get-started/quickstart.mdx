@@ -83,11 +83,10 @@ Create a virtual environment and install the packages:
 ```bash
 uv venv
 source .venv/bin/activate   # On Windows: .venv\Scripts\activate
-uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-uv pip install "agentic-graphrag[neo4j,extract,embed-local]"
+uv pip install "agentic-graphrag[neo4j,extract,embed-local]" --torch-backend=auto
 ```
 
-The second command installs the CPU build of PyTorch, which is much smaller than the default build on Linux. If your machine has a GPU, you can skip it. See [Installation](/get-started/installation) for the details.
+The `--torch-backend=auto` flag installs the PyTorch build that matches your machine. It installs the small CPU build when it finds no GPU. See [Installation](/get-started/installation) for the details.
 
 ## Step 3: Build the graph
 

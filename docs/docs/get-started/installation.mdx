@@ -67,15 +67,45 @@ Pick the extras for your goal:
 
 ## Save disk space with CPU-only PyTorch
 
-The `extract` and `embed-local` extras install PyTorch. On Linux, the default PyTorch wheel brings several gigabytes of NVIDIA CUDA libraries. If your machine has no GPU, install the CPU build first:
+The `extract`, `embed-local`, `docling`, and `chunk-neural` extras install PyTorch. On Linux, the default PyTorch build from PyPI includes several gigabytes of NVIDIA CUDA libraries. Package metadata cannot select a smaller build, so you choose the build when you install.
+
+A development environment with every extra and group takes 2.2 GB with the CPU build and 6.0 GB with the default Linux build.
+
+### With uv pip
+
+Add `--torch-backend=auto`. uv looks for a GPU driver. It installs the PyTorch build that matches the driver, or the CPU build when it finds no GPU.
 
 ```bash
-uv venv
-uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-uv pip install "agentic-graphrag[neo4j,extract,embed-local]"
+uv pip install "agentic-graphrag[neo4j,extract,embed-local]" --torch-backend=auto
 ```
 
-The second command keeps the CPU build. The environment for these three extras is about 1.1 GB.
+To always install the CPU build, use `--torch-backend=cpu`. This flag is a uv preview feature. It works with `uv pip` only.
+
+### With uv add
+
+`uv add` has no `--torch-backend` flag. List `torch` as a direct dependency in your `pyproject.toml` and point it at the CPU index. uv applies an index to direct dependencies only.
+
+```toml
+[project]
+dependencies = ["torch", "agentic-graphrag[neo4j,extract,embed-local]"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+```
+
+### With pip
+
+Install the CPU build first. The second command keeps it.
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install "agentic-graphrag[neo4j,extract,embed-local]"
+```
 
 ## Next steps
 

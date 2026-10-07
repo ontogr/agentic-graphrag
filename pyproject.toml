@@ -90,6 +90,18 @@ module-name = "agrag"
 default-groups = ["dev"]
 required-version = "==0.12.18"
 
+# PyPI serves a PyTorch build with several GB of CUDA libraries on Linux. The
+# lock takes torch and torchvision from the CPU index instead. uv applies a
+# source only to direct dependencies, so the torch-cpu group names both.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [dependency-groups]
 dev = [
   "bandit>=1.9.4",
@@ -117,6 +129,10 @@ benchmarks = [
   "tiktoken",
   "rouge-score>=0.1.2",
   "pyarrow>=15",
+]
+torch-cpu = [
+  "torch",
+  "torchvision",
 ]
 
 [tool.ruff]
