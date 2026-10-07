@@ -54,10 +54,10 @@ def _register_granite(text_embedding: Any) -> None:
 class FastEmbedEmbedder(Embedder):
     """A dense embedder built on FastEmbed, which runs ONNX models on the CPU.
 
-    The model loads lazily on first ``embed``, so constructing the embedder does
-    not download weights. Each blocking call into FastEmbed runs in a worker
-    thread, which keeps the event loop free for other work while a large batch
-    encodes.
+    The model loads lazily on the first ``embed`` or ``dimensions`` call, so
+    constructing the embedder does not download weights. Each blocking call
+    into FastEmbed runs in a worker thread, which keeps the event loop free
+    for other work while a large batch encodes.
     """
 
     def __init__(
@@ -95,6 +95,9 @@ class FastEmbedEmbedder(Embedder):
         Calling this loads the model the first time, through the same locked
         worker-thread path ``embed`` uses, so it is safe to call concurrently
         with ``embed``.
+
+        Returns:
+            The dimension of the vectors the loaded model produces.
         """
         model = await self._ensure_model_async()
         return cast(int, model.embedding_size)

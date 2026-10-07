@@ -15,9 +15,7 @@ A sparse BM25 embedder built on FastEmbed.
 
 The model loads lazily on first `embed`, so constructing the embedder
 does not download weights. Each blocking call into FastEmbed runs in a
-worker thread, keeping the event loop free. FastEmbed ships with the
-`qdrant` extra, so a clean install without that extra raises
-`EmbeddingMissingExtraError` rather than `ImportError`.
+worker thread, keeping the event loop free.
 
 **Functions:**
 
