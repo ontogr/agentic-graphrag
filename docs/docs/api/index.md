@@ -27,7 +27,7 @@ The top-level `agrag` package exports nothing. Import each name from the package
 
 ## Tracing
 
-agrag has no tracer class. Every component takes an OpenTelemetry `Tracer` in a `tracer=` argument. When you pass `None`, the component records no spans. agrag never installs a global tracer provider.
+Agentic GraphRAG has no tracer class. Every component takes an OpenTelemetry `Tracer` in a `tracer=` argument. When you pass `None`, the component records no spans. agrag never installs a global tracer provider.
 
 ## Results and settings
 
