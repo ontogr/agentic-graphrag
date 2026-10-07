@@ -37,6 +37,14 @@ const config = {
       tagName: 'link',
       attributes: {rel: 'apple-touch-icon', href: `${baseUrl}img/apple-touch-icon.png`},
     },
+    {
+      tagName: 'link',
+      attributes: {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: 'anonymous'},
+    },
+  ],
+
+  stylesheets: [
+    'https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback',
   ],
 
   markdown: {

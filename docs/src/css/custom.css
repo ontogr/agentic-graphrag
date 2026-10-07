@@ -3,28 +3,6 @@
  * Overrides Infima, the CSS framework the classic theme bundles.
  */
 
-@font-face {
-  font-family: "General Sans";
-  src: url("/fonts/GeneralSans-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "General Sans";
-  src: url("/fonts/GeneralSans-Medium.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "General Sans";
-  src: url("/fonts/GeneralSans-Semibold.woff2") format("woff2");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-
 :root {
   --ifm-color-primary: #1260f7;
   --ifm-color-primary-dark: #074bcf;
@@ -36,18 +14,19 @@
 
   --ifm-background-color: #ffffff;
   --ifm-background-surface-color: #ffffff;
-  --ifm-font-color-base: #102038;
-  --ifm-heading-color: #102038;
-  --ifm-color-content-secondary: #56657d;
+  --ifm-font-color-base: rgba(0, 0, 0, 0.87);
+  --ifm-heading-color: rgba(0, 0, 0, 0.87);
+  --ifm-color-content-secondary: rgba(0, 0, 0, 0.55);
   --ifm-toc-border-color: #e4eaf2;
   --ifm-table-border-color: #e4eaf2;
   --ifm-hr-border-color: #e4eaf2;
   --ifm-navbar-shadow: 0 1px 2px rgba(16, 32, 56, 0.04);
 
-  --ifm-font-family-base: "General Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Arial, sans-serif;
+  --ifm-font-family-base: "Inter", -apple-system, BlinkMacSystemFont, Helvetica, Arial,
+    sans-serif;
+  --ifm-font-family-monospace: "JetBrains Mono", SFMono-Regular, Consolas, Menlo, monospace;
   --ifm-heading-font-family: var(--ifm-font-family-base);
-  --ifm-heading-font-weight: 500;
+  --ifm-heading-font-weight: 700;
   --ifm-code-font-size: 95%;
   --ifm-global-radius: 7px;
   --ifm-global-shadow-lw: 0 1px 2px rgba(16, 32, 56, 0.04), 0 8px 24px rgba(16, 32, 56, 0.06);
@@ -56,11 +35,14 @@
   --docusaurus-highlighted-code-line-bg: rgba(18, 96, 247, 0.08);
 }
 
-/* headings carry the same tight tracking as the marketing site */
+/* Inter reads best with slightly tight tracking, as in the Docling docs. */
+body {
+  letter-spacing: -0.01em;
+}
+
 h1,
-h2,
-h3 {
-  letter-spacing: -0.03em;
+h2 {
+  letter-spacing: -0.025em;
 }
 
 /* the marketing site's signature edge: cyan -> blue, top of the navbar */
@@ -122,46 +104,84 @@ h3 {
   fill: var(--ifm-background-color) !important;
 }
 
-/* Collapsible sections. Docusaurus renders <details> as an "alert" block. */
+/* Collapsible sections. Docusaurus renders <details> as an "alert" block. The look
+   follows the Docling docs: a light blue box with no border, a bold summary with an
+   icon on the left, and a chevron on the right that turns when the box opens. */
 details.alert {
-  --ifm-alert-background-color: var(--ifm-background-surface-color);
-  --ifm-alert-border-color: var(--ifm-toc-border-color);
+  --ifm-alert-background-color: rgba(68, 138, 255, 0.1);
+  --ifm-alert-border-color: transparent;
   --ifm-alert-foreground-color: var(--ifm-font-color-base);
-  --docusaurus-details-decoration-color: var(--ifm-color-primary);
-  border: 1px solid var(--ifm-toc-border-color);
-  border-radius: var(--ifm-global-radius);
-  padding: 0;
+  --agrag-details-accent: #448aff;
+  --agrag-details-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' stroke='currentColor' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551'/%3E%3C/svg%3E");
+  --agrag-details-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' stroke='currentColor' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+  margin: 1.5625em 0;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 8px;
   box-shadow: none;
+  font-size: 0.853em;
 }
 
 details.alert > summary {
-  padding: 0.75rem 1rem 0.75rem 2rem;
-  font-weight: 500;
+  position: relative;
+  min-height: 20px;
+  margin: 0.75rem 0 1em;
+  padding: 0 32px;
+  font-weight: 700;
   cursor: pointer;
 }
 
+/* The theme draws a CSS triangle in ::before. Replace it with the icon. */
+details.alert > summary::before,
+details.alert > summary::after {
+  content: "";
+  position: absolute;
+  top: 0.125em;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  background-color: var(--agrag-details-accent);
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
 details.alert > summary::before {
-  top: 1.05rem;
-  left: 0.85rem;
+  left: 0;
+  transform: none;
+  -webkit-mask-image: var(--agrag-details-icon);
+  mask-image: var(--agrag-details-icon);
 }
 
-details.alert > summary:hover {
-  color: var(--ifm-color-primary);
+details.alert > summary::after {
+  right: 0;
+  transition: transform 0.25s;
+  -webkit-mask-image: var(--agrag-details-chevron);
+  mask-image: var(--agrag-details-chevron);
 }
 
-details.alert[open] > summary {
-  border-bottom: 1px solid var(--ifm-toc-border-color);
+details.alert[data-collapsed="false"] > summary::after,
+details.alert[open]:not([data-collapsed]) > summary::after {
+  transform: rotate(90deg);
 }
 
 details.alert > div,
 details.alert > div > div {
-  padding: 0.75rem 1rem;
+  padding: 0;
 }
 
-/* The theme draws its own divider above the content. The summary border replaces it. */
+/* The theme draws its own divider above the content. The spacing below the summary replaces it. */
 details.alert [class*="collapsibleContent"] {
   border-top: 0;
   margin-top: 0;
+  padding-top: 0;
+}
+
+details.alert [class*="collapsibleContent"] > :last-child {
+  margin-bottom: 0.75rem;
 }
 
 /* A category's own landing page opens from the category link, so it is not listed twice. */
