@@ -227,6 +227,12 @@ jobs:
       - name: Run pip-audit
         run: make security-audit
         continue-on-error: true
+      # pip-audit skips the CPU builds of torch and torchvision, because their
+      # +cpu versions are not on PyPI. uv audit reads uv.lock and matches
+      # advisories by package name and version, so it covers them.
+      - name: Run uv audit
+        run: make security-lock
+        continue-on-error: true
       # gitleaks-action needs GITLEAKS_LICENSE, which a fork pull request cannot
       # read, so it is skipped there; the license-free CLI scan below covers it.
       - name: Run Gitleaks
