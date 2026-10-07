@@ -5,6 +5,7 @@
 // See: https://docusaurus.io/docs/api/docusaurus-config
 
 import {themes as prismThemes} from 'prism-react-renderer';
+import {iconLinkHtml} from './navbarIcons.js';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
@@ -97,6 +98,8 @@ const config = {
           'Build a knowledge graph from your documents, then ask it questions with an agent that cites its evidence.',
         // The generated API pages are large and add little for a language model.
         ignoreFiles: ['api/**'],
+        // The page menu copies a page as Markdown, so every page needs its own .md file.
+        generateMarkdownFiles: true,
       },
     ],
   ],
@@ -115,19 +118,29 @@ const config = {
         title: 'Agentic GraphRAG',
         logo: {alt: 'Agentic GraphRAG logo', src: 'img/logo.svg'},
         items: [
-          {type: 'docSidebar', sidebarId: 'startSidebar', position: 'left', label: 'Get Started'},
-          {type: 'docSidebar', sidebarId: 'conceptsSidebar', position: 'left', label: 'Concepts'},
-          {type: 'docSidebar', sidebarId: 'guidesSidebar', position: 'left', label: 'Guides'},
-          {type: 'docSidebar', sidebarId: 'referenceSidebar', position: 'left', label: 'Reference'},
+          {type: 'docSidebar', sidebarId: 'startSidebar', position: 'left', label: 'Get Started', 'data-text': 'Get Started'},
+          {type: 'docSidebar', sidebarId: 'conceptsSidebar', position: 'left', label: 'Concepts', 'data-text': 'Concepts'},
+          {type: 'docSidebar', sidebarId: 'guidesSidebar', position: 'left', label: 'Guides', 'data-text': 'Guides'},
+          {type: 'docSidebar', sidebarId: 'referenceSidebar', position: 'left', label: 'Reference', 'data-text': 'Reference'},
           {type: 'search', position: 'right'},
           {
             href: 'https://github.com/ontogr/agentic-graphrag',
-            label: 'GitHub',
+            html: iconLinkHtml('github', 'GitHub'),
+            'aria-label': 'GitHub',
+            className: 'navbar-icon',
             position: 'right',
           },
           {
             href: 'https://pypi.org/project/agentic-graphrag/',
-            label: 'PyPI',
+            html: iconLinkHtml('pypi', 'PyPI'),
+            'aria-label': 'PyPI',
+            className: 'navbar-icon',
+            position: 'right',
+          },
+          {
+            to: '/get-started/quickstart',
+            label: 'Quickstart',
+            className: 'navbar-cta',
             position: 'right',
           },
         ],

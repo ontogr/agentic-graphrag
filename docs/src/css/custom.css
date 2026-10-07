@@ -45,10 +45,162 @@ h2 {
   letter-spacing: -0.025em;
 }
 
-/* the marketing site's signature edge: cyan -> blue, top of the navbar */
+/* Top bar. The look follows the Docling site: a 48 px translucent bar with a hairline
+   border, quiet grey links, and a 2 px accent bar under the active link. */
+:root {
+  --ifm-navbar-height: 48px;
+  --ifm-navbar-padding-vertical: 0;
+  --ifm-navbar-padding-horizontal: 1.5rem;
+  --ifm-navbar-shadow: none;
+  --ifm-navbar-background-color: rgba(255, 255, 255, 0.92);
+  --agrag-border: #e0e0e0;
+  --agrag-border-strong: #c6c6c6;
+  --ifm-menu-color-active: var(--ifm-color-primary);
+  --ifm-menu-color-background-active: rgba(18, 96, 247, 0.08);
+}
+
 .navbar {
-  border-top: 4px solid transparent;
-  border-image: linear-gradient(90deg, #19dbf5 0%, #3ba0f0 42%, #1260f7 100%) 1;
+  border-bottom: 1px solid var(--agrag-border);
+  background: transparent;
+}
+
+/* The blur sits on a pseudo-element. A backdrop-filter on the bar itself would clip the
+   fixed mobile menu to the height of the bar. */
+.navbar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--ifm-navbar-background-color);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.navbar__inner,
+.navbar__items {
+  align-self: stretch;
+}
+
+.navbar__items > * {
+  align-self: center;
+}
+
+.navbar__brand {
+  margin-right: 1.5rem;
+}
+
+.navbar__logo {
+  height: 22px;
+  margin-right: 0.5rem;
+}
+
+.navbar__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Menu links fill the bar height, so the accent bar sits on the bar's bottom border. */
+.navbar__items > .navbar__link {
+  align-self: stretch;
+}
+
+@media (min-width: 997px) {
+  .navbar__link {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.navbar__link {
+  padding: 0 0.85rem;
+  border-bottom: 2px solid transparent;
+  color: var(--ifm-color-content-secondary);
+  font-size: 0.85rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+/* A hidden bold copy of the label keeps the link as wide as its bold state, so the
+   neighbours do not move when a link becomes active. */
+.navbar__link::after {
+  content: attr(data-text);
+  height: 0;
+  overflow: hidden;
+  font-weight: 700;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.navbar__link:hover {
+  border-bottom-color: var(--agrag-border-strong);
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.navbar__link--active,
+.navbar__link--active:hover {
+  border-bottom-color: var(--ifm-color-primary);
+  color: var(--ifm-font-color-base);
+  font-weight: 700;
+}
+
+/* GitHub and PyPI show only their icon in the bar. The mobile menu shows the label. */
+.navbar__items--right > .navbar-icon {
+  align-self: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-bottom: 0;
+  border-radius: 6px;
+  color: var(--ifm-font-color-base);
+}
+
+.navbar__items--right > .navbar-icon:hover {
+  background: var(--ifm-color-emphasis-200);
+  border-bottom: 0;
+}
+
+.navbar-icon__svg {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.navbar__items--right > .navbar-icon .navbar-icon__label,
+.navbar-sidebar .navbar-icon__svg {
+  display: none;
+}
+
+.navbar__items--right > .navbar-cta {
+  align-self: center;
+  margin-left: 0.5rem;
+  padding: 0.4rem 1rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--ifm-color-primary);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.navbar__items--right > .navbar-cta:hover,
+.navbar__items--right > .navbar-cta.navbar__link--active {
+  border: 0;
+  background: var(--ifm-color-primary-dark);
+  color: #fff;
+  font-weight: 600;
+}
+
+.navbar-cta::after {
+  display: none;
 }
 
 [data-theme="dark"] {
@@ -59,6 +211,11 @@ h2 {
   --ifm-color-primary-light: #8dc0ff;
   --ifm-color-primary-lighter: #a7ceff;
   --ifm-color-primary-lightest: #c0dcff;
+
+  --ifm-navbar-background-color: rgba(10, 22, 38, 0.85);
+  --agrag-border: #223d5e;
+  --agrag-border-strong: #35557d;
+  --ifm-menu-color-background-active: rgba(90, 164, 255, 0.15);
 
   --ifm-background-color: #0a1626;
   --ifm-background-surface-color: #13263e;
@@ -198,4 +355,27 @@ details.alert {
 /* A category's own landing page opens from the category link, so it is not listed twice. */
 .menu__list-item.agrag-hidden {
   display: none;
+}
+
+[data-theme="dark"] .navbar__items--right > .navbar-cta,
+[data-theme="dark"] .navbar__items--right > .navbar-cta:hover {
+  color: #0a1626;
+}
+
+/* Docs pages: the active sidebar link is a tinted pill, and the table of contents
+   carries a heading, as in the Docling docs. */
+.menu__link {
+  border-radius: 8px;
+}
+
+.menu__link--active:not(.menu__link--sublist) {
+  font-weight: 500;
+}
+
+.theme-doc-toc-desktop::before {
+  content: "On this page";
+  display: block;
+  padding: 0 var(--ifm-toc-padding-horizontal) 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 700;
 }
