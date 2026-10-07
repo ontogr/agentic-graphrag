@@ -214,7 +214,7 @@ requires-dist = [
     { name = "rapidfuzz", specifier = ">=3.0" },
     { name = "scikit-learn", marker = "extra == 'eval'", specifier = ">=1.5" },
     { name = "scipy", specifier = ">=1.14" },
-    { name = "selectolax", specifier = ">=0.3.21" },
+    { name = "selectolax", specifier = ">=0.3.21,<1" },
     { name = "sentence-transformers", marker = "extra == 'embed-local'", specifier = ">=5" },
     { name = "transformers", marker = "extra == 'extract'", specifier = "<4.56" },
     { name = "weaviate-client", marker = "extra == 'weaviate'", specifier = ">=4.9" },

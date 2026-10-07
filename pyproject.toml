@@ -32,7 +32,7 @@ dependencies = [
   "openinference-semantic-conventions",
   "charset-normalizer>=3.4",
   "markdown-it-py>=3.0",
-  "selectolax>=0.3.21",
+  "selectolax>=0.3.21,<1",
   "rapidfuzz>=3.0",
   "scipy>=1.14",
 ]
