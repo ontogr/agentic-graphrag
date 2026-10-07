@@ -68,6 +68,7 @@ source = { editable = "." }
 dependencies = [
     { name = "charset-normalizer" },
     { name = "chonkie" },
+    { name = "fastembed" },
     { name = "markdown-it-py" },
     { name = "openinference-semantic-conventions" },
     { name = "opentelemetry-api" },
@@ -134,7 +135,6 @@ observability = [
     { name = "opentelemetry-sdk" },
 ]
 qdrant = [
-    { name = "fastembed" },
     { name = "qdrant-client" },
 ]
 weaviate = [
@@ -188,7 +188,7 @@ requires-dist = [
     { name = "deepeval", marker = "extra == 'eval'", specifier = ">=4.2.6" },
     { name = "docling", marker = "extra == 'docling'", specifier = ">=2.0" },
     { name = "er-evaluation", marker = "extra == 'eval'", specifier = ">=2.3.0" },
-    { name = "fastembed", marker = "extra == 'qdrant'", specifier = ">=0.4" },
+    { name = "fastembed", specifier = ">=0.8.0" },
     { name = "gliner2", extras = ["local"], marker = "extra == 'extract'" },
     { name = "graspologic-native", marker = "extra == 'community'", specifier = ">=1.2.5" },
     { name = "langchain-openai", marker = "extra == 'agents'", specifier = ">=1.0" },

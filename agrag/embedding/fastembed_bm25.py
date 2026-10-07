@@ -6,7 +6,6 @@ from typing import Any
 
 from opentelemetry.trace import SpanKind, Tracer
 
-from agrag.embedding.errors import EmbeddingMissingExtraError
 from agrag.embedding.sparse_base import SparseEmbedder, SparseVector
 from agrag.observability import get_tracer
 
@@ -19,9 +18,7 @@ class FastEmbedBM25Embedder(SparseEmbedder):
 
     The model loads lazily on first ``embed``, so constructing the embedder
     does not download weights. Each blocking call into FastEmbed runs in a
-    worker thread, keeping the event loop free. FastEmbed ships with the
-    ``qdrant`` extra, so a clean install without that extra raises
-    ``EmbeddingMissingExtraError`` rather than ``ImportError``.
+    worker thread, keeping the event loop free.
     """
 
     def __init__(
@@ -49,17 +46,11 @@ class FastEmbedBM25Embedder(SparseEmbedder):
 
         Returns:
             The loaded sparse embedding model.
-
-        Raises:
-            EmbeddingMissingExtraError: fastembed is not installed.
         """
-        try:
-            # Lazy import: a clean install must raise
-            # EmbeddingMissingExtraError, not ImportError, when fastembed
-            # is absent. fastembed is bundled into the `qdrant` extra.
-            from fastembed import SparseTextEmbedding  # noqa: PLC0415
-        except ImportError as exc:
-            raise EmbeddingMissingExtraError("qdrant") from exc
+        # Import here: onnxruntime is slow to import, and a caller that never
+        # embeds should not pay for it.
+        from fastembed import SparseTextEmbedding  # noqa: PLC0415
+
         model_name = self._model_name or DEFAULT_BM25_MODEL
         return SparseTextEmbedding(model_name=model_name)
 
@@ -74,9 +65,6 @@ class FastEmbedBM25Embedder(SparseEmbedder):
 
         Returns:
             The loaded sparse embedding model.
-
-        Raises:
-            EmbeddingMissingExtraError: fastembed is not installed.
         """
         if self._model is not None:
             return self._model
