@@ -52,11 +52,11 @@ Class: `EmbeddingSettings`. Prefix: `EMBEDDING_`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `EMBEDDING_MODEL` | `ibm-granite/granite-embedding-small-english-r2` | The sentence-transformers model name or path. |
-| `EMBEDDING_DEVICE` | none | The device, such as `cpu` or `cuda`. None lets sentence-transformers choose. |
+| `EMBEDDING_MODEL` | `ibm-granite/granite-embedding-small-english-r2` | The model name. The default embedder takes a model that FastEmbed supports. A `SentenceTransformerEmbedder` takes a sentence-transformers model name or path. |
+| `EMBEDDING_DEVICE` | none | The device, such as `cpu` or `cuda`. Only `SentenceTransformerEmbedder` uses it. None lets sentence-transformers choose. |
 | `EMBEDDING_NORMALIZE` | `true` | Whether to L2-normalize the vectors. |
 | `EMBEDDING_BATCH_SIZE` | `32` | Texts encoded per call. |
-| `EMBEDDING_CACHE_FOLDER` | none | Where sentence-transformers caches downloaded models. |
+| `EMBEDDING_CACHE_FOLDER` | none | Where the embedder caches downloaded model files. |
 
 ## LLM clients
 

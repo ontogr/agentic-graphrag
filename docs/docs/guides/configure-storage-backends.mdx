@@ -18,7 +18,7 @@ Install the core package. Then install one extra for each backend you use.
 
 ```bash
 uv pip install agentic-graphrag
-uv pip install "agentic-graphrag[embed-local]"   # local embedding models
+uv pip install "agentic-graphrag[embed-local]"   # sentence-transformers embedding models
 uv pip install "agentic-graphrag[qdrant]"        # Qdrant vector store
 uv pip install "agentic-graphrag[weaviate]"      # Weaviate vector store
 uv pip install "agentic-graphrag[milvus]"        # Milvus vector store
@@ -30,8 +30,9 @@ must install the `neo4j` extra to use `GraphStore`.
 
 ## Set up the embedder
 
-`build_embedder` takes a sentence-transformers model name. It returns a
-ready-to-use embedder. The default model is `ibm-granite/granite-embedding-small-english-r2`.
+`build_embedder` takes a FastEmbed model name. It returns a ready-to-use embedder
+that runs the model on the CPU with ONNX Runtime. The default model is
+`ibm-granite/granite-embedding-small-english-r2`.
 
 ```python
 import asyncio
@@ -48,8 +49,10 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-To use a different model, or to set the device or batch size, build a
-`SentenceTransformerEmbedder` yourself. Pass its own `EmbeddingSettings`.
+To use another model that FastEmbed supports, pass its name to `build_embedder`. To use
+a sentence-transformers model, or to set the device, build a
+`SentenceTransformerEmbedder` yourself. It needs the `embed-local` extra. Pass its own
+`EmbeddingSettings`.
 
 {/* pmd-metadata: notest */}
 
@@ -67,8 +70,8 @@ Set these variables instead of passing `EmbeddingSettings` fields in code.
 
 | Variable | Meaning |
 | --- | --- |
-| `EMBEDDING_MODEL` | The sentence-transformers model name. |
-| `EMBEDDING_DEVICE` | The device to load the model on. |
+| `EMBEDDING_MODEL` | The model name. |
+| `EMBEDDING_DEVICE` | The device to load the model on. Only `SentenceTransformerEmbedder` uses it. |
 | `EMBEDDING_NORMALIZE` | Whether to normalize output vectors. |
 | `EMBEDDING_BATCH_SIZE` | The number of texts per encode call. |
 

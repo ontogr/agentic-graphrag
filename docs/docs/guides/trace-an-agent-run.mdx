@@ -12,7 +12,7 @@ This guide shows how to record OpenTelemetry spans for each `build_agent` run. T
 Install the agent and observability extras:
 
 ```bash
-pip install 'agentic-graphrag[neo4j,embed-local,agents,observability]'
+pip install 'agentic-graphrag[neo4j,agents,observability]'
 ```
 
 Without the `observability` extra, `build_agent(tracer=...)` raises `AgentMissingExtraError` that names `agentic-graphrag[observability]`.

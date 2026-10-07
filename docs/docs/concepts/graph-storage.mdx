@@ -56,7 +56,7 @@ The weight is a number from 0 to 1. A value of 1 means dense search only. A valu
 
 ## Embedders
 
-An embedder turns text into a vector. The default embedder runs a Sentence Transformers model on your machine. The default model produces 384 values per text. Qdrant hybrid search also uses a keyword embedder.
+An embedder turns text into a vector. The default embedder runs a FastEmbed model on your machine. The default model produces 384 values per text. Qdrant hybrid search also uses a keyword embedder.
 
 `Graph.open` compares the embedder's dimension with each vector index in Neo4j and each collection in a vector store. It raises an error when they differ. It raises before it writes any vector.
 
