@@ -5,7 +5,7 @@ title: Installation
 
 # Installation
 
-This page shows how to install `agrag` with the extras that you need.
+This page shows how to install `agrag` and choose the extras that you need.
 
 ## Requirements
 
@@ -15,14 +15,21 @@ This page shows how to install `agrag` with the extras that you need.
 
 ## Install the package
 
-Create a virtual environment. Then install the package:
+To use `agrag`, install `agentic-graphrag` from your Python package manager.
+
+With pip:
 
 ```bash
-uv venv
-uv pip install agentic-graphrag
+pip install agentic-graphrag
 ```
 
-The base install includes the loaders, the chunkers, and the data models. Storage, embeddings, extraction, and the agent are extras.
+With [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv add agentic-graphrag
+```
+
+To install uv, see the [installation docs](https://docs.astral.sh/uv/getting-started/installation/).
 
 Check the install:
 
@@ -32,9 +39,34 @@ import agrag
 print(agrag.__version__)
 ```
 
-## Choose your extras
+## What the base install includes
 
-Add an extra in square brackets, for example `agentic-graphrag[neo4j,extract]`.
+The base install has the parts of `agrag` that need no database, no model runtime, and no LLM client:
+
+- The data models, such as the graph schema and the search result.
+- Loaders for files, directories, and raw text, including Markdown, HTML, and CSV.
+- The built-in chunkers: recursive, sentence, token, heading, parent-child, and turn-window.
+- The OpenTelemetry API calls that trace each step. Without the `observability` extra, these calls do nothing.
+
+To build and search a graph, you also need a graph store, an extractor, and an embedder. Each one comes as an extra.
+
+## Install extras
+
+Different parts of `agrag` need different packages. The base install leaves these packages out, so that you install only what you use. Each group of packages is an extra.
+
+Add the extras in square brackets, separated by commas:
+
+```bash
+pip install "agentic-graphrag[neo4j,extract,embed-local]"
+```
+
+```bash
+uv add "agentic-graphrag[neo4j,extract,embed-local]"
+```
+
+If an extra is missing, `agrag` raises an error that names the extra to install.
+
+### Available extras
 
 | Extra | Adds |
 | --- | --- |
@@ -54,7 +86,7 @@ Add an extra in square brackets, for example `agentic-graphrag[neo4j,extract]`.
 | `chunk-neural` | The neural chunker |
 | `chunk-code` | The code chunker |
 
-Pick the extras for your goal:
+### Extras by goal
 
 | Goal | Extras |
 | --- | --- |
@@ -63,27 +95,23 @@ Pick the extras for your goal:
 | Read PDF and Office files | Add `docling` |
 | Extract with an LLM instead of a local model | `neo4j,llm,embed-local` |
 | Search with a dedicated vector store | Add `qdrant`, `weaviate`, or `milvus` |
+| Find communities of related entities | Add `community` |
 | Record traces | Add `observability` |
+| Measure answer quality | Add `eval` |
 
-## Save disk space with CPU-only PyTorch
+## Choose a PyTorch build
 
-The `extract`, `embed-local`, `docling`, and `chunk-neural` extras install PyTorch. On Linux, the default PyTorch build from PyPI includes several gigabytes of NVIDIA CUDA libraries. Package metadata cannot select a smaller build, so you choose the build when you install.
+The `embed-local`, `extract`, `docling`, and `chunk-neural` extras depend on PyTorch. To choose the PyTorch build, for example a CPU-only build on Linux, use one of these methods.
 
-A development environment with every extra and group takes 2.2 GB with the CPU build and 6.0 GB with the default Linux build.
-
-### With uv pip
-
-Add `--torch-backend=auto`. uv looks for a GPU driver. It installs the PyTorch build that matches the driver, or the CPU build when it finds no GPU.
+With `uv pip`, add `--torch-backend=auto`. uv looks for a GPU driver. It installs the build that matches the driver, or the CPU build when it finds no GPU.
 
 ```bash
 uv pip install "agentic-graphrag[neo4j,extract,embed-local]" --torch-backend=auto
 ```
 
-To always install the CPU build, use `--torch-backend=cpu`. This flag is a uv preview feature. It works with `uv pip` only.
+To always install the CPU build, use `--torch-backend=cpu`. This flag is a uv preview feature, and it works with `uv pip` only.
 
-### With uv add
-
-`uv add` has no `--torch-backend` flag. List `torch` as a direct dependency in your `pyproject.toml` and point it at the CPU index. uv applies an index to direct dependencies only.
+With `uv add`, list `torch` as a direct dependency in your `pyproject.toml`, and point it at the CPU index. uv applies an index to direct dependencies only.
 
 ```toml
 [project]
@@ -98,14 +126,14 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 ```
 
-### With pip
-
-Install the CPU build first. The second command keeps it.
+With pip, install the CPU build first. The second command keeps it.
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install "agentic-graphrag[neo4j,extract,embed-local]"
 ```
+
+For other builds, such as a specific CUDA version, see the [PyTorch install page](https://pytorch.org/get-started/locally/).
 
 ## Next steps
 
