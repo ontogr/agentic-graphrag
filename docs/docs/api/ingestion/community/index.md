@@ -24,4 +24,4 @@ Community detection: hierarchical Leiden over the entity graph.
 **Attributes:**
 
 - [**WeightedEdge**](WeightedEdge.md) – One domain relation as (source_id, target_id, weight, relation_type).
-- [**logger**](../../retrieval/retrievers/text2cypher/logger.md) –
+- [**logger**](logger.md) –

@@ -19,4 +19,4 @@ Per-stage failure record and its per-call cap.
 **Attributes:**
 
 - [**MAX_FAILURES_PER_STAGE**](MAX_FAILURES_PER_STAGE.md) –
-- [**logger**](../../../retrieval/retrievers/text2cypher/logger.md) –
+- [**logger**](logger.md) –

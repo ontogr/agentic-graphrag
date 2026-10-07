@@ -5,7 +5,7 @@ sidebar_label: ExactMatch
 
 # `agrag.ingestion.resolve.comparators.ExactMatch` \{#agrag-ingestion-resolve-comparators-ExactMatch}
 
-Bases: <code>[Comparator](Comparator.md)</code>
+Bases: <code>[Comparator](../resolver/Comparator.md)</code>
 
 Matches when normalized text is identical. Never returns NO_MATCH.
 

@@ -137,7 +137,9 @@ def dedupe(pages: dict[str, str]) -> dict[str, str]:
     A package page documents an object that its ``__init__`` imports from a
     submodule, and the submodule page documents it again. The two pages match
     once the dotted names are cut to their last segment. The page with the
-    longest, defining name stays. Links to the dropped name move to the kept one.
+    longest, defining name stays. A copy goes only if its module is a parent
+    package of the defining module, so same-named objects in unrelated modules
+    both stay. Links to the dropped name move to the kept one.
 
     Args:
         pages: Page text keyed by path without extension.
@@ -158,10 +160,12 @@ def dedupe(pages: dict[str, str]) -> dict[str, str]:
     dropped: dict[str, str] = {}
     kept = dict(pages)
     for copies in groups.values():
-        copies.sort(key=lambda copy: len(copy[1]))
-        for key, title in copies[:-1]:
-            del kept[key]
-            dropped[title] = copies[-1][1]
+        defining = max(copies, key=lambda copy: len(copy[1]))[1]
+        for key, title in copies:
+            package = title.rsplit(".", 1)[0]
+            if title != defining and defining.startswith(f"{package}."):
+                del kept[key]
+                dropped[title] = defining
 
     def retarget(match: re.Match[str]) -> str:
         target = match[1]
@@ -239,6 +243,12 @@ def shorten(pages: dict[str, str]) -> dict[str, str]:
 
     The page title keeps the full dotted name. The heading id keeps it too, so
     links still resolve.
+
+    Args:
+        pages: Page text keyed by page name.
+
+    Returns:
+        The pages with shortened headings.
     """
     return {
         key: HEADING.sub(

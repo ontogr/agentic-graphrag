@@ -13,7 +13,7 @@ The verdict and evidence produced by one comparator.
 
 - [**reasoning**](#agrag-ingestion-resolve-comparators-ComparisonResult-reasoning) (<code>str | None</code>) –
 - [**score**](#agrag-ingestion-resolve-comparators-ComparisonResult-score) (<code>float | None</code>) –
-- [**verdict**](#agrag-ingestion-resolve-comparators-ComparisonResult-verdict) (<code>[ComparisonVerdict](ComparisonVerdict.md)</code>) –
+- [**verdict**](#agrag-ingestion-resolve-comparators-ComparisonResult-verdict) (<code>[ComparisonVerdict](../resolver/ComparisonVerdict.md)</code>) –
 
 ## `reasoning` \{#agrag-ingestion-resolve-comparators-ComparisonResult-reasoning}
 

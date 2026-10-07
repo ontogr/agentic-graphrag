@@ -1,15 +1,15 @@
 ---
-title: agrag.ingestion.resolve.comparators.LLMVerify
+title: agrag.ingestion.resolve.resolver.LLMVerify
 sidebar_label: LLMVerify
 ---
 
-# `agrag.ingestion.resolve.comparators.LLMVerify` \{#agrag-ingestion-resolve-comparators-LLMVerify}
+# `agrag.ingestion.resolve.resolver.LLMVerify` \{#agrag-ingestion-resolve-resolver-LLMVerify}
 
 ```python
 LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50, tracer:Tracer | None = None) -> None
 ```
 
-Bases: <code>[Comparator](../resolver/Comparator.md)</code>
+Bases: <code>[Comparator](Comparator.md)</code>
 
 Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
 
@@ -21,17 +21,17 @@ raised outright instead (see compare's Raises section).
 
 **Functions:**
 
-- [**compare**](#agrag-ingestion-resolve-comparators-LLMVerify-compare) – Return the LLM's verdict for one pair, or NO_MATCH on failure.
-- [**compare_batch**](#agrag-ingestion-resolve-comparators-LLMVerify-compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
-- [**compare_batch_detailed**](#agrag-ingestion-resolve-comparators-LLMVerify-compare_batch_detailed) – Verify pairs and count how many verdicts came back uncertain.
-- [**compare_with_evidence**](#agrag-ingestion-resolve-comparators-LLMVerify-compare_with_evidence) – Compare two entities and retain any available decision evidence.
+- [**compare**](#agrag-ingestion-resolve-resolver-LLMVerify-compare) – Return the LLM's verdict for one pair, or NO_MATCH on failure.
+- [**compare_batch**](#agrag-ingestion-resolve-resolver-LLMVerify-compare_batch) – Verify ambiguous candidate pairs across bounded LLM requests.
+- [**compare_batch_detailed**](#agrag-ingestion-resolve-resolver-LLMVerify-compare_batch_detailed) – Verify pairs and count how many verdicts came back uncertain.
+- [**compare_with_evidence**](#agrag-ingestion-resolve-resolver-LLMVerify-compare_with_evidence) – Compare two entities and retain any available decision evidence.
 
 **Attributes:**
 
-- [**chunks_by_id**](#agrag-ingestion-resolve-comparators-LLMVerify-chunks_by_id) –
-- [**failed_requests**](#agrag-ingestion-resolve-comparators-LLMVerify-failed_requests) (<code>int</code>) –
-- [**max_pairs_per_batch**](#agrag-ingestion-resolve-comparators-LLMVerify-max_pairs_per_batch) –
-- [**settings**](#agrag-ingestion-resolve-comparators-LLMVerify-settings) –
+- [**chunks_by_id**](#agrag-ingestion-resolve-resolver-LLMVerify-chunks_by_id) –
+- [**failed_requests**](#agrag-ingestion-resolve-resolver-LLMVerify-failed_requests) (<code>int</code>) –
+- [**max_pairs_per_batch**](#agrag-ingestion-resolve-resolver-LLMVerify-max_pairs_per_batch) –
+- [**settings**](#agrag-ingestion-resolve-resolver-LLMVerify-settings) –
 
 **Parameters:**
 
@@ -48,13 +48,13 @@ raised outright instead (see compare's Raises section).
 - **tracer** (<code>Tracer | None</code>) – Opens the `agrag.resolution.llm_verify` span and the
   LLM call spans below it.
 
-## `chunks_by_id` \{#agrag-ingestion-resolve-comparators-LLMVerify-chunks_by_id}
+## `chunks_by_id` \{#agrag-ingestion-resolve-resolver-LLMVerify-chunks_by_id}
 
 ```python
 chunks_by_id = chunks_by_id
 ```
 
-## `compare` \{#agrag-ingestion-resolve-comparators-LLMVerify-compare}
+## `compare` \{#agrag-ingestion-resolve-resolver-LLMVerify-compare}
 
 ```python
 compare(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonVerdict
@@ -70,7 +70,7 @@ batch validation and fail-safe behavior.
 - <code>[ExtractorMissingExtraError](../../extract/ExtractorMissingExtraError.md)</code> – The `llm` package extra is not
   installed.
 
-## `compare_batch` \{#agrag-ingestion-resolve-comparators-LLMVerify-compare_batch}
+## `compare_batch` \{#agrag-ingestion-resolve-resolver-LLMVerify-compare_batch}
 
 ```python
 compare_batch(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, similarities:dict[tuple[int, int], float] | None = None, neighbors_by_index:dict[int, list[str]] | None = None) -> dict[tuple[int, int], ComparisonResult]
@@ -91,7 +91,7 @@ Invalid, missing, and uncertain model responses do not merge entities.
   context strings. Looked up globally, so every chunk sees the
   same map.
 
-## `compare_batch_detailed` \{#agrag-ingestion-resolve-comparators-LLMVerify-compare_batch_detailed}
+## `compare_batch_detailed` \{#agrag-ingestion-resolve-resolver-LLMVerify-compare_batch_detailed}
 
 ```python
 compare_batch_detailed(pairs:list[tuple[int, int, ExtractedEntity, ExtractedEntity]], *, similarities:dict[tuple[int, int], float] | None = None, neighbors_by_index:dict[int, list[str]] | None = None) -> tuple[dict[tuple[int, int], ComparisonResult], int]
@@ -110,12 +110,12 @@ Verify pairs and count how many verdicts came back uncertain.
 
 **Returns:**
 
-- <code>dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\]</code> – The per-pair results and the count of raw uncertain verdicts,
+- <code>dict\[tuple\[int, int\], [ComparisonResult](ComparisonResult.md)\]</code> – The per-pair results and the count of raw uncertain verdicts,
 - <code>int</code> – before the fail-safe maps them to NO_MATCH. A request that
-- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\], int\]</code> – errors maps its pairs to NO_MATCH and increments
-- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\], int\]</code> – failed_requests.
+- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](ComparisonResult.md)\], int\]</code> – errors maps its pairs to NO_MATCH and increments
+- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](ComparisonResult.md)\], int\]</code> – failed_requests.
 
-## `compare_with_evidence` \{#agrag-ingestion-resolve-comparators-LLMVerify-compare_with_evidence}
+## `compare_with_evidence` \{#agrag-ingestion-resolve-resolver-LLMVerify-compare_with_evidence}
 
 ```python
 compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
@@ -123,19 +123,19 @@ compare_with_evidence(a:ExtractedEntity, b:ExtractedEntity) -> ComparisonResult
 
 Compare two entities and retain any available decision evidence.
 
-## `failed_requests` \{#agrag-ingestion-resolve-comparators-LLMVerify-failed_requests}
+## `failed_requests` \{#agrag-ingestion-resolve-resolver-LLMVerify-failed_requests}
 
 ```python
 failed_requests: int = 0
 ```
 
-## `max_pairs_per_batch` \{#agrag-ingestion-resolve-comparators-LLMVerify-max_pairs_per_batch}
+## `max_pairs_per_batch` \{#agrag-ingestion-resolve-resolver-LLMVerify-max_pairs_per_batch}
 
 ```python
 max_pairs_per_batch = max_pairs_per_batch
 ```
 
-## `settings` \{#agrag-ingestion-resolve-comparators-LLMVerify-settings}
+## `settings` \{#agrag-ingestion-resolve-resolver-LLMVerify-settings}
 
 ```python
 settings = settings

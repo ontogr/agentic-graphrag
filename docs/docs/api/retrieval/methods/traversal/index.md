@@ -20,4 +20,4 @@ testable and `SearchEngine` stays an orchestrator over them.
 
 **Attributes:**
 
-- [**logger**](../../retrievers/text2cypher/logger.md) –
+- [**logger**](logger.md) –

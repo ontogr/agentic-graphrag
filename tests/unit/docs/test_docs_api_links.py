@@ -141,3 +141,14 @@ def test_a_re_exported_object_keeps_only_its_defining_page() -> None:
     assert set(out) == {"pkg/mod/Thing", "pkg/mod/Other", "pkg/index"}
     assert "(#agrag.pkg.mod.Thing)" in out["pkg/index"]
     assert "(#agrag.pkg.mod.Thing.run)" in out["pkg/mod/Other"]
+
+
+def test_same_named_objects_in_unrelated_modules_both_stay() -> None:
+    """Two loggers with the same docs are not re-exports of each other."""
+    text = "---\ntitle: agrag.{}.logger\n---\n\n# `agrag.{}.logger`\n\nA logger.\n"
+    pages = {
+        "a/logger": text.format("a", "a"),
+        "b/c/logger": text.format("b.c", "b.c"),
+    }
+
+    assert set(docs_api_links.dedupe(pages)) == set(pages)

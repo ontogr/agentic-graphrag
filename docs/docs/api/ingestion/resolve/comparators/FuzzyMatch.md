@@ -9,7 +9,7 @@ sidebar_label: FuzzyMatch
 FuzzyMatch(*, match_above:float = 0.97) -> None
 ```
 
-Bases: <code>[Comparator](Comparator.md)</code>
+Bases: <code>[Comparator](../resolver/Comparator.md)</code>
 
 Fast-path accepter for near-identical names. Never returns NO_MATCH.
 

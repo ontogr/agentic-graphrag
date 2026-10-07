@@ -34,7 +34,7 @@ merge without spending LLM calls.
 
 **Parameters:**
 
-- **comparators** (<code>list\[[Comparator](../comparators/Comparator.md)\]</code>) – The ExactMatch, FuzzyMatch, and LLMVerify tiers,
+- **comparators** (<code>list\[[Comparator](Comparator.md)\]</code>) – The ExactMatch, FuzzyMatch, and LLMVerify tiers,
   each picked out by type. A missing ExactMatch or FuzzyMatch
   falls back to its defaults; without an LLMVerify the LLM
   tier is skipped and boundary pairs never merge.
