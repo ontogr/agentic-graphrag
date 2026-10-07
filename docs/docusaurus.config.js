@@ -118,10 +118,9 @@ const config = {
         title: 'Agentic GraphRAG',
         logo: {alt: 'Agentic GraphRAG logo', src: 'img/logo.svg'},
         items: [
-          {type: 'docSidebar', sidebarId: 'startSidebar', position: 'left', label: 'Get Started', 'data-text': 'Get Started'},
-          {type: 'docSidebar', sidebarId: 'conceptsSidebar', position: 'left', label: 'Concepts', 'data-text': 'Concepts'},
-          {type: 'docSidebar', sidebarId: 'guidesSidebar', position: 'left', label: 'Guides', 'data-text': 'Guides'},
-          {type: 'docSidebar', sidebarId: 'referenceSidebar', position: 'left', label: 'Reference', 'data-text': 'Reference'},
+          {type: 'docSidebar', sidebarId: 'docsSidebar', position: 'left', label: 'Documentation', 'data-text': 'Documentation'},
+          {type: 'docSidebar', sidebarId: 'referenceSidebar', position: 'left', label: 'API reference', 'data-text': 'API reference'},
+          {type: 'doc', docId: 'changelog', position: 'left', label: 'Changelog', 'data-text': 'Changelog'},
           {type: 'search', position: 'right'},
           {
             href: 'https://github.com/ontogr/agentic-graphrag',
@@ -152,9 +151,11 @@ const config = {
             title: 'Docs',
             items: [
               {label: 'Introduction', to: '/get-started/introduction'},
-              {label: 'Concepts', to: '/concepts/architecture'},
-              {label: 'Guides', to: '/guides/ingest-documents'},
-              {label: 'API Reference', to: '/api'},
+              {label: 'Quickstart', to: '/get-started/quickstart'},
+              {label: 'Architecture', to: '/concepts/architecture'},
+              {label: 'Ingest documents', to: '/guides/ingest-documents'},
+              {label: 'API reference', to: '/api'},
+              {label: 'Changelog', to: '/changelog'},
             ],
           },
           {

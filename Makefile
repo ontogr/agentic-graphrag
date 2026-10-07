@@ -1,4 +1,4 @@
-.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build docs-test
+.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help changelog docs-api docs-install docs-dev docs-build docs-test
 
 export UV_LOCKED = 1
 
@@ -37,6 +37,7 @@ help:
 	@echo "  make build            - Build sdist and wheel into dist/"
 	@echo "  make wheel-test       - Install the built wheel in a clean env and import it"
 	@echo "  make docs-api         - Regenerate the per-package API pages in docs/docs/api/ from docstrings"
+	@echo "  make changelog        - Rebuild CHANGELOG.md from the git history"
 	@echo "  make docs-install     - Install the Docusaurus site's npm dependencies"
 	@echo "  make docs-dev         - Run the Docusaurus dev server"
 	@echo "  make docs-build       - Regenerate the API reference and build the docs site"
@@ -254,6 +255,11 @@ docs-api:
 	    && mv docs/docs/api/$$p.md.tmp docs/docs/api/$$p.md || exit 1; \
 	  i=$$((i+1)); done
 	$(DOCS_PYTHON) .github/scripts/docs_api_links.py docs/docs/api
+
+changelog:
+	uvx git-cliff@2.14.2 --output CHANGELOG.md
+	@# git-cliff ends the file with a blank line, which the end-of-file hook removes.
+	@printf '%s\n' "$$(cat CHANGELOG.md)" > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
 
 docs-install:
 	cd docs && npm ci
