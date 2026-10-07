@@ -8,6 +8,7 @@ on:
       - "docs/**"
       - "agrag/**"
       - "pyproject.toml"
+      - "CHANGELOG.md"
       - "uv.lock"
       - "Makefile"
       - ".github/scripts/docs_api_links.py"

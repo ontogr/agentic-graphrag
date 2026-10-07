@@ -3,12 +3,9 @@
 ## Reporting a Security Vulnerability
 
 We take security bugs seriously and appreciate responsible disclosure.
-Please do **not** report security vulnerabilities through public GitHub issues, discussions, or pull requests.
+Please do not report security vulnerabilities through public GitHub issues, discussions, or pull requests.
 
-Instead, please report them privately using one of the following methods:
-
-- [GitHub Security Advisories](https://github.com/ontogr/agentic-graphrag/security/advisories/new) - the preferred method, using GitHub's private vulnerability reporting feature.
-- Email one of the maintainers directly. Maintainer contact details are listed on their GitHub profiles.
+Instead, report them privately with one of these two methods. Report them through [GitHub Security Advisories](https://github.com/ontogr/agentic-graphrag/security/advisories/new). This is the preferred method, and it uses the private vulnerability reporting feature of GitHub. You can also email one of the maintainers directly. Maintainer contact details are on their GitHub profiles.
 
 Please include as much of the following information as possible to help us
 triage your report:

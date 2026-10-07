@@ -115,7 +115,7 @@ def _group_by_document(
     extraction failures, so it can ingest as its own Cutover Job. Order
     follows the documents' first occurrence. A chunk, mention, or failure
     that maps to no listed document joins the first slice rather than
-    being dropped; with no documents at all but stray chunks, the first
+    being dropped. With no documents at all but stray chunks, the first
     chunk's document linkage keys the single slice.
 
     Args:
@@ -205,9 +205,9 @@ def _merge_add_results(
 ) -> AddResult:
     """Combine per-document job results into one call-level summary.
 
-    Each document in an add() call commits as its own Cutover Job; the
+    Each document in an add() call commits as its own Cutover Job. The
     caller still gets a single AddResult shaped exactly like a one-job
-    call's. Counters sum, failure lists concatenate re-capped against the
+    call. Counters sum, failure lists concatenate re-capped against the
     per-stage cap with true totals preserved, and chunks concatenate in
     job order. The call-level ingestion and chunking summaries passed in replace
     the per-slice placeholders.
@@ -364,7 +364,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
     cleanup: CleanupStep,
     tracer: Tracer,
 ) -> AddResult:
-    """Add content to the graph; ``Graph.add`` documents the arguments."""
+    """Add content to the graph. ``Graph.add`` documents the arguments."""
     with tracer.start_as_current_span("agrag.ingestion.add"):
         opts = read_options or ReadOptions()
         given = sum(x is not None for x in (source, text, documents))
@@ -589,7 +589,7 @@ async def update_document(  # noqa: PLR0913
     cleanup: CleanupStep,
     tracer: Tracer,
 ) -> UpdateResult:
-    """Replace one document version; ``Graph.update`` documents the arguments."""
+    """Replace one document version. ``Graph.update`` documents the arguments."""
     with tracer.start_as_current_span("agrag.ingestion.update"):
         if (text is None) == (source is None):
             raise ValueError("Provide exactly one of 'text' or 'source'.")
@@ -726,7 +726,7 @@ async def delete_document(  # noqa: PLR0913
     cleanup: CleanupStep,
     tracer: Tracer,
 ) -> UpdateResult:
-    """Soft-delete one document; ``Graph.delete_document`` documents the arguments."""
+    """Soft-delete one document. ``Graph.delete_document`` documents the arguments."""
     with tracer.start_as_current_span("agrag.ingestion.delete_document"):
         found = await find_document(graph_store, document_key=document_key)
         if found is None:

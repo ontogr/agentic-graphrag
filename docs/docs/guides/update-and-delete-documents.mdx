@@ -1,6 +1,6 @@
 ---
 title: Update and delete documents
-description: Replace a changed document, remove a document from search, and check what stays in the graph.
+description: Replace a changed document, remove a document from search, and see what stays in the graph.
 ---
 
 # Update and delete documents
@@ -102,8 +102,8 @@ result = await graph.update("apollo-notes", text="New text")
 
 Read the result:
 
-- `no_op` is `True` when the content and the chunker settings did not change. agrag then skips chunking, extraction and every write.
-- `chunks_closed` counts the chunks of the old version that agrag closed.
+- `no_op` is `True` when the content and the chunker configuration did not change. Agentic GraphRAG then skips chunking, extraction and every write.
+- `chunks_closed` counts the chunks of the old version that Agentic GraphRAG closed.
 - `add_result` holds the summary of the new ingestion, as `Graph.add` returns it.
 
 If the key does not exist yet, `Graph.update` adds the content as a new document.
@@ -120,7 +120,7 @@ result = await graph.delete_document("apollo-notes")
 
 The call removes the document from search. It does not delete the document node, the chunks or the history. A key that does not exist gives `no_op=True`.
 
-## Check what stays in the graph
+## See what stays in the graph
 
 After the script above, run this query. It lists the chunks of each document and whether the link to them is open.
 
@@ -164,7 +164,7 @@ What happens to entities:
 
 ## If a call stops halfway
 
-`Graph.update` and `Graph.delete_document` are safe to interrupt. Open the graph again and agrag finishes or undoes the unfinished call. See [Ingestion pipeline](/concepts/ingestion#crash-safety).
+`Graph.update` and `Graph.delete_document` are safe to interrupt. Open the graph again and Agentic GraphRAG finishes or undoes the unfinished call. See [Ingestion pipeline](/concepts/ingestion#crash-safety).
 
 ## Related
 

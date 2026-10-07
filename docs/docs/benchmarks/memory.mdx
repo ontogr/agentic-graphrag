@@ -5,15 +5,15 @@ title: Memory benchmark
 
 # Memory benchmark
 
-This page describes the Memory benchmark: the questions, the graph schema, how `agrag` answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
+This page describes the Memory benchmark: the questions, the graph schema, how Agentic GraphRAG answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
 
 ## The dataset
 
 [BEAM](https://github.com/mohammadtavakoli78/BEAM) ([paper](https://arxiv.org/abs/2510.27246)) tests memory over a long chat between a user and an assistant. Each conversation has many sessions, and each session has many messages. After the chat, the benchmark asks probing questions about it. Each question has a rubric: a list of facts that a correct answer must state.
 
-The harness reads the 100K-token split of the dataset [`Mohammadta/BEAM`](https://huggingface.co/datasets/Mohammadta/BEAM) at a pinned revision. It checks the hash of the file before it uses it. It ingests the chat only. The plan, the profile, and the reference answers that the dataset holds beside the chat never reach `agrag`.
+The harness reads the 100K-token split of the dataset [`Mohammadta/BEAM`](https://huggingface.co/datasets/Mohammadta/BEAM) at a pinned revision. It makes sure that the hash of the file matches before it uses the file. It ingests the chat only. The plan, the profile, and the reference answers that the dataset holds beside the chat never reach Agentic GraphRAG.
 
-One assistant message in conversation 4 turned into 345,211 spaces of filler. The harness cuts that message after its last sound text and adds a short marker. It checks the hash of the original first.
+One assistant message in conversation 4 turned into 345,211 spaces of filler. The harness cuts that message after its last sound text and adds a short marker. It makes sure that the hash of the original matches first.
 
 The probing questions fall into ten abilities:
 
@@ -26,7 +26,7 @@ The probing questions fall into ten abilities:
 | `instruction_following` | A request that must follow an earlier standing rule of the user. |
 | `knowledge_update` | A fact that the user changed during the chat. |
 | `multi_session_reasoning` | An answer that joins facts from several sessions. |
-| `preference_following` | A request where an earlier preference of the user should shape the answer. |
+| `preference_following` | A request where an earlier preference of the user shapes the answer. |
 | `summarization` | A summary of a part of the chat. |
 | `temporal_reasoning` | A question about time between events. |
 
@@ -37,7 +37,7 @@ The probing questions fall into ten abilities:
 | Lite | 2 | 1 (`conv17`), 3 messages | 1,279 |
 | Full | 100, ten for each ability | 5 (`conv1`, `conv4`, `conv6`, `conv13`, `conv17`), whole sessions | 568,987 |
 
-The lite set is a quick check, not a sample of the benchmark. It takes 3 messages of conversation 17, so a run takes a few minutes. Each question of the benchmark names the messages that hold its answer (`source_chat_ids`), and the harness ingests only those messages for the two lite questions:
+The lite set is a smoke test, not a sample of the benchmark. It takes 3 messages of conversation 17, so a run takes a few minutes. Each question of the benchmark names the messages that hold its answer (`source_chat_ids`), and the harness ingests only those messages for the two lite questions:
 
 - `conv17:information_extraction:0` asks which days the kids have afterschool activities. Message 18 of session 1 holds the answer.
 - `conv17:multi_session_reasoning:0` asks how many scenes the user had filmed by July 5 and how many were left. Messages 156 and 157 of session 3 hold the answer. Despite its name, the question needs only one session.
@@ -52,7 +52,7 @@ See `benchmarks/schemas/memory.py`. The schema has these entity types: `Person`,
 
 A statement is a node, not a relation, because a relation carries no time and no order. A newer `Fact` `SUPERSEDES` an older one. Two opposing facts stay linked by `CONTRADICTS`. A standing rule (`Instruction` or `Preference`) points at the topic that triggers it. A `Session` node holds the only clock: one date for each session. The order of messages comes from the order of the chunks.
 
-A schema that fits the corpus helps `agrag`, so these numbers do not compare with systems that use another schema.
+A schema that fits the corpus helps Agentic GraphRAG, so these numbers do not compare with systems that use another schema.
 
 ## How answers are scored
 
@@ -60,9 +60,9 @@ A judge model reads the answer and the rubric. It scores each rubric item 1, 0.5
 
 Each question gets these metrics:
 
-- **`score`.** The score of the question.
-- **`score_excluding_known_bad`.** The same score, except that a question with the flag `known_bad_rubric` has no value. The group mean therefore leaves it out.
-- **`event_f1` and `event_tau_norm`.** For `event_ordering` only. The harness splits the answer into lines and matches them to the rubric items. `event_f1` is the F1 of that match. `event_tau_norm` is the normalized rank correlation of the two orders. The `score` of the question is `event_f1` times `event_tau_norm`.
+- `score`: the score of the question.
+- `score_excluding_known_bad`: the same score, except that a question with the flag `known_bad_rubric` has no value. The group mean therefore leaves it out.
+- `event_f1` and `event_tau_norm`: for `event_ordering` only. The harness splits the answer into lines and matches them to the rubric items. `event_f1` is the F1 of that match. `event_tau_norm` is the normalized rank correlation of the two orders. The `score` of the question is `event_f1` times `event_tau_norm`.
 
 The scorer is ported from the benchmark, with its prompts kept. The judge is the judge model of the run. A judge reply that does not parse scores 0 for its item, and the question gets the flag `parse_error`.
 
@@ -70,7 +70,7 @@ The benchmark reports only the rank correlation for event ordering. Its `score` 
 
 Lite mode makes about 2 judge calls for each question, because it has no event-ordering question. Full mode allows for 12 on average, because an event-ordering question compares each answer line with each unused rubric item. It can need about 90 calls.
 
-The judge is the same model as the agent by default, so the scores are biased upward. See [Benchmarks](./index.mdx#who-grades-the-answers).
+The judge is the same model as the agent by default. The scores are therefore biased upward. See [Benchmarks](./index.mdx#who-grades-the-answers).
 
 ## Results of the lite run
 
@@ -103,12 +103,12 @@ uv run python -m benchmarks report --domain memory
 | Judge, 2 questions | 3 | 3k |
 | Total | 21 | 74k |
 
-The run took 153 seconds. The agent made 6 and 7 calls for the two questions. `max_llm_pairs` was 10, which is the most entity pairs per label that resolution sends to the model. The default is 500. A graph this small has few pairs to check, so resolution made only 2 calls.
+The run took 153 seconds. The agent made 6 and 7 calls for the two questions. `max_llm_pairs` was 10, which is the most entity pairs per label that resolution sends to the model. The default is 500. A graph this small has few pairs to compare, so resolution made only 2 calls.
 
-These figures are floors. The cost of a larger slice grows faster than its size, because resolution compares every new entity with the whole graph. The spend cap of the lite set is 40 calls and 120,000 tokens, and the dry-run estimate is 24 calls and 78,000 tokens. The cap checks the estimate before a run and does not stop a run in progress.
+These figures are floors. The cost of a larger slice grows faster than its size, because resolution compares every new entity with the whole graph. The spend cap of the lite set is 40 calls and 120,000 tokens, and the dry-run estimate is 24 calls and 78,000 tokens. The cap uses the estimate before a run and does not stop a run in progress.
 
-A run of the old lite set (all 5 sessions of conversation 17, 10 questions) made 1,018 calls and used 13.3M tokens in 115 minutes. The full set has not been run. The dry-run estimate of the full set is 11,323 calls and 89 million tokens, and its spend cap is 17,000 calls and 133.9 million tokens. The estimate is linear in the chunk count, so a real run can cost more. Run `make bench-dry DOMAIN=memory MODE=full` and read the estimate before you start one.
+A run of the old lite set (all 5 sessions of conversation 17, 10 questions) made 1,018 calls and used 13.3M tokens in 115 minutes. Nobody ran the full set. The dry-run estimate of the full set is 11,323 calls and 89 million tokens, and its spend cap is 17,000 calls and 133.9 million tokens. The estimate is linear in the chunk count. A real run can therefore cost more. Before you start one, run `make bench-dry DOMAIN=memory MODE=full`. Then read the estimate.
 
 ## Terms of use
 
-The BEAM code is under the MIT license. The BEAM data is under CC BY-SA 4.0, and the share-alike term applies to adapted text, so it applies to the trace of a run. A trace holds passages of the chat, so read `benchmarks/results/NOTICE` before you share one.
+The BEAM code is under the MIT license. The BEAM data is under CC BY-SA 4.0, and the share-alike term applies to adapted text. It therefore applies to the trace of a run. A trace holds passages of the chat. Before you share one, read `benchmarks/results/NOTICE`.

@@ -46,7 +46,7 @@ class DoclingChunker(Chunker):
         merge_peers: Whether to merge small neighbours under the same headings.
         repeat_table_header: Whether each chunk of a split table repeats its header.
         omit_header_on_overflow: Whether to drop headings from a chunk when they
-            would not fit the budget.
+            will not fit the budget.
         table_format: ``"triplet"`` writes ``row, column = value`` text and
             ``"markdown"`` writes a pipe table.
     """
@@ -155,9 +155,10 @@ def _to_agrag_bbox(bbox: Any, docling_doc: object, page_no: int) -> BoundingBox 
         page_no: The page the box is on.
 
     Returns:
-        The equivalent agrag bounding box, or ``None`` when the box is bottom-left
-        and the page height cannot be determined, since the flip cannot be
-        computed and returning an unflipped or zero-based box would be wrong.
+        The equivalent agrag bounding box, or ``None`` when the box is
+        bottom-left and the page height cannot be determined. The flip cannot
+        be computed and returning an unflipped or zero-based box will be
+        wrong.
     """
     left = float(bbox.l)
     right = float(bbox.r)

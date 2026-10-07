@@ -14,7 +14,7 @@ def _line_start_offsets(text: str) -> array:
     """Return the character offset where each line begins in normalized text.
 
     Uses a compact ``array`` of 64-bit ints rather than a list of Python ints,
-    since a large, densely-lined document would otherwise hold one boxed int
+    since a large, densely-lined document otherwise holds one boxed int
     object per line just to support the bisect lookup below.
 
     Args:
@@ -123,7 +123,7 @@ def build_text_chunks(
 def build_marked_chunks(
     document: Document, pieces: Iterable[tuple[int, int, str | None]]
 ) -> list[Chunk]:
-    """Build text chunks from spans that may name the chunker that made them.
+    """Build text chunks from spans that can name the chunker that made them.
 
     Args:
         document: The document the spans index.

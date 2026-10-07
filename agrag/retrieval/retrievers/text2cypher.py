@@ -230,7 +230,7 @@ def _node_id_prop(node: object) -> object | None:
 
 
 def _node_get(node: object, name: str, default: object = None) -> object:
-    """Read a property from a node-like object; return ``default`` on miss.
+    """Read a property from a node-like object. Return ``default`` on miss.
 
     A dict with a nested ``properties`` map (the mock-friendly wire
     format used in some test doubles) is treated as a single flat

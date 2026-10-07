@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class EmbeddingSettings(BaseSettings):
     """Sentence-transformers embedder configuration.
 
-    All fields are overridable via environment variables with the
+    All fields accept overrides through environment variables with the
     ``EMBEDDING_`` prefix.
 
     Attributes:

@@ -18,3 +18,9 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Output of make docs-build
+/build.log
+
+# Copied from the root CHANGELOG.md by plugins/syncChangelog.mjs
+/docs/changelog.md

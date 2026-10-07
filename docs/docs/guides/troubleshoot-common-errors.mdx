@@ -1,7 +1,7 @@
 ---
 sidebar_position: 90
 title: Troubleshoot common errors
-description: Find an agrag error message, learn the cause, and apply the fix.
+description: Find an Agentic GraphRAG error message, learn the cause, and apply the fix.
 ---
 
 # Troubleshoot common errors
@@ -16,10 +16,10 @@ You see:
 neo4j.exceptions.AuthError: {neo4j_code: Neo.ClientError.Security.Unauthorized} {message: The client is unauthorized due to authentication failure.}
 ```
 
-The username or password does not match the server. agrag reads `NEO4J_USERNAME` and `NEO4J_PASSWORD`. The default password is `neo4j`, so a server with another password fails.
+The username or password does not match the server. Agentic GraphRAG reads `NEO4J_USERNAME` and `NEO4J_PASSWORD`. The default password is `neo4j`, so a server with another password fails.
 
 1. Set `NEO4J_USERNAME` and `NEO4J_PASSWORD` in your shell or in a `.env` file to the values of your server.
-2. Run this check. It prints `connected` when the login works.
+2. Run this test. It prints `connected` when the login works.
 
 ```python
 import asyncio
@@ -47,11 +47,11 @@ neo4j.exceptions.ServiceUnavailable: Couldn't connect to localhost:7699 (resolve
 
 Nothing accepts connections at `NEO4J_URI`. The server can be stopped, on another port, or still starting. A new Neo4j container needs about 30 seconds.
 
-1. Check that the server runs. For Docker, run `docker ps`.
-2. Check that `NEO4J_URI` names the right host and port. The default is `bolt://localhost:7687`.
-3. Run the check from the previous section until it prints `connected`.
+1. Make sure that the server runs. For Docker, run `docker ps`.
+2. Make sure that `NEO4J_URI` names the right host and port. The default is `bolt://localhost:7687`.
+3. Run the test from the previous section until it prints `connected`.
 
-## agrag refuses the Neo4j address
+## Agentic GraphRAG refuses the Neo4j address
 
 You see:
 
@@ -59,7 +59,7 @@ You see:
 Value error, 'bolt://db.example.com:7687' uses an unencrypted scheme ('bolt') but sends a configured credential to a non-local host; use one of ['bolt+s', 'bolt+ssc', 'neo4j+s', 'neo4j+ssc'] instead
 ```
 
-agrag does not send a password over an unencrypted connection to a remote host. Use an encrypted scheme. Aura addresses use `neo4j+s://`.
+Agentic GraphRAG does not send a password over an unencrypted connection to a remote host. Use an encrypted scheme. Aura addresses use `neo4j+s://`.
 
 ```bash
 export NEO4J_URI="neo4j+s://<your-instance>.databases.neo4j.io"
@@ -75,9 +75,9 @@ You see:
 GraphStoreAliasConflictError: merge_key alias already claimed by another entity: {'<label>:<name>': '<id>'}
 ```
 
-agrag keeps bookkeeping nodes beside the graph, such as merge aliases and document jobs. If you delete only the entity and chunk nodes, the bookkeeping points at entities that no longer exist.
+Agentic GraphRAG keeps bookkeeping nodes beside the graph, such as merge aliases and document jobs. If you delete only the entity and chunk nodes, the bookkeeping points at entities that no longer exist.
 
-To start over, delete every node in the database and drop the vector indexes. This removes all data in the database, so use it only when the database holds nothing but agrag data. See the last section for the commands.
+To start over, delete every node in the database and drop the vector indexes. This removes all data in the database, so use it only when the database holds nothing but Agentic GraphRAG data. See the last section for the commands.
 
 ## A package extra is missing
 
@@ -96,7 +96,7 @@ The message names the extra to install. The command in the message is correct.
 
 Install an extra with `uv pip install "agentic-graphrag[<extra>]"`.
 
-A source with a missing loader extra follows your error policy. With `SKIP`, agrag skips the file. With `QUARANTINE`, agrag sets it aside and reports it. With `RAISE`, the run stops.
+A source with a missing loader extra follows your error policy. With `SKIP`, Agentic GraphRAG skips the file. With `QUARANTINE`, Agentic GraphRAG sets it aside and reports it. With `RAISE`, the run stops.
 
 :::note
 Without the `agents` extra, `build_agent` raises no error. It returns a simple agent that runs one search and writes one answer. Install `agents` to get the planner, researcher, and verifier.
@@ -143,7 +143,7 @@ print(schema.name, [entity.label for entity in schema.entities])
 
 A search that finds nothing raises no error in most cases. These are the causes, from most to least common.
 
-**The engine uses a different schema than the graph.** `SearchEngine` searches the entity indexes of one schema. Without `graph_schema`, it uses the generic schema. A graph opened with another schema then returns no entities. Pass the same schema to `Graph.open` and to `SearchEngine`:
+The engine uses a different schema than the graph. `SearchEngine` searches the entity indexes of one schema. Without `graph_schema`, it uses the generic schema. A graph opened with another schema then returns no entities. Pass the same schema to `Graph.open` and to `SearchEngine`:
 
 ```python fixture:clean_neo4j
 import asyncio
@@ -176,11 +176,11 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-**A filter matches nothing.** `SearchFilters(document_ids=[...])` keeps only results from those documents. An id that no ingested document has gives an empty list. Check the ids.
+A filter matches nothing. `SearchFilters(document_ids=[...])` keeps only results from those documents. An id that no ingested document has gives an empty list. Make sure that each id names an ingested document.
 
-**The vector index does not exist.** A search in the Neo4j vector indexes returns no hits when the index is missing. `Graph.open` creates the indexes. Open the graph once before you search.
+The vector index does not exist. A search in the Neo4j vector indexes returns no hits when the index is missing. Before you search, open the graph once. `Graph.open` creates the indexes.
 
-**The vector store has no collections for this graph.** With a vector store on the engine, you can see:
+The vector store has no collections for this graph. With a vector store on the engine, you can see:
 
 ```text
 AllRetrievalMethodsFailedError: every retrieval method failed: entity: UnexpectedResponse(); chunk: UnexpectedResponse()
@@ -188,7 +188,7 @@ AllRetrievalMethodsFailedError: every retrieval method failed: entity: Unexpecte
 
 Only `Graph.open(vector_store=...)` creates the collections. Open the graph with the same vector store and ingest your documents.
 
-**The engine uses another embedder than the graph.** A query vector of another size makes each Neo4j vector search fail, so `search` raises `AllRetrievalMethodsFailedError` instead of returning results. Pass `SearchEngine` the embedder that you pass to `Graph.open`. To change the model of the graph, see the next section.
+The engine uses another embedder than the graph. A query vector of another size makes each Neo4j vector search fail, so `search` raises `AllRetrievalMethodsFailedError` instead of returning results. Pass `SearchEngine` the embedder that you pass to `Graph.open`. To change the model of the graph, see the next section.
 
 The simple agent answers `No relevant evidence found.` when a search returns nothing.
 

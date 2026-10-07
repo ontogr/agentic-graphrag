@@ -87,9 +87,9 @@ class VectorStore(ABC):
                 positive.
             pending_job_id: The in-flight Cutover Job writing these records.
                 The store keeps them under staging ids, hidden from search,
-                scroll and count until :meth:`commit_pending` promotes them,
+                scroll and count until ``commit_pending`` promotes them,
                 so a committed record with the same id stays searchable and
-                survives :meth:`delete_pending`. None writes committed
+                survives ``delete_pending``. None writes committed
                 records.
 
         Raises:

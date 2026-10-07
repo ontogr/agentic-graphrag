@@ -11,10 +11,10 @@ class EmbeddingCache(ABC):
 
     ``normalize`` is part of the cache key alongside ``text`` and ``model``
     because it changes the vector an embedder produces for the same text and
-    model: without it, embedders sharing one cache but configured with
-    opposite ``EmbeddingSettings.normalize`` values would read back the wrong
-    output mode. Any future embedder setting that changes output values must
-    join this key the same way.
+    model. Without it, embedders sharing one cache but configured with
+    opposite ``EmbeddingSettings.normalize`` values read back the wrong
+    output mode. Any future embedder configuration value that changes output
+    values must join this key in the same way.
     """
 
     @abstractmethod
@@ -59,7 +59,7 @@ class Embedder(ABC):
         """Return the distance metric for vector indexes created for this embedder.
 
         Defaults to cosine, which matches normalized sentence-transformer models.
-        Concrete embedders may override when their vectors use a different
+        Concrete embedders can override when their vectors use a different
         metric.
         """
         return Distance.COSINE
@@ -68,8 +68,8 @@ class Embedder(ABC):
     async def dimensions(self) -> int:
         """Return the dimension of the vectors this embedder produces.
 
-        Async because a lazily-loaded embedder may need to load its model to
-        answer, and that load must go through the same worker-thread/lock
+        Async because a lazily-loaded embedder can need to load its model to
+        answer. That load must go through the same worker-thread and lock
         path ``embed`` uses rather than blocking the event loop.
         """
 

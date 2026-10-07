@@ -6,7 +6,7 @@ description: Group connected entities into communities and read the report for e
 
 # Detect communities and read reports
 
-Group the connected entities of your graph into communities. Read the report that agrag writes for each community.
+Group the connected entities of your graph into communities. Read the report that Agentic GraphRAG writes for each community.
 
 ## Before you start
 
@@ -105,7 +105,7 @@ asyncio.run(main())
 
 ## 2. Read the output
 
-The preview lists the groups. A preview has member ids and the internal weight only. It has no title and no summary, because agrag writes reports only when you apply.
+The preview lists the groups. A preview has member ids and the internal weight only. It has no title and no summary, because Agentic GraphRAG writes reports only when you apply.
 
 ```text
 preview: 5 members, internal weight 6.0
@@ -130,20 +130,17 @@ Alan Turing, Bletchley, Bombe (rating 1.0, weight 2.0)
 
 The titles and summaries that an LLM writes differ from run to run. The group members and the internal weights do not, because the clustering uses a fixed seed.
 
-An LLM report can contain a mistake. Check its `findings` against the relations that the graph stores.
+An LLM report can contain a mistake. Compare its `findings` with the relations that the graph stores.
 
 ## 3. Handle a missing LLM
 
-If the `llm` extra is missing or a call fails, agrag writes the simple report for that community. `report.failures` holds one item for each community that needed the LLM report. The call still ends with `applied` set to `True`.
+If the `llm` extra is missing or a call fails, Agentic GraphRAG writes the simple report for that community. `report.failures` holds one item for each community that needed the LLM report. The call still ends with `applied` set to `True`.
 
 ## 4. Change the grouping
 
-Pass these arguments to `detect_communities`:
+Pass these arguments to `detect_communities`. A higher `resolution` gives smaller groups. The default is 1.0. On the example graph, 1.0 gives groups of 3, 3, and 5 members, and 5.0 gives groups of 2, 2, 2, and 3 members. `seed` is the random seed. Keep the default for repeatable groups.
 
-- `resolution`: a higher value gives smaller groups. The default is 1.0. On the example graph, 1.0 gives groups of 3, 3, and 5 members, and 5.0 gives groups of 2, 2, 2, and 3 members.
-- `seed`: the random seed. Keep the default for repeatable groups.
-
-The argument `max_cluster_size` does not shrink the groups that agrag keeps. Leave it at the default of 10.
+The argument `max_cluster_size` does not shrink the groups that Agentic GraphRAG keeps. Leave it at the default of 10.
 
 Each call with `apply=True` deletes every earlier community and writes new ones.
 
