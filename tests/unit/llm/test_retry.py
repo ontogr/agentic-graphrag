@@ -312,6 +312,59 @@ class TestTimeout:
             await call_with_retry(call, RetryConfig(max_retries=2, timeout_ms=0))
         assert calls == 3
 
+    async def test_sleep_is_clamped_and_no_attempt_starts_past_deadline(
+        self, monkeypatch
+    ) -> None:
+        """A sleep that would cross the deadline is cut short, then stops."""
+        sleeps: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+
+        monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
+        _pin_jitter(monkeypatch)
+        ticks = iter([0.0, 0.9, 1.5])
+        monkeypatch.setattr("agrag.llm.retry.time.monotonic", lambda: next(ticks, 1.5))
+
+        calls = 0
+
+        async def call(options) -> str:
+            nonlocal calls
+            calls += 1
+            raise RuntimeError("still failing")
+
+        with pytest.raises(RuntimeError, match="still failing"):
+            await call_with_retry(
+                call, RetryConfig(max_retries=5, delay_ms=1000, timeout_ms=1000)
+            )
+        assert sleeps == [pytest.approx(0.1)]
+        assert calls == 1
+
+    async def test_rejected_result_past_deadline_raises_unusable(
+        self, monkeypatch
+    ) -> None:
+        """A rejected result past the deadline raises instead of retrying."""
+        monkeypatch.setattr("agrag.llm.retry.sleep", _no_sleep)
+        ticks = iter([0.0, 2000.0])
+        monkeypatch.setattr(
+            "agrag.llm.retry.time.monotonic", lambda: next(ticks, 2000.0)
+        )
+
+        calls = 0
+
+        async def call(options) -> str:
+            nonlocal calls
+            calls += 1
+            return "bad"
+
+        with pytest.raises(UnusableResultError):
+            await call_with_retry(
+                call,
+                RetryConfig(max_retries=5, timeout_ms=1000),
+                accept_result=lambda r: False,
+            )
+        assert calls == 1
+
 
 class TestAcceptResult:
     """accept_result retries successful calls whose result is unusable."""

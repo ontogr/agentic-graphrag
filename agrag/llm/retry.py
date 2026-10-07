@@ -86,8 +86,8 @@ async def call_with_retry(
             copy of ``options``, plus a fresh ``collector`` when the attempt
             span is being recorded. Pass the received dict on to BAML.
         retry: Backoff settings. ``max_retries`` is the number of retries
-            after the first attempt. ``timeout_ms`` bounds the whole call when
-            positive; it never interrupts an in-flight attempt.
+            after the first attempt. ``timeout_ms`` stops new attempts once
+            it elapses; it never interrupts an in-flight attempt.
         options: The BAML call options shared by every attempt, such as the
             client registry and the type builder.
         tracer: Opens ``agrag.llm.call``, one ``agrag.llm.attempt`` per attempt
@@ -106,8 +106,8 @@ async def call_with_retry(
         Exception: The last attempt's exception, if every attempt fails, or
             immediately for a BAML error that would fail identically on
             retry (an invalid argument, or an HTTP 4xx other than 429). When
-            ``timeout_ms`` elapses the last failure raises as-is instead of
-            waiting out the remaining budget.
+            ``timeout_ms`` elapses, no further attempt starts and the last
+            failure raises as-is instead of waiting out the remaining budget.
         UnusableResultError: Every attempt returned a result ``accept_result``
             rejected.
     """
@@ -128,23 +128,25 @@ async def call_with_retry(
             try:
                 result = await _run_attempt(active, call, options, attempt)
             except Exception as exc:  # noqa: BLE001
-                if (
-                    attempt >= attempts
-                    or _is_permanently_unretryable(exc)
-                    or (deadline is not None and time.monotonic() >= deadline)
-                ):
+                if attempt >= attempts or _is_permanently_unretryable(exc):
                     call_span.set_attribute("agrag.llm.attempt_count", attempt)
                     raise
+                failure: BaseException = exc
             else:
                 if accept_result is None or accept_result(result):
                     call_span.set_attribute("agrag.llm.attempt_count", attempt)
                     return result
-                if attempt >= attempts or (
-                    deadline is not None and time.monotonic() >= deadline
-                ):
+                if attempt >= attempts:
                     call_span.set_attribute("agrag.llm.attempt_count", attempt)
                     raise UnusableResultError(function, attempt)
+                failure = UnusableResultError(function, attempt)
             wait = min(delay_seconds, max_delay_seconds) * random.uniform(0.5, 1.0)
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    call_span.set_attribute("agrag.llm.attempt_count", attempt)
+                    raise failure
+                wait = min(wait, remaining)
             logger.debug(
                 "LLM call %s failed on attempt %d; retrying in %.3f seconds",
                 function or "<unknown>",
@@ -153,6 +155,9 @@ async def call_with_retry(
             )
             await sleep(wait)
             delay_seconds = min(delay_seconds * retry.multiplier, max_delay_seconds)
+            if deadline is not None and time.monotonic() >= deadline:
+                call_span.set_attribute("agrag.llm.attempt_count", attempt)
+                raise failure
 
 
 async def _run_attempt(
