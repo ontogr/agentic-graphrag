@@ -519,6 +519,7 @@ class TestCallWithRetryCollector:
             sleeps.append(seconds)
 
         monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
+        monkeypatch.setattr("agrag.llm.retry.random.uniform", lambda low, high: high)
         provider, exporter = _provider()
         attempts = 0
 

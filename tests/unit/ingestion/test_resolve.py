@@ -298,6 +298,7 @@ class TestLLMVerify:
             sleeps.append(seconds)
 
         monkeypatch.setattr("agrag.llm.retry.sleep", fake_sleep)
+        monkeypatch.setattr("agrag.llm.retry.random.uniform", lambda low, high: high)
         monkeypatch.setattr(
             "agrag.llm.client_registry.build_client_registry",
             lambda clients, *, strategy: object(),

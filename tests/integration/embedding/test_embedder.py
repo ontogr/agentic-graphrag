@@ -1,17 +1,20 @@
-"""Integration tests for the sentence-transformers embedder.
+"""Integration tests for the dense embedders.
 
-These tests download a real model from the network on first use. They require
-the ``embed-local`` extra (installed by ``make sync``) and network access.
-They skip when sentence-transformers is not installed.
+These tests download a real model from the network on first use. The FastEmbed
+tests need only the base install. The sentence-transformers tests, and the parity
+check between the two embedders, need the ``embed-local`` extra (installed by
+``make sync``) and skip when sentence-transformers is not installed.
 """
 
 import asyncio
 import importlib.util
 import math
 
+import numpy as np
 import pytest
 
 from agrag.embedding import build_embedder
+from agrag.embedding.fastembed_dense import FastEmbedEmbedder
 from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
 from agrag.embedding.settings import EmbeddingSettings
 
@@ -61,8 +64,30 @@ class TestSentenceTransformerEmbedderIntegration:
         assert abs(nv_norm - 1.0) < 0.05
         assert rv_norm > 5 * nv_norm
 
-    def test_build_embedder_from_name(self) -> None:
-        """build_embedder builds a working embedder from a model name."""
+
+class TestFastEmbedEmbedderIntegration:
+    """The default embedder produces normalized vectors from the granite model."""
+
+    def test_build_embedder_from_name_gives_a_working_embedder(self) -> None:
+        """build_embedder builds a FastEmbed embedder from a model name."""
         embedder = build_embedder("ibm-granite/granite-embedding-small-english-r2")
         vector = asyncio.run(embedder.embed_one("configured by name"))
-        assert len(vector) == asyncio.run(embedder.dimensions())
+        assert isinstance(embedder, FastEmbedEmbedder)
+        assert len(vector) == asyncio.run(embedder.dimensions()) == 384
+        assert abs(float(np.linalg.norm(vector)) - 1.0) < 1e-4
+
+    @pytest.mark.skipif(embed_local_missing, reason="embed-local extra not installed")
+    def test_vectors_match_sentence_transformers(self) -> None:
+        """FastEmbed and sentence-transformers give the same vectors for one model.
+
+        The long text has more than 600 tokens, which a 512-token limit would cut.
+        """
+        texts = [
+            "Metformin is a first-line treatment for type 2 diabetes.",
+            "What drug treats diabetes?",
+            "Knowledge graphs link entities through typed relations. " * 80,
+        ]
+        fast = np.array(asyncio.run(FastEmbedEmbedder().embed(texts)))
+        reference = np.array(asyncio.run(SentenceTransformerEmbedder().embed(texts)))
+        cosine = (fast * reference).sum(axis=1)
+        assert cosine.min() > 0.999

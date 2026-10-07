@@ -5,8 +5,8 @@ sidebar_label: settings
 
 # `agrag.embedding.settings` \{#agrag-embedding-settings}
 
-Settings for the sentence-transformers embedder.
+Settings for the dense embedders.
 
 **Classes:**
 
-- [**EmbeddingSettings**](EmbeddingSettings.md) – Sentence-transformers embedder configuration.
+- [**EmbeddingSettings**](EmbeddingSettings.md) – Configuration shared by the FastEmbed and sentence-transformers embedders.

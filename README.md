@@ -11,7 +11,7 @@
 [![Codecov](https://codecov.io/gh/ontogr/agentic-graphrag/branch/main/graph/badge.svg)](https://codecov.io/gh/ontogr/agentic-graphrag)
 [![PyPI](https://img.shields.io/pypi/v/agentic-graphrag.svg)](https://pypi.org/project/agentic-graphrag/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://pypi.org/project/agentic-graphrag/)
-[![Downloads](https://static.pepy.tech/badge/agentic-graphrag/month)](https://pepy.tech/project/agentic-graphrag)
+[![Downloads](https://static.pepy.tech/badge/agentic-graphrag)](https://pepy.tech/project/agentic-graphrag)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue?logo=readthedocs)](https://ontogr.github.io/agentic-graphrag/)
 [![License](https://img.shields.io/github/license/ontogr/agentic-graphrag?color=green)](LICENSE)
 
@@ -45,7 +45,7 @@ The system uses:
 - [BAML](https://boundaryml.com/) for typed LLM functions and provider-independent client routing.
 - [Neo4j](https://neo4j.com/) for the property graph and optional native vector search.
 - [Qdrant](https://qdrant.tech/), [Weaviate](https://weaviate.io/), and [Milvus](https://milvus.io/) for dense and hybrid retrieval.
-- [Sentence Transformers](https://www.sbert.net/) and [FastEmbed](https://github.com/qdrant/fastembed) for dense and sparse embeddings.
+- [FastEmbed](https://github.com/qdrant/fastembed) for dense and sparse embeddings, and [Sentence Transformers](https://www.sbert.net/) as an optional dense embedder.
 - [OpenTelemetry](https://opentelemetry.io/) for vendor-neutral traces and metrics.
 
 ## Knowledge Graph
@@ -135,7 +135,7 @@ The async `Embedder`, `GraphStore`, and `VectorStore` interfaces keep model and 
 
 ### Embeddings
 
-- Dense embeddings through Sentence Transformers.
+- Dense embeddings through FastEmbed, with Sentence Transformers as an option.
 - Sparse BM25 embeddings through FastEmbed.
 - Batch-first async APIs with optional content-addressed caching by text and model.
 - Dimension checks before collections or indexes accept vectors. `Graph.open` raises an error when the embedder does not match the stored vector dimensions.
@@ -230,8 +230,8 @@ Install only the integrations you use:
 # Rich documents and local extraction
 uv pip install "agentic-graphrag[docling,extract]"
 
-# LLM extraction and local dense embeddings
-uv pip install "agentic-graphrag[llm,embed-local]"
+# LLM extraction
+uv pip install "agentic-graphrag[llm]"
 
 # Neo4j with a dedicated Qdrant vector store and OTLP tracing
 uv pip install "agentic-graphrag[neo4j,qdrant,observability]"
@@ -249,7 +249,7 @@ uv pip install "agentic-graphrag[community]"
 | `extract` | Local GLiNER 2.5 extraction |
 | `llm` | BAML-powered extraction and match verification |
 | `agents` | The LangGraph runtime for the question-answering agent |
-| `embed-local` | Sentence Transformers dense embeddings |
+| `embed-local` | Sentence Transformers, to embed with models that the default embedder does not support |
 | `neo4j` | Neo4j graph storage and native vector search |
 | `qdrant` | Qdrant dense and hybrid search |
 | `weaviate` | Weaviate dense and hybrid search |
@@ -264,7 +264,7 @@ uv pip install "agentic-graphrag[community]"
 You need a Neo4j database, version 5.23 or newer. The free [Neo4j Aura](https://ontogr.github.io/agentic-graphrag/get-started/quickstart) tier works, and the full [Quickstart](https://ontogr.github.io/agentic-graphrag/get-started/quickstart) shows the setup. Install the extras for this page with uv 0.6.9 or newer. Save your credentials as `.env` in the working directory. The file sets `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD`.
 
 ```bash
-uv pip install "agentic-graphrag[neo4j,extract,embed-local,agents]" --torch-backend=auto
+uv pip install "agentic-graphrag[neo4j,extract,agents]" --torch-backend=auto
 ```
 
 ### Build a graph

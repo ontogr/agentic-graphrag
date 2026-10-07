@@ -140,34 +140,40 @@ class SentenceTransformerEmbedder(Embedder):
             One vector per input text, in the same order.
         """
         normalize = self._settings.normalize
-        cached = [
-            await self._cache.get(text=t, model=self.model, normalize=normalize)
-            for t in texts
-        ]
-        misses = [i for i, v in enumerate(cached) if v is None]
-        if misses:
-            model = await self._ensure_model_async()
-            with self._tracer.start_as_current_span(
-                "agrag.embedding.encode",
-                kind=SpanKind.INTERNAL,
-                attributes={
-                    "agrag.text_count": len(misses),
-                    "agrag.cache_hit_count": len(texts) - len(misses),
-                },
-            ):
-                new_vectors = await asyncio.to_thread(
-                    model.encode,
-                    [texts[i] for i in misses],
-                    batch_size=self._settings.batch_size,
-                    normalize_embeddings=normalize,
-                )
-            for i, vector in zip(misses, new_vectors, strict=True):
-                vector_list = list(vector.tolist())
-                cached[i] = vector_list
-                await self._cache.set(
-                    text=texts[i],
-                    model=self.model,
-                    normalize=normalize,
-                    vector=vector_list,
-                )
-        return cast(list[list[float]], cached)
+        with self._tracer.start_as_current_span(
+            "agrag.embedding.embed",
+            kind=SpanKind.INTERNAL,
+            attributes={"agrag.text_count": len(texts), "agrag.model": self.model},
+        ) as span:
+            cached = [
+                await self._cache.get(text=t, model=self.model, normalize=normalize)
+                for t in texts
+            ]
+            misses = [i for i, v in enumerate(cached) if v is None]
+            span.set_attribute("agrag.cache_hit_count", len(texts) - len(misses))
+            if misses:
+                model = await self._ensure_model_async()
+                with self._tracer.start_as_current_span(
+                    "agrag.embedding.encode",
+                    kind=SpanKind.INTERNAL,
+                    attributes={
+                        "agrag.text_count": len(misses),
+                        "agrag.cache_hit_count": len(texts) - len(misses),
+                    },
+                ):
+                    new_vectors = await asyncio.to_thread(
+                        model.encode,
+                        [texts[i] for i in misses],
+                        batch_size=self._settings.batch_size,
+                        normalize_embeddings=normalize,
+                    )
+                for i, vector in zip(misses, new_vectors, strict=True):
+                    vector_list = list(vector.tolist())
+                    cached[i] = vector_list
+                    await self._cache.set(
+                        text=texts[i],
+                        model=self.model,
+                        normalize=normalize,
+                        vector=vector_list,
+                    )
+            return cast(list[list[float]], cached)

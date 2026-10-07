@@ -191,7 +191,8 @@ Qdrant, Weaviate, and Milvus open the same names. `db.system.name` is `qdrant`, 
 | Span | Attributes |
 |---|---|
 | `agrag.embedding.model_load` | `agrag.model` |
-| `agrag.embedding.encode` | `agrag.text_count`, `agrag.cache_hit_count` (dense embedder) |
+| `agrag.embedding.embed` | `agrag.text_count`, `agrag.cache_hit_count`, `agrag.model` (dense embedder, every call) |
+| `agrag.embedding.encode` | `agrag.text_count`, `agrag.cache_hit_count` (dense embedder, cache misses only) |
 | `agrag.embedding.query_embed` | `agrag.text_count` (keyword embedder for Qdrant hybrid search) |
 
 ## Retrieval loading spans and the agent span

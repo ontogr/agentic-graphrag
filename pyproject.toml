@@ -35,12 +35,13 @@ dependencies = [
   "selectolax>=0.3.21,<1",
   "rapidfuzz>=3.0",
   "scipy>=1.14",
+  "fastembed>=0.8.0",
 ]
 
 [project.optional-dependencies]
 docling = ["docling>=2.0"]
 embed-local = ["sentence-transformers>=5"]
-qdrant = ["qdrant-client>=1.12", "fastembed>=0.4"]
+qdrant = ["qdrant-client>=1.12"]
 weaviate = ["weaviate-client>=4.9"]
 milvus = ["pymilvus>=3.0.0,<4"]
 neo4j = ["neo4j>=5.22"]

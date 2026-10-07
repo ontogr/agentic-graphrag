@@ -18,7 +18,7 @@ Run resolution over every entity in the graph. Review the matches it finds. Then
 - The extras for local extraction:
 
 ```bash
-uv pip install "agentic-graphrag[neo4j,extract,embed-local]"
+uv pip install "agentic-graphrag[neo4j,extract]"
 ```
 
 - Optional: an LLM for the last tier. Install the `llm` extra, and set `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. Without an LLM, that tier returns no match for every pair and raises no error.
