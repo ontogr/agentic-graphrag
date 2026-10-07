@@ -105,3 +105,7 @@ model: str
 ```
 
 The configured model name.
+
+**Returns:**
+
+- <code>str</code> – The model name from the embedder settings.

@@ -86,7 +86,11 @@ class FastEmbedEmbedder(Embedder):
 
     @property
     def model(self) -> str:
-        """The configured model name."""
+        """The configured model name.
+
+        Returns:
+            The model name from the embedder settings.
+        """
         return self._settings.model
 
     async def dimensions(self) -> int:
