@@ -12,11 +12,11 @@ logger = logging.getLogger(__name__)
 
 
 class StageFailure(BaseModel):
-    """One item's failure within a pipeline stage.
+    """One item failure within a pipeline stage.
 
     Attributes:
-        item_id: The chunk id, mention id, or batch id — whichever unit
-            the stage failed on.
+        item_id: The chunk id, mention id, or batch id that the stage
+            failed on.
         error_type: The exception's class name.
         error_message: The exception's message.
         trace_id: The OTel trace id correlating to the full span detail,

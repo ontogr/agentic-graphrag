@@ -68,7 +68,7 @@ class SentenceTransformerEmbedder(Embedder):
         """Read the embedding dimension, across sentence-transformers versions.
 
         sentence-transformers renamed ``get_sentence_embedding_dimension`` to
-        ``get_embedding_dimension`` in 6.0; support both so the embedder works
+        ``get_embedding_dimension`` in 6.0. Support both so the embedder works
         before and after the rename.
 
         Args:

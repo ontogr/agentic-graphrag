@@ -20,7 +20,7 @@ class ExtractedEntity(BaseModel):
         confidence: The extractor's confidence in this mention, when available.
         properties: Schema-declared property values this mention carries,
             keyed by property name. Empty for an extractor that only reports
-            spans -- normalize_extraction_result drops any key the schema
+            spans. normalize_extraction_result drops any key that the schema
             does not declare for this mention's label.
     """
 
@@ -79,8 +79,9 @@ class ExtractionResult(BaseModel):
     Attributes:
         entities: The mentions found, in extraction order.
         relations: The relation mentions found, referencing entities by index.
-        extractor_name: Which Extractor produced this result. Set by the Extractor
-            itself; useful for provenance when a EscalatingExtractor escalated.
+        extractor_name: Which Extractor produced this result. Set by the
+            Extractor itself. Useful for provenance when an EscalatingExtractor
+            escalated.
     """
 
     entities: list[ExtractedEntity]

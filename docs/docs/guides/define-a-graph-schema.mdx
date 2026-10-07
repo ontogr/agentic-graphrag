@@ -6,7 +6,7 @@ description: Declare the entity and relation types for your domain and give them
 
 # Define a graph schema
 
-Declare the entity types and relation types for your domain. Give the schema to a graph. The extractor then looks only for those types.
+Declare the entity types and relation types for your domain. A schema lists the types that extraction can find. Give the schema to a graph. The extractor then looks only for those types.
 
 ## Before you start
 
@@ -62,11 +62,11 @@ Relation types:
 - WORKED_IN: (Person, City)
 ```
 
-Raise `version` when you change the types or the patterns.
+When you change the types or the patterns, raise `version`.
 
-## 2. Check that the schema is valid
+## 2. Make sure that the schema is valid
 
-The schema checks itself when you create it. It rejects a relation pattern that names an undeclared entity. It rejects the property names `label` and `text`.
+The schema enforces its own rules when you create it. It rejects a relation pattern that names an undeclared entity. It rejects the property names `label` and `text`.
 
 ```python
 from agrag.common.data_models import EntityType, GraphSchema, RelationType
@@ -190,7 +190,7 @@ Six mentions give four entities, because mentions with the same label and text s
 
 ## Compare with the generic schema
 
-`GENERIC` has five broad types and one broad relation, `RELATED_TO`. On the same two sentences it found the same six mentions and no relations. It labelled the Analytical Engine a `Product`. The schema above found two relations and labelled it a `Machine`. Specific types and specific relation descriptions give the extractor a clear target.
+`GENERIC` has five broad types and one broad relation, `RELATED_TO`. On the same two sentences it found the same six mentions and no relations. It labeled the Analytical Engine a `Product`. The schema above found two relations and labeled it a `Machine`. Specific types and specific relation descriptions give the extractor a clear target.
 
 ## Fill properties
 

@@ -5,13 +5,13 @@ title: Configure chunking
 
 # Configure chunking
 
-Choose how `agrag` splits each document into chunks, see which chunker made each chunk, and change the choice for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`. Each code block on this page is complete. Blocks that add documents open their own graph and close it at the end.
+Choose how Agentic GraphRAG splits each document into chunks. See which chunker made each chunk. Change the choice for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`. Each code block on this page is complete. Blocks that add documents open their own graph and close it at the end.
 
 See [Chunking](/concepts/chunking) for how rules, strategies and provenance work.
 
 ## Print the default rules
 
-A `Graph` holds a `Chunking`: a list of rules and a fallback chunker. The first rule that matches a document picks its chunker. A document that no rule matches gets the fallback.
+A `Graph` holds a `Chunking`. It is a list of rules and a fallback chunker. The first rule that matches a document picks its chunker. A document that no rule matches gets the fallback.
 
 ```python
 from agrag.chunking import DEFAULT_CHUNKING
@@ -89,7 +89,7 @@ A rule matches on these keys. All keys are optional. A document must match every
 
 ## Split Markdown by headings
 
-`HeadingChunker` starts a new chunk at every heading up to `split_level` (default 2). A section within `chunk_size` tokens is one chunk, and small sibling sections stay apart. A larger section is cut at its deeper headings, and the parts are packed to the budget. A part that is still too large goes to `fallback`, and those chunks have the chunker name `heading:recursive`.
+`HeadingChunker` starts a new chunk at every heading up to `split_level` (default 2). A section within `chunk_size` tokens is one chunk, and small sibling sections stay apart. Agentic GraphRAG cuts a larger section at its deeper headings and packs the parts to the budget. A part that is still too large goes to `fallback`, and those chunks have the chunker name `heading:recursive`.
 
 ```python
 from agrag.chunking import HeadingChunker, RecursiveChunker
@@ -105,7 +105,7 @@ Only the Markdown and AsciiDoc loaders fill `heading_outline`. For a document wi
 
 `TurnWindowChunker` packs whole turns into windows of at most `chunk_size` tokens. A chunk boundary never falls inside a turn. `turn_overlap` repeats the last turns of a window at the start of the next one. Text before the first turn, such as a date line, stays in the first chunk. A turn above the budget goes to `fallback`, and those chunks have the chunker name `turn-window:recursive`.
 
-Tokens are counted for each turn alone, so the blank line between turns does not count.
+The chunker counts tokens for each turn alone, so the blank line between turns does not count.
 
 Turns come from `Document.turns`. The `ChatLoader` fills them. Route chat documents with a rule on the loader name:
 
@@ -163,14 +163,14 @@ asyncio.run(main())
 
 ## Add the heading path to extraction and embedding
 
-A chunk from Markdown, AsciiDoc or a PDF has a `heading_path`, the headings above it. Two settings put it where it helps. Both are on by default.
+A chunk from Markdown, AsciiDoc or a PDF has a `heading_path`, the headings above it. Two configuration values decide where it helps. Both are on by default.
 
 | Setting | Where | Effect |
 |---|---|---|
 | `BAMLExtractor(include_heading_path=True)` | extraction | Sends the path as a `section` line above the text. Offsets still index the chunk text. |
 | `Graph.open(..., embed_heading_path=True)` | embedding | Embeds the path and the text together. The stored chunk text and the vector payload text stay raw. |
 
-Chunks with no heading path are not changed. Query embeddings do not change. Existing chunk embeddings stay as they are until you re-chunk the document with `Graph.update` under a changed chunking. Only `BAMLExtractor` uses the path.
+Chunks with no heading path are not changed. Query embeddings do not change. Existing chunk embeddings stay as they are. Re-chunk the document with `Graph.update` after you change the chunking. Only `BAMLExtractor` uses the path.
 
 ## Use the optional chunkers
 
@@ -199,11 +199,11 @@ chunking = Chunking(
 )
 ```
 
-The trade-off: extraction makes fewer calls, because parents are large and few, and a small child matches a query more closely. The agent reads more text for each hit, because it sees the whole parent. Entities link to parents through `MENTIONED_IN`. `Chunk.level` is `1` for a parent and `0` for a child, `Chunk.parent_id` names the parent, and indexes count from 0 in each level. A child never crosses a parent boundary, even with overlap.
+There is a trade-off. Extraction makes fewer calls, because parents are large and few. A small child matches a query more closely. The agent reads more text for each hit, because it sees the whole parent. Entities link to parents through `MENTIONED_IN`. `Chunk.level` is `1` for a parent and `0` for a child. `Chunk.parent_id` names the parent. Indexes count from 0 in each level. A child never crosses a parent boundary, even with overlap.
 
 ## Tune the Docling chunker
 
-`DoclingChunker` splits PDF and Office documents along the structure that Docling found. Its settings:
+`DoclingChunker` splits PDF and Office documents along the structure that Docling found. Its configuration:
 
 | Setting | Default | Effect |
 |---|---|---|
@@ -214,17 +214,17 @@ The trade-off: extraction makes fewer calls, because parents are large and few, 
 | `omit_header_on_overflow` | `False` | Drops headings from a chunk when they do not fit. |
 | `table_format` | `"triplet"` | `"triplet"` writes `row, column = value` text. `"markdown"` writes a pipe table. |
 
-Each chunk has the headings above it in `heading_path`. The chunk text is the body without headings. A chunk that holds only table items has `content_kind="table_row"`. Chunk ids include the chunker hash, so new settings give new chunks and `Graph.update` closes the old ones.
+Each chunk has the headings above it in `heading_path`. The chunk text is the body without headings. A chunk that holds only table items has `content_kind="table_row"`. Chunk ids include the chunker hash, so a new configuration gives new chunks and `Graph.update` closes the old ones.
 
 ## Set the size and the tokenizer
 
-`chunk_size` counts units of the `tokenizer`. Each chunker class counts tokens with `o200k_base` by default, which loads offline. Use `tokenizer="character"` to count characters. The fallback in `DEFAULT_CHUNKING` is the exception: it sets `tokenizer="character"`, so its `chunk_size` of 1024 counts characters.
+`chunk_size` counts units of the `tokenizer`. Each chunker class counts tokens with `o200k_base` by default, which loads offline. Use `tokenizer="character"` to count characters. The fallback in `DEFAULT_CHUNKING` is the exception. It sets `tokenizer="character"`, so its `chunk_size` of 1024 counts characters.
 
 Overlapping chunks keep exact spans. Neighbouring chunks share text, and each chunk text still equals the source text at its offsets.
 
 ## Read what chunked each document
 
-Each chunk stores the name of its chunker and a hash of the chunker settings.
+Each chunk stores the name of its chunker and a hash of the chunker configuration.
 
 ```python
 import asyncio
@@ -269,7 +269,7 @@ asyncio.run(main())
 
 ## Change the chunking of documents you added
 
-`Graph.add` does not close the old chunks of a document that the graph already holds, so do not call it again to re-chunk. Open the graph with the new `chunking` and call `Graph.update` with the `document_key` of the document. For a file source, `result.chunking.matches[i].document_key` gives the key.
+`Graph.add` does not close the old chunks of a document that the graph already holds. Do not call it again to re-chunk. Open the graph with the new `chunking` and call `Graph.update` with the `document_key` of the document. For a file source, `result.chunking.matches[i].document_key` gives the key.
 
 ```python
 import asyncio
@@ -317,7 +317,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`update` re-chunks when the content changed or when the settings of the chunker for that document changed. It does nothing when both are the same. Chunks that you added before `agrag` recorded chunkers count as unchanged.
+`update` re-chunks when the content changed or when the configuration of the chunker for that document changed. It does nothing when both are the same. Chunks that you added before Agentic GraphRAG recorded chunkers count as unchanged.
 
 ## Choose how loaders normalize text
 
@@ -360,4 +360,4 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The default removes the byte-order mark, changes line endings to LF, and applies NFKC. With the settings above, the text of a chunk equals the text in the file at its offsets. Each `Document` records its setting in `Document.normalization`.
+The default removes the byte-order mark, changes line endings to LF, and applies NFKC. With the configuration above, the text of a chunk equals the text in the file at its offsets. Each `Document` records its setting in `Document.normalization`.

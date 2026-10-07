@@ -47,7 +47,7 @@ async def vector_search(
         query: The natural-language query text to embed.
         embedder: Produces the query's dense vector.
         graph_store: The GraphStore-native fallback target.
-        vector_store: The optional VectorStore target; None selects
+        vector_store: The optional VectorStore target. None selects
             the GraphStore-native path.
         collection: The VectorStore collection name.
         labels: The node labels to search on the GraphStore-native

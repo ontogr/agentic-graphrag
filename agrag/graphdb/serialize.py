@@ -70,7 +70,7 @@ def relation_params(
     """Build the ``$records`` entry for a relationship upsert.
 
     The Cutover Job tag travels in its own key for the same reason as in
-    :func:`node_params`: only an edge the job creates carries it.
+    ``node_params``: only an edge the job creates carries it.
 
     Args:
         record: The relation record to serialize.

@@ -1,7 +1,7 @@
 ---
 sidebar_position: 11
 title: Retrieval
-description: How agrag finds evidence for a query with several search methods, fusion, and re-ranking.
+description: How Agentic GraphRAG finds evidence for a query with several search methods, fusion, and re-ranking.
 ---
 
 # Retrieval
@@ -35,12 +35,12 @@ flowchart TD
 
 *The engine runs these steps in order. A diamond step runs only when the recipe asks.*
 
-1. **Run the methods.** The recipe names one or more methods. The engine runs them at the same time. If one method fails, the others still return results.
-2. **Fuse.** The engine merges the ranked lists into one list and removes duplicates.
-3. **Walk the graph (optional).** The engine follows relations outward from the entity hits and fuses the neighbours into the list.
-4. **Add communities (optional).** The engine adds the reports of communities that overlap the entities found.
-5. **Re-rank (optional).** A cross-encoder model, or the graph distance to the top entity hits, sets a new order.
-6. **Cut.** The engine keeps the top results, up to the limit of the recipe.
+1. Run the methods. The recipe names one or more methods. The engine runs them at the same time. If one method fails, the others still return results.
+2. Fuse. The engine merges the ranked lists into one list and removes duplicates.
+3. Walk the graph (optional). The engine follows relations outward from the entity hits and fuses the neighbours into the list.
+4. Add communities (optional). The engine adds the reports of communities that overlap the entities found.
+5. Re-rank (optional). A cross-encoder model, or the graph distance to the top entity hits, sets a new order.
+6. Cut. The engine keeps the top results, up to the limit of the recipe.
 
 ```mermaid
 sequenceDiagram
@@ -97,7 +97,7 @@ The graph walk is a step, not a method. A recipe switches it on.
 
 ## Recipes
 
-A recipe is a named list of settings. It is data, so you can read it and copy it.
+A recipe is a named list of configuration values. It is data, so you can read it and copy it.
 
 | Recipe | Methods | Extra steps | Results |
 |---|---|---|---|
@@ -117,7 +117,7 @@ Fusion runs even when a recipe has one method. It also removes duplicates, so th
 
 ## Filters
 
-A filter limits a search by entity label, document, property value, or relation type. Labels apply to entity search only. Relation types limit the graph walk. The other filters apply to entity, chunk, and community search.
+A filter limits a search to matching items. It can match entity label, document, property value, or relation type. Labels apply to entity search only. Relation types limit the graph walk. The other filters apply to entity, chunk, and community search.
 
 ## A worked example
 
@@ -126,11 +126,11 @@ The query is "Who worked with Babbage?" and the recipe is `HYBRID`. Entity searc
 <details>
 <summary>Design choices</summary>
 
-**Why fuse ranks and not scores?** A vector search, a keyword search, and a graph walk score on different scales. Ranks compare across methods. Scores do not.
+Why fuse ranks and not scores? A vector search, a keyword search, and a graph walk score on different scales. Ranks compare across methods. Scores do not.
 
-**How do community reports survive the re-rank?** The cross-encoder orders only the passages and entities. After it runs, the recipe keeps up to three slots for community reports. The re-rank cannot push every report out of the results.
+How do community reports survive the re-rank? The cross-encoder orders only the passages and entities. After it runs, the recipe keeps up to three slots for community reports. The re-rank cannot push every report out of the results.
 
-**Why does one failed method not fail the search?** A timeout in one method should not hide good results from another. The engine logs the failure and records it on the trace. If every method fails, the engine raises an error. Every method follows one rule: with a positive limit, it returns an empty list only when the search ran and found nothing, and it raises on any failure it cannot recover from. This includes `text2cypher`, which repairs a failed query once and raises if the repair also fails, so a failed query or model call is never an empty result.
+Why does one failed method not fail the search? A timeout in one method must not hide good results from another. The engine logs the failure and records it on the trace. If every method fails, the engine raises an error. Every method follows one rule. With a positive limit, it returns an empty list only when the search ran and found nothing. It raises on any failure it cannot recover from. This includes `text2cypher`, which repairs a failed query once and raises if the repair also fails, so a failed query or model call is never an empty result.
 
 </details>
 

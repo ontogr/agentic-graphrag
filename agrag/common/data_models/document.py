@@ -101,9 +101,9 @@ class Document(DataPoint):
     set. Pass ``id`` only when rebuilding a document from stored data.
 
     Attributes:
-        text: The document text. For a docling source, this holds docling's Markdown
-            export. The chunker never reads this field for a docling source; see the
-            ``Chunk`` model for docling chunk content instead.
+        text: The document text. For a docling source, this holds docling Markdown
+            export. The chunker never reads this field for a docling source. See
+            the ``Chunk`` model for docling chunk content instead.
         title: The document title.
         uri: The location of the source. This value is not part of the document id.
         source_format: The format the loader used to read this document.
@@ -114,7 +114,7 @@ class Document(DataPoint):
             ``"text"`` or ``"docling"``.
         loader_version: The version of the loader package. Does not affect the
             document id.
-        encoding: The text encoding. Text loaders set this field; other loaders
+        encoding: The text encoding. Text loaders set this field. Other loaders
             leave it empty.
         source_hash: The hash of the whole source file. Record-family documents set
             this field.
@@ -207,12 +207,13 @@ class Document(DataPoint):
 
     @property
     def resolved_id(self) -> UUID:
-        """The document id, guaranteed non-``None`` once construction succeeds.
+        """Return the document id. It is never ``None`` after construction succeeds.
 
-        ``id`` is typed as optional because callers may omit it and let
-        ``_resolve_id`` derive it, but every constructed ``Document`` has a
-        non-``None`` id by the time callers see it. Use this property instead of
-        ``id`` where a non-optional value is required, such as building a ``Chunk``.
+        ``id`` is typed as optional because callers can omit it and let
+        ``_resolve_id`` derive it. Every constructed ``Document`` has a
+        non-``None`` id by the time callers see it. Use this property instead
+        of ``id`` where a non-optional value is required, such as building a
+        ``Chunk``.
 
         Raises:
             RuntimeError: ``id`` is still ``None``, which means a validator was
@@ -224,13 +225,13 @@ class Document(DataPoint):
 
     @property
     def resolved_document_key(self) -> str:
-        """The document key, guaranteed non-``None`` once construction succeeds.
+        """Return the document key. It is never ``None`` after construction succeeds.
 
-        ``document_key`` is typed as optional because callers may omit it and let
-        ``_resolve_document_key`` default it to ``uri``, but every constructed
-        ``Document`` has a non-``None`` document key by the time callers see it. Use
-        this property instead of ``document_key`` where a non-optional value is
-        required, such as computing the persisted Document node's id.
+        ``document_key`` is typed as optional because callers can omit it and
+        let ``_resolve_document_key`` default it to ``uri``. Every constructed
+        ``Document`` has a non-``None`` document key by the time callers see
+        it. Use this property instead of ``document_key`` where a non-optional
+        value is required, such as computing the persisted Document node id.
 
         Raises:
             RuntimeError: ``document_key`` is still ``None``, which means a validator
@@ -281,13 +282,13 @@ class Document(DataPoint):
 
     @classmethod
     def node_id_for(cls, *, document_key: str) -> UUID:
-        """Compute the persisted Document graph node's id.
+        """Compute the persisted Document graph node id.
 
-        Distinct from ``id_for()``: this id is keyed on ``document_key``, not the
-        content hash, so it stays the same across content changes to the same
-        logical document. Conflating the two ids would give every content version
-        of a document its own graph node instead of one node with a changing
-        content hash.
+        Distinct from ``id_for()``. This id is keyed on ``document_key``, not
+        the content hash, so it stays the same across content changes to the
+        same logical document. Conflating the two ids gives every content
+        version of a document its own graph node instead of one node with a
+        changing content hash.
 
         Args:
             document_key: The document's stable key.

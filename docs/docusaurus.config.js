@@ -5,8 +5,13 @@
 // See: https://docusaurus.io/docs/api/docusaurus-config
 
 import {themes as prismThemes} from 'prism-react-renderer';
+import {iconLinkHtml} from './navbarIcons.js';
+import remarkChangelog from './plugins/remarkChangelog.mjs';
+import {syncChangelog} from './plugins/syncChangelog.mjs';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
+
+syncChangelog();
 
 // Preview deploys override the base URL with the BASE_URL env var (e.g. BASE_URL=/).
 const baseUrl = process.env.BASE_URL ?? '/agentic-graphrag/';
@@ -37,6 +42,14 @@ const config = {
       tagName: 'link',
       attributes: {rel: 'apple-touch-icon', href: `${baseUrl}img/apple-touch-icon.png`},
     },
+    {
+      tagName: 'link',
+      attributes: {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: 'anonymous'},
+    },
+  ],
+
+  stylesheets: [
+    'https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback',
   ],
 
   markdown: {
@@ -57,6 +70,7 @@ const config = {
           path: 'docs',
           routeBasePath: '/',
           sidebarPath: './sidebars.js',
+          remarkPlugins: [remarkChangelog],
         },
         blog: false,
         theme: {
@@ -89,6 +103,8 @@ const config = {
           'Build a knowledge graph from your documents, then ask it questions with an agent that cites its evidence.',
         // The generated API pages are large and add little for a language model.
         ignoreFiles: ['api/**'],
+        // The page menu copies a page as Markdown, so every page needs its own .md file.
+        generateMarkdownFiles: true,
       },
     ],
   ],
@@ -105,49 +121,100 @@ const config = {
       },
       navbar: {
         title: 'Agentic GraphRAG',
-        logo: {alt: 'Agentic GraphRAG logo', src: 'img/logo.svg'},
+        logo: {alt: 'Agentic GraphRAG logo', src: 'img/logo.svg', srcDark: 'img/logo-dark.svg'},
         items: [
-          {type: 'docSidebar', sidebarId: 'startSidebar', position: 'left', label: 'Get Started'},
-          {type: 'docSidebar', sidebarId: 'conceptsSidebar', position: 'left', label: 'Concepts'},
-          {type: 'docSidebar', sidebarId: 'guidesSidebar', position: 'left', label: 'Guides'},
-          {type: 'docSidebar', sidebarId: 'referenceSidebar', position: 'left', label: 'Reference'},
+          {type: 'docSidebar', sidebarId: 'docsSidebar', position: 'left', label: 'Documentation', 'data-text': 'Documentation'},
+          {type: 'docSidebar', sidebarId: 'referenceSidebar', position: 'left', label: 'API reference', 'data-text': 'API reference'},
+          {type: 'doc', docId: 'changelog', position: 'left', label: 'Changelog', 'data-text': 'Changelog'},
           {type: 'search', position: 'right'},
           {
             href: 'https://github.com/ontogr/agentic-graphrag',
-            label: 'GitHub',
+            html: iconLinkHtml('github', 'GitHub'),
+            'aria-label': 'GitHub',
+            className: 'navbar-icon',
             position: 'right',
           },
           {
             href: 'https://pypi.org/project/agentic-graphrag/',
-            label: 'PyPI',
+            html: iconLinkHtml('pypi', 'PyPI'),
+            'aria-label': 'PyPI',
+            className: 'navbar-icon',
+            position: 'right',
+          },
+          {
+            to: '/get-started/quickstart',
+            label: 'Quickstart',
+            className: 'navbar-cta',
             position: 'right',
           },
         ],
       },
       footer: {
-        style: 'dark',
+        style: 'light',
+        logo: {
+          alt: 'Agentic GraphRAG logo',
+          src: 'img/logo.svg',
+          srcDark: 'img/logo-dark.svg',
+          href: baseUrl,
+          width: 32,
+          height: 32,
+        },
         links: [
           {
-            title: 'Docs',
+            title: 'Learn',
             items: [
               {label: 'Introduction', to: '/get-started/introduction'},
-              {label: 'Concepts', to: '/concepts/architecture'},
-              {label: 'Guides', to: '/guides/ingest-documents'},
-              {label: 'API Reference', to: '/api'},
+              {label: 'Installation', to: '/get-started/installation'},
+              {label: 'Quickstart', to: '/get-started/quickstart'},
+              {label: 'Architecture', to: '/concepts/architecture'},
+              {label: 'Benchmarks', to: '/benchmarks'},
             ],
           },
           {
-            title: 'Project',
+            title: 'Build',
+            items: [
+              {label: 'Guides', to: '/guides/ingest-documents'},
+              {label: 'Configuration', to: '/reference/configuration'},
+              {label: 'API reference', to: '/api'},
+              {label: 'Trace spans', to: '/reference/trace-spans'},
+              {label: 'Changelog', to: '/changelog'},
+            ],
+          },
+          {
+            title: 'Community',
             items: [
               {label: 'GitHub', href: 'https://github.com/ontogr/agentic-graphrag'},
               {label: 'PyPI', href: 'https://pypi.org/project/agentic-graphrag/'},
+              {label: 'Issues', href: 'https://github.com/ontogr/agentic-graphrag/issues'},
               {
-                label: 'Issues',
-                href: 'https://github.com/ontogr/agentic-graphrag/issues',
+                label: 'Discussions',
+                href: 'https://github.com/ontogr/agentic-graphrag/discussions',
+              },
+              {
+                label: 'Contributing',
+                href: 'https://github.com/ontogr/agentic-graphrag/blob/main/CONTRIBUTING.md',
+              },
+            ],
+          },
+          {
+            title: 'Legal',
+            items: [
+              {
+                label: 'License (Apache-2.0)',
+                href: 'https://github.com/ontogr/agentic-graphrag/blob/main/LICENSE',
+              },
+              {
+                label: 'Security policy',
+                href: 'https://github.com/ontogr/agentic-graphrag/blob/main/SECURITY.md',
+              },
+              {
+                label: 'Code of conduct',
+                href: 'https://github.com/ontogr/agentic-graphrag/blob/main/CODE_OF_CONDUCT.md',
               },
             ],
           },
         ],
+        copyright: `Agentic GraphRAG is open source under the Apache-2.0 license. Copyright &copy; ${new Date().getFullYear()} the Agentic GraphRAG contributors.`,
       },
       prism: {
         theme: prismThemes.github,

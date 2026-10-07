@@ -5,13 +5,13 @@ title: Quickstart
 
 # Quickstart
 
-In this tutorial, you build a small knowledge graph from three sentences. You then look at what `agrag` stored. At the end, you can ask the graph a question.
+In this tutorial, you build a small knowledge graph from three sentences. You then look at what Agentic GraphRAG stored. At the end, you can ask the graph a question.
 
 The tutorial takes about 10 minutes on a typical connection. Most of the time goes to the first download of libraries and models.
 
 ## What you need
 
-- Python 3.11 or newer, and [uv](https://docs.astral.sh/uv/).
+- Python 3.11 or newer, and [uv](https://docs.astral.sh/uv/) 0.6.9 or newer.
 - A free Neo4j Aura account. You can use Docker instead, as the dropdown in step 1 shows.
 - For step 5 only: an OpenAI-compatible LLM endpoint and API key.
 
@@ -54,7 +54,7 @@ mkdir agrag-quickstart
 cd agrag-quickstart
 ```
 
-Copy the credentials file into the folder and rename it `.env`. `agrag` reads the connection settings `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, and `NEO4J_DATABASE` from this file. The URI starts with `neo4j+s://`.
+Copy the credentials file into the folder and rename it `.env`. Agentic GraphRAG reads the connection configuration `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, and `NEO4J_DATABASE` from this file. The URI starts with `neo4j+s://`.
 
 <details>
 <summary>Run Neo4j on your machine with Docker instead</summary>
@@ -76,22 +76,21 @@ NEO4J_PASSWORD=agrag-quickstart
 
 </details>
 
-## Step 2: Install agrag
+## Step 2: Install Agentic GraphRAG
 
 Create a virtual environment and install the packages:
 
 ```bash
 uv venv
 source .venv/bin/activate   # On Windows: .venv\Scripts\activate
-uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-uv pip install "agentic-graphrag[neo4j,extract,embed-local]"
+uv pip install "agentic-graphrag[neo4j,extract,embed-local]" --torch-backend=auto
 ```
 
-The second command installs the CPU build of PyTorch, which is much smaller than the default build on Linux. If your machine has a GPU, you can skip it. See [Installation](/get-started/installation) for the details.
+The `--torch-backend=auto` flag picks the PyTorch build for your machine, such as a CPU-only build when it finds no GPU. See [Installation](/get-started/installation#alternative-pytorch-distributions) for the details.
 
 ## Step 3: Build the graph
 
-A schema tells `agrag` which entity types and relation types to look for. This schema has three entity types and three relation types. Each relation names the entity types that it joins.
+A schema tells Agentic GraphRAG which entity types and relation types to look for. This schema has three entity types and three relation types. Each relation names the entity types that it joins.
 
 Save this script as `build_graph.py`:
 
@@ -175,7 +174,7 @@ relations extracted: 3
 
 ## Step 4: Look at the graph
 
-`agrag` stores the graph in Neo4j, so you can query it with Cypher. Save this script as `inspect_graph.py`. The first query lists the entities. The second query lists the relations.
+Agentic GraphRAG stores the graph in Neo4j, so you can query it with Cypher. Save this script as `inspect_graph.py`. The first query lists the entities. The second query lists the relations.
 
 ```python
 import asyncio
@@ -230,25 +229,25 @@ Microsoft - HEADQUARTERED_IN -> Redmond
 Satya Nadella - WORKS_AT -> Microsoft
 ```
 
-Every node that `agrag` writes has the label `_AgragNode`. The first query skips the chunk, document, community, and resolved-entity nodes, so only entities remain.
+Every node that Agentic GraphRAG writes has the label `_AgragNode`. The first query skips the chunk, document, community, and resolved-entity nodes, so only entities remain.
 
 ## What you just built
 
-- **One chunk.** The three sentences were short enough to stay in one chunk. `agrag` stored the text of the chunk, its position in the source, and an embedding.
-- **Four entities from six mentions.** The extractor found `Microsoft` three times. Resolution merged the three mentions into one node, because the names match exactly.
-- **Three relations.** Each relation links two entity nodes. The extractor reports a relation only when the schema names it.
-- **Why the schema names the relations.** The built-in `GENERIC` schema has one broad relation, `RELATED_TO`. On these three sentences, `GENERIC` finds the same six mentions and no relations. Specific relation names, each with a short description, give the extractor something to look for.
+- One chunk: the three sentences were short enough to stay in one chunk. Agentic GraphRAG stored the text of the chunk, its position in the source, and an embedding.
+- Four entities from six mentions: the extractor found `Microsoft` three times. Resolution merged the three mentions into one node, because the names match exactly.
+- Three relations: each relation links two entity nodes. The extractor reports a relation only when the schema names it.
+- Why the schema names the relations: the built-in `GENERIC` schema has one broad relation, `RELATED_TO`. On these three sentences, `GENERIC` finds the same six mentions and no relations. Specific relation names, each with a short description, give the extractor something to look for.
 
 <details>
 <summary>Why does the script report 6 entities when the graph has 4?</summary>
 
-The extractor counts mentions. A mention is one place in the text where an entity appears. Resolution groups mentions of the same thing into one node. The three mentions of `Microsoft` became one node, so 6 mentions became 4 nodes.
+The extractor counts mentions. A mention is one place where an entity appears. Resolution groups mentions of the same thing into one node. The three mentions of `Microsoft` became one node, so 6 mentions became 4 nodes.
 
 </details>
 
 ## Step 5 (optional): Ask a question
 
-The agent plans sub-questions, searches the graph, checks its evidence, and answers with citations. It needs an LLM. Add your endpoint to the `.env` file:
+The agent plans sub-questions, searches the graph, reviews its evidence, and answers with citations. It needs an LLM. Add your endpoint to the `.env` file:
 
 ```text
 LLM_BASE_URL=https://your-endpoint.example.com/v1

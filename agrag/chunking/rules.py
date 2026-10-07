@@ -117,3 +117,7 @@ DEFAULT_CHUNKING = Chunking(
         tokenizer="character", chunk_size=1024, min_characters_per_chunk=24
     ),
 )
+"""The preset that ``Graph`` uses: ``docling`` loads go to ``DoclingChunker``.
+
+All other documents go to a ``RecursiveChunker`` with a 1024-character size.
+"""

@@ -27,9 +27,9 @@ class Chunk(DataPoint):
 
     Attributes:
         document_id: The id of the persisted Document graph node this chunk
-            belongs to (see ``Document.node_id_for``). Stable across content
-            versions of the same logical document; per-version identity lives
-            in ``Chunk.id`` instead.
+            belongs to (see ``Document.node_id_for``). It stays stable across
+            content versions of the same logical document. Per-version
+            identity lives in ``Chunk.id`` instead.
         index: The position of the chunk within its document, from 0.
         text: The chunk text.
         provenance: The location of this chunk in its source. The shape of this
@@ -111,8 +111,8 @@ class Chunk(DataPoint):
             provenance: The provenance of the chunk. Its type picks which id rule
                 applies.
             index: The position of the chunk within its document.
-            chunker_hash: The fingerprint of the chunker. Only a docling chunk uses
-                it; a text chunk id ignores it.
+            chunker_hash: The fingerprint of the chunker. Only a docling chunk
+                uses it. A text chunk id ignores it.
             level: The chunk level. A parent chunk (level 1) adds a level part, so a
                 parent and a child with the same span get different ids. The id of a
                 level 0 chunk does not change.
@@ -158,7 +158,7 @@ class Chunk(DataPoint):
     def to_node_record(self) -> NodeRecord:
         """Return this chunk as a GraphStore write record.
 
-        Provenance is flattened to a plain JSON-safe dict via model_dump —
+        Provenance is flattened to a plain JSON-safe dict via model_dump.
         GraphStore's own serialize.node_params only converts UUIDs and walks
         containers.
 

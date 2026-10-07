@@ -5,13 +5,12 @@ sidebar_position: 1
 
 # Trace Spans
 
-This page is the reference for the spans `agrag` records when you pass it a
-`tracer`. Every span name, attribute and provider value below is what the
-library emits today.
+This page is the reference for the spans Agentic GraphRAG records when you pass it a
+`tracer`. The library emits every span name, attribute, and provider value below.
 
 Tracing is opt-in per object. A `tracer` of `None` opens no recorded span and
-costs nothing, and `agrag` never installs a global provider: the tracer is the
-one you inject. See [Trace an Agent Run](../guides/trace-an-agent-run.mdx) for
+costs nothing. Agentic GraphRAG never installs a global provider. You inject
+the tracer you want. See [Trace an agent run](../guides/trace-an-agent-run.mdx) for
 how to build and pass one.
 
 ## How the span families nest
@@ -49,9 +48,9 @@ flowchart TD
 
 ## The LLM span tree
 
-Every BAML-backed path produces the same three spans, nested. The `request`
-span is written after the attempt finishes, from the data BAML collected, so it
-carries the real request and response.
+Every BAML-backed path produces the same three spans, nested. BAML collects
+data during the attempt. The path writes the `request`
+span after the attempt finishes. The span carries the real request and response.
 
 ```text
 agrag.extraction.extract_chunk            (INTERNAL)
@@ -69,7 +68,7 @@ agrag.extraction.extract_chunk            (INTERNAL)
 
 `agrag.llm.function` is the BAML function name, such as
 `ExtractEntitiesAndRelations`. The attempt span records the exception when an
-attempt fails. The `call` span is `ERROR` when the call as a whole fails.
+attempt fails. The `call` span reports `ERROR` when the call as a whole fails.
 
 ## Ingestion spans
 
@@ -155,7 +154,7 @@ agrag.ingestion.add
 
 ## Graph store spans
 
-The Neo4j store opens these spans. Reads and writes carry the query text and the value of every parameter, except vectors, so a trace shows what each query asked for.
+The Neo4j store opens these spans. Reads and writes carry the query text and the value of every parameter except vectors. A trace shows what each query asked for.
 
 | Span | Attributes |
 |---|---|
@@ -166,7 +165,7 @@ The Neo4j store opens these spans. Reads and writes carry the query text and the
 | `agrag.graphdb.upsert_nodes` | `db.collection.name` (the label), `agrag.record_count`, `agrag.written`, `agrag.failures_count`, `db.operation.batch.size` (only for a write of more than one record) |
 | `agrag.graphdb.upsert_relations` | `agrag.record_count`, `agrag.written`, `agrag.failures_count`, `db.operation.batch.size` (only for a write of more than one record) |
 | `agrag.graphdb.load_entities` | `agrag.requested_count`, `agrag.loaded_count` |
-| `agrag.graphdb.vector_search` | `db.collection.name` (the label), `agrag.limit`, `agrag.k_final`, `agrag.index_missing` (when the index does not exist; the search then returns no hits) |
+| `agrag.graphdb.vector_search` | `db.collection.name` (the label), `agrag.limit`, `agrag.k_final`, `agrag.index_missing` (when the index does not exist. The search then returns no hits) |
 
 ## Vector store spans
 
@@ -211,7 +210,7 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 | Path | Domain span | Attributes |
 |---|---|---|
 | Extraction, BAML | `agrag.extraction.baml` | `agrag.chunk_id`, `agrag.entities_extracted`, `agrag.relations_extracted`, `agrag.extraction.heading_context` (bool, whether a section line was sent) |
-| Extraction, GLiNER | `agrag.extraction.gliner`, and `agrag.extraction.model_load` around the one-time model build | the same counts; `agrag.model` on the load span |
+| Extraction, GLiNER | `agrag.extraction.gliner`, and `agrag.extraction.model_load` around the one-time model build | the same counts. `agrag.model` is on the load span |
 | Extraction, escalating | `agrag.extraction.escalating` | `agrag.chunk_id`, `agrag.escalated` (bool) |
 | Resolution | `agrag.resolution.llm_verify` | `agrag.pair_count`, `agrag.match_count`, `agrag.uncertain_count`, `agrag.request_failed` (bool) |
 | Merge | `agrag.merge.resolve_description` | `agrag.description_count`, `agrag.summarized` (bool) |
@@ -220,21 +219,21 @@ Each LLM path also opens one small domain span carrying its own ids and counts.
 | Text2cypher | `agrag.retrieval.generate_cypher` | `agrag.is_repair` (bool) |
 | Judge | `agrag.eval.judge` | `agrag.eval.judge_model` |
 
-Two of these are conditional, and that is deliberate:
+Two of these are conditional:
 
-- `agrag.merge.resolve_description` opens only when the field actually
-  conflicted, that is, when more than one distinct candidate exists. A field
+- `agrag.merge.resolve_description` opens only when the field
+  conflicted. The field conflicted when more than one distinct candidate exists. A field
   every mention agrees on adds no span.
 - `agrag.retrieval.generate_cypher` opens on every generation, and
   `agrag.is_repair` tells a first attempt from a retry after a failure.
 
 `agrag.resolution.llm_verify` never carries an `ERROR` status. A failed LLM
-call resolves to `NO_MATCH`, not an error, so the span stays `UNSET` and sets
+call resolves to `NO_MATCH`, not an error. The span stays `UNSET` and sets
 `agrag.request_failed` instead.
 
 ## The retrieval span tree
 
-One `search` call fans out to the recipe's retrievers concurrently, so their
+One `search` call fans out to the recipe's retrievers concurrently. Their
 spans are siblings under the root. The `agrag.graphdb.*`, `agrag.vectordb.*`
 and `agrag.embedding.*` spans nest below these whenever the caller passed the
 same tracer to the stores and the embedder.
@@ -264,7 +263,7 @@ agrag.retrieval.search                     RETRIEVER
 ```
 
 `agrag.retrieval.find_entity` and `agrag.retrieval.traverse` are `RETRIEVER`
-roots for direct calls that bypass `search`;
+roots for direct calls that bypass `search`.
 `agrag.retrieval.list_relationship_types` returns strings and carries no kind.
 Inside an agent run, the whole tree nests under the OpenInference `TOOL` span
 of the tool call that made it.
@@ -274,7 +273,7 @@ of the tool call that made it.
 | Span | Attributes |
 |---|---|
 | `agrag.retrieval.search` | `agrag.recipe.methods`, `agrag.recipe.limit`, `agrag.recipe.bfs`, `agrag.recipe.community_expand`, `agrag.recipe.reranker`, `agrag.failed_methods` (when a method failed) |
-| retrievers (`entity`, `chunk`, `community`, `text2cypher`, `bfs`) | `agrag.limit`; `bfs` also `agrag.seed_count`, `agrag.depth`, `agrag.direction`; `text2cypher` also `agrag.cypher` |
+| retrievers (`entity`, `chunk`, `community`, `text2cypher`, `bfs`) | `agrag.limit`. `bfs` also `agrag.seed_count`, `agrag.depth`, `agrag.direction`. `text2cypher` also `agrag.cypher` |
 | `agrag.retrieval.find_entity` / `traverse` | `agrag.seed_ids`, `agrag.relation_type`, `agrag.direction`, `agrag.depth`, `agrag.limit`, `agrag.community_expand` on `traverse` |
 | `agrag.retrieval.list_relationship_types` | `agrag.seed_ids`, `agrag.relation_type_filter`, `agrag.direction`, `agrag.result_count`, `agrag.result_types` |
 | `agrag.retrieval.vector_search` | `agrag.collection`, `agrag.store` (`vector_store` or `graph_native`), `agrag.labels`, `agrag.limit`, `agrag.hit_count`, `agrag.hit_ids`, `agrag.hit_scores` |
@@ -294,19 +293,19 @@ of the tool call that made it.
 Every span that returns a list records its results in full:
 
 - `agrag.result_count`, and arrays `agrag.result_ids`, `agrag.result_scores`,
-  `agrag.result_kinds` and `agrag.result_texts` holding **every** result, with
+  `agrag.result_kinds` and `agrag.result_texts` holding every result, with
   no text cap. Array attributes are not subject to the SDK's per-span
   attribute limit.
-- For the first 20 results, the OpenInference flattened names
+- For the first 20 results, the span also carries the OpenInference flattened names
   `retrieval.documents.N.document.id`, `.document.content`, `.document.score`
-  and `.document.metadata` (a JSON object with `kind` and `method`), which
-  trace viewers draw as a retrieval panel.
+  and `.document.metadata` (a JSON object with `kind` and `method`). Trace
+  viewers draw these names as a retrieval panel.
 
-The query and the scope are always recorded: `input.value` and `agrag.query`
-carry the query text, and `agrag.filters` carries the scope as JSON, an empty
-scope included. A step that falls back to empty (a failed load, a
+The span records the query and the scope. `input.value` and `agrag.query`
+carry the query text. `agrag.filters` carries the scope as JSON, and an empty
+scope counts. A step that falls back to empty (a failed load, a
 reranker without its extra) records the exception as an event on the
-narrowest span and that span's status stays `UNSET`.
+narrowest span. That span's status stays `UNSET`.
 
 ## The `agrag.llm.request` span
 
@@ -336,8 +335,8 @@ got no response at all.
 
 ### Provider mapping
 
-BAML's provider ids map to the same OpenInference values the agent path emits,
-so the same configuration reports the same provider either way.
+BAML's provider ids map to the same OpenInference values the agent path emits.
+The same configuration reports the same provider either way.
 
 | BAML provider id | `llm.provider` |
 |---|---|
@@ -347,7 +346,7 @@ so the same configuration reports the same provider either way.
 | `google-ai`, `vertex-ai` | `google` |
 | `aws-bedrock` | `aws` |
 
-An id outside this table is recorded unchanged, so a newly added provider still
+An id outside this table stays unchanged. A newly added provider still
 produces a usable span.
 
 ## Counting calls and tokens
@@ -365,8 +364,8 @@ def count_llm_calls(spans):
 ```
 
 Token counts live only on `agrag.llm.request` spans and on the agent and judge
-LLM spans. The parent spans never carry them, so summing
-`llm.token_count.prompt` over every span with that kind is exact and nothing
+LLM spans. The parent spans never carry them. A sum of
+`llm.token_count.prompt` over every span with that kind is exact. Nothing
 counts twice.
 
 ## What is recorded, and what is not
@@ -377,26 +376,26 @@ and evidence text. The OpenInference redaction environment variables no longer
 change any span, on any path. To record less, scrub attributes in a
 `SpanProcessor` you configure, or run without a tracer.
 
-Two things are never recorded on any span: the request headers, which carry the
+No span records two things: the request headers, which carry the
 provider key, and the request URL. Graph store spans record the query text and the
 value of every parameter except vectors. A parameter can hold source text or entity
 names.
 
 ## Known limits
 
-- **An unparsable reply looks successful.** BAML coerces a reply it cannot
-  parse into an empty result rather than raising, so the span's status is
+- An unparsable reply looks successful: BAML coerces a reply it cannot
+  parse into an empty result rather than raising. The span's status is therefore
   `UNSET`. `output.value` is the evidence that the reply was not usable.
-- **Retries below BAML are invisible.** LangChain and the provider SDKs retry
+- Retries below BAML are invisible: LangChain and the provider SDKs retry
   internally, and one agent or judge LLM span can cover several HTTP requests.
   The `agrag.llm.request` spans, read from BAML's collector, are exact for the
   requests BAML itself made.
-- **Token semantics were verified against an OpenAI-compatible endpoint only.**
+- Token semantics match an OpenAI-compatible endpoint only.
   For `anthropic`, `google-ai`, `vertex-ai`, `aws-bedrock` and `azure-openai`,
   the counts are whatever BAML's `Usage` reports.
-- **The SDK caps attributes at 128 by default.** A long agent run can reach that
-  and have attributes silently dropped. Raise `SpanLimits.max_attributes` on
-  your provider and use a sampling processor in production.
-- **BAML's error text includes the request URL.** It reaches `output.value`,
+- The SDK caps attributes at 128 by default. A long agent run can reach that
+  limit. The SDK then drops attributes without a warning. Raise `SpanLimits.max_attributes` on
+  your provider. Use a sampling processor in production.
+- BAML error text includes the request URL: it reaches `output.value`,
   exception events and `StageFailure.error_message`. Never put a provider key
   in a `base_url` query string.

@@ -46,9 +46,9 @@ class ChunkRetriever(Retriever):
                 absent.
             embedder: Produces query vectors.
             vector_store: Optional VectorStore for hybrid search.
-            settings: Retrieval configuration; defaults from
+            settings: Retrieval configuration. Defaults from
                 environment.
-            tracer: Opens the retriever and its children's spans. None
+            tracer: Opens spans for the retriever and its children. None
                 opens no recorded span.
         """
         self._graph_store = graph_store
@@ -74,9 +74,9 @@ class ChunkRetriever(Retriever):
 
         Returns:
             Ranked SearchResults with loaded Chunk items. A child chunk result
-            carries its parent chunk in ``SearchResult.parent``. The list is
-            empty when the limit is not positive, or when the search ran
-            and found nothing.
+                carries its parent chunk in ``SearchResult.parent``. The list is
+                empty when the limit is not positive, or when the search ran
+                and found nothing.
 
         Raises:
             Exception: Any embedding, vector search, or graph read
