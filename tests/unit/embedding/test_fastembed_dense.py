@@ -347,8 +347,8 @@ class TestFastEmbedTracing:
         encodes = [s for s in spans if s.name == "agrag.embedding.encode"]
         assert len(encodes) == 2
 
-    async def test_full_cache_hit_exports_no_encode_span(self) -> None:
-        """A fully cached embed opens no encode span."""
+    async def test_full_cache_hit_exports_embed_span_without_encode(self) -> None:
+        """A fully cached embed opens one embed span and no encode span."""
         provider, exporter = _tracing_provider()
         embedder = FastEmbedEmbedder(
             model=MockFastEmbedModel(),
@@ -358,8 +358,7 @@ class TestFastEmbedTracing:
         await embedder.embed(["a", "b"])
         exporter.clear()
         await embedder.embed(["a", "b"])
-        assert [
-            s
-            for s in exporter.get_finished_spans()
-            if s.name == "agrag.embedding.encode"
-        ] == []
+        spans = exporter.get_finished_spans()
+        assert [s for s in spans if s.name == "agrag.embedding.encode"] == []
+        (embed_span,) = [s for s in spans if s.name == "agrag.embedding.embed"]
+        assert (embed_span.attributes or {}).get("agrag.cache_hit_count") == 2
