@@ -29,26 +29,26 @@ Shared data models used by agrag components.
 
 **Classes:**
 
-- [**Chunk**](Chunk-ref.md) – One retrieval-sized piece of a Document.
-- [**Community**](Community-ref.md) – A cluster of entities detected by hierarchical Leiden, with an LLM report.
-- [**Distance**](Distance.md) – A distance metric a vector index compares embeddings with.
-- [**Document**](Document-ref.md) – One unit of source text, before chunking.
-- [**DocumentFamily**](DocumentFamily.md) – The shape of a document's source.
-- [**Entity**](Entity-ref.md) – A permanent mention-level node, never destroyed once written.
-- [**EntityType**](EntityType.md) – One kind of entity a schema recognizes.
-- [**GraphSchema**](GraphSchema.md) – A versioned contract of entity and relation types.
-- [**NodeRecord**](NodeRecord.md) – One graph node, ready to write.
-- [**Normalization**](Normalization-ref.md) – How a loader turned source bytes into `Document.text`.
-- [**PageProvenance**](PageProvenance.md) – The location of a chunk across one or more pages.
-- [**Relation**](Relation-ref.md) – A resolved relationship between two Entity nodes.
-- [**RelationRecord**](RelationRecord.md) – One graph relationship, ready to write.
-- [**RelationType**](RelationType.md) – One kind of relation a schema recognizes.
-- [**ResolvedEntity**](ResolvedEntity.md) – A cluster of entities that refer to the same thing.
-- [**SearchResult**](SearchResult.md) – One retrieved item, tagged with where it came from.
-- [**SourceFormat**](SourceFormat.md) – A source format that a loader can read.
-- [**TextProvenance**](TextProvenance.md) – The location of a chunk inside flattened document text.
-- [**VectorRecord**](VectorRecord.md) – One vector and its payload, ready to write to a collection or index.
+- [**Chunk**](chunk/Chunk-ref.md) – One retrieval-sized piece of a Document.
+- [**Community**](community/Community-ref.md) – A cluster of entities detected by hierarchical Leiden, with an LLM report.
+- [**Distance**](vector_record/Distance.md) – A distance metric a vector index compares embeddings with.
+- [**Document**](document/Document-ref.md) – One unit of source text, before chunking.
+- [**DocumentFamily**](document/DocumentFamily.md) – The shape of a document's source.
+- [**Entity**](entity/Entity-ref.md) – A permanent mention-level node, never destroyed once written.
+- [**EntityType**](graph_schema/EntityType.md) – One kind of entity a schema recognizes.
+- [**GraphSchema**](graph_schema/GraphSchema.md) – A versioned contract of entity and relation types.
+- [**NodeRecord**](graph_record/NodeRecord.md) – One graph node, ready to write.
+- [**Normalization**](normalization/Normalization-ref.md) – How a loader turned source bytes into `Document.text`.
+- [**PageProvenance**](provenance/PageProvenance.md) – The location of a chunk across one or more pages.
+- [**Relation**](relation/Relation-ref.md) – A resolved relationship between two Entity nodes.
+- [**RelationRecord**](graph_record/RelationRecord.md) – One graph relationship, ready to write.
+- [**RelationType**](graph_schema/RelationType.md) – One kind of relation a schema recognizes.
+- [**ResolvedEntity**](resolved_entity/ResolvedEntity.md) – A cluster of entities that refer to the same thing.
+- [**SearchResult**](search_result/SearchResult.md) – One retrieved item, tagged with where it came from.
+- [**SourceFormat**](document/SourceFormat.md) – A source format that a loader can read.
+- [**TextProvenance**](provenance/TextProvenance.md) – The location of a chunk inside flattened document text.
+- [**VectorRecord**](vector_record/VectorRecord.md) – One vector and its payload, ready to write to a collection or index.
 
 **Attributes:**
 
-- [**GENERIC**](GENERIC.md) – A ready-made schema for open-domain text.
+- [**GENERIC**](graph_schema/GENERIC.md) – A ready-made schema for open-domain text.

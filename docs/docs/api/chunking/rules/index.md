@@ -15,4 +15,4 @@ Chunking rules: which chunker a document gets, as data.
 
 **Attributes:**
 
-- [**DEFAULT_CHUNKING**](DEFAULT_CHUNKING.md) –
+- [**DEFAULT_CHUNKING**](DEFAULT_CHUNKING.md) – The preset that `Graph` uses: `docling` loads go to `DoclingChunker`.

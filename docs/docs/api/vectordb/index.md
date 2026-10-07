@@ -20,16 +20,16 @@ Vector storage backends and the build shortcut.
 
 **Classes:**
 
-- [**CollectionDimensionMismatchError**](CollectionDimensionMismatchError.md) – A collection already exists with a different embedding dimension.
-- [**MilvusSettings**](MilvusSettings.md) – Milvus connection configuration.
-- [**MilvusVectorStore**](MilvusVectorStore.md) – A `VectorStore` backed by Milvus, including native hybrid search.
-- [**QdrantSettings**](QdrantSettings.md) – Qdrant connection configuration.
-- [**QdrantVectorStore**](QdrantVectorStore.md) – A `VectorStore` backed by Qdrant, including native hybrid search.
-- [**VectorStore**](VectorStore.md) – A vector database backend: collection lifecycle, writes, and search.
-- [**VectorStoreError**](VectorStoreError.md) – The base class for every vector-store error.
-- [**VectorStoreMissingExtraError**](VectorStoreMissingExtraError.md) – A vector store exists, but its package extra is not installed.
-- [**WeaviateSettings**](WeaviateSettings.md) – Weaviate connection configuration.
-- [**WeaviateVectorStore**](WeaviateVectorStore.md) – A `VectorStore` backed by Weaviate, including native hybrid search.
+- [**CollectionDimensionMismatchError**](errors/CollectionDimensionMismatchError.md) – A collection already exists with a different embedding dimension.
+- [**MilvusSettings**](settings/MilvusSettings.md) – Milvus connection configuration.
+- [**MilvusVectorStore**](milvus/MilvusVectorStore.md) – A `VectorStore` backed by Milvus, including native hybrid search.
+- [**QdrantSettings**](settings/QdrantSettings.md) – Qdrant connection configuration.
+- [**QdrantVectorStore**](qdrant/QdrantVectorStore.md) – A `VectorStore` backed by Qdrant, including native hybrid search.
+- [**VectorStore**](base/VectorStore.md) – A vector database backend: collection lifecycle, writes, and search.
+- [**VectorStoreError**](errors/VectorStoreError.md) – The base class for every vector-store error.
+- [**VectorStoreMissingExtraError**](errors/VectorStoreMissingExtraError.md) – A vector store exists, but its package extra is not installed.
+- [**WeaviateSettings**](settings/WeaviateSettings.md) – Weaviate connection configuration.
+- [**WeaviateVectorStore**](weaviate/WeaviateVectorStore.md) – A `VectorStore` backed by Weaviate, including native hybrid search.
 
 **Functions:**
 

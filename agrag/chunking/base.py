@@ -102,8 +102,9 @@ class Chunker(BaseModel, ABC):
             document: The document to split.
 
         Returns:
-            The chunks, in document order, each with ``chunker`` and ``chunker_hash``
-            set. A strategy that sets ``chunker`` itself keeps its value.
+            The chunks, in document order, each with ``chunker`` and
+                ``chunker_hash`` set. A strategy that sets ``chunker`` itself keeps
+                its value.
 
         Raises:
             ChunkingError: The strategy returned chunks that break the contract.

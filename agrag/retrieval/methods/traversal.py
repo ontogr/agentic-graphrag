@@ -84,7 +84,7 @@ async def find_entity(
 
     Runs one entity search and returns its best result, which callers
     keep whole rather than unwrapping: the item renders as evidence,
-    and the result itself is what :func:`extract_entity_ids` can turn
+    and the result itself is what ``extract_entity_ids`` can turn
     into traversal seeds.
 
     Args:

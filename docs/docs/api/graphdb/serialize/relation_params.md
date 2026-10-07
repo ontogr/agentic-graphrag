@@ -12,7 +12,7 @@ relation_params(record:RelationRecord, *, pending_job_id:UUID | None = None) -> 
 Build the `$records` entry for a relationship upsert.
 
 The Cutover Job tag travels in its own key for the same reason as in
-:func:`node_params`: only an edge the job creates carries it.
+`node_params`: only an edge the job creates carries it.
 
 **Parameters:**
 

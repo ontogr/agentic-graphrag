@@ -19,11 +19,11 @@ Graph storage backends and the build shortcut.
 
 **Classes:**
 
-- [**GraphStore**](GraphStore.md) – A graph database backend: schema, writes, and native vector search.
-- [**GraphStoreError**](GraphStoreError.md) – The base class for every graph-store error.
-- [**GraphStoreMissingExtraError**](GraphStoreMissingExtraError.md) – A graph store exists, but its package extra is not installed.
-- [**Neo4jGraphStore**](Neo4jGraphStore.md) – A `GraphStore` backed by Neo4j, using native vector indexes.
-- [**Neo4jSettings**](Neo4jSettings.md) – Neo4j connection configuration.
+- [**GraphStore**](base/GraphStore.md) – A graph database backend: schema, writes, and native vector search.
+- [**GraphStoreError**](errors/GraphStoreError.md) – The base class for every graph-store error.
+- [**GraphStoreMissingExtraError**](errors/GraphStoreMissingExtraError.md) – A graph store exists, but its package extra is not installed.
+- [**Neo4jGraphStore**](neo4j/Neo4jGraphStore.md) – A `GraphStore` backed by Neo4j, using native vector indexes.
+- [**Neo4jSettings**](settings/Neo4jSettings.md) – Neo4j connection configuration.
 
 **Functions:**
 

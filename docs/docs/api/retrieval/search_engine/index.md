@@ -13,4 +13,4 @@ Retrieval's public entry point, independent of Graph.
 
 **Attributes:**
 
-- [**logger**](logger.md) –
+- [**logger**](../retrievers/text2cypher/logger.md) –

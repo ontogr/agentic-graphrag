@@ -540,10 +540,15 @@ details.alert {
 }
 
 .footer__bottom {
+  align-items: center;
   border-top: 1px solid var(--ifm-toc-border-color);
+  display: flex;
   font-size: 0.8125rem;
+  gap: 1rem;
+  justify-content: flex-start;
   margin-top: 2rem;
   padding-top: 1.5rem;
+  text-align: left;
 }
 
 .footer__copyright {
@@ -554,13 +559,6 @@ details.alert {
   display: none;
 }
 
-.footer__bottom {
-  align-items: center;
-  display: flex;
-  gap: 1rem;
-  justify-content: flex-start;
-  text-align: left;
-}
 
 .footer__bottom .margin-bottom--sm {
   margin-bottom: 0;

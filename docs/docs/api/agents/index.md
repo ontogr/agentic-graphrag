@@ -29,12 +29,12 @@ extra. Importing this package does not require that extra.
 
 **Classes:**
 
-- [**AgentLLMSettings**](AgentLLMSettings.md) – LLM client config for the agent's own reasoning turns.
-- [**AgentMissingExtraError**](AgentMissingExtraError.md) – Agent tracing needs a package extra that is not installed.
-- [**AgentRunResult**](AgentRunResult.md) – Result of one agent run.
-- [**AgentSettings**](AgentSettings.md) – Configuration for the agent loop itself.
-- [**Ledger**](Ledger-ref.md) – Assigns and tracks stable citation keys for one agent run.
+- [**AgentLLMSettings**](settings/AgentLLMSettings.md) – LLM client config for the agent's own reasoning turns.
+- [**AgentMissingExtraError**](errors/AgentMissingExtraError.md) – Agent tracing needs a package extra that is not installed.
+- [**AgentRunResult**](result/AgentRunResult.md) – Result of one agent run.
+- [**AgentSettings**](settings/AgentSettings.md) – Configuration for the agent loop itself.
+- [**Ledger**](ledger/Ledger-ref.md) – Assigns and tracks stable citation keys for one agent run.
 
 **Functions:**
 
-- [**build_agent**](build_agent.md) – Build the planner/researcher/verifier agent graph.
+- [**build_agent**](build/build_agent.md) – Build the planner/researcher/verifier agent graph.

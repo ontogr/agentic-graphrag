@@ -53,8 +53,9 @@ with text provenance has text equal to `document.text` at its offsets.
 
 **Returns:**
 
-- <code>list\[[Chunk](../../common/data_models/chunk/Chunk-ref.md)\]</code> – The chunks, in document order, each with `chunker` and `chunker_hash`
-- <code>list\[[Chunk](../../common/data_models/chunk/Chunk-ref.md)\]</code> – set. A strategy that sets `chunker` itself keeps its value.
+- <code>list\[[Chunk](../../common/data_models/chunk/Chunk-ref.md)\]</code> – The chunks, in document order, each with `chunker` and
+  `chunker_hash` set. A strategy that sets `chunker` itself keeps
+  its value.
 
 **Raises:**
 

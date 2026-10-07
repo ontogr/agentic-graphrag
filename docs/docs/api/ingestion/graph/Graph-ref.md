@@ -30,7 +30,7 @@ by `open()` when missing.
 
 **Attributes:**
 
-- [**chunking**](#agrag-ingestion-graph-Graph-chunking) (<code>[Chunking](../../chunking/Chunking-ref.md)</code>) – The rules that pick a chunker for each document.
+- [**chunking**](#agrag-ingestion-graph-Graph-chunking) (<code>[Chunking](../../chunking/rules/Chunking.md)</code>) – The rules that pick a chunker for each document.
 
 **Parameters:**
 
@@ -53,7 +53,7 @@ by `open()` when missing.
 - **cutover_settings** (<code>[CutoverJobSettings](../settings/CutoverJobSettings.md) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
-- **chunking** (<code>[Chunking](../../chunking/Chunking-ref.md)</code>) – The rules that pick a chunker for each document. The
+- **chunking** (<code>[Chunking](../../chunking/rules/Chunking.md)</code>) – The rules that pick a chunker for each document. The
   default is `DEFAULT_CHUNKING`.
 - **embed_heading_path** (<code>bool</code>) – Whether chunk embeddings include the chunk's
   heading path above its text. The stored text does not change.
@@ -82,7 +82,7 @@ Give exactly one of `source`, `text`, and `documents`.
   single-file `source`; a directory, glob, or list of sources raises an
   error.
 - **error_policy** (<code>[ErrorPolicy](../../loaders/corpus/types/ErrorPolicy.md)</code>) – The action to take on a per-source error.
-- **on_progress** (<code>Callable\[\[[AddResult](../reports/AddResult.md)\], None\] | None</code>) – A callback the call runs after each batch and once more
+- **on_progress** (<code>Callable\[\[[AddResult](../reports/add_result/AddResult.md)\], None\] | None</code>) – A callback the call runs after each batch and once more
   at the end with the fully-populated result.
 - **return_chunks** (<code>bool</code>) – Whether to include the produced chunks in the
   returned AddResult. False by default to avoid holding full text
@@ -92,14 +92,14 @@ Give exactly one of `source`, `text`, and `documents`.
 
 **Returns:**
 
-- <code>[AddResult](../reports/AddResult.md)</code> – A summary of what was added per pipeline stage. Resolution runs
-- **automatically** (<code>[AddResult](../reports/AddResult.md)</code>) – exact identity plus fuzzy, embedding, and
-- <code>[AddResult](../reports/AddResult.md)</code> – capped LLM zones over one combined mention list, with
-- <code>[AddResult](../reports/AddResult.md)</code> – confirmed matches persisted as MATCHES edges and derived
-- <code>[AddResult](../reports/AddResult.md)</code> – ResolvedEntity nodes. LLM verification calls stay bounded
-- <code>[AddResult](../reports/AddResult.md)</code> – at ceil(L * MAX_LLM_PAIRS / 10) requests for L labels;
-- <code>[AddResult](../reports/AddResult.md)</code> – inspect result.resolution.ambiguous_count for the pairs no
-- <code>[AddResult](../reports/AddResult.md)</code> – tier could decide.
+- <code>[AddResult](../reports/add_result/AddResult.md)</code> – A summary of what was added per pipeline stage. Resolution runs
+- **automatically** (<code>[AddResult](../reports/add_result/AddResult.md)</code>) – exact identity plus fuzzy, embedding, and
+- <code>[AddResult](../reports/add_result/AddResult.md)</code> – capped LLM zones over one combined mention list, with
+- <code>[AddResult](../reports/add_result/AddResult.md)</code> – confirmed matches persisted as MATCHES edges and derived
+- <code>[AddResult](../reports/add_result/AddResult.md)</code> – ResolvedEntity nodes. LLM verification calls stay bounded
+- <code>[AddResult](../reports/add_result/AddResult.md)</code> – at ceil(L * MAX_LLM_PAIRS / 10) requests for L labels;
+- <code>[AddResult](../reports/add_result/AddResult.md)</code> – inspect result.resolution.ambiguous_count for the pairs no
+- <code>[AddResult](../reports/add_result/AddResult.md)</code> – tier could decide.
 
 **Raises:**
 
@@ -153,8 +153,8 @@ entity is not compared in this call and the report lists the failure.
 
 **Returns:**
 
-- <code>[ConsolidationReport](../reports/ConsolidationReport.md)</code> – A report of every confirmed non-exact match, applied or not,
-- <code>[ConsolidationReport](../reports/ConsolidationReport.md)</code> – plus the count of uncertain LLM verdicts and every failure.
+- <code>[ConsolidationReport](../reports/consolidation_report/ConsolidationReport.md)</code> – A report of every confirmed non-exact match, applied or not,
+- <code>[ConsolidationReport](../reports/consolidation_report/ConsolidationReport.md)</code> – plus the count of uncertain LLM verdicts and every failure.
 
 ## `deactivate_match` \{#agrag-ingestion-graph-Graph-deactivate_match}
 
@@ -187,9 +187,9 @@ leaves the document untouched or completes the deletion.
 
 **Returns:**
 
-- <code>[UpdateResult](../reports/UpdateResult.md)</code> – The deletion summary: `no_op=True` when nothing was stored
-- <code>[UpdateResult](../reports/UpdateResult.md)</code> – under the key, otherwise `chunks_closed` with
-- <code>[UpdateResult](../reports/UpdateResult.md)</code> – `new_content_hash=None` and no `add_result`.
+- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – The deletion summary: `no_op=True` when nothing was stored
+- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – under the key, otherwise `chunks_closed` with
+- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – `new_content_hash=None` and no `add_result`.
 
 <details open>
 <summary>Note</summary>
@@ -229,7 +229,7 @@ previous one's.
 
 **Returns:**
 
-- <code>[CommunityDetectionReport](../reports/CommunityDetectionReport.md)</code> – A report of every community this call found, applied or not.
+- <code>[CommunityDetectionReport](../reports/community_detection_report/CommunityDetectionReport.md)</code> – A report of every community this call found, applied or not.
 
 **Raises:**
 
@@ -271,7 +271,7 @@ missing) so the dual writes never hit an absent collection.
 - **cutover_settings** (<code>[CutoverJobSettings](../settings/CutoverJobSettings.md) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
-- **chunking** (<code>[Chunking](../../chunking/Chunking-ref.md)</code>) – The rules that pick a chunker for each document; see
+- **chunking** (<code>[Chunking](../../chunking/rules/Chunking.md)</code>) – The rules that pick a chunker for each document; see
   __init__.
 - **embed_heading_path** (<code>bool</code>) – Whether chunk embeddings include the heading path;
   see __init__.
@@ -319,9 +319,9 @@ requests for L labels, as in Graph.add.
 
 **Returns:**
 
-- <code>[ReevaluationReport](../reports/ReevaluationReport.md)</code> – Which entities were reevaluated, which matches were added,
-- <code>[ReevaluationReport](../reports/ReevaluationReport.md)</code> – which match edges were deactivated, and how many inputs had no
-- <code>[ReevaluationReport](../reports/ReevaluationReport.md)</code> – incident added or removed edge.
+- <code>[ReevaluationReport](../reports/reevaluation_report/ReevaluationReport.md)</code> – Which entities were reevaluated, which matches were added,
+- <code>[ReevaluationReport](../reports/reevaluation_report/ReevaluationReport.md)</code> – which match edges were deactivated, and how many inputs had no
+- <code>[ReevaluationReport](../reports/reevaluation_report/ReevaluationReport.md)</code> – incident added or removed edge.
 
 **Raises:**
 
@@ -364,11 +364,11 @@ must resolve to exactly one document.
 
 **Returns:**
 
-- <code>[UpdateResult](../reports/UpdateResult.md)</code> – The update summary. A no-op reports `no_op=True` with no
-- <code>[UpdateResult](../reports/UpdateResult.md)</code> – `add_result`; a change reports `chunks_closed` plus the
-- <code>[UpdateResult](../reports/UpdateResult.md)</code> – fresh ingestion's `add_result`; an unknown `document_key`
-- <code>[UpdateResult](../reports/UpdateResult.md)</code> – ingests fresh with `previous_content_hash=None` and
-- <code>[UpdateResult](../reports/UpdateResult.md)</code> – `chunks_closed=0`.
+- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – The update summary. A no-op reports `no_op=True` with no
+- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – `add_result`; a change reports `chunks_closed` plus the
+- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – fresh ingestion's `add_result`; an unknown `document_key`
+- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – ingests fresh with `previous_content_hash=None` and
+- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – `chunks_closed=0`.
 
 **Raises:**
 

@@ -9,7 +9,7 @@ sidebar_label: LLMVerify
 LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | None = None, client:object | None = None, max_pairs_per_batch:int = 50, tracer:Tracer | None = None) -> None
 ```
 
-Bases: <code>[Comparator](../resolver/Comparator.md)</code>
+Bases: <code>[Comparator](Comparator.md)</code>
 
 Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
 
@@ -110,10 +110,10 @@ Verify pairs and count how many verdicts came back uncertain.
 
 **Returns:**
 
-- <code>dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\]</code> – The per-pair results and the count of raw uncertain verdicts,
+- <code>dict\[tuple\[int, int\], [ComparisonResult](ComparisonResult.md)\]</code> – The per-pair results and the count of raw uncertain verdicts,
 - <code>int</code> – before the fail-safe maps them to NO_MATCH. A request that
-- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\], int\]</code> – errors maps its pairs to NO_MATCH and increments
-- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](../resolver/ComparisonResult.md)\], int\]</code> – failed_requests.
+- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](ComparisonResult.md)\], int\]</code> – errors maps its pairs to NO_MATCH and increments
+- <code>tuple\[dict\[tuple\[int, int\], [ComparisonResult](ComparisonResult.md)\], int\]</code> – failed_requests.
 
 ## `compare_with_evidence` \{#agrag-ingestion-resolve-comparators-LLMVerify-compare_with_evidence}
 

@@ -189,7 +189,7 @@ class SearchEngine:
 
         Args:
             seed: The resolved entity to expand from, normally from
-                :meth:`find_entity`.
+                ``find_entity``.
             relation_type: Restrict the traversal to this one
                 relationship type.
             direction: Which way a hop walks each relationship,
@@ -242,7 +242,7 @@ class SearchEngine:
 
         Args:
             seed: The resolved entity to read attached types from,
-                normally from :meth:`find_entity`.
+                normally from ``find_entity``.
             relation_type_filter: Only report this type, if present.
             direction: Which way to inspect relationships, relative to the
                 seed entity.

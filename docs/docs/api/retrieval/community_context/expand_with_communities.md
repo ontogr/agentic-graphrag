@@ -11,7 +11,7 @@ expand_with_communities(fused:list[SearchResult], seed_ids:list[UUID], *, graph_
 
 Fuse community reports overlapping seed entities into a result list.
 
-A convenience over :func:`community_context`: looks up the communities
+A convenience over `community_context`: looks up the communities
 that overlap `seed_ids` and fuses whatever comes back into `fused`
 under a `"community"` key, so callers that already have a fused
 result list do not repeat the fetch-then-fuse pattern (or the
@@ -30,7 +30,7 @@ not discard them.
 - **graph_store** (<code>[GraphStore](../../graphdb/base/GraphStore.md)</code>) – Where the overlap lookup runs.
 - **top_k** (<code>int</code>) – The maximum number of communities to add.
 - **filters** (<code>[SearchFilters](../filters/SearchFilters.md) | None</code>) – Applied to the candidate community node; see
-  :func:`community_context` for what a scoped filter does and
+  `community_context` for what a scoped filter does and
   does not match. Community nodes carry no entity label and no
   document scope of their own, so a document- or
   property-scoped caller gets no community enrichment at all --

@@ -20,8 +20,8 @@ One class per module under this package; this init re-exports them so
 
 **Classes:**
 
-- [**AddResult**](AddResult.md) – Graph.add()'s return type — one summary per pipeline stage.
-- [**CommunityDetectionReport**](CommunityDetectionReport.md) – Report from Graph.detect_communities().
-- [**ConsolidationReport**](ConsolidationReport.md) – Report from Graph.consolidate().
-- [**ReevaluationReport**](ReevaluationReport.md) – Report from Graph.reevaluate().
-- [**UpdateResult**](UpdateResult.md) – Summary of an update or soft deletion.
+- [**AddResult**](add_result/AddResult.md) – Graph.add()'s return type — one summary per pipeline stage.
+- [**CommunityDetectionReport**](community_detection_report/CommunityDetectionReport.md) – Report from Graph.detect_communities().
+- [**ConsolidationReport**](consolidation_report/ConsolidationReport.md) – Report from Graph.consolidate().
+- [**ReevaluationReport**](reevaluation_report/ReevaluationReport.md) – Report from Graph.reevaluate().
+- [**UpdateResult**](update_result/UpdateResult.md) – Summary of an update or soft deletion.

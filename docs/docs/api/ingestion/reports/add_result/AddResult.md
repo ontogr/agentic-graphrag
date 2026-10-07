@@ -11,13 +11,13 @@ Graph.add()'s return type — one summary per pipeline stage.
 
 **Attributes:**
 
-- [**ingestion**](#agrag-ingestion-reports-add_result-AddResult-ingestion) (<code>[IngestStats](../../stats/IngestStats.md)</code>) – Ingestion-stage results.
-- [**chunking**](#agrag-ingestion-reports-add_result-AddResult-chunking) (<code>[ChunkingStats](../../stats/ChunkingStats.md)</code>) – The chunker each document got and the chunks it made.
-- [**extraction**](#agrag-ingestion-reports-add_result-AddResult-extraction) (<code>[ExtractionStats](../../stats/ExtractionStats.md)</code>) – Extractor output across every chunk this call
+- [**ingestion**](#agrag-ingestion-reports-add_result-AddResult-ingestion) (<code>[IngestStats](../../stats/ingest/IngestStats.md)</code>) – Ingestion-stage results.
+- [**chunking**](#agrag-ingestion-reports-add_result-AddResult-chunking) (<code>[ChunkingStats](../../stats/chunking/ChunkingStats.md)</code>) – The chunker each document got and the chunks it made.
+- [**extraction**](#agrag-ingestion-reports-add_result-AddResult-extraction) (<code>[ExtractionStats](../../stats/extraction/ExtractionStats.md)</code>) – Extractor output across every chunk this call
   processed.
-- [**resolution**](#agrag-ingestion-reports-add_result-AddResult-resolution) (<code>[ResolutionStats](../../stats/ResolutionStats.md)</code>) – Resolution's tier-by-tier match counts.
-- [**merge**](#agrag-ingestion-reports-add_result-AddResult-merge) (<code>[MergeStats](../../stats/MergeStats.md)</code>) – What merge mechanics did with resolution's groups.
-- [**storage**](#agrag-ingestion-reports-add_result-AddResult-storage) (<code>[StorageStats](../../stats/StorageStats.md)</code>) – What made it to GraphStore, and what didn't.
+- [**resolution**](#agrag-ingestion-reports-add_result-AddResult-resolution) (<code>[ResolutionStats](../../stats/resolution/ResolutionStats.md)</code>) – Resolution's tier-by-tier match counts.
+- [**merge**](#agrag-ingestion-reports-add_result-AddResult-merge) (<code>[MergeStats](../../stats/merge/MergeStats.md)</code>) – What merge mechanics did with resolution's groups.
+- [**storage**](#agrag-ingestion-reports-add_result-AddResult-storage) (<code>[StorageStats](../../stats/storage/StorageStats.md)</code>) – What made it to GraphStore, and what didn't.
 - [**chunks**](#agrag-ingestion-reports-add_result-AddResult-chunks) (<code>list\[[Chunk](../../../common/data_models/chunk/Chunk-ref.md)\]</code>) – Every Chunk this call produced. Empty unless
   return_chunks=True — holding full chunk text for a large
   corpus is a real memory cost most callers don't need paid

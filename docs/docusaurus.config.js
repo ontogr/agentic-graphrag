@@ -155,7 +155,7 @@ const config = {
           alt: 'Agentic GraphRAG logo',
           src: 'img/logo.svg',
           srcDark: 'img/logo-dark.svg',
-          href: '/',
+          href: baseUrl,
           width: 32,
           height: 32,
         },

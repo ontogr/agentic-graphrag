@@ -14,4 +14,4 @@ Community-report enrichment: local-search-style budget-capped context.
 
 **Attributes:**
 
-- [**logger**](logger.md) –
+- [**logger**](../retrievers/text2cypher/logger.md) –

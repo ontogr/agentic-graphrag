@@ -197,7 +197,7 @@ def relationship_types_from_query(
     Depth-1 only, by construction: it reads ``type(r)`` off the
     relationships directly attached to each seed entity and never
     traverses past them, so it has no depth bound to clamp the way
-    :func:`bfs_expand_query` does and cannot be widened into a multi-hop
+    ``bfs_expand_query`` does and cannot be widened into a multi-hop
     walk by a caller. Use it to discover which types exist before
     narrowing a real traversal, not as a substitute for one.
 
@@ -326,7 +326,7 @@ def fetch_all_relations_query() -> str:
 def fetch_all_relations_query_cursor() -> str:
     """Build Cypher paginating every live domain relationship via keyset.
 
-    Keyset variant of :func:`fetch_all_relations_query` for large graphs
+    Keyset variant of ``fetch_all_relations_query`` for large graphs
     where ``SKIP`` becomes expensive. Orders by ``(a.id, b.id, type(r),
     r.id)`` and pages by the last seen tuple; the first page uses
     ``last_a=""``, ``last_b=""``, ``last_type=""`` and ``last_rel_id=""``.

@@ -23,15 +23,15 @@ The ingestion package.
 
 **Classes:**
 
-- [**AddResult**](AddResult.md) – Graph.add()'s return type — one summary per pipeline stage.
-- [**BAMLExtractor**](BAMLExtractor.md) – Extracts entities and relations with an LLM through a typed BAML function.
-- [**CommunityDetectionReport**](CommunityDetectionReport.md) – Report from Graph.detect_communities().
-- [**ConsolidationReport**](ConsolidationReport.md) – Report from Graph.consolidate().
-- [**EscalatingExtractor**](EscalatingExtractor.md) – Runs a cheap extractor on every chunk and a stronger one on weak results.
-- [**ExtractionLLMSettings**](ExtractionLLMSettings.md) – Env-backed LLM client config for the extraction role.
-- [**Extractor**](Extractor.md) – Reads one chunk and returns the entities and relations it contains.
-- [**ExtractorMissingExtraError**](ExtractorMissingExtraError.md) – An Extractor needs a package extra that is not installed.
-- [**GlinerExtractor**](GlinerExtractor.md) – Extracts entities and relations with a local GLiNER2.5 model.
-- [**Graph**](Graph-ref.md) – A knowledge graph that a caller can open and add content to.
-- [**ReevaluationReport**](ReevaluationReport.md) – Report from Graph.reevaluate().
-- [**UpdateResult**](UpdateResult.md) – Summary of an update or soft deletion.
+- [**AddResult**](reports/add_result/AddResult.md) – Graph.add()'s return type — one summary per pipeline stage.
+- [**BAMLExtractor**](extract/BAMLExtractor.md) – Extracts entities and relations with an LLM through a typed BAML function.
+- [**CommunityDetectionReport**](reports/community_detection_report/CommunityDetectionReport.md) – Report from Graph.detect_communities().
+- [**ConsolidationReport**](reports/consolidation_report/ConsolidationReport.md) – Report from Graph.consolidate().
+- [**EscalatingExtractor**](extract/EscalatingExtractor.md) – Runs a cheap extractor on every chunk and a stronger one on weak results.
+- [**ExtractionLLMSettings**](extract/ExtractionLLMSettings.md) – Env-backed LLM client config for the extraction role.
+- [**Extractor**](extract/Extractor.md) – Reads one chunk and returns the entities and relations it contains.
+- [**ExtractorMissingExtraError**](extract/ExtractorMissingExtraError.md) – An Extractor needs a package extra that is not installed.
+- [**GlinerExtractor**](extract/GlinerExtractor.md) – Extracts entities and relations with a local GLiNER2.5 model.
+- [**Graph**](graph/Graph-ref.md) – A knowledge graph that a caller can open and add content to.
+- [**ReevaluationReport**](reports/reevaluation_report/ReevaluationReport.md) – Report from Graph.reevaluate().
+- [**UpdateResult**](reports/update_result/UpdateResult.md) – Summary of an update or soft deletion.

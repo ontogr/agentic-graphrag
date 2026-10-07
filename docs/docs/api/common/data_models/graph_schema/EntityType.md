@@ -14,8 +14,8 @@ One kind of entity a schema recognizes.
 - [**label**](#agrag-common-data_models-graph_schema-EntityType-label) (<code>str</code>) – The node label used in the extraction prompt and the graph.
 - [**description**](#agrag-common-data_models-graph_schema-EntityType-description) (<code>str</code>) – Guidance fed to the extractor prompt or schema builder.
 - [**properties**](#agrag-common-data_models-graph_schema-EntityType-properties) (<code>dict\[str, str\]</code>) – Property names mapped to a type name, such as `"str"` or
-  `"date"`. `label` and `text` are rejected, since both are
-  vector payload keys retrieval filtering and keyword search use.
+  `"date"`. `label` and `text` are rejected, because retrieval
+  filtering and keyword search use both as vector payload keys.
 - [**subtypes**](#agrag-common-data_models-graph_schema-EntityType-subtypes) (<code>list\[str\]</code>) – Labels that narrow this type. Empty when this type has no subtypes.
 
 ## `description` \{#agrag-common-data_models-graph_schema-EntityType-description}

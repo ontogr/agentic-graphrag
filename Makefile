@@ -248,7 +248,7 @@ DOCS_API_PKGS ?= agents chunking common embedding eval graphdb ingestion loaders
 
 docs-api:
 	mkdir -p docs/docs/api
-	find docs/docs/api -mindepth 1 -maxdepth 1 ! -name index.md -exec rm -rf {} +
+	for f in docs/docs/api/*; do [ "$$f" = docs/docs/api/index.md ] || rm -rf "$$f"; done
 	i=2; for p in $(DOCS_API_PKGS); do \
 	  { printf '%s\n' '---' "title: agrag.$$p" "sidebar_position: $$i" '---' ''; \
 	    PYTHONPATH=. $(DOCS_GRIPPE2MD) agrag.$$p -f; } > docs/docs/api/$$p.md.tmp \

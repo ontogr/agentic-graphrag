@@ -17,4 +17,4 @@ images, AsciiDoc, and XML.
 
 **Classes:**
 
-- [**DoclingLoader**](DoclingLoader.md) – Reads documents with the docling library.
+- [**DoclingLoader**](loader/DoclingLoader.md) – Reads documents with the docling library.

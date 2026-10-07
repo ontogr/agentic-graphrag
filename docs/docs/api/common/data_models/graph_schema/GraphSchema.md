@@ -55,7 +55,7 @@ Serialize only entity labels and relation patterns for a prompt.
 
 Descriptions, properties, and subtypes are omitted, so this is the
 shape to inject where prompt space is tight.
-:meth:`to_prompt_description` carries the same labels with their
+`to_prompt_description` carries the same labels with their
 full detail.
 
 **Returns:**
@@ -74,7 +74,7 @@ Serialize this schema in full for an LLM prompt.
 Every entity type's label, description, declared properties, and
 subtypes are listed, followed by every relation type's label,
 description, and valid (source, target) patterns. Use
-:meth:`to_compact_summary` instead when prompt space is tight.
+`to_compact_summary` instead when prompt space is tight.
 
 **Returns:**
 

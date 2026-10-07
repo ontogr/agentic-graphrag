@@ -24,10 +24,10 @@ outside the ingestion pipeline too -- and are not re-exported here.
 
 **Classes:**
 
-- [**ChunkingMatch**](ChunkingMatch.md) – The chunker that one document got, and what it produced.
-- [**ChunkingStats**](ChunkingStats.md) – Chunking-stage results.
-- [**ExtractionStats**](ExtractionStats.md) – Extraction-stage results.
-- [**IngestStats**](IngestStats.md) – Ingestion-stage results.
-- [**MergeStats**](MergeStats.md) – Merge-stage results.
-- [**ResolutionStats**](ResolutionStats.md) – Resolution-stage results.
-- [**StorageStats**](StorageStats.md) – Storage-write-stage results.
+- [**ChunkingMatch**](chunking/ChunkingMatch.md) – The chunker that one document got, and what it produced.
+- [**ChunkingStats**](chunking/ChunkingStats.md) – Chunking-stage results.
+- [**ExtractionStats**](extraction/ExtractionStats.md) – Extraction-stage results.
+- [**IngestStats**](ingest/IngestStats.md) – Ingestion-stage results.
+- [**MergeStats**](merge/MergeStats.md) – Merge-stage results.
+- [**ResolutionStats**](resolution/ResolutionStats.md) – Resolution-stage results.
+- [**StorageStats**](storage/StorageStats.md) – Storage-write-stage results.

@@ -116,7 +116,7 @@ what lies past it.
 **Parameters:**
 
 - **seed** (<code>[SearchResult](../../common/data_models/search_result/SearchResult.md)</code>) – The resolved entity to read attached types from,
-  normally from :meth:`find_entity`.
+  normally from `find_entity`.
 - **relation_type_filter** (<code>str | None</code>) – Only report this type, if present.
 - **direction** (<code>TraversalDirection</code>) – Which way to inspect relationships, relative to the
   seed entity.
@@ -174,7 +174,7 @@ Expand one resolved entity into its neighbours.
 **Parameters:**
 
 - **seed** (<code>[SearchResult](../../common/data_models/search_result/SearchResult.md)</code>) – The resolved entity to expand from, normally from
-  :meth:`find_entity`.
+  `find_entity`.
 - **relation_type** (<code>str | None</code>) – Restrict the traversal to this one
   relationship type.
 - **direction** (<code>TraversalDirection</code>) – Which way a hop walks each relationship,

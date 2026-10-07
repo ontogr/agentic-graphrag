@@ -26,24 +26,24 @@ for each document, and `DEFAULT_CHUNKING` is the preset that `Graph` uses.
 
 **Classes:**
 
-- [**Chunker**](Chunker.md) – Splits one Document into Chunks and builds their provenance.
-- [**ChunkerMissingExtraError**](ChunkerMissingExtraError.md) – A chunker needs a package extra that is not installed.
-- [**Chunking**](Chunking-ref.md) – An ordered list of chunking rules and a fallback chunker.
-- [**ChunkingError**](ChunkingError.md) – A chunker broke the chunk contract or could not chunk a document.
-- [**ChunkingRule**](ChunkingRule.md) – A match and the chunker for the documents it matches.
-- [**CodeChunker**](CodeChunker.md) – Cuts source code along its syntax tree.
-- [**DoclingChunker**](DoclingChunker.md) – Splits a parsed docling document with docling's hybrid chunker.
-- [**HeadingChunker**](HeadingChunker.md) – Cuts a document into sections at its headings and packs them to a budget.
-- [**NeuralChunker**](NeuralChunker.md) – Cuts where a token classification model predicts a topic break.
-- [**ParentChildChunker**](ParentChildChunker.md) – Cuts a document into parent chunks and cuts each parent into child chunks.
-- [**RecursiveChunker**](RecursiveChunker.md) – Splits on paragraph, sentence and word boundaries, coarsest first.
-- [**RuleMatch**](RuleMatch.md) – The documents a rule applies to.
-- [**SemanticChunker**](SemanticChunker.md) – Cuts where the meaning of neighbouring sentences changes.
-- [**SentenceChunker**](SentenceChunker.md) – Packs whole sentences into chunks of at most `chunk_size` tokens.
-- [**SplitLevel**](SplitLevel.md) – One level of recursive split rules.
-- [**TokenChunker**](TokenChunker.md) – Cuts the text into windows of `chunk_size` tokens.
-- [**TurnWindowChunker**](TurnWindowChunker.md) – Packs whole chat turns into windows of at most `chunk_size` tokens.
+- [**Chunker**](base/Chunker.md) – Splits one Document into Chunks and builds their provenance.
+- [**ChunkerMissingExtraError**](base/ChunkerMissingExtraError.md) – A chunker needs a package extra that is not installed.
+- [**Chunking**](rules/Chunking.md) – An ordered list of chunking rules and a fallback chunker.
+- [**ChunkingError**](base/ChunkingError.md) – A chunker broke the chunk contract or could not chunk a document.
+- [**ChunkingRule**](rules/ChunkingRule.md) – A match and the chunker for the documents it matches.
+- [**CodeChunker**](extras/CodeChunker.md) – Cuts source code along its syntax tree.
+- [**DoclingChunker**](docling/DoclingChunker.md) – Splits a parsed docling document with docling's hybrid chunker.
+- [**HeadingChunker**](heading/HeadingChunker.md) – Cuts a document into sections at its headings and packs them to a budget.
+- [**NeuralChunker**](extras/NeuralChunker.md) – Cuts where a token classification model predicts a topic break.
+- [**ParentChildChunker**](parent_child/ParentChildChunker.md) – Cuts a document into parent chunks and cuts each parent into child chunks.
+- [**RecursiveChunker**](recursive/RecursiveChunker.md) – Splits on paragraph, sentence and word boundaries, coarsest first.
+- [**RuleMatch**](rules/RuleMatch.md) – The documents a rule applies to.
+- [**SemanticChunker**](extras/SemanticChunker.md) – Cuts where the meaning of neighbouring sentences changes.
+- [**SentenceChunker**](sentence/SentenceChunker.md) – Packs whole sentences into chunks of at most `chunk_size` tokens.
+- [**SplitLevel**](recursive/SplitLevel.md) – One level of recursive split rules.
+- [**TokenChunker**](token/TokenChunker.md) – Cuts the text into windows of `chunk_size` tokens.
+- [**TurnWindowChunker**](turns/TurnWindowChunker.md) – Packs whole chat turns into windows of at most `chunk_size` tokens.
 
 **Attributes:**
 
-- [**DEFAULT_CHUNKING**](DEFAULT_CHUNKING.md) –
+- [**DEFAULT_CHUNKING**](rules/DEFAULT_CHUNKING.md) – The preset that `Graph` uses: `docling` loads go to `DoclingChunker`.

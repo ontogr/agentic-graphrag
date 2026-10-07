@@ -23,8 +23,8 @@ class EntityType(BaseModel):
         label: The node label used in the extraction prompt and the graph.
         description: Guidance fed to the extractor prompt or schema builder.
         properties: Property names mapped to a type name, such as ``"str"`` or
-            ``"date"``. ``label`` and ``text`` are rejected, since both are
-            vector payload keys retrieval filtering and keyword search use.
+            ``"date"``. ``label`` and ``text`` are rejected, because retrieval
+            filtering and keyword search use both as vector payload keys.
         subtypes: Labels that narrow this type. Empty when this type has no subtypes.
     """
 
@@ -114,7 +114,7 @@ class GraphSchema(BaseModel):
         Every entity type's label, description, declared properties, and
         subtypes are listed, followed by every relation type's label,
         description, and valid (source, target) patterns. Use
-        :meth:`to_compact_summary` instead when prompt space is tight.
+        ``to_compact_summary`` instead when prompt space is tight.
 
         Returns:
             A plain-text schema description, one fact per line.
@@ -144,7 +144,7 @@ class GraphSchema(BaseModel):
 
         Descriptions, properties, and subtypes are omitted, so this is the
         shape to inject where prompt space is tight.
-        :meth:`to_prompt_description` carries the same labels with their
+        ``to_prompt_description`` carries the same labels with their
         full detail.
 
         Returns:

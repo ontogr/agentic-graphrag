@@ -33,8 +33,8 @@ new ones.
 
 **Returns:**
 
-- <code>[CommunityDetectionReport](../reports/CommunityDetectionReport.md)</code> – A report of every community found, applied or not. A vector store or
-- <code>[CommunityDetectionReport](../reports/CommunityDetectionReport.md)</code> – community report failure appears in `failures`.
+- <code>[CommunityDetectionReport](../reports/community_detection_report/CommunityDetectionReport.md)</code> – A report of every community found, applied or not. A vector store or
+- <code>[CommunityDetectionReport](../reports/community_detection_report/CommunityDetectionReport.md)</code> – community report failure appears in `failures`.
 
 **Raises:**
 

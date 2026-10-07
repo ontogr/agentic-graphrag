@@ -122,3 +122,22 @@ def test_member_headings_show_the_last_name_segment_and_keep_the_id() -> None:
 
     assert "# `agrag.graphdb.Store` \\{#agrag-graphdb-Store}" in out
     assert "## `close` \\{#agrag-graphdb-Store-close}" in out
+
+
+def test_a_re_exported_object_keeps_only_its_defining_page() -> None:
+    """The package copy of a class goes, and links to it reach the defining page."""
+    pages = {
+        "pkg/Thing": "---\ntitle: agrag.pkg.Thing\n---\n"
+        "\n# `agrag.pkg.Thing`\n\nA thing.\n\n## `agrag.pkg.Thing.run`\n",
+        "pkg/mod/Thing": "---\ntitle: agrag.pkg.mod.Thing\n---\n"
+        "\n# `agrag.pkg.mod.Thing`\n\nA thing.\n\n## `agrag.pkg.mod.Thing.run`\n",
+        "pkg/mod/Other": "---\ntitle: agrag.pkg.mod.Other\n---\n"
+        "\n# `agrag.pkg.mod.Other`\n\n[run](#agrag.pkg.Thing.run)\n",
+        "pkg/index": "- [**Thing**](#agrag.pkg.Thing)\n",
+    }
+
+    out = docs_api_links.dedupe(pages)
+
+    assert set(out) == {"pkg/mod/Thing", "pkg/mod/Other", "pkg/index"}
+    assert "(#agrag.pkg.mod.Thing)" in out["pkg/index"]
+    assert "(#agrag.pkg.mod.Thing.run)" in out["pkg/mod/Other"]

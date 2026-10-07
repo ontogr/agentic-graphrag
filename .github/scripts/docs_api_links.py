@@ -131,6 +131,51 @@ def split(pages: dict[str, str]) -> dict[str, str]:
     return out
 
 
+def dedupe(pages: dict[str, str]) -> dict[str, str]:
+    """Keep one page for each object that a package re-exports.
+
+    A package page documents an object that its ``__init__`` imports from a
+    submodule, and the submodule page documents it again. The two pages match
+    once the dotted names are cut to their last segment. The page with the
+    longest, defining name stays. Links to the dropped name move to the kept one.
+
+    Args:
+        pages: Page text keyed by path without extension.
+
+    Returns:
+        The pages without the re-export copies.
+    """
+    groups: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    for key, text in pages.items():
+        title = re.search(r"^title: (agrag[\w.]*)$", text, re.MULTILINE)
+        if key.endswith("/index") or title is None:
+            continue
+        body = text.split("---\n", 2)[-1]
+        shape = re.sub(r"agrag[\w.]*", lambda m: m[0].rsplit(".", 1)[-1], body)
+        groups.setdefault((title[1].rsplit(".", 1)[-1], shape), []).append(
+            (key, title[1])
+        )
+    dropped: dict[str, str] = {}
+    kept = dict(pages)
+    for copies in groups.values():
+        copies.sort(key=lambda copy: len(copy[1]))
+        for key, title in copies[:-1]:
+            del kept[key]
+            dropped[title] = copies[-1][1]
+
+    def retarget(match: re.Match[str]) -> str:
+        target = match[1]
+        for old, new in dropped.items():
+            if target == old or target.startswith(f"{old}."):
+                return f"(#{new}{target[len(old) :]})"
+        return match[0]
+
+    return {
+        key: re.sub(r"\(#(agrag[\w.-]*)\)", retarget, text)
+        for key, text in kept.items()
+    }
+
+
 def _front(name: str, label: str) -> list[str]:
     """Return the front matter lines for a generated page."""
     return ["---", f"title: {name}", f"sidebar_label: {label}", "---"]
@@ -213,7 +258,7 @@ def main(api_dir: str) -> int:
     """
     root = Path(api_dir)
     paths = [p for p in sorted(root.glob("*.md")) if p.name != "index.md"]
-    pages = shorten(rewrite(split({p.stem: p.read_text() for p in paths})))
+    pages = shorten(rewrite(dedupe(split({p.stem: p.read_text() for p in paths}))))
     for path in paths:
         path.unlink()
     for key, text in pages.items():

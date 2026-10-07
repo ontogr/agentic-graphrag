@@ -19,12 +19,12 @@ Text embedding: turn strings into dense vectors.
 
 **Classes:**
 
-- [**Embedder**](Embedder.md) – A component that turns text into dense embedding vectors.
-- [**EmbeddingSettings**](EmbeddingSettings.md) – Sentence-transformers embedder configuration.
-- [**FastEmbedBM25Embedder**](FastEmbedBM25Embedder.md) – A sparse BM25 embedder built on FastEmbed.
-- [**SentenceTransformerEmbedder**](SentenceTransformerEmbedder.md) – An embedder backed by sentence-transformers.
-- [**SparseEmbedder**](SparseEmbedder.md) – A component that turns text into sparse lexical vectors, for hybrid search.
-- [**SparseVector**](SparseVector.md) – A sparse vector: nonzero indices and their values.
+- [**Embedder**](base/Embedder.md) – A component that turns text into dense embedding vectors.
+- [**EmbeddingSettings**](settings/EmbeddingSettings.md) – Sentence-transformers embedder configuration.
+- [**FastEmbedBM25Embedder**](fastembed_bm25/FastEmbedBM25Embedder.md) – A sparse BM25 embedder built on FastEmbed.
+- [**SentenceTransformerEmbedder**](sentence_transformers/SentenceTransformerEmbedder.md) – An embedder backed by sentence-transformers.
+- [**SparseEmbedder**](sparse_base/SparseEmbedder.md) – A component that turns text into sparse lexical vectors, for hybrid search.
+- [**SparseVector**](sparse_base/SparseVector.md) – A sparse vector: nonzero indices and their values.
 
 **Functions:**
 

@@ -29,7 +29,7 @@ Compare two entities.
 
 **Returns:**
 
-- <code>[ComparisonVerdict](../resolver/ComparisonVerdict.md)</code> – This comparator's verdict. UNCERTAIN defers to the next comparator.
+- <code>[ComparisonVerdict](ComparisonVerdict.md)</code> – This comparator's verdict. UNCERTAIN defers to the next comparator.
 
 ## `compare_with_evidence` \{#agrag-ingestion-resolve-comparators-Comparator-compare_with_evidence}
 
