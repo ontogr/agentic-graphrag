@@ -11,7 +11,7 @@
 [![Codecov](https://codecov.io/gh/ontogr/agentic-graphrag/branch/main/graph/badge.svg)](https://codecov.io/gh/ontogr/agentic-graphrag)
 [![PyPI](https://img.shields.io/pypi/v/agentic-graphrag.svg)](https://pypi.org/project/agentic-graphrag/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://pypi.org/project/agentic-graphrag/)
-[![Downloads](https://static.pepy.tech/badge/agentic-graphrag/month)](https://pepy.tech/project/agentic-graphrag)
+[![Downloads](https://static.pepy.tech/badge/agentic-graphrag)](https://pepy.tech/project/agentic-graphrag)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue?logo=readthedocs)](https://ontogr.github.io/agentic-graphrag/)
 [![License](https://img.shields.io/github/license/ontogr/agentic-graphrag?color=green)](LICENSE)
 
