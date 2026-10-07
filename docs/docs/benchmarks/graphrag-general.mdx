@@ -5,7 +5,7 @@ title: GraphRAG-Bench
 
 # GraphRAG-Bench
 
-This page describes the GraphRAG-Bench benchmark: the questions, the two graph schemas, how `agrag` answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
+This page describes the GraphRAG-Bench benchmark: the questions, the two graph schemas, how Agentic GraphRAG answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
 
 ## The dataset
 
@@ -47,7 +47,7 @@ Each corpus has its own schema. See `benchmarks/schemas/graphrag_general.py`.
 - **Novel:** 9 entity types (`Person`, `Group`, `Place`, `Object`, `Concept`, `Work`, `Event`, `Quantity`, `Date`) and 14 relation types, including `PART_OF`, `LOCATED_IN`, `CAUSES`, and a general `RELATED_TO`. The types are general because most of the books are not fiction.
 - **Medical:** 13 entity types (such as `Cancer`, `Anatomy`, `Test`, `Procedure`, `Treatment`, `RiskFactor`, `Symptom`, `Stage`, `Biomarker`, `Recommendation`) and 16 relation types (such as `TREATED_BY`, `DIAGNOSED_BY`, `HAS_RISK_FACTOR`, `RECOMMENDS`).
 
-Every entity type has a `description` property, because `agrag` embeds an entity as its name and description. A schema that fits the corpus helps `agrag`, so these numbers do not compare with systems that use another schema.
+Every entity type has a `description` property, because Agentic GraphRAG embeds an entity as its name and description. A schema that fits the corpus helps Agentic GraphRAG, so these numbers do not compare with systems that use another schema.
 
 ## How answers are scored
 

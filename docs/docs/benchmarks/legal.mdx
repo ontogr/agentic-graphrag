@@ -5,7 +5,7 @@ title: Legal benchmark
 
 # Legal benchmark
 
-This page describes the Legal benchmark: the questions, the graph schema, how `agrag` answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
+This page describes the Legal benchmark: the questions, the graph schema, how Agentic GraphRAG answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
 
 ## The dataset
 
@@ -31,7 +31,7 @@ The lite set is a quick check, not a sample of the benchmark. It takes the short
 
 The full set keeps the documents with the most questions in each source, and for MAUD the two shortest documents. It drops repeated query strings. Nobody has run the full set, and it is far above the budget of a manual run, so read its dry-run estimate before you start it.
 
-The text of a document is read exactly as the gold offsets count it: a carriage return and line feed pair is one character, and a byte order mark stays as the first character. The harness builds the document text itself and does not use an `agrag` loader, because a loader changes the text and moves every offset. A test checks that each chunk equals the slice of the document at its offsets.
+The text of a document is read exactly as the gold offsets count it: a carriage return and line feed pair is one character, and a byte order mark stays as the first character. The harness builds the document text itself and does not use an Agentic GraphRAG loader, because a loader changes the text and moves every offset. A test checks that each chunk equals the slice of the document at its offsets.
 
 ## The graph schema
 
@@ -47,7 +47,7 @@ Each question gets five primary scores from 0 to 1.
 
 A question with no chunk citation scores 0 for precision and recall and carries the flag `no_chunk_citation`. The record also stores the auxiliary metric `non_chunk_citation_share`, the share of citations that point to an entity, relation, or community and so have no span.
 
-The benchmark scores a fixed number of retrieved snippets. `agrag` has no such number: it cites what the agent chose to use. These scores therefore do not compare with the published precision at k of other systems. The source average of the paper gives each of the four sources the same weight; the group rows in the record give the per-source values.
+The benchmark scores a fixed number of retrieved snippets. Agentic GraphRAG has no such number: it cites what the agent chose to use. These scores therefore do not compare with the published precision at k of other systems. The source average of the paper gives each of the four sources the same weight; the group rows in the record give the per-source values.
 
 Because the judge is the same model as the agent by default, correctness is biased upward. See [Benchmarks](./index.mdx#who-grades-the-answers).
 
@@ -72,7 +72,7 @@ Two questions cannot rank anything. The run shows that the pipeline works end to
 
 The graph has 46 entities and 3 relations from 3 chunks. No chunk gave an empty extraction.
 
-Read the numbers with care. The judge grades its own model. The run is not a measure of how `agrag` compares with other systems.
+Read the numbers with care. The judge grades its own model. The run is not a measure of how Agentic GraphRAG compares with other systems.
 
 Print the record with:
 

@@ -5,7 +5,7 @@ title: Quickstart
 
 # Quickstart
 
-In this tutorial, you build a small knowledge graph from three sentences. You then look at what `agrag` stored. At the end, you can ask the graph a question.
+In this tutorial, you build a small knowledge graph from three sentences. You then look at what Agentic GraphRAG stored. At the end, you can ask the graph a question.
 
 The tutorial takes about 10 minutes on a typical connection. Most of the time goes to the first download of libraries and models.
 
@@ -54,7 +54,7 @@ mkdir agrag-quickstart
 cd agrag-quickstart
 ```
 
-Copy the credentials file into the folder and rename it `.env`. `agrag` reads the connection settings `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, and `NEO4J_DATABASE` from this file. The URI starts with `neo4j+s://`.
+Copy the credentials file into the folder and rename it `.env`. Agentic GraphRAG reads the connection settings `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, and `NEO4J_DATABASE` from this file. The URI starts with `neo4j+s://`.
 
 <details>
 <summary>Run Neo4j on your machine with Docker instead</summary>
@@ -76,7 +76,7 @@ NEO4J_PASSWORD=agrag-quickstart
 
 </details>
 
-## Step 2: Install agrag
+## Step 2: Install Agentic GraphRAG
 
 Create a virtual environment and install the packages:
 
@@ -90,7 +90,7 @@ The `--torch-backend=auto` flag picks the PyTorch build for your machine, such a
 
 ## Step 3: Build the graph
 
-A schema tells `agrag` which entity types and relation types to look for. This schema has three entity types and three relation types. Each relation names the entity types that it joins.
+A schema tells Agentic GraphRAG which entity types and relation types to look for. This schema has three entity types and three relation types. Each relation names the entity types that it joins.
 
 Save this script as `build_graph.py`:
 
@@ -174,7 +174,7 @@ relations extracted: 3
 
 ## Step 4: Look at the graph
 
-`agrag` stores the graph in Neo4j, so you can query it with Cypher. Save this script as `inspect_graph.py`. The first query lists the entities. The second query lists the relations.
+Agentic GraphRAG stores the graph in Neo4j, so you can query it with Cypher. Save this script as `inspect_graph.py`. The first query lists the entities. The second query lists the relations.
 
 ```python
 import asyncio
@@ -229,11 +229,11 @@ Microsoft - HEADQUARTERED_IN -> Redmond
 Satya Nadella - WORKS_AT -> Microsoft
 ```
 
-Every node that `agrag` writes has the label `_AgragNode`. The first query skips the chunk, document, community, and resolved-entity nodes, so only entities remain.
+Every node that Agentic GraphRAG writes has the label `_AgragNode`. The first query skips the chunk, document, community, and resolved-entity nodes, so only entities remain.
 
 ## What you just built
 
-- **One chunk.** The three sentences were short enough to stay in one chunk. `agrag` stored the text of the chunk, its position in the source, and an embedding.
+- **One chunk.** The three sentences were short enough to stay in one chunk. Agentic GraphRAG stored the text of the chunk, its position in the source, and an embedding.
 - **Four entities from six mentions.** The extractor found `Microsoft` three times. Resolution merged the three mentions into one node, because the names match exactly.
 - **Three relations.** Each relation links two entity nodes. The extractor reports a relation only when the schema names it.
 - **Why the schema names the relations.** The built-in `GENERIC` schema has one broad relation, `RELATED_TO`. On these three sentences, `GENERIC` finds the same six mentions and no relations. Specific relation names, each with a short description, give the extractor something to look for.

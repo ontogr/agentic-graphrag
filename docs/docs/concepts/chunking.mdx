@@ -1,7 +1,7 @@
 ---
 sidebar_position: 5
 title: Chunking
-description: How agrag splits documents into chunks and records where each chunk came from.
+description: How Agentic GraphRAG splits documents into chunks and records where each chunk came from.
 ---
 
 # Chunking
@@ -64,14 +64,14 @@ If the child strategy leaves out some text, that text becomes a child of its own
 
 ## Example
 
-A Markdown handbook has a section with three paragraphs. With the default fallback, the recursive chunker cuts at paragraph boundaries until each chunk fits in 1,024 characters. Each chunk stores its character range and its headings, such as "Handbook > Leave policy". Suppose you change the chunk size and call `Graph.update` for the file. agrag chunks it again, even though the text did not change. The character ranges change, so the chunk ids change.
+A Markdown handbook has a section with three paragraphs. With the default fallback, the recursive chunker cuts at paragraph boundaries until each chunk fits in 1,024 characters. Each chunk stores its character range and its headings, such as "Handbook > Leave policy". Suppose you change the chunk size and call `Graph.update` for the file. Agentic GraphRAG chunks it again, even though the text did not change. The character ranges change, so the chunk ids change.
 
 <details>
 <summary>Design choices</summary>
 
 **Why are chunking rules plain data?** A list of rules is easy to read and compare. No hidden logic assigns documents to strategies. A change to any rule changes the fingerprint.
 
-**Why does agrag own the chunk contract?** Chonkie and docling do the cutting, but they sit behind agrag's chunkers. Every chunk then has the same fields, whichever engine made it.
+**Why does Agentic GraphRAG own the chunk contract?** Chonkie and docling do the cutting, but they sit behind Agentic GraphRAG's chunkers. Every chunk then has the same fields, whichever engine made it.
 
 **Why does the default count characters?** A character count needs no tokenizer model. The default changes only when a benchmark shows that another strategy does better.
 

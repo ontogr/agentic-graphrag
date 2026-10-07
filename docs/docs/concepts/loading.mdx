@@ -1,12 +1,12 @@
 ---
 sidebar_position: 4
 title: Loading documents
-description: How agrag picks a loader for each source and what a loader gives back.
+description: How Agentic GraphRAG picks a loader for each source and what a loader gives back.
 ---
 
 # Loading documents
 
-A loader turns one source into one or more documents. agrag picks the loader from the file extension.
+A loader turns one source into one or more documents. Agentic GraphRAG picks the loader from the file extension.
 
 ## Why it exists
 
@@ -31,13 +31,13 @@ flowchart TD
 
 *The loader comes from you or from the extension. A source that fails follows the error policy.*
 
-1. **Pick.** You can pass a loader for a single file. Otherwise agrag looks up the extension. When two loaders claim an extension, the preferred one wins. If that loader needs a package that is not installed, agrag uses another loader for the extension when one exists. If none exists, the source fails with a missing-package error.
+1. **Pick.** You can pass a loader for a single file. Otherwise Agentic GraphRAG looks up the extension. When two loaders claim an extension, the preferred one wins. If that loader needs a package that is not installed, Agentic GraphRAG uses another loader for the extension when one exists. If none exists, the source fails with a missing-package error.
 2. **Read.** The loader detects the text encoding. It removes the byte-order mark, changes line endings to LF, and applies Unicode form NFKC. You can change each of these settings.
 3. **Build.** The loader makes a document. A document holds the text, the source location, the format, a content hash and the loader name.
 
 ### Prose and record sources
 
-A prose source makes one document for each file. A record source makes one document for each record: a CSV row, a JSON Lines line, or an element of a JSON array. A record document takes its text from one column. You can name the column. If you do not, agrag uses a column called `text`, `body`, `content` or `description`, and otherwise the last column.
+A prose source makes one document for each file. A record source makes one document for each record: a CSV row, a JSON Lines line, or an element of a JSON array. A record document takes its text from one column. You can name the column. If you do not, Agentic GraphRAG uses a column called `text`, `body`, `content` or `description`, and otherwise the last column.
 
 ### Supported formats
 

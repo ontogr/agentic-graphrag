@@ -1,18 +1,18 @@
 ---
 sidebar_position: 2
 title: Knowledge graph
-description: The node and edge kinds agrag writes to Neo4j, and why it keeps them.
+description: The node and edge kinds Agentic GraphRAG writes to Neo4j, and why it keeps them.
 ---
 
 # Knowledge graph
 
-agrag keeps documents, chunks, entities and community summaries in one property graph in Neo4j.
+Agentic GraphRAG keeps documents, chunks, entities and community summaries in one property graph in Neo4j.
 
 ## Why it exists
 
 Every fact in an answer must trace back to text. If the graph held only entities, you could not show where a fact came from. If it held only text, you could not connect facts.
 
-agrag keeps both in one graph. An entity points to the chunks that mention it. A chunk points to the document that holds it. You can walk from an answer back to its source.
+Agentic GraphRAG keeps both in one graph. An entity points to the chunks that mention it. A chunk points to the document that holds it. You can walk from an answer back to its source.
 
 ## How it works
 
@@ -70,7 +70,7 @@ The five entities are two people, one place, one product and one event. The pres
 
 **Why does the resolver add a ResolvedEntity instead of merging entities?** A match is a judgement. The original entity nodes stay, so a wrong match loses no information.
 
-**Why is the type the label?** The type is what you filter and index by. Every agrag node also carries an internal marker label, so agrag can find its own nodes in a shared database.
+**Why is the type the label?** The type is what you filter and index by. Every Agentic GraphRAG node also carries an internal marker label, so Agentic GraphRAG can find its own nodes in a shared database.
 
 **Why is the parent of a chunk a property and not an edge?** A child chunk stores its parent's id. Search returns the child with its parent attached, so no traversal is needed. The [Chunking](./chunking.mdx) page explains parent and child chunks.
 

@@ -1,11 +1,11 @@
 ---
 sidebar_position: 6
-title: Score agrag on your own question set
+title: Score Agentic GraphRAG on your own question set
 ---
 
-# Score agrag on your own question set
+# Score Agentic GraphRAG on your own question set
 
-This guide shows how to measure the quality of agrag answers on your own documents and questions with `agrag.eval`. The example script `examples/eval/score_agrag.py` does the work. For the full setup, see the [example README](https://github.com/ontogr/agentic-graphrag/blob/main/examples/eval/README.md).
+This guide shows how to measure the quality of Agentic GraphRAG answers on your own documents and questions with `agrag.eval`. The example script `examples/eval/score_agrag.py` does the work. For the full setup, see the [example README](https://github.com/ontogr/agentic-graphrag/blob/main/examples/eval/README.md).
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ uv sync --extra docling --extra llm --extra agents --extra eval --extra neo4j --
 docker compose -f docker/docker-compose.ci.yml up -d neo4j
 ```
 
-The compose file sets the Neo4j password to `ci-test-password`, but `agrag` defaults to the password `neo4j`. Add this line to your `.env` file, or the script fails to sign in:
+The compose file sets the Neo4j password to `ci-test-password`, but Agentic GraphRAG defaults to the password `neo4j`. Add this line to your `.env` file, or the script fails to sign in:
 
 ```text
 NEO4J_PASSWORD=ci-test-password

@@ -210,11 +210,11 @@ BAML defines typed contracts for entity and relation extraction, entity-match ve
 
 ## Observability and Failure Handling
 
-OpenTelemetry API support is part of the core package; exporters and the SDK are optional. You pass the tracer, and `agrag` never installs a global one. Applications can send traces to any OTLP-compatible backend. Spans cover loading, chunking, extraction, model calls, resolution, storage writes, searches, and agent turns.
+OpenTelemetry API support is part of the core package; exporters and the SDK are optional. You pass the tracer, and Agentic GraphRAG never installs a global one. Applications can send traces to any OTLP-compatible backend. Spans cover loading, chunking, extraction, model calls, resolution, storage writes, searches, and agent turns.
 
 Long-running graph builds report bounded, structured stage statistics for ingestion, extraction, resolution, merging, and storage. Failures include the affected item, error type, message, and trace/span IDs. Full detail remains in the trace backend so result objects stay bounded on large corpora.
 
-`agrag.eval` (the `eval` extra) holds metrics that score answers, retrieval, extraction, resolution, and agent runs on your own documents and questions. See [Score agrag on your questions](https://ontogr.github.io/agentic-graphrag/guides/score-agrag-on-your-questions).
+`agrag.eval` (the `eval` extra) holds metrics that score answers, retrieval, extraction, resolution, and agent runs on your own documents and questions. See [Score Agentic GraphRAG on your questions](https://ontogr.github.io/agentic-graphrag/guides/score-agrag-on-your-questions).
 
 ## Installation
 

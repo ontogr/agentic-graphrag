@@ -5,7 +5,7 @@ title: Financial benchmark
 
 # Financial benchmark
 
-This page describes the Financial benchmark: the questions, the graph schema, how `agrag` answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
+This page describes the Financial benchmark: the questions, the graph schema, how Agentic GraphRAG answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
 
 ## The dataset
 
@@ -15,7 +15,7 @@ This page describes the Financial benchmark: the questions, the graph schema, ho
 - One or more evidence passages, each with the page of the filing that holds it.
 - A question type: `domain-relevant`, `novel-generated`, or `metrics-generated`.
 
-The harness reads the questions and the PDFs from the benchmark repository at a pinned commit. It checks the hash of the questions file and of every PDF before it uses them. Docling converts a PDF to Markdown, and `agrag` ingests the Markdown. Docling is slow on a CPU, so the harness keeps each conversion in the download cache.
+The harness reads the questions and the PDFs from the benchmark repository at a pinned commit. It checks the hash of the questions file and of every PDF before it uses them. Docling converts a PDF to Markdown, and Agentic GraphRAG ingests the Markdown. Docling is slow on a CPU, so the harness keeps each conversion in the download cache.
 
 ### Lite and full
 
@@ -39,7 +39,7 @@ See `benchmarks/schemas/financial.py`. The schema has 13 entity types and 22 rel
 
 The schema models a number only for the headline line items of a filing. Each `FinancialMetric` has a value, a unit, a scale, and a period. The periods and the filing are entities, because a question names a company and a period but not a document.
 
-A schema that fits the corpus helps `agrag`, so these numbers do not compare with systems that use another schema.
+A schema that fits the corpus helps Agentic GraphRAG, so these numbers do not compare with systems that use another schema.
 
 ## How answers are scored
 

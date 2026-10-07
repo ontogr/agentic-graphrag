@@ -1,18 +1,18 @@
 ---
 sidebar_position: 1
 title: Architecture
-description: How agrag turns documents into a knowledge graph and answers questions from it.
+description: How Agentic GraphRAG turns documents into a knowledge graph and answers questions from it.
 ---
 
 # Architecture
 
-agrag has two flows. The ingestion flow turns documents into a knowledge graph. The query flow answers a question from that graph.
+Agentic GraphRAG has two flows. The ingestion flow turns documents into a knowledge graph. The query flow answers a question from that graph.
 
 ## Why it exists
 
 A vector search finds passages that look like the question. It cannot follow a link between two facts that sit in different documents.
 
-agrag stores the facts as a graph and keeps the source text next to them. A question can use both: the passage that states a fact, and the entities that connect passages.
+Agentic GraphRAG stores the facts as a graph and keeps the source text next to them. A question can use both: the passage that states a fact, and the entities that connect passages.
 
 The system splits the work into small components. Each component has one job and one interface. You can replace the embedder, the graph store or the vector store without changing the rest.
 

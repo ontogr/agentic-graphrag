@@ -5,7 +5,7 @@ title: Configure chunking
 
 # Configure chunking
 
-Choose how `agrag` splits each document into chunks, see which chunker made each chunk, and change the choice for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`. Each code block on this page is complete. Blocks that add documents open their own graph and close it at the end.
+Choose how Agentic GraphRAG splits each document into chunks, see which chunker made each chunk, and change the choice for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`. Each code block on this page is complete. Blocks that add documents open their own graph and close it at the end.
 
 See [Chunking](/concepts/chunking) for how rules, strategies and provenance work.
 
@@ -317,7 +317,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`update` re-chunks when the content changed or when the settings of the chunker for that document changed. It does nothing when both are the same. Chunks that you added before `agrag` recorded chunkers count as unchanged.
+`update` re-chunks when the content changed or when the settings of the chunker for that document changed. It does nothing when both are the same. Chunks that you added before Agentic GraphRAG recorded chunkers count as unchanged.
 
 ## Choose how loaders normalize text
 

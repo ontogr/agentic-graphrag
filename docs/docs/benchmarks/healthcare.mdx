@@ -5,15 +5,15 @@ title: Healthcare benchmark
 
 # Healthcare benchmark
 
-This page describes the Healthcare benchmark: the questions, the passages that `agrag` reads, the graph schema, how answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
+This page describes the Healthcare benchmark: the questions, the passages that Agentic GraphRAG reads, the graph schema, how answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
 
 ## The dataset
 
 [HealthBench](https://openai.com/index/healthbench/) ([paper](https://arxiv.org/abs/2505.08775)) is a set of health conversations between a person and an assistant. Each conversation has a rubric: a list of criteria, each with a point value. A criterion that the answer should meet has positive points. A criterion that describes a fault has negative points. The harness uses the Hard subset of HealthBench, at a pinned revision of the [`openai/healthbench`](https://huggingface.co/datasets/openai/healthbench) data.
 
-The assistant here is `agrag`. It answers from [MedCorp](https://huggingface.co/MedRAG) ([paper](https://arxiv.org/abs/2402.13178)) passages: paragraphs of StatPearls and chunks of 18 medical textbooks. The harness reads the passages from pinned revisions and checks the hash of every file and every passage before it uses them. The passage text is kept as the source gives it.
+The assistant here is Agentic GraphRAG. It answers from [MedCorp](https://huggingface.co/MedRAG) ([paper](https://arxiv.org/abs/2402.13178)) passages: paragraphs of StatPearls and chunks of 18 medical textbooks. The harness reads the passages from pinned revisions and checks the hash of every file and every passage before it uses them. The passage text is kept as the source gives it.
 
-The harness does not give the rubric to `agrag`.
+The harness does not give the rubric to Agentic GraphRAG.
 
 ### Lite and full
 
@@ -42,13 +42,13 @@ A first run used the three passages that the search ranks highest for this quest
 - **Third item.** The passages did not mention soap and water, so the answer could not name them.
 - **Second item.** This item has negative points, and the answer mentioned the conjugate vaccine, so the fault did not apply and the item added nothing.
 
-The score of 0.00 was a fault of the selection, not a result about `agrag`. The final set adds two passages that the full corpus holds for the question: one that states the Ty21a booster every 5 years, and one that states the use of soap and water. The record of the first run is not in the repository.
+The score of 0.00 was a fault of the selection, not a result about Agentic GraphRAG. The final set adds two passages that the full corpus holds for the question: one that states the Ty21a booster every 5 years, and one that states the use of soap and water. The record of the first run is not in the repository.
 
 ## The graph schema
 
 See `benchmarks/schemas/healthcare.py`. The schema has 11 entity types and 18 relation types. The entity types are `Condition`, `Symptom`, `Drug`, `Dosing`, `Test`, `Procedure`, `Anatomy`, `Organism`, `Population`, `RiskFactor`, and `Recommendation`. The relation types include `TREATS`, `PREVENTS`, `HAS_DOSING`, `INTERACTS_WITH`, `CONTRAINDICATED_IN`, and `RISK_FACTOR_FOR`.
 
-A schema that fits the corpus helps `agrag`, so these numbers do not compare with systems that use another schema.
+A schema that fits the corpus helps Agentic GraphRAG, so these numbers do not compare with systems that use another schema.
 
 ## How answers are scored
 
@@ -72,7 +72,7 @@ The score of 0.47 is 7 of 15 positive points, and the question has no flag.
 - **Second item (-7): not triggered.** The answer mentioned the conjugate vaccine twice.
 - **Third item (+7): met.** The answer named soap and water, safe drinking water, and well-cooked hot food.
 
-One question cannot rank anything. Its score moves in steps of 7 or 8 points of 15, and the judge made only 3 calls. The run shows that ingest, retrieval, answering, and grading work from end to end, and it shows one answer that omits facts from its own sources. It does not measure the quality of `agrag` on health questions.
+One question cannot rank anything. Its score moves in steps of 7 or 8 points of 15, and the judge made only 3 calls. The run shows that ingest, retrieval, answering, and grading work from end to end, and it shows one answer that omits facts from its own sources. It does not measure the quality of Agentic GraphRAG on health questions.
 
 The graph has 51 entities and 28 relations from 5 passages, one chunk for each. No chunk gave an empty extraction.
 

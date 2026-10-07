@@ -5,11 +5,11 @@ title: Benchmarks
 
 # Benchmarks
 
-The benchmark module runs `agrag` on public datasets and keeps an auditable record of each run. This page explains what the module measures, why it works the way it does, and how far you can trust its numbers. See [Run the benchmarks](./run-benchmarks.mdx) for the commands.
+The benchmark module runs Agentic GraphRAG on public datasets and keeps an auditable record of each run. This page explains what the module measures, why it works the way it does, and how far you can trust its numbers. See [Run the benchmarks](./run-benchmarks.mdx) for the commands.
 
 ## Why the module exists
 
-Unit tests show that the code works. They do not show how well `agrag` answers real questions over real documents. The benchmark module answers that question on public datasets, so anyone can check a number against the code that made it.
+Unit tests show that the code works. They do not show how well Agentic GraphRAG answers real questions over real documents. The benchmark module answers that question on public datasets, so anyone can check a number against the code that made it.
 
 A benchmark run costs real model calls, so it never runs in CI. You start each run by hand, and each run writes a record that you can commit.
 
@@ -34,7 +34,7 @@ Each dataset has two sets of questions.
 
 The lite set is a subset of the full set. A lite score is not statistically meaningful, because a few questions cannot separate a real change from noise. Compare only full runs.
 
-Ingest cost drives the total cost, not the question count. `agrag` must read and extract every chunk of a corpus before it can answer one question. A lite run pays the full ingest cost of its corpus. The lite set therefore saves answer and grading calls, not ingest calls. The Financial, GraphRAG-Bench, Memory, Legal, and Healthcare lite sets are exceptions: each ingests only the pages, messages, extract, passages, or short document that its questions need, so its ingest cost is small.
+Ingest cost drives the total cost, not the question count. Agentic GraphRAG must read and extract every chunk of a corpus before it can answer one question. A lite run pays the full ingest cost of its corpus. The lite set therefore saves answer and grading calls, not ingest calls. The Financial, GraphRAG-Bench, Memory, Legal, and Healthcare lite sets are exceptions: each ingests only the pages, messages, extract, passages, or short document that its questions need, so its ingest cost is small.
 
 ## The audit trail
 
@@ -73,7 +73,7 @@ A Neo4j instance keeps its graph in a volume. The harness stores a marker in the
 
 Each dataset defines the graph schema that fits its domain. A contract graph has different entity types than a novel graph. The record lists the name, the version, and the hash of each schema.
 
-Because the schema is part of the setup, `agrag` numbers are not comparable with the numbers of other systems that use their own schemas or no schema. Use the numbers to track `agrag` over time, not to rank it against other systems.
+Because the schema is part of the setup, Agentic GraphRAG numbers are not comparable with the numbers of other systems that use their own schemas or no schema. Use the numbers to track Agentic GraphRAG over time, not to rank it against other systems.
 
 ## Who grades the answers
 
@@ -87,4 +87,4 @@ Judged metrics run once for each answer. The record holds no estimate of the noi
 
 The record counts calls and tokens from the spans of the trace. Extraction calls are exact: each span is one provider request. Agent and judge counts are a lower bound. A span of the agent or the judge is one LangChain call, and LangChain and the provider SDKs retry below that span. A retry is a real request that the count does not show.
 
-A request that the provider rejects, such as an HTTP 500 that `agrag` then retries, has no token counts. It counts as one call with no tokens and does not make usage incomplete.
+A request that the provider rejects, such as an HTTP 500 that Agentic GraphRAG then retries, has no token counts. It counts as one call with no tokens and does not make usage incomplete.

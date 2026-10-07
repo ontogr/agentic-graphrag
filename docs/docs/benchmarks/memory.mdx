@@ -5,13 +5,13 @@ title: Memory benchmark
 
 # Memory benchmark
 
-This page describes the Memory benchmark: the questions, the graph schema, how `agrag` answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
+This page describes the Memory benchmark: the questions, the graph schema, how Agentic GraphRAG answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
 
 ## The dataset
 
 [BEAM](https://github.com/mohammadtavakoli78/BEAM) ([paper](https://arxiv.org/abs/2510.27246)) tests memory over a long chat between a user and an assistant. Each conversation has many sessions, and each session has many messages. After the chat, the benchmark asks probing questions about it. Each question has a rubric: a list of facts that a correct answer must state.
 
-The harness reads the 100K-token split of the dataset [`Mohammadta/BEAM`](https://huggingface.co/datasets/Mohammadta/BEAM) at a pinned revision. It checks the hash of the file before it uses it. It ingests the chat only. The plan, the profile, and the reference answers that the dataset holds beside the chat never reach `agrag`.
+The harness reads the 100K-token split of the dataset [`Mohammadta/BEAM`](https://huggingface.co/datasets/Mohammadta/BEAM) at a pinned revision. It checks the hash of the file before it uses it. It ingests the chat only. The plan, the profile, and the reference answers that the dataset holds beside the chat never reach Agentic GraphRAG.
 
 One assistant message in conversation 4 turned into 345,211 spaces of filler. The harness cuts that message after its last sound text and adds a short marker. It checks the hash of the original first.
 
@@ -52,7 +52,7 @@ See `benchmarks/schemas/memory.py`. The schema has these entity types: `Person`,
 
 A statement is a node, not a relation, because a relation carries no time and no order. A newer `Fact` `SUPERSEDES` an older one. Two opposing facts stay linked by `CONTRADICTS`. A standing rule (`Instruction` or `Preference`) points at the topic that triggers it. A `Session` node holds the only clock: one date for each session. The order of messages comes from the order of the chunks.
 
-A schema that fits the corpus helps `agrag`, so these numbers do not compare with systems that use another schema.
+A schema that fits the corpus helps Agentic GraphRAG, so these numbers do not compare with systems that use another schema.
 
 ## How answers are scored
 
