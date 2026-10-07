@@ -22,6 +22,21 @@ To install uv, see the [installation docs](https://docs.astral.sh/uv/getting-sta
 
 Agentic GraphRAG needs Python 3.11 or newer. It also needs a Neo4j database, version 5.23 or newer, to store the graph. The [Quickstart](/get-started/quickstart) shows how to get one for free.
 
+<details id="alternative-pytorch-distributions">
+<summary>Alternative PyTorch distributions</summary>
+
+The `embed-local`, `extract`, `docling`, and `chunk-neural` extras depend on [PyTorch](https://pytorch.org/). Depending on your hardware, you might want a different distribution of `torch`, for example a CPU-only build or a build for another accelerator. The [PyTorch install page](https://pytorch.org/get-started/locally/) lists all the ways to install `torch`.
+
+With uv, add `--torch-backend=auto` when you install. uv looks for a GPU driver. It installs the build that matches the driver, or the CPU build when it finds no GPU.
+
+```bash
+uv pip install "agentic-graphrag[neo4j,extract,embed-local]" --torch-backend=auto
+```
+
+To always install the CPU build, use `--torch-backend=cpu`. This flag is a uv preview feature. It needs uv 0.6.9 or newer.
+
+</details>
+
 ## What the base install includes
 
 The base install has the parts of Agentic GraphRAG that need no database, no model runtime, and no LLM client:
@@ -69,18 +84,6 @@ The following table lists the extras. Install them with `pip install "agentic-gr
 | Find communities of related entities | Add `community` |
 | Record traces | Add `observability` |
 | Measure answer quality | Add `eval` |
-
-## Alternative PyTorch distributions
-
-The `embed-local`, `extract`, `docling`, and `chunk-neural` extras depend on [PyTorch](https://pytorch.org/). Depending on your hardware, you might want a different distribution of `torch`, for example a CPU-only build or a build for another accelerator. The [PyTorch install page](https://pytorch.org/get-started/locally/) lists all the ways to install `torch`.
-
-With uv, add `--torch-backend=auto` when you install. uv looks for a GPU driver. It installs the build that matches the driver, or the CPU build when it finds no GPU.
-
-```bash
-uv pip install "agentic-graphrag[neo4j,extract,embed-local]" --torch-backend=auto
-```
-
-To always install the CPU build, use `--torch-backend=cpu`. This flag is a uv preview feature. It needs uv 0.6.9 or newer.
 
 ## Next steps
 
