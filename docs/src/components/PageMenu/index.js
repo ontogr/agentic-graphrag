@@ -128,36 +128,35 @@ export default function PageMenu() {
           type="button"
           className={clsx(styles.toggle, open && styles.toggleOpen)}
           aria-label="More page options"
-          aria-haspopup="menu"
           aria-expanded={open}
           onClick={() => setOpen(!open)}>
           <ChevronIcon />
         </button>
       </div>
       {open && (
-        <div className={styles.menu} role="menu">
-          <button type="button" role="menuitem" className={styles.item} onClick={copyPage}>
+        <div className={styles.menu}>
+          <button type="button" className={styles.item} onClick={copyPage}>
             <span className={styles.tile}><CopyIcon /></span>
             <span className={styles.text}>
               <span className={styles.title}>Copy page</span>
               <span className={styles.hint}>Copy the page as Markdown for LLMs</span>
             </span>
           </button>
-          <a role="menuitem" className={styles.item} href={markdownPath} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
+          <a className={styles.item} href={markdownPath} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
             <span className={styles.tile}><FileIcon /></span>
             <span className={styles.text}>
               <span className={styles.title}>View as Markdown<ArrowIcon /></span>
               <span className={styles.hint}>Open the page as plain Markdown</span>
             </span>
           </a>
-          <a role="menuitem" className={styles.item} href={`https://chat.openai.com/?hints=search&q=${askAbout(pageUrl)}`} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
+          <a className={styles.item} href={`https://chat.openai.com/?hints=search&q=${askAbout(pageUrl)}`} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
             <span className={styles.tile}><ChatIcon /></span>
             <span className={styles.text}>
               <span className={styles.title}>Open in ChatGPT<ArrowIcon /></span>
               <span className={styles.hint}>Ask questions about this page</span>
             </span>
           </a>
-          <a role="menuitem" className={styles.item} href={`https://claude.ai/new?q=${askAbout(markdownUrl)}`} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
+          <a className={styles.item} href={`https://claude.ai/new?q=${askAbout(markdownUrl)}`} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
             <span className={styles.tile}><ClaudeIcon /></span>
             <span className={styles.text}>
               <span className={styles.title}>Open in Claude<ArrowIcon /></span>

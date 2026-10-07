@@ -13,6 +13,9 @@ const PATHS = {
  * @param {string} label
  */
 export function iconLinkHtml(name, label) {
+  if (!(name in PATHS)) {
+    throw new Error(`Unknown navbar icon: ${name}`);
+  }
   return (
     '<svg class="navbar-icon__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
     '<path fill="currentColor" d="' + PATHS[name] + '"/></svg>' +

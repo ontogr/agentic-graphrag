@@ -21,6 +21,11 @@ export default function ChangelogFilters() {
     document.querySelectorAll('.changelog-section').forEach((section) => {
       section.hidden = off.has(section.dataset.type);
     });
+    document.querySelectorAll('.changelog-jump-link').forEach((item) => {
+      const id = item.querySelector('a')?.getAttribute('href')?.slice(1);
+      const target = id && document.getElementById(id)?.closest('.changelog-section');
+      item.hidden = Boolean(target?.hidden);
+    });
     document.querySelectorAll('.changelog-release').forEach((release) => {
       // A release with no sections stays visible. Only the filters can hide a release.
       const total = release.querySelectorAll('.changelog-section').length;

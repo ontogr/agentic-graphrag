@@ -1,0 +1,298 @@
+---
+title: agrag.common.data_models.Document
+sidebar_label: Document
+---
+
+# `agrag.common.data_models.Document` \{#agrag-common-data_models-Document}
+
+Bases: <code>[DataPoint](data_point/DataPoint.md)</code>
+
+One unit of source text, before chunking.
+
+A prose source, such as a Markdown file, makes one Document. A record source,
+such as a CSV file, makes one Document per row.
+
+The way the system computes `content_hash` depends on the loader. A text
+loader hashes the decoded text. A docling loader hashes the raw source bytes
+instead of the parsed output, because docling's parsed output can change
+between docling versions and between runs on different hardware.
+
+The system computes `id` from `content_hash` and `record_id` unless the caller
+passes `id` directly. A record-family document without `record_id` also mixes
+in `record_index` plus `source_hash`, or `uri` when `source_hash` is not
+set. Pass `id` only when rebuilding a document from stored data.
+
+**Attributes:**
+
+- [**text**](#agrag-common-data_models-Document-text) (<code>str</code>) – The document text. For a docling source, this holds docling's Markdown
+  export. The chunker never reads this field for a docling source; see the
+  `Chunk` model for docling chunk content instead.
+- [**title**](#agrag-common-data_models-Document-title) (<code>str</code>) – The document title.
+- [**uri**](#agrag-common-data_models-Document-uri) (<code>str</code>) – The location of the source. This value is not part of the document id.
+- [**source_format**](#agrag-common-data_models-Document-source_format) (<code>[SourceFormat](document/SourceFormat.md)</code>) – The format the loader used to read this document.
+- [**family**](#agrag-common-data_models-Document-family) (<code>[DocumentFamily](document/DocumentFamily.md)</code>) – The shape of the source: one document per file, or one document per
+  record.
+- [**content_hash**](#agrag-common-data_models-Document-content_hash) (<code>str</code>) – The hash that forms the document id.
+- [**loader_name**](#agrag-common-data_models-Document-loader_name) (<code>str</code>) – The name of the loader that produced this document, for example
+  `"text"` or `"docling"`.
+- [**loader_version**](#agrag-common-data_models-Document-loader_version) (<code>str | None</code>) – The version of the loader package. Does not affect the
+  document id.
+- [**encoding**](#agrag-common-data_models-Document-encoding) (<code>str | None</code>) – The text encoding. Text loaders set this field; other loaders
+  leave it empty.
+- [**source_hash**](#agrag-common-data_models-Document-source_hash) (<code>str | None</code>) – The hash of the whole source file. Record-family documents set
+  this field.
+- [**char_count**](#agrag-common-data_models-Document-char_count) (<code>int</code>) – The number of characters in `text`.
+- [**line_count**](#agrag-common-data_models-Document-line_count) (<code>int | None</code>) – The number of lines in `text`. Some loaders do not set this field.
+- [**record_index**](#agrag-common-data_models-Document-record_index) (<code>int | None</code>) – The 0-based row number in the source. Record-family documents
+  set this field.
+- [**record_id**](#agrag-common-data_models-Document-record_id) (<code>str | None</code>) – The value from the configured id column. Record-family documents
+  set this field only when the caller configures an id column.
+- [**raw_record**](#agrag-common-data_models-Document-raw_record) (<code>dict\[str, Any\] | None</code>) – The original record data. A loader sets this field only when the
+  caller asks for it.
+- [**heading_outline**](#agrag-common-data_models-Document-heading_outline) (<code>list\[[HeadingRef](document/HeadingRef.md)\]</code>) – The headings in the document, with their offsets. A text
+  loader sets this field for a prose document.
+- [**document_key**](#agrag-common-data_models-Document-document_key) (<code>str | None</code>) – The stable identifier for this document's persisted graph node.
+  Independent of `id`, which changes with every content edit. Defaults to
+  `uri` when not supplied.
+- [**turns**](#agrag-common-data_models-Document-turns) (<code>list\[[TurnRef](document/TurnRef.md)\]</code>) – The speaker turns of a chat document, in order. A chat loader sets this
+  field. Turn spans index `text` and do not overlap.
+- [**normalization**](#agrag-common-data_models-Document-normalization) (<code>[Normalization](normalization/Normalization-ref.md) | None</code>) – How the loader normalized `text`. `None` for a document
+  that no text loader made, such as a docling document or one built by hand.
+
+**Functions:**
+
+- [**id_for**](#agrag-common-data_models-Document-id_for) – Compute the document id.
+- [**node_id_for**](#agrag-common-data_models-Document-node_id_for) – Compute the persisted Document graph node's id.
+- [**to_node_record**](#agrag-common-data_models-Document-to_node_record) – Return this document as a GraphStore write record for its graph node.
+
+## `char_count` \{#agrag-common-data_models-Document-char_count}
+
+```python
+char_count: int
+```
+
+## `content_hash` \{#agrag-common-data_models-Document-content_hash}
+
+```python
+content_hash: str
+```
+
+## `created_at` \{#agrag-common-data_models-Document-created_at}
+
+```python
+created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+## `document_key` \{#agrag-common-data_models-Document-document_key}
+
+```python
+document_key: str | None = None
+```
+
+## `encoding` \{#agrag-common-data_models-Document-encoding}
+
+```python
+encoding: str | None = None
+```
+
+## `family` \{#agrag-common-data_models-Document-family}
+
+```python
+family: DocumentFamily
+```
+
+## `heading_outline` \{#agrag-common-data_models-Document-heading_outline}
+
+```python
+heading_outline: list[HeadingRef] = Field(default_factory=list)
+```
+
+## `id` \{#agrag-common-data_models-Document-id}
+
+```python
+id: UUID | None = None
+```
+
+## `id_for` \{#agrag-common-data_models-Document-id_for}
+
+```python
+id_for(*, content_hash:str, record_id:str | None = None, record_index:int | None = None, source_hash:str | None = None, uri:str | None = None) -> UUID
+```
+
+Compute the document id.
+
+A record id, when given, wins over the content hash. Without a record id,
+a record-family document (`record_index` is not `None`) mixes in its
+source hash and row index, so two rows with identical text but no
+configured id column still get distinct ids. When the source hash is not
+available, this falls back to `uri` so that two different sources still
+do not collide.
+
+**Parameters:**
+
+- **content_hash** (<code>str</code>) – The document's content hash.
+- **record_id** (<code>str | None</code>) – The value from the configured id column, when the source has one.
+- **record_index** (<code>int | None</code>) – The 0-based row number, for a record-family document.
+- **source_hash** (<code>str | None</code>) – The hash of the whole source file, for a record-family
+  document.
+- **uri** (<code>str | None</code>) – The document's source location, used in place of `source_hash`
+  when the caller does not supply one.
+
+**Returns:**
+
+- <code>UUID</code> – The document id.
+
+## `line_count` \{#agrag-common-data_models-Document-line_count}
+
+```python
+line_count: int | None = None
+```
+
+## `loader_name` \{#agrag-common-data_models-Document-loader_name}
+
+```python
+loader_name: str
+```
+
+## `loader_version` \{#agrag-common-data_models-Document-loader_version}
+
+```python
+loader_version: str | None = None
+```
+
+## `metadata` \{#agrag-common-data_models-Document-metadata}
+
+```python
+metadata: dict[str, Any] = Field(default_factory=dict)
+```
+
+## `node_id_for` \{#agrag-common-data_models-Document-node_id_for}
+
+```python
+node_id_for(*, document_key:str) -> UUID
+```
+
+Compute the persisted Document graph node's id.
+
+Distinct from `id_for()`: this id is keyed on `document_key`, not the
+content hash, so it stays the same across content changes to the same
+logical document. Conflating the two ids would give every content version
+of a document its own graph node instead of one node with a changing
+content hash.
+
+**Parameters:**
+
+- **document_key** (<code>str</code>) – The document's stable key.
+
+**Returns:**
+
+- <code>UUID</code> – The Document graph node id.
+
+## `normalization` \{#agrag-common-data_models-Document-normalization}
+
+```python
+normalization: Normalization | None = None
+```
+
+## `raw_record` \{#agrag-common-data_models-Document-raw_record}
+
+```python
+raw_record: dict[str, Any] | None = None
+```
+
+## `record_id` \{#agrag-common-data_models-Document-record_id}
+
+```python
+record_id: str | None = None
+```
+
+## `record_index` \{#agrag-common-data_models-Document-record_index}
+
+```python
+record_index: int | None = None
+```
+
+## `resolved_document_key` \{#agrag-common-data_models-Document-resolved_document_key}
+
+```python
+resolved_document_key: str
+```
+
+The document key, guaranteed non-`None` once construction succeeds.
+
+`document_key` is typed as optional because callers may omit it and let
+`_resolve_document_key` default it to `uri`, but every constructed
+`Document` has a non-`None` document key by the time callers see it. Use
+this property instead of `document_key` where a non-optional value is
+required, such as computing the persisted Document node's id.
+
+**Raises:**
+
+- <code>RuntimeError</code> – `document_key` is still `None`, which means a validator
+  was bypassed, for example via `model_construct`.
+
+## `resolved_id` \{#agrag-common-data_models-Document-resolved_id}
+
+```python
+resolved_id: UUID
+```
+
+The document id, guaranteed non-`None` once construction succeeds.
+
+`id` is typed as optional because callers may omit it and let
+`_resolve_id` derive it, but every constructed `Document` has a
+non-`None` id by the time callers see it. Use this property instead of
+`id` where a non-optional value is required, such as building a `Chunk`.
+
+**Raises:**
+
+- <code>RuntimeError</code> – `id` is still `None`, which means a validator was
+  bypassed, for example via `model_construct`.
+
+## `source_format` \{#agrag-common-data_models-Document-source_format}
+
+```python
+source_format: SourceFormat
+```
+
+## `source_hash` \{#agrag-common-data_models-Document-source_hash}
+
+```python
+source_hash: str | None = None
+```
+
+## `text` \{#agrag-common-data_models-Document-text}
+
+```python
+text: str
+```
+
+## `title` \{#agrag-common-data_models-Document-title}
+
+```python
+title: str
+```
+
+## `to_node_record` \{#agrag-common-data_models-Document-to_node_record}
+
+```python
+to_node_record() -> NodeRecord
+```
+
+Return this document as a GraphStore write record for its graph node.
+
+The record excludes `text`: the persisted node exists for traversal and
+the update no-op check, not to duplicate the document body already held
+per-chunk.
+
+## `turns` \{#agrag-common-data_models-Document-turns}
+
+```python
+turns: list[TurnRef] = Field(default_factory=list)
+```
+
+## `uri` \{#agrag-common-data_models-Document-uri}
+
+```python
+uri: str
+```

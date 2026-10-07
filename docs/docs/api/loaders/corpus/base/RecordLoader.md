@@ -1,0 +1,74 @@
+---
+title: agrag.loaders.corpus.base.RecordLoader
+sidebar_label: RecordLoader
+---
+
+# `agrag.loaders.corpus.base.RecordLoader` \{#agrag-loaders-corpus-base-RecordLoader}
+
+Bases: <code>[Loader](Loader.md)</code>
+
+A loader that makes one Document per record in a source.
+
+Concrete readers read and decode the whole source into memory up front, up
+to `opts.max_document_bytes`; that byte limit is what bounds memory use,
+not incremental reads from disk. Whether records are parsed incrementally
+from there is format-dependent: the CSV and JSONL readers parse and yield
+one record at a time, so a malformed record later in the source surfaces
+only after earlier records have already been yielded. The JSON reader
+parses the whole source up front, so a malformed source fails before any
+record is yielded.
+
+**Functions:**
+
+- [**load**](#agrag-loaders-corpus-base-RecordLoader-load) – Yield documents read from one source.
+
+**Attributes:**
+
+- [**extensions**](#agrag-loaders-corpus-base-RecordLoader-extensions) (<code>frozenset\[str\]</code>) –
+- [**extra**](#agrag-loaders-corpus-base-RecordLoader-extra) (<code>str | None</code>) –
+- [**family**](#agrag-loaders-corpus-base-RecordLoader-family) –
+- [**mime_types**](#agrag-loaders-corpus-base-RecordLoader-mime_types) (<code>frozenset\[str\]</code>) –
+
+## `extensions` \{#agrag-loaders-corpus-base-RecordLoader-extensions}
+
+```python
+extensions: frozenset[str]
+```
+
+## `extra` \{#agrag-loaders-corpus-base-RecordLoader-extra}
+
+```python
+extra: str | None = None
+```
+
+## `family` \{#agrag-loaders-corpus-base-RecordLoader-family}
+
+```python
+family = DocumentFamily.RECORD
+```
+
+## `load` \{#agrag-loaders-corpus-base-RecordLoader-load}
+
+```python
+load(source:SourceRef, stream:BinaryIO, opts:ReadOptions, *, start_at:int = 0) -> Iterator[Document]
+```
+
+Yield documents read from one source.
+
+**Parameters:**
+
+- **source** (<code>[SourceRef](../types/SourceRef.md)</code>) – The source to read.
+- **stream** (<code>BinaryIO</code>) – The open binary stream for the source, positioned at the start.
+- **opts** (<code>[ReadOptions](../types/ReadOptions.md)</code>) – The read options for this call.
+- **start_at** (<code>int</code>) – The record index to resume from. Prose loaders ignore this
+  argument.
+
+**Yields:**
+
+- <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – One Document per unit the source contains, in a fixed order.
+
+## `mime_types` \{#agrag-loaders-corpus-base-RecordLoader-mime_types}
+
+```python
+mime_types: frozenset[str] = frozenset()
+```

@@ -36,7 +36,7 @@ help:
 	@echo "  make security         - Run all security scans"
 	@echo "  make build            - Build sdist and wheel into dist/"
 	@echo "  make wheel-test       - Install the built wheel in a clean env and import it"
-	@echo "  make docs-api         - Regenerate the per-package API pages in docs/docs/api/ from docstrings"
+	@echo "  make docs-api         - Regenerate the per-object API pages in docs/docs/api/ from docstrings"
 	@echo "  make changelog        - Rebuild CHANGELOG.md from the git history"
 	@echo "  make docs-install     - Install the Docusaurus site's npm dependencies"
 	@echo "  make docs-dev         - Run the Docusaurus dev server"
@@ -248,7 +248,7 @@ DOCS_API_PKGS ?= agents chunking common embedding eval graphdb ingestion loaders
 
 docs-api:
 	mkdir -p docs/docs/api
-	rm -f $(filter-out docs/docs/api/index.md,$(wildcard docs/docs/api/*.md))
+	find docs/docs/api -mindepth 1 -maxdepth 1 ! -name index.md -exec rm -rf {} +
 	i=2; for p in $(DOCS_API_PKGS); do \
 	  { printf '%s\n' '---' "title: agrag.$$p" "sidebar_position: $$i" '---' ''; \
 	    PYTHONPATH=. $(DOCS_GRIPPE2MD) agrag.$$p -f; } > docs/docs/api/$$p.md.tmp \
@@ -268,7 +268,7 @@ docs-dev: docs-api
 	cd docs && npm start
 
 docs-build: docs-api
-	cd docs && npm run build 2>&1 | tee build.log
+	cd docs && { npm run build > build.log 2>&1; status=$$?; cat build.log; exit $$status; }
 	@# Docusaurus reports many problems as warnings and still exits with success.
 	@grep -q '^\[SUCCESS\]' docs/build.log && ! grep -qE '^\[(WARNING|ERROR)\]' docs/build.log \
 	  || { echo "The docs build did not finish cleanly. Read docs/build.log."; exit 1; }

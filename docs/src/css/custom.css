@@ -373,13 +373,13 @@ details.alert {
 }
 
 /* Sidebar sections are bold titles that stay open, as in the Graphiti docs. */
-.theme-doc-sidebar-item-category-level-1 > .menu__list-item-collapsible > .menu__link {
+.theme-doc-sidebar-item-category-level-1 > .menu__list-item-collapsible > .menu__link:not([href]) {
   color: var(--ifm-font-color-base);
   font-weight: 700;
   cursor: default;
 }
 
-.theme-doc-sidebar-item-category-level-1 > .menu__list-item-collapsible > .menu__link:hover {
+.theme-doc-sidebar-item-category-level-1 > .menu__list-item-collapsible > .menu__link:not([href]):hover {
   background: transparent;
 }
 
