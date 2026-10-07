@@ -257,6 +257,9 @@ docs-api:
 	$(DOCS_PYTHON) .github/scripts/docs_api_links.py docs/docs/api
 
 changelog:
+	@# git-cliff groups commits into releases by tag, so a shallow or tagless clone gives a wrong file.
+	@test "$$(git rev-parse --is-shallow-repository)" = false && git describe --tags --abbrev=0 >/dev/null 2>&1 \
+	  || { echo "Fetch the full history and tags first: git fetch --unshallow --tags"; exit 1; }
 	uvx git-cliff@2.14.2 --output CHANGELOG.md
 	@# git-cliff ends the file with a blank line, which the end-of-file hook removes.
 	@printf '%s\n' "$$(cat CHANGELOG.md)" > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md

@@ -78,9 +78,9 @@ Pushing to `main` with changes under `docs/`, `agrag/`, or `pyproject.toml` buil
 | `make lint-all` | Format, lint, and type check |
 | `make lint-check` | Check formatting and lint without modifying files |
 | `make security` | Run Bandit and uv audit |
-| `make changelog` | Rebuild `CHANGELOG.md` from the git history with git-cliff |
+| `make changelog` | Rebuild `CHANGELOG.md` from the git history with git-cliff. It needs the full history and the release tags, and stops if they are missing |
 | `make wheel-test` | Build the wheel and import it from a clean environment |
-| `make docs-dev` | Run the docs site locally with live reload |
+| `make docs-dev` | Run the docs site locally with live reload. Restart it to see edits to `CHANGELOG.md` |
 | `make docs-build` | Regenerate the API reference and build the docs site |
 | `make help` | List all targets |
 
