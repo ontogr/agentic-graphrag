@@ -50,16 +50,23 @@ jobs:
         # graph, so its own test methods cannot run concurrently with each
         # other, and loadgroup would ungroup them since they carry no
         # xdist_group marker.
-        # The pipeline suite also runs the LLM-backed agent and ingestion
-        # tests, fed by the workflow-level LLM_* secrets.
+        # The agents and pipeline suites run LLM-backed tests, fed by the
+        # workflow-level LLM_* secrets. Agents runs apart from the rest because
+        # its slowest test class sets the suite time, and loadscope keeps that
+        # class on one worker.
         suite:
           - name: graph
             paths: "tests/integration/retrieval tests/integration/graphdb tests/integration/cypher"
             dist: loadgroup
             services: neo4j
             timeout: 15
+          - name: agents
+            paths: "tests/integration/agents"
+            dist: loadscope
+            services: neo4j
+            timeout: 20
           - name: pipeline
-            paths: "tests/integration/agents tests/integration/ingestion tests/integration/embedding tests/integration/loaders tests/integration/llm"
+            paths: "tests/integration/ingestion tests/integration/embedding tests/integration/loaders tests/integration/llm"
             dist: loadscope
             services: neo4j
             timeout: 20
