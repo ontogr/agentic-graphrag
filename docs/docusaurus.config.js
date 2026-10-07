@@ -150,31 +150,71 @@ const config = {
         ],
       },
       footer: {
-        style: 'dark',
+        style: 'light',
+        logo: {
+          alt: 'Agentic GraphRAG logo',
+          src: 'img/logo.svg',
+          srcDark: 'img/logo-dark.svg',
+          href: '/',
+          width: 32,
+          height: 32,
+        },
         links: [
           {
-            title: 'Docs',
+            title: 'Learn',
             items: [
               {label: 'Introduction', to: '/get-started/introduction'},
+              {label: 'Installation', to: '/get-started/installation'},
               {label: 'Quickstart', to: '/get-started/quickstart'},
               {label: 'Architecture', to: '/concepts/architecture'},
-              {label: 'Ingest documents', to: '/guides/ingest-documents'},
+              {label: 'Benchmarks', to: '/benchmarks'},
+            ],
+          },
+          {
+            title: 'Build',
+            items: [
+              {label: 'Guides', to: '/guides/ingest-documents'},
+              {label: 'Configuration', to: '/reference/configuration'},
               {label: 'API reference', to: '/api'},
+              {label: 'Trace spans', to: '/reference/trace-spans'},
               {label: 'Changelog', to: '/changelog'},
             ],
           },
           {
-            title: 'Project',
+            title: 'Community',
             items: [
               {label: 'GitHub', href: 'https://github.com/ontogr/agentic-graphrag'},
               {label: 'PyPI', href: 'https://pypi.org/project/agentic-graphrag/'},
+              {label: 'Issues', href: 'https://github.com/ontogr/agentic-graphrag/issues'},
               {
-                label: 'Issues',
-                href: 'https://github.com/ontogr/agentic-graphrag/issues',
+                label: 'Discussions',
+                href: 'https://github.com/ontogr/agentic-graphrag/discussions',
+              },
+              {
+                label: 'Contributing',
+                href: 'https://github.com/ontogr/agentic-graphrag/blob/main/CONTRIBUTING.md',
+              },
+            ],
+          },
+          {
+            title: 'Legal',
+            items: [
+              {
+                label: 'License (Apache-2.0)',
+                href: 'https://github.com/ontogr/agentic-graphrag/blob/main/LICENSE',
+              },
+              {
+                label: 'Security policy',
+                href: 'https://github.com/ontogr/agentic-graphrag/blob/main/SECURITY.md',
+              },
+              {
+                label: 'Code of conduct',
+                href: 'https://github.com/ontogr/agentic-graphrag/blob/main/CODE_OF_CONDUCT.md',
               },
             ],
           },
         ],
+        copyright: `Agentic GraphRAG is open source under the Apache-2.0 license. Copyright &copy; ${new Date().getFullYear()} the Agentic GraphRAG contributors.`,
       },
       prism: {
         theme: prismThemes.github,

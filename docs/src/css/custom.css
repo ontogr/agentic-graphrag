@@ -507,3 +507,61 @@ details.alert {
     display: none;
   }
 }
+
+/* Footer: link columns on a quiet surface, with a hairline above. */
+.footer {
+  --ifm-footer-background-color: var(--ifm-background-color);
+  --ifm-footer-title-color: var(--ifm-heading-color);
+  --ifm-footer-link-color: var(--ifm-color-content-secondary);
+  --ifm-footer-color: var(--ifm-color-content-secondary);
+  border-top: 1px solid var(--ifm-toc-border-color);
+  padding: 3rem 0 2rem;
+}
+
+.footer__logo {
+  margin-top: 0;
+}
+
+.footer__title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  margin-bottom: 0.75rem;
+}
+
+.footer__link-item {
+  font-size: 0.875rem;
+  line-height: 2;
+}
+
+.footer__link-item:hover {
+  color: var(--ifm-color-primary);
+  text-decoration: none;
+}
+
+.footer__bottom {
+  border-top: 1px solid var(--ifm-toc-border-color);
+  font-size: 0.8125rem;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+}
+
+.footer__copyright {
+  color: var(--ifm-color-content-secondary);
+}
+
+.footer__link-item svg {
+  display: none;
+}
+
+.footer__bottom {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.footer__bottom .margin-bottom--sm {
+  margin-bottom: 0;
+}
