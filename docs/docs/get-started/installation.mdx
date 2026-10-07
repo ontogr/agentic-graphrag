@@ -11,10 +11,16 @@ To use Agentic GraphRAG, install `agentic-graphrag` from your Python package man
 pip install agentic-graphrag
 ```
 
-If you are using [uv](https://docs.astral.sh/uv/):
+If you are using [uv](https://docs.astral.sh/uv/), add the package to your project:
 
 ```bash
 uv add agentic-graphrag
+```
+
+To install the package into a virtual environment instead, use `uv pip`:
+
+```bash
+uv pip install agentic-graphrag
 ```
 
 To install uv, see the [installation docs](https://docs.astral.sh/uv/getting-started/installation/).
@@ -81,16 +87,17 @@ With `uv pip`, add `--torch-backend=auto`. uv looks for a GPU driver. It install
 uv pip install "agentic-graphrag[neo4j,extract,embed-local]" --torch-backend=auto
 ```
 
-To always install the CPU build, use `--torch-backend=cpu`. This flag is a uv preview feature, and it works with `uv pip` only.
+To always install the CPU build, use `--torch-backend=cpu`. This flag is a uv preview feature. It needs uv 0.6.9 or newer, and it works with `uv pip` only.
 
-With `uv add`, list `torch` as a direct dependency in your `pyproject.toml`, and point it at the CPU index. uv applies an index to direct dependencies only.
+With `uv add`, list `torch` and `torchvision` as direct dependencies in your `pyproject.toml`, and point both at the CPU index. uv applies an index to direct dependencies only. The `docling` extra is the only one that needs `torchvision`.
 
 ```toml
 [project]
-dependencies = ["torch", "agentic-graphrag[neo4j,extract,embed-local]"]
+dependencies = ["torch", "torchvision", "agentic-graphrag[neo4j,extract,embed-local]"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
@@ -101,7 +108,7 @@ explicit = true
 With pip, install the CPU build first. The second command keeps it.
 
 ```bash
-pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install "agentic-graphrag[neo4j,extract,embed-local]"
 ```
 
