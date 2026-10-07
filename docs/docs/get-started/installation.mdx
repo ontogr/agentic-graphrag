@@ -11,15 +11,10 @@ To use Agentic GraphRAG, install `agentic-graphrag` from your Python package man
 pip install agentic-graphrag
 ```
 
-If you are using [uv](https://docs.astral.sh/uv/), add the package to your project:
+If you are using [uv](https://docs.astral.sh/uv/), create a virtual environment and install the package into it:
 
 ```bash
-uv add agentic-graphrag
-```
-
-To install the package into a virtual environment instead, use `uv pip`:
-
-```bash
+uv venv
 uv pip install agentic-graphrag
 ```
 
@@ -42,7 +37,7 @@ To build and search a graph, you also need a graph store, an extractor, and an e
 
 Other parts of Agentic GraphRAG need more third-party packages. These packages install only if you select them as extras. If an extra is missing, Agentic GraphRAG raises an error that names the extra to install.
 
-The following table lists the extras. Install them with `pip install "agentic-graphrag[NAME1,NAME2]"` or `uv add "agentic-graphrag[NAME1,NAME2]"`.
+The following table lists the extras. Install them with `pip install "agentic-graphrag[NAME1,NAME2]"` or `uv pip install "agentic-graphrag[NAME1,NAME2]"`.
 
 | Extra | Description |
 | --- | --- |
@@ -77,40 +72,15 @@ The following table lists the extras. Install them with `pip install "agentic-gr
 
 ## Alternative PyTorch distributions
 
-The local models in Agentic GraphRAG depend on [PyTorch](https://pytorch.org/). The `embed-local`, `extract`, `docling`, and `chunk-neural` extras install it. You can use a different distribution of `torch`, for example a CPU-only build or a build for another accelerator. The [PyTorch website](https://pytorch.org/get-started/locally/) lists all the ways to install `torch`.
+The `embed-local`, `extract`, `docling`, and `chunk-neural` extras depend on [PyTorch](https://pytorch.org/). Depending on your hardware, you might want a different distribution of `torch`, for example a CPU-only build or a build for another accelerator. The [PyTorch install page](https://pytorch.org/get-started/locally/) lists all the ways to install `torch`.
 
-One common case is a Linux system with CPU-only hardware. For this case, use one of these methods.
-
-With `uv pip`, add `--torch-backend=auto`. uv looks for a GPU driver. It installs the build that matches the driver, or the CPU build when it finds no GPU.
+With uv, add `--torch-backend=auto` when you install. uv looks for a GPU driver. It installs the build that matches the driver, or the CPU build when it finds no GPU.
 
 ```bash
 uv pip install "agentic-graphrag[neo4j,extract,embed-local]" --torch-backend=auto
 ```
 
-To always install the CPU build, use `--torch-backend=cpu`. This flag is a uv preview feature. It needs uv 0.6.9 or newer, and it works with `uv pip` only.
-
-With `uv add`, list `torch` and `torchvision` as direct dependencies in your `pyproject.toml`, and point both at the CPU index. uv applies an index to direct dependencies only. The `docling` extra is the only one that needs `torchvision`.
-
-```toml
-[project]
-dependencies = ["torch", "torchvision", "agentic-graphrag[neo4j,extract,embed-local]"]
-
-[tool.uv.sources]
-torch = { index = "pytorch-cpu" }
-torchvision = { index = "pytorch-cpu" }
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-```
-
-With pip, install the CPU build first. The second command keeps it.
-
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-pip install "agentic-graphrag[neo4j,extract,embed-local]"
-```
+To always install the CPU build, use `--torch-backend=cpu`. This flag is a uv preview feature. It needs uv 0.6.9 or newer.
 
 ## Next steps
 
