@@ -150,7 +150,7 @@ reranking.
 **Returns:**
 
 - <code>list\[[SearchResult](../../common/data_models/search_result/SearchResult.md)\]</code> – Up to recipe.limit results, ranked highest-relevance
-- <code>list\[[SearchResult](../../common/data_models/search_result/SearchResult.md)\]</code> – first.
+  first.
 
 **Raises:**
 
@@ -193,7 +193,7 @@ Expand one resolved entity into its neighbours.
 **Returns:**
 
 - <code>list\[[SearchResult](../../common/data_models/search_result/SearchResult.md)\]</code> – The neighbouring entities, deduplicated, highest-ranked
-- <code>list\[[SearchResult](../../common/data_models/search_result/SearchResult.md)\]</code> – first, with any requested community reports fused in.
+  first, with any requested community reports fused in.
 
 **Raises:**
 

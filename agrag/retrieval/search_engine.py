@@ -207,7 +207,7 @@ class SearchEngine:
 
         Returns:
             The neighbouring entities, deduplicated, highest-ranked
-            first, with any requested community reports fused in.
+                first, with any requested community reports fused in.
 
         Raises:
             ScopeDeniedError: relation_type names a type the caller's
@@ -283,7 +283,7 @@ class SearchEngine:
 
         Returns:
             Up to recipe.limit results, ranked highest-relevance
-            first.
+                first.
 
         Raises:
             AllRetrievalMethodsFailedError: Every method the recipe

@@ -74,9 +74,9 @@ class ChunkRetriever(Retriever):
 
         Returns:
             Ranked SearchResults with loaded Chunk items. A child chunk result
-            carries its parent chunk in ``SearchResult.parent``. The list is
-            empty when the limit is not positive, or when the search ran
-            and found nothing.
+                carries its parent chunk in ``SearchResult.parent``. The list is
+                empty when the limit is not positive, or when the search ran
+                and found nothing.
 
         Raises:
             Exception: Any embedding, vector search, or graph read

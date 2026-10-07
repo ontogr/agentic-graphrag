@@ -61,9 +61,9 @@ Run chunk search and return loaded results.
 **Returns:**
 
 - <code>list\[[SearchResult](../../../common/data_models/search_result/SearchResult.md)\]</code> – Ranked SearchResults with loaded Chunk items. A child chunk result
-- <code>list\[[SearchResult](../../../common/data_models/search_result/SearchResult.md)\]</code> – carries its parent chunk in `SearchResult.parent`. The list is
-- <code>list\[[SearchResult](../../../common/data_models/search_result/SearchResult.md)\]</code> – empty when the limit is not positive, or when the search ran
-- <code>list\[[SearchResult](../../../common/data_models/search_result/SearchResult.md)\]</code> – and found nothing.
+  carries its parent chunk in `SearchResult.parent`. The list is
+  empty when the limit is not positive, or when the search ran
+  and found nothing.
 
 **Raises:**
 
