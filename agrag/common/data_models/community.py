@@ -22,13 +22,13 @@ class Community(DataPoint):
         rating_explanation: One sentence explaining the rating.
         findings: Distinct factual claims the report supports.
         member_ids: Ids of every Entity in this community, ordered by
-            internal weighted degree descending (see compute_communities) --
-            the highest-centrality, most representative members first.
+            internal weighted degree descending (see compute_communities).
+            The highest-centrality, most representative members first.
         internal_weight: Total weight of edges where both endpoints are
-            members of this community. A free-to-compute (no extra query,
-            no new dependency) importance signal, used in place of raw
-            member count to decide which communities get a real LLM report
-            -- a small but densely-attested community can matter more than
+            members of this community. A free-to-compute importance signal
+            with no extra query and no new dependency. Used in place of raw
+            member count to decide which communities get a real LLM report.
+            A small but densely-attested community can matter more than
             a larger sparse one.
         embedding: The community's dense vector, computed from title and
             summary. None before the report/embedding stage runs.

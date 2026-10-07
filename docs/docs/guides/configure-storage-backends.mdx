@@ -10,7 +10,7 @@ before you store or search embeddings.
 
 ## Before you start
 
-Each code block on this page is complete. It opens and closes its own connections. Blocks that use a vector store read the `QDRANT_*` settings, and blocks that use the graph store read the `NEO4J_*` settings. See the [Quickstart](/get-started/quickstart) for a Neo4j database.
+Each code block on this page is complete. It opens and closes its own connections. Blocks that use a vector store read the `QDRANT_*` variables, and blocks that use the graph store read the `NEO4J_*` variables. See the [Quickstart](/get-started/quickstart) for a Neo4j database.
 
 ## Install
 
@@ -18,7 +18,7 @@ Install the core package. Then install one extra for each backend you use.
 
 ```bash
 uv pip install agentic-graphrag
-uv pip install "agentic-graphrag[embed-local]"   # local embedding models
+uv pip install "agentic-graphrag[embed-local]"   # sentence-transformers embedding models
 uv pip install "agentic-graphrag[qdrant]"        # Qdrant vector store
 uv pip install "agentic-graphrag[weaviate]"      # Weaviate vector store
 uv pip install "agentic-graphrag[milvus]"        # Milvus vector store
@@ -30,8 +30,9 @@ must install the `neo4j` extra to use `GraphStore`.
 
 ## Set up the embedder
 
-`build_embedder` takes a sentence-transformers model name. It returns a
-ready-to-use embedder. The default model is `ibm-granite/granite-embedding-small-english-r2`.
+`build_embedder` takes a FastEmbed model name. It returns a ready-to-use embedder
+that runs the model on the CPU with ONNX Runtime. The default model is
+`ibm-granite/granite-embedding-small-english-r2`.
 
 ```python
 import asyncio
@@ -48,8 +49,10 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-To use a different model, or to set the device or batch size, build a
-`SentenceTransformerEmbedder` yourself. Pass its own `EmbeddingSettings`.
+To use another model that FastEmbed supports, pass its name to `build_embedder`. To use
+a sentence-transformers model, or to set the device, build a
+`SentenceTransformerEmbedder` yourself. It needs the `embed-local` extra. Pass its own
+`EmbeddingSettings`.
 
 {/* pmd-metadata: notest */}
 
@@ -61,20 +64,20 @@ embedder = SentenceTransformerEmbedder(
 )
 ```
 
-### Set embedder options with environment variables
+### Set embedder configuration with environment variables
 
 Set these variables instead of passing `EmbeddingSettings` fields in code.
 
 | Variable | Meaning |
 | --- | --- |
-| `EMBEDDING_MODEL` | The sentence-transformers model name. |
-| `EMBEDDING_DEVICE` | The device to load the model on. |
+| `EMBEDDING_MODEL` | The model name. |
+| `EMBEDDING_DEVICE` | The device to load the model on. Only `SentenceTransformerEmbedder` uses it. |
 | `EMBEDDING_NORMALIZE` | Whether to normalize output vectors. |
 | `EMBEDDING_BATCH_SIZE` | The number of texts per encode call. |
 
 ## Set up a vector store
 
-`build_vector_store` takes a backend name. It reads connection settings from
+`build_vector_store` takes a backend name. It reads connection configuration from
 environment variables.
 
 ```python
@@ -103,9 +106,9 @@ asyncio.run(main())
 Set `dimensions` to the value your embedder produces. `ensure_collection`
 raises an error if a collection with that name already exists with a
 different dimension. Pass `hybrid=True` to search the collection with
-`hybrid_search` later. Leave it out if you only need `search`.
+`hybrid_search` later. If you only need `search`, leave it out.
 
-For full control, build a backend class yourself with its own settings.
+For full control, build a backend class yourself with its own configuration.
 
 {/* pmd-metadata: notest */}
 
@@ -129,15 +132,12 @@ Set the variables for the one backend you use.
 | Milvus | `MILVUS_URI`, `MILVUS_TOKEN`, `MILVUS_REQUIRE_TLS` |
 
 The default URLs point at plaintext `localhost`, for the Docker Compose
-services `make dev-services-up` starts. Settings construction raises if a URL
-uses a plaintext scheme (`http`), points at a non-local host, and carries an
-API key or token: use `https://` for any remote deployment.
+services `make dev-services-up` starts. If a URL uses a plaintext scheme (`http`), points at a non-local host, and carries an
+API key or token, the configuration check raises an error. Use `https://` for any remote deployment.
 
 An unauthenticated backend on a private network (a VPC, a cluster-internal
-service) is not flagged by default, since the settings cannot tell a private
-host from a public one from the URL alone. Set `*_REQUIRE_TLS=true` to reject
-plaintext to any non-local host regardless of credential, for a deployment
-that wants every remote connection encrypted.
+service) is not flagged by default, since the configuration cannot tell a private
+host from a public one from the URL alone. If your deployment needs every remote connection encrypted, set `*_REQUIRE_TLS=true`. It rejects plaintext to any non-local host, with or without a credential.
 
 ### Write and search vectors
 
@@ -247,9 +247,8 @@ asyncio.run(main())
 | `NEO4J_PASSWORD` | The database password. |
 | `NEO4J_DATABASE` | The target database name. |
 
-Neo4j always authenticates with a password. Settings construction raises an
-error if `NEO4J_URI` uses a plaintext scheme (`bolt://` or `neo4j://`) and
-points at a non-local host. Use `neo4j+s://` (or `bolt+s://`) for a remote
+Neo4j always authenticates with a password. If `NEO4J_URI` uses a plaintext scheme (`bolt://` or `neo4j://`) and
+points at a non-local host, Agentic GraphRAG raises an error. Use `neo4j+s://` (or `bolt+s://`) for a remote
 instance.
 
 ### Write nodes
@@ -286,8 +285,8 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-A node can carry more than one label. List every label the node should have in
-`labels`; `upsert_nodes` writes all of them, not only the `label` argument.
+A node can carry more than one label. List every label that the node must have in
+`labels`. `upsert_nodes` writes all of them, not only the `label` argument.
 Records with different label sets in the same call are grouped and written
 separately.
 
@@ -323,7 +322,7 @@ fewer labels, the labels already on the node are kept, not removed.
 
 ### Handle partial write failures
 
-`upsert_nodes` and `upsert_relations` return an `UpsertResult`. Check
+`upsert_nodes` and `upsert_relations` return an `UpsertResult`. Read
 `failures` for records that did not write. The rest of the call still lands.
 
 ```python
@@ -409,19 +408,18 @@ that reads hits does not need to know which store produced them.
 
 ## Mirror ingestion into a vector store
 
-`Graph.open` accepts an optional `vector_store`. Pass one and every embedding
-ingestion writes to the graph store is also upserted to the vector store:
-entity, chunk, and community vectors all land in the collections
+`Graph.open` accepts an optional `vector_store`. Pass one. Every embedding
+ingestion writes to the graph store is also upserted to the vector store. Entity, chunk, and community vectors all land in the collections
 `RetrievalSettings` names (`agrag_entities`, `agrag_chunks`,
 `agrag_communities` by default). `open()` creates a missing collection with
 your embedder's dimensions. After entity merges, the absorbed entities'
 vectors are deleted there. Each `detect_communities(apply=True)` run replaces
 the community vectors after stale-vector cleanup succeeds. That cleanup clears
 every `Community` vector in the collection, the way the graph-side recompute
-clears every `Community` node in the database, so give each graph its own
+clears every `Community` node in the database. Give each graph its own
 Neo4j database (`NEO4J_DATABASE`) and its own collections. A cleanup
-failure can leave old community vectors in the collection and is reported
-to the caller.
+failure can leave old community vectors in the collection. Agentic GraphRAG reports
+it to the caller.
 
 ```python
 import asyncio
@@ -452,9 +450,8 @@ asyncio.run(main())
 
 A `SearchEngine` pointed at the same `vector_store` then searches the same
 data the graph-native path serves. Ingestion reports failed vector-store writes
-in each stage's failures: a failed mirror is recorded as a `StageFailure` such
-as `chunk_vector_store` under `ErrorPolicy.SKIP`/`QUARANTINE` and propagates
-under the default `ErrorPolicy.RAISE`.
+in each stage's failures. Under `ErrorPolicy.SKIP`/`QUARANTINE`, Agentic GraphRAG records a failed mirror as a `StageFailure` such
+as `chunk_vector_store`. Under the default `ErrorPolicy.RAISE`, it propagates.
 
 ## Next steps
 

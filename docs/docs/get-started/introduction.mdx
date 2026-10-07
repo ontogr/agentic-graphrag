@@ -5,7 +5,7 @@ title: Introduction
 
 # Introduction
 
-`agrag` turns your documents into a knowledge graph. It then answers questions from that graph and cites its evidence.
+Agentic GraphRAG turns your documents into a knowledge graph. It then answers questions from that graph and cites its evidence.
 
 ## The problem
 
@@ -13,20 +13,20 @@ A plain vector search finds passages that look like your question. It cannot joi
 
 Take the question "Who founded the company that Satya Nadella works at?" One passage says that Satya Nadella works at Microsoft. A different passage says that Bill Gates founded Microsoft. No single passage answers the question. A system must join the two facts.
 
-A knowledge graph stores those joins. Each entity is a node. Each fact is an edge. `agrag` builds the graph from your text and follows the edges to find the answer.
+A knowledge graph stores those joins. Each entity is a node. Each fact is an edge. Agentic GraphRAG builds the graph from your text and follows the edges to find the answer.
 
-## What agrag does
+## What Agentic GraphRAG does
 
 - It reads your files and splits them into chunks.
 - It finds entities and relations in each chunk, with a schema that you define.
 - It merges mentions of the same thing into one entity.
 - It stores the graph in Neo4j. It can also index vectors in Qdrant, Weaviate, or Milvus.
-- It answers questions with an agent that plans, searches, and checks its own evidence.
+- It answers questions with an agent that plans, searches, and reviews its own evidence.
 - It cites the evidence for every answer.
 
 ## How it works
 
-`agrag` has two flows. Ingestion builds the graph. Querying reads it.
+Agentic GraphRAG has two flows. Ingestion builds the graph. Querying reads it.
 
 ```mermaid
 flowchart LR
@@ -41,20 +41,20 @@ flowchart LR
 
 *Ingestion writes the stores. The agent reads them and returns a cited answer.*
 
-1. You add documents. `agrag` loads them, splits them into chunks, and extracts entities and relations.
-2. `agrag` resolves duplicate mentions, then writes the graph and its vector indexes.
+1. You add documents. Agentic GraphRAG loads them, splits them into chunks, and extracts entities and relations.
+2. Agentic GraphRAG resolves duplicate mentions, then writes the graph and its vector indexes.
 3. You ask a question. The agent plans sub-questions and searches the stores.
-4. A verifier checks the evidence. The agent then writes an answer with citations.
+4. A verifier reviews the evidence. The agent then writes an answer with citations.
 
 ## Who it is for
 
-Use `agrag` if you:
+Use Agentic GraphRAG if you:
 
-- build question answering over documents that you own;
-- need answers that cite their sources;
+- build question answering over documents that you own.
+- need answers that cite their sources.
 - want to define your own entity and relation types.
 
-`agrag` is pre-1.0. Its API can change between releases.
+Agentic GraphRAG is pre-1.0. Its API can change between releases.
 
 ## What you need
 
@@ -67,7 +67,7 @@ Use `agrag` if you:
 - [Quickstart](/get-started/quickstart): build and inspect your first graph in about 10 minutes.
 - [Installation](/get-started/installation): choose the extras that you need.
 - [Architecture](/concepts/architecture): how ingestion and querying fit together.
-- [Knowledge graph](/concepts/knowledge-graph): what `agrag` stores.
+- [Knowledge graph](/concepts/knowledge-graph): what Agentic GraphRAG stores.
 - [Ingest documents](/guides/ingest-documents): add files, text, and prebuilt documents.
 - [Retrieve and answer](/guides/retrieve-and-answer): search the graph and get cited answers.
 - [API reference](/api): every class and function.

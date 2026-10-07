@@ -3,7 +3,7 @@
 This module is internal. It owns the extract-resolve-merge-write pipeline
 that runs over already-chunked input, with every dependency passed
 explicitly rather than read from ``Graph``. ``Graph.add()`` calls
-:func:`ingest_chunks` once per call after its own walk/chunk loop;
+``ingest_chunks`` once per call after its own walk/chunk loop;
 ``Graph.update()`` calls it directly for the fresh-content case. This
 module has no ``Graph`` import and cannot reach into ``Graph``'s private
 state.
@@ -200,7 +200,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     """Run resolution, merge, and storage for already-chunked input.
 
     Takes the chunks, their source documents, and the already-extracted
-    mentions (see :func:`extract_chunks`), then runs global exact-match
+    mentions (see ``extract_chunks``), then runs global exact-match
     plus in-batch resolution, merge planning and application, and every
     storage write chunks already use: chunk nodes, document nodes,
     ``PART_OF``/``NEXT_CHUNK`` edges, domain relations, ``MENTIONED_IN``

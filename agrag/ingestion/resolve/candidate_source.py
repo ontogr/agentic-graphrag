@@ -134,7 +134,7 @@ class CandidateSource(ABC):
 
 
 class GraphCandidateSource(CandidateSource):
-    """Blocks by label in-batch; ANN-searches persisted entities globally."""
+    """Block by label in-batch. Search persisted entities globally with ANN."""
 
     def __init__(
         self,

@@ -15,8 +15,8 @@ def fuse(
 ) -> list[SearchResult]:
     """Combine every method's ranked results into one deduplicated list.
 
-    Runs unconditionally, even for a single method, so a Rerank pass
-    never sees duplicates. Uses Reciprocal Rank Fusion: an item's
+    Runs unconditionally, even for a single method, so a rerank pass
+    never sees duplicates. Uses Reciprocal Rank Fusion. An item's
     fused score is the sum of 1 / (rrf_k + rank) across every method
     that returned it.
 
@@ -28,7 +28,7 @@ def fuse(
     from another method.
 
     Deduplication uses SearchResult.identity_key, which is (type, id).
-    Fusion does not re-resolve identity; it deduplicates on the ids each
+    Fusion does not re-resolve identity. It deduplicates on the ids each
     SearchResult carries.
 
     Args:
@@ -40,7 +40,7 @@ def fuse(
 
     Returns:
         One list, ranked by fused score descending, one entry per
-        distinct identity_key.
+            distinct identity_key.
     """
     with get_tracer(tracer).start_as_current_span("agrag.retrieval.fuse") as span:
         if span.is_recording():

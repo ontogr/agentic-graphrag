@@ -31,7 +31,6 @@ from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
 
 
 embed_local_missing = importlib.util.find_spec("sentence_transformers") is None
-fastembed_missing = importlib.util.find_spec("fastembed") is None
 
 
 def _tracing_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
@@ -122,7 +121,6 @@ class TestEmbedderTracing:
 
         _write_span_tree(_span_tree_path("sentence_transformer_tracing.json"), spans)
 
-    @pytest.mark.skipif(fastembed_missing, reason="qdrant extra not installed")
     async def test_fastembed_bm25_loads_model_once(self) -> None:
         """First embed exports model_load; second embed exports none."""
         provider, exporter = _tracing_provider()

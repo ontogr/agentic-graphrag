@@ -4,9 +4,9 @@ title: Configuration
 
 # Configuration
 
-agrag reads its settings from environment variables. This page lists every variable, its default, and the settings class that reads it.
+Agentic GraphRAG reads its configuration from environment variables. This page lists every variable, its default, and the settings class that reads it.
 
-## How settings load
+## How configuration loads
 
 Each settings class reads three sources. The first source that has a value wins.
 
@@ -52,11 +52,11 @@ Class: `EmbeddingSettings`. Prefix: `EMBEDDING_`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `EMBEDDING_MODEL` | `ibm-granite/granite-embedding-small-english-r2` | The sentence-transformers model name or path. |
-| `EMBEDDING_DEVICE` | none | The device, such as `cpu` or `cuda`. None lets sentence-transformers choose. |
+| `EMBEDDING_MODEL` | `ibm-granite/granite-embedding-small-english-r2` | The model name. The default embedder takes a model that FastEmbed supports. A `SentenceTransformerEmbedder` takes a sentence-transformers model name or path. |
+| `EMBEDDING_DEVICE` | none | The device, such as `cpu` or `cuda`. Only `SentenceTransformerEmbedder` uses it. None lets sentence-transformers choose. |
 | `EMBEDDING_NORMALIZE` | `true` | Whether to L2-normalize the vectors. |
 | `EMBEDDING_BATCH_SIZE` | `32` | Texts encoded per call. |
-| `EMBEDDING_CACHE_FOLDER` | none | Where sentence-transformers caches downloaded models. |
+| `EMBEDDING_CACHE_FOLDER` | none | Where the embedder caches downloaded model files. |
 
 ## LLM clients
 
@@ -78,7 +78,7 @@ Class: `ExtractionLLMSettings`. Prefix: `EXTRACTION_LLM_`.
 | --- | --- | --- |
 | `EXTRACTION_LLM_CLIENTS` | required | A JSON list of client objects (see below). |
 | `EXTRACTION_LLM_STRATEGY` | `single` | `single`, `fallback`, or `round_robin`. Ignored with one client. |
-| `EXTRACTION_LLM_RETRY` | see below | A JSON object with `max_retries` (`3`), `delay_ms` (`200`), `multiplier` (`1.5`), and `max_delay_ms` (`10000`). |
+| `EXTRACTION_LLM_RETRY` | see below | A JSON object with `max_retries` (`3`), `delay_ms` (`200`), `multiplier` (`1.5`), `max_delay_ms` (`10000`), and `timeout_ms` (`0`, no deadline). |
 
 `ExtractionLLMSettings.from_openai_compatible_env()` builds one `openai-generic` client from `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`. It raises `RuntimeError` when `LLM_BASE_URL` or `LLM_MODEL_ID` is missing.
 

@@ -55,11 +55,11 @@ class SearchEngine:
 
     Fans a query out to every method a Recipe names, fuses the
     results, and optionally reranks them. Constructed from its own
-    stores; does not depend on a Graph instance existing.
+    stores. It does not depend on a Graph instance existing.
 
     A ``tracer`` opens the retrieval spans and flows to every
-    retriever and free function the engine calls. It is *not* pushed
-    into ``graph_store``, ``embedder`` or ``vector_store``: pass the
+    retriever and free function the engine calls. It is not pushed
+    into ``graph_store``, ``embedder`` or ``vector_store``. Pass the
     same tracer to those when you build them, so their adapter spans
     nest under these retrieval spans.
     """
@@ -78,8 +78,8 @@ class SearchEngine:
         """Construct a SearchEngine.
 
         Args:
-            graph_store: Always required; backs entity/chunk search
-                when vector_store is absent, and always backs BFS.
+            graph_store: Always required. It backs entity and chunk search
+                when vector_store is absent, and it always backs BFS.
             embedder: Produces query vectors for dense and hybrid
                 search.
             vector_store: Optional. When set, entity, chunk, and
@@ -149,9 +149,9 @@ class SearchEngine:
 
         Searches this engine's configured entity_labels by default. A
         filters.labels value, when set, overrides which labels are
-        searched rather than narrowing within entity_labels -- the same
-        EntityRetriever behavior search()'s own entity search already
-        relies on.
+        searched rather than narrowing within entity_labels. This is the
+        same EntityRetriever behavior that the entity search of
+        search() already relies on.
 
         Args:
             name: The entity name (or description) to resolve.
@@ -189,7 +189,7 @@ class SearchEngine:
 
         Args:
             seed: The resolved entity to expand from, normally from
-                :meth:`find_entity`.
+                ``find_entity``.
             relation_type: Restrict the traversal to this one
                 relationship type.
             direction: Which way a hop walks each relationship,
@@ -201,13 +201,13 @@ class SearchEngine:
             community_top_k: Maximum community reports to add when
                 ``community_expand`` is set.
             filters: Scope for the traversal. Its ``relation_types`` is
-                an allowlist a ``relation_type`` argument cannot widen;
-                its ``properties``, ``document_ids``, and ``labels``
+                an allowlist. A ``relation_type`` argument cannot widen it.
+                Its ``properties``, ``document_ids``, and ``labels``
                 constrain returned neighbour nodes.
 
         Returns:
             The neighbouring entities, deduplicated, highest-ranked
-            first, with any requested community reports fused in.
+                first, with any requested community reports fused in.
 
         Raises:
             ScopeDeniedError: relation_type names a type the caller's
@@ -242,7 +242,7 @@ class SearchEngine:
 
         Args:
             seed: The resolved entity to read attached types from,
-                normally from :meth:`find_entity`.
+                normally from ``find_entity``.
             relation_type_filter: Only report this type, if present.
             direction: Which way to inspect relationships, relative to the
                 seed entity.
@@ -283,15 +283,15 @@ class SearchEngine:
 
         Returns:
             Up to recipe.limit results, ranked highest-relevance
-            first.
+                first.
 
         Raises:
             AllRetrievalMethodsFailedError: Every method the recipe
                 names failed. A method failing while others succeed
-                is logged and its results are simply absent.
+                is logged and its results are absent.
             UnknownRecipeMethodError: The recipe names one or more
                 methods that are not in the retriever registry. A
-                misspelled method name is a configuration error and
+                misspelled method name is a configuration error. It
                 is reported instead of silently returning no
                 results.
         """

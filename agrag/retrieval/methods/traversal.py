@@ -42,10 +42,10 @@ def extract_entity_ids(results: list[SearchResult]) -> list[UUID]:
     Used for BFS seeds and node-distance reranking. Keeps the
     first-seen id of each entity so the fusion ranking is respected. A
     ResolvedEntity contributes its raw member ids, since graph
-    traversal and distance run over raw entity nodes: a resolved
-    entity's own id names no ``_AgragNode`` an entity traversal can
-    start from, so seeding with it would silently match nothing.
-    Chunks and other non-entity result items are skipped.
+    traversal and distance run over raw entity nodes. A resolved
+    entity's own id names no ``_AgragNode`` that an entity traversal can
+    start from, so seeding with it matches nothing. Chunks and other
+    non-entity result items are skipped.
 
     Args:
         results: The result list to read entity ids from.
@@ -84,7 +84,7 @@ async def find_entity(
 
     Runs one entity search and returns its best result, which callers
     keep whole rather than unwrapping: the item renders as evidence,
-    and the result itself is what :func:`extract_entity_ids` can turn
+    and the result itself is what ``extract_entity_ids`` can turn
     into traversal seeds.
 
     Args:
@@ -97,7 +97,7 @@ async def find_entity(
             default, one vector index each.
         filters: Scope to resolve within. Labels, document ids, and
             ``properties`` are projected through, matching the
-            projection a plain search's own entity step applies; a
+            projection that a plain search's own entity step applies. A
             ``filters.labels`` value replaces ``entity_labels`` rather
             than narrowing within it, so a scope carrying only
             unrelated fields must not be mistaken for a deliberate
@@ -322,7 +322,7 @@ async def list_relationship_types(
 
 
 def _intersect_relation_types(base: list[str], requested: str | None) -> list[str]:
-    """Return the relation types a traversal may actually cross.
+    """Return the relation types that a traversal can actually cross.
 
     An empty ``base`` means the caller set no allowlist, so a request
     passes through as given. A non-empty ``base`` is an authorization

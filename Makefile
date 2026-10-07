@@ -1,4 +1,4 @@
-.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help docs-api docs-install docs-dev docs-build docs-test
+.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help changelog docs-api docs-install docs-dev docs-build docs-test
 
 export UV_LOCKED = 1
 
@@ -32,11 +32,12 @@ help:
 	@echo "  make lint-actions     - Audit GitHub Actions workflows with zizmor"
 	@echo "  make lint-all         - Run formatting, linting, and type checking"
 	@echo "  make security-bandit  - Run Bandit security scan"
-	@echo "  make security-audit   - Run pip-audit dependency vulnerability scan"
+	@echo "  make security-audit   - Audit the locked dependencies with uv audit"
 	@echo "  make security         - Run all security scans"
 	@echo "  make build            - Build sdist and wheel into dist/"
 	@echo "  make wheel-test       - Install the built wheel in a clean env and import it"
-	@echo "  make docs-api         - Regenerate the per-package API pages in docs/docs/api/ from docstrings"
+	@echo "  make docs-api         - Regenerate the per-object API pages in docs/docs/api/ from docstrings"
+	@echo "  make changelog        - Rebuild CHANGELOG.md from the git history"
 	@echo "  make docs-install     - Install the Docusaurus site's npm dependencies"
 	@echo "  make docs-dev         - Run the Docusaurus dev server"
 	@echo "  make docs-build       - Regenerate the API reference and build the docs site"
@@ -218,7 +219,7 @@ security-bandit:
 	uv run bandit -c pyproject.toml -r agrag/ --severity-level high --confidence-level high
 
 security-audit:
-	uv run pip-audit --desc
+	uv audit --preview-features audit-command
 
 security: security-bandit security-audit
 
@@ -247,13 +248,21 @@ DOCS_API_PKGS ?= agents chunking common embedding eval graphdb ingestion loaders
 
 docs-api:
 	mkdir -p docs/docs/api
-	rm -f $(filter-out docs/docs/api/index.md,$(wildcard docs/docs/api/*.md))
+	for f in docs/docs/api/*; do [ "$$f" = docs/docs/api/index.md ] || rm -rf "$$f"; done
 	i=2; for p in $(DOCS_API_PKGS); do \
 	  { printf '%s\n' '---' "title: agrag.$$p" "sidebar_position: $$i" '---' ''; \
 	    PYTHONPATH=. $(DOCS_GRIPPE2MD) agrag.$$p -f; } > docs/docs/api/$$p.md.tmp \
 	    && mv docs/docs/api/$$p.md.tmp docs/docs/api/$$p.md || exit 1; \
 	  i=$$((i+1)); done
 	$(DOCS_PYTHON) .github/scripts/docs_api_links.py docs/docs/api
+
+changelog:
+	@# git-cliff groups commits into releases by tag, so a shallow or tagless clone gives a wrong file.
+	@test "$$(git rev-parse --is-shallow-repository)" = false && git describe --tags --abbrev=0 >/dev/null 2>&1 \
+	  || { echo "Fetch the full history and tags first: git fetch --unshallow --tags"; exit 1; }
+	uvx git-cliff@2.14.2 --output CHANGELOG.md
+	@# git-cliff ends the file with a blank line, which the end-of-file hook removes.
+	@printf '%s\n' "$$(cat CHANGELOG.md)" > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
 
 docs-install:
 	cd docs && npm ci
@@ -262,7 +271,10 @@ docs-dev: docs-api
 	cd docs && npm start
 
 docs-build: docs-api
-	cd docs && npm run build
+	cd docs && { npm run build > build.log 2>&1; status=$$?; cat build.log; exit $$status; }
+	@# Docusaurus reports many problems as warnings and still exits with success.
+	@grep -q '^\[SUCCESS\]' docs/build.log && ! grep -qE '^\[(WARNING|ERROR)\]' docs/build.log \
+	  || { echo "The docs build did not finish cleanly. Read docs/build.log."; exit 1; }
 
 # The docs tests need a Neo4j reachable through NEO4J_* (see docker/docker-compose.ci.yml).
 # Some blocks empty that database. They run only when DOCS_TEST_ALLOW_NEO4J_RESET=1,

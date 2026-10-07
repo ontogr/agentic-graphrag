@@ -73,7 +73,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Only `BAMLExtractor` uses the heading path. The local and escalating extractors read the chunk text only. See [Configure chunking](./configure-chunking.mdx) for the embedding side of this setting.
+Only `BAMLExtractor` uses the heading path. The local and escalating extractors read the chunk text only. See [Configure chunking](./configure-chunking.mdx) for the embedding side of this configuration.
 
 ## Run locally first, escalating to an LLM
 
@@ -137,7 +137,7 @@ Alternatively, use `ExtractionLLMSettings.from_openai_compatible_env()` to read 
 
 ## Resolution runs inside every write
 
-You never call resolution directly. `graph.add()` resolves every batch automatically: exact-name identity groups mentions without evidence, a fuzzy fast path merges near-identical names, embedding similarity decides the rest, and a capped LLM tier reviews only the ambiguous band. Raw entity nodes are permanent. Confirmed non-exact matches persist as `MATCHES` edges with a derived resolved node, never by deleting a node.
+You never call resolution directly. `graph.add()` resolves every batch automatically. Exact-name identity groups mentions without evidence. A fuzzy fast path merges near-identical names. Embedding similarity decides the rest. A capped LLM tier reviews only the ambiguous band. Raw entity nodes are permanent. Confirmed non-exact matches persist as `MATCHES` edges with a derived resolved node. No call deletes a node.
 
 ```python
 import asyncio
@@ -168,11 +168,11 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`Graph.open` has no resolution settings. Resolution uses the schema, the embedder, and the extractor that you pass to it. Inspect every run through the resolution stats on the returned `AddResult`.
+`Graph.open` has no resolution configuration. Resolution uses the schema, the embedder, and the extractor that you pass to it. Inspect every run through the resolution stats on the returned `AddResult`.
 
 ## Consolidate the whole graph
 
-`consolidate()` runs the same resolution as a full pass over every persisted entity of each type. Dry-run first, then apply:
+`consolidate()` runs the same resolution as a full pass over every persisted entity of each type. Run a dry run first, then apply:
 
 ```python
 import asyncio
@@ -207,11 +207,11 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-A dry run writes nothing. Applying writes `MATCHES` edges and derived resolved nodes, and reports exactly the matches it wrote. LLM review calls stay bounded no matter how large the graph grows.
+A dry run writes nothing. An apply run writes `MATCHES` edges and derived resolved nodes. It reports exactly the matches it wrote. LLM review calls stay bounded no matter how large the graph grows.
 
 ## Re-evaluate specific entities
 
-`reevaluate()` re-runs the same resolution for entities you name, when new evidence lands or a past decision looks wrong. It adds newly confirmed matches, deactivates edges the current evidence no longer supports, and leaves every entity outside the list untouched:
+`reevaluate()` re-runs the same resolution for entities you name, when new evidence lands or a past decision looks wrong. It adds newly confirmed matches. It deactivates edges that the current evidence no longer supports. It leaves every entity outside the list untouched:
 
 ```python
 import asyncio
@@ -249,9 +249,9 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-There is no automatic trigger: a caller that learns something new calls `reevaluate()` explicitly.
+There is no automatic trigger. A caller that learns something new calls `reevaluate()` explicitly.
 
-`Resolver.resolve()` also takes an optional `neighbors_by_index` map of per-entity neighboring-relationship strings, which batched `LLMVerify` verification sends to the model as extra context. `Graph.add()` and `Graph.consolidate()` build one automatically from a batch's extracted relations and each persisted entity's stored graph edges.
+`Resolver.resolve()` also takes an optional `neighbors_by_index` map of per-entity neighboring-relationship strings, which batched `LLMVerify` calls send to the model as extra context. `Graph.add()` and `Graph.consolidate()` build one automatically from a batch's extracted relations and each persisted entity's stored graph edges.
 
 ## Define your own schema
 
@@ -272,4 +272,4 @@ schema = GraphSchema(
 
 ## Next steps
 
-- See the [API reference](/api) for every `Extractor`, `Comparator`, and schema field.
+See the [API reference](/api) for every `Extractor`, `Comparator`, and schema field.

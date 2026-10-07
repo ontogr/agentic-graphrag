@@ -13,7 +13,7 @@ class SearchFilters(BaseModel):
     Attributes:
         labels: Entity labels a result must have, when searching
             entities.
-        relation_types: Relation types a traversal may cross.
+        relation_types: Relation types a traversal can cross.
         document_ids: Restrict results to entities and chunks from these
             source documents.
         properties: Exact-match property filters, applied

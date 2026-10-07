@@ -5,77 +5,88 @@ title: Installation
 
 # Installation
 
-This page shows how to install `agrag` with the extras that you need.
+To use Agentic GraphRAG, install `agentic-graphrag` from your Python package manager, for example pip:
 
-## Requirements
+```bash
+pip install agentic-graphrag
+```
 
-- Python 3.11 or newer.
-- [uv](https://docs.astral.sh/uv/) or pip.
-- A Neo4j database, version 5.23 or newer, to store the graph. The [Quickstart](/get-started/quickstart) shows how to get one for free.
-
-## Install the package
-
-Create a virtual environment. Then install the package:
+If you are using [uv](https://docs.astral.sh/uv/), create a virtual environment and install the package into it:
 
 ```bash
 uv venv
 uv pip install agentic-graphrag
 ```
 
-The base install includes the loaders, the chunkers, and the data models. Storage, embeddings, extraction, and the agent are extras.
+To install uv, see the [installation docs](https://docs.astral.sh/uv/getting-started/installation/).
 
-Check the install:
+Agentic GraphRAG needs Python 3.11 or newer. It also needs a Neo4j database, version 5.23 or newer, to store the graph. The [Quickstart](/get-started/quickstart) shows how to get one for free.
 
-```python
-import agrag
+The base install includes the loaders, the chunkers, the data models, and the default embedder. Storage, extraction, and the agent are extras.
 
-print(agrag.__version__)
+<details id="alternative-pytorch-distributions">
+<summary>Alternative PyTorch distributions</summary>
+
+The `embed-local`, `extract`, `docling`, and `chunk-neural` extras depend on [PyTorch](https://pytorch.org/). Depending on your hardware, pick a different distribution of `torch`, for example a CPU-only build or a build for another accelerator. The [PyTorch install page](https://pytorch.org/get-started/locally/) lists all the ways to install `torch`.
+
+When you install with uv, add `--torch-backend=auto`. uv looks for a GPU driver. It installs the build that matches the driver, or the CPU build when it finds no GPU.
+
+```bash
+uv pip install "agentic-graphrag[neo4j,extract]" --torch-backend=auto
 ```
 
-## Choose your extras
+To always install the CPU build, use `--torch-backend=cpu`. This flag is a uv preview feature. It needs uv 0.6.9 or newer.
 
-Add an extra in square brackets, for example `agentic-graphrag[neo4j,extract]`.
+</details>
 
-| Extra | Adds |
+## What the base install includes
+
+The base install has the parts of Agentic GraphRAG that need no database, no GPU, and no LLM client:
+
+- The data models, such as the graph schema and the search result.
+- Loaders for files, directories, and raw text, including Markdown, HTML, and CSV.
+- The built-in chunkers: recursive, sentence, token, heading, parent-child, and turn-window.
+- The default embedder, which runs ONNX embedding models on the CPU.
+- The OpenTelemetry API calls that trace each step. Without the `observability` extra, these calls do nothing.
+
+To build and search a graph, you also need a graph store and an extractor. Each one is an extra.
+
+## Available extras
+
+Other parts of Agentic GraphRAG need more third-party packages. These packages install only if you select them as extras. If an extra is missing, Agentic GraphRAG raises an error that names the extra to install.
+
+The following table lists the extras. Install them with `pip install "agentic-graphrag[NAME1,NAME2]"` or `uv pip install "agentic-graphrag[NAME1,NAME2]"`.
+
+| Extra | Description |
 | --- | --- |
-| `neo4j` | The Neo4j graph store and its native vector index |
-| `embed-local` | Sentence Transformers embeddings that run on your machine |
-| `extract` | GLiNER 2.5 extraction that runs on your machine |
-| `llm` | BAML extraction and match verification with an LLM |
-| `agents` | The LangGraph runtime for the question-answering agent |
-| `docling` | PDF, Word, PowerPoint, image, and XML parsing, and layout-aware chunking |
-| `qdrant` | The Qdrant vector store and BM25 sparse embeddings |
-| `weaviate` | The Weaviate vector store |
-| `milvus` | The Milvus and Zilliz vector store |
-| `observability` | The OpenTelemetry SDK and OTLP exporter |
-| `community` | Leiden community detection |
-| `eval` | The DeepEval and AgentEvals metrics in `agrag.eval` |
-| `chunk-semantic` | The semantic chunker |
-| `chunk-neural` | The neural chunker |
-| `chunk-code` | The code chunker |
+| `neo4j` | Installs the Neo4j graph store and its native vector index. |
+| `embed-local` | Installs Sentence Transformers, to embed with models that the default embedder does not support. |
+| `extract` | Installs GLiNER 2.5, to run entity extraction on your machine. |
+| `llm` | Installs BAML, to extract entities and review matches with an LLM. |
+| `agents` | Installs the LangGraph runtime for the question-answering agent. |
+| `docling` | Installs Docling, to parse PDF, Word, PowerPoint, image, and XML files and to chunk by layout. |
+| `qdrant` | Installs the Qdrant vector store and BM25 sparse embeddings. |
+| `weaviate` | Installs the Weaviate vector store. |
+| `milvus` | Installs the Milvus and Zilliz vector store. |
+| `observability` | Installs the OpenTelemetry SDK and OTLP exporter. |
+| `community` | Installs Leiden community detection. |
+| `eval` | Installs the DeepEval and AgentEvals metrics in `agrag.eval`. |
+| `chunk-semantic` | Installs the semantic chunker. |
+| `chunk-neural` | Installs the neural chunker. |
+| `chunk-code` | Installs the code chunker. |
 
-Pick the extras for your goal:
+### Extras by goal
 
 | Goal | Extras |
 | --- | --- |
-| Build a first graph (the [Quickstart](/get-started/quickstart)) | `neo4j,extract,embed-local` |
-| Also ask questions with the agent | `neo4j,extract,embed-local,agents` |
+| Build a first graph (the [Quickstart](/get-started/quickstart)) | `neo4j,extract` |
+| Also ask questions with the agent | `neo4j,extract,agents` |
 | Read PDF and Office files | Add `docling` |
-| Extract with an LLM instead of a local model | `neo4j,llm,embed-local` |
+| Extract with an LLM instead of a local model | `neo4j,llm` |
 | Search with a dedicated vector store | Add `qdrant`, `weaviate`, or `milvus` |
+| Find communities of related entities | Add `community` |
 | Record traces | Add `observability` |
-
-## Save disk space with CPU-only PyTorch
-
-The `extract` and `embed-local` extras install PyTorch. On Linux, the default PyTorch wheel brings several gigabytes of NVIDIA CUDA libraries. If your machine has no GPU, install the CPU build first:
-
-```bash
-uv venv
-uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-uv pip install "agentic-graphrag[neo4j,extract,embed-local]"
-```
-
-The second command keeps the CPU build. The environment for these three extras is about 1.1 GB.
+| Measure answer quality | Add `eval` |
 
 ## Next steps
 

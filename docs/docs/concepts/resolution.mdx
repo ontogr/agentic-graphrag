@@ -1,12 +1,12 @@
 ---
 sidebar_position: 7
 title: Entity resolution
-description: How agrag decides which mentions name the same real-world thing.
+description: How Agentic GraphRAG decides which mentions name the same real-world thing.
 ---
 
 # Entity resolution
 
-Entity resolution decides which mentions name the same real-world thing. It only decides. The page [Matching and resolved entities](/concepts/resolved-entities) explains what agrag writes after a decision.
+Entity resolution decides which mentions name the same real-world thing. It only decides. The page [Matching and resolved entities](/concepts/resolved-entities) explains what Agentic GraphRAG writes after a decision.
 
 ## Why it exists
 
@@ -35,17 +35,17 @@ flowchart TD
 *A pair goes down the tiers. The first tier that is sure decides.*
 
 1. Only mentions with the same label are compared. A `Person` is never compared with a `Location`.
-2. **Exact tier.** Two mentions match when their text is equal after trimming spaces and ignoring letter case.
-3. **Fuzzy tier.** The tier compares the words of both names and ignores their order. A score of 0.97 or more is a match. A lower score is not a rejection. It only means that the fast path does not apply.
-4. **Embedding tier.** Each name becomes a vector. A cosine similarity of 0.95 or more is a match. A similarity below 0.80 drops the pair. A similarity from 0.80 to 0.95 makes the pair ambiguous.
-5. **Cluster tier.** Ambiguous pairs are grouped by average similarity. A tight group is a match without an LLM call.
-6. **LLM tier.** An LLM reads each remaining pair with its context. It answers match, no match, or uncertain. Only a match merges. The LLM sees at most 500 pairs for each label, most similar first.
+2. Exact tier. Two mentions match when their text is equal after trimming spaces and ignoring letter case.
+3. Fuzzy tier. The tier compares the words of both names and ignores their order. A score of 0.97 or more is a match. A lower score is not a rejection. It only means that the fast path does not apply.
+4. Embedding tier. Each name becomes a vector. A cosine similarity of 0.95 or more is a match. A similarity below 0.80 drops the pair. A similarity from 0.80 to 0.95 makes the pair ambiguous.
+5. Cluster tier. Ambiguous pairs are grouped by average similarity. A tight group is a match without an LLM call.
+6. LLM tier. An LLM reads each remaining pair with its context. It answers match, no match, or uncertain. Only a match merges. The LLM sees at most 500 pairs for each label, most similar first.
 
 If no LLM is configured, the remaining pairs stay unmatched. The graph stays correct and is less complete.
 
 ## Two scopes
 
-`Graph.add` compares the mentions of one call with each other and with similar entities that the graph already stores. `Graph.consolidate` runs the same tiers over every entity in the graph, when you ask for it. Use it after you added data before an LLM was configured. The guide [Consolidate duplicates](/guides/consolidate-duplicates) shows how.
+`Graph.add` compares the mentions of one call with each other and with similar entities that the graph already stores. `Graph.consolidate` runs the same tiers over every entity in the graph, when you ask for it. If you added data before an LLM was configured, use it. The guide [Consolidate duplicates](/guides/consolidate-duplicates) shows how.
 
 ## Example
 
@@ -59,15 +59,15 @@ If no LLM is configured, the remaining pairs stay unmatched. The graph stays cor
 <details>
 <summary>Design choices</summary>
 
-**Why zones and not a chain of vetoes?** A low fuzzy score never rejects a pair. "Ada King" and "Ada Lovelace" share few characters, but they name one person. The embedding and LLM tiers still get to see the pair.
+Why zones and not a chain of vetoes? A low fuzzy score never rejects a pair. "Ada King" and "Ada Lovelace" share few characters, but they name one person. The embedding and LLM tiers still get to see the pair.
 
-**Why cluster before the LLM?** A tight group of similar names needs no judgment. Grouping first sends fewer pairs to the LLM.
+Why cluster before the LLM? A tight group of similar names needs no judgment. Grouping first sends fewer pairs to the LLM.
 
-**Why cap the LLM pairs for each label?** The cap bounds the cost. One call makes at most ceil(L × 500 ÷ 10) LLM requests for L labels.
+Why cap the LLM pairs for each label? The cap bounds the cost. One call makes at most ceil(L × 500 ÷ 10) LLM requests for L labels.
 
-**Why does "unsure" mean no match?** A missed match is recoverable with `Graph.consolidate`. A wrong match corrupts the graph.
+Why does "unsure" mean no match? A missed match is recoverable with `Graph.consolidate`. A wrong match corrupts the graph.
 
-**Why compare only equal labels?** A city and a company can have the same name. Keeping labels apart stops a merge across types.
+Why compare only equal labels? A city and a company can have the same name. Keeping labels apart stops a merge across types.
 
 </details>
 

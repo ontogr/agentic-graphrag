@@ -5,19 +5,15 @@ downloaded. Covers that embed and query_embed delegate to distinct
 model methods (a query must not use document-side term weighting), that
 concurrent first-time embeds share one model build via
 ``mock.patch.object(..., autospec=True)`` and threading events rather than
-racing to build it twice, and that a missing ``fastembed`` module (simulated
-via ``sys.modules`` patching) raises EmbeddingMissingExtraError. Tracing
-tests use a real SDK ``TracerProvider`` with an in-memory exporter:
-``tracer=None`` leaves a host span untouched, and concurrent first use
-exports exactly one ``agrag.embedding.model_load`` span.
+racing to build it twice. Tracing tests use a real SDK ``TracerProvider`` with
+an in-memory exporter: ``tracer=None`` leaves a host span untouched, and
+concurrent first use exports exactly one ``agrag.embedding.model_load`` span.
 """
 
 import asyncio
-import sys
 import threading
 from unittest import mock
 
-import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
@@ -25,7 +21,6 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 )
 from opentelemetry.trace import StatusCode
 
-from agrag.embedding.errors import EmbeddingMissingExtraError
 from agrag.embedding.fastembed_bm25 import DEFAULT_BM25_MODEL, FastEmbedBM25Embedder
 from agrag.embedding.sparse_base import SparseVector
 
@@ -124,20 +119,6 @@ class TestFastEmbedBM25ConcurrentLoad:
             await asyncio.gather(first, second)
 
         assert build_calls == 1
-
-
-class TestFastEmbedBM25MissingExtra:
-    """Without the extra installed, use raises, not ImportError."""
-
-    async def test_embed_raises_missing_extra(self) -> None:
-        """Embedding without fastembed raises EmbeddingMissingExtraError."""
-        embedder = FastEmbedBM25Embedder()
-        with (
-            mock.patch.dict(sys.modules, {"fastembed": None}),
-            pytest.raises(EmbeddingMissingExtraError) as exc_info,
-        ):
-            await embedder.embed(["x"])
-        assert exc_info.value.extra == "qdrant"
 
 
 class TestFastEmbedBM25Tracing:

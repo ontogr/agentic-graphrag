@@ -354,8 +354,8 @@ class TestSentenceTransformerTracing:
         assert len(encodes) == 2
         assert all((s.attributes or {}).get("agrag.text_count") == 1 for s in encodes)
 
-    async def test_full_cache_hit_exports_no_encode_span(self) -> None:
-        """A fully cached embed re-encodes nothing and opens no span."""
+    async def test_full_cache_hit_exports_embed_span_without_encode(self) -> None:
+        """A fully cached embed re-encodes nothing but still opens one span."""
         provider, exporter = _tracing_provider()
         model = MockSentenceTransformer()
         cache = _RecordingCache()
@@ -367,8 +367,7 @@ class TestSentenceTransformerTracing:
         out = await embedder.embed(["a", "b"])
         assert len(out) == 2
         assert model.encode_calls == [["a", "b"]]
-        assert [
-            s
-            for s in exporter.get_finished_spans()
-            if s.name == "agrag.embedding.encode"
-        ] == []
+        spans = exporter.get_finished_spans()
+        assert [s for s in spans if s.name == "agrag.embedding.encode"] == []
+        (embed_span,) = [s for s in spans if s.name == "agrag.embedding.embed"]
+        assert (embed_span.attributes or {}).get("agrag.cache_hit_count") == 2

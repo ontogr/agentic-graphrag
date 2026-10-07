@@ -1,12 +1,12 @@
 ---
 sidebar_position: 9
 title: Communities
-description: How agrag groups connected entities and writes a short report for each group.
+description: How Agentic GraphRAG groups connected entities and writes a short report for each group.
 ---
 
 # Communities
 
-A community is a group of entities that many relations connect. agrag finds communities when you ask, and it writes a short report for each one.
+A community is a group of connected entities. Many relations connect the members. Agentic GraphRAG finds communities when you ask, and it writes a short report for each one.
 
 ## Why it exists
 
@@ -32,14 +32,14 @@ flowchart TD
 *Groups with many attested relations get an LLM report. Small groups get a simple one.*
 
 1. You call `Graph.detect_communities`. `Graph.add` never calls it.
-2. agrag reads every relation between entities. It weights each relation by the number of chunks that state it. A relation with no source chunk weighs zero.
-3. Leiden clustering splits the entities into groups. The clustering is hierarchical. agrag keeps only the first level, which holds the broadest groups, and only groups of two or more entities.
-4. agrag sums the weight of the relations inside each group. This is the internal weight. It also ranks each member by its own internal weight.
-5. A group with an internal weight of 5 or more gets an LLM report. The report has a title, a summary, a rating from 0 to 10, a reason for the rating, and findings. A smaller group gets a simple report. Its title lists the three top members. Its rating is half of its internal weight, up to 10. If no LLM is available or a call fails, agrag writes the simple report and records the failure.
-6. agrag embeds each title and summary, so that retrieval can search communities.
-7. agrag deletes the earlier communities and writes the new ones. Each detection replaces the last.
+2. Agentic GraphRAG reads every relation between entities. It weights each relation by the number of chunks that state it. A relation with no source chunk weighs zero.
+3. Leiden clustering splits the entities into groups. The clustering is hierarchical. Agentic GraphRAG keeps only the first level, which holds the broadest groups, and only groups of two or more entities.
+4. Agentic GraphRAG sums the weight of the relations inside each group. This is the internal weight. It also ranks each member by its own internal weight.
+5. A group with an internal weight of 5 or more gets an LLM report. The report has a title, a summary, a rating from 0 to 10, a reason for the rating, and findings. A smaller group gets a simple report. Its title lists the three top members. Its rating is half of its internal weight, up to 10. If no LLM is available or a call fails, Agentic GraphRAG writes the simple report and records the failure.
+6. Agentic GraphRAG embeds each title and summary, so that retrieval can search communities.
+7. Agentic GraphRAG deletes the earlier communities and writes the new ones. Each detection replaces the last.
 
-A dry run, which is the default, returns the groups without reports.
+A dry run is the default. It returns the groups without reports.
 
 ## Example
 
@@ -51,22 +51,22 @@ Seven short documents about early computing give three communities.
 | Hopper, Philadelphia, UNIVAC compiler (3) | 3.0 | Simple | Grace Hopper, Philadelphia, UNIVAC compiler |
 | Turing, Bletchley, Bombe (3) | 2.0 | Simple | Alan Turing, Bombe, Bletchley |
 
-An LLM writes the first report, and an LLM can make mistakes. In one test run, a finding said that Ada Lovelace designed the Analytical Engine. The source text says that she wrote notes on it. Check findings against the relations.
+An LLM writes the first report, and an LLM can make mistakes. In one test run, a finding said that Ada Lovelace designed the Analytical Engine. The source text says that she wrote notes on it. Compare findings with the relations.
 
 <details>
 <summary>Design choices</summary>
 
-**Why weight relations by chunk count?** A relation that many chunks state counts more. A relation without a source chunk cannot inflate a community.
+Why weight relations by chunk count? A relation that many chunks state counts more. A relation without a source chunk cannot inflate a community.
 
-**Why decide the report type by internal weight and not by size?** A small group with many attested relations can matter more than a large sparse group.
+Why decide the report type by internal weight and not by size? A small group with many attested relations can matter more than a large sparse group.
 
-**Why keep a simple report?** It costs no LLM call and it is the same on every run. Most groups in a large graph are small.
+Why keep a simple report? It costs no LLM call and it is the same on every run. Most groups in a large graph are small.
 
-**Why keep only the first level?** One level of groups is enough for retrieval. It also keeps the number of `Community` nodes small.
+Why keep only the first level? One level of groups is enough for retrieval. It also keeps the number of `Community` nodes small.
 
-**Why rebuild every time?** A full rebuild gives one clean partition. There is no rule for merging an old partition with a new one.
+Why rebuild every time? A full rebuild gives one clean partition. There is no rule for merging an old partition with a new one.
 
-**Why run on request?** Clustering reads the whole graph. You choose when to pay for it.
+Why run on request? Clustering reads the whole graph. You choose when to pay for it.
 
 </details>
 

@@ -38,7 +38,7 @@ def pending_path_filter_clause(path_alias: str, job_id_param: str | None = None)
     Args:
         path_alias: The Cypher path variable the filter applies to.
         job_id_param: The parameter name holding the in-flight job's id, or
-            None for committed-only. See :func:`pending_filter_clause`.
+            None for committed-only. See ``pending_filter_clause``.
 
     Returns:
         A ``WHERE`` fragment over every node and relationship of the path.

@@ -35,7 +35,7 @@ class CutoverJob(DataPoint):
         verb: Which public method created this job.
         status: Current phase, see CutoverJobStatus.
         affected_entity_ids: The snapshot taken before any pending write
-            began — the only entities pruning may remove.
+            began. The only entities that pruning can remove.
         component_seed_ids: One member id per match component the job
             rebuilt, recorded at commit. The cleanup phase rebuilds
             each component's resolved entity from these, in addition to

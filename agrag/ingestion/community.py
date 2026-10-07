@@ -69,10 +69,10 @@ async def fetch_relation_edges(
 
     Weight is len(source_chunk_ids) (attestation count). A relation with
     no attested chunks contributes weight 0.0, so an unsupported edge
-    cannot inflate clustering or a community's report importance. Two
+    cannot inflate clustering or a community report importance. Two
     entities connected by more than one distinct relation type contribute
-    one edge tuple per type; graspologic_native sums parallel-edge
-    weights building its own adjacency.
+    one edge tuple per type. graspologic_native sums parallel-edge
+    weights when it builds its own adjacency.
 
     Supports cursor (keyset) pagination for large graphs where ``SKIP``
     is expensive, and legacy ``SKIP`` pagination for callers that need
@@ -155,23 +155,24 @@ def compute_communities(
 ) -> list[Community]:
     """Run hierarchical Leiden and return level-0 communities.
 
-    CPU-bound and synchronous; callers on the event loop should run this via
+    CPU-bound and synchronous. Callers on the event loop must run this with
     asyncio.to_thread (see chunk_documents for the same pattern with
-    chunking). Only level 0 is kept -- higher levels are computed for
+    chunking). Only level 0 is kept. Higher levels are computed for
     max_cluster_size capping but never persisted.
 
     After clustering, one extra pass over the same edge list computes a
-    structural-importance signal, entirely from data already in memory --
-    no new dependency (graspologic exposes no general centrality function;
-    see the follow-up research this refinement is based on), no new query:
+    structural-importance signal, entirely from data already in memory.
+    No new dependency and no new query. graspologic exposes no general
+    centrality function (see the follow-up research this refinement is
+    based on).
 
-    - Each community's internal_weight (total weight of edges where both
-       endpoints are its members) -- signal for which communities get a
+    - Each community internal_weight (total weight of edges where both
+       endpoints are its members). It signals which communities get a
        real LLM report instead of a heuristic one.
-    - Each member's local weight (weight of its own internal edges) --
-      used to order member_ids highest-first, so the "most representative"
+    - Each member local weight (weight of its own internal edges).
+      It orders member_ids highest-first, so the most representative
       members lead the list for both a large qualifying community's
-      (token-budget-truncated) LLM prompt and a heuristic report's
+      token-budget-truncated LLM prompt and a heuristic report's
       few-name summary.
 
     Args:
@@ -185,9 +186,9 @@ def compute_communities(
 
     Returns:
         One Community per level-0 cluster with two or more members, with
-        member_ids ordered by local weight descending and internal_weight
-        set. Reports (title/summary/rating/findings) are left empty; report
-        generation fills them.
+            member_ids ordered by local weight descending and internal_weight
+            set. Reports (title, summary, rating, findings) are left empty.
+            Report generation fills them.
 
     Raises:
         CommunityDetectionMissingExtraError: graspologic-native is not

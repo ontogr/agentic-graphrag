@@ -5,7 +5,7 @@ title: Legal benchmark
 
 # Legal benchmark
 
-This page describes the Legal benchmark: the questions, the graph schema, how `agrag` answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
+This page describes the Legal benchmark: the questions, the graph schema, how Agentic GraphRAG answers are scored, and the result of the committed lite run. For the commands, see [Run the benchmarks](./run-benchmarks.mdx). For the audit trail and the limits of these numbers, see [Benchmarks](./index.mdx).
 
 ## The dataset
 
@@ -18,7 +18,7 @@ This page describes the Legal benchmark: the questions, the graph schema, how `a
 | CUAD | commercial contracts | [CUAD](https://www.atticusprojectai.org/cuad) |
 | MAUD | merger agreements | [MAUD](https://github.com/TheAtticusProject/maud) |
 
-The benchmark keeps its own "mini" sample of 776 questions on 72 documents. The harness reads the questions and documents from a Hugging Face mirror, [`awinml/legalbench-rag`](https://huggingface.co/datasets/awinml/legalbench-rag), at a pinned revision. It checks the hash of every document before it uses it. Every query keeps its official text, including the `Consider ...` prefix that names the document.
+The benchmark keeps its own "mini" sample of 776 questions on 72 documents. The harness reads the questions and documents from a Hugging Face mirror, [`awinml/legalbench-rag`](https://huggingface.co/datasets/awinml/legalbench-rag), at a pinned revision. It makes sure that the hash of every document matches before it uses the document. Every query keeps its official text, including the `Consider ...` prefix that names the document.
 
 ### Lite and full
 
@@ -27,11 +27,11 @@ The benchmark keeps its own "mini" sample of 776 questions on 72 documents. The 
 | Lite | 2 | 1: the privacy policy of Keep | 2,024 | PrivacyQA 2 |
 | Full | 100 | 15 | 223,766 | 25 from each of the four sources |
 
-The lite set is a quick check, not a sample of the benchmark. It takes the shortest policy of the full set, so a run takes a few minutes. It has one question with one gold span of 140 characters (does the app keep and upload my activity) and one question with two gold spans of 907 and 221 characters (is my workout data shared with anyone). Both lite questions are in the full set.
+The lite set is a smoke test, not a sample of the benchmark. It takes the shortest policy of the full set, so a run takes a few minutes. It has one question with one gold span of 140 characters (does the app keep and upload my activity) and one question with two gold spans of 907 and 221 characters (is my workout data shared with anyone). Both lite questions are in the full set.
 
-The full set keeps the documents with the most questions in each source, and for MAUD the two shortest documents. It drops repeated query strings. Nobody has run the full set, and it is far above the budget of a manual run, so read its dry-run estimate before you start it.
+The full set keeps the documents with the most questions in each source, and for MAUD the two shortest documents. It drops repeated query strings. Nobody ran the full set. It is far above the budget of a manual run. Before you start it, read its dry-run estimate.
 
-The text of a document is read exactly as the gold offsets count it: a carriage return and line feed pair is one character, and a byte order mark stays as the first character. The harness builds the document text itself and does not use an `agrag` loader, because a loader changes the text and moves every offset. A test checks that each chunk equals the slice of the document at its offsets.
+The text of a document is read exactly as the gold offsets count it: a carriage return and line feed pair is one character, and a byte order mark stays as the first character. The harness builds the document text itself and does not use an Agentic GraphRAG loader, because a loader changes the text and moves every offset. A test makes sure that each chunk equals the slice of the document at its offsets.
 
 ## The graph schema
 
@@ -41,15 +41,15 @@ One schema covers all four sources: privacy policies, non-disclosure agreements,
 
 Each question gets five primary scores from 0 to 1.
 
-- **Precision and recall.** These follow the scorer of LegalBench-RAG. Precision is the share of the retrieved characters that lie inside a gold span. Recall is the share of the gold characters that a retrieved span covers. A retrieved span matches a gold span when they are in the same document and overlap. The retrieved spans are the chunks that the answer cites.
-- **Expanded precision and recall.** These add the chunks that the cited entities and relations were extracted from.
-- **Correctness.** A judge model compares the answer with the gold spans, joined by a newline.
+- Precision and recall: these follow the scorer of LegalBench-RAG. Precision is the share of the retrieved characters that lie inside a gold span. Recall is the share of the gold characters that a retrieved span covers. A retrieved span matches a gold span when they are in the same document and overlap. The retrieved spans are the chunks that the answer cites.
+- Expanded precision and recall: these add the chunks that the cited entities and relations were extracted from.
+- Correctness: a judge model compares the answer with the gold spans, joined by a newline.
 
 A question with no chunk citation scores 0 for precision and recall and carries the flag `no_chunk_citation`. The record also stores the auxiliary metric `non_chunk_citation_share`, the share of citations that point to an entity, relation, or community and so have no span.
 
-The benchmark scores a fixed number of retrieved snippets. `agrag` has no such number: it cites what the agent chose to use. These scores therefore do not compare with the published precision at k of other systems. The source average of the paper gives each of the four sources the same weight; the group rows in the record give the per-source values.
+The benchmark scores a fixed number of retrieved snippets. Agentic GraphRAG has no such number. It cites what the agent chose to use. These scores therefore do not compare with the published precision at k of other systems. The source average of the paper gives each of the four sources the same weight. The group rows in the record give the per-source values.
 
-Because the judge is the same model as the agent by default, correctness is biased upward. See [Benchmarks](./index.mdx#who-grades-the-answers).
+The judge is the same model as the agent by default. Correctness is therefore biased upward. See [Benchmarks](./index.mdx#who-grades-the-answers).
 
 ## Results of the lite run
 
@@ -61,18 +61,18 @@ The run used `gemma4:31b` for extraction, the agent, and the judge, on one clean
 | `privacy_qa:c96be584` | 2 (1,128 characters) | 0.106 | 1.00 | 1.00 |
 | Mean | | 0.060 | 1.00 | 1.00 |
 
-Expanded precision and expanded recall equal the primary scores on both questions. No question failed or carries a flag, and no citation points to something other than a chunk.
+Expanded precision and expanded recall equal the primary scores on both questions. No question failed or carries a flag. No citation points to something other than a chunk.
 
-Two questions cannot rank anything. The run shows that the pipeline works end to end. The precision is low for this reason: the chunks are large compared with the gold spans.
+Two questions cannot rank anything. The run shows that the pipeline works end to end. The precision is low because the chunks are large compared with the gold spans.
 
 - The policy has 3 chunks of 5,327, 5,336, and 241 characters. Both gold sets lie in the first chunk.
 - The agent cited two chunks for each answer, the first and the second. They hold 10,663 characters. The precision is therefore 140 / 10,663 = 0.013 and 1,128 / 10,663 = 0.106, and the record shows these values.
-- Even if the agent had cited only the first chunk, the precision would have been 0.026 and 0.212. A chunk of about 1,000 tokens is far larger than a short gold span, so this benchmark gives a low precision to any system that cites whole chunks.
+- If the agent cited only the first chunk, the precision is 0.026 and 0.212. A chunk of about 1,000 tokens is far larger than a short gold span, so this benchmark gives a low precision to any system that cites whole chunks.
 - Recall is 1.00 because the cited chunks cover the gold spans.
 
 The graph has 46 entities and 3 relations from 3 chunks. No chunk gave an empty extraction.
 
-Read the numbers with care. The judge grades its own model. The run is not a measure of how `agrag` compares with other systems.
+Read the numbers with care. The judge grades its own model. The run is not a measure of how Agentic GraphRAG compares with other systems.
 
 Print the record with:
 
@@ -90,16 +90,16 @@ uv run python -m benchmarks report --domain legal
 | Judge, 2 questions | 2 | 2k |
 | Total | 27 | 161k |
 
-The run took 265 seconds. The two answers took 45 and 49 seconds, with 9 and 10 agent calls. Span scoring needs no judge, so the judge makes one call for each question, for `correctness`.
+The run took 265 seconds. The two answers took 45 and 49 seconds, with 9 and 10 agent calls. Span scoring needs no judge. The judge therefore makes one call for each question, for `correctness`.
 
-The run set `max_llm_pairs` to 10. This is the most entity pairs per label that resolution sends to the model. The default is 500. The cost of resolution depends on how many pairs are unclear, so a larger text can cost far more.
+The run set `max_llm_pairs` to 10. This is the most entity pairs per label that resolution sends to the model. The default is 500. The cost of resolution depends on how many pairs are unclear. A larger text can therefore cost far more.
 
-The agent limits of the run (`AGENT_RECURSION_LIMIT` of 30 and `AGENT_MAX_RESEARCH_ATTEMPTS` of 1) do not bound the agent calls, because the sub-agents that the planner starts make their own calls.
+The agent limits of the run (`AGENT_RECURSION_LIMIT` of 30 and `AGENT_MAX_RESEARCH_ATTEMPTS` of 1) do not bound the agent calls. The sub-agents that the planner starts make their own calls.
 
-The dry-run estimate is 28 calls and 162,000 tokens, just above the run's 27 calls and 161,000 tokens. The spend cap is 45 calls and 245,000 tokens, about 1.5 times the estimate. The cap checks the estimate before a run and does not stop a run in progress.
+The dry-run estimate is 28 calls and 162,000 tokens, above the run's 27 calls and 161,000 tokens. The spend cap is 45 calls and 245,000 tokens, about 1.5 times the estimate. The cap uses the estimate before a run and does not stop a run in progress.
 
-The full set has 15 documents and 272 chunks at the default chunking. Its dry-run estimate is about 8,000 calls and 54 million tokens, so run `make bench-dry DOMAIN=legal MODE=full` and read the estimate before you start it.
+The full set has 15 documents and 272 chunks at the default chunking. Its dry-run estimate is about 8,000 calls and 54 million tokens. Before you start it, run `make bench-dry DOMAIN=legal MODE=full`. Then read the estimate.
 
 ## Terms of use
 
-The documents and questions keep the licenses of their sources: LegalBench-RAG and PrivacyQA are under the MIT license, and ContractNLI and CUAD are under CC BY 4.0. The license of MAUD is not verified. A trace holds passages of these documents, so read `benchmarks/results/NOTICE` before you share one.
+The documents and questions keep the licenses of their sources: LegalBench-RAG and PrivacyQA are under the MIT license, and ContractNLI and CUAD are under CC BY 4.0. The license of MAUD is not verified. A trace holds passages of these documents. Before you share one, read `benchmarks/results/NOTICE`.

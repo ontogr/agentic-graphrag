@@ -171,10 +171,10 @@ class FuzzyMatch(Comparator):
 
 
 class LLMVerify(Comparator):
-    """Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
+    """Ask an LLM to verify an ambiguous pair. Last resort. Never UNCERTAIN.
 
     Never raises from an LLM-call failure: it resolves to NO_MATCH instead, by
-    the same fail-safe design as every comparator a Resolver runs — an
+    the same fail-safe design as every comparator a Resolver runs. An
     ambiguous or failed comparison never merges two entities. A missing package
     extra is a configuration error, not an ambiguous judgment call, and is
     raised outright instead (see compare's Raises section).
@@ -274,9 +274,9 @@ class LLMVerify(Comparator):
 
         Returns:
             The per-pair results and the count of raw uncertain verdicts,
-            before the fail-safe maps them to NO_MATCH. A request that
-            errors maps its pairs to NO_MATCH and increments
-            failed_requests.
+                before the fail-safe maps them to NO_MATCH. A request that
+                errors maps its pairs to NO_MATCH and increments
+                failed_requests.
         """
         if not pairs:
             return {}, 0

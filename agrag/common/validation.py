@@ -26,18 +26,18 @@ def require_encrypted_remote_connection(
     A scheme outside ``encrypted_schemes`` sends everything on the
     connection, including any configured credential, unencrypted. That is
     the normal, safe shape of local development against a Docker Compose
-    service on localhost, but the same plaintext default pointed at a real
-    remote host would leak credentials and data to network interception.
+    service on localhost. The same plaintext default pointed at a real
+    remote host leaks credentials and data to network interception.
     Loopback hosts are always allowed, regardless of scheme or credential.
 
     Without ``require_encryption``, a connection carrying no credential is
-    always allowed: many production deployments run an unauthenticated
-    backend on a private network (a VPC, a cluster-internal service) and
-    rely on network segmentation rather than transport encryption, and this
-    check cannot distinguish that from a public host from the URL alone.
-    ``require_encryption`` opts a deployment out of that default, for a
-    stricter posture where every non-local connection must be encrypted
-    regardless of credential.
+    always allowed. Many production deployments run an unauthenticated
+    backend on a private network (a VPC or a cluster-internal service) and
+    rely on network segmentation rather than transport encryption. This
+    check cannot distinguish that case from a public host from the URL
+    alone. ``require_encryption`` opts a deployment out of that default,
+    for a stricter posture where every non-local connection must use
+    encryption regardless of credential.
 
     Args:
         url: The connection URL or URI to check.
@@ -74,7 +74,7 @@ def require_encrypted_remote_connection(
 
 
 def require_positive_batch_size(batch_size: int) -> None:
-    """Check that a backend write's ``batch_size`` is usable.
+    """Make sure that a backend write's ``batch_size`` is usable.
 
     Every backend chunks writes with ``range(0, len(records), batch_size)``.
     A non-positive value breaks that: zero raises ``ValueError`` from
@@ -92,20 +92,20 @@ def require_positive_batch_size(batch_size: int) -> None:
 
 
 def require_positive_max_concurrency(max_concurrency: int) -> None:
-    """Check that a concurrency limit is positive."""
+    """Make sure that a concurrency limit is positive."""
     if max_concurrency <= 0:
         raise ValueError(f"max_concurrency must be positive, got {max_concurrency}")
 
 
 def require_valid_search_limit(limit: int) -> None:
-    """Check that a search/hybrid_search ``limit`` is usable across every backend.
+    """Make sure that a search or hybrid_search ``limit`` works on every backend.
 
-    Backends fail differently outside this range: Milvus raises for a
+    Backends fail differently outside this range. Milvus raises for a
     non-positive ``limit`` or one above ``MAX_SEARCH_LIMIT`` (its own
-    query/search result-window ceiling), while Qdrant and Weaviate may
+    query and search result-window ceiling), while Qdrant and Weaviate can
     instead return an empty or silently truncated result. Enforcing the
-    tightest bound uniformly means a given ``limit`` either works, or fails
-    the same way, regardless of which backend is configured.
+    tightest bound uniformly means a given ``limit`` either works or fails
+    in the same way, regardless of which backend is configured.
 
     Args:
         limit: The requested maximum number of hits.
@@ -121,13 +121,13 @@ def require_valid_search_limit(limit: int) -> None:
 
 
 def require_valid_alpha(alpha: float) -> None:
-    """Check that a ``hybrid_search`` ``alpha`` is a valid dense/keyword weight.
+    """Make sure that a ``hybrid_search`` ``alpha`` is a valid dense and keyword weight.
 
-    ``alpha`` is only meaningful in ``[0.0, 1.0]``: ``1.0`` is pure dense,
-    ``0.0`` is pure keyword. Outside that range, backends behave
-    differently: Qdrant's client-side blend still produces a
-    mathematically well-defined but meaningless score, while a backend's
-    native ranker may reject the value outright.
+    ``alpha`` is only meaningful in ``[0.0, 1.0]``. ``1.0`` is pure dense
+    and ``0.0`` is pure keyword. Outside that range, backends behave
+    differently. Qdrant client-side blend still produces a
+    mathematically well-defined but meaningless score, while a backend
+    native ranker can reject the value outright.
 
     Args:
         alpha: The dense/keyword balance to check.
