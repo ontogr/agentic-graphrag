@@ -27,7 +27,7 @@ The top-level `agrag` package exports nothing. Import each name from the package
 
 ## Tracing
 
-Agentic GraphRAG has no tracer class. Every component takes an OpenTelemetry `Tracer` in a `tracer=` argument. When you pass `None`, the component records no spans. agrag never installs a global tracer provider.
+Every component takes an OpenTelemetry `Tracer` in a `tracer=` argument. When you pass `None`, the component records no spans.
 
 ## Results and settings
 
@@ -39,7 +39,7 @@ Agentic GraphRAG has no tracer class. Every component takes an OpenTelemetry `Tr
 | `AgentLLMSettings` | `from agrag.agents import AgentLLMSettings` | The LLM clients that the agent uses. |
 | `SearchFilters` | `from agrag.retrieval import SearchFilters` | Limits a search to labels, documents, or properties. |
 
-Environment variables for every settings class are in the [Configuration reference](../reference/configuration.mdx).
+Environment variables for every configuration class are in the [Configuration reference](../reference/configuration.mdx).
 
 ## Other packages
 

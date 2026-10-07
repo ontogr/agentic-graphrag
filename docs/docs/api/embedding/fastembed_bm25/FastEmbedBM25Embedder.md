@@ -71,8 +71,8 @@ Embed a batch of search queries into BM25 sparse vectors.
 
 Uses FastEmbed's `query_embed`, which assigns each unique query
 term a uniform weight of `1.0` rather than the document-side
-term-frequency and length-normalization weighting `embed` applies;
-IDF weighting is applied separately by the sparse index's
+term-frequency and length-normalization weighting that `embed`
+applies. IDF weighting is applied separately by the sparse index
 `Modifier.IDF` at query time.
 
 **Parameters:**

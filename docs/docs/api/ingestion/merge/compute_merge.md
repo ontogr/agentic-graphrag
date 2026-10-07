@@ -13,7 +13,7 @@ Compute how existing_entities and mentions combine into one Entity.
 
 No storage is touched. Zero existing entities produces a brand-new Entity.
 One produces an updated copy folding in the mentions. Two or more picks a
-canonical entity for the survivor's identity; the others contribute
+canonical entity for the survivor identity. The others contribute
 property values and accepted merge-key aliases.
 
 **Parameters:**

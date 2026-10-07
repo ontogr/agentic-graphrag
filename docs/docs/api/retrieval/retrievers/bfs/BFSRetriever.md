@@ -29,9 +29,9 @@ Degree-capped by RetrievalSettings.traversal_limit.
 **Parameters:**
 
 - **graph_store** (<code>[GraphStore](../../../graphdb/base/GraphStore.md)</code>) – The graph store to traverse.
-- **settings** (<code>[RetrievalSettings](../../settings/RetrievalSettings.md) | None</code>) – Retrieval configuration; defaults from
+- **settings** (<code>[RetrievalSettings](../../settings/RetrievalSettings.md) | None</code>) – Retrieval configuration. Defaults from
   environment.
-- **tracer** (<code>Tracer | None</code>) – Opens the retriever and its children's spans. None
+- **tracer** (<code>Tracer | None</code>) – Opens the retriever and its children spans. None
   opens no recorded span.
 
 ## `name` \{#agrag-retrieval-retrievers-bfs-BFSRetriever-name}

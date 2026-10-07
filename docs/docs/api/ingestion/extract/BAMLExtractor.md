@@ -11,19 +11,19 @@ BAMLExtractor(*, settings:ExtractionLLMSettings | None = None, client:object | N
 
 Bases: <code>[Extractor](Extractor.md)</code>
 
-Extracts entities and relations with an LLM through a typed BAML function.
+Extract entities and relations with an LLM through a typed BAML function.
 
 The extractor calls `ExtractEntitiesAndRelations` on the clients in
-`ExtractionLLMSettings` and retries failed calls with the settings' backoff.
-The response type comes from the graph schema, so the model can return only
-declared labels and property keys, and it can fill entity properties. Needs
-the `llm` extra and a reachable LLM endpoint.
+`ExtractionLLMSettings` and retries failed calls with the backoff from
+its configuration. The response type comes from the graph schema, so the
+model can return only declared labels and property keys, and it can fill
+entity properties. Needs the `llm` extra and a reachable LLM endpoint.
 
 **Parameters:**
 
-- **settings** (<code>[ExtractionLLMSettings](ExtractionLLMSettings.md) | None</code>) – LLM client config. Defaults to `ExtractionLLMSettings()`,
+- **settings** (<code>[ExtractionLLMSettings](ExtractionLLMSettings.md) | None</code>) – LLM client configuration. Defaults to `ExtractionLLMSettings()`,
   loaded from the environment or `.env`. Ignored when `client` is
-  given; an injected client also disables `settings.retry` because
+  given. An injected client also disables `settings.retry` because
   its caller owns retry behavior.
 - **client** (<code>object | None</code>) – An already-built BAML client exposing
   `ExtractEntitiesAndRelations`.

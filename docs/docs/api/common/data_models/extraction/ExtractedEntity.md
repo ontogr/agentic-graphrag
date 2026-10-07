@@ -22,8 +22,8 @@ which ExtractedEntity mentions refer to the same real-world thing.
 - [**confidence**](#agrag-common-data_models-extraction-ExtractedEntity-confidence) (<code>float | None</code>) – The extractor's confidence in this mention, when available.
 - [**properties**](#agrag-common-data_models-extraction-ExtractedEntity-properties) (<code>dict\[str, object\]</code>) – Schema-declared property values this mention carries,
   keyed by property name. Empty for an extractor that only reports
-  spans -- normalize_extraction_result drops any key the schema
-  does not declare for this mention's label.
+  spans. normalize_extraction_result drops any key that the schema
+  does not declare for this mention label.
 
 ## `char_end` \{#agrag-common-data_models-extraction-ExtractedEntity-char_end}
 

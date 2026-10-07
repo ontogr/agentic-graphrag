@@ -21,7 +21,7 @@ A knowledge graph stores those joins. Each entity is a node. Each fact is an edg
 - It finds entities and relations in each chunk, with a schema that you define.
 - It merges mentions of the same thing into one entity.
 - It stores the graph in Neo4j. It can also index vectors in Qdrant, Weaviate, or Milvus.
-- It answers questions with an agent that plans, searches, and checks its own evidence.
+- It answers questions with an agent that plans, searches, and reviews its own evidence.
 - It cites the evidence for every answer.
 
 ## How it works
@@ -44,14 +44,14 @@ flowchart LR
 1. You add documents. Agentic GraphRAG loads them, splits them into chunks, and extracts entities and relations.
 2. Agentic GraphRAG resolves duplicate mentions, then writes the graph and its vector indexes.
 3. You ask a question. The agent plans sub-questions and searches the stores.
-4. A verifier checks the evidence. The agent then writes an answer with citations.
+4. A verifier reviews the evidence. The agent then writes an answer with citations.
 
 ## Who it is for
 
 Use Agentic GraphRAG if you:
 
-- build question answering over documents that you own;
-- need answers that cite their sources;
+- build question answering over documents that you own.
+- need answers that cite their sources.
 - want to define your own entity and relation types.
 
 Agentic GraphRAG is pre-1.0. Its API can change between releases.

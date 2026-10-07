@@ -161,7 +161,7 @@ class Graph:
             embedder: Populates entity embeddings for native vector search.
             extractor: Runs against each chunk.
             tracer: A tracer to record spans for every step. Pass None for none.
-            vector_store: Optional second write target for embeddings; see
+            vector_store: Optional second write target for embeddings. See
                 __init__.
             retrieval_settings: Collection names for the VectorStore writes.
                 None uses RetrievalSettings defaults.
@@ -333,9 +333,9 @@ class Graph:
             source: A file path, a directory, a glob, or a list of these.
             text: Raw text to add as one document.
             documents: Already-built documents to add directly.
-            loader: A loader to use instead of the registry default. Requires a
-                single-file ``source``; a directory, glob, or list of sources raises an
-                error.
+            loader: A loader to use instead of the registry default. It requires
+                a single-file ``source``. A directory, glob, or list of sources
+                raises an error.
             error_policy: The action to take on a per-source error.
             on_progress: A callback the call runs after each batch and once more
                 at the end with the fully-populated result.
@@ -423,15 +423,15 @@ class Graph:
             source: A single-file source, glob, or path list resolving to
                 exactly one document.
             loader: A loader override for a single-file ``source``.
-            error_policy: RAISE propagates a stage failure; any other
+            error_policy: RAISE propagates a stage failure. Any other
                 policy records it and continues.
             read_options: How loaders read the replacement, including the
                 normalization of its text. None uses ``ReadOptions()`` defaults.
 
         Returns:
             The update summary. A no-op reports ``no_op=True`` with no
-            ``add_result``; a change reports ``chunks_closed`` plus the
-            fresh ingestion's ``add_result``; an unknown ``document_key``
+            ``add_result``. A change reports ``chunks_closed`` plus the
+            fresh ingestion's ``add_result``. An unknown ``document_key``
             ingests fresh with ``previous_content_hash=None`` and
             ``chunks_closed=0``.
 
@@ -488,7 +488,7 @@ class Graph:
             ``new_content_hash=None`` and no ``add_result``.
 
         Note:
-            The close-only degenerate case of ``Graph.update()``; both
+            The close-only degenerate case of ``Graph.update()``. Both
             call into the same shared document-lifecycle helpers. See
             ``Graph.add()`` for the shared ingestion behavior.
         """
@@ -506,7 +506,7 @@ class Graph:
         """Bind the post-commit cleanup of a Cutover Job to this graph.
 
         Args:
-            error_policy: RAISE propagates the first failure; any other
+            error_policy: RAISE propagates the first failure. Any other
                 policy records it and continues.
 
         Returns:
@@ -620,17 +620,18 @@ class Graph:
     ) -> CommunityDetectionReport:
         """Detect entity communities via hierarchical Leiden.
 
-        Dry-run by default: produces a report of the communities that would be
-        written before any node is touched. Pass apply=True to write them.
+        Dry-run by default. It produces a report of the communities that the
+        call will write before any node is touched. Pass apply=True to write
+        them.
 
         Fetches every live domain relation across the whole graph (not scoped
-        by entity label the way consolidate() is -- community structure spans
+        by entity label the way consolidate() is. Community structure spans
         entity types), builds a weighted edge list, and runs hierarchical
         Leiden off the event loop. Every prior run's Community nodes and
         MEMBER_OF edges are deleted before the new ones are written when
-        apply=True: this is a full recompute, not an incremental update,
+        apply=True. This is a full recompute, not an incremental update,
         so there is no notion of merging this run's output with a
-        previous one's.
+        previous one.
 
         Args:
             apply: Write the computed communities. False produces a report only.

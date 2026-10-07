@@ -7,13 +7,13 @@ sidebar_label: graph_record
 
 Graph storage record shapes for GraphStore.
 
-These are a temporary, minimal stopgap, not the canonical Entity/Relation
-domain model resolution will eventually produce. See the future
-storage/merge-mechanics work this decouples from.
+These are a temporary, minimal stopgap, not the canonical Entity and Relation
+domain model that resolution will eventually produce. See the future
+storage and merge-mechanics work this decouples from.
 
-Pending-visibility convention: a node or edge *created* by an in-flight
-Cutover Job carries `_pending_job_id` (the job's id) in its properties;
-committed data never carries this key. `GraphStore` writes the tag when
+Pending-visibility convention: a node or edge created by an in-flight
+Cutover Job carries `_pending_job_id` (the job id) in its properties.
+Committed data never carries this key. `GraphStore` writes the tag when
 the caller passes `pending_job_id` to an upsert, so records never carry
 it and the validators below reject it. Retrieval query builders exclude
 tagged rows with `pending_filter_clause`. Vector stores keep a job's
@@ -22,8 +22,8 @@ payload, and promote them to their real ids at commit.
 
 The tag is written with `ON CREATE SET`, so a job that writes over a
 row that already exists leaves it untagged. Such a row was already
-visible before the job started and stays visible; the job's rollback,
-which deletes tagged rows, therefore cannot delete data a caller
+visible before the job started and stays visible. The job rollback,
+which deletes tagged rows, therefore cannot delete data that a caller
 committed earlier.
 
 **Classes:**

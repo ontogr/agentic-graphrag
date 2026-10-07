@@ -11,10 +11,10 @@ apply_merge(plan:MergePlan, *, graph_store:GraphStore, schema:GraphSchema, pendi
 
 Write a computed MergePlan to storage.
 
-Every call runs inside one GraphStore transaction: it upserts the
+Every call runs inside one GraphStore transaction. It upserts the
 survivor and records a merge-key alias for its current name. A
-failure partway through leaves no half-written state: no survivor
-without its alias.
+failure partway through leaves no half-written state. No survivor
+without its alias remains.
 
 **Parameters:**
 

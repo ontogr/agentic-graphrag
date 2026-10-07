@@ -17,7 +17,7 @@ Crash-recoverable state for one add/update/delete_document call.
 - [**verb**](#agrag-common-data_models-cutover_job-CutoverJob-verb) (<code>Literal['add', 'update', 'delete_document']</code>) – Which public method created this job.
 - [**status**](#agrag-common-data_models-cutover_job-CutoverJob-status) (<code>[CutoverJobStatus](CutoverJobStatus.md)</code>) – Current phase, see CutoverJobStatus.
 - [**affected_entity_ids**](#agrag-common-data_models-cutover_job-CutoverJob-affected_entity_ids) (<code>list\[UUID\]</code>) – The snapshot taken before any pending write
-  began — the only entities pruning may remove.
+  began. The only entities that pruning can remove.
 - [**component_seed_ids**](#agrag-common-data_models-cutover_job-CutoverJob-component_seed_ids) (<code>list\[UUID\]</code>) – One member id per match component the job
   rebuilt, recorded at commit. The cleanup phase rebuilds
   each component's resolved entity from these, in addition to

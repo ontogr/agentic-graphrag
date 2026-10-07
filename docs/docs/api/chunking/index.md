@@ -29,10 +29,10 @@ for each document, and `DEFAULT_CHUNKING` is the preset that `Graph` uses.
 - [**Chunker**](base/Chunker.md) – Splits one Document into Chunks and builds their provenance.
 - [**ChunkerMissingExtraError**](base/ChunkerMissingExtraError.md) – A chunker needs a package extra that is not installed.
 - [**Chunking**](rules/Chunking.md) – An ordered list of chunking rules and a fallback chunker.
-- [**ChunkingError**](base/ChunkingError.md) – A chunker broke the chunk contract or could not chunk a document.
+- [**ChunkingError**](base/ChunkingError.md) – A chunker broke the chunk contract or failed to chunk a document.
 - [**ChunkingRule**](rules/ChunkingRule.md) – A match and the chunker for the documents it matches.
 - [**CodeChunker**](extras/CodeChunker.md) – Cuts source code along its syntax tree.
-- [**DoclingChunker**](docling/DoclingChunker.md) – Splits a parsed docling document with docling's hybrid chunker.
+- [**DoclingChunker**](docling/DoclingChunker.md) – Split a parsed docling document with docling hybrid chunker.
 - [**HeadingChunker**](heading/HeadingChunker.md) – Cuts a document into sections at its headings and packs them to a budget.
 - [**NeuralChunker**](extras/NeuralChunker.md) – Cuts where a token classification model predicts a topic break.
 - [**ParentChildChunker**](parent_child/ParentChildChunker.md) – Cuts a document into parent chunks and cuts each parent into child chunks.

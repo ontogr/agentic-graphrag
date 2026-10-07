@@ -35,11 +35,11 @@ filter when the caller sets one, otherwise `entity_labels`.
   absent.
 - **embedder** (<code>[Embedder](../../../embedding/base/Embedder.md)</code>) – Produces query vectors.
 - **vector_store** (<code>[VectorStore](../../../vectordb/base/VectorStore.md) | None</code>) – Optional VectorStore for hybrid search.
-- **settings** (<code>[RetrievalSettings](../../settings/RetrievalSettings.md) | None</code>) – Retrieval configuration; defaults from
+- **settings** (<code>[RetrievalSettings](../../settings/RetrievalSettings.md) | None</code>) – Retrieval configuration. Defaults from
   environment.
 - **entity_labels** (<code>Sequence\[str\] | None</code>) – The schema entity labels native search runs
   against. None uses settings.entity_labels.
-- **tracer** (<code>Tracer | None</code>) – Opens the retriever and its children's spans. None
+- **tracer** (<code>Tracer | None</code>) – Opens the retriever and its children spans. None
   opens no recorded span.
 
 ## `name` \{#agrag-retrieval-retrievers-entity-EntityRetriever-name}

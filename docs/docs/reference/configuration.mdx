@@ -4,11 +4,11 @@ title: Configuration
 
 # Configuration
 
-Agentic GraphRAG reads its settings from environment variables. This page lists every variable, its default, and the settings class that reads it.
+Agentic GraphRAG reads its configuration from environment variables. This page lists every variable, its default, and the configuration class that reads it.
 
-## How settings load
+## How configuration loads
 
-Each settings class reads three sources. The first source that has a value wins.
+Each configuration class reads three sources. The first source that has a value wins.
 
 1. An environment variable with the class prefix, for example `NEO4J_URI`.
 2. A `.env` file in the working directory.

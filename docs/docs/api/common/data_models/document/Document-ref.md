@@ -24,9 +24,9 @@ set. Pass `id` only when rebuilding a document from stored data.
 
 **Attributes:**
 
-- [**text**](#agrag-common-data_models-document-Document-text) (<code>str</code>) – The document text. For a docling source, this holds docling's Markdown
-  export. The chunker never reads this field for a docling source; see the
-  `Chunk` model for docling chunk content instead.
+- [**text**](#agrag-common-data_models-document-Document-text) (<code>str</code>) – The document text. For a docling source, this holds docling Markdown
+  export. The chunker never reads this field for a docling source. See
+  the `Chunk` model for docling chunk content instead.
 - [**title**](#agrag-common-data_models-document-Document-title) (<code>str</code>) – The document title.
 - [**uri**](#agrag-common-data_models-document-Document-uri) (<code>str</code>) – The location of the source. This value is not part of the document id.
 - [**source_format**](#agrag-common-data_models-document-Document-source_format) (<code>[SourceFormat](SourceFormat.md)</code>) – The format the loader used to read this document.
@@ -37,7 +37,7 @@ set. Pass `id` only when rebuilding a document from stored data.
   `"text"` or `"docling"`.
 - [**loader_version**](#agrag-common-data_models-document-Document-loader_version) (<code>str | None</code>) – The version of the loader package. Does not affect the
   document id.
-- [**encoding**](#agrag-common-data_models-document-Document-encoding) (<code>str | None</code>) – The text encoding. Text loaders set this field; other loaders
+- [**encoding**](#agrag-common-data_models-document-Document-encoding) (<code>str | None</code>) – The text encoding. Text loaders set this field. Other loaders
   leave it empty.
 - [**source_hash**](#agrag-common-data_models-document-Document-source_hash) (<code>str | None</code>) – The hash of the whole source file. Record-family documents set
   this field.
@@ -62,7 +62,7 @@ set. Pass `id` only when rebuilding a document from stored data.
 **Functions:**
 
 - [**id_for**](#agrag-common-data_models-document-Document-id_for) – Compute the document id.
-- [**node_id_for**](#agrag-common-data_models-document-Document-node_id_for) – Compute the persisted Document graph node's id.
+- [**node_id_for**](#agrag-common-data_models-document-Document-node_id_for) – Compute the persisted Document graph node id.
 - [**to_node_record**](#agrag-common-data_models-document-Document-to_node_record) – Return this document as a GraphStore write record for its graph node.
 
 ## `char_count` \{#agrag-common-data_models-document-Document-char_count}
@@ -172,13 +172,13 @@ metadata: dict[str, Any] = Field(default_factory=dict)
 node_id_for(*, document_key:str) -> UUID
 ```
 
-Compute the persisted Document graph node's id.
+Compute the persisted Document graph node id.
 
-Distinct from `id_for()`: this id is keyed on `document_key`, not the
-content hash, so it stays the same across content changes to the same
-logical document. Conflating the two ids would give every content version
-of a document its own graph node instead of one node with a changing
-content hash.
+Distinct from `id_for()`. This id is keyed on `document_key`, not
+the content hash, so it stays the same across content changes to the
+same logical document. Conflating the two ids gives every content
+version of a document its own graph node instead of one node with a
+changing content hash.
 
 **Parameters:**
 
@@ -218,13 +218,13 @@ record_index: int | None = None
 resolved_document_key: str
 ```
 
-The document key, guaranteed non-`None` once construction succeeds.
+Return the document key. It is never `None` after construction succeeds.
 
-`document_key` is typed as optional because callers may omit it and let
-`_resolve_document_key` default it to `uri`, but every constructed
-`Document` has a non-`None` document key by the time callers see it. Use
-this property instead of `document_key` where a non-optional value is
-required, such as computing the persisted Document node's id.
+`document_key` is typed as optional because callers can omit it and
+let `_resolve_document_key` default it to `uri`. Every constructed
+`Document` has a non-`None` document key by the time callers see
+it. Use this property instead of `document_key` where a non-optional
+value is required, such as computing the persisted Document node id.
 
 **Raises:**
 
@@ -237,12 +237,13 @@ required, such as computing the persisted Document node's id.
 resolved_id: UUID
 ```
 
-The document id, guaranteed non-`None` once construction succeeds.
+Return the document id. It is never `None` after construction succeeds.
 
-`id` is typed as optional because callers may omit it and let
-`_resolve_id` derive it, but every constructed `Document` has a
-non-`None` id by the time callers see it. Use this property instead of
-`id` where a non-optional value is required, such as building a `Chunk`.
+`id` is typed as optional because callers can omit it and let
+`_resolve_id` derive it. Every constructed `Document` has a
+non-`None` id by the time callers see it. Use this property instead
+of `id` where a non-optional value is required, such as building a
+`Chunk`.
 
 **Raises:**
 

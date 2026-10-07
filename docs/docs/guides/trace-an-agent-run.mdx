@@ -120,7 +120,7 @@ Spans hold the question, the tool inputs, and the evidence text. There is no opt
 
 ## Trace the rest of the library with the same tracer
 
-The same tracer traces every other component that calls an LLM, so one run of an ingestion or retrieval pipeline produces a single connected trace. For a connected retrieval trace, pass **one tracer to all five**: `SearchEngine`, `GraphStore`, `VectorStore`, `Embedder` and `build_agent`. The engine does not push its tracer into its stores, so a store built without the tracer exports adapter spans that no retrieval span connects to. Pass it wherever a component takes `tracer=`:
+The same tracer traces every other component that calls an LLM, so one run of an ingestion or retrieval pipeline produces a single connected trace. For a connected retrieval trace, pass one tracer to all five: `SearchEngine`, `GraphStore`, `VectorStore`, `Embedder` and `build_agent`. The engine does not push its tracer into its stores, so a store built without the tracer exports adapter spans that no retrieval span connects to. Pass it wherever a component takes `tracer=`:
 
 The next block is a reference. `tracer`, `chunks_by_id`, `graph_store`, `schema`, and `chat_model` stand for objects that your application already builds.
 
@@ -163,8 +163,8 @@ retriever = Text2CypherRetriever(
 judge = ChatModelJudge(chat_model, "gpt-4o-mini", tracer=tracer)
 ```
 
-`Graph` passes its own tracer down to the resolution and merge steps it runs, and community report generation reads the same tracer, so a `Graph.open(...)` or `Graph.add(...)` built with a tracer needs nothing extra.
+`Graph` passes its own tracer down to the resolution and merge steps it runs, and community report generation reads the same tracer. A `Graph.open(...)` or `Graph.add(...)` built with a tracer needs nothing extra.
 
-Inside an agent run, every retrieval span nests under the `TOOL` span of the tool call that made it, and through the `task` span under the researcher or verifier that delegated it, so a trace answers which tool call and which subagent produced a given graph query or embedding call. Retrieval spans hold the full result text: the arrays `agrag.result_texts` and `agrag.result_ids` record every result, uncapped.
+Inside an agent run, every retrieval span nests under the `TOOL` span of the tool call that made it, and through the `task` span under the researcher or verifier that delegated it. A trace answers which tool call and which subagent produced a given graph query or embedding call. Retrieval spans hold the full result text. The arrays `agrag.result_texts` and `agrag.result_ids` record every result, uncapped.
 
 The span names and attributes these components emit are listed in [Trace Spans](../reference/trace-spans.mdx).

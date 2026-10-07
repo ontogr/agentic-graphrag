@@ -11,13 +11,13 @@ LLMVerify(*, chunks_by_id:dict[UUID, Chunk], settings:ExtractionLLMSettings | No
 
 Bases: <code>[Comparator](Comparator.md)</code>
 
-Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
+Ask an LLM to verify an ambiguous pair. Last resort. Never UNCERTAIN.
 
 Never raises from an LLM-call failure: it resolves to NO_MATCH instead, by
-the same fail-safe design as every comparator a Resolver runs — an
+the same fail-safe design as every comparator a Resolver runs. An
 ambiguous or failed comparison never merges two entities. A missing package
 extra is a configuration error, not an ambiguous judgment call, and is
-raised outright instead (see compare's Raises section).
+raised outright instead (see compare Raises section).
 
 **Functions:**
 

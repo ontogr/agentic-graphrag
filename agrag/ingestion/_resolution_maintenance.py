@@ -216,7 +216,7 @@ async def consolidate(
     tracer: Tracer,
     max_llm_pairs: int,
 ) -> ConsolidationReport:
-    """Run resolution against every persisted entity; see ``Graph.consolidate``."""
+    """Run resolution against every persisted entity. See ``Graph.consolidate``."""
     with tracer.start_as_current_span("agrag.ingestion.consolidate"):
         would_match: list[MatchDecision] = []
         ambiguous_count = 0
@@ -302,7 +302,7 @@ async def reevaluate(
     tracer: Tracer,
     max_llm_pairs: int,
 ) -> ReevaluationReport:
-    """Reevaluate matches among the given entities; see ``Graph.reevaluate``."""
+    """Reevaluate matches among the given entities. See ``Graph.reevaluate``."""
     with tracer.start_as_current_span(
         "agrag.ingestion.reevaluate",
         attributes={"agrag.entity_count": len(entity_ids)},

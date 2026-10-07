@@ -9,7 +9,7 @@ Retrieval's public entry point, independent of Graph.
 
 **Classes:**
 
-- [**SearchEngine**](SearchEngine.md) – Retrieval's public entry point, independent of Graph.
+- [**SearchEngine**](SearchEngine.md) – Retrieval public entry point, independent of Graph.
 
 **Attributes:**
 

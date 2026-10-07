@@ -54,7 +54,7 @@ mkdir agrag-quickstart
 cd agrag-quickstart
 ```
 
-Copy the credentials file into the folder and rename it `.env`. Agentic GraphRAG reads the connection settings `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, and `NEO4J_DATABASE` from this file. The URI starts with `neo4j+s://`.
+Copy the credentials file into the folder and rename it `.env`. Agentic GraphRAG reads the connection configuration `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, and `NEO4J_DATABASE` from this file. The URI starts with `neo4j+s://`.
 
 <details>
 <summary>Run Neo4j on your machine with Docker instead</summary>
@@ -233,21 +233,21 @@ Every node that Agentic GraphRAG writes has the label `_AgragNode`. The first qu
 
 ## What you just built
 
-- **One chunk.** The three sentences were short enough to stay in one chunk. Agentic GraphRAG stored the text of the chunk, its position in the source, and an embedding.
-- **Four entities from six mentions.** The extractor found `Microsoft` three times. Resolution merged the three mentions into one node, because the names match exactly.
-- **Three relations.** Each relation links two entity nodes. The extractor reports a relation only when the schema names it.
-- **Why the schema names the relations.** The built-in `GENERIC` schema has one broad relation, `RELATED_TO`. On these three sentences, `GENERIC` finds the same six mentions and no relations. Specific relation names, each with a short description, give the extractor something to look for.
+- One chunk: the three sentences were short enough to stay in one chunk. Agentic GraphRAG stored the text of the chunk, its position in the source, and an embedding.
+- Four entities from six mentions: the extractor found `Microsoft` three times. Resolution merged the three mentions into one node, because the names match exactly.
+- Three relations: each relation links two entity nodes. The extractor reports a relation only when the schema names it.
+- Why the schema names the relations: the built-in `GENERIC` schema has one broad relation, `RELATED_TO`. On these three sentences, `GENERIC` finds the same six mentions and no relations. Specific relation names, each with a short description, give the extractor something to look for.
 
 <details>
 <summary>Why does the script report 6 entities when the graph has 4?</summary>
 
-The extractor counts mentions. A mention is one place in the text where an entity appears. Resolution groups mentions of the same thing into one node. The three mentions of `Microsoft` became one node, so 6 mentions became 4 nodes.
+The extractor counts mentions. A mention is one place where an entity appears. Resolution groups mentions of the same thing into one node. The three mentions of `Microsoft` became one node, so 6 mentions became 4 nodes.
 
 </details>
 
 ## Step 5 (optional): Ask a question
 
-The agent plans sub-questions, searches the graph, checks its evidence, and answers with citations. It needs an LLM. Add your endpoint to the `.env` file:
+The agent plans sub-questions, searches the graph, reviews its evidence, and answers with citations. It needs an LLM. Add your endpoint to the `.env` file:
 
 ```text
 LLM_BASE_URL=https://your-endpoint.example.com/v1

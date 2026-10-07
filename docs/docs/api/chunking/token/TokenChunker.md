@@ -87,8 +87,8 @@ model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
 
 Copy the chunker, validating any changed setting.
 
-A plain copy would keep the fingerprint and the splitter of the original,
-so a copy with changes is built again from its settings.
+A plain copy keeps the fingerprint and the splitter of the original.
+A copy with changes is built again from its configuration.
 
 ## `model_post_init` \{#agrag-chunking-token-TokenChunker-model_post_init}
 

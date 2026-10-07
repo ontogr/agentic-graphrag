@@ -17,7 +17,7 @@ from agrag.ingestion.stats import (
 
 
 class AddResult(BaseModel):
-    """Graph.add()'s return type — one summary per pipeline stage.
+    """Return type of Graph.add(). One summary per pipeline stage.
 
     Attributes:
         ingestion: Ingestion-stage results.

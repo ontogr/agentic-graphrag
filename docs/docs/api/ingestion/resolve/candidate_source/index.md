@@ -10,7 +10,7 @@ Candidate generation for in-batch and persisted graph entities.
 **Classes:**
 
 - [**CandidateSource**](CandidateSource.md) – Narrows which in-batch entity pairs resolution compares.
-- [**GraphCandidateSource**](GraphCandidateSource.md) – Blocks by label in-batch; ANN-searches persisted entities globally.
+- [**GraphCandidateSource**](GraphCandidateSource.md) – Block by label in-batch. Search persisted entities globally with ANN.
 - [**PersistedCandidateSource**](PersistedCandidateSource.md) – Supplies only candidate pairs between new mentions and raw graph entities.
 
 **Functions:**

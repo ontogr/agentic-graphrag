@@ -12,7 +12,7 @@ One graph node, ready to write.
 **Attributes:**
 
 - [**id**](#agrag-common-data_models-graph_record-NodeRecord-id) (<code>UUID</code>) – The node id.
-- [**labels**](#agrag-common-data_models-graph_record-NodeRecord-labels) (<code>list\[str\]</code>) – The node's labels. A node carries every label listed here;
+- [**labels**](#agrag-common-data_models-graph_record-NodeRecord-labels) (<code>list\[str\]</code>) – The node labels. A node carries every label listed here.
   `GraphStore.upsert_nodes` groups records by their full label set
   within a batch, since Cypher requires labels to be literal in the
   query rather than a runtime parameter.

@@ -9,13 +9,13 @@ sidebar_label: require_valid_alpha
 require_valid_alpha(alpha:float) -> None
 ```
 
-Check that a `hybrid_search` `alpha` is a valid dense/keyword weight.
+Make sure that a `hybrid_search` `alpha` is a valid dense and keyword weight.
 
-`alpha` is only meaningful in `[0.0, 1.0]`: `1.0` is pure dense,
-`0.0` is pure keyword. Outside that range, backends behave
-differently: Qdrant's client-side blend still produces a
-mathematically well-defined but meaningless score, while a backend's
-native ranker may reject the value outright.
+`alpha` is only meaningful in `[0.0, 1.0]`. `1.0` is pure dense
+and `0.0` is pure keyword. Outside that range, backends behave
+differently. Qdrant client-side blend still produces a
+mathematically well-defined but meaningless score, while a backend
+native ranker can reject the value outright.
 
 **Parameters:**
 

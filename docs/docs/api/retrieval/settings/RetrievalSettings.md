@@ -55,10 +55,10 @@ Configuration for retrieval methods and fusion.
   search. Same condition as entity_collection/chunk_collection:
   only read when a VectorStore is configured.
 - [**community_top_k**](#agrag-retrieval-settings-RetrievalSettings-community_top_k) (<code>int</code>) – Results requested per community search call when
-  the caller passes no explicit limit -- the same role
-  entity_top_k/chunk_top_k play for their retrievers. Distinct
-  from Recipe.community_top_k (enrichment-budget/reserved-slice
-  size): same name, different class, different job.
+  the caller passes no explicit limit. It plays the same role
+  entity_top_k and chunk_top_k play for their retrievers. It is
+  distinct from Recipe.community_top_k (enrichment budget and
+  reserved slice size). Same name, different class, different job.
 
 Env prefix: `RETRIEVAL_`.
 

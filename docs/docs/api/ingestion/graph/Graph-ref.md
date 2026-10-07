@@ -78,9 +78,9 @@ Give exactly one of `source`, `text`, and `documents`.
 - **source** (<code>SourcesType | None</code>) – A file path, a directory, a glob, or a list of these.
 - **text** (<code>str | None</code>) – Raw text to add as one document.
 - **documents** (<code>Sequence\[[Document](../../common/data_models/document/Document-ref.md)\] | None</code>) – Already-built documents to add directly.
-- **loader** (<code>[Loader](../../loaders/corpus/base/Loader.md) | None</code>) – A loader to use instead of the registry default. Requires a
-  single-file `source`; a directory, glob, or list of sources raises an
-  error.
+- **loader** (<code>[Loader](../../loaders/corpus/base/Loader.md) | None</code>) – A loader to use instead of the registry default. It requires
+  a single-file `source`. A directory, glob, or list of sources
+  raises an error.
 - **error_policy** (<code>[ErrorPolicy](../../loaders/corpus/types/ErrorPolicy.md)</code>) – The action to take on a per-source error.
 - **on_progress** (<code>Callable\[\[[AddResult](../reports/add_result/AddResult.md)\], None\] | None</code>) – A callback the call runs after each batch and once more
   at the end with the fully-populated result.
@@ -194,7 +194,7 @@ leaves the document untouched or completes the deletion.
 <details open>
 <summary>Note</summary>
 
-The close-only degenerate case of `Graph.update()`; both
+The close-only degenerate case of `Graph.update()`. Both
 call into the same shared document-lifecycle helpers. See
 `Graph.add()` for the shared ingestion behavior.
 
@@ -208,17 +208,18 @@ detect_communities(*, apply:bool = False, max_cluster_size:int = 10, resolution:
 
 Detect entity communities via hierarchical Leiden.
 
-Dry-run by default: produces a report of the communities that would be
-written before any node is touched. Pass apply=True to write them.
+Dry-run by default. It produces a report of the communities that the
+call will write before any node is touched. Pass apply=True to write
+them.
 
 Fetches every live domain relation across the whole graph (not scoped
-by entity label the way consolidate() is -- community structure spans
+by entity label the way consolidate() is. Community structure spans
 entity types), builds a weighted edge list, and runs hierarchical
 Leiden off the event loop. Every prior run's Community nodes and
 MEMBER_OF edges are deleted before the new ones are written when
-apply=True: this is a full recompute, not an incremental update,
+apply=True. This is a full recompute, not an incremental update,
 so there is no notion of merging this run's output with a
-previous one's.
+previous one.
 
 **Parameters:**
 
@@ -264,7 +265,7 @@ missing) so the dual writes never hit an absent collection.
 - **embedder** (<code>[Embedder](../../embedding/base/Embedder.md)</code>) – Populates entity embeddings for native vector search.
 - **extractor** (<code>[Extractor](../extract/Extractor.md)</code>) – Runs against each chunk.
 - **tracer** (<code>Tracer | None</code>) – A tracer to record spans for every step. Pass None for none.
-- **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Optional second write target for embeddings; see
+- **vector_store** (<code>[VectorStore](../../vectordb/base/VectorStore.md) | None</code>) – Optional second write target for embeddings. See
   __init__.
 - **retrieval_settings** (<code>[RetrievalSettings](../../retrieval/settings/RetrievalSettings.md) | None</code>) – Collection names for the VectorStore writes.
   None uses RetrievalSettings defaults.
@@ -357,7 +358,7 @@ must resolve to exactly one document.
 - **source** (<code>SourcesType | None</code>) – A single-file source, glob, or path list resolving to
   exactly one document.
 - **loader** (<code>[Loader](../../loaders/corpus/base/Loader.md) | None</code>) – A loader override for a single-file `source`.
-- **error_policy** (<code>[ErrorPolicy](../../loaders/corpus/types/ErrorPolicy.md)</code>) – RAISE propagates a stage failure; any other
+- **error_policy** (<code>[ErrorPolicy](../../loaders/corpus/types/ErrorPolicy.md)</code>) – RAISE propagates a stage failure. Any other
   policy records it and continues.
 - **read_options** (<code>[ReadOptions](../../loaders/corpus/types/ReadOptions.md) | None</code>) – How loaders read the replacement, including the
   normalization of its text. None uses `ReadOptions()` defaults.
@@ -365,8 +366,8 @@ must resolve to exactly one document.
 **Returns:**
 
 - <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – The update summary. A no-op reports `no_op=True` with no
-- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – `add_result`; a change reports `chunks_closed` plus the
-- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – fresh ingestion's `add_result`; an unknown `document_key`
+- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – `add_result`. A change reports `chunks_closed` plus the
+- <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – fresh ingestion's `add_result`. An unknown `document_key`
 - <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – ingests fresh with `previous_content_hash=None` and
 - <code>[UpdateResult](../reports/update_result/UpdateResult.md)</code> – `chunks_closed=0`.
 

@@ -7,7 +7,7 @@ sidebar_label: AddResult
 
 Bases: <code>BaseModel</code>
 
-Graph.add()'s return type — one summary per pipeline stage.
+Return type of Graph.add(). One summary per pipeline stage.
 
 **Attributes:**
 

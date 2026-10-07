@@ -12,9 +12,9 @@ One retrieval-sized piece of a Document.
 **Attributes:**
 
 - [**document_id**](#agrag-common-data_models-chunk-Chunk-document_id) (<code>UUID</code>) – The id of the persisted Document graph node this chunk
-  belongs to (see `Document.node_id_for`). Stable across content
-  versions of the same logical document; per-version identity lives
-  in `Chunk.id` instead.
+  belongs to (see `Document.node_id_for`). It stays stable across
+  content versions of the same logical document. Per-version
+  identity lives in `Chunk.id` instead.
 - [**index**](#agrag-common-data_models-chunk-Chunk-index) (<code>int</code>) – The position of the chunk within its document, from 0.
 - [**text**](#agrag-common-data_models-chunk-Chunk-text) (<code>str</code>) – The chunk text.
 - [**provenance**](#agrag-common-data_models-chunk-Chunk-provenance) (<code>[TextProvenance](../provenance/TextProvenance.md) | [PageProvenance](../provenance/PageProvenance.md)</code>) – The location of this chunk in its source. The shape of this
@@ -122,8 +122,8 @@ source.
 - **provenance** (<code>[TextProvenance](../provenance/TextProvenance.md) | [PageProvenance](../provenance/PageProvenance.md)</code>) – The provenance of the chunk. Its type picks which id rule
   applies.
 - **index** (<code>int</code>) – The position of the chunk within its document.
-- **chunker_hash** (<code>str | None</code>) – The fingerprint of the chunker. Only a docling chunk uses
-  it; a text chunk id ignores it.
+- **chunker_hash** (<code>str | None</code>) – The fingerprint of the chunker. Only a docling chunk
+  uses it. A text chunk id ignores it.
 - **level** (<code>int</code>) – The chunk level. A parent chunk (level 1) adds a level part, so a
   parent and a child with the same span get different ids. The id of a
   level 0 chunk does not change.
@@ -188,7 +188,7 @@ to_node_record() -> NodeRecord
 
 Return this chunk as a GraphStore write record.
 
-Provenance is flattened to a plain JSON-safe dict via model_dump —
+Provenance is flattened to a plain JSON-safe dict via model_dump.
 GraphStore's own serialize.node_params only converts UUIDs and walks
 containers.
 

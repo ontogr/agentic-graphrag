@@ -6,7 +6,7 @@ description: How Agentic GraphRAG picks a loader for each source and what a load
 
 # Loading documents
 
-A loader turns one source into one or more documents. Agentic GraphRAG picks the loader from the file extension.
+A loader turns a source into one or more documents. Agentic GraphRAG picks the loader from the file extension.
 
 ## Why it exists
 
@@ -31,9 +31,9 @@ flowchart TD
 
 *The loader comes from you or from the extension. A source that fails follows the error policy.*
 
-1. **Pick.** You can pass a loader for a single file. Otherwise Agentic GraphRAG looks up the extension. When two loaders claim an extension, the preferred one wins. If that loader needs a package that is not installed, Agentic GraphRAG uses another loader for the extension when one exists. If none exists, the source fails with a missing-package error.
-2. **Read.** The loader detects the text encoding. It removes the byte-order mark, changes line endings to LF, and applies Unicode form NFKC. You can change each of these settings.
-3. **Build.** The loader makes a document. A document holds the text, the source location, the format, a content hash and the loader name.
+1. Pick. You can pass a loader for a single file. Otherwise Agentic GraphRAG looks up the extension. When two loaders claim an extension, the preferred one wins. If that loader needs a package that is not installed, Agentic GraphRAG uses another loader for the extension when one exists. If none exists, the source fails with a missing-package error.
+2. Read. The loader detects the text encoding. It removes the byte-order mark, changes line endings to LF, and applies Unicode form NFKC. You can change each of these values.
+3. Build. The loader makes a document. A document holds the text, the source location, the format, a content hash and the loader name.
 
 ### Prose and record sources
 
@@ -64,13 +64,13 @@ You add `report.pdf` and `notes.md` in one call. The registry sends the PDF to t
 <details>
 <summary>Design choices</summary>
 
-**Why does a document hash depend on the loader?** A text loader hashes the decoded text. A docling loader hashes the raw file bytes, because docling can parse the same file differently between versions or machines. A raw hash keeps the identity stable.
+Why does a document hash depend on the loader? A text loader hashes the decoded text. A docling loader hashes the raw file bytes, because docling can parse the same file differently between versions or machines. A raw hash keeps the identity stable.
 
-**Why do offsets point into the normalized text?** Every chunk offset counts characters in the text after normalization. If you need offsets in the raw source, choose no normalization.
+Why do offsets point into the normalized text? Every chunk offset counts characters in the text after normalization. If you need offsets in the raw source, choose no normalization.
 
-**Why does each format have its own winner?** Docling reads AsciiDoc structure better than the core reader, which scans for headings only. So docling wins for AsciiDoc. For Markdown, HTML and CSV the core loader wins. A blanket rule such as "installed extras win" would choose the wrong loader for some formats.
+Why does each format have its own winner? Docling reads AsciiDoc structure better than the core reader, which scans for headings only. So docling wins for AsciiDoc. For Markdown, HTML and CSV the core loader wins. A blanket rule such as "installed extras win" chooses the wrong loader for some formats.
 
-**Why is docling an extra?** Optional formats ship behind extras. A text-only install stays small.
+Why is docling an extra? Optional formats ship behind extras. A text-only install stays small.
 
 </details>
 

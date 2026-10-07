@@ -11,13 +11,14 @@ EscalatingExtractor(primary:Extractor, escalate_to:Extractor, *, min_confidence:
 
 Bases: <code>[Extractor](Extractor.md)</code>
 
-Runs a cheap extractor on every chunk and a stronger one on weak results.
+Run a cheap extractor on every chunk and a stronger one on weak results.
 
-The primary extractor runs first. A chunk escalates when the primary finds no
-entities in a chunk of at least `min_chunk_words` words, or when the mean
-entity confidence is below `min_confidence`. An escalated chunk gets the
-`escalate_to` result alone; the two results are never combined. A common
-pairing is `GlinerExtractor` as primary and `BAMLExtractor` as fallback.
+The primary extractor runs first. A chunk escalates when the primary finds
+no entities in a chunk of at least `min_chunk_words` words, or when the
+mean entity confidence is below `min_confidence`. An escalated chunk gets
+the `escalate_to` result alone. The two results are never combined. A
+common pairing is `GlinerExtractor` as primary and `BAMLExtractor` as
+fallback.
 
 **Parameters:**
 
@@ -33,7 +34,7 @@ pairing is `GlinerExtractor` as primary and `BAMLExtractor` as fallback.
 
 **Functions:**
 
-- [**extract**](#agrag-ingestion-extract-EscalatingExtractor-extract) – Extract with the primary extractor, escalating when it's weak.
+- [**extract**](#agrag-ingestion-extract-EscalatingExtractor-extract) – Extract with the primary extractor, escalating when it is weak.
 
 **Attributes:**
 
@@ -54,7 +55,7 @@ escalate_to = escalate_to
 extract(chunk:Chunk, schema:GraphSchema) -> ExtractionResult
 ```
 
-Extract with the primary extractor, escalating when it's weak.
+Extract with the primary extractor, escalating when it is weak.
 
 **Parameters:**
 

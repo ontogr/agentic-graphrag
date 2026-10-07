@@ -6,7 +6,7 @@ description: How Agentic GraphRAG records a match without changing the matched e
 
 # Matching and resolved entities
 
-When resolution decides that two entities match, Agentic GraphRAG records the match and derives one resolved entity. The two original entities stay in the graph.
+When resolution decides that two entities match, Agentic GraphRAG records the match and derives one resolved entity. A resolved entity is one node for a group of matches. The two original entities stay in the graph.
 
 ## Why it exists
 
@@ -59,15 +59,15 @@ The result is one `ResolvedEntity` with three `RESOLVED_AS` edges. In one test r
 <details>
 <summary>Design choices</summary>
 
-**Why not rewrite or delete the nodes?** A wrong match then needs no repair. The original entities and their relations are still there.
+Why not rewrite or delete the nodes? A wrong match then needs no repair. The original entities and their relations are still there.
 
-**Why derive a node and not pick a winner?** No member is the truth. The group can grow or shrink when a link changes. Agentic GraphRAG recomputes the node from the current members each time.
+Why derive a node and not pick a winner? No member is the truth. The group can grow or shrink when a link changes. Agentic GraphRAG recomputes the node from the current members each time.
 
-**Why keep the tier, score, and reason on each link?** A link is a decision. The record lets you audit it later.
+Why keep the tier, score, and reason on each link? A link is a decision. The record lets you audit it later.
 
-**Why does the name come from a fixed order?** A fixed order gives the same result each time Agentic GraphRAG recomputes the node from the same members. It does not choose the best name. If a name matters to you, read the members and choose one in your own code.
+Why does the name come from a fixed order? A fixed order gives the same result each time Agentic GraphRAG recomputes the node from the same members. It does not choose the best name. If a name matters to you, read the members and choose one in your own code.
 
-**Why do exact matches share one node?** Equal text is identity. There is nothing to judge, and nothing to undo.
+Why do exact matches share one node? Equal text is identity. There is nothing to judge, and nothing to undo.
 
 </details>
 

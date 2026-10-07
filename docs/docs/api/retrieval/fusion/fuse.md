@@ -11,8 +11,8 @@ fuse(results_by_method:dict[str, list[SearchResult]], *, rrf_k:int = 60, tracer:
 
 Combine every method's ranked results into one deduplicated list.
 
-Runs unconditionally, even for a single method, so a Rerank pass
-never sees duplicates. Uses Reciprocal Rank Fusion: an item's
+Runs unconditionally, even for a single method, so a rerank pass
+never sees duplicates. Uses Reciprocal Rank Fusion. An item's
 fused score is the sum of 1 / (rrf_k + rank) across every method
 that returned it.
 
@@ -24,7 +24,7 @@ retriever cannot unfairly promote an item over a single best hit
 from another method.
 
 Deduplication uses SearchResult.identity_key, which is (type, id).
-Fusion does not re-resolve identity; it deduplicates on the ids each
+Fusion does not re-resolve identity. It deduplicates on the ids each
 SearchResult carries.
 
 **Parameters:**

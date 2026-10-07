@@ -7,14 +7,14 @@ sidebar_label: ExtractionLLMSettings
 
 Bases: <code>BaseSettings</code>
 
-Env-backed LLM client config for the extraction role.
+Env-backed LLM client configuration for the extraction role.
 
 **Attributes:**
 
-- [**clients**](#agrag-ingestion-extract-ExtractionLLMSettings-clients) (<code>list\[LLMClientConfig\]</code>) – The LLM client(s) to use. One element for a single provider;
-  more than one composed per `strategy`.
+- [**clients**](#agrag-ingestion-extract-ExtractionLLMSettings-clients) (<code>list\[LLMClientConfig\]</code>) – The LLM clients to use. One element for a single provider.
+  More than one is composed per `strategy`.
 - [**strategy**](#agrag-ingestion-extract-ExtractionLLMSettings-strategy) (<code>Literal['single', 'fallback', 'round_robin']</code>) – How to compose multiple clients. Ignored with one client.
-- [**retry**](#agrag-ingestion-extract-ExtractionLLMSettings-retry) (<code>RetryConfig</code>) – Retry settings applied to the extraction LLM call.
+- [**retry**](#agrag-ingestion-extract-ExtractionLLMSettings-retry) (<code>RetryConfig</code>) – Retry configuration applied to the extraction LLM call.
 
 Env prefix: `EXTRACTION_LLM_`.
 

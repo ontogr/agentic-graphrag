@@ -28,7 +28,7 @@ receive an uncommitted job's node or vector.
 - **query** (<code>str</code>) – The natural-language query text to embed.
 - **embedder** (<code>[Embedder](../../../embedding/base/Embedder.md)</code>) – Produces the query's dense vector.
 - **graph_store** (<code>[GraphStore](../../../graphdb/base/GraphStore.md)</code>) – The GraphStore-native fallback target.
-- **vector_store** (<code>[VectorStore](../../../vectordb/base/VectorStore.md) | None</code>) – The optional VectorStore target; None selects
+- **vector_store** (<code>[VectorStore](../../../vectordb/base/VectorStore.md) | None</code>) – The optional VectorStore target. None selects
   the GraphStore-native path.
 - **collection** (<code>str</code>) – The VectorStore collection name.
 - **labels** (<code>Sequence\[str\]</code>) – The node labels to search on the GraphStore-native

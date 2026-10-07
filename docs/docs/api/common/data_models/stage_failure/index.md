@@ -10,7 +10,7 @@ Per-stage failure record and its per-call cap.
 **Classes:**
 
 - [**CappedFailures**](CappedFailures.md) – A capped failure list plus the true count it was built from.
-- [**StageFailure**](StageFailure.md) – One item's failure within a pipeline stage.
+- [**StageFailure**](StageFailure.md) – One item failure within a pipeline stage.
 
 **Functions:**
 

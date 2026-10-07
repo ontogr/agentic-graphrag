@@ -32,9 +32,9 @@ VectorStore path searches `chunk_collection`.
   absent.
 - **embedder** (<code>[Embedder](../../../embedding/base/Embedder.md)</code>) – Produces query vectors.
 - **vector_store** (<code>[VectorStore](../../../vectordb/base/VectorStore.md) | None</code>) – Optional VectorStore for hybrid search.
-- **settings** (<code>[RetrievalSettings](../../settings/RetrievalSettings.md) | None</code>) – Retrieval configuration; defaults from
+- **settings** (<code>[RetrievalSettings](../../settings/RetrievalSettings.md) | None</code>) – Retrieval configuration. Defaults from
   environment.
-- **tracer** (<code>Tracer | None</code>) – Opens the retriever and its children's spans. None
+- **tracer** (<code>Tracer | None</code>) – Opens the retriever and its children spans. None
   opens no recorded span.
 
 ## `name` \{#agrag-retrieval-retrievers-chunk-ChunkRetriever-name}

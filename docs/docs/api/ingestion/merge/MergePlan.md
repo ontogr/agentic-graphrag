@@ -13,13 +13,13 @@ Computed result of merging zero or more entities and mentions.
 
 - [**survivor**](#agrag-ingestion-merge-MergePlan-survivor) (<code>[Entity](../../common/data_models/entity/Entity-ref.md)</code>) – The resulting Entity. Its merge_count and
   source_chunk_ids are this call's best local computation, for
-  reporting; apply_merge writes new_source_chunk_ids and
+  reporting. apply_merge writes new_source_chunk_ids and
   merge_count_delta atomically instead, so a concurrent writer's
   own contribution to the same node is never overwritten.
 - [**conflicts**](#agrag-ingestion-merge-MergePlan-conflicts) (<code>list\[[ConflictRecord](ConflictRecord.md)\]</code>) – Every field that had more than one candidate value.
 - [**accepted_merge_keys**](#agrag-ingestion-merge-MergePlan-accepted_merge_keys) (<code>list\[str\]</code>) – Every normalized merge_key this merge
-  accepted -- from existing_entities and mentions alike, not only
-  the survivor's own chosen name -- so a later mention of any
+  accepted, from existing_entities and mentions alike, not only
+  the survivor's own chosen name. A later mention of any
   accepted name resolves back to this entity instead of creating
   a duplicate.
 - [**new_source_chunk_ids**](#agrag-ingestion-merge-MergePlan-new_source_chunk_ids) (<code>list\[UUID\]</code>) – The chunk ids this call's mentions contribute,

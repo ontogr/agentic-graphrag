@@ -13,10 +13,10 @@ Return every live domain relation as a weighted edge tuple.
 
 Weight is len(source_chunk_ids) (attestation count). A relation with
 no attested chunks contributes weight 0.0, so an unsupported edge
-cannot inflate clustering or a community's report importance. Two
+cannot inflate clustering or a community report importance. Two
 entities connected by more than one distinct relation type contribute
-one edge tuple per type; graspologic_native sums parallel-edge
-weights building its own adjacency.
+one edge tuple per type. graspologic_native sums parallel-edge
+weights when it builds its own adjacency.
 
 Supports cursor (keyset) pagination for large graphs where `SKIP`
 is expensive, and legacy `SKIP` pagination for callers that need

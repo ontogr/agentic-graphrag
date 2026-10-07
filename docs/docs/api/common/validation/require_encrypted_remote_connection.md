@@ -14,18 +14,18 @@ Reject a plaintext connection to a non-local host carrying a credential.
 A scheme outside `encrypted_schemes` sends everything on the
 connection, including any configured credential, unencrypted. That is
 the normal, safe shape of local development against a Docker Compose
-service on localhost, but the same plaintext default pointed at a real
-remote host would leak credentials and data to network interception.
+service on localhost. The same plaintext default pointed at a real
+remote host leaks credentials and data to network interception.
 Loopback hosts are always allowed, regardless of scheme or credential.
 
 Without `require_encryption`, a connection carrying no credential is
-always allowed: many production deployments run an unauthenticated
-backend on a private network (a VPC, a cluster-internal service) and
-rely on network segmentation rather than transport encryption, and this
-check cannot distinguish that from a public host from the URL alone.
-`require_encryption` opts a deployment out of that default, for a
-stricter posture where every non-local connection must be encrypted
-regardless of credential.
+always allowed. Many production deployments run an unauthenticated
+backend on a private network (a VPC or a cluster-internal service) and
+rely on network segmentation rather than transport encryption. This
+check cannot distinguish that case from a public host from the URL
+alone. `require_encryption` opts a deployment out of that default,
+for a stricter posture where every non-local connection must use
+encryption regardless of credential.
 
 **Parameters:**
 

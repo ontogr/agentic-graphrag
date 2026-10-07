@@ -30,20 +30,20 @@ def _resolve_span(
     hint_end: int,
     occurrences_by_text: dict[str, list[int]] | None = None,
 ) -> tuple[int, int] | None:
-    """Return a verified (start, end) span for text within chunk_text, or None.
+    """Return a (start, end) span for text within chunk_text, or None.
 
     Trusts (hint_start, hint_end) only when it already points at an exact
-    occurrence of text. Extractors — GLiNER's own boundary predictions and,
-    especially, an LLM counting characters by hand — can report an
-    approximately right but off-by-a-few span. Rather than drop a real mention
-    over that, this searches chunk_text for every occurrence of text and,
-    when text is unique in the chunk, returns the one closest to hint_start
-    so a near-miss offset gets corrected instead of discarding real
+    occurrence of text. Extractors can report an approximately right but
+    off-by-a-few span. This includes GLiNER own boundary predictions and
+    an LLM counting characters by hand. Rather than drop a real mention
+    over that, this searches chunk_text for every occurrence of text. When
+    text is unique in the chunk, it returns the one closest to hint_start.
+    A near-miss offset gets corrected instead of discarding real
     provenance. When text repeats in the chunk, an off-by-few hint nearer
-    the wrong duplicate would be relocated there and text-only relation
-    resolution could bind the relation to that wrong occurrence before the
-    genuine schema-compatible one, so repeated text requires an exact span;
-    a malformed hint is treated as unrecoverable.
+    the wrong duplicate will relocate there and text-only relation
+    resolution can bind the relation to that wrong occurrence before the
+    genuine schema-compatible one, so repeated text requires an exact span.
+    A malformed hint is treated as unrecoverable.
 
     Args:
         text: The mention text to locate.
@@ -109,9 +109,9 @@ def _relation_patterns(schema: GraphSchema) -> dict[str, set[tuple[str, str]]]:
 def _describe_entity_type(entity_type: EntityType) -> str:
     """Return prompt guidance for one entity type, its declared properties included.
 
-    ``BAMLExtractedEntity.properties`` has no per-label schema of its own --
-    a BAML class field is static, while ``EntityType.properties`` varies by
-    label -- so the declared property names travel to the model through this
+    ``BAMLExtractedEntity.properties`` has no per-label schema of its own.
+    A BAML class field is static, while ``EntityType.properties`` varies by
+    label. The declared property names travel to the model through this
     description instead, the same extension point already carrying
     ``entity_type.description``.
 
@@ -138,12 +138,12 @@ def _resolve_relation_pair(
 ) -> tuple[int, int] | None:
     """Return the single (source, target) index pair for one raw relation.
 
-    BAML identifies endpoints only by surface text, so each endpoint's text
-    may match several entities. Walk candidate source/target indices in order
-    and return the first pair whose endpoint labels satisfy one of the
+    BAML identifies endpoints only by surface text, so each endpoint text
+    can match several entities. Walk candidate source and target indices in
+    order and return the first pair whose endpoint labels satisfy one of the
     relation's declared ``patterns``. Return None when the relation label is
-    undeclared, an endpoint's text matches no entity, or every pairing
-    self-references; callers drop such relations rather than raise.
+    undeclared, an endpoint text matches no entity, or every pairing
+    self-references. Callers drop such relations rather than raise.
     """
     source_candidates = text_index.get(relation.source_text, [])  # ty: ignore[unresolved-attribute]
     target_candidates = text_index.get(relation.target_text, [])  # ty: ignore[unresolved-attribute]
@@ -164,17 +164,17 @@ def _resolve_relation_pair(
 def _normalize_extraction_result(
     result: ExtractionResult, schema: GraphSchema
 ) -> ExtractionResult:
-    """Drop entities and relations schema does not declare.
+    """Drop entities and relations that the schema does not declare.
 
     An entity survives only when its label is a declared EntityType, and
-    keeps only the property keys that EntityType declares -- an extractor
+    keeps only the property keys that EntityType declares. An extractor
     can report a property the schema never defined (an LLM inventing a
     field, or a schema that dropped a property after the model was
     prompted), and compute_merge has no schema of its own to filter against
     later. A relation survives only when its label is a declared
-    RelationType and the resolved (source label, target label) pair —
-    checked against the surviving entities — is one of that type's
-    ``patterns``; a relation pointing at a dropped entity is dropped too.
+    RelationType and the resolved (source label, target label) pair,
+    checked against the surviving entities, is one of that type's
+    ``patterns``. A relation pointing at a dropped entity is dropped too.
     Surviving relation indices are remapped to the filtered entity list.
 
     Args:
@@ -277,13 +277,13 @@ class Extractor(ABC):
 
 
 class ExtractionLLMSettings(BaseSettings):
-    """Env-backed LLM client config for the extraction role.
+    """Env-backed LLM client configuration for the extraction role.
 
     Attributes:
-        clients: The LLM client(s) to use. One element for a single provider;
-            more than one composed per ``strategy``.
+        clients: The LLM clients to use. One element for a single provider.
+            More than one is composed per ``strategy``.
         strategy: How to compose multiple clients. Ignored with one client.
-        retry: Retry settings applied to the extraction LLM call.
+        retry: Retry configuration applied to the extraction LLM call.
 
     Env prefix: ``EXTRACTION_LLM_``.
     """
@@ -571,18 +571,18 @@ class GlinerExtractor(Extractor):
 
 
 class BAMLExtractor(Extractor):
-    """Extracts entities and relations with an LLM through a typed BAML function.
+    """Extract entities and relations with an LLM through a typed BAML function.
 
     The extractor calls ``ExtractEntitiesAndRelations`` on the clients in
-    ``ExtractionLLMSettings`` and retries failed calls with the settings' backoff.
-    The response type comes from the graph schema, so the model can return only
-    declared labels and property keys, and it can fill entity properties. Needs
-    the ``llm`` extra and a reachable LLM endpoint.
+    ``ExtractionLLMSettings`` and retries failed calls with the backoff from
+    its configuration. The response type comes from the graph schema, so the
+    model can return only declared labels and property keys, and it can fill
+    entity properties. Needs the ``llm`` extra and a reachable LLM endpoint.
 
     Args:
-        settings: LLM client config. Defaults to ``ExtractionLLMSettings()``,
+        settings: LLM client configuration. Defaults to ``ExtractionLLMSettings()``,
             loaded from the environment or ``.env``. Ignored when ``client`` is
-            given; an injected client also disables ``settings.retry`` because
+            given. An injected client also disables ``settings.retry`` because
             its caller owns retry behavior.
         client: An already-built BAML client exposing
             ``ExtractEntitiesAndRelations``.
@@ -799,13 +799,14 @@ class BAMLExtractor(Extractor):
 
 
 class EscalatingExtractor(Extractor):
-    """Runs a cheap extractor on every chunk and a stronger one on weak results.
+    """Run a cheap extractor on every chunk and a stronger one on weak results.
 
-    The primary extractor runs first. A chunk escalates when the primary finds no
-    entities in a chunk of at least ``min_chunk_words`` words, or when the mean
-    entity confidence is below ``min_confidence``. An escalated chunk gets the
-    ``escalate_to`` result alone; the two results are never combined. A common
-    pairing is ``GlinerExtractor`` as primary and ``BAMLExtractor`` as fallback.
+    The primary extractor runs first. A chunk escalates when the primary finds
+    no entities in a chunk of at least ``min_chunk_words`` words, or when the
+    mean entity confidence is below ``min_confidence``. An escalated chunk gets
+    the ``escalate_to`` result alone. The two results are never combined. A
+    common pairing is ``GlinerExtractor`` as primary and ``BAMLExtractor`` as
+    fallback.
 
     Args:
         primary: Extractor that runs on every chunk.
@@ -836,7 +837,7 @@ class EscalatingExtractor(Extractor):
         self._tracer = tracer
 
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
-        """Extract with the primary extractor, escalating when it's weak.
+        """Extract with the primary extractor, escalating when it is weak.
 
         Args:
             chunk: The chunk to read.

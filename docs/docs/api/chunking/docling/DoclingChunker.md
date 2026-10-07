@@ -7,7 +7,7 @@ sidebar_label: DoclingChunker
 
 Bases: <code>[Chunker](../base/Chunker.md)</code>
 
-Splits a parsed docling document with docling's hybrid chunker.
+Split a parsed docling document with docling hybrid chunker.
 
 The chunker reads the parsed document that the docling loader keeps in
 `Document.metadata["_docling_document"]`. Each chunk has page provenance and
@@ -23,7 +23,7 @@ fingerprint, so a re-chunk with new settings does not overwrite the old chunks.
 - [**merge_peers**](#agrag-chunking-docling-DoclingChunker-merge_peers) (<code>bool</code>) – Whether to merge small neighbours under the same headings.
 - [**repeat_table_header**](#agrag-chunking-docling-DoclingChunker-repeat_table_header) (<code>bool</code>) – Whether each chunk of a split table repeats its header.
 - [**omit_header_on_overflow**](#agrag-chunking-docling-DoclingChunker-omit_header_on_overflow) (<code>bool</code>) – Whether to drop headings from a chunk when they
-  would not fit the budget.
+  will not fit the budget.
 - [**table_format**](#agrag-chunking-docling-DoclingChunker-table_format) (<code>Literal['triplet', 'markdown']</code>) – `"triplet"` writes `row, column = value` text and
   `"markdown"` writes a pipe table.
 
@@ -94,8 +94,8 @@ model_copy(*, update:Mapping[str, Any] | None = None, deep:bool = False) -> Self
 
 Copy the chunker, validating any changed setting.
 
-A plain copy would keep the fingerprint and the splitter of the original,
-so a copy with changes is built again from its settings.
+A plain copy keeps the fingerprint and the splitter of the original.
+A copy with changes is built again from its configuration.
 
 ## `model_post_init` \{#agrag-chunking-docling-DoclingChunker-model_post_init}
 

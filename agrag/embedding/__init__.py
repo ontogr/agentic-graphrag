@@ -18,7 +18,7 @@ def build_embedder(value: str | Embedder, *, tracer: Tracer | None = None) -> Em
             model), or an already-constructed ``Embedder`` for full control
             over device, batching, or caching.
         tracer: Passed to the newly-built embedder. Not valid together with
-            an already-constructed ``value`` -- that instance's tracer, if
+            an already-constructed ``value``. That instance tracer, if
             any, was already fixed at its own construction.
 
     Returns:

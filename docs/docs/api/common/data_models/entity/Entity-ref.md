@@ -9,23 +9,24 @@ Bases: <code>[DataPoint](../data_point/DataPoint.md)</code>
 
 A permanent mention-level node, never destroyed once written.
 
-Each Entity is one raw record: exact-match accumulation only folds a
+Each Entity is one raw record. Exact-match accumulation only folds a
 new mention into the existing node for its normalized name. Fuzzy,
-embedding, and LLM matches never absorb a node; they persist as
+embedding, and LLM matches never absorb a node. They persist as
 MATCHES edges with a derived ResolvedEntity instead, so both raw
 records and their relationships survive resolution.
 
 **Attributes:**
 
 - [**label**](#agrag-common-data_models-entity-Entity-label) (<code>str</code>) – The EntityType label this entity was resolved as.
-- [**name**](#agrag-common-data_models-entity-Entity-name) (<code>str</code>) – The canonical resolved surface form — field-resolved the same
-  way any property is, but kept as its own field rather than
-  inside properties, since every entity has one regardless of
-  EntityType.properties' schema, and it is what gets embedded
+- [**name**](#agrag-common-data_models-entity-Entity-name) (<code>str</code>) – The canonical resolved surface form. It is field-resolved the
+  same way any property is, but it stays as its own field rather
+  than inside properties, since every entity has one regardless of
+  EntityType.properties schema. It is what gets embedded
   (embedding_text).
-- [**properties**](#agrag-common-data_models-entity-Entity-properties) (<code>dict\[str, object\]</code>) – Field-resolved property values, keyed by the schema's
-  declared property names (e.g. "dosage", "description" — whatever
-  EntityType.properties for this label declares). Never holds name.
+- [**properties**](#agrag-common-data_models-entity-Entity-properties) (<code>dict\[str, object\]</code>) – Field-resolved property values, keyed by the schema
+  declared property names (for example "dosage" or "description",
+  whatever EntityType.properties for this label declares). Never
+  holds name.
 - [**embedding**](#agrag-common-data_models-entity-Entity-embedding) (<code>list\[float\] | None</code>) – The entity's dense vector, once populated by the storage
   stage. None before that point.
 - [**merge_count**](#agrag-common-data_models-entity-Entity-merge_count) (<code>int</code>) – The total number of source mentions this entity's data
@@ -59,8 +60,8 @@ embedding_text: str
 Return the text this entity's embedding is computed from.
 
 Name alone, or name plus a "description" property when the schema
-declares one — decided once, here, so every embedding call site
-(resolution's future embedding tier, storage-stage population,
+declares one. Decided once, here, so every embedding call site
+(resolution future embedding tier, storage-stage population,
 Graph.consolidate()) embeds the same text for the same entity.
 
 ## `id` \{#agrag-common-data_models-entity-Entity-id}
@@ -89,11 +90,11 @@ merge_key: str
 
 Return this entity's global exact-match lookup key.
 
-(label, normalized name) — the same identity ExactMatch already uses
-in-batch, applied to a persisted store lookup. A derived value, not
-stored redundantly anywhere else on this model; to_node_record()
-computes it fresh from label/name every write, so it can never drift
-from what the fields it's derived from actually say.
+The key is (label, normalized name). It uses the same identity that
+ExactMatch already uses in-batch, applied to a persisted store lookup.
+A derived value, not stored redundantly anywhere else on this model.
+to_node_record() computes it fresh from label and name on every write,
+so it can never drift from what the fields it derives from state.
 
 ## `metadata` \{#agrag-common-data_models-entity-Entity-metadata}
 
@@ -128,5 +129,5 @@ to_node_record() -> NodeRecord
 Return this entity as a GraphStore write record.
 
 Name, merge_key, merge_count, and source_chunk_ids are
-flattened into properties as plain JSON-safe values; GraphStore has
+flattened into properties as plain JSON-safe values. GraphStore has
 no reason to know these fields are special.

@@ -12,7 +12,7 @@ resolve_description(candidates:list[object], *, settings:Any | None = None, clie
 Resolve a description field, trying LLM summarization.
 
 A single distinct candidate needs no LLM call. Multiple candidates try
-LLM summarization; on failure, fall back to concatenation.
+LLM summarization. On failure, fall back to concatenation.
 
 **Parameters:**
 

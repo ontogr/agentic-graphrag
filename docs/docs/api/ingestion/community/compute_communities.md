@@ -11,23 +11,24 @@ compute_communities(edges:list[WeightedEdge], *, max_cluster_size:int = 10, reso
 
 Run hierarchical Leiden and return level-0 communities.
 
-CPU-bound and synchronous; callers on the event loop should run this via
+CPU-bound and synchronous. Callers on the event loop must run this with
 asyncio.to_thread (see chunk_documents for the same pattern with
-chunking). Only level 0 is kept -- higher levels are computed for
+chunking). Only level 0 is kept. Higher levels are computed for
 max_cluster_size capping but never persisted.
 
 After clustering, one extra pass over the same edge list computes a
-structural-importance signal, entirely from data already in memory --
-no new dependency (graspologic exposes no general centrality function;
-see the follow-up research this refinement is based on), no new query:
+structural-importance signal, entirely from data already in memory.
+No new dependency and no new query. graspologic exposes no general
+centrality function (see the follow-up research this refinement is
+based on).
 
-- Each community's internal_weight (total weight of edges where both
-  endpoints are its members) -- signal for which communities get a
+- Each community internal_weight (total weight of edges where both
+  endpoints are its members). It signals which communities get a
   real LLM report instead of a heuristic one.
-- Each member's local weight (weight of its own internal edges) --
-  used to order member_ids highest-first, so the "most representative"
-  members lead the list for both a large qualifying community's
-  (token-budget-truncated) LLM prompt and a heuristic report's
+- Each member local weight (weight of its own internal edges).
+  It orders member_ids highest-first, so the most representative
+  members lead the list for both a large qualifying community
+  token-budget-truncated LLM prompt and a heuristic report
   few-name summary.
 
 **Parameters:**
@@ -44,8 +45,8 @@ see the follow-up research this refinement is based on), no new query:
 
 - <code>list\[[Community](../../common/data_models/community/Community-ref.md)\]</code> – One Community per level-0 cluster with two or more members, with
 - <code>list\[[Community](../../common/data_models/community/Community-ref.md)\]</code> – member_ids ordered by local weight descending and internal_weight
-- <code>list\[[Community](../../common/data_models/community/Community-ref.md)\]</code> – set. Reports (title/summary/rating/findings) are left empty; report
-- <code>list\[[Community](../../common/data_models/community/Community-ref.md)\]</code> – generation fills them.
+- <code>list\[[Community](../../common/data_models/community/Community-ref.md)\]</code> – set. Reports (title, summary, rating, findings) are left empty.
+- <code>list\[[Community](../../common/data_models/community/Community-ref.md)\]</code> – Report generation fills them.
 
 **Raises:**
 

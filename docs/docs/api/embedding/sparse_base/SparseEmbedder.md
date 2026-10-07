@@ -49,11 +49,11 @@ query_embed(texts:Sequence[str]) -> list[SparseVector]
 Embed a batch of search queries into sparse vectors.
 
 Query-side sparse embedding is not always the same computation as
-document-side embedding: BM25, for example, applies term-frequency
+document-side embedding. BM25, for example, applies term-frequency
 and document-length normalization on the document side but only a
-uniform per-term weight on the query side, since IDF weighting is
-applied by the sparse index at query time instead. Implementations
-with no such asymmetry may implement this identically to `embed`.
+uniform per-term weight on the query side, since the sparse index
+applies IDF weighting at query time instead. Implementations
+with no such asymmetry can implement this identically to `embed`.
 
 **Parameters:**
 

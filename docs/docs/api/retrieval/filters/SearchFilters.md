@@ -13,7 +13,7 @@ Constraints applied across every retrieval method in one call.
 
 - [**labels**](#agrag-retrieval-filters-SearchFilters-labels) (<code>list\[str\]</code>) – Entity labels a result must have, when searching
   entities.
-- [**relation_types**](#agrag-retrieval-filters-SearchFilters-relation_types) (<code>list\[str\]</code>) – Relation types a traversal may cross.
+- [**relation_types**](#agrag-retrieval-filters-SearchFilters-relation_types) (<code>list\[str\]</code>) – Relation types a traversal can cross.
 - [**document_ids**](#agrag-retrieval-filters-SearchFilters-document_ids) (<code>list\[str\]</code>) – Restrict results to entities and chunks from these
   source documents.
 - [**properties**](#agrag-retrieval-filters-SearchFilters-properties) (<code>dict\[str, Any\]</code>) – Exact-match property filters, applied

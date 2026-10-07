@@ -26,8 +26,8 @@ Entity resolution public API.
 - [**ComparisonVerdict**](comparators/ComparisonVerdict.md) – A Comparator's verdict on one entity pair.
 - [**ExactMatch**](comparators/ExactMatch.md) – Matches when normalized text is identical. Never returns NO_MATCH.
 - [**FuzzyMatch**](comparators/FuzzyMatch.md) – Fast-path accepter for near-identical names. Never returns NO_MATCH.
-- [**GraphCandidateSource**](candidate_source/GraphCandidateSource.md) – Blocks by label in-batch; ANN-searches persisted entities globally.
-- [**LLMVerify**](comparators/LLMVerify.md) – Asks an LLM to verify an ambiguous pair. Last resort; never UNCERTAIN.
+- [**GraphCandidateSource**](candidate_source/GraphCandidateSource.md) – Block by label in-batch. Search persisted entities globally with ANN.
+- [**LLMVerify**](comparators/LLMVerify.md) – Ask an LLM to verify an ambiguous pair. Last resort. Never UNCERTAIN.
 - [**PersistedCandidateSource**](candidate_source/PersistedCandidateSource.md) – Supplies only candidate pairs between new mentions and raw graph entities.
 - [**ResolutionGroup**](resolver/ResolutionGroup.md) – One set of ExtractedEntity indices resolution decided are the same entity.
 - [**ResolutionResult**](resolver/ResolutionResult.md) – The groups, non-exact evidence, and ambiguity count of one pass.

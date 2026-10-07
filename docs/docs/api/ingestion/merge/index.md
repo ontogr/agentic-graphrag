@@ -5,10 +5,10 @@ sidebar_label: merge
 
 # `agrag.ingestion.merge` \{#agrag-ingestion-merge}
 
-Merge mechanics: computing how a resolved group of mentions and entities combine.
+Merge mechanics: how a resolved group of mentions and entities combine.
 
-This module is storage-agnostic: it decides what a merge should look like,
-but never touches GraphStore itself. Applying a computed MergePlan is a
+This module is storage-agnostic. It decides what a merge must look like,
+but it never touches GraphStore itself. Applying a computed MergePlan is a
 separate step.
 
 **Classes:**
@@ -22,7 +22,7 @@ separate step.
 
 - [**apply_merge**](apply_merge.md) – Write a computed MergePlan to storage.
 - [**compute_merge**](compute_merge.md) – Compute how existing_entities and mentions combine into one Entity.
-- [**mentioned_in_id**](mentioned_in_id.md) – Return the deterministic id for a new Chunk -[:MENTIONED_IN]-> Entity edge.
+- [**mentioned_in_id**](mentioned_in_id.md) – Return the deterministic id for a new Chunk MENTIONED_IN Entity edge.
 - [**merge_properties**](merge_properties.md) – Return field-resolved properties and records of every real conflict.
 - [**next_chunk_id**](next_chunk_id.md) – Return the deterministic id for a Chunk -[:NEXT_CHUNK]-> Chunk edge.
 - [**part_of_id**](part_of_id.md) – Return the id for one versioned Document -[:PART_OF]-> Chunk edge.

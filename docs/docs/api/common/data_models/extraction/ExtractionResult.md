@@ -13,8 +13,9 @@ The entities and relations one Extractor call found in one Chunk.
 
 - [**entities**](#agrag-common-data_models-extraction-ExtractionResult-entities) (<code>list\[[ExtractedEntity](ExtractedEntity.md)\]</code>) – The mentions found, in extraction order.
 - [**relations**](#agrag-common-data_models-extraction-ExtractionResult-relations) (<code>list\[[ExtractedRelation](ExtractedRelation.md)\]</code>) – The relation mentions found, referencing entities by index.
-- [**extractor_name**](#agrag-common-data_models-extraction-ExtractionResult-extractor_name) (<code>str</code>) – Which Extractor produced this result. Set by the Extractor
-  itself; useful for provenance when a EscalatingExtractor escalated.
+- [**extractor_name**](#agrag-common-data_models-extraction-ExtractionResult-extractor_name) (<code>str</code>) – Which Extractor produced this result. Set by the
+  Extractor itself. Useful for provenance when an EscalatingExtractor
+  escalated.
 
 ## `entities` \{#agrag-common-data_models-extraction-ExtractionResult-entities}
 

@@ -130,7 +130,7 @@ Alan Turing, Bletchley, Bombe (rating 1.0, weight 2.0)
 
 The titles and summaries that an LLM writes differ from run to run. The group members and the internal weights do not, because the clustering uses a fixed seed.
 
-An LLM report can contain a mistake. Check its `findings` against the relations that the graph stores.
+An LLM report can contain a mistake. Compare its `findings` with the relations that the graph stores.
 
 ## 3. Handle a missing LLM
 
@@ -138,10 +138,7 @@ If the `llm` extra is missing or a call fails, Agentic GraphRAG writes the simpl
 
 ## 4. Change the grouping
 
-Pass these arguments to `detect_communities`:
-
-- `resolution`: a higher value gives smaller groups. The default is 1.0. On the example graph, 1.0 gives groups of 3, 3, and 5 members, and 5.0 gives groups of 2, 2, 2, and 3 members.
-- `seed`: the random seed. Keep the default for repeatable groups.
+Pass these arguments to `detect_communities`. A higher `resolution` gives smaller groups. The default is 1.0. On the example graph, 1.0 gives groups of 3, 3, and 5 members, and 5.0 gives groups of 2, 2, 2, and 3 members. `seed` is the random seed. Keep the default for repeatable groups.
 
 The argument `max_cluster_size` does not shrink the groups that Agentic GraphRAG keeps. Leave it at the default of 10.
 

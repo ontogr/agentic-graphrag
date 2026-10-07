@@ -15,11 +15,11 @@
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue?logo=readthedocs)](https://ontogr.github.io/agentic-graphrag/)
 [![License](https://img.shields.io/github/license/ontogr/agentic-graphrag?color=green)](LICENSE)
 
-**[Documentation](https://ontogr.github.io/agentic-graphrag/)** · [Quickstart](#quickstart) · [Concepts](https://ontogr.github.io/agentic-graphrag/concepts/architecture) · [Guides](https://ontogr.github.io/agentic-graphrag/guides/ingest-documents) · [API reference](https://ontogr.github.io/agentic-graphrag/api)
+[Documentation](https://ontogr.github.io/agentic-graphrag/) · [Quickstart](#quickstart) · [Concepts](https://ontogr.github.io/agentic-graphrag/concepts/architecture) · [Guides](https://ontogr.github.io/agentic-graphrag/guides/ingest-documents) · [API reference](https://ontogr.github.io/agentic-graphrag/api)
 
 </div>
 
-Agentic GraphRAG is a modular, schema-driven system. It builds knowledge graphs from unstructured and structured data. It retrieves evidence across graph and vector indexes. It answers questions with agentic reasoning and cites its evidence.
+Agentic GraphRAG is a modular, schema-driven system. It builds knowledge graphs from unstructured and structured data. A knowledge graph links typed entities with relations. It retrieves evidence across graph and vector indexes. It answers questions with agentic reasoning and cites its evidence.
 
 A plain vector search finds passages that look like your question. It cannot join a fact in one document to a fact in another. "Who founded the company that Satya Nadella works at?" needs two facts from two places. A graph joins them.
 
@@ -27,26 +27,26 @@ A plain vector search finds passages that look like your question. It cannot joi
   <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/pipeline.png" alt="Agentic GraphRAG pipeline. Sources are loaded, chunked, extracted, and resolved into a Neo4j graph and optional vector stores. Retrieval feeds a planner, researcher, and verifier agent that returns a cited answer. OpenTelemetry traces every layer." width="900">
 </p>
 
-- **One ingestion API** for raw text, files, directories, globs, and prebuilt documents.
-- **Structure-aware loading and chunking** with core text readers, Docling for rich documents, and Chonkie for text chunking.
-- **Schema-driven extraction** with runtime-defined entity types, relation types, and valid graph patterns.
-- **Local-first extraction cascade** using GLiNER 2.5 with type-safe BAML/LLM fallback for weak or ambiguous chunks. No LLM key is needed to build a graph.
-- **Tiered entity resolution** combining exact, fuzzy, embedding, and LLM-verified matching. An unsure comparison never matches.
-- **Non-destructive matching.** Fuzzy, embedding, and LLM matches write `MATCHES` edges and a derived `ResolvedEntity`. The original entities and their provenance stay in the graph.
-- **Pluggable storage** with Neo4j for graph data and native vectors, plus Qdrant, Weaviate, and Milvus/Zilliz for dedicated vector search.
-- **Layered retrieval** across entities, chunks, community reports, graph neighborhoods, and generated Cypher, with hybrid fusion and reranking.
-- **Agentic plan–research–verify loop** that decomposes questions, gathers evidence, checks it, and produces cited answers.
-- **OpenTelemetry-native observability** across loading, chunking, extraction, resolution, storage, retrieval, and agent turns.
+- One ingestion API for raw text, files, directories, globs, and prebuilt documents.
+- Structure-aware loading and chunking with core text readers, Docling for rich documents, and Chonkie for text chunking.
+- Schema-driven extraction with runtime-defined entity types, relation types, and valid graph patterns.
+- Local-first extraction cascade using GLiNER 2.5 with type-safe BAML/LLM fallback for weak or ambiguous chunks. You need no LLM key to build a graph.
+- Tiered entity resolution combining exact, fuzzy, embedding, and LLM-verified matching. An unsure comparison never matches.
+- Non-destructive matching. Fuzzy, embedding, and LLM matches write `MATCHES` edges and a derived `ResolvedEntity`. The original entities and their provenance stay in the graph.
+- Pluggable storage with Neo4j for graph data and native vectors, plus Qdrant, Weaviate, and Milvus/Zilliz for dedicated vector search.
+- Layered retrieval across entities, chunks, community reports, graph neighborhoods, and generated Cypher, with hybrid fusion and reranking.
+- Agentic plan-research-verify loop that decomposes questions, gathers evidence, checks it, and produces cited answers.
+- OpenTelemetry-native observability across loading, chunking, extraction, resolution, storage, retrieval, and agent turns.
 
-The system is built using:
+The system uses:
 
-- [**Docling**](https://github.com/docling-project/docling) and [**Chonkie**](https://github.com/chonkie-inc/chonkie) for document parsing and chunking.
-- [**GLiNER 2.5**](https://github.com/urchade/GLiNER) for local schema-guided entity and relation extraction.
-- [**BAML**](https://boundaryml.com/) for typed LLM functions and provider-independent client routing.
-- [**Neo4j**](https://neo4j.com/) for the property graph and optional native vector search.
-- [**Qdrant**](https://qdrant.tech/), [**Weaviate**](https://weaviate.io/), and [**Milvus**](https://milvus.io/) for dense and hybrid retrieval.
-- [**Sentence Transformers**](https://www.sbert.net/) and [**FastEmbed**](https://github.com/qdrant/fastembed) for dense and sparse embeddings.
-- [**OpenTelemetry**](https://opentelemetry.io/) for vendor-neutral traces and metrics.
+- [Docling](https://github.com/docling-project/docling) and [Chonkie](https://github.com/chonkie-inc/chonkie) for document parsing and chunking.
+- [GLiNER 2.5](https://github.com/urchade/GLiNER) for local schema-guided entity and relation extraction.
+- [BAML](https://boundaryml.com/) for typed LLM functions and provider-independent client routing.
+- [Neo4j](https://neo4j.com/) for the property graph and optional native vector search.
+- [Qdrant](https://qdrant.tech/), [Weaviate](https://weaviate.io/), and [Milvus](https://milvus.io/) for dense and hybrid retrieval.
+- [Sentence Transformers](https://www.sbert.net/) and [FastEmbed](https://github.com/qdrant/fastembed) for dense and sparse embeddings.
+- [OpenTelemetry](https://opentelemetry.io/) for vendor-neutral traces and metrics.
 
 ## Knowledge Graph
 
@@ -66,7 +66,7 @@ An entity node carries its schema type as a label, for example `:Person`. You ca
 
 ### Documents and chunks
 
-Documents keep their source URI, format, loader, content hash, and record identity. Text formats use content-based identities; binary Docling formats use raw-byte hashes. Chunks keep stable document links and source provenance:
+Documents keep their source URI, format, loader, content hash, and record identity. Text formats use content-based identities. Binary Docling formats use raw-byte hashes. Chunks keep stable document links and source provenance:
 
 - Text chunks record character and line spans plus their heading path.
 - Layout-aware chunks record page numbers and bounding boxes.
@@ -90,9 +90,9 @@ Leiden clustering groups related entities into communities. `Graph.detect_commun
 
 `GraphSchema` is a first-class runtime value. It defines:
 
-- entity types and their descriptions;
-- relation types and their descriptions;
-- valid `(source, relation, target)` patterns;
+- entity types and their descriptions.
+- relation types and their descriptions.
+- valid `(source, relation, target)` patterns.
 - the vocabulary injected into local and LLM extractors.
 
 Use the `GENERIC` preset for open-domain data or provide a schema for a specific domain. The same schema guides extraction, validation, resolution, storage, and query generation.
@@ -110,22 +110,22 @@ Query:     question -> plan -> research -> verify -> cited answer
 
 `Graph.add()` is the single entry point for adding content. The pipeline has six stages:
 
-1. **Load:** Select a loader by format. Decode or parse the source. Preserve source metadata. Apply `RAISE`, `SKIP`, or `QUARANTINE` as the error policy for each source.
-2. **Chunk:** Use Docling's layout-aware chunking for documents that Docling read; use Chonkie chunkers for text and record documents. Rules pick the chunker for each document.
-3. **Extract:** Run GLiNER locally against the active schema. Escalate weak results to a typed BAML extraction function when configured. Validation drops entities and triples that do not conform to the schema.
-4. **Resolve:** Apply exact, fuzzy, embedding, and LLM-verified comparison tiers. Ambiguous or failed comparisons do not match.
-5. **Merge:** Combine the mentions of exact matches into one entity. Decide each property value and join the chunk ids that mention it. Fuzzy, embedding, and LLM matches are stored as `MATCHES` edges, not merged.
-6. **Store:** Upsert nodes and relations, then populate graph-native or dedicated vector indexes.
+1. Load: Select a loader by format. Decode or parse the source. Preserve source metadata. Apply `RAISE`, `SKIP`, or `QUARANTINE` as the error policy for each source.
+2. Chunk: Use Docling layout-aware chunking for documents that Docling read. Use Chonkie chunkers for text and record documents. Rules pick the chunker for each document.
+3. Extract: Run GLiNER locally against the active schema. Escalate weak results to a typed BAML extraction function when configured. Validation drops entities and triples that do not conform to the schema.
+4. Resolve: Apply exact, fuzzy, embedding, and LLM-verified comparison tiers. Ambiguous or failed comparisons do not match.
+5. Merge: Combine the mentions of exact matches into one entity. Decide each property value and join the chunk ids that mention it. Fuzzy, embedding, and LLM matches are stored as `MATCHES` edges, not merged.
+6. Store: Upsert nodes and relations, then populate graph-native or dedicated vector indexes.
 
-The extraction cascade replaces a weak local result with the LLM result instead of combining two conflicting outputs. A chunk escalates when the local model finds no entities in a chunk of eight words or more, or when the mean entity confidence is below 0.5. Exact matches use global store-backed lookup; more expensive fuzzy and LLM comparisons run on a smaller candidate set.
+The extraction cascade replaces a weak local result with the LLM result instead of combining two conflicting outputs. A chunk escalates if the local model finds no entities in a chunk of eight words or more. It also escalates if the mean entity confidence is below 0.5. Exact matches use global store-backed lookup. More expensive fuzzy and LLM comparisons run on a smaller candidate set.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ontogr/agentic-graphrag/main/docs/static/img/readme/resolution.png" alt="Entity resolution tiers. A pair of mentions with the same label passes an exact tier, a fuzzy tier, an embedding tier, and an LLM tier. An unsure pair is never matched. A match writes MATCHES edges and a derived ResolvedEntity, and the original entities stay." width="900">
 </p>
 
-Only mentions with the same label are compared, so a city and a company with the same name stay apart. A wrong match mixes the facts of two things, and a missed match can be fixed later. For that reason every tier prefers "no match" when it is not sure.
+The pipeline compares only mentions with the same label, so a city and a company with the same name stay apart. A wrong match mixes the facts of two things, and a missed match can be fixed later. For that reason every tier prefers "no match" when it is not sure.
 
-`Graph.consolidate()` provides a separate whole-graph reconciliation pass for duplicates found across ingestion runs. It is dry-run by default so applications can inspect proposed matches before applying them.
+`Graph.consolidate()` provides a separate whole-graph reconciliation pass for duplicates found across ingestion runs. It runs as a dry run by default, so applications can inspect proposed matches before they apply them.
 
 `Graph.update()` replaces a document that changed, and an unchanged document is a no-op. `Graph.delete_document()` removes a document from search and prunes entities that lose their last evidence. Both work on a document key, and each runs as one job, so a crash leaves the document whole.
 
@@ -159,11 +159,11 @@ All dedicated vector stores share collection lifecycle, batch upsert, retrieval,
 
 Retrieval composes small search methods into retrievers, runs them concurrently, and fuses their results through data-only recipes.
 
-- **Entity retrieval** finds entities and resolved entities by dense or hybrid search and can expand matched seeds with bounded graph traversal.
-- **Chunk retrieval** returns source passages with document and span provenance.
-- **Community retrieval** searches community reports for thematic and corpus-wide questions.
-- **Text-to-Cypher retrieval** generates a schema-aware, read-only query with bounded retries.
-- **Graph traversal** uses bounded breadth-first search to collect connected evidence.
+- Entity retrieval finds entities and resolved entities by dense or hybrid search and can expand matched seeds with bounded graph traversal.
+- Chunk retrieval returns source passages with document and span provenance.
+- Community retrieval searches community reports for thematic and corpus-wide questions.
+- Text-to-Cypher retrieval generates a schema-aware, read-only query with bounded retries.
+- Graph traversal uses bounded breadth-first search to collect connected evidence.
 
 | Recipe | Search methods | Extra steps |
 | --- | --- | --- |
@@ -192,9 +192,9 @@ results = await engine.search("What treats headaches?", HYBRID)
 
 The agent coordinates three roles around the retrieval layer:
 
-- **Planner:** splits a question into two to four focused sub-questions and writes the final answer.
-- **Researcher:** searches the graph with entity, chunk, community, graph, and Cypher tools; every evidence item keeps its citation key.
-- **Verifier:** has no tools. It checks each sub-question against the cited evidence and returns one verdict.
+- Planner: splits a question into two to four focused sub-questions and writes the final answer.
+- Researcher: searches the graph with entity, chunk, community, graph, and Cypher tools. Every evidence item keeps its citation key.
+- Verifier: has no tools. It checks each sub-question against the cited evidence and returns one verdict.
 
 | Verdict | Meaning | Next step |
 | --- | --- | --- |
@@ -202,15 +202,15 @@ The agent coordinates three roles around the retrieval layer:
 | `INSUFFICIENT` | A sub-question lacks evidence, or a claim does not match its evidence. | The planner sends the gaps back to the researcher, up to three times. |
 | `CONTRADICTORY` | Two cited pieces of evidence conflict. | The planner states the conflict in the answer. |
 
-When the retry limit is reached, the planner answers from the evidence it has and names the sub-questions it could not answer. Each run keeps a ledger that maps every citation key to its stored evidence: `E` for an entity, `R` for a relation, `C` for a chunk, `G` for a community report, and `V` for a query value. You can limit every search to one document or tenant.
+When the retry limit is reached, the planner answers from the evidence it has and names the sub-questions it did not answer. Each run keeps a ledger. The ledger maps every citation key to stored evidence. `E` means an entity, `R` means a relation, `C` means a chunk, `G` means a community report, and `V` means a query value. You can limit every search to one document or tenant.
 
 ## Structured LLM Output
 
-BAML defines typed contracts for entity and relation extraction, entity-match verification, community reports, description summaries, and Cypher generation. Runtime client registries support a single provider, fallback chains, or round-robin routing across OpenAI, Anthropic, AWS Bedrock, Google AI, Vertex AI, Azure OpenAI, and OpenAI-compatible endpoints. The agent uses an OpenAI-compatible endpoint that you set with `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`.
+BAML defines typed contracts for entity and relation extraction, entity-match verification, community reports, description summaries, and Cypher generation. Runtime client registries support a single provider, fallback chains, or round-robin routing. They route across OpenAI, Anthropic, AWS Bedrock, Google AI, Vertex AI, Azure OpenAI, and OpenAI-compatible endpoints. The agent uses an OpenAI-compatible endpoint that you set with `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID`.
 
 ## Observability and Failure Handling
 
-OpenTelemetry API support is part of the core package; exporters and the SDK are optional. You pass the tracer, and Agentic GraphRAG never installs a global one. Applications can send traces to any OTLP-compatible backend. Spans cover loading, chunking, extraction, model calls, resolution, storage writes, searches, and agent turns.
+OpenTelemetry API support is part of the core package. Exporters and the SDK are optional. You pass the tracer, and Agentic GraphRAG never installs a global one. Applications can send traces to any OTLP-compatible backend. Spans cover loading, chunking, extraction, model calls, resolution, storage writes, searches, and agent turns.
 
 Long-running graph builds report bounded, structured stage statistics for ingestion, extraction, resolution, merging, and storage. Failures include the affected item, error type, message, and trace/span IDs. Full detail remains in the trace backend so result objects stay bounded on large corpora.
 
@@ -261,7 +261,7 @@ uv pip install "agentic-graphrag[community]"
 
 ## Quickstart
 
-You need a Neo4j database, version 5.23 or newer. The free [Neo4j Aura](https://ontogr.github.io/agentic-graphrag/get-started/quickstart) tier works, and the full [Quickstart](https://ontogr.github.io/agentic-graphrag/get-started/quickstart) shows the setup. Install the extras for this page with uv 0.6.9 or newer, and save your credentials as `.env` in the working directory. The file sets `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD`.
+You need a Neo4j database, version 5.23 or newer. The free [Neo4j Aura](https://ontogr.github.io/agentic-graphrag/get-started/quickstart) tier works, and the full [Quickstart](https://ontogr.github.io/agentic-graphrag/get-started/quickstart) shows the setup. Install the extras for this page with uv 0.6.9 or newer. Save your credentials as `.env` in the working directory. The file sets `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD`.
 
 ```bash
 uv pip install "agentic-graphrag[neo4j,extract,embed-local,agents]" --torch-backend=auto
@@ -343,7 +343,7 @@ relations extracted: 3
 
 ### Ask a question
 
-This step needs an OpenAI-compatible LLM endpoint. Add `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` to `.env`, then save this script as `ask.py`:
+This step needs an OpenAI-compatible LLM endpoint. Add `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_ID` to `.env`. Then save this script as `ask.py`:
 
 ```python
 import asyncio
@@ -400,9 +400,9 @@ The agent needed two facts from two sentences. It joined them through the `Micro
 
 `Graph.add()` accepts exactly one of:
 
-- `source=` — a file, directory, glob, or list of paths;
-- `text=` — raw text as one document;
-- `documents=` — prebuilt `Document` objects.
+- `source=`: a file, directory, glob, or list of paths.
+- `text=`: raw text as one document.
+- `documents=`: prebuilt `Document` objects.
 
 ```python
 files = await graph.add(source="./corpus/**/*.md", return_chunks=True)
@@ -507,15 +507,15 @@ The work below shaped the design of Agentic GraphRAG.
 <details>
 <summary>Papers and projects</summary>
 
-- [Microsoft GraphRAG](https://arxiv.org/abs/2404.16130) — hierarchical communities and community reports
-- [Graphiti](https://github.com/getzep/graphiti) — layered graph search and entity-aware retrieval
-- [Cognee](https://github.com/topoteretes/cognee) — data pipelines, graph memory, and consolidation
-- [KG-Gen](https://github.com/stair-lab/kg-gen) — knowledge-graph extraction and alias deduplication
-- [FalkorDB GraphRAG SDK](https://github.com/FalkorDB/GraphRAG-SDK) — graph-native retrieval and entity resolution
-- [Neo4j GraphRAG](https://github.com/neo4j/neo4j-graphrag-python) — Neo4j retrieval and vector integration
-- [LightRAG](https://github.com/HKUDS/LightRAG) — graph and vector retrieval
-- [PathRAG](https://github.com/BUPT-GAMMA/PathRAG) — relational-path retrieval
-- [GLiNER](https://arxiv.org/abs/2311.08526) — generalist zero-shot information extraction
+- [Microsoft GraphRAG](https://arxiv.org/abs/2404.16130): hierarchical communities and community reports
+- [Graphiti](https://github.com/getzep/graphiti): layered graph search and entity-aware retrieval
+- [Cognee](https://github.com/topoteretes/cognee): data pipelines, graph memory, and consolidation
+- [KG-Gen](https://github.com/stair-lab/kg-gen): knowledge-graph extraction and alias deduplication
+- [FalkorDB GraphRAG SDK](https://github.com/FalkorDB/GraphRAG-SDK): graph-native retrieval and entity resolution
+- [Neo4j GraphRAG](https://github.com/neo4j/neo4j-graphrag-python): Neo4j retrieval and vector integration
+- [LightRAG](https://github.com/HKUDS/LightRAG): graph and vector retrieval
+- [PathRAG](https://github.com/BUPT-GAMMA/PathRAG): relational-path retrieval
+- [GLiNER](https://arxiv.org/abs/2311.08526): generalist zero-shot information extraction
 - [BAML](https://boundaryml.com/), [Docling](https://github.com/docling-project/docling), and [Chonkie](https://github.com/chonkie-inc/chonkie)
 
 </details>

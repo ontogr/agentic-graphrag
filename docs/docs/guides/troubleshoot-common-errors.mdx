@@ -19,7 +19,7 @@ neo4j.exceptions.AuthError: {neo4j_code: Neo.ClientError.Security.Unauthorized} 
 The username or password does not match the server. Agentic GraphRAG reads `NEO4J_USERNAME` and `NEO4J_PASSWORD`. The default password is `neo4j`, so a server with another password fails.
 
 1. Set `NEO4J_USERNAME` and `NEO4J_PASSWORD` in your shell or in a `.env` file to the values of your server.
-2. Run this check. It prints `connected` when the login works.
+2. Run this test. It prints `connected` when the login works.
 
 ```python
 import asyncio
@@ -47,9 +47,9 @@ neo4j.exceptions.ServiceUnavailable: Couldn't connect to localhost:7699 (resolve
 
 Nothing accepts connections at `NEO4J_URI`. The server can be stopped, on another port, or still starting. A new Neo4j container needs about 30 seconds.
 
-1. Check that the server runs. For Docker, run `docker ps`.
-2. Check that `NEO4J_URI` names the right host and port. The default is `bolt://localhost:7687`.
-3. Run the check from the previous section until it prints `connected`.
+1. Make sure that the server runs. For Docker, run `docker ps`.
+2. Make sure that `NEO4J_URI` names the right host and port. The default is `bolt://localhost:7687`.
+3. Run the test from the previous section until it prints `connected`.
 
 ## Agentic GraphRAG refuses the Neo4j address
 
@@ -143,7 +143,7 @@ print(schema.name, [entity.label for entity in schema.entities])
 
 A search that finds nothing raises no error in most cases. These are the causes, from most to least common.
 
-**The engine uses a different schema than the graph.** `SearchEngine` searches the entity indexes of one schema. Without `graph_schema`, it uses the generic schema. A graph opened with another schema then returns no entities. Pass the same schema to `Graph.open` and to `SearchEngine`:
+The engine uses a different schema than the graph. `SearchEngine` searches the entity indexes of one schema. Without `graph_schema`, it uses the generic schema. A graph opened with another schema then returns no entities. Pass the same schema to `Graph.open` and to `SearchEngine`:
 
 ```python fixture:clean_neo4j
 import asyncio
@@ -176,11 +176,11 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-**A filter matches nothing.** `SearchFilters(document_ids=[...])` keeps only results from those documents. An id that no ingested document has gives an empty list. Check the ids.
+A filter matches nothing. `SearchFilters(document_ids=[...])` keeps only results from those documents. An id that no ingested document has gives an empty list. Make sure that each id names an ingested document.
 
-**The vector index does not exist.** A search in the Neo4j vector indexes returns no hits when the index is missing. `Graph.open` creates the indexes. Open the graph once before you search.
+The vector index does not exist. A search in the Neo4j vector indexes returns no hits when the index is missing. Before you search, open the graph once. `Graph.open` creates the indexes.
 
-**The vector store has no collections for this graph.** With a vector store on the engine, you can see:
+The vector store has no collections for this graph. With a vector store on the engine, you can see:
 
 ```text
 AllRetrievalMethodsFailedError: every retrieval method failed: entity: UnexpectedResponse(); chunk: UnexpectedResponse()
@@ -188,7 +188,7 @@ AllRetrievalMethodsFailedError: every retrieval method failed: entity: Unexpecte
 
 Only `Graph.open(vector_store=...)` creates the collections. Open the graph with the same vector store and ingest your documents.
 
-**The engine uses another embedder than the graph.** A query vector of another size makes each Neo4j vector search fail, so `search` raises `AllRetrievalMethodsFailedError` instead of returning results. Pass `SearchEngine` the embedder that you pass to `Graph.open`. To change the model of the graph, see the next section.
+The engine uses another embedder than the graph. A query vector of another size makes each Neo4j vector search fail, so `search` raises `AllRetrievalMethodsFailedError` instead of returning results. Pass `SearchEngine` the embedder that you pass to `Graph.open`. To change the model of the graph, see the next section.
 
 The simple agent answers `No relevant evidence found.` when a search returns nothing.
 

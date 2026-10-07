@@ -1,7 +1,7 @@
-"""Merge mechanics: computing how a resolved group of mentions and entities combine.
+"""Merge mechanics: how a resolved group of mentions and entities combine.
 
-This module is storage-agnostic: it decides what a merge should look like,
-but never touches GraphStore itself. Applying a computed MergePlan is a
+This module is storage-agnostic. It decides what a merge must look like,
+but it never touches GraphStore itself. Applying a computed MergePlan is a
 separate step.
 """
 
@@ -80,13 +80,13 @@ class MergePlan(BaseModel):
     Attributes:
         survivor: The resulting Entity. Its merge_count and
             source_chunk_ids are this call's best local computation, for
-            reporting; apply_merge writes new_source_chunk_ids and
+            reporting. apply_merge writes new_source_chunk_ids and
             merge_count_delta atomically instead, so a concurrent writer's
             own contribution to the same node is never overwritten.
         conflicts: Every field that had more than one candidate value.
         accepted_merge_keys: Every normalized merge_key this merge
-            accepted -- from existing_entities and mentions alike, not only
-            the survivor's own chosen name -- so a later mention of any
+            accepted, from existing_entities and mentions alike, not only
+            the survivor's own chosen name. A later mention of any
             accepted name resolves back to this entity instead of creating
             a duplicate.
         new_source_chunk_ids: The chunk ids this call's mentions contribute,
@@ -185,7 +185,7 @@ async def resolve_description(
     """Resolve a description field, trying LLM summarization.
 
     A single distinct candidate needs no LLM call. Multiple candidates try
-    LLM summarization; on failure, fall back to concatenation.
+    LLM summarization. On failure, fall back to concatenation.
 
     Args:
         candidates: Candidate values in encounter order.
@@ -352,7 +352,7 @@ async def compute_merge(  # noqa: PLR0912
 
     No storage is touched. Zero existing entities produces a brand-new Entity.
     One produces an updated copy folding in the mentions. Two or more picks a
-    canonical entity for the survivor's identity; the others contribute
+    canonical entity for the survivor identity. The others contribute
     property values and accepted merge-key aliases.
 
     Args:
@@ -507,7 +507,7 @@ class _TransferredRelationship:
 def _parse_relationship_rows(
     rows: list[dict[str, object]],
 ) -> list[_TransferredRelationship]:
-    """Parse relationship-query rows, skipping any that fail to parse.
+    """Parse relationship-query rows. Skip any that fail to parse.
 
     Args:
         rows: Relationship rows, each carrying one edge's other-end id,
@@ -613,7 +613,7 @@ def relation_id(source_id: UUID, target_id: UUID, rel_type: str) -> UUID:
 
     Two concurrent ``add()`` calls resolving the same ``(source_id,
     target_id, rel_type)`` triple can both miss the existing-relation lookup
-    and each try to create it; since this id depends only on the triple, both
+    and each try to create it. Since this id depends only on the triple, both
     writers compute the same one, so ``upsert_relation_query``'s ``MERGE``
     converges to a single edge instead of two parallel ones with unrelated
     random ids. Mirrors ``mentioned_in_id``.
@@ -665,10 +665,10 @@ async def apply_merge(
 ) -> None:
     """Write a computed MergePlan to storage.
 
-    Every call runs inside one GraphStore transaction: it upserts the
+    Every call runs inside one GraphStore transaction. It upserts the
     survivor and records a merge-key alias for its current name. A
-    failure partway through leaves no half-written state: no survivor
-    without its alias.
+    failure partway through leaves no half-written state. No survivor
+    without its alias remains.
 
     Args:
         plan: The merge to write.
@@ -735,7 +735,7 @@ async def apply_merge(
 
 
 def mentioned_in_id(chunk_id: UUID, entity_id: UUID) -> UUID:
-    """Return the deterministic id for a new Chunk -[:MENTIONED_IN]-> Entity edge.
+    """Return the deterministic id for a new Chunk MENTIONED_IN Entity edge.
 
     Only a fresh id for a pair with no persisted edge yet is guaranteed to equal
     this. A caller writing to an already-persisted pair should look up the

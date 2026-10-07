@@ -9,11 +9,12 @@ Bases: <code>BaseModel</code>
 
 A versioned contract of entity and relation types.
 
-Every extraction call is validated against a GraphSchema; there is no schema-free
-extraction path. Round-trip with `model_dump(mode="json")`/`model_validate()`.
-A schema declaring an entity property name the vector payload reserves fails that
-validation, so a payload written before the check existed must be migrated before
-it loads again. See `EntityType.properties`.
+Every extraction call is validated against a GraphSchema. There is no
+schema-free extraction path. Round-trip with
+`model_dump(mode="json")` and `model_validate()`. A schema declaring
+an entity property name that the vector payload reserves fails that
+validation, so a payload written before the check existed must be migrated
+before it loads again. See `EntityType.properties`.
 
 **Attributes:**
 

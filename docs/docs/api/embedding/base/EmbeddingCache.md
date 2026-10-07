@@ -11,10 +11,10 @@ A content-addressed cache for embedding vectors.
 
 `normalize` is part of the cache key alongside `text` and `model`
 because it changes the vector an embedder produces for the same text and
-model: without it, embedders sharing one cache but configured with
-opposite `EmbeddingSettings.normalize` values would read back the wrong
-output mode. Any future embedder setting that changes output values must
-join this key the same way.
+model. Without it, embedders sharing one cache but configured with
+opposite `EmbeddingSettings.normalize` values read back the wrong
+output mode. Any future embedder configuration value that changes output
+values must join this key in the same way.
 
 **Functions:**
 

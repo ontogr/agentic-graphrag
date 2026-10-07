@@ -9,7 +9,7 @@ sidebar_label: mentioned_in_id
 mentioned_in_id(chunk_id:UUID, entity_id:UUID) -> UUID
 ```
 
-Return the deterministic id for a new Chunk -[:MENTIONED_IN]-> Entity edge.
+Return the deterministic id for a new Chunk MENTIONED_IN Entity edge.
 
 Only a fresh id for a pair with no persisted edge yet is guaranteed to equal
 this. A caller writing to an already-persisted pair should look up the

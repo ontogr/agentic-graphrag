@@ -46,9 +46,9 @@ class ChunkRetriever(Retriever):
                 absent.
             embedder: Produces query vectors.
             vector_store: Optional VectorStore for hybrid search.
-            settings: Retrieval configuration; defaults from
+            settings: Retrieval configuration. Defaults from
                 environment.
-            tracer: Opens the retriever and its children's spans. None
+            tracer: Opens the retriever and its children spans. None
                 opens no recorded span.
         """
         self._graph_store = graph_store

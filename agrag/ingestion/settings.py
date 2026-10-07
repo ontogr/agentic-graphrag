@@ -8,8 +8,8 @@ class CutoverJobSettings(BaseSettings):
     """Configuration for the Cutover Job crash-recovery machine.
 
     Attributes:
-        lease_ttl_seconds: How long a worker's lease is valid before another
-            worker may steal it. Env: CUTOVER_JOB_LEASE_TTL_SECONDS.
+        lease_ttl_seconds: How long a worker lease stays valid before another
+            worker can take it. Env: CUTOVER_JOB_LEASE_TTL_SECONDS.
 
     Env prefix: ``CUTOVER_JOB_``.
     """

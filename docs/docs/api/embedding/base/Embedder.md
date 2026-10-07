@@ -28,8 +28,8 @@ dimensions() -> int
 
 Return the dimension of the vectors this embedder produces.
 
-Async because a lazily-loaded embedder may need to load its model to
-answer, and that load must go through the same worker-thread/lock
+Async because a lazily-loaded embedder can need to load its model to
+answer. That load must go through the same worker-thread and lock
 path `embed` uses rather than blocking the event loop.
 
 ## `distance` \{#agrag-embedding-base-Embedder-distance}
@@ -41,7 +41,7 @@ distance: Distance
 Return the distance metric for vector indexes created for this embedder.
 
 Defaults to cosine, which matches normalized sentence-transformer models.
-Concrete embedders may override when their vectors use a different
+Concrete embedders can override when their vectors use a different
 metric.
 
 ## `embed` \{#agrag-embedding-base-Embedder-embed}

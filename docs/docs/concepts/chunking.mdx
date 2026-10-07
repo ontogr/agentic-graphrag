@@ -51,10 +51,10 @@ The optional strategies need the `chunk-semantic`, `chunk-neural` or `chunk-code
 
 ### What a chunk carries
 
-- **Location.** A text chunk keeps a character range in the normalized document text. It also keeps a line range when the loader tracks lines. A docling chunk keeps page numbers and a box on each page.
-- **Headings.** A text chunk keeps the headings above it.
-- **Origin.** A chunk records its chunker name and a fingerprint of the chunker settings.
-- **Identity.** A text chunk id comes from the document and the character range. A docling chunk id comes from the document, the chunker fingerprint and the chunk number.
+- Location: a text chunk keeps a character range in the normalized document text. It also keeps a line range when the loader tracks lines. A docling chunk keeps page numbers and a box on each page.
+- Headings: a text chunk keeps the headings above it.
+- Origin: a chunk records its chunker name and a fingerprint of the chunker configuration.
+- Identity: a text chunk id comes from the document and the character range. A docling chunk id comes from the document, the chunker fingerprint and the chunk number.
 
 ### Parent and child chunks
 
@@ -69,15 +69,15 @@ A Markdown handbook has a section with three paragraphs. With the default fallba
 <details>
 <summary>Design choices</summary>
 
-**Why are chunking rules plain data?** A list of rules is easy to read and compare. No hidden logic assigns documents to strategies. A change to any rule changes the fingerprint.
+Why are chunking rules plain data? A list of rules is easy to read and compare. No hidden logic assigns documents to strategies. A change to any rule changes the fingerprint.
 
-**Why does Agentic GraphRAG own the chunk contract?** Chonkie and docling do the cutting, but they sit behind Agentic GraphRAG's chunkers. Every chunk then has the same fields, whichever engine made it.
+Why does Agentic GraphRAG own the chunk contract? Chonkie and docling do the cutting, but they sit behind Agentic GraphRAG's chunkers. Every chunk then has the same fields, whichever engine made it.
 
-**Why does the default count characters?** A character count needs no tokenizer model. The default changes only when a benchmark shows that another strategy does better.
+Why does the default count characters? A character count needs no tokenizer model. The default changes only when a benchmark shows that another strategy does better.
 
-**Why do parents and children exist?** Extraction wants wide context to find relations. Search wants small pieces to match precisely. Two levels give each what it needs.
+Why do parents and children exist? Extraction wants wide context to find relations. Search wants small pieces to match precisely. Two levels give each what it needs.
 
-**Why record the chunker on each chunk?** `Graph.update` compares it with the chunker that the rules pick now. If the settings changed, the document is chunked again even when its text did not change.
+Why record the chunker on each chunk? `Graph.update` compares it with the chunker that the rules pick now. If the configuration changed, the document is chunked again even when its text did not change.
 
 </details>
 
@@ -85,4 +85,4 @@ A Markdown handbook has a section with three paragraphs. With the default fallba
 
 - [Loading documents](./loading.mdx) describes how the text is read and normalized.
 - [Configure chunking](/guides/configure-chunking) shows how to set rules and strategies.
-- [Chunking API](/api/chunking) lists every chunker and its settings.
+- [Chunking API](/api/chunking) lists every chunker and its configuration.

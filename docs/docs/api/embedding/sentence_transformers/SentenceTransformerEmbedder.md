@@ -64,7 +64,7 @@ distance: Distance
 Return the distance metric for vector indexes created for this embedder.
 
 Defaults to cosine, which matches normalized sentence-transformer models.
-Concrete embedders may override when their vectors use a different
+Concrete embedders can override when their vectors use a different
 metric.
 
 ## `embed` \{#agrag-embedding-sentence_transformers-SentenceTransformerEmbedder-embed}

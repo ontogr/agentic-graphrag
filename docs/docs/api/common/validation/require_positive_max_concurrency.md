@@ -9,4 +9,4 @@ sidebar_label: require_positive_max_concurrency
 require_positive_max_concurrency(max_concurrency:int) -> None
 ```
 
-Check that a concurrency limit is positive.
+Make sure that a concurrency limit is positive.

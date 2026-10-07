@@ -7,4 +7,4 @@ sidebar_label: ChunkingError
 
 Bases: <code>Exception</code>
 
-A chunker broke the chunk contract or could not chunk a document.
+A chunker broke the chunk contract or failed to chunk a document.

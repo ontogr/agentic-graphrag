@@ -9,4 +9,4 @@ Graph.add()'s result type.
 
 **Classes:**
 
-- [**AddResult**](AddResult.md) – Graph.add()'s return type — one summary per pipeline stage.
+- [**AddResult**](AddResult.md) – Return type of Graph.add(). One summary per pipeline stage.

@@ -37,7 +37,7 @@ def fingerprint_of(value: object) -> str:
 
 
 class ChunkingError(Exception):
-    """A chunker broke the chunk contract or could not chunk a document."""
+    """A chunker broke the chunk contract or failed to chunk a document."""
 
 
 class ChunkerMissingExtraError(ChunkingError):
@@ -85,8 +85,8 @@ class Chunker(BaseModel, ABC):
     ) -> Self:
         """Copy the chunker, validating any changed setting.
 
-        A plain copy would keep the fingerprint and the splitter of the original,
-        so a copy with changes is built again from its settings.
+        A plain copy keeps the fingerprint and the splitter of the original.
+        A copy with changes is built again from its configuration.
         """
         if not update:
             return super().model_copy(deep=deep)
@@ -192,7 +192,7 @@ class Chunker(BaseModel, ABC):
 
 
 class SpanChunker(Chunker):
-    """A chunker that only decides where to cut; text and offsets come from the source.
+    """A chunker that only decides where to cut. Text and offsets come from the source.
 
     Subclasses build an engine that returns objects with ``start_index`` and
     ``end_index`` for a text. The chunk text is always a slice of the document text,

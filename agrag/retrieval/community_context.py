@@ -69,14 +69,14 @@ async def expand_with_communities(
 ) -> list[SearchResult]:
     """Fuse community reports overlapping seed entities into a result list.
 
-    A convenience over ``community_context``: looks up the communities
+    A convenience over ``community_context``. It looks up the communities
     that overlap ``seed_ids`` and fuses whatever comes back into ``fused``
     under a ``"community"`` key, so callers that already have a fused
     result list do not repeat the fetch-then-fuse pattern (or the
     error handling below).
 
     A community lookup that raises is recorded on the expansion span and
-    swallowed rather than propagating: community reports are enrichment on
+    swallowed rather than propagated. Community reports are enrichment on
     top of results that already exist, so a community-store failure must
     not discard them.
 
@@ -86,12 +86,12 @@ async def expand_with_communities(
         seed_ids: The entity ids to look for overlapping communities.
         graph_store: Where the overlap lookup runs.
         top_k: The maximum number of communities to add.
-        filters: Applied to the candidate community node; see
+        filters: Applied to the candidate community node. See
             ``community_context`` for what a scoped filter does and
             does not match. Community nodes carry no entity label and no
-            document scope of their own, so a document- or
-            property-scoped caller gets no community enrichment at all --
-            consistent with a plain search, not an error.
+            document scope of their own, so a document-scoped or
+            property-scoped caller gets no community enrichment at all.
+            This matches a plain search. It is not an error.
         rrf_k: The reciprocal-rank-fusion constant, from
             ``RetrievalSettings.rrf_k``.
         tracer: Opens the expansion spans. None opens no recorded span.

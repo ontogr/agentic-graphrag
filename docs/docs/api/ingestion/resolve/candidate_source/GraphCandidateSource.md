@@ -11,7 +11,7 @@ GraphCandidateSource(*, graph_store:GraphStore, embedder:Embedder, vector_store:
 
 Bases: <code>[CandidateSource](CandidateSource.md)</code>
 
-Blocks by label in-batch; ANN-searches persisted entities globally.
+Block by label in-batch. Search persisted entities globally with ANN.
 
 **Functions:**
 

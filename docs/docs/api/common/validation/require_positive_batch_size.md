@@ -9,7 +9,7 @@ sidebar_label: require_positive_batch_size
 require_positive_batch_size(batch_size:int) -> None
 ```
 
-Check that a backend write's `batch_size` is usable.
+Make sure that a backend write's `batch_size` is usable.
 
 Every backend chunks writes with `range(0, len(records), batch_size)`.
 A non-positive value breaks that: zero raises `ValueError` from

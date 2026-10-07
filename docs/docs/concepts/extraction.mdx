@@ -6,7 +6,7 @@ description: How Agentic GraphRAG turns chunk text into typed entity and relatio
 
 # Extraction
 
-Extraction reads one chunk at a time and lists the entities and relations in it. Every result must match a schema that you define.
+Extraction reads one chunk and lists its entities and relations. Every result must match a schema that you define.
 
 ## Why it exists
 
@@ -32,7 +32,7 @@ flowchart TD
 
 1. The extractor receives one chunk and the schema.
 2. The local model (GLiNER 2.5) proposes entities. Each entity has a label, a text span, and a confidence score. It also proposes relations between the entities.
-3. The cascade checks the result. It escalates in two cases. The local model found no entities in a chunk of at least eight words. Or the mean confidence of the entities is below 0.5.
+3. The cascade examines the result. It escalates in two cases. The local model found no entities in a chunk of at least eight words. Or the mean confidence of the entities is below 0.5.
 4. When the cascade escalates, an LLM reads the same chunk. The schema is part of its prompt. The LLM result replaces the local result. The cascade never combines the two.
 5. Validation removes every entity whose label the schema does not declare. It removes every relation whose label, or whose pair of entity types, the schema does not declare. It removes every property that the schema does not declare.
 6. The result is a list of mentions. A mention is not a graph node yet. It keeps its chunk, label, text, character span, and confidence.
@@ -57,13 +57,13 @@ The two sentences give six mentions. After resolution, they are four entities, b
 <details>
 <summary>Design choices</summary>
 
-**Why replace and not combine?** Two extractors can mark overlapping spans in different ways, for example "Analytical Engine" and "the Analytical Engine in London". Reconciling them is the work of entity resolution. Extraction keeps one source for each chunk.
+Why replace and not combine? Two extractors can mark overlapping spans in different ways, for example "Analytical Engine" and "the Analytical Engine in London". Reconciling them is the work of entity resolution. Extraction keeps one source for each chunk.
 
-**Why use the mean confidence?** One uncertain entity does not make a whole chunk weak. The mean looks at the entire result.
+Why use the mean confidence? One uncertain entity does not make a whole chunk weak. The mean looks at the entire result.
 
-**Why escalate an empty result only for chunks of eight words or more?** A short chunk with no entities is often correct. A long chunk with no entities is usually a miss.
+Why escalate an empty result only for chunks of eight words or more? A short chunk with no entities is often correct. A long chunk with no entities is usually a miss.
 
-**Why validate after extraction?** An LLM can invent a type or a property. The schema is the contract. Validation is the last step for every extractor, so the graph never receives an undeclared type.
+Why validate after extraction? An LLM can invent a type or a property. The schema is the contract. Validation is the last step for every extractor, so the graph never receives an undeclared type.
 
 </details>
 
