@@ -268,7 +268,10 @@ docs-dev: docs-api
 	cd docs && npm start
 
 docs-build: docs-api
-	cd docs && npm run build
+	cd docs && npm run build 2>&1 | tee build.log
+	@# Docusaurus reports many problems as warnings and still exits with success.
+	@grep -q '^\[SUCCESS\]' docs/build.log && ! grep -qE '^\[(WARNING|ERROR)\]' docs/build.log \
+	  || { echo "The docs build did not finish cleanly. Read docs/build.log."; exit 1; }
 
 # The docs tests need a Neo4j reachable through NEO4J_* (see docker/docker-compose.ci.yml).
 # Some blocks empty that database. They run only when DOCS_TEST_ALLOW_NEO4J_RESET=1,

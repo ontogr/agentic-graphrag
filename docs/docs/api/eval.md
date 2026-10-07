@@ -633,7 +633,7 @@ Use as a context manager around `agent.ainvoke` and read the run with
 `trajectory()` after. Each capture has its own provider and exporter,
 so captures never share spans and the global provider is unchanged.
 
-<details class="example" open markdown="1">
+<details open>
 <summary>Example</summary>
 
 ```python
@@ -2434,7 +2434,7 @@ Use as a context manager around `agent.ainvoke` and read the run with
 `trajectory()` after. Each capture has its own provider and exporter,
 so captures never share spans and the global provider is unchanged.
 
-<details class="example" open markdown="1">
+<details open>
 <summary>Example</summary>
 
 ```python

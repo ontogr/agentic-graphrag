@@ -36,3 +36,21 @@ def test_rewrite_is_idempotent() -> None:
     once = docs_api_links.rewrite(PAGES)
 
     assert docs_api_links.rewrite(once) == once
+
+
+def test_example_blocks_lose_the_attributes_the_docs_site_rejects() -> None:
+    """A raw class or markdown attribute on <details> clashes with the site's own."""
+    pages = {
+        "eval": (
+            '<details class="example" open markdown="1">\n'
+            "<summary>Example</summary>\n\n```python\nx = 1\n```\n\n</details>\n"
+            '<details class="note" markdown="1">\n<summary>Note</summary>\n</details>\n'
+        )
+    }
+
+    out = docs_api_links.rewrite(pages)["eval"]
+
+    assert "<details open>\n<summary>Example</summary>" in out
+    assert "<details>\n<summary>Note</summary>" in out
+    assert "class=" not in out
+    assert "markdown=" not in out

@@ -1,4 +1,4 @@
-"""Give generated API pages stable heading ids and working cross-page links."""
+"""Give generated API pages stable heading ids, working links, and valid HTML."""
 
 from __future__ import annotations
 
@@ -11,6 +11,9 @@ HEADING = re.compile(
     r"^(#{2,6}) `(agrag[\w.]*)`(?: \\?\{#[\w-]*\})?[ \t]*$", re.MULTILINE
 )
 LINK = re.compile(r"\[([^\]]+)\]\(#([^)\s]+)\)")
+# griffe2md writes admonitions as <details class="note" markdown="1">. The docs site
+# adds its own class to <details>, so a second class attribute breaks the HTML.
+DETAILS = re.compile(r'<details class="[^"]*"( open)? markdown="1">')
 
 
 def anchor_id(name: str) -> str:
@@ -26,6 +29,8 @@ def rewrite(pages: dict[str, str]) -> dict[str, str]:
     id (dots become hyphens, since ids cannot contain dots), points links at
     the page that owns the name, and drops links to names with no page
     (builtins, other libraries, undocumented modules), keeping their text.
+    It also drops the class and markdown attributes that griffe2md puts on
+    ``<details>`` blocks.
 
     Args:
         pages: Page text keyed by page name (file stem).
@@ -51,7 +56,7 @@ def rewrite(pages: dict[str, str]) -> dict[str, str]:
             return f"[{label}]({page}.md#{anchor})"
 
         text = HEADING.sub(lambda m: f"{m[1]} `{m[2]}` \\{{#{anchor_id(m[2])}}}", text)
-        return LINK.sub(link, text)
+        return DETAILS.sub(lambda m: f"<details{m[1] or ''}>", LINK.sub(link, text))
 
     return {name: rewrite_page(name, text) for name, text in pages.items()}
 

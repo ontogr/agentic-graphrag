@@ -423,7 +423,7 @@ Bases: <code>ABC</code>
 
 Reads one chunk and returns the entities and relations it contains.
 
-<details class="note" open markdown="1">
+<details open>
 <summary>Note</summary>
 
 Subclass this class to provide custom extraction. `Graph` awaits
@@ -732,7 +732,7 @@ leaves the document untouched or completes the deletion.
 - <code>[UpdateResult](#agrag-ingestion-reports-UpdateResult)</code> – under the key, otherwise `chunks_closed` with
 - <code>[UpdateResult](#agrag-ingestion-reports-UpdateResult)</code> – `new_content_hash=None` and no `add_result`.
 
-<details class="note" open markdown="1">
+<details open>
 <summary>Note</summary>
 
 The close-only degenerate case of `Graph.update()`; both
@@ -917,7 +917,7 @@ must resolve to exactly one document.
   override targets multiple sources, or a source resolves to any number
   of documents other than one.
 
-<details class="note" open markdown="1">
+<details open>
 <summary>Note</summary>
 
 The fresh-content path shares `ingest_chunks()` with
@@ -1559,7 +1559,7 @@ Bases: <code>ABC</code>
 
 Reads one chunk and returns the entities and relations it contains.
 
-<details class="note" open markdown="1">
+<details open>
 <summary>Note</summary>
 
 Subclass this class to provide custom extraction. `Graph` awaits
@@ -1876,7 +1876,7 @@ leaves the document untouched or completes the deletion.
 - <code>[UpdateResult](#agrag-ingestion-reports-UpdateResult)</code> – under the key, otherwise `chunks_closed` with
 - <code>[UpdateResult](#agrag-ingestion-reports-UpdateResult)</code> – `new_content_hash=None` and no `add_result`.
 
-<details class="note" open markdown="1">
+<details open>
 <summary>Note</summary>
 
 The close-only degenerate case of `Graph.update()`; both
@@ -2061,7 +2061,7 @@ must resolve to exactly one document.
   override targets multiple sources, or a source resolves to any number
   of documents other than one.
 
-<details class="note" open markdown="1">
+<details open>
 <summary>Note</summary>
 
 The fresh-content path shares `ingest_chunks()` with
