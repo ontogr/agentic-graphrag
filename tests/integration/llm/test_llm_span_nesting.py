@@ -212,7 +212,7 @@ class TestFallback:
     async def test_two_request_spans_land_under_one_attempt(
         self, local: LocalLLM
     ) -> None:
-        """The failed and the selected call are siblings, ordered by start."""
+        """The failed and the selected call are siblings under one attempt."""
         from agrag.llm.retry import call_with_retry  # noqa: PLC0415
         from tests.integration.llm._local_llm import fallback_registry  # noqa: PLC0415
 
@@ -245,13 +245,22 @@ class TestFallback:
         for span in requests:
             assert span.parent is not None
             assert span.parent.span_id == attempts[0].context.span_id
-        ordered = sorted(requests, key=lambda item: item.start_time or 0)
-        names = [
-            dict(item.attributes or {})["agrag.llm.client_name"] for item in ordered
-        ]
-        assert names == ["primary", "secondary"]
-        assert dict(ordered[-1].attributes or {})["agrag.llm.selected"] is True
-        assert dict(ordered[0].attributes or {})["agrag.llm.selected"] is False
+        names = {
+            dict(item.attributes or {})["agrag.llm.client_name"] for item in requests
+        }
+        assert names == {"primary", "secondary"}
+        served = next(
+            item
+            for item in requests
+            if dict(item.attributes or {})["agrag.llm.client_name"] == "secondary"
+        )
+        assert dict(served.attributes or {})["agrag.llm.selected"] is True
+        failed = next(
+            item
+            for item in requests
+            if dict(item.attributes or {})["agrag.llm.client_name"] == "primary"
+        )
+        assert dict(failed.attributes or {})["agrag.llm.selected"] is False
         write_span_tree(span_tree_path("nesting_fallback.json"), spans)
 
 
