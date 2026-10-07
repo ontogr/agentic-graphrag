@@ -11,8 +11,8 @@ One item failure within a pipeline stage.
 
 **Attributes:**
 
-- [**item_id**](#agrag-common-data_models-stage_failure-StageFailure-item_id) (<code>str</code>) – The chunk id, mention id, or batch id. Whichever unit
-  the stage failed on.
+- [**item_id**](#agrag-common-data_models-stage_failure-StageFailure-item_id) (<code>str</code>) – The chunk id, mention id, or batch id that the stage
+  failed on.
 - [**error_type**](#agrag-common-data_models-stage_failure-StageFailure-error_type) (<code>str</code>) – The exception's class name.
 - [**error_message**](#agrag-common-data_models-stage_failure-StageFailure-error_message) (<code>str</code>) – The exception's message.
 - [**trace_id**](#agrag-common-data_models-stage_failure-StageFailure-trace_id) (<code>str | None</code>) – The OTel trace id correlating to the full span detail,

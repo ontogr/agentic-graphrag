@@ -51,7 +51,7 @@ class Entity(DataPoint):
 
         Name alone, or name plus a "description" property when the schema
         declares one. Decided once, here, so every embedding call site
-        (resolution future embedding tier, storage-stage population,
+        (resolution's future embedding tier, storage-stage population,
         Graph.consolidate()) embeds the same text for the same entity.
         """
         description = self.properties.get("description")
@@ -67,7 +67,7 @@ class Entity(DataPoint):
         ExactMatch already uses in-batch, applied to a persisted store lookup.
         A derived value, not stored redundantly anywhere else on this model.
         to_node_record() computes it fresh from label and name on every write,
-        so it can never drift from what the fields it derives from state.
+        so it can never drift from what the fields it's derived from actually say.
         """
         return f"{self.label}:{normalize_text(self.name)}"
 

@@ -7,7 +7,7 @@ sidebar_label: DoclingChunker
 
 Bases: <code>[Chunker](../base/Chunker.md)</code>
 
-Split a parsed docling document with docling hybrid chunker.
+Splits a parsed docling document with docling's hybrid chunker.
 
 The chunker reads the parsed document that the docling loader keeps in
 `Document.metadata["_docling_document"]`. Each chunk has page provenance and

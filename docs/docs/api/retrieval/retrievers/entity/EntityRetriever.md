@@ -39,7 +39,7 @@ filter when the caller sets one, otherwise `entity_labels`.
   environment.
 - **entity_labels** (<code>Sequence\[str\] | None</code>) – The schema entity labels native search runs
   against. None uses settings.entity_labels.
-- **tracer** (<code>Tracer | None</code>) – Opens the retriever and its children spans. None
+- **tracer** (<code>Tracer | None</code>) – Opens spans for the retriever and its children. None
   opens no recorded span.
 
 ## `name` \{#agrag-retrieval-retrievers-entity-EntityRetriever-name}

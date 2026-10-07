@@ -212,7 +212,7 @@ Relational tools follow relationships between entities:
 | Tool | Purpose | Key parameters |
 |------|---------|----------------|
 | `find_related_entities` | Find the entities one relationship type away from an entity | `entity`, `relation_type`, `direction`, `community_expand` |
-| `traverse_from_entity` | Walk outward from an entity, with a fallback to relationship types when the neighbourhood is too wide | `entity`, `relation_type`, `direction`, `depth` |
+| `traverse_from_entity` | Walk outward from an entity, with a fallback to relationship types when the neighborhood is too wide | `entity`, `relation_type`, `direction`, `depth` |
 | `query_graph_directly` | Ask a structural question in one generated read-only Cypher query; present only for unscoped agents | `query` |
 
 If the generated query fails, `query_graph_directly` returns an error message, not "No results found.", so the agent can try another tool.

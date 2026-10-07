@@ -34,7 +34,7 @@ def _resolve_span(
 
     Trusts (hint_start, hint_end) only when it already points at an exact
     occurrence of text. Extractors can report an approximately right but
-    off-by-a-few span. This includes GLiNER own boundary predictions and
+    off-by-a-few span. This includes GLiNER's own boundary predictions and
     an LLM counting characters by hand. Rather than drop a real mention
     over that, this searches chunk_text for every occurrence of text. When
     text is unique in the chunk, it returns the one closest to hint_start.

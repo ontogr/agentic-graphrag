@@ -21,7 +21,7 @@ class ExtractedEntity(BaseModel):
         properties: Schema-declared property values this mention carries,
             keyed by property name. Empty for an extractor that only reports
             spans. normalize_extraction_result drops any key that the schema
-            does not declare for this mention label.
+            does not declare for this mention's label.
     """
 
     chunk_id: UUID

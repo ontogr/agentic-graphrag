@@ -35,7 +35,7 @@ Retrieval package: search engine, fusion, reranking, and retrievers.
 - [**RetrievalSettings**](settings/RetrievalSettings.md) – Configuration for retrieval methods and fusion.
 - [**Retriever**](retrievers/base/Retriever.md) – One retrieval method: given a query, return SearchResults.
 - [**ScopeDeniedError**](errors/ScopeDeniedError.md) – A request asked for data outside the caller's permitted scope.
-- [**SearchEngine**](search_engine/SearchEngine.md) – Retrieval public entry point, independent of Graph.
+- [**SearchEngine**](search_engine/SearchEngine.md) – Retrieval's public entry point, independent of Graph.
 - [**SearchFilters**](filters/SearchFilters.md) – Constraints applied across every retrieval method in one call.
 - [**Text2CypherRetriever**](retrievers/text2cypher/Text2CypherRetriever.md) – Let the agent ask structured questions via generated Cypher.
 - [**UnknownRecipeMethodError**](errors/UnknownRecipeMethodError.md) – A Recipe named a method SearchEngine does not know how to run.

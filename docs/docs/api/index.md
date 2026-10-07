@@ -39,7 +39,7 @@ Every component takes an OpenTelemetry `Tracer` in a `tracer=` argument. When yo
 | `AgentLLMSettings` | `from agrag.agents import AgentLLMSettings` | The LLM clients that the agent uses. |
 | `SearchFilters` | `from agrag.retrieval import SearchFilters` | Limits a search to labels, documents, or properties. |
 
-Environment variables for every configuration class are in the [Configuration reference](../reference/configuration.mdx).
+Environment variables for every settings class are in the [Configuration reference](../reference/configuration.mdx).
 
 ## Other packages
 

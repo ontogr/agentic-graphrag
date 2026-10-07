@@ -213,7 +213,7 @@ call will write before any node is touched. Pass apply=True to write
 them.
 
 Fetches every live domain relation across the whole graph (not scoped
-by entity label the way consolidate() is. Community structure spans
+by entity label the way consolidate() is; community structure spans
 entity types), builds a weighted edge list, and runs hierarchical
 Leiden off the event loop. Every prior run's Community nodes and
 MEMBER_OF edges are deleted before the new ones are written when

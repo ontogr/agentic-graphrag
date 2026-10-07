@@ -9,7 +9,7 @@ sidebar_label: SearchEngine
 SearchEngine(*, graph_store:GraphStore, embedder:Embedder, vector_store:VectorStore | None = None, settings:RetrievalSettings | None = None, entity_labels:Sequence[str] | None = None, graph_schema:GraphSchema | None = None, tracer:Tracer | None = None) -> None
 ```
 
-Retrieval public entry point, independent of Graph.
+Retrieval's public entry point, independent of Graph.
 
 Fans a query out to every method a Recipe names, fuses the
 results, and optionally reranks them. Constructed from its own

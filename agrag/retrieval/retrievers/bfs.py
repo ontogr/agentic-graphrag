@@ -38,7 +38,7 @@ class BFSRetriever(Retriever):
             graph_store: The graph store to traverse.
             settings: Retrieval configuration. Defaults from
                 environment.
-            tracer: Opens the retriever and its children spans. None
+            tracer: Opens spans for the retriever and its children. None
                 opens no recorded span.
         """
         self._graph_store = graph_store

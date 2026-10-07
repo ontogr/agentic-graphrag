@@ -13,4 +13,4 @@ this module does not require the `docling` extra.
 
 **Classes:**
 
-- [**DoclingChunker**](DoclingChunker.md) – Split a parsed docling document with docling hybrid chunker.
+- [**DoclingChunker**](DoclingChunker.md) – Splits a parsed docling document with docling's hybrid chunker.

@@ -171,8 +171,8 @@ def compute_communities(
        real LLM report instead of a heuristic one.
     - Each member local weight (weight of its own internal edges).
       It orders member_ids highest-first, so the most representative
-      members lead the list for both a large qualifying community
-      token-budget-truncated LLM prompt and a heuristic report
+      members lead the list for both a large qualifying community's
+      token-budget-truncated LLM prompt and a heuristic report's
       few-name summary.
 
     Args:

@@ -27,7 +27,7 @@ into traversal seeds.
   default, one vector index each.
 - **filters** (<code>[SearchFilters](../../filters/SearchFilters.md) | None</code>) – Scope to resolve within. Labels, document ids, and
   `properties` are projected through, matching the
-  projection that a plain search own entity step applies. A
+  projection that a plain search's own entity step applies. A
   `filters.labels` value replaces `entity_labels` rather
   than narrowing within it, so a scope carrying only
   unrelated fields must not be mistaken for a deliberate

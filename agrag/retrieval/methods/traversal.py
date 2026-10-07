@@ -43,7 +43,7 @@ def extract_entity_ids(results: list[SearchResult]) -> list[UUID]:
     first-seen id of each entity so the fusion ranking is respected. A
     ResolvedEntity contributes its raw member ids, since graph
     traversal and distance run over raw entity nodes. A resolved
-    entity own id names no ``_AgragNode`` that an entity traversal can
+    entity's own id names no ``_AgragNode`` that an entity traversal can
     start from, so seeding with it matches nothing. Chunks and other
     non-entity result items are skipped.
 
@@ -97,7 +97,7 @@ async def find_entity(
             default, one vector index each.
         filters: Scope to resolve within. Labels, document ids, and
             ``properties`` are projected through, matching the
-            projection that a plain search own entity step applies. A
+            projection that a plain search's own entity step applies. A
             ``filters.labels`` value replaces ``entity_labels`` rather
             than narrowing within it, so a scope carrying only
             unrelated fields must not be mistaken for a deliberate

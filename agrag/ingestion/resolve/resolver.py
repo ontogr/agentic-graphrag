@@ -177,7 +177,7 @@ class LLMVerify(Comparator):
     the same fail-safe design as every comparator a Resolver runs. An
     ambiguous or failed comparison never merges two entities. A missing package
     extra is a configuration error, not an ambiguous judgment call, and is
-    raised outright instead (see compare Raises section).
+    raised outright instead (see compare's Raises section).
     """
 
     def __init__(

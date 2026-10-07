@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 
 class SearchEngine:
-    """Retrieval public entry point, independent of Graph.
+    """Retrieval's public entry point, independent of Graph.
 
     Fans a query out to every method a Recipe names, fuses the
     results, and optionally reranks them. Constructed from its own

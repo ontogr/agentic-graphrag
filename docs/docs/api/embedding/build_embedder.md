@@ -18,7 +18,7 @@ Build an embedder from a model name, or return an embedder unchanged.
   model), or an already-constructed `Embedder` for full control
   over device, batching, or caching.
 - **tracer** (<code>Tracer | None</code>) – Passed to the newly-built embedder. Not valid together with
-  an already-constructed `value`. That instance tracer, if
+  an already-constructed `value`. That instance's tracer, if
   any, was already fixed at its own construction.
 
 **Returns:**
