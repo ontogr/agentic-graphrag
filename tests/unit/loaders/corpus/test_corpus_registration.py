@@ -1,69 +1,85 @@
-"""Tests for default loader precedence between core readers and docling.
+"""Tests for default loader precedence.
 
-Verifies core loaders (csv, markdown, html) win over docling's registrations
-for their formats, docling wins for formats with no core loader (pdf, xml)
-and for AsciiDoc's structural parser when docling is installed, and that the
-regex-based AsciiDocLoader is used as a fallback on an isolated
-LoaderRegistry when docling is absent. Docling-dependent tests use
-``pytest.importorskip("docling")``.
+Docling reads every rich format and the core readers keep plain text, XML and the
+record formats. PDF and image files need the ``docling`` extra, and the registry
+says so when the models are missing.
 """
+
+from unittest.mock import patch
 
 import pytest
 
 import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
 from agrag.loaders.corpus import registry
-from agrag.loaders.corpus.readers.html import HtmlLoader
-from agrag.loaders.corpus.readers.prose import AsciiDocLoader, MarkdownLoader
-from agrag.loaders.corpus.readers.records import CsvLoader
-from agrag.loaders.corpus.registry import LoaderRegistry
+from agrag.loaders.corpus.errors import MissingExtraError
+from agrag.loaders.corpus.readers.prose import TextLoader, XmlLoader
+from agrag.loaders.corpus.readers.records import CsvLoader, JsonlLoader, JsonLoader
 from agrag.loaders.corpus.types import SourceRef
-from agrag.loaders.docling.loader import DoclingLoader  # noqa: PLC0415
+from agrag.loaders.docling.loader import DoclingLoader, DoclingPdfLoader
+
+
+def _loader_for(extension: str) -> object:
+    return registry.for_source(SourceRef(uri="x" + extension, extension=extension))
 
 
 class TestCorpusRegistration:
-    """Verify default loader precedence between core readers and docling."""
+    """Each extension goes to the loader that the design names."""
 
-    def test_core_loader_wins_for_csv(self) -> None:
-        """Core loader wins for csv."""
-        loader = registry.for_source(SourceRef(uri="x.csv", extension=".csv"))
-        assert isinstance(loader, CsvLoader)
+    @pytest.mark.parametrize(
+        ("extension", "expected"),
+        [
+            (".txt", TextLoader),
+            (".log", TextLoader),
+            (".xml", XmlLoader),
+            (".csv", CsvLoader),
+            (".tsv", CsvLoader),
+            (".jsonl", JsonlLoader),
+            (".json", JsonLoader),
+        ],
+    )
+    def test_core_readers_keep_text_xml_and_records(
+        self, extension: str, expected: type
+    ) -> None:
+        """Rows keep their identity, so Docling never reads them."""
+        assert type(_loader_for(extension)) is expected
 
-    def test_core_loader_wins_for_markdown(self) -> None:
-        """Core loader wins for markdown."""
-        loader = registry.for_source(SourceRef(uri="x.md", extension=".md"))
-        assert isinstance(loader, MarkdownLoader)
-
-    def test_core_loader_wins_for_html(self) -> None:
-        """Core loader wins for html."""
-        loader = registry.for_source(SourceRef(uri="x.html", extension=".html"))
-        assert isinstance(loader, HtmlLoader)
-
-    def test_docling_wins_for_asciidoc(self) -> None:
-        """Docling's structural AsciiDoc parser is preferred over the regex fallback."""
+    @pytest.mark.parametrize(
+        "extension",
+        [".md", ".markdown", ".html", ".htm", ".adoc", ".asciidoc"]
+        + [".docx", ".pptx", ".xlsx"],
+    )
+    def test_docling_reads_the_rich_formats(self, extension: str) -> None:
+        """These formats need no extra."""
         pytest.importorskip("docling")
-        for extension in (".adoc", ".asciidoc"):
-            loader = registry.for_source(
-                SourceRef(uri=f"x{extension}", extension=extension)
-            )
-            assert isinstance(loader, DoclingLoader)
 
-    def test_core_asciidoc_is_the_fallback_when_docling_is_not_registered(self) -> None:
-        """The regex AsciiDoc reader is used when docling is not installed."""
-        isolated_registry = LoaderRegistry()
-        isolated_registry.register(AsciiDocLoader(), prefer=True)
-        loader = isolated_registry.for_source(
-            SourceRef(uri="x.adoc", extension=".adoc")
-        )
-        assert isinstance(loader, AsciiDocLoader)
+        assert type(_loader_for(extension)) is DoclingLoader
 
-    def test_docling_wins_for_pdf(self) -> None:
-        """PDF has no core loader, so docling resolves as the default."""
+    @pytest.mark.parametrize("extension", [".pdf", ".png", ".jpg", ".tiff"])
+    def test_docling_pdf_reads_pdf_and_images(self, extension: str) -> None:
+        """PDF and images use the loader that needs the models."""
+        pytest.importorskip("docling_ibm_models")
+
+        assert type(_loader_for(extension)) is DoclingPdfLoader
+
+
+class TestMissingExtra:
+    """A PDF without the models gives an error that names the extra."""
+
+    def test_pdf_without_the_models_names_the_extra(self) -> None:
+        """The check looks for the module that only the extra installs."""
+        with (
+            patch("importlib.util.find_spec", return_value=None),
+            pytest.raises(MissingExtraError) as error,
+        ):
+            _loader_for(".pdf")
+
+        assert error.value.extra == "docling"
+        assert "agentic-graphrag[docling]" in str(error.value)
+
+    def test_the_rich_formats_do_not_need_the_models(self) -> None:
+        """A bare install still reads Markdown."""
         pytest.importorskip("docling")
-        loader = registry.for_source(SourceRef(uri="x.pdf", extension=".pdf"))
-        assert isinstance(loader, DoclingLoader)
+        with patch("importlib.util.find_spec", return_value=None):
+            loader = _loader_for(".md")
 
-    def test_docling_wins_for_xml(self) -> None:
-        """XML has no core loader, so docling resolves as the default."""
-        pytest.importorskip("docling")
-        loader = registry.for_source(SourceRef(uri="x.xml", extension=".xml"))
-        assert isinstance(loader, DoclingLoader)
+        assert type(loader) is DoclingLoader

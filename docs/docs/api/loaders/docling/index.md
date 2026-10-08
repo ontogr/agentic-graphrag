@@ -5,16 +5,17 @@ sidebar_label: docling
 
 # `agrag.loaders.docling` \{#agrag-loaders-docling}
 
-The docling loader package.
+The docling loaders.
 
-Importing this package registers `DoclingLoader` with the corpus registry. The core
-loaders win by default for Markdown, HTML, and CSV; docling wins for PDF, DOCX, PPTX,
-images, AsciiDoc, and XML.
+Importing this package registers `DoclingLoader` and `DoclingPdfLoader` with the
+corpus registry. Docling reads every format it claims. The core loaders keep plain
+text, XML and the record formats.
 
 **Modules:**
 
-- [**loader**](loader/index.md) – Docling-backed loader for PDF, DOCX, PPTX, and image sources.
+- [**loader**](loader/index.md) – Docling-backed loaders.
 
 **Classes:**
 
-- [**DoclingLoader**](loader/DoclingLoader.md) – Reads documents with the docling library.
+- [**DoclingLoader**](loader/DoclingLoader.md) – Reads Markdown, HTML, AsciiDoc, DOCX, PPTX and XLSX files with docling.
+- [**DoclingPdfLoader**](loader/DoclingPdfLoader.md) – Reads PDF and image files with docling.

@@ -25,6 +25,7 @@ Shared data models used by agrag components.
 - [**resolved_entity**](resolved_entity/index.md) – Identity clusters for non-destructive entity resolution.
 - [**search_result**](search_result/index.md) – One retrieved item, tagged with source and relevance score.
 - [**stage_failure**](stage_failure/index.md) – Per-stage failure record and its per-call cap.
+- [**structure**](structure/index.md) – Stable keys, node ids, reading order and ancestry for the sections of a Document.
 - [**vector_record**](vector_record/index.md) – Vector storage record shapes shared by VectorStore and GraphStore.
 
 **Classes:**

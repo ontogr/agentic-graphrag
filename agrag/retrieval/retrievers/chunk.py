@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from typing import Any, cast
 
-from opentelemetry.trace import SpanKind, Tracer
+from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
 from agrag.common.data_models.search_result import SearchResult
@@ -15,7 +15,7 @@ from agrag.retrieval.filters import SearchFilters
 from agrag.retrieval.methods.vector import vector_search
 from agrag.retrieval.retrievers.base import Retriever
 from agrag.retrieval.settings import RetrievalSettings
-from agrag.retrieval.tracing import record_chunks, record_results, retrieval_span
+from agrag.retrieval.tracing import record_results, retrieval_span
 from agrag.vectordb.base import VectorStore
 
 
@@ -73,10 +73,9 @@ class ChunkRetriever(Retriever):
                 Zero or negative returns no results without searching.
 
         Returns:
-            Ranked SearchResults with loaded Chunk items. A child chunk result
-                carries its parent chunk in ``SearchResult.parent``. The list is
-                empty when the limit is not positive, or when the search ran
-                and found nothing.
+            Ranked SearchResults with loaded Chunk items. The list is empty when
+                the limit is not positive, or when the search ran and found
+                nothing.
 
         Raises:
             Exception: Any embedding, vector search, or graph read
@@ -132,57 +131,19 @@ class ChunkRetriever(Retriever):
                         continue
                 if load.is_recording():
                     load.set_attribute("agrag.loaded_count", len(by_id))
-            parents = await self._load_parents(list(by_id.values()))
             results: list[SearchResult] = []
             for hit in hits:
                 try:
                     chunk = by_id.get(str(hit.id))
                     if chunk is None:
                         continue
-                    parent = parents.get(str(chunk.parent_id))
-                    if chunk.parent_id is not None and parent is None:
-                        continue
                     results.append(
-                        SearchResult(
-                            item=chunk,
-                            score=hit.score,
-                            method=self.name,
-                            parent=parent,
-                        )
+                        SearchResult(item=chunk, score=hit.score, method=self.name)
                     )
                 except Exception:
                     continue
             record_results(span, results)
             return results
-
-    async def _load_parents(self, chunks: list[Chunk]) -> dict[str, Chunk]:
-        """Load the distinct parents of child chunks with one query.
-
-        A parent that is missing or closed is left out, so its child cannot become a
-        result.
-
-        Raises:
-            Exception: The graph read failed.
-        """
-        parent_ids = sorted({str(c.parent_id) for c in chunks if c.parent_id})
-        if not parent_ids:
-            return {}
-        with get_tracer(self._tracer).start_as_current_span(
-            "agrag.retrieval.load_parents",
-            kind=SpanKind.INTERNAL,
-            attributes={"agrag.parent_count": len(parent_ids)},
-        ) as span:
-            rows = await self._graph_store.execute_read(
-                load_chunks_by_id_query(), {"ids": parent_ids, "job_id": None}
-            )
-            parents: dict[str, Chunk] = {}
-            for row in rows:
-                node = row.get("n") if isinstance(row, dict) and "n" in row else row
-                parent = self._parse_chunk_node(node)
-                if parent is not None:
-                    parents[str(parent.id)] = parent
-            record_chunks(span, list(parents.values()))
-        return parents
 
     @staticmethod
     def _parse_chunk_node(node: object) -> Chunk | None:
@@ -240,10 +201,7 @@ class ChunkRetriever(Retriever):
                 content_kind=props.get("content_kind", "text"),
                 chunker=props.get("chunker"),
                 chunker_hash=props.get("chunker_hash"),
-                level=props.get("level", 0),
-                parent_id=UUID(str(props["parent_id"]))
-                if props.get("parent_id")
-                else None,
+                section_ids=[UUID(str(i)) for i in props.get("section_ids", [])],
             )
             if embedding is not None:
                 chunk.embedding = list(embedding)

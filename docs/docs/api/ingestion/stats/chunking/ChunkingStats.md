@@ -11,60 +11,52 @@ Chunking-stage results.
 
 **Attributes:**
 
-- [**chunks_by_strategy**](#agrag-ingestion-stats-chunking-ChunkingStats-chunks_by_strategy) (<code>dict\[str, int\]</code>) – Chunk counts per chunker name, so chunks that a fallback
-  made are counted under `<strategy>:<fallback>`.
-- [**documents_by_rule**](#agrag-ingestion-stats-chunking-ChunkingStats-documents_by_rule) (<code>dict\[str, int\]</code>) – Document counts per rule, keyed `"rule 0"`,
-  `"rule 1"` and so on, and `"fallback"`.
-- [**matches**](#agrag-ingestion-stats-chunking-ChunkingStats-matches) (<code>list\[[ChunkingMatch](ChunkingMatch.md)\]</code>) – One entry per chunked document, capped at 1000.
-- [**matches_total**](#agrag-ingestion-stats-chunking-ChunkingStats-matches_total) (<code>int</code>) – Matches recorded before capping.
-- [**matches_truncated**](#agrag-ingestion-stats-chunking-ChunkingStats-matches_truncated) (<code>bool</code>) – Whether `matches` was cut to the cap.
+- [**chunks**](#agrag-ingestion-stats-chunking-ChunkingStats-chunks) (<code>int</code>) – The number of chunks made.
+- [**sections**](#agrag-ingestion-stats-chunking-ChunkingStats-sections) (<code>int</code>) – The number of sections in the chunked documents.
+- [**tables**](#agrag-ingestion-stats-chunking-ChunkingStats-tables) (<code>int</code>) – The number of tables in the chunked documents.
+- [**figures**](#agrag-ingestion-stats-chunking-ChunkingStats-figures) (<code>int</code>) – The number of figures in the chunked documents.
 
 **Functions:**
 
-- [**from_matches**](#agrag-ingestion-stats-chunking-ChunkingStats-from_matches) – Summarize per-document matches.
+- [**from_documents**](#agrag-ingestion-stats-chunking-ChunkingStats-from_documents) – Count what the chunker and the loaders produced.
 
-## `chunks_by_strategy` \{#agrag-ingestion-stats-chunking-ChunkingStats-chunks_by_strategy}
-
-```python
-chunks_by_strategy: dict[str, int] = Field(default_factory=dict)
-```
-
-## `documents_by_rule` \{#agrag-ingestion-stats-chunking-ChunkingStats-documents_by_rule}
+## `chunks` \{#agrag-ingestion-stats-chunking-ChunkingStats-chunks}
 
 ```python
-documents_by_rule: dict[str, int] = Field(default_factory=dict)
+chunks: int = 0
 ```
 
-## `from_matches` \{#agrag-ingestion-stats-chunking-ChunkingStats-from_matches}
+## `figures` \{#agrag-ingestion-stats-chunking-ChunkingStats-figures}
 
 ```python
-from_matches(matches:list[ChunkingMatch]) -> ChunkingStats
+figures: int = 0
 ```
 
-Summarize per-document matches.
+## `from_documents` \{#agrag-ingestion-stats-chunking-ChunkingStats-from_documents}
+
+```python
+from_documents(documents:Sequence[Document], chunks:Sequence[Chunk]) -> ChunkingStats
+```
+
+Count what the chunker and the loaders produced.
 
 **Parameters:**
 
-- **matches** (<code>list\[[ChunkingMatch](ChunkingMatch.md)\]</code>) – One match per chunked document, in chunking order.
+- **documents** (<code>Sequence\[[Document](../../../common/data_models/document/Document-ref.md)\]</code>) – The documents that were chunked.
+- **chunks** (<code>Sequence\[[Chunk](../../../common/data_models/chunk/Chunk-ref.md)\]</code>) – The chunks made from them.
 
 **Returns:**
 
-- <code>ChunkingStats</code> – The counters over all matches and the matches up to the cap.
+- <code>ChunkingStats</code> – The counts.
 
-## `matches` \{#agrag-ingestion-stats-chunking-ChunkingStats-matches}
+## `sections` \{#agrag-ingestion-stats-chunking-ChunkingStats-sections}
 
 ```python
-matches: list[ChunkingMatch] = Field(default_factory=list)
+sections: int = 0
 ```
 
-## `matches_total` \{#agrag-ingestion-stats-chunking-ChunkingStats-matches_total}
+## `tables` \{#agrag-ingestion-stats-chunking-ChunkingStats-tables}
 
 ```python
-matches_total: int = 0
-```
-
-## `matches_truncated` \{#agrag-ingestion-stats-chunking-ChunkingStats-matches_truncated}
-
-```python
-matches_truncated: bool = False
+tables: int = 0
 ```

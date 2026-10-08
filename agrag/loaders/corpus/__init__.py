@@ -5,25 +5,14 @@ singleton. The docling extra registers itself on top of this when installed.
 """
 
 from agrag.loaders.corpus.readers.chat import ChatLoader
-from agrag.loaders.corpus.readers.html import HtmlLoader
-from agrag.loaders.corpus.readers.prose import (
-    AsciiDocLoader,
-    MarkdownLoader,
-    TextLoader,
-)
+from agrag.loaders.corpus.readers.prose import TextLoader, XmlLoader
 from agrag.loaders.corpus.readers.records import CsvLoader, JsonlLoader, JsonLoader
 from agrag.loaders.corpus.registry import LoaderRegistry
 
 
 registry: LoaderRegistry = LoaderRegistry()
 registry.register(TextLoader(), prefer=True)
-registry.register(MarkdownLoader(), prefer=True)
-# Docling is the default for .adoc/.asciidoc when installed: its structural
-# parser beats this reader's regex headings-only scan. Registering prefer=False here,
-# mirroring how docling itself defers on .md/.html/.csv, makes that precedence hold
-# regardless of import order instead of depending on which package registers last.
-registry.register(AsciiDocLoader(), prefer=False)
-registry.register(HtmlLoader(), prefer=True)
+registry.register(XmlLoader(), prefer=True)
 registry.register(CsvLoader(), prefer=True)
 registry.register(JsonlLoader(), prefer=True)
 registry.register(JsonLoader(), prefer=True)
@@ -31,10 +20,8 @@ registry.register(JsonLoader(), prefer=True)
 __all__ = [
     "registry",
     "ChatLoader",
-    "HtmlLoader",
     "TextLoader",
-    "MarkdownLoader",
-    "AsciiDocLoader",
+    "XmlLoader",
     "CsvLoader",
     "JsonLoader",
     "JsonlLoader",

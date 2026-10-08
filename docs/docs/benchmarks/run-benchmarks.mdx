@@ -88,7 +88,7 @@ Three flags change how a run works:
 
 - `--concurrency N` sets how many questions run at once. The default is 2.
 - `--question-timeout SECONDS` sets the time limit for one question. The default is 900. A question that times out scores 0 and gets the flag `timeout`.
-- `--chunk-size N` cuts the documents into chunks of N characters instead of about 1,000 tokens. It works on `dry-run` too. A different chunk size changes the graph. The run therefore ingests again. The record lists the chunking.
+- `--chunk-size N` cuts the documents into chunks of N tokens instead of 1,000 tokens. It works on `dry-run` too. A different chunk size changes the graph. The run therefore ingests again. The record lists the chunking.
 
 ## Spend caps
 

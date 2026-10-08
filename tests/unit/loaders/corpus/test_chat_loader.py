@@ -1,7 +1,7 @@
 """Tests for ChatLoader in agrag.loaders.corpus.readers.chat.
 
 The loader turns a JSON Lines or JSON file of chat messages into one prose document
-whose text holds one ``[role] content`` block per message, with a turn span for each
+whose text holds one ``[role] content`` block per message, with a section for each
 block.
 """
 
@@ -27,10 +27,10 @@ def _jsonl(*messages: object) -> str:
 
 
 class TestChatLoader:
-    """Messages become blocks and turns."""
+    """Messages become blocks and sections."""
 
-    def test_builds_one_document_with_a_turn_per_message(self) -> None:
-        """Each turn span covers exactly its ``[role] content`` block."""
+    def test_builds_one_document_with_a_section_per_message(self) -> None:
+        """Each section holds exactly its ``[role] content`` block."""
         (doc,) = _load(
             _jsonl(
                 {"role": "user", "content": "Hi there", "id": 7},
@@ -38,11 +38,12 @@ class TestChatLoader:
             )
         )
 
-        blocks = [doc.text[t.char_start : t.char_end] for t in doc.turns]
+        blocks = [s.units[0].text for s in doc.sections]
         assert blocks == ["[user] Hi there", "[assistant] Hello!\nHow can I help?"]
         assert doc.text == "\n\n".join(blocks)
-        assert [t.role for t in doc.turns] == ["user", "assistant"]
-        assert [t.turn_id for t in doc.turns] == ["7", None]
+        assert [s.heading for s in doc.sections] == ["user", "assistant"]
+        assert [s.source_id for s in doc.sections] == ["7", None]
+        assert {s.depth for s in doc.sections} == {1}
         assert doc.family is DocumentFamily.PROSE
         assert doc.loader_name == "chat"
         assert doc.source_format is SourceFormat.JSONL
@@ -60,7 +61,7 @@ class TestChatLoader:
         """Blank lines between messages are ignored."""
         (doc,) = _load('\n{"role": "user", "content": "a"}\n\n\n')
 
-        assert len(doc.turns) == 1
+        assert len(doc.sections) == 1
 
     def test_empty_file_gives_no_document(self) -> None:
         """A source with no messages makes no document."""
@@ -79,32 +80,31 @@ class TestChatLoader:
         (doc,) = _load(_jsonl({"role": "\ufeffuſer", "content": "\ufeffﬁrst\r\nline"}))
 
         assert doc.text == "[user] first\nline"
-        assert doc.turns[0].role == "user"
+        assert doc.sections[0].heading == "user"
 
     def test_keeps_non_ascii_roles_and_content(self) -> None:
         """Unicode survives and spans index characters, not bytes."""
         (doc,) = _load(_jsonl({"role": "usuário", "content": "日本語"}))
 
-        turn = doc.turns[0]
-        assert doc.text[turn.char_start : turn.char_end] == "[usuário] 日本語"
+        (unit,) = doc.sections[0].units
+        assert doc.text[unit.char_start : unit.char_end] == "[usuário] 日本語"
 
     def test_keeps_a_very_large_message_whole(self) -> None:
-        """A large message is one turn."""
+        """A large message is one section with one unit."""
         (doc,) = _load(_jsonl({"role": "assistant", "content": "x" * 200_000}))
 
-        assert len(doc.turns) == 1
-        assert doc.turns[0].char_end - doc.turns[0].char_start == 200_000 + len(
-            "[assistant] "
-        )
+        assert len(doc.sections) == 1
+        (unit,) = doc.sections[0].units
+        assert unit.char_end - unit.char_start == 200_000 + len("[assistant] ")
 
     def test_store_text_false_keeps_no_text(self) -> None:
-        """With store_text off, the text and the turns are empty."""
+        """With store_text off, the text and the sections are empty."""
         (doc,) = _load(
             _jsonl({"role": "user", "content": "a"}), opts=ReadOptions(store_text=False)
         )
 
         assert doc.text == ""
-        assert doc.turns == []
+        assert doc.sections == []
 
     @pytest.mark.parametrize(
         "raw",

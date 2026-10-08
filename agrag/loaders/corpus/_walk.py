@@ -17,6 +17,7 @@ from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.stage_failure import StageFailure
 from agrag.loaders.corpus.base import Loader
 from agrag.loaders.corpus.errors import IngestionError, UnsupportedFormatError
+from agrag.loaders.corpus.readers._common import text_sections
 from agrag.loaders.corpus.registry import LoaderRegistry
 from agrag.loaders.corpus.types import (
     ErrorPolicy,
@@ -341,6 +342,7 @@ class _InMemoryWalk:
             char_count=len(self._text),
             line_count=self._text.count("\n") + 1,
             normalization=self._normalization,
+            sections=text_sections(self._text) if self._opts.store_text else [],
         )
         stats = LoadStats(
             documents=1, sources=1, bytes_read=len(self._text.encode("utf-8"))

@@ -13,7 +13,7 @@ from uuid import UUID
 
 from opentelemetry.trace import Tracer
 
-from agrag.chunking import Chunking
+from agrag.chunking import Chunker
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import (
     Document,
@@ -29,13 +29,13 @@ from agrag.graphdb.base import GraphStore
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._document_lifecycle import find_document
 from agrag.ingestion._ingest_pipeline import extract_chunks, ingest_chunks
+from agrag.ingestion._structure import build_structure
 from agrag.ingestion._walk import SourcesType, chunk_documents, iter_document_batches
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.reports import AddResult, UpdateResult
 from agrag.ingestion.resolved_entities import MatchComponent
 from agrag.ingestion.settings import CutoverJobSettings
 from agrag.ingestion.stats import (
-    ChunkingMatch,
     ChunkingStats,
     ExtractionStats,
     IngestStats,
@@ -45,6 +45,7 @@ from agrag.ingestion.stats import (
 )
 from agrag.loaders.corpus._walk import normalize_inline_text
 from agrag.loaders.corpus.base import Loader
+from agrag.loaders.corpus.readers._common import text_sections
 from agrag.loaders.corpus.registry import LoaderRegistry
 from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions
 from agrag.retrieval.settings import RetrievalSettings
@@ -357,7 +358,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
     vector_store: VectorStore | None,
     retrieval_settings: RetrievalSettings,
     cutover_settings: CutoverJobSettings,
-    chunking: Chunking,
+    chunker: Chunker,
     registry: LoaderRegistry,
     embed_heading_path: bool,
     max_llm_pairs: int,
@@ -379,7 +380,6 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             )
 
         chunks: list[Chunk] = []
-        chunk_matches: list[ChunkingMatch] = []
         documents_seen: list[Document] = []
         document_keys_seen: set[str] = set()
         entities: list[ExtractedEntity] = []
@@ -410,7 +410,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             )
             extraction_failures_capped = cap_failures(list(extraction_failures))
             extraction = ExtractionStats(
-                chunks_processed=sum(c.parent_id is None for c in chunks),
+                chunks_processed=len(chunks),
                 entities_extracted=len(entities),
                 relations_extracted=len(relations),
                 failures=extraction_failures_capped.items,
@@ -419,7 +419,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             )
             return AddResult(
                 ingestion=ingest,
-                chunking=ChunkingStats.from_matches(list(chunk_matches)),
+                chunking=ChunkingStats.from_documents(documents_seen, chunks),
                 extraction=extraction,
                 resolution=ResolutionStats(),
                 merge=MergeStats(),
@@ -443,11 +443,10 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
             final_stats.skipped = stats.skipped
             final_stats.quarantined = stats.quarantined
             final_stats.quarantined_items = list(stats.quarantined_items)
-            chunk_batch, batch_matches = await asyncio.to_thread(
-                chunk_documents, batch, chunking=chunking, tracer=tracer
+            chunk_batch = await asyncio.to_thread(
+                chunk_documents, batch, chunker=chunker, tracer=tracer
             )
             chunks.extend(chunk_batch)
-            chunk_matches.extend(batch_matches)
             documents_seen.extend(batch)
             (
                 batch_entities,
@@ -557,7 +556,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
         result = _merge_add_results(
             partials,
             ingestion=ingestion,
-            chunking=ChunkingStats.from_matches(chunk_matches),
+            chunking=ChunkingStats.from_documents(documents_seen, chunks),
         )
 
         if on_progress is not None:
@@ -582,7 +581,7 @@ async def update_document(  # noqa: PLR0913
     vector_store: VectorStore | None,
     retrieval_settings: RetrievalSettings,
     cutover_settings: CutoverJobSettings,
-    chunking: Chunking,
+    chunker: Chunker,
     registry: LoaderRegistry,
     embed_heading_path: bool,
     max_llm_pairs: int,
@@ -611,6 +610,7 @@ async def update_document(  # noqa: PLR0913
                 char_count=len(normalized),
                 line_count=normalized.count("\n") + 1,
                 normalization=normalization,
+                sections=text_sections(normalized),
             )
         else:
             documents_from_source: list[Document] = []
@@ -630,7 +630,6 @@ async def update_document(  # noqa: PLR0913
             )
 
         found = await find_document(graph_store, document_key=document_key)
-        _, chunker = chunking.select(document)
         if (
             found is not None
             and found.current_content_hash == document.content_hash
@@ -648,11 +647,8 @@ async def update_document(  # noqa: PLR0913
             candidates = await document_entity_candidates(
                 graph_store, found.document_node_id
             )
-        chunks, chunk_matches = await asyncio.to_thread(
-            chunk_documents,
-            [document],
-            chunking=chunking,
-            tracer=tracer,
+        chunks = await asyncio.to_thread(
+            chunk_documents, [document], chunker=chunker, tracer=tracer
         )
         entities, relations, extraction_failures = await extract_chunks(
             chunks,
@@ -701,7 +697,10 @@ async def update_document(  # noqa: PLR0913
             close_document_node_id=(
                 found.document_node_id if found is not None else None
             ),
-            keep_chunk_ids=[chunk.id for chunk in chunks if chunk.id is not None],
+            keep_node_ids=[
+                *(chunk.id for chunk in chunks if chunk.id is not None),
+                *build_structure(document, chunks).node_ids,
+            ],
             tracer=tracer,
         )
         return UpdateResult(
@@ -711,7 +710,7 @@ async def update_document(  # noqa: PLR0913
             new_content_hash=document.content_hash,
             chunks_closed=chunks_closed,
             add_result=_with_cleanup_failures(add_result, cleanup_failures).model_copy(
-                update={"chunking": ChunkingStats.from_matches(chunk_matches)}
+                update={"chunking": ChunkingStats.from_documents([document], chunks)}
             ),
         )
 

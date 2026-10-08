@@ -10,6 +10,22 @@ from pydantic import BaseModel, Field, model_validator
 # it as an ordinary node property, so the two retrieval paths would disagree.
 _RESERVED_ENTITY_PROPERTY_NAMES = frozenset({"label", "text"})
 
+# Labels the graph writes for its own nodes. An entity type with one of these labels
+# would share nodes with the document structure or the system records.
+RESERVED_ENTITY_LABELS = frozenset(
+    {
+        "Document",
+        "Chunk",
+        "Section",
+        "Table",
+        "Figure",
+        "Source",
+        "Community",
+        "ResolvedEntity",
+        "CutoverJob",
+    }
+)
+
 
 def _format_patterns(patterns: list[tuple[str, str]]) -> str:
     """Render relation patterns as a comma-separated (source, target) list."""
@@ -32,6 +48,19 @@ class EntityType(BaseModel):
     description: str
     properties: dict[str, str] = Field(default_factory=dict)
     subtypes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _reject_reserved_labels(self) -> "EntityType":
+        """Reject a label or subtype label that the graph uses for its own nodes."""
+        reserved = sorted(RESERVED_ENTITY_LABELS & {self.label, *self.subtypes})
+        if reserved:
+            raise ValueError(
+                f"Entity type '{self.label}' uses reserved label(s) {reserved}; "
+                f"the graph writes its own nodes with "
+                f"{sorted(RESERVED_ENTITY_LABELS)}. Rename the entity type, "
+                "for example 'LegalSection' for 'Section'."
+            )
+        return self
 
     @model_validator(mode="after")
     def _reject_reserved_property_names(self) -> "EntityType":

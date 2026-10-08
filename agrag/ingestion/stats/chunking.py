@@ -2,76 +2,52 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from collections import Counter
+from collections.abc import Sequence
 
+from pydantic import BaseModel
 
-MAX_CHUNKING_MATCHES = 1000
-
-
-class ChunkingMatch(BaseModel):
-    """The chunker that one document got, and what it produced.
-
-    Attributes:
-        document_key: The key of the chunked document.
-        rule: The index of the matching rule, or ``None`` for the fallback.
-        strategy: The strategy name of the chunker.
-        chunker_hash: The fingerprint of the chunker settings.
-        chunks: The number of chunks the chunker produced.
-        chunks_by_chunker: Chunk counts per chunker name. A strategy that hands a
-            part to a fallback names those chunks ``<strategy>:<fallback>``, so this
-            can hold more than one name. Empty means every chunk has ``strategy``.
-    """
-
-    document_key: str
-    rule: int | None
-    strategy: str
-    chunker_hash: str
-    chunks: int
-    chunks_by_chunker: dict[str, int] = Field(default_factory=dict)
+from agrag.common.data_models.chunk import Chunk
+from agrag.common.data_models.document import Document, UnitKind
 
 
 class ChunkingStats(BaseModel):
     """Chunking-stage results.
 
     Attributes:
-        chunks_by_strategy: Chunk counts per chunker name, so chunks that a fallback
-            made are counted under ``<strategy>:<fallback>``.
-        documents_by_rule: Document counts per rule, keyed ``"rule 0"``,
-            ``"rule 1"`` and so on, and ``"fallback"``.
-        matches: One entry per chunked document, capped at 1000.
-        matches_total: Matches recorded before capping.
-        matches_truncated: Whether ``matches`` was cut to the cap.
+        chunks: The number of chunks made.
+        sections: The number of sections in the chunked documents.
+        tables: The number of tables in the chunked documents.
+        figures: The number of figures in the chunked documents.
     """
 
-    chunks_by_strategy: dict[str, int] = Field(default_factory=dict)
-    documents_by_rule: dict[str, int] = Field(default_factory=dict)
-    matches: list[ChunkingMatch] = Field(default_factory=list)
-    matches_total: int = 0
-    matches_truncated: bool = False
+    chunks: int = 0
+    sections: int = 0
+    tables: int = 0
+    figures: int = 0
 
     @classmethod
-    def from_matches(cls, matches: list[ChunkingMatch]) -> ChunkingStats:
-        """Summarize per-document matches.
+    def from_documents(
+        cls, documents: Sequence[Document], chunks: Sequence[Chunk]
+    ) -> ChunkingStats:
+        """Count what the chunker and the loaders produced.
 
         Args:
-            matches: One match per chunked document, in chunking order.
+            documents: The documents that were chunked.
+            chunks: The chunks made from them.
 
         Returns:
-            The counters over all matches and the matches up to the cap.
+            The counts.
         """
-        by_strategy: dict[str, int] = {}
-        by_rule: dict[str, int] = {}
-        for match in matches:
-            for name, count in (
-                match.chunks_by_chunker or {match.strategy: match.chunks}
-            ).items():
-                by_strategy[name] = by_strategy.get(name, 0) + count
-            rule = "fallback" if match.rule is None else f"rule {match.rule}"
-            by_rule[rule] = by_rule.get(rule, 0) + 1
+        kinds = Counter(
+            unit.kind
+            for document in documents
+            for section in document.sections
+            for unit in section.units
+        )
         return cls(
-            chunks_by_strategy=by_strategy,
-            documents_by_rule=by_rule,
-            matches=matches[:MAX_CHUNKING_MATCHES],
-            matches_total=len(matches),
-            matches_truncated=len(matches) > MAX_CHUNKING_MATCHES,
+            chunks=len(chunks),
+            sections=sum(len(document.sections) for document in documents),
+            tables=kinds[UnitKind.TABLE],
+            figures=kinds[UnitKind.FIGURE],
         )

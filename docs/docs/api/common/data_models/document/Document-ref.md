@@ -24,9 +24,9 @@ set. Pass `id` only when rebuilding a document from stored data.
 
 **Attributes:**
 
-- [**text**](#agrag-common-data_models-document-Document-text) (<code>str</code>) – The document text. For a docling source, this holds docling Markdown
-  export. The chunker never reads this field for a docling source. See
-  the `Chunk` model for docling chunk content instead.
+- [**text**](#agrag-common-data_models-document-Document-text) (<code>str</code>) – The document text. For a docling source, this holds the docling
+  Markdown export. The chunker does not read it for a docling source: the
+  chunks come from `sections`.
 - [**title**](#agrag-common-data_models-document-Document-title) (<code>str</code>) – The document title.
 - [**uri**](#agrag-common-data_models-document-Document-uri) (<code>str</code>) – The location of the source. This value is not part of the document id.
 - [**source_format**](#agrag-common-data_models-document-Document-source_format) (<code>[SourceFormat](SourceFormat.md)</code>) – The format the loader used to read this document.
@@ -49,13 +49,12 @@ set. Pass `id` only when rebuilding a document from stored data.
   set this field only when the caller configures an id column.
 - [**raw_record**](#agrag-common-data_models-document-Document-raw_record) (<code>dict\[str, Any\] | None</code>) – The original record data. A loader sets this field only when the
   caller asks for it.
-- [**heading_outline**](#agrag-common-data_models-document-Document-heading_outline) (<code>list\[[HeadingRef](HeadingRef.md)\]</code>) – The headings in the document, with their offsets. A text
-  loader sets this field for a prose document.
+- [**sections**](#agrag-common-data_models-document-Document-sections) (<code>list\[[DocumentSection](DocumentSection.md)\]</code>) – The headings of the document and the content under them, in reading
+  order. A document with no headings has one section with an empty heading.
+  A record row has none: its text is one unit of content.
 - [**document_key**](#agrag-common-data_models-document-Document-document_key) (<code>str | None</code>) – The stable identifier for this document's persisted graph node.
   Independent of `id`, which changes with every content edit. Defaults to
   `uri` when not supplied.
-- [**turns**](#agrag-common-data_models-document-Document-turns) (<code>list\[[TurnRef](TurnRef.md)\]</code>) – The speaker turns of a chat document, in order. A chat loader sets this
-  field. Turn spans index `text` and do not overlap.
 - [**normalization**](#agrag-common-data_models-document-Document-normalization) (<code>[Normalization](../normalization/Normalization-ref.md) | None</code>) – How the loader normalized `text`. `None` for a document
   that no text loader made, such as a docling document or one built by hand.
 
@@ -99,12 +98,6 @@ encoding: str | None = None
 
 ```python
 family: DocumentFamily
-```
-
-## `heading_outline` \{#agrag-common-data_models-document-Document-heading_outline}
-
-```python
-heading_outline: list[HeadingRef] = Field(default_factory=list)
 ```
 
 ## `id` \{#agrag-common-data_models-document-Document-id}
@@ -250,6 +243,12 @@ of `id` where a non-optional value is required, such as building a
 - <code>RuntimeError</code> – `id` is still `None`, which means a validator was
   bypassed, for example via `model_construct`.
 
+## `sections` \{#agrag-common-data_models-document-Document-sections}
+
+```python
+sections: list[DocumentSection] = Field(default_factory=list)
+```
+
 ## `source_format` \{#agrag-common-data_models-document-Document-source_format}
 
 ```python
@@ -285,12 +284,6 @@ Return this document as a GraphStore write record for its graph node.
 The record excludes `text`: the persisted node exists for traversal and
 the update no-op check, not to duplicate the document body already held
 per-chunk.
-
-## `turns` \{#agrag-common-data_models-document-Document-turns}
-
-```python
-turns: list[TurnRef] = Field(default_factory=list)
-```
 
 ## `uri` \{#agrag-common-data_models-document-Document-uri}
 

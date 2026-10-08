@@ -4,7 +4,7 @@ import argparse
 import asyncio
 import sys
 
-from agrag.chunking import Chunking, RecursiveChunker
+from agrag.chunking import Chunker
 from benchmarks.datasets.base import DOMAINS
 from benchmarks.datasets.healthcare_index import INDEX_PATH, build_index, check_index
 from benchmarks.harness.config import BENCH_CHUNKING, COST_MODEL, RUN_LIMITS
@@ -34,7 +34,7 @@ def _confirm(bound: DryRun) -> bool:
     return answer.strip().lower() == "y"
 
 
-def _environment(chunking: Chunking, domain: str, mode: str) -> RunEnvironment:
+def _environment(chunking: Chunker, domain: str, mode: str) -> RunEnvironment:
     """Build the agrag environment from the process environment."""
     limits = RUN_LIMITS.get((domain, mode))
     settings = AgragSettings.from_env(limits)
@@ -80,13 +80,11 @@ def _environment(chunking: Chunking, domain: str, mode: str) -> RunEnvironment:
     )
 
 
-def _chunking(args: argparse.Namespace) -> Chunking:
-    """Return the benchmark chunking, or characters-per-chunk chunking if asked."""
+def _chunking(args: argparse.Namespace) -> Chunker:
+    """Return the benchmark chunker, or one with the chunk size that was asked for."""
     if args.chunk_size is None:
         return BENCH_CHUNKING
-    return Chunking(
-        fallback=RecursiveChunker(tokenizer="character", chunk_size=args.chunk_size)
-    )
+    return Chunker(size=args.chunk_size)
 
 
 def _build_index(*, check: bool) -> int:
@@ -139,7 +137,7 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument(
             "--chunk-size",
             type=_positive_int,
-            help="Chunk size in characters. The default is about 1000 tokens.",
+            help="Chunk size in tokens. The default is 1000 tokens.",
         )
 
     run_command = commands.add_parser("run", help="Ingest, answer, grade and record.")

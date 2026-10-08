@@ -18,7 +18,13 @@ import json
 import re
 from pathlib import Path
 
-from agrag.chunking import RecursiveChunker
+from agrag.chunking import Chunker
+from agrag.common.data_models.document import (
+    Document,
+    DocumentFamily,
+    SourceFormat,
+)
+from agrag.loaders.corpus.readers._common import text_sections
 
 
 _HERE = Path(__file__).parent
@@ -64,8 +70,18 @@ def _answerable_from_chunk(example: dict, text: str) -> bool:
         for number in _NUMBER.findall(evidence)
     }
     figures = {figure for figure in figures if len(figure) >= 2}
-    spans = RecursiveChunker(tokenizer="character", chunk_size=1024).spans(text)
-    chunks = [text[start:end] for start, end in spans]
+    document = Document(
+        text=text,
+        title="page",
+        uri="page.txt",
+        source_format=SourceFormat.TXT,
+        family=DocumentFamily.PROSE,
+        content_hash="page",
+        loader_name="text",
+        char_count=len(text),
+        sections=text_sections(text),
+    )
+    chunks = [chunk.text for chunk in Chunker().chunk(document)]
     return bool(figures) and any(
         all(figure in chunk for figure in figures) for chunk in chunks
     )

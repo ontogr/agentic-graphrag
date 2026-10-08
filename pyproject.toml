@@ -31,15 +31,15 @@ dependencies = [
   "opentelemetry-api>=1.20", # API only; the SDK stays optional
   "openinference-semantic-conventions",
   "charset-normalizer>=3.4",
-  "markdown-it-py>=3.0",
   "selectolax>=0.3.21,<1",
+  "docling-slim[convert-core,format-markdown,format-html,format-docx,format-pptx,format-xlsx]>=2.135",
   "rapidfuzz>=3.0",
   "scipy>=1.14",
   "fastembed>=0.8.0",
 ]
 
 [project.optional-dependencies]
-docling = ["docling>=2.0"]
+docling = ["docling>=2.135"]
 embed-local = ["sentence-transformers>=5"]
 qdrant = ["qdrant-client>=1.12"]
 weaviate = ["weaviate-client>=4.9"]
@@ -74,9 +74,6 @@ eval = [
     "openinference-instrumentation-langchain>=0.1.76,<0.2",
 ]
 community = ["graspologic-native>=1.2.5"]
-chunk-semantic = ["chonkie[semantic]>=1.7"]
-chunk-neural = ["chonkie[neural]>=1.7"]
-chunk-code = ["chonkie[code]>=1.7"]
 
 [project.urls]
 Documentation = "https://ontogr.github.io/agentic-graphrag/"

@@ -40,9 +40,9 @@ def build_document_record(document: Document) -> NodeRecord:
 
 
 def build_part_of_records(
-    document_node_id: UUID, chunks: list[Chunk], *, version_id: str
+    document_node_id: UUID, node_ids: list[UUID], *, version_id: str
 ) -> list[RelationRecord]:
-    """Return one open Document -[:PART_OF]-> Chunk record per chunk.
+    """Return one open Document -[:PART_OF]-> node record for each structure node.
 
     Edge identity is keyed on the document version: rebuilding the same
     version returns the same records, so repeat ingestion converges
@@ -50,49 +50,42 @@ def build_part_of_records(
     edges and preserves the closed interval's history.
 
     Args:
-        document_node_id: The id of the persisted Document node these chunks
+        document_node_id: The id of the persisted Document node these nodes
             belong to.
-        chunks: The chunks to link. Every chunk must have a resolved id.
+        node_ids: The ids of the chunks, sections, tables and figures to link.
         version_id: The identifier for this document version. Callers pass
             the content-derived version so identical re-ingests converge.
 
     Returns:
-        One RelationRecord per chunk, with ``valid_at`` set and
-        ``invalid_at`` unset.
-
-    Raises:
-        ValueError: A chunk's id is None.
+        One RelationRecord per node, with ``valid_at`` set and ``invalid_at``
+        unset.
     """
     now = datetime.now(UTC).isoformat()
-    records: list[RelationRecord] = []
-    for chunk in chunks:
-        if chunk.id is None:
-            raise ValueError("Chunk.id must be set before building a PART_OF record.")
-        records.append(
-            RelationRecord(
-                id=part_of_id(document_node_id, chunk.id, version_id),
-                type="PART_OF",
-                start_id=document_node_id,
-                end_id=chunk.id,
-                properties={
-                    "valid_at": now,
-                    "invalid_at": None,
-                    "version_id": version_id,
-                },
-            )
+    return [
+        RelationRecord(
+            id=part_of_id(document_node_id, node_id, version_id),
+            type="PART_OF",
+            start_id=document_node_id,
+            end_id=node_id,
+            properties={
+                "valid_at": now,
+                "invalid_at": None,
+                "version_id": version_id,
+            },
         )
-    return records
+        for node_id in node_ids
+    ]
 
 
 def build_next_chunk_records(chunks: list[Chunk]) -> list[RelationRecord]:
-    """Return edges joining adjacent chunks of the same level within each document.
+    """Return edges joining adjacent chunks within each document.
 
     Records carry no temporal fields: sequencing is version-independent,
     unlike ``PART_OF`` currency.
     """
-    by_document: dict[tuple[UUID, int], list[Chunk]] = {}
+    by_document: dict[UUID, list[Chunk]] = {}
     for chunk in chunks:
-        by_document.setdefault((chunk.document_id, chunk.level), []).append(chunk)
+        by_document.setdefault(chunk.document_id, []).append(chunk)
 
     records: list[RelationRecord] = []
     for document_chunks in by_document.values():

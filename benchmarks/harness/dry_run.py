@@ -9,7 +9,7 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from agrag.chunking import Chunking
+from agrag.chunking import Chunker
 from agrag.common.data_models.document import Document
 from benchmarks.harness.config import SPEND_CAPS, CostModel, SpendCap
 from benchmarks.harness.record import SpendCapRecord
@@ -35,16 +35,16 @@ class DryRun:
     tokens: int
 
 
-def count_chunks(documents: Sequence[Document], chunking: Chunking) -> int:
+def count_chunks(documents: Sequence[Document], chunking: Chunker) -> int:
     """Count the chunks ingest would make, without a model."""
-    return sum(len(chunking.select(doc)[1].chunk(doc)) for doc in documents)
+    return sum(len(chunking.chunk(doc)) for doc in documents)
 
 
 def dry_run(
     manifest: CorpusManifest,
     documents: Mapping[str, Sequence[Document]],
     *,
-    chunking: Chunking,
+    chunking: Chunker,
     cost: CostModel,
     judge_calls_per_question: int,
 ) -> DryRun:

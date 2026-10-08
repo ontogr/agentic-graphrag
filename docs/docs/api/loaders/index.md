@@ -8,12 +8,13 @@ sidebar_position: 9
 
 Document loaders: turn files, directories and raw text into Documents.
 
-The docling loader needs the `docling` extra and lives in `agrag.loaders.docling`.
+The docling loaders live in `agrag.loaders.docling`. PDF and image files need the
+`docling` extra.
 
 **Modules:**
 
 - [**corpus**](corpus/index.md) – The corpus loaders package.
-- [**docling**](docling/index.md) – The docling loader package.
+- [**docling**](docling/index.md) – The docling loaders.
 - [**registry**](registry/index.md) – The extension-to-loader registry.
 
 **Classes:**

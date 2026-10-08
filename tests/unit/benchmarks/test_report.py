@@ -1,6 +1,6 @@
 """Tests the report table: newest record per key, all records, model warning."""
 
-from agrag.chunking import Chunking, RecursiveChunker
+from agrag.chunking import Chunker
 from benchmarks.harness.record import RunRecord
 from benchmarks.harness.report import load_records, report
 from benchmarks.harness.runner import RunOptions, run
@@ -17,9 +17,7 @@ async def _record(tmp_path, *, model: str, created_at: str, chunk_size: int = 10
             "extractor": {"model_id": model, "provider": "p"},
             "embedder": {"model": "e"},
         },
-        chunking=Chunking(
-            fallback=RecursiveChunker(tokenizer="o200k_base", chunk_size=chunk_size)
-        ),
+        chunking=Chunker(size=chunk_size),
     )
     record, _ = await run(
         "fake", DOMAIN, "lite", RunOptions(max_llm_calls=1000, max_tokens=10**6), env

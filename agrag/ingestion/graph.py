@@ -9,7 +9,7 @@ from uuid import UUID
 from opentelemetry.trace import Tracer
 
 import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
-from agrag.chunking import DEFAULT_CHUNKING, Chunking
+from agrag.chunking import Chunker
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.community import COMMUNITY_LABEL
 from agrag.common.data_models.document import DOCUMENT_LABEL, Document
@@ -17,6 +17,12 @@ from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.resolved_entity import (
     RESOLVED_ENTITY_LABEL,
     ResolvedEntity,
+)
+from agrag.common.data_models.structure import (
+    FIGURE_LABEL,
+    SECTION_LABEL,
+    SOURCE_LABEL,
+    TABLE_LABEL,
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
@@ -75,7 +81,7 @@ class Graph:
         vector_store: VectorStore | None = None,
         retrieval_settings: RetrievalSettings | None = None,
         cutover_settings: CutoverJobSettings | None = None,
-        chunking: Chunking = DEFAULT_CHUNKING,
+        chunker: Chunker | None = None,
         embed_heading_path: bool = True,
         max_llm_pairs: int = MAX_LLM_PAIRS,
     ) -> None:
@@ -101,8 +107,8 @@ class Graph:
             cutover_settings: Lease configuration for the Cutover Jobs
                 add/update/delete_document run through. None uses
                 CutoverJobSettings defaults.
-            chunking: The rules that pick a chunker for each document. The
-                default is ``DEFAULT_CHUNKING``.
+            chunker: The chunker that splits every document. None uses
+                ``Chunker()``.
             embed_heading_path: Whether chunk embeddings include the chunk's
                 heading path above its text. The stored text does not change.
                 Existing embeddings stay until a document is re-chunked with
@@ -117,7 +123,7 @@ class Graph:
         self._extractor = extractor
         self._tracer = get_tracer(tracer)
         self._registry = _corpus_registry
-        self._chunking = chunking
+        self._chunker = chunker or Chunker()
         self._embed_heading_path = embed_heading_path
         self._max_llm_pairs = max_llm_pairs
         self._vector_store = vector_store
@@ -136,7 +142,7 @@ class Graph:
         vector_store: VectorStore | None = None,
         retrieval_settings: RetrievalSettings | None = None,
         cutover_settings: CutoverJobSettings | None = None,
-        chunking: Chunking = DEFAULT_CHUNKING,
+        chunker: Chunker | None = None,
         embed_heading_path: bool = True,
         max_llm_pairs: int = MAX_LLM_PAIRS,
     ) -> "Graph":
@@ -168,8 +174,7 @@ class Graph:
             cutover_settings: Lease configuration for the Cutover Jobs
                 add/update/delete_document run through. None uses
                 CutoverJobSettings defaults.
-            chunking: The rules that pick a chunker for each document; see
-                __init__.
+            chunker: The chunker that splits every document; see __init__.
             embed_heading_path: Whether chunk embeddings include the heading path;
                 see __init__.
             max_llm_pairs: The most ambiguous entity pairs sent to the LLM for each
@@ -203,7 +208,11 @@ class Graph:
                         CHUNK_LABEL,
                         COMMUNITY_LABEL,
                         DOCUMENT_LABEL,
+                        FIGURE_LABEL,
                         RESOLVED_ENTITY_LABEL,
+                        SECTION_LABEL,
+                        SOURCE_LABEL,
+                        TABLE_LABEL,
                     ]
                 )
                 await graph_store.register_relation_types(
@@ -278,7 +287,7 @@ class Graph:
                     vector_store=vector_store,
                     retrieval_settings=retrieval_settings,
                     cutover_settings=cutover_settings,
-                    chunking=chunking,
+                    chunker=chunker,
                     embed_heading_path=embed_heading_path,
                     max_llm_pairs=max_llm_pairs,
                 )
@@ -309,9 +318,9 @@ class Graph:
         return graph
 
     @property
-    def chunking(self) -> Chunking:
-        """The rules that pick a chunker for each document."""
-        return self._chunking
+    def chunker(self) -> Chunker:
+        """The chunker that splits every document."""
+        return self._chunker
 
     async def add(  # noqa: PLR0912,PLR0915,PLR0913
         self,
@@ -382,7 +391,7 @@ class Graph:
             vector_store=self._vector_store,
             retrieval_settings=self._retrieval_settings,
             cutover_settings=self._cutover_settings,
-            chunking=self._chunking,
+            chunker=self._chunker,
             registry=self._registry,
             embed_heading_path=self._embed_heading_path,
             max_llm_pairs=self._max_llm_pairs,
@@ -459,7 +468,7 @@ class Graph:
             vector_store=self._vector_store,
             retrieval_settings=self._retrieval_settings,
             cutover_settings=self._cutover_settings,
-            chunking=self._chunking,
+            chunker=self._chunker,
             registry=self._registry,
             embed_heading_path=self._embed_heading_path,
             max_llm_pairs=self._max_llm_pairs,

@@ -8,7 +8,7 @@ its dry-run bound.
 
 from dataclasses import dataclass
 
-from agrag.chunking import Chunking, RecursiveChunker
+from agrag.chunking import Chunker
 
 
 @dataclass(frozen=True)
@@ -160,7 +160,6 @@ SPEND_CAPS: dict[tuple[str, str], SpendCap] = {
     ("healthcare", "full"): SpendCap(llm_calls=63_000, tokens=766_500_000),
 }
 
-# About 1000 tokens per chunk, counted with the tokenizer agrag uses elsewhere.
-BENCH_CHUNKING = Chunking(
-    fallback=RecursiveChunker(tokenizer="o200k_base", chunk_size=1000)
-)
+# 1000 tokens per chunk. The cost model and the spend caps above were measured at
+# this size, so a run with another size needs them measured again.
+BENCH_CHUNKING = Chunker(size=1000)

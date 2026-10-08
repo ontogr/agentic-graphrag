@@ -119,6 +119,7 @@ agrag.ingestion.add
           agrag.resolution.llm_batch
       agrag.merge.merge_group             one per entity group
       agrag.storage.upsert_chunks
+      agrag.storage.upsert_structure
       agrag.storage.upsert_documents
       agrag.storage.embed_chunks
       agrag.storage.upsert_relations
@@ -144,6 +145,7 @@ agrag.ingestion.add
 | `agrag.merge.rebuild_component` | `agrag.member_count` |
 | `agrag.merge.deactivate_component` | `agrag.match_id` |
 | `agrag.storage.upsert_chunks` | `agrag.record_count`, `agrag.nodes_written` |
+| `agrag.storage.upsert_structure` | `agrag.record_count`, `agrag.nodes_written` |
 | `agrag.storage.upsert_documents` | `agrag.record_count`, `agrag.nodes_written` |
 | `agrag.storage.upsert_relations` | `agrag.record_count`, `agrag.relationships_written` |
 | `agrag.storage.upsert_mentioned_in` | `agrag.record_count`, `agrag.relationships_written` |

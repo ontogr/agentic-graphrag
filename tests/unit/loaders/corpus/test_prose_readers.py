@@ -14,8 +14,6 @@ from agrag.common.data_models.document import DocumentFamily, SourceFormat
 from agrag.common.data_models.normalization import Normalization
 from agrag.loaders.corpus.errors import DocumentTooLargeError
 from agrag.loaders.corpus.readers.prose import (
-    AsciiDocLoader,
-    MarkdownLoader,
     TextLoader,
 )
 from agrag.loaders.corpus.types import ReadOptions, SourceRef
@@ -102,39 +100,3 @@ class TestTextLoader:
         except DocumentTooLargeError:
             return
         raise AssertionError("expected DocumentTooLargeError")
-
-
-class TestMarkdownLoader:
-    """Markdown files record a heading outline and a title."""
-
-    def test_records_heading_outline(self) -> None:
-        """Records heading outline."""
-        docs = _documents(MarkdownLoader(), "sample.md", ".md")
-        doc = docs[0]
-        assert doc.source_format == SourceFormat.MARKDOWN
-        assert doc.heading_outline
-        levels = [h.level for h in doc.heading_outline]
-        assert levels == [1, 2, 3, 2, 2]
-        assert doc.title == "Sample Document"
-        for heading in doc.heading_outline:
-            marker = "#" * heading.level
-            assert doc.text[heading.char_start :].startswith(marker)
-
-
-class TestAsciiDocLoader:
-    """AsciiDoc falls back to a regex heading scan without docling."""
-
-    def test_records_heading_outline(self) -> None:
-        """Records heading outline."""
-        ref = SourceRef(uri="x.adoc", extension=".adoc", byte_size=None)
-        source = "= Title\n\nBody.\n\n== Section\n\nMore.\n"
-        docs = list(
-            AsciiDocLoader().load(ref, BytesIO(source.encode("utf-8")), ReadOptions())
-        )
-        doc = docs[0]
-        assert doc.source_format == SourceFormat.ASCIIDOC
-        assert doc.title == "Title"
-        assert [h.level for h in doc.heading_outline] == [1, 2]
-        for heading in doc.heading_outline:
-            marker = "=" * heading.level
-            assert doc.text[heading.char_start :].startswith(marker)

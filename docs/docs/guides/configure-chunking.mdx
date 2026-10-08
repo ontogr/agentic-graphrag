@@ -5,332 +5,38 @@ title: Configure chunking
 
 # Configure chunking
 
-Choose how Agentic GraphRAG splits each document into chunks. See which chunker made each chunk. Change the choice for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`. Each code block on this page is complete. Blocks that add documents open their own graph and close it at the end.
+Set the size of the chunks that Agentic GraphRAG makes. See which settings made each chunk. Change the settings for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`. Each code block on this page is complete. Blocks that add documents open their own graph and close it at the end.
 
-See [Chunking](/concepts/chunking) for how rules, strategies and provenance work.
+See [Chunking](/concepts/chunking) for how the chunker works.
 
-## Print the default rules
+## See the default settings
 
-A `Graph` holds a `Chunking`. It is a list of rules and a fallback chunker. The first rule that matches a document picks its chunker. A document that no rule matches gets the fallback.
-
-```python
-from agrag.chunking import DEFAULT_CHUNKING
-
-print(DEFAULT_CHUNKING.model_dump_json(indent=2))
-```
-
-The default sends documents from the `docling` loader to the Docling chunker. All other documents go to the recursive chunker with a size of 1024 characters.
-
-## Write your own rules
-
-Pass `chunking` to `Graph.open`. This example cuts Markdown files into windows of 200 tokens and keeps the recursive chunker for all other files.
+A `Graph` holds one `Chunker`. Its settings are `size`, `min_size` and `tokenizer`.
 
 ```python
-import asyncio
+from agrag.chunking import Chunker
 
-from agrag.chunking import Chunking, ChunkingRule, RecursiveChunker, RuleMatch, TokenChunker
-from agrag.common.data_models.document import SourceFormat
-from agrag.common.data_models.graph_schema import GENERIC
-from agrag.embedding import build_embedder
-from agrag.graphdb import build_graph_store
-from agrag.ingestion import Graph
-from agrag.ingestion.extract import GlinerExtractor
-
-chunking = Chunking(
-    rules=[
-        ChunkingRule(
-            match=RuleMatch(source_formats=[SourceFormat.MARKDOWN]),
-            chunker=TokenChunker(chunk_size=200, chunk_overlap=20),
-        )
-    ],
-    fallback=RecursiveChunker(chunk_size=512),
-)
-
-
-async def main() -> None:
-    graph_store = build_graph_store("neo4j")
-    graph = await Graph.open(
-        schema=GENERIC,
-        graph_store=graph_store,
-        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
-        extractor=GlinerExtractor(),
-        chunking=chunking,
-    )
-    try:
-        print(graph is not None)
-    finally:
-        await graph_store.close()
-
-
-asyncio.run(main())
+chunker = Chunker()
+print(chunker.settings())
+print(chunker.fingerprint())
 ```
 
-A rule matches on these keys. All keys are optional. A document must match every key that you set. A list key matches if the document equals any item in the list.
-
-| Key | Matches |
-|---|---|
-| `loader_names` | `Document.loader_name` |
-| `source_formats` | `Document.source_format` |
-| `families` | `Document.family` (`prose` or `record`) |
-| `uri_glob` | `Document.uri`, as an `fnmatch` pattern that respects case |
-
-## Pick a strategy
-
-| Chunker | Cuts at | Overlap |
+| Setting | Default | Meaning |
 |---|---|---|
-| `RecursiveChunker` | paragraph, sentence, then word boundaries | none |
-| `TokenChunker` | a fixed number of tokens | `chunk_overlap` |
-| `SentenceChunker` | sentence boundaries | `chunk_overlap` |
-| `HeadingChunker` | section boundaries from `Document.heading_outline` | none |
-| `TurnWindowChunker` | chat turn boundaries from `Document.turns` | `turn_overlap` (in turns) |
-| `DoclingChunker` | Docling document structure (PDF and Office files) | none |
+| `size` | 600 | The most tokens in a chunk. |
+| `min_size` | a quarter of `size` | A chunk with fewer tokens carries on into the next section. |
+| `tokenizer` | `o200k_base` | The tokenizer that counts tokens. |
 
-`SentenceChunker` never cuts inside a sentence, so one very long sentence makes a chunk larger than `chunk_size`.
+`size` and `min_size` count the text of the units. The blank lines that join units are not counted, so a chunk can pass `size` by a few tokens. `min_size` must be smaller than `size`.
 
-## Split Markdown by headings
+## Set the size
 
-`HeadingChunker` starts a new chunk at every heading up to `split_level` (default 2). A section within `chunk_size` tokens is one chunk, and small sibling sections stay apart. Agentic GraphRAG cuts a larger section at its deeper headings and packs the parts to the budget. A part that is still too large goes to `fallback`, and those chunks have the chunker name `heading:recursive`.
-
-```python
-from agrag.chunking import HeadingChunker, RecursiveChunker
-
-chunker = HeadingChunker(
-    chunk_size=400, split_level=2, fallback=RecursiveChunker(chunk_size=400)
-)
-```
-
-Only the Markdown and AsciiDoc loaders fill `heading_outline`. For a document with no outline, the chunker uses `fallback` for the whole text and names the chunks `heading:recursive`.
-
-## Split chat by turns
-
-`TurnWindowChunker` packs whole turns into windows of at most `chunk_size` tokens. A chunk boundary never falls inside a turn. `turn_overlap` repeats the last turns of a window at the start of the next one. Text before the first turn, such as a date line, stays in the first chunk. A turn above the budget goes to `fallback`, and those chunks have the chunker name `turn-window:recursive`.
-
-The chunker counts tokens for each turn alone, so the blank line between turns does not count.
-
-Turns come from `Document.turns`. The `ChatLoader` fills them. Route chat documents with a rule on the loader name:
+Pass `chunker` to `Graph.open`. This example makes chunks of up to 400 tokens.
 
 ```python
 import asyncio
 
-from pathlib import Path
-from tempfile import TemporaryDirectory
-
-from agrag.chunking import Chunking, ChunkingRule, RecursiveChunker, RuleMatch, TurnWindowChunker
-from agrag.loaders.corpus import ChatLoader
-from agrag.common.data_models.graph_schema import GENERIC
-from agrag.embedding import build_embedder
-from agrag.graphdb import build_graph_store
-from agrag.ingestion import Graph
-from agrag.ingestion.extract import GlinerExtractor
-
-chunking = Chunking(
-    rules=[
-        ChunkingRule(
-            match=RuleMatch(loader_names=["chat"]),
-            chunker=TurnWindowChunker(chunk_size=300, turn_overlap=1),
-        )
-    ],
-    fallback=RecursiveChunker(chunk_size=512),
-)
-
-
-async def main() -> None:
-    graph_store = build_graph_store("neo4j")
-    graph = await Graph.open(
-        schema=GENERIC,
-        graph_store=graph_store,
-        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
-        extractor=GlinerExtractor(),
-        chunking=chunking,
-    )
-    try:
-        with TemporaryDirectory() as folder:
-            path = Path(folder) / "session.jsonl"
-            path.write_text(
-                '{"role": "user", "content": "Hi there", "id": 1}\n'
-                '{"role": "assistant", "content": "Hello! How can I help?", "id": 2}\n'
-            )
-            result = await graph.add(source=str(path), loader=ChatLoader())
-            print(result.ingestion.documents)
-    finally:
-        await graph_store.close()
-
-
-asyncio.run(main())
-```
-
-`ChatLoader` is not registered for any extension, because `.jsonl` belongs to the record loader. You must pass `loader=ChatLoader()`, and the source must be one file. See [Ingest documents](./ingest-documents.mdx) for the file format.
-
-## Add the heading path to extraction and embedding
-
-A chunk from Markdown, AsciiDoc or a PDF has a `heading_path`, the headings above it. Two configuration values decide where it helps. Both are on by default.
-
-| Setting | Where | Effect |
-|---|---|---|
-| `BAMLExtractor(include_heading_path=True)` | extraction | Sends the path as a `section` line above the text. Offsets still index the chunk text. |
-| `Graph.open(..., embed_heading_path=True)` | embedding | Embeds the path and the text together. The stored chunk text and the vector payload text stay raw. |
-
-Chunks with no heading path are not changed. Query embeddings do not change. Existing chunk embeddings stay as they are. Re-chunk the document with `Graph.update` after you change the chunking. Only `BAMLExtractor` uses the path.
-
-## Use the optional chunkers
-
-Three chunkers need an extra package. You can build and print them without it, and `chunk()` raises `ChunkerMissingExtraError` when the package is missing.
-
-| Chunker | Extra | Install | Cuts |
-|---|---|---|---|
-| `SemanticChunker` | `chunk-semantic` | `uv pip install "agentic-graphrag[chunk-semantic]"` | where the meaning of neighbouring sentences changes |
-| `NeuralChunker` | `chunk-neural` | `uv pip install "agentic-graphrag[chunk-neural]"` | where a token classification model predicts a topic break |
-| `CodeChunker` | `chunk-code` | `uv pip install "agentic-graphrag[chunk-code]"` | along the syntax tree of source code |
-
-`SemanticChunker` and `NeuralChunker` download a model the first time you use them. `CodeChunker` converts the byte offsets of the parser to character offsets, so chunk text equals the source at its offsets for non-ASCII code too.
-
-## Search small chunks and read large ones
-
-`ParentChildChunker` cuts a document into large parent chunks, then cuts each parent into small child chunks. Extraction runs on the parents. Only the children are embedded and searched. A search hit is a child with its parent attached.
-
-```python
-from agrag.chunking import Chunking, ParentChildChunker, RecursiveChunker, SentenceChunker
-
-chunking = Chunking(
-    fallback=ParentChildChunker(
-        parent=RecursiveChunker(chunk_size=1024),
-        child=SentenceChunker(chunk_size=128),
-    )
-)
-```
-
-There is a trade-off. Extraction makes fewer calls, because parents are large and few. A small child matches a query more closely. The agent reads more text for each hit, because it sees the whole parent. Entities link to parents through `MENTIONED_IN`. `Chunk.level` is `1` for a parent and `0` for a child. `Chunk.parent_id` names the parent. Indexes count from 0 in each level. A child never crosses a parent boundary, even with overlap.
-
-## Tune the Docling chunker
-
-`DoclingChunker` splits PDF and Office documents along the structure that Docling found. Its configuration:
-
-| Setting | Default | Effect |
-|---|---|---|
-| `tokenizer` | `o200k_base` | Counts tokens the same way as the text strategies. A name with a slash is a Hugging Face model id, which needs the network the first time. |
-| `max_tokens` | `1024` | The most tokens in a chunk. Headings count against it. |
-| `merge_peers` | `True` | Merges small neighbours that share headings. |
-| `repeat_table_header` | `True` | Repeats the table header in each chunk of a split table. |
-| `omit_header_on_overflow` | `False` | Drops headings from a chunk when they do not fit. |
-| `table_format` | `"triplet"` | `"triplet"` writes `row, column = value` text. `"markdown"` writes a pipe table. |
-
-Each chunk has the headings above it in `heading_path`. The chunk text is the body without headings. A chunk that holds only table items has `content_kind="table_row"`. Chunk ids include the chunker hash, so a new configuration gives new chunks and `Graph.update` closes the old ones.
-
-## Set the size and the tokenizer
-
-`chunk_size` counts units of the `tokenizer`. Each chunker class counts tokens with `o200k_base` by default, which loads offline. Use `tokenizer="character"` to count characters. The fallback in `DEFAULT_CHUNKING` is the exception. It sets `tokenizer="character"`, so its `chunk_size` of 1024 counts characters.
-
-Overlapping chunks keep exact spans. Neighbouring chunks share text, and each chunk text still equals the source text at its offsets.
-
-## Read what chunked each document
-
-Each chunk stores the name of its chunker and a hash of the chunker configuration.
-
-```python
-import asyncio
-
-from pathlib import Path
-from tempfile import TemporaryDirectory
-
-from agrag.chunking import Chunking, RecursiveChunker
-from agrag.common.data_models.graph_schema import GENERIC
-from agrag.embedding import build_embedder
-from agrag.graphdb import build_graph_store
-from agrag.ingestion import Graph
-from agrag.ingestion.extract import GlinerExtractor
-
-chunking = Chunking(fallback=RecursiveChunker(chunk_size=512))
-
-
-async def main() -> None:
-    graph_store = build_graph_store("neo4j")
-    graph = await Graph.open(
-        schema=GENERIC,
-        graph_store=graph_store,
-        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
-        extractor=GlinerExtractor(),
-        chunking=chunking,
-    )
-    try:
-        with TemporaryDirectory() as folder:
-            (Path(folder) / "a.txt").write_text("Charles Babbage designed the Analytical Engine.")
-            result = await graph.add(source=folder, return_chunks=True)
-            print(result.chunks[0].chunker, result.chunks[0].chunker_hash)
-            print(result.chunking.chunks_by_strategy)  # {"recursive": 1}
-            print(result.chunking.documents_by_rule)  # {"fallback": 1}
-    finally:
-        await graph_store.close()
-
-
-asyncio.run(main())
-```
-
-`result.chunking.matches` lists the rule and chunker for each document.
-
-## Change the chunking of documents you added
-
-`Graph.add` does not close the old chunks of a document that the graph already holds. Do not call it again to re-chunk. Open the graph with the new `chunking` and call `Graph.update` with the `document_key` of the document. For a file source, `result.chunking.matches[i].document_key` gives the key.
-
-```python
-import asyncio
-from pathlib import Path
-from tempfile import TemporaryDirectory
-
-from agrag.chunking import Chunking, RecursiveChunker, SentenceChunker
-from agrag.common.data_models.graph_schema import GENERIC
-from agrag.embedding import build_embedder
-from agrag.graphdb import build_graph_store
-from agrag.ingestion import Graph
-from agrag.ingestion.extract import GlinerExtractor
-
-
-async def open_graph(graph_store, chunking):
-    return await Graph.open(
-        schema=GENERIC,
-        graph_store=graph_store,
-        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
-        extractor=GlinerExtractor(),
-        chunking=chunking,
-    )
-
-
-async def main() -> None:
-    graph_store = build_graph_store("neo4j")
-    try:
-        with TemporaryDirectory() as folder:
-            path = Path(folder) / "guide.md"
-            path.write_text("# Guide\n\nAda Lovelace wrote the first program.")
-            graph = await open_graph(
-                graph_store, Chunking(fallback=RecursiveChunker(chunk_size=512))
-            )
-            result = await graph.add(source=str(path))
-
-            new_chunking = Chunking(fallback=SentenceChunker(chunk_size=3))
-            graph = await open_graph(graph_store, new_chunking)
-            key = result.chunking.matches[0].document_key
-            result = await graph.update(key, source=str(path))
-            print(result.no_op, result.chunks_closed)
-    finally:
-        await graph_store.close()
-
-
-asyncio.run(main())
-```
-
-`update` re-chunks when the content changed or when the configuration of the chunker for that document changed. It does nothing when both are the same. Chunks that you added before Agentic GraphRAG recorded chunkers count as unchanged.
-
-## Choose how loaders normalize text
-
-Chunk offsets index the text after normalization. Pass `read_options` to `Graph.add` or `Graph.update` to change the normalization.
-
-```python
-import asyncio
-
-from pathlib import Path
-from tempfile import TemporaryDirectory
-
-from agrag.common.data_models.normalization import Normalization
-from agrag.loaders.corpus.types import ReadOptions
+from agrag.chunking import Chunker
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.embedding import build_embedder
 from agrag.graphdb import build_graph_store
@@ -345,14 +51,10 @@ async def main() -> None:
         graph_store=graph_store,
         embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
         extractor=GlinerExtractor(),
+        chunker=Chunker(size=400),
     )
     try:
-        raw = ReadOptions(
-            normalization=Normalization(bom="keep", newline="keep", unicode_form="none")
-        )
-        with TemporaryDirectory() as folder:
-            (Path(folder) / "a.txt").write_text("Charles Babbage designed the Analytical Engine.")
-            await graph.add(source=folder, read_options=raw)
+        print(graph.chunker.settings())
     finally:
         await graph_store.close()
 
@@ -360,4 +62,81 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The default removes the byte-order mark, changes line endings to LF, and applies NFKC. With the configuration above, the text of a chunk equals the text in the file at its offsets. Each `Document` records its setting in `Document.normalization`.
+A smaller size gives sharper search results and more entities for each token of text. A larger size needs fewer extraction calls. Check the embedder: a chunk must fit in its input limit. The default embedder reads 8,192 tokens.
+
+## Check what the chunker made
+
+`Graph.add` returns the counts in `result.chunking`. Pass `return_chunks=True` to get the chunks. Each chunk records the chunker name and the settings fingerprint.
+
+```python
+import asyncio
+
+from agrag.common.data_models.graph_schema import GENERIC
+from agrag.embedding import build_embedder
+from agrag.graphdb import build_graph_store
+from agrag.ingestion import Graph
+from agrag.ingestion.extract import GlinerExtractor
+
+TEXT = "Ada wrote the first program.\n\nCharles built the engine.\n\n" * 3
+
+
+async def main() -> None:
+    graph_store = build_graph_store("neo4j")
+    graph = await Graph.open(
+        schema=GENERIC,
+        graph_store=graph_store,
+        embedder=build_embedder("ibm-granite/granite-embedding-small-english-r2"),
+        extractor=GlinerExtractor(),
+    )
+    try:
+        result = await graph.add(text=TEXT, return_chunks=True)
+        print(result.chunking)
+        for chunk in result.chunks:
+            print(chunk.chunker, chunk.chunker_hash, chunk.heading_path)
+    finally:
+        await graph_store.close()
+
+
+asyncio.run(main())
+```
+
+`result.chunking` counts the chunks, sections, tables and figures.
+
+## Chunk a document without a graph
+
+`Chunker.chunk` works on a `Document` and needs no database. This is the quickest way to test a size.
+
+```python
+from agrag.chunking import Chunker
+from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.loaders.corpus.readers._common import text_sections
+
+text = "First paragraph.\n\nSecond paragraph.\n\n" * 20
+document = Document(
+    text=text,
+    title="sample",
+    uri="sample.txt",
+    source_format=SourceFormat.TXT,
+    family=DocumentFamily.PROSE,
+    content_hash="sample",
+    loader_name="text",
+    char_count=len(text),
+    sections=text_sections(text),
+)
+
+for size in (50, 200):
+    chunks = Chunker(size=size).chunk(document)
+    print(size, len(chunks))
+```
+
+## Chunk again after you change the size
+
+`Graph.update` compares the stored fingerprint with the current one. A new size chunks the document again, even when the text did not change. Chunks that the old settings made close, and the new chunks open.
+
+## Chat and record files
+
+A chat file has one section for each message. Short neighbouring messages can share a chunk, and a long message is cut at sentence boundaries. A record row has no sections and is one chunk. A row that is over `size` is cut at sentence boundaries.
+
+## Tables
+
+A table that fits in `size` tokens is one chunk. A larger table becomes row groups, and each group starts with the header row. A row that is over `size` on its own becomes its own group.

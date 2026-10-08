@@ -22,12 +22,16 @@ class Loader(ABC):
         extra: The optional package extra required to use this loader. ``None`` for core
             loaders. The registry raises ``MissingExtraError`` when this extra is not
             installed.
+        extra_module: The module that only the extra installs. The registry looks for
+            it to tell whether the extra is installed. ``None`` means the module has
+            the same name as the extra.
     """
 
     extensions: ClassVar[frozenset[str]]
     mime_types: ClassVar[frozenset[str]] = frozenset()
     family: ClassVar[DocumentFamily]
     extra: ClassVar[str | None] = None
+    extra_module: ClassVar[str | None] = None
 
     @abstractmethod
     def load(

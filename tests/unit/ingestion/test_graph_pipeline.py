@@ -1423,7 +1423,8 @@ class TestGraphAddPipeline:
             for rec in batch
             if rec.type == "PART_OF"
         ]
-        assert len(part_of_records) == chunk_count
+        # One edge for each chunk and one for the section that holds the text.
+        assert len(part_of_records) == chunk_count + 1
         document_node_id = document_calls[0][0].id
         assert all(record.start_id == document_node_id for record in part_of_records)
         assert all(record.properties["valid_at"] for record in part_of_records)
@@ -1431,8 +1432,8 @@ class TestGraphAddPipeline:
             record.properties["invalid_at"] is None for record in part_of_records
         )
         assert all(record.properties["version_id"] for record in part_of_records)
-        assert {record.end_id for record in part_of_records} == {
-            chunk.id for chunk in result.chunks
+        assert {chunk.id for chunk in result.chunks} <= {
+            record.end_id for record in part_of_records
         }
 
     async def test_add_two_documents_writes_two_document_records(self) -> None:
@@ -1578,9 +1579,7 @@ class TestGraphAddPipeline:
         graph = await Graph.open(
             schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
         )
-        with mock.patch(
-            "agrag.ingestion._ingest.chunk_documents", return_value=([], [])
-        ):
+        with mock.patch("agrag.ingestion._ingest.chunk_documents", return_value=[]):
             result = await graph.add(text="hi", on_progress=lambda _: None)
             assert result.extraction.chunks_processed == 0
             assert result.storage.nodes_written == 0

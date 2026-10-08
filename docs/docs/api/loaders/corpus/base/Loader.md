@@ -21,6 +21,9 @@ across many sources.
 - [**extra**](#agrag-loaders-corpus-base-Loader-extra) (<code>str | None</code>) – The optional package extra required to use this loader. `None` for core
   loaders. The registry raises `MissingExtraError` when this extra is not
   installed.
+- [**extra_module**](#agrag-loaders-corpus-base-Loader-extra_module) (<code>str | None</code>) – The module that only the extra installs. The registry looks for
+  it to tell whether the extra is installed. `None` means the module has
+  the same name as the extra.
 
 **Functions:**
 
@@ -36,6 +39,12 @@ extensions: frozenset[str]
 
 ```python
 extra: str | None = None
+```
+
+## `extra_module` \{#agrag-loaders-corpus-base-Loader-extra_module}
+
+```python
+extra_module: str | None = None
 ```
 
 ## `family` \{#agrag-loaders-corpus-base-Loader-family}

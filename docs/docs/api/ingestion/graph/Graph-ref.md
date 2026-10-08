@@ -6,7 +6,7 @@ sidebar_label: Graph
 # `agrag.ingestion.graph.Graph` \{#agrag-ingestion-graph-Graph}
 
 ```python
-Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
+Graph(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> None
 ```
 
 A knowledge graph that a caller can open and add content to.
@@ -30,7 +30,7 @@ by `open()` when missing.
 
 **Attributes:**
 
-- [**chunking**](#agrag-ingestion-graph-Graph-chunking) (<code>[Chunking](../../chunking/rules/Chunking.md)</code>) – The rules that pick a chunker for each document.
+- [**chunker**](#agrag-ingestion-graph-Graph-chunker) (<code>[Chunker](../../chunking/chunker/Chunker-ref.md)</code>) – The chunker that splits every document.
 
 **Parameters:**
 
@@ -53,8 +53,8 @@ by `open()` when missing.
 - **cutover_settings** (<code>[CutoverJobSettings](../settings/CutoverJobSettings.md) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
-- **chunking** (<code>[Chunking](../../chunking/rules/Chunking.md)</code>) – The rules that pick a chunker for each document. The
-  default is `DEFAULT_CHUNKING`.
+- **chunker** (<code>[Chunker](../../chunking/chunker/Chunker-ref.md) | None</code>) – The chunker that splits every document. None uses
+  `Chunker()`.
 - **embed_heading_path** (<code>bool</code>) – Whether chunk embeddings include the chunk's
   heading path above its text. The stored text does not change.
   Existing embeddings stay until a document is re-chunked with
@@ -113,13 +113,13 @@ Give exactly one of `source`, `text`, and `documents`.
 - <code>ValueError</code> – The input contains multiple documents with the same
   `document_key`.
 
-## `chunking` \{#agrag-ingestion-graph-Graph-chunking}
+## `chunker` \{#agrag-ingestion-graph-Graph-chunker}
 
 ```python
-chunking: Chunking
+chunker: Chunker
 ```
 
-The rules that pick a chunker for each document.
+The chunker that splits every document.
 
 ## `consolidate` \{#agrag-ingestion-graph-Graph-consolidate}
 
@@ -240,7 +240,7 @@ previous one.
 ## `open` \{#agrag-ingestion-graph-Graph-open}
 
 ```python
-open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunking:Chunking = DEFAULT_CHUNKING, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
+open(*, schema:GraphSchema, graph_store:GraphStore, embedder:Embedder, extractor:Extractor, tracer:Tracer | None = None, vector_store:VectorStore | None = None, retrieval_settings:RetrievalSettings | None = None, cutover_settings:CutoverJobSettings | None = None, chunker:Chunker | None = None, embed_heading_path:bool = True, max_llm_pairs:int = MAX_LLM_PAIRS) -> Graph
 ```
 
 Open a graph, connecting and fully provisioning graph_store.
@@ -272,8 +272,7 @@ missing) so the dual writes never hit an absent collection.
 - **cutover_settings** (<code>[CutoverJobSettings](../settings/CutoverJobSettings.md) | None</code>) – Lease configuration for the Cutover Jobs
   add/update/delete_document run through. None uses
   CutoverJobSettings defaults.
-- **chunking** (<code>[Chunking](../../chunking/rules/Chunking.md)</code>) – The rules that pick a chunker for each document; see
-  __init__.
+- **chunker** (<code>[Chunker](../../chunking/chunker/Chunker-ref.md) | None</code>) – The chunker that splits every document; see __init__.
 - **embed_heading_path** (<code>bool</code>) – Whether chunk embeddings include the heading path;
   see __init__.
 - **max_llm_pairs** (<code>int</code>) – The most ambiguous entity pairs sent to the LLM for each

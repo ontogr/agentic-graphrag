@@ -10,14 +10,13 @@ ensure_vector_index).
 """
 
 import hashlib
-import importlib
 import json
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any
 from unittest import mock
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -26,20 +25,12 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
-from opentelemetry.trace import Tracer
 
 import agrag.ingestion._cutover as cutover_module
 import agrag.ingestion._ingest as ingest_module
 import agrag.ingestion._job_cleanup as job_cleanup_module
 import agrag.ingestion._resolution_maintenance as maintenance_module
-from agrag.chunking import (
-    DEFAULT_CHUNKING,
-    Chunking,
-    ChunkingRule,
-    RecursiveChunker,
-    RuleMatch,
-    TokenChunker,
-)
+from agrag.chunking import Chunker
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.community import (
     COMMUNITY_LABEL,
@@ -79,34 +70,10 @@ from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES, ResolutionResult
 from agrag.loaders.corpus.errors import UnsupportedFormatError
 from agrag.loaders.corpus.readers.prose import TextLoader
 from agrag.loaders.corpus.types import ErrorPolicy, ReadOptions
-from agrag.observability import get_tracer
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
 _FIXTURES = Path(__file__).parents[1] / "loaders" / "corpus" / "fixtures"
-
-
-class _DoclingItem:
-    """A docling chunk with a text and no headings or page items."""
-
-    class meta:  # noqa: N801
-        headings: list[str] = []
-        doc_items: list[object] = []
-
-    text = "chunk"
-
-
-def _chunk_docling(
-    graph: Graph, document: Document, tracer: Tracer | None = None
-) -> list[Chunk]:
-    """Chunk a docling document with docling's chunker replaced by one chunk."""
-    docling_chunking = importlib.import_module("docling.chunking")
-    with patch.object(docling_chunking, "HybridChunker") as hybrid:
-        hybrid.return_value.chunk.return_value = [_DoclingItem()]
-        chunks, _ = chunk_documents(
-            [document], chunking=graph.chunking, tracer=get_tracer(tracer)
-        )
-    return chunks
 
 
 class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
@@ -491,14 +458,8 @@ class TestGraphAdd:
         with pytest.raises(ValueError, match="distinct document keys"):
             await graph.add(documents=[first, second])
 
-    def test_docling_chunks_use_distinct_ids_for_each_content_version(self) -> None:
-        """Same-index docling chunks retain their separate version histories."""
-        graph = Graph(
-            schema=GENERIC,
-            graph_store=_MockGraphStore(),
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-        )
+    def test_chunks_use_distinct_ids_for_each_content_version(self) -> None:
+        """Same-index chunks retain their separate version histories."""
         first = Document(
             text="first",
             title="first",
@@ -507,15 +468,15 @@ class TestGraphAdd:
             source_format=SourceFormat.TXT,
             family=DocumentFamily.PROSE,
             content_hash="first",
-            loader_name="docling",
+            loader_name="text",
             char_count=5,
             line_count=1,
-            metadata={"_docling_document": object()},
         )
-        second = first.model_copy(update={"content_hash": "second"})
+        second = first.model_copy(update={"text": "second", "content_hash": "second"})
+        chunker = Chunker()
 
-        first_chunk = _chunk_docling(graph, first)[0]
-        second_chunk = _chunk_docling(graph, second)[0]
+        first_chunk = chunker.chunk(first)[0]
+        second_chunk = chunker.chunk(second)[0]
 
         assert first_chunk.document_id == second_chunk.document_id
         assert first_chunk.id != second_chunk.id
@@ -790,12 +751,12 @@ class TestGraphVectorStore:
 
 
 class TestGraphChunking:
-    """Graph chunks each document with the chunker its rules pick."""
+    """Graph chunks every document with its one chunker."""
 
     _TEXT = "The quick brown fox jumps over the lazy dog. " * 20
 
-    async def _open(self, chunking: Chunking | None = None) -> Graph:
-        kwargs = {} if chunking is None else {"chunking": chunking}
+    async def _open(self, chunker: Chunker | None = None) -> Graph:
+        kwargs = {} if chunker is None else {"chunker": chunker}
         return await Graph.open(
             schema=GENERIC,
             graph_store=_MockGraphStore(),
@@ -804,42 +765,29 @@ class TestGraphChunking:
             **kwargs,
         )
 
-    async def test_default_chunking_records_the_fallback_on_every_chunk(self) -> None:
-        """Without a chunking argument, chunks name the recursive fallback."""
+    async def test_default_chunker_is_recorded_on_every_chunk(self) -> None:
+        """Without a chunker argument, chunks carry the default settings hash."""
         graph = await self._open()
 
         result = await graph.add(text=self._TEXT, return_chunks=True)
 
-        fallback = DEFAULT_CHUNKING.fallback
         assert result.chunks
-        assert {c.chunker for c in result.chunks} == {"recursive"}
-        assert {c.chunker_hash for c in result.chunks} == {fallback.fingerprint()}
-        assert result.chunking.documents_by_rule == {"fallback": 1}
-        assert result.chunking.chunks_by_strategy == {"recursive": len(result.chunks)}
+        assert {c.chunker for c in result.chunks} == {"section"}
+        assert {c.chunker_hash for c in result.chunks} == {Chunker().fingerprint()}
+        assert result.chunking.chunks == len(result.chunks)
+        assert result.chunking.sections == 1
 
-    async def test_custom_rule_picks_the_chunker_for_matching_documents(self) -> None:
-        """A rule on the format sends Markdown to the token chunker only."""
-        chunking = Chunking(
-            rules=[
-                ChunkingRule(
-                    match=RuleMatch(source_formats=[SourceFormat.MARKDOWN]),
-                    chunker=TokenChunker(chunk_size=32, tokenizer="character"),
-                )
-            ],
-            fallback=RecursiveChunker(chunk_size=200, tokenizer="character"),
-        )
-        graph = await self._open(chunking)
-        assert graph.chunking is chunking
+    async def test_the_chunker_argument_sets_the_chunk_size(self) -> None:
+        """A smaller size gives more chunks and a different hash."""
+        chunker = Chunker(size=40)
+        graph = await self._open(chunker)
+        assert graph.chunker is chunker
 
-        result = await graph.add(source=_FIXTURES, return_chunks=True)
+        result = await graph.add(text=self._TEXT, return_chunks=True)
+        default = await (await self._open()).add(text=self._TEXT, return_chunks=True)
 
-        by_uri = {Path(m.document_key).suffix: m for m in result.chunking.matches}
-        assert by_uri[".md"].strategy == "token"
-        assert by_uri[".md"].rule == 0
-        assert by_uri[".txt"].strategy == "recursive"
-        assert by_uri[".txt"].rule is None
-        assert result.chunking.matches_total == len(result.chunking.matches)
-        assert sum(result.chunking.chunks_by_strategy.values()) == len(result.chunks)
+        assert len(result.chunks) > len(default.chunks)
+        assert {c.chunker_hash for c in result.chunks} == {chunker.fingerprint()}
 
     async def test_add_and_update_pass_read_options_to_the_loaders(self) -> None:
         """A none Unicode form keeps a ligature in the chunk text on both paths."""
@@ -886,20 +834,8 @@ class TestGraphChunking:
     ) -> None:
         """The stored fingerprint equals the chunker's, so nothing runs."""
         graph = await self._open()
-        _, chunker = graph.chunking.select(
-            Document(
-                text="x",
-                title="t",
-                uri="memory://doc",
-                source_format=SourceFormat.TXT,
-                family=DocumentFamily.PROSE,
-                content_hash="h",
-                loader_name="inline",
-                char_count=1,
-            )
-        )
 
-        assert await self._update(graph, chunker.fingerprint()) is True
+        assert await self._update(graph, graph.chunker.fingerprint()) is True
 
     async def test_update_rechunks_when_only_the_chunker_changed(self) -> None:
         """Same content with a different stored fingerprint runs the full update."""
@@ -944,23 +880,18 @@ class TestChunkDocumentSpans:
         )
 
     def test_chunk_document_span_carries_attributes(self) -> None:
-        """The chunk span records the document key and chunk count."""
+        """The chunk span records the document key, the chunker and the chunk count."""
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
-        graph = Graph(
-            schema=GENERIC,
-            graph_store=_MockGraphStore(),
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-            tracer=provider.get_tracer("test"),
-        )
+        chunker = Chunker()
         document = self._document()
-        chunks, matches = chunk_documents(
-            [document], chunking=graph.chunking, tracer=provider.get_tracer("test")
+
+        chunks = chunk_documents(
+            [document], chunker=chunker, tracer=provider.get_tracer("test")
         )
+
         assert chunks
-        assert [m.strategy for m in matches] == ["recursive"]
         spans = [
             span
             for span in exporter.get_finished_spans()
@@ -972,51 +903,6 @@ class TestChunkDocumentSpans:
             spans[0].attributes["agrag.document_key"] == document.resolved_document_key
         )
         assert spans[0].attributes["agrag.chunks_produced"] == len(chunks)
-        assert spans[0].attributes["agrag.chunker.strategy"] == "recursive"
-        assert spans[0].attributes["agrag.chunker.rule"] == "fallback"
-        assert spans[0].attributes["agrag.chunker.hash"] == chunks[0].chunker_hash
+        assert spans[0].attributes["agrag.chunker.hash"] == chunker.fingerprint()
         settings = json.loads(str(spans[0].attributes["agrag.chunker.settings"]))
-        assert settings["chunk_size"] == 1024
-
-    def test_docling_document_span_names_the_docling_rule(self) -> None:
-        """A docling document is chunked under rule 0 with the docling strategy."""
-        exporter = InMemorySpanExporter()
-        provider = TracerProvider()
-        provider.add_span_processor(SimpleSpanProcessor(exporter))
-        graph = Graph(
-            schema=GENERIC,
-            graph_store=_MockGraphStore(),
-            embedder=_MockEmbedder(),
-            extractor=_MockExtractor(),
-            tracer=provider.get_tracer("test"),
-        )
-
-        text = "docling doc"
-        document = Document(
-            text=text,
-            title="t",
-            uri="memory://docling",
-            document_key="memory://docling",
-            source_format=SourceFormat.TXT,
-            family=DocumentFamily.PROSE,
-            content_hash="docling",
-            loader_name="docling",
-            char_count=len(text),
-            line_count=1,
-            metadata={"_docling_document": object()},
-        )
-        chunks = _chunk_docling(graph, document, provider.get_tracer("test"))
-        assert chunks
-        spans = [
-            span
-            for span in exporter.get_finished_spans()
-            if span.name == "agrag.ingestion.chunk_document"
-        ]
-        assert len(spans) == 1
-        assert spans[0].attributes is not None
-        assert (
-            spans[0].attributes["agrag.document_key"] == document.resolved_document_key
-        )
-        assert spans[0].attributes["agrag.chunks_produced"] == len(chunks)
-        assert spans[0].attributes["agrag.chunker.strategy"] == "docling"
-        assert spans[0].attributes["agrag.chunker.rule"] == "0"
+        assert settings["size"] == 600

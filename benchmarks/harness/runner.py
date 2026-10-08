@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from opentelemetry.trace import Tracer
 
-from agrag.chunking import Chunking
+from agrag.chunking import Chunker
 from agrag.common.data_models.document import Document
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.graphdb import GraphStore, Neo4jGraphStore, Neo4jSettings
@@ -145,7 +145,7 @@ class RunEnvironment:
 
     system_name: str
     code: CodeIdentity
-    chunking: Chunking
+    chunking: Chunker
     models: ModelsInfo
     agent_config: dict[str, Any]
     make_system: Callable[[SystemContext], SystemAdapter]
@@ -458,7 +458,7 @@ def make_plan(
     mode: Mode,
     options: RunOptions,
     *,
-    chunking: Chunking,
+    chunking: Chunker,
     cost: CostModel | None,
 ) -> Plan:
     """Load a domain, estimate its cost and check the spend cap. Calls no model.

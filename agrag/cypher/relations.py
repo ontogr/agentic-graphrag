@@ -17,6 +17,12 @@ from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
 TraversalDirection = Literal["outgoing", "incoming", "both"]
 
 
+# Relationship types that join entities to the document and community structure.
+# The entity graph that communities and neighbor search read leaves them out.
+_NON_ENTITY_RELATIONS = (
+    "['MENTIONED_IN', 'MEMBER_OF', 'PART_OF', 'HAS_CHILD', 'HAS_DOCUMENT']"
+)
+
 _DIRECTION_ARROW: dict[TraversalDirection, tuple[str, str]] = {
     "outgoing": ("-", "->"),
     "incoming": ("<-", "-"),
@@ -25,24 +31,24 @@ _DIRECTION_ARROW: dict[TraversalDirection, tuple[str, str]] = {
 
 
 def close_part_of_query() -> str:
-    """Build Cypher that closes currently valid document-to-chunk edges.
+    """Build Cypher that closes currently valid document-to-node edges.
 
     Only committed edges are closed. Pending edges belong to an in-flight
-    cutover and remain open until that job commits. An edge to a chunk in
-    ``$keep_chunk_ids`` stays open: a job that writes a chunk with the id of
-    a committed one reuses its edge without tagging it, and the edge must
-    outlive the close.
+    cutover and remain open until that job commits. An edge to a node in
+    ``$keep_node_ids`` stays open: a job that writes a chunk, section, table or
+    figure with the id of a committed one reuses its edge without tagging it,
+    and the edge must outlive the close.
 
     Returns:
-        Parameterized Cypher expecting $document_node_id and $keep_chunk_ids
-        (a list of chunk id strings). Returns the number of committed edges
+        Parameterized Cypher expecting $document_node_id and $keep_node_ids
+        (a list of node id strings). Returns the number of committed edges
         closed.
     """
     return (
         "MATCH (d:_AgragNode:Document {id: $document_node_id})"
         "-[r:PART_OF]->(c) "
         f"WHERE r.invalid_at IS NULL AND {pending_filter_clause('r')} "
-        "AND NOT c.id IN $keep_chunk_ids "
+        "AND NOT c.id IN $keep_node_ids "
         "SET r.invalid_at = datetime() RETURN count(r) AS closed"
     )
 
@@ -84,7 +90,8 @@ def bfs_expand_query(
 
     Result nodes are restricted to ``_AgragNode`` entities that are
     **not** ``Chunk`` nodes: chunks are intermediate path nodes only,
-    never returned as BFS results.
+    never returned as BFS results. Section, Table, Figure and Source nodes are
+    never returned either.
 
     Args:
         depth: The maximum BFS hops. Clamped to [1, 10].
@@ -126,6 +133,8 @@ def bfs_expand_query(
     filter_suffix = f" AND {where_clause[6:]}" if where_clause else ""
     base_where = (
         "neighbor:_AgragNode AND NOT neighbor:Chunk AND NOT neighbor.id IN $seed_ids "
+        "AND NOT neighbor:Section AND NOT neighbor:Table AND NOT neighbor:Figure "
+        "AND NOT neighbor:Source "
         f"AND {pending_filter_clause('neighbor', 'job_id')} "
         f"AND ALL(r IN relationships(path) WHERE "
         f"{pending_filter_clause('r', 'job_id')})"
@@ -226,7 +235,7 @@ def relationship_types_from_query(
         f"MATCH (seed:_AgragNode {{id: seed_id}}) "
         f"MATCH (seed){left_arrow}[r{type_pattern}]{right_arrow}(neighbor) "
         f"WHERE NOT neighbor:Chunk AND NOT neighbor:Community "
-        f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
+        f"AND NOT type(r) IN {_NON_ENTITY_RELATIONS} "
         f"AND {pending_filter_clause('r', 'job_id')} "
         f"RETURN DISTINCT type(r) AS rel_type"
     )
@@ -314,7 +323,7 @@ def fetch_all_relations_query() -> str:
         f"MATCH (a:{NODE_IDENTITY_LABEL})-[r]->(b:{NODE_IDENTITY_LABEL}) "
         f"WHERE NOT a:Chunk AND NOT b:Chunk "
         f"AND NOT a:Community AND NOT b:Community "
-        f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
+        f"AND NOT type(r) IN {_NON_ENTITY_RELATIONS} "
         f"AND {pending_filter_clause('r')} "
         f"RETURN a.id AS source_id, b.id AS target_id, "
         f"r.source_chunk_ids AS source_chunk_ids, "
@@ -355,7 +364,7 @@ def fetch_all_relations_query_cursor() -> str:
         f'AND $last_rel_id = "")) '
         f"AND NOT a:Chunk AND NOT b:Chunk "
         f"AND NOT a:Community AND NOT b:Community "
-        f"AND NOT type(r) IN ['MENTIONED_IN', 'MEMBER_OF'] "
+        f"AND NOT type(r) IN {_NON_ENTITY_RELATIONS} "
         f"AND {pending_filter_clause('r')} "
         f"RETURN a.id AS source_id, b.id AS target_id, "
         f"r.source_chunk_ids AS source_chunk_ids, "

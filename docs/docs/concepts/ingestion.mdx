@@ -31,7 +31,7 @@ flowchart TD
 
 1. Load. A loader reads each source and makes documents. The error policy decides what happens when a source fails. See [Loading documents](./loading.mdx).
 2. Chunk. A chunker splits each document into chunks. See [Chunking](./chunking.mdx).
-3. Extract. The extractor (see [Extraction](./extraction.mdx)) reads each chunk and finds entities and relations. It drops any entity or relation that the schema does not allow. When a chunk has a parent chunk, extraction reads the parent, not the children.
+3. Extract. The extractor (see [Extraction](./extraction.mdx)) reads each chunk and finds entities and relations. It drops any entity or relation that the schema does not allow.
 4. Resolve. The resolver (see [Entity resolution](./resolution.mdx)) looks for mentions that name the same thing. It first compares exact names against the whole store. It then compares the remaining mentions with each other and with stored entities. A language model reads only the pairs that stay unclear, and the number of such reads has a cap.
 5. Merge. For entities that share a name, Agentic GraphRAG decides each property value and joins the chunk ids that mention them. Fuzzy, embedding and LLM matches are not merged. See [Matching and resolved entities](./resolved-entities.mdx).
 6. Store. The graph store (see [Graph storage](./graph-storage.mdx)) writes chunks, documents, entities, relations and the edges between them. The embedder adds vectors. An optional vector store gets a copy.
@@ -66,7 +66,7 @@ You call `Graph.add` with a folder of 200 files and `ErrorPolicy.SKIP`. One file
 
 Why one `add` call for every input? Text, files and prebuilt documents differ only in the first stage. After it, the pipeline is the same, so the behavior is the same.
 
-Why does extraction run on each chunk alone? A relation between two entities that sit in different chunks is not captured. Larger parent chunks give the extractor more context. The [Chunking](./chunking.mdx) page describes them.
+Why does extraction run on each chunk alone? A relation between two entities that sit in different chunks is not captured. A larger chunk size gives the extractor more context. The [Chunking](./chunking.mdx) page describes the size.
 
 Why a job and not a database transaction? Extraction makes slow model calls. A database transaction cannot stay open through them. The job tags writes instead, and one short transaction commits them.
 

@@ -41,8 +41,8 @@ async def test_close_open_part_of_edges_passes_the_chunks_to_keep() -> None:
     kept = uuid4()
 
     closed = await close_open_part_of_edges(
-        store, document_node_id=uuid4(), keep_chunk_ids=[kept]
+        store, document_node_id=uuid4(), keep_node_ids=[kept]
     )
 
     assert closed == 2
-    assert store.execute_write.await_args.args[1]["keep_chunk_ids"] == [str(kept)]
+    assert store.execute_write.await_args.args[1]["keep_node_ids"] == [str(kept)]

@@ -16,6 +16,12 @@ class _Entry:
     prefer: bool
 
 
+def _installed(loader: Loader) -> bool:
+    """Return whether the package extra that the loader needs is installed."""
+    module = loader.extra_module or loader.extra
+    return module is None or importlib.util.find_spec(module) is not None
+
+
 class LoaderRegistry:
     """Maps a source extension to the loader that reads it.
 
@@ -88,16 +94,14 @@ class LoaderRegistry:
         preferred = [entry for entry in entries if entry.prefer]
         chosen = preferred[-1].loader if preferred else entries[0].loader
 
-        if chosen.extra is None or importlib.util.find_spec(chosen.extra) is not None:
+        extra = chosen.extra
+        if extra is None or _installed(chosen):
             return chosen
 
         for entry in entries:
             if entry.prefer or entry.loader is chosen:
                 continue
-            if (
-                entry.loader.extra is None
-                or importlib.util.find_spec(entry.loader.extra) is not None
-            ):
+            if _installed(entry.loader):
                 return entry.loader
 
-        raise MissingExtraError(source.extension, chosen.extra)
+        raise MissingExtraError(source.extension, extra)

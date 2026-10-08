@@ -1,10 +1,18 @@
 """Shared helpers for the corpus readers."""
 
 import hashlib
+import re
 from pathlib import PurePosixPath
 from typing import BinaryIO
 
-from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
+from agrag.common.data_models.document import (
+    Document,
+    DocumentFamily,
+    DocumentSection,
+    SourceFormat,
+    Unit,
+    UnitKind,
+)
 from agrag.loaders.corpus.errors import DocumentTooLargeError, MalformedRecordError
 from agrag.loaders.corpus.types import DecodedText, ReadOptions, SourceRef
 
@@ -12,12 +20,6 @@ from agrag.loaders.corpus.types import DecodedText, ReadOptions, SourceRef
 EXTENSION_FORMAT: dict[str, SourceFormat] = {
     ".txt": SourceFormat.TXT,
     ".log": SourceFormat.LOG,
-    ".md": SourceFormat.MARKDOWN,
-    ".markdown": SourceFormat.MARKDOWN,
-    ".html": SourceFormat.HTML,
-    ".htm": SourceFormat.HTML,
-    ".adoc": SourceFormat.ASCIIDOC,
-    ".asciidoc": SourceFormat.ASCIIDOC,
     ".xml": SourceFormat.XML,
     ".json": SourceFormat.JSON,
     ".jsonl": SourceFormat.JSONL,
@@ -27,6 +29,52 @@ EXTENSION_FORMAT: dict[str, SourceFormat] = {
 }
 
 _DEFAULT_TEXT_COLUMNS = ("text", "body", "content", "description")
+_BLANK_LINES = re.compile(r"\n[ \t]*\n+")
+
+
+def paragraph_units(text: str, offset: int = 0) -> list[Unit]:
+    """Split text into paragraph units that point at their place in the document.
+
+    A blank line ends a paragraph. Each unit span is trimmed of surrounding whitespace.
+
+    Args:
+        text: The text to split, with LF line endings.
+        offset: The offset of ``text`` in the document text.
+
+    Returns:
+        One unit for each non-blank paragraph, in order.
+    """
+    units: list[Unit] = []
+    position = 0
+    ends = [(m.start(), m.end()) for m in _BLANK_LINES.finditer(text)]
+    for end, next_start in [*ends, (len(text), len(text))]:
+        block = text[position:end]
+        body = block.strip()
+        if body:
+            start = offset + position + len(block) - len(block.lstrip())
+            units.append(
+                Unit(
+                    kind=UnitKind.PARAGRAPH,
+                    text=body,
+                    char_start=start,
+                    char_end=start + len(body),
+                )
+            )
+        position = next_start
+    return units
+
+
+def text_sections(text: str) -> list[DocumentSection]:
+    """Return one section with an empty heading that holds the text as paragraphs.
+
+    Args:
+        text: The document text.
+
+    Returns:
+        A list with one section, or an empty list when the text is blank.
+    """
+    units = paragraph_units(text)
+    return [DocumentSection(heading="", depth=0, units=units)] if units else []
 
 
 def read_within_limit(stream: BinaryIO, source: SourceRef, opts: ReadOptions) -> bytes:
@@ -73,8 +121,7 @@ def build_prose_document(
     loader_name: str,
     opts: ReadOptions,
     title: str,
-    heading_outline: list | None = None,
-    turns: list | None = None,
+    sections: list[DocumentSection] | None = None,
 ) -> Document:
     """Build a prose-family Document from final text.
 
@@ -89,9 +136,8 @@ def build_prose_document(
         loader_name: The name to record for the loader.
         opts: The read options, used for the ``store_text`` flag.
         title: The document title.
-        heading_outline: The detected headings, when the loader tracks them.
-        turns: The chat turns, when the loader tracks them. Dropped when the read
-            options do not store text.
+        sections: The sections of the document. Dropped when the read options do
+            not store text, because their units point into the text.
 
     Returns:
         The built Document.
@@ -108,8 +154,7 @@ def build_prose_document(
         encoding=encoding,
         char_count=len(text),
         line_count=text.count("\n") + 1,
-        heading_outline=list(heading_outline or []),
-        turns=list(turns or []) if opts.store_text else [],
+        sections=list(sections or []) if opts.store_text else [],
         normalization=opts.normalization,
     )
 

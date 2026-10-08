@@ -79,7 +79,7 @@ sequenceDiagram
         E->>R: candidates
         R-->>E: new order
     end
-    E-->>U: top results with parents
+    E-->>U: top results
 ```
 
 *One query, part 2: optional steps widen and re-order the fused list. Then the engine returns the top results.*
@@ -89,7 +89,7 @@ sequenceDiagram
 | Method | What it finds |
 |---|---|
 | `entity` | Entities whose name and description match the meaning of the query. |
-| `chunk` | Passages of source text. Each hit is a small child chunk that comes back with its parent chunk. |
+| `chunk` | Passages of source text. Each hit is one chunk, with the headings above it. |
 | `community` | Reports on topics. |
 | `text2cypher` | Values that a graph query can compute, such as counts. A model writes a read-only query from the question. |
 
@@ -121,7 +121,7 @@ A filter limits a search to matching items. It can match entity label, document,
 
 ## A worked example
 
-The query is "Who worked with Babbage?" and the recipe is `HYBRID`. Entity search ranks the entities Charles Babbage and Ada Lovelace. Chunk search returns the chunk that names both. Fusion merges the two lists. The caller gets five results: four entities and one chunk. The chunk comes with its parent chunk, so the caller can show the full passage.
+The query is "Who worked with Babbage?" and the recipe is `HYBRID`. Entity search ranks the entities Charles Babbage and Ada Lovelace. Chunk search returns the chunk that names both. Fusion merges the two lists. The caller gets five results: four entities and one chunk. The chunk carries its heading path, so the caller can show where it came from.
 
 <details>
 <summary>Design choices</summary>

@@ -26,6 +26,7 @@ record is yielded.
 
 - [**extensions**](#agrag-loaders-corpus-base-RecordLoader-extensions) (<code>frozenset\[str\]</code>) –
 - [**extra**](#agrag-loaders-corpus-base-RecordLoader-extra) (<code>str | None</code>) –
+- [**extra_module**](#agrag-loaders-corpus-base-RecordLoader-extra_module) (<code>str | None</code>) –
 - [**family**](#agrag-loaders-corpus-base-RecordLoader-family) –
 - [**mime_types**](#agrag-loaders-corpus-base-RecordLoader-mime_types) (<code>frozenset\[str\]</code>) –
 
@@ -39,6 +40,12 @@ extensions: frozenset[str]
 
 ```python
 extra: str | None = None
+```
+
+## `extra_module` \{#agrag-loaders-corpus-base-RecordLoader-extra_module}
+
+```python
+extra_module: str | None = None
 ```
 
 ## `family` \{#agrag-loaders-corpus-base-RecordLoader-family}

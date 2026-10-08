@@ -29,6 +29,12 @@ from agrag.common.data_models.graph_record import (
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
+from agrag.common.data_models.structure import (
+    FIGURE_LABEL,
+    SECTION_LABEL,
+    SOURCE_LABEL,
+    TABLE_LABEL,
+)
 from agrag.common.data_models.vector_record import VectorRecord
 from agrag.cypher.entities import (
     clear_chunk_embedding_query,
@@ -45,6 +51,11 @@ from agrag.ingestion._lexical_backbone import (
     build_next_chunk_records,
     build_part_of_records,
     distinct_documents,
+)
+from agrag.ingestion._structure import (
+    StructureRecords,
+    build_source_records,
+    build_structure,
 )
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.merge import (
@@ -98,8 +109,7 @@ async def extract_chunks(
     would.
 
     Args:
-        chunks: The chunks to extract from, in order. A child chunk (one with a
-            ``parent_id``) is skipped, since its parent carries the same text.
+        chunks: The chunks to extract from, in order.
         start_index: The running entity count before ``chunks``.
         extractor: Runs against each chunk.
         schema: The entity/relation types extraction is validated against.
@@ -117,8 +127,6 @@ async def extract_chunks(
     failures: list[StageFailure] = []
     resolved_tracer = get_tracer(tracer)
     for chunk in chunks:
-        if chunk.parent_id is not None:
-            continue
         offset = start_index + len(entities)
         # The relation-remapping loop below stays inside this same `with`
         # block, not just the extract() call -- a relation-index failure
@@ -639,6 +647,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         document_records = [
             build_document_record(doc) for doc in documents_by_id.values()
         ]
+        structure = StructureRecords()
         for document_id, document in documents_by_id.items():
             document_node_id = Document.node_id_for(
                 document_key=document.resolved_document_key
@@ -646,13 +655,24 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             # The version matches chunk versioning's own version_id, so an
             # identical re-ingest rebuilds the same edge ids and converges.
             version_id = str(Document.id_for(content_hash=document.content_hash))
+            document_chunks = chunks_by_document_id.get(document_id, [])
+            records = build_structure(document, document_chunks)
+            structure.sections.extend(records.sections)
+            structure.tables.extend(records.tables)
+            structure.figures.extend(records.figures)
+            relation_records.extend(records.relations)
             relation_records.extend(
                 build_part_of_records(
                     document_node_id,
-                    chunks_by_document_id.get(document_id, []),
+                    [
+                        *(c.id for c in document_chunks if c.id is not None),
+                        *records.node_ids,
+                    ],
                     version_id=version_id,
                 )
             )
+        source_nodes, source_relations = build_source_records(distinct)
+        relation_records.extend(source_relations)
         relation_records.extend(build_next_chunk_records(chunks))
 
         # Write chunk nodes
@@ -690,6 +710,45 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                 storage_failures.append(
                     StageFailure(
                         item_id="chunks",
+                        error_type=type(exc).__name__,
+                        error_message=str(exc),
+                        trace_id=trace_id,
+                        span_id=span_id,
+                    )
+                )
+
+        # Write structure nodes: sections, tables, figures and record sources
+        with resolved_tracer.start_as_current_span(
+            "agrag.storage.upsert_structure",
+            attributes={
+                "agrag.record_count": len(structure.sections)
+                + len(structure.tables)
+                + len(structure.figures)
+                + len(source_nodes)
+            },
+        ) as span:
+            try:
+                for label, records_ in (
+                    (SECTION_LABEL, structure.sections),
+                    (TABLE_LABEL, structure.tables),
+                    (FIGURE_LABEL, structure.figures),
+                    (SOURCE_LABEL, source_nodes),
+                ):
+                    if not records_:
+                        continue
+                    result = await graph_store.upsert_nodes(
+                        label, records_, pending_job_id=job_uuid
+                    )
+                    nodes_written += result.written
+                    storage_failures.extend(_upsert_stage_failures(result))
+                span.set_attribute("agrag.nodes_written", nodes_written)
+            except Exception as exc:  # noqa: BLE001
+                if error_policy is ErrorPolicy.RAISE:
+                    raise
+                trace_id, span_id = record_stage_failure(exc)
+                storage_failures.append(
+                    StageFailure(
+                        item_id="structure",
                         error_type=type(exc).__name__,
                         error_message=str(exc),
                         trace_id=trace_id,
@@ -740,11 +799,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
             ):
                 storage_failures.extend(
                     await _embed_and_upsert_chunks(
-                        [
-                            chunk
-                            for chunk in chunks
-                            if chunk.id in embeddable_ids and chunk.level == 0
-                        ],
+                        [chunk for chunk in chunks if chunk.id in embeddable_ids],
                         embedder=embedder,
                         graph_store=graph_store,
                         error_policy=error_policy,
@@ -842,7 +897,7 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     # Assemble final AddResult
     extraction_failures_capped = cap_failures(list(extraction_failures))
     extraction = ExtractionStats(
-        chunks_processed=sum(chunk.parent_id is None for chunk in chunks),
+        chunks_processed=len(chunks),
         entities_extracted=len(entities),
         relations_extracted=len(relations),
         failures=extraction_failures_capped.items,

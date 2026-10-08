@@ -6,7 +6,7 @@ description: How Agentic GraphRAG picks a loader for each source and what a load
 
 # Loading documents
 
-A loader turns a source into one or more documents. Agentic GraphRAG picks the loader from the file extension.
+A loader turns a source into one or more documents. Agentic GraphRAG picks the loader from the file extension. Each prose document comes with its sections: the headings and the content under them.
 
 ## Why it exists
 
@@ -33,7 +33,7 @@ flowchart TD
 
 1. Pick. You can pass a loader for a single file. Otherwise Agentic GraphRAG looks up the extension. When two loaders claim an extension, the preferred one wins. If that loader needs a package that is not installed, Agentic GraphRAG uses another loader for the extension when one exists. If none exists, the source fails with a missing-package error.
 2. Read. The loader detects the text encoding. It removes the byte-order mark, changes line endings to LF, and applies Unicode form NFKC. You can change each of these values.
-3. Build. The loader makes a document. A document holds the text, the source location, the format, a content hash and the loader name.
+3. Build. The loader makes a document. A document holds the text, the source location, the format, a content hash, the loader name and its sections. A section holds a heading, its depth and the units of content under it: paragraphs, lists, tables and figures.
 
 ### Prose and record sources
 
@@ -43,23 +43,28 @@ A prose source makes one document for each file. A record source makes one docum
 
 | Format | Extensions | Loader |
 | --- | --- | --- |
-| Plain text | `.txt`, `.log` | Core |
-| Markdown | `.md`, `.markdown` | Core |
-| HTML | `.html`, `.htm` | Core |
-| AsciiDoc | `.adoc`, `.asciidoc` | Docling when installed, otherwise core |
+| Plain text | `.txt`, `.log` | Core, one section |
+| XML | `.xml` | Core, the text of the elements |
+| Markdown | `.md`, `.markdown` | Docling |
+| HTML | `.html`, `.htm` | Docling |
+| AsciiDoc | `.adoc`, `.asciidoc` | Docling |
+| Word, PowerPoint, Excel | `.docx`, `.pptx`, `.xlsx` | Docling |
+| PDF | `.pdf` | Docling, needs the `docling` extra |
+| Images | `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp` | Docling, needs the `docling` extra |
 | CSV and TSV | `.csv`, `.tsv` | Core, one document per row or one for the table |
 | JSON Lines | `.jsonl`, `.ndjson` | Core, one document per line |
 | JSON | `.json` | Core, one document per array element, or one for an object |
-| PDF, Word, PowerPoint | `.pdf`, `.docx`, `.pptx` | Docling |
-| Images | `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp` | Docling |
-| XML | `.xml` | Docling |
-| Chat files | `.jsonl`, `.ndjson`, `.json` | Chat loader, passed by you |
+| Chat files | `.jsonl`, `.ndjson`, `.json` | Chat loader, passed by you, one section per message |
 
-Docling loaders need the `docling` extra. For Markdown, HTML and CSV, the core loader wins even when docling is installed. The chat loader has no extension of its own, because `.jsonl` and `.json` already belong to the record loaders. You pass it for a single file.
+Docling reads Markdown, HTML, AsciiDoc, Word, PowerPoint and Excel files without a model, and the base install includes it. PDF and image files need the layout and table models, which the `docling` extra installs. The first PDF you add downloads about 500 MB of models. Docling does not read CSV files, because a CSV row needs its own identity. The chat loader has no extension of its own, because `.jsonl` and `.json` already belong to the record loaders. You pass it for a single file.
+
+### Sections
+
+A section is a heading and the content under it. A PDF gets its heading depth from its bookmarks. A PDF without bookmarks gets it from numbered headings, such as "3.2 Results". Other PDF headings stay at depth 1. A document with no headings has one section with an empty heading. A record row has no sections. A file in Markdown, HTML or Word has no page numbers, so its chunks have no page spans.
 
 ## Example
 
-You add `report.pdf` and `notes.md` in one call. The registry sends the PDF to the docling loader and the Markdown file to the core Markdown loader. Both become prose documents. If the `docling` extra is missing, the PDF fails with a missing-package error, and the error policy decides whether the run goes on.
+You add `report.pdf` and `notes.md` in one call. The registry sends both files to Docling. Both become prose documents with sections. If the `docling` extra is missing, the PDF fails with a missing-package error, and the error policy decides whether the run goes on. The Markdown file still loads.
 
 <details>
 <summary>Design choices</summary>
