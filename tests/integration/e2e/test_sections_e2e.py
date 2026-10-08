@@ -29,6 +29,7 @@ from agrag.common.data_models.extraction import ExtractionResult
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.common.data_models.vector_record import Distance
 from agrag.cypher.entities import validate_identifier
+from agrag.cypher.relations import fetch_all_relations_query
 from agrag.embedding.base import Embedder
 from agrag.graphdb import build_graph_store
 from agrag.graphdb.base import GraphStore
@@ -193,6 +194,13 @@ async def test_structure_is_written_and_versioned(env: _Env) -> None:  # noqa: P
         "RETURN s.uri AS uri, count(DISTINCT d) AS rows, count(c) AS chunks",
     )
     assert [(row["rows"], row["chunks"]) for row in sources] == [(2, 2)]
+
+    relations = await env.store.execute_read(
+        fetch_all_relations_query(), {"skip": 0, "limit": 1000}
+    )
+    assert {row["rel_type"] for row in relations}.isdisjoint(
+        {"HAS_CHILD", "HAS_DOCUMENT", "PART_OF"}
+    )
 
     keys_before = await _rows(
         env,
