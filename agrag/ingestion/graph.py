@@ -8,7 +8,6 @@ from uuid import UUID
 
 from opentelemetry.trace import Tracer
 
-import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
 from agrag.chunking import Chunker
 from agrag.common.data_models.chunk import CHUNK_LABEL
 from agrag.common.data_models.community import COMMUNITY_LABEL

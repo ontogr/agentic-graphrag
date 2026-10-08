@@ -4,6 +4,7 @@ The docling loaders live in ``agrag.loaders.docling``. PDF and image files need 
 ``docling`` extra.
 """
 
+import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
 from agrag.loaders.corpus import (
     ChatLoader,
     CsvLoader,
