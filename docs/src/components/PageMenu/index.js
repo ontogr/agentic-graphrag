@@ -69,7 +69,7 @@ const askAbout = (url) =>
 export default function PageMenu() {
   const {siteConfig} = useDocusaurusContext();
   const {metadata} = useDoc();
-  const {version} = useDocsVersion();
+  const {version, isLast} = useDocsVersion();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const root = useRef(null);
@@ -99,12 +99,11 @@ export default function PageMenu() {
     return null;
   }
 
-  // docusaurus-plugin-llms writes the files of a frozen version under versioned_docs/version-X.
-  const filePermalink =
-    version === 'current'
-      ? metadata.permalink
-      : metadata.permalink.replace(`/${version}/`, `/${version}/versioned_docs/version-${version}/`);
-  const markdownPath = `${filePermalink.replace(/\/$/, '')}.md`;
+  // docusaurus-plugin-llms writes the pages of the version at the site root under their
+  // URL, and the pages of every other version under the path of their source file.
+  const markdownPath = isLast
+    ? `${metadata.permalink.replace(/\/$/, '')}.md`
+    : `${siteConfig.baseUrl}${version === 'current' ? 'next' : version}/${metadata.source.replace('@site/', '').replace(/\.mdx?$/, '')}.md`;
   const pageUrl = `${siteConfig.url}${metadata.permalink}`;
   const markdownUrl = `${siteConfig.url}${markdownPath}`;
 

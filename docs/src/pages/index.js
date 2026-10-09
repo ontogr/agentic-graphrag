@@ -35,12 +35,12 @@ const paths = [
   {
     title: 'Build your first graph',
     body: 'Free Neo4j Aura, two models, about ten minutes to a working graph.',
-    to: '/get-started/quickstart',
+    to: '/next/get-started/quickstart',
   },
   {
     title: 'Concepts',
     body: 'See how the pipeline turns documents into answers.',
-    to: '/concepts/architecture',
+    to: '/next/concepts/architecture',
   },
   {
     title: 'Ingest your own corpus',
@@ -104,7 +104,7 @@ export default function Home() {
             <CodeBlock language="bash">uv pip install agentic-graphrag</CodeBlock>
           </div>
           <div className={styles.buttons}>
-            <Link className="button button--primary button--lg" to="/get-started/introduction">
+            <Link className="button button--primary button--lg" to="/next/get-started/introduction">
               Get started
             </Link>
             <Link
@@ -182,7 +182,7 @@ print(answer.content)`}</CodeBlock>
               </div>
             </div>
             <p className={styles.exampleCta}>
-              <Link to="/get-started/quickstart">Run the full Quickstart</Link> — a free
+              <Link to="/next/get-started/quickstart">Run the full Quickstart</Link> — a free
               Neo4j Aura instance, two models, and about ten minutes.
             </p>
           </div>
@@ -214,7 +214,7 @@ print(answer.content)`}</CodeBlock>
           <div className="container">
             <div className={styles.ctaPanel}>
               <h2 className={styles.h2}>Ready to try it?</h2>
-              <Link className="button button--primary button--lg" to="/get-started/introduction">
+              <Link className="button button--primary button--lg" to="/next/get-started/introduction">
                 Get started
               </Link>
             </div>
