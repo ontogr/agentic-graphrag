@@ -1,4 +1,4 @@
-.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help changelog docs-api docs-install docs-dev docs-build docs-test
+.PHONY: bench-lite bench bench-dry bench-clean test-cov-map test-cov-map-suites sync sync-docs-pins baml-gen lint-actions test test-integration test-e2e test-eval test-eval-answer test-eval-extraction test-eval-verifier test-eval-resolution test-eval-trajectory test-all dev-services-up dev-services-down cov-report cov lint-typing lint-style lint-fmt lint-check lint-typos lint-all security-bandit security-audit security build wheel-test clean help changelog docs-api docs-install docs-dev docs-build docs-lint-links docs-check-version docs-version docs-test
 
 export UV_LOCKED = 1
 
@@ -41,6 +41,7 @@ help:
 	@echo "  make docs-install     - Install the Docusaurus site's npm dependencies"
 	@echo "  make docs-dev         - Run the Docusaurus dev server"
 	@echo "  make docs-build       - Regenerate the API reference and build the docs site"
+	@echo "  make docs-version     - Freeze the docs of the version in pyproject.toml (run when bumping the version)"
 	@echo "  make docs-test        - Run the Python code blocks in the docs"
 	@echo "  make clean            - Clean build artifacts and cache"
 	@echo "  make sync-docs-pins   - Sync docs-api hook pins from uv.lock"
@@ -270,7 +271,28 @@ docs-install:
 docs-dev: docs-api
 	cd docs && npm start
 
-docs-build: docs-api
+# Absolute links like /guides/x always open the latest version. Relative file links stay in the version.
+docs-lint-links:
+	@grep -rEn --include='*.md' --include='*.mdx' '(\]\(|href=")/[A-Za-z0-9]' docs/docs --exclude-dir=api; \
+	status=$$?; \
+	if [ $$status -eq 0 ]; then echo "Link to docs pages with relative file paths such as ../concepts/chunking.mdx."; exit 1; fi; \
+	if [ $$status -ne 1 ]; then exit $$status; fi
+
+# The version of the package. The docs version of a release has the same name.
+DOCS_VERSION = $(shell $(DOCS_PYTHON) -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+
+# A pull request that raises the version in pyproject.toml must also freeze its docs.
+docs-check-version:
+	@grep -qF '"$(DOCS_VERSION)"' docs/versions.json \
+	  || { echo "docs/versions.json has no $(DOCS_VERSION). Run 'make docs-version' in the pull request that bumps the version."; exit 1; }
+
+# Freeze the docs of the version in pyproject.toml. Run it in the pull request that raises the
+# version, before the release is tagged. Then commit docs/versioned_docs, docs/versioned_sidebars
+# and docs/versions.json.
+docs-version: docs-api
+	cd docs && npx docusaurus docs:version $(DOCS_VERSION)
+
+docs-build: docs-api docs-lint-links docs-check-version
 	cd docs && { npm run build > build.log 2>&1; status=$$?; cat build.log; exit $$status; }
 	@# Docusaurus reports many problems as warnings and still exits with success.
 	@grep -q '^\[SUCCESS\]' docs/build.log && ! grep -qE '^\[(WARNING|ERROR)\]' docs/build.log \

@@ -1,0 +1,196 @@
+---
+sidebar_position: 2
+title: Configure chunking
+---
+
+# Configure chunking
+
+Choose how `agrag` splits each document into chunks, see which chunker made each chunk, and change the choice for documents you already added. See [Ingest documents](./ingest-documents.mdx) for the basics of `Graph.add`. Snippets that use `await` run inside an `async def main()` body, as on that page. `Graph.open(...)` stands for the call that you make there, with the other arguments that your graph needs.
+
+## Print the default rules
+
+A `Graph` holds a `Chunking`: a list of rules and a fallback chunker. The first rule that matches a document picks its chunker. A document that no rule matches gets the fallback.
+
+```python
+from agrag.chunking import DEFAULT_CHUNKING
+
+print(DEFAULT_CHUNKING.model_dump_json(indent=2))
+```
+
+The default sends documents from the `docling` loader to the Docling chunker. All other documents go to the recursive chunker with a size of 1024 characters.
+
+## Write your own rules
+
+Pass `chunking` to `Graph.open`. This example cuts Markdown files into windows of 200 tokens and keeps the recursive chunker for all other files.
+
+```python
+from agrag.chunking import Chunking, ChunkingRule, RecursiveChunker, RuleMatch, TokenChunker
+from agrag.common.data_models.document import SourceFormat
+
+chunking = Chunking(
+    rules=[
+        ChunkingRule(
+            match=RuleMatch(source_formats=[SourceFormat.MARKDOWN]),
+            chunker=TokenChunker(chunk_size=200, chunk_overlap=20),
+        )
+    ],
+    fallback=RecursiveChunker(chunk_size=512),
+)
+graph = await Graph.open(..., chunking=chunking)
+```
+
+A rule matches on these keys. All keys are optional. A document must match every key that you set. A list key matches if the document equals any item in the list.
+
+| Key | Matches |
+|---|---|
+| `loader_names` | `Document.loader_name` |
+| `source_formats` | `Document.source_format` |
+| `families` | `Document.family` (`prose` or `record`) |
+| `uri_glob` | `Document.uri`, as an `fnmatch` pattern that respects case |
+
+## Pick a strategy
+
+| Chunker | Cuts at | Overlap |
+|---|---|---|
+| `RecursiveChunker` | paragraph, sentence, then word boundaries | none |
+| `TokenChunker` | a fixed number of tokens | `chunk_overlap` |
+| `SentenceChunker` | sentence boundaries | `chunk_overlap` |
+| `HeadingChunker` | section boundaries from `Document.heading_outline` | none |
+| `TurnWindowChunker` | chat turn boundaries from `Document.turns` | `turn_overlap` (in turns) |
+| `DoclingChunker` | Docling document structure (PDF and Office files) | none |
+
+`SentenceChunker` never cuts inside a sentence, so one very long sentence makes a chunk larger than `chunk_size`.
+
+## Split Markdown by headings
+
+`HeadingChunker` starts a new chunk at every heading up to `split_level` (default 2). A section within `chunk_size` tokens is one chunk, and small sibling sections stay apart. A larger section is cut at its deeper headings, and the parts are packed to the budget. A part that is still too large goes to `fallback`, and those chunks have the chunker name `heading:recursive`.
+
+```python
+HeadingChunker(chunk_size=400, split_level=2, fallback=RecursiveChunker(chunk_size=400))
+```
+
+Only the Markdown and AsciiDoc loaders fill `heading_outline`. For a document with no outline, the chunker uses `fallback` for the whole text and names the chunks `heading:recursive`.
+
+## Split chat by turns
+
+`TurnWindowChunker` packs whole turns into windows of at most `chunk_size` tokens. A chunk boundary never falls inside a turn. `turn_overlap` repeats the last turns of a window at the start of the next one. Text before the first turn, such as a date line, stays in the first chunk. A turn above the budget goes to `fallback`, and those chunks have the chunker name `turn-window:recursive`.
+
+Tokens are counted for each turn alone, so the blank line between turns does not count.
+
+Turns come from `Document.turns`. The `ChatLoader` fills them. Route chat documents with a rule on the loader name:
+
+```python
+from agrag.chunking import ChunkingRule, RuleMatch, TurnWindowChunker
+from agrag.loaders.corpus import ChatLoader
+
+rule = ChunkingRule(
+    match=RuleMatch(loader_names=["chat"]),
+    chunker=TurnWindowChunker(chunk_size=300, turn_overlap=1),
+)
+result = await graph.add(source="session.jsonl", loader=ChatLoader())
+```
+
+`ChatLoader` is not registered for any extension, because `.jsonl` belongs to the record loader. You must pass `loader=ChatLoader()`, and the source must be one file. See [Ingest documents](./ingest-documents.mdx) for the file format.
+
+## Add the heading path to extraction and embedding
+
+A chunk from Markdown, AsciiDoc or a PDF has a `heading_path`, the headings above it. Two settings put it where it helps. Both are on by default.
+
+| Setting | Where | Effect |
+|---|---|---|
+| `BAMLExtractor(include_heading_path=True)` | extraction | Sends the path as a `section` line above the text. Offsets still index the chunk text. |
+| `Graph.open(..., embed_heading_path=True)` | embedding | Embeds the path and the text together. The stored chunk text and the vector payload text stay raw. |
+
+Chunks with no heading path are not changed. Query embeddings do not change. Existing chunk embeddings stay as they are until you re-chunk the document with `Graph.update` under a changed chunking. Only `BAMLExtractor` uses the path.
+
+## Use the optional chunkers
+
+Three chunkers need an extra package. You can build and print them without it, and `chunk()` raises `ChunkerMissingExtraError` when the package is missing.
+
+| Chunker | Extra | Install | Cuts |
+|---|---|---|---|
+| `SemanticChunker` | `chunk-semantic` | `uv pip install "agentic-graphrag[chunk-semantic]"` | where the meaning of neighbouring sentences changes |
+| `NeuralChunker` | `chunk-neural` | `uv pip install "agentic-graphrag[chunk-neural]"` | where a token classification model predicts a topic break |
+| `CodeChunker` | `chunk-code` | `uv pip install "agentic-graphrag[chunk-code]"` | along the syntax tree of source code |
+
+`SemanticChunker` and `NeuralChunker` download a model the first time you use them. `CodeChunker` converts the byte offsets of the parser to character offsets, so chunk text equals the source at its offsets for non-ASCII code too.
+
+## Search small chunks and read large ones
+
+`ParentChildChunker` cuts a document into large parent chunks, then cuts each parent into small child chunks. Extraction runs on the parents. Only the children are embedded and searched. A search hit is a child with its parent attached.
+
+```python
+from agrag.chunking import Chunking, ParentChildChunker, RecursiveChunker, SentenceChunker
+
+chunking = Chunking(
+    fallback=ParentChildChunker(
+        parent=RecursiveChunker(chunk_size=1024),
+        child=SentenceChunker(chunk_size=128),
+    )
+)
+```
+
+The trade-off: extraction makes fewer calls, because parents are large and few, and a small child matches a query more closely. The agent reads more text for each hit, because it sees the whole parent. Entities link to parents through `MENTIONED_IN`. `Chunk.level` is `1` for a parent and `0` for a child, `Chunk.parent_id` names the parent, and indexes count from 0 in each level. A child never crosses a parent boundary, even with overlap.
+
+## Tune the Docling chunker
+
+`DoclingChunker` splits PDF and Office documents along the structure that Docling found. Its settings:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `tokenizer` | `o200k_base` | Counts tokens the same way as the text strategies. A name with a slash is a Hugging Face model id, which needs the network the first time. |
+| `max_tokens` | `1024` | The most tokens in a chunk. Headings count against it. |
+| `merge_peers` | `True` | Merges small neighbours that share headings. |
+| `repeat_table_header` | `True` | Repeats the table header in each chunk of a split table. |
+| `omit_header_on_overflow` | `False` | Drops headings from a chunk when they do not fit. |
+| `table_format` | `"triplet"` | `"triplet"` writes `row, column = value` text. `"markdown"` writes a pipe table. |
+
+Each chunk has the headings above it in `heading_path`. The chunk text is the body without headings. A chunk that holds only table items has `content_kind="table_row"`. Chunk ids include the chunker hash, so new settings give new chunks and `Graph.update` closes the old ones.
+
+## Set the size and the tokenizer
+
+`chunk_size` counts units of the `tokenizer`. The default tokenizer is `o200k_base`, which loads offline. Use `tokenizer="character"` to count characters.
+
+Overlapping chunks keep exact spans. Neighbouring chunks share text, and each chunk text still equals the source text at its offsets.
+
+## Read what chunked each document
+
+Each chunk stores the name of its chunker and a hash of the chunker settings.
+
+```python
+result = await graph.add(source="./corpus", return_chunks=True)
+print(result.chunks[0].chunker, result.chunks[0].chunker_hash)
+print(result.chunking.chunks_by_strategy)   # {"recursive": 12, "token": 40}
+print(result.chunking.documents_by_rule)    # {"rule 0": 3, "fallback": 5}
+```
+
+`result.chunking.matches` lists the rule and chunker for each document.
+
+## Change the chunking of documents you added
+
+`Graph.add` does not close the old chunks of a document that the graph already holds, so do not call it again to re-chunk. Open the graph with the new `chunking` and call `Graph.update` with the `document_key` of the document. For a file source, `result.chunking.matches[i].document_key` gives the key.
+
+```python
+graph = await Graph.open(..., chunking=new_chunking)
+key = result.chunking.matches[0].document_key
+result = await graph.update(key, source="./corpus/guide.md")
+print(result.no_op, result.chunks_closed)
+```
+
+`update` re-chunks when the content changed or when the settings of the chunker for that document changed. It does nothing when both are the same. Chunks that you added before `agrag` recorded chunkers count as unchanged.
+
+## Choose how loaders normalize text
+
+Chunk offsets index the text after normalization. Pass `read_options` to `Graph.add` or `Graph.update` to change the normalization.
+
+```python
+from agrag.common.data_models.normalization import Normalization
+from agrag.loaders.corpus.types import ReadOptions
+
+raw = ReadOptions(
+    normalization=Normalization(bom="keep", newline="keep", unicode_form="none")
+)
+await graph.add(source="./corpus", read_options=raw)
+```
+
+The default removes the byte-order mark, changes line endings to LF, and applies NFKC. With the settings above, the text of a chunk equals the text in the file at its offsets. Each `Document` records its setting in `Document.normalization`.

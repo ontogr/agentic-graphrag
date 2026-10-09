@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import clsx from 'clsx';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import {useDoc} from '@docusaurus/plugin-content-docs/client';
+import {useDoc, useDocsVersion} from '@docusaurus/plugin-content-docs/client';
 import styles from './styles.module.css';
 
 // Icon paths come from Lucide (ISC license) and the simple-icons project (CC0 1.0).
@@ -69,6 +69,7 @@ const askAbout = (url) =>
 export default function PageMenu() {
   const {siteConfig} = useDocusaurusContext();
   const {metadata} = useDoc();
+  const {version, isLast} = useDocsVersion();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const root = useRef(null);
@@ -98,7 +99,9 @@ export default function PageMenu() {
     return null;
   }
 
-  const markdownPath = `${metadata.permalink.replace(/\/$/, '')}.md`;
+  // docusaurus-plugin-llms writes the pages of each version under the path of their source file.
+  const outputRoot = version === 'current' ? 'latest' : isLast ? 'stable' : version;
+  const markdownPath = `${siteConfig.baseUrl}${outputRoot}/${metadata.source.replace('@site/', '').replace(/\.mdx?$/, '')}.md`;
   const pageUrl = `${siteConfig.url}${metadata.permalink}`;
   const markdownUrl = `${siteConfig.url}${markdownPath}`;
 

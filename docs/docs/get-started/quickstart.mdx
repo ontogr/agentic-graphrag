@@ -86,7 +86,7 @@ source .venv/bin/activate   # On Windows: .venv\Scripts\activate
 uv pip install "agentic-graphrag[neo4j,extract]" --torch-backend=auto
 ```
 
-The `--torch-backend=auto` flag picks the PyTorch build for your machine, such as a CPU-only build when it finds no GPU. See [Installation](/get-started/installation#alternative-pytorch-distributions) for the details.
+The `--torch-backend=auto` flag picks the PyTorch build for your machine, such as a CPU-only build when it finds no GPU. See [Installation](./installation.mdx#alternative-pytorch-distributions) for the details.
 
 ## Step 3: Build the graph
 
@@ -351,8 +351,8 @@ The keys in brackets cite the evidence. `E` keys are entities, `C` keys are chun
 
 ## Next steps
 
-- [Knowledge graph](/concepts/knowledge-graph): read what the nodes and edges in your graph mean.
-- [Ingest documents](/guides/ingest-documents): add files, directories, and text.
-- [Configure storage backends](/guides/configure-storage-backends): add a dedicated vector store.
-- [Retrieve and answer](/guides/retrieve-and-answer): search the graph and scope the agent.
-- [Trace an agent run](/guides/trace-an-agent-run): record what the agent did.
+- [Knowledge graph](../concepts/knowledge-graph.mdx): read what the nodes and edges in your graph mean.
+- [Ingest documents](../guides/ingest-documents.mdx): add files, directories, and text.
+- [Configure storage backends](../guides/configure-storage-backends.mdx): add a dedicated vector store.
+- [Retrieve and answer](../guides/retrieve-and-answer.mdx): search the graph and scope the agent.
+- [Trace an agent run](../guides/trace-an-agent-run.mdx): record what the agent did.

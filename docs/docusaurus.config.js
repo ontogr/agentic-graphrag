@@ -4,6 +4,7 @@
 // There are various equivalent ways to declare your Docusaurus config.
 // See: https://docusaurus.io/docs/api/docusaurus-config
 
+import {readFileSync} from 'node:fs';
 import {themes as prismThemes} from 'prism-react-renderer';
 import {iconLinkHtml} from './navbarIcons.js';
 import remarkChangelog from './plugins/remarkChangelog.mjs';
@@ -15,6 +16,9 @@ syncChangelog();
 
 // Preview deploys override the base URL with the BASE_URL env var (e.g. BASE_URL=/).
 const baseUrl = process.env.BASE_URL ?? '/agentic-graphrag/';
+
+// Release versions, newest first. The newest one is served at /stable/.
+const releases = JSON.parse(readFileSync(new URL('./versions.json', import.meta.url), 'utf8'));
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -71,6 +75,13 @@ const config = {
           routeBasePath: '/',
           sidebarPath: './sidebars.js',
           remarkPlugins: [remarkChangelog],
+          // The newest release, the first entry of versions.json, is served at /stable/
+          // and the docs of the main branch at /latest/. Releases are frozen copies of the
+          // docs, added by `make docs-version`.
+          versions: {
+            current: {label: 'latest', path: 'latest', banner: 'unreleased'},
+            [releases[0]]: {label: `${releases[0]} (stable)`, path: 'stable'},
+          },
         },
         blog: false,
         theme: {
@@ -105,6 +116,15 @@ const config = {
         ignoreFiles: ['api/**'],
         // The page menu copies a page as Markdown, so every page needs its own .md file.
         generateMarkdownFiles: true,
+        versions: [
+          {name: 'current', label: 'latest', docsDir: 'docs', path: 'latest', routePrefix: 'latest'},
+          ...releases.map((id, index) => ({
+            name: id,
+            docsDir: `versioned_docs/version-${id}`,
+            path: index === 0 ? 'stable' : id,
+            routePrefix: index === 0 ? 'stable' : id,
+          })),
+        ],
       },
     ],
   ],
@@ -126,6 +146,7 @@ const config = {
           {type: 'docSidebar', sidebarId: 'docsSidebar', position: 'left', label: 'Documentation', 'data-text': 'Documentation'},
           {type: 'docSidebar', sidebarId: 'referenceSidebar', position: 'left', label: 'API reference', 'data-text': 'API reference'},
           {type: 'doc', docId: 'changelog', position: 'left', label: 'Changelog', 'data-text': 'Changelog'},
+          {type: 'docsVersionDropdown', position: 'right'},
           {type: 'search', position: 'right'},
           {
             href: 'https://github.com/ontogr/agentic-graphrag',
@@ -142,7 +163,7 @@ const config = {
             position: 'right',
           },
           {
-            to: '/get-started/quickstart',
+            to: '/latest/get-started/quickstart',
             label: 'Quickstart',
             className: 'navbar-cta',
             position: 'right',
@@ -159,25 +180,26 @@ const config = {
           width: 32,
           height: 32,
         },
+        // Pages that the newest release does not have yet are linked at /latest/. Link them at /stable/ after the next release.
         links: [
           {
             title: 'Learn',
             items: [
-              {label: 'Introduction', to: '/get-started/introduction'},
-              {label: 'Installation', to: '/get-started/installation'},
-              {label: 'Quickstart', to: '/get-started/quickstart'},
-              {label: 'Architecture', to: '/concepts/architecture'},
-              {label: 'Benchmarks', to: '/benchmarks'},
+              {label: 'Introduction', to: '/latest/get-started/introduction'},
+              {label: 'Installation', to: '/latest/get-started/installation'},
+              {label: 'Quickstart', to: '/latest/get-started/quickstart'},
+              {label: 'Architecture', to: '/latest/concepts/architecture'},
+              {label: 'Benchmarks', to: '/stable/benchmarks'},
             ],
           },
           {
             title: 'Build',
             items: [
-              {label: 'Guides', to: '/guides/ingest-documents'},
-              {label: 'Configuration', to: '/reference/configuration'},
-              {label: 'API reference', to: '/api'},
-              {label: 'Trace spans', to: '/reference/trace-spans'},
-              {label: 'Changelog', to: '/changelog'},
+              {label: 'Guides', to: '/stable/guides/ingest-documents'},
+              {label: 'Configuration', to: '/latest/reference/configuration'},
+              {label: 'API reference', to: '/stable/api'},
+              {label: 'Trace spans', to: '/stable/reference/trace-spans'},
+              {label: 'Changelog', to: '/stable/changelog'},
             ],
           },
           {

@@ -1,0 +1,154 @@
+---
+title: Trace an Agent Run
+sidebar_position: 5
+---
+
+# Trace an Agent Run
+
+This guide shows how to record OpenTelemetry spans for each `build_agent` run. To build the agent first, see [Retrieve and Answer](./retrieve-and-answer.mdx).
+
+## Prerequisites
+
+Install the agent and observability extras:
+
+```bash
+pip install 'agentic-graphrag[neo4j,llm,agents,observability]'
+```
+
+Without the `observability` extra, `build_agent(tracer=...)` raises `ImportError` that names `agentic-graphrag[observability]`.
+
+## Record spans in memory
+
+1. Create a tracer provider with an in-memory exporter.
+
+   ```python
+   from opentelemetry.sdk.trace import TracerProvider
+   from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+   from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+   exporter = InMemorySpanExporter()
+   provider = TracerProvider()
+   provider.add_span_processor(SimpleSpanProcessor(exporter))
+   tracer = provider.get_tracer("my-app")
+   ```
+
+2. Pass the tracer to `build_agent`, and run the agent.
+
+   ```python
+   import asyncio
+   from agrag.agents.build import build_agent
+   from agrag.agents.settings import AgentLLMSettings
+   from agrag.common.data_models.graph_schema import GENERIC
+   from agrag.embedding.sentence_transformers import SentenceTransformerEmbedder
+   from agrag.graphdb.neo4j import Neo4jGraphStore, Neo4jSettings
+   from agrag.retrieval.search_engine import SearchEngine
+
+   async def main():
+       graph_store = Neo4jGraphStore(settings=Neo4jSettings())
+       embedder = SentenceTransformerEmbedder()
+       engine = SearchEngine(
+           graph_store=graph_store,
+           embedder=embedder,
+       )
+
+       agent = build_agent(
+           engine=engine,
+           llm_settings=AgentLLMSettings.from_openai_compatible_env(),
+           graph_schema=GENERIC,
+           tracer=tracer,
+       )
+
+       await agent.ainvoke({
+           "messages": [
+               {"role": "user", "content": "What treats headaches?"}
+           ]
+       })
+
+   asyncio.run(main())
+   ```
+
+   The `tracer` argument is keyword-only. The default is `None`, which turns tracing off. `build_agent` does not install global instrumentation.
+
+3. Read the tool spans.
+
+   ```python
+   spans = exporter.get_finished_spans()
+   names = {span.context.span_id: span.name for span in spans}
+
+   for span in spans:
+       if span.attributes.get("openinference.span.kind") == "TOOL":
+           parent = names.get(span.parent.span_id) if span.parent else None
+           print(f"{span.name} (parent={parent})")
+   ```
+
+   Each run produces these spans:
+
+   - `TOOL` spans for the `task` tool and for each researcher tool. The researcher's inner tool calls, such as `search_source_text` and `traverse_from_entity`, are children of the `task` span.
+   - `LLM` spans with the `llm.model_name` attribute and token counts.
+   - `CHAIN` spans for graph nodes. Filter on `openinference.span.kind` to skip them.
+
+   The agent spans are children of the span that is active when you call `ainvoke`. To group a run under your own span, call `ainvoke` inside `tracer.start_as_current_span("my-request")`.
+
+## Send spans to an OTLP endpoint
+
+Replace the in-memory exporter with an OTLP exporter and a batch processor. Use the endpoint of your collector, or of Phoenix.
+
+```python
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+provider = TracerProvider()
+provider.add_span_processor(
+    BatchSpanProcessor(OTLPSpanExporter(endpoint="http://localhost:4317"))
+)
+tracer = provider.get_tracer("my-app")
+```
+
+Pass this `tracer` to `build_agent` as in the previous section. Call `provider.shutdown()` before your program exits, so the processor sends the last spans.
+
+## Spans always hold full text
+
+Spans hold the question, the tool inputs, and the evidence text. There is no option to hide them on the agent path. To record less, redact in the exporter with a `SpanProcessor` that scrubs span attributes before export, or run without a tracer.
+
+## Trace the rest of the library with the same tracer
+
+The same tracer traces every other component that calls an LLM, so one run of an ingestion or retrieval pipeline produces a single connected trace. For a connected retrieval trace, pass **one tracer to all five**: `SearchEngine`, `GraphStore`, `VectorStore`, `Embedder` and `build_agent`. The engine does not push its tracer into its stores, so a store built without the tracer exports adapter spans that no retrieval span connects to. Pass it wherever a component takes `tracer=`:
+
+```python
+from agrag.agents.model import build_chat_model
+from agrag.eval.judge import ChatModelJudge
+from agrag.ingestion.extract import BAMLExtractor, EscalatingExtractor, ExtractionLLMSettings
+from agrag.retrieval.retrievers.text2cypher import Text2CypherRetriever
+
+# Extraction
+extractor = BAMLExtractor(
+    settings=ExtractionLLMSettings.from_openai_compatible_env(), tracer=tracer
+)
+
+# An escalating extractor traces its own decision as well
+escalating = EscalatingExtractor(
+    primary=GlinerExtractor(tracer=tracer),
+    escalate_to=extractor,
+    tracer=tracer,
+)
+
+# Resolution, when you build the comparator yourself
+from agrag.ingestion.resolve.resolver import LLMVerify
+
+verifier = LLMVerify(chunks_by_id=chunks_by_id, tracer=tracer)
+
+# Text2cypher
+retriever = Text2CypherRetriever(
+    graph_store=graph_store, schema=schema, tracer=tracer
+)
+
+# The eval judge
+judge = ChatModelJudge(chat_model, "gpt-4o-mini", tracer=tracer)
+```
+
+`Graph` passes its own tracer down to the resolution and merge steps it runs, and community report generation reads the same tracer, so a `Graph.open(...)` or `Graph.add(...)` built with a tracer needs nothing extra.
+
+Inside an agent run, every retrieval span nests under the `TOOL` span of the tool call that made it, and through the `task` span under the researcher or verifier that delegated it, so a trace answers which tool call and which subagent produced a given graph query or embedding call. Retrieval spans hold the full result text: the arrays `agrag.result_texts` and `agrag.result_ids` record every result, uncapped.
+
+The span names and attributes these components emit are listed in [Trace Spans](../reference/trace-spans.mdx).

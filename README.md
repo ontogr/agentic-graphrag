@@ -15,7 +15,7 @@
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue?logo=readthedocs)](https://ontogr.github.io/agentic-graphrag/)
 [![License](https://img.shields.io/github/license/ontogr/agentic-graphrag?color=green)](LICENSE)
 
-[Documentation](https://ontogr.github.io/agentic-graphrag/) · [Quickstart](#quickstart) · [Concepts](https://ontogr.github.io/agentic-graphrag/concepts/architecture) · [Guides](https://ontogr.github.io/agentic-graphrag/guides/ingest-documents) · [API reference](https://ontogr.github.io/agentic-graphrag/api)
+[Documentation](https://ontogr.github.io/agentic-graphrag/) · [Quickstart](#quickstart) · [Concepts](https://ontogr.github.io/agentic-graphrag/stable/concepts/architecture) · [Guides](https://ontogr.github.io/agentic-graphrag/stable/guides/ingest-documents) · [API reference](https://ontogr.github.io/agentic-graphrag/stable/api)
 
 </div>
 
@@ -213,7 +213,7 @@ OpenTelemetry API support is part of the core package. Exporters and the SDK are
 
 Long-running graph builds report bounded, structured stage statistics for ingestion, extraction, resolution, merging, and storage. Failures include the affected item, error type, message, and trace/span IDs. Full detail remains in the trace backend so result objects stay bounded on large corpora.
 
-`agrag.eval` (the `eval` extra) holds metrics that score answers, retrieval, extraction, resolution, and agent runs on your own documents and questions. See [Score Agentic GraphRAG on your questions](https://ontogr.github.io/agentic-graphrag/guides/score-agrag-on-your-questions).
+`agrag.eval` (the `eval` extra) holds metrics that score answers, retrieval, extraction, resolution, and agent runs on your own documents and questions. See [Score Agentic GraphRAG on your questions](https://ontogr.github.io/agentic-graphrag/stable/guides/score-agrag-on-your-questions).
 
 ## Installation
 
@@ -259,7 +259,7 @@ uv pip install "agentic-graphrag[community]"
 
 ## Quickstart
 
-You need a Neo4j database, version 5.23 or newer. The free [Neo4j Aura](https://ontogr.github.io/agentic-graphrag/get-started/quickstart) tier works, and the full [Quickstart](https://ontogr.github.io/agentic-graphrag/get-started/quickstart) shows the setup. Install the extras for this page with uv 0.6.9 or newer. Save your credentials as `.env` in the working directory. The file sets `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD`.
+You need a Neo4j database, version 5.23 or newer. The free [Neo4j Aura](https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart) tier works, and the full [Quickstart](https://ontogr.github.io/agentic-graphrag/stable/get-started/quickstart) shows the setup. Install the extras for this page with uv 0.6.9 or newer. Save your credentials as `.env` in the working directory. The file sets `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD`.
 
 ```bash
 uv pip install "agentic-graphrag[neo4j,extract,agents]" --torch-backend=auto

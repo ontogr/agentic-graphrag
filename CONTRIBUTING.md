@@ -52,7 +52,7 @@ Code that you write from an idea in another project needs no notice. Name the pr
 
 ## Docs
 
-- The docs website is at `docs/`, served at `ontogr.github.io/agentic-graphrag`. Guides live as Markdown/MDX under `docs/docs/`.
+- The docs website is at `docs/`, served at `ontogr.github.io/agentic-graphrag`. Guides live as Markdown/MDX under `docs/docs/`. Link to other pages with relative file paths such as `../concepts/chunking.mdx`, so a link in a versioned copy of the docs stays in that version. `make docs-build` fails on Markdown links and `href` attributes that start with `/`.
 - The API reference has two parts. `docs/docs/api/index.md` is the hand-written Core API page. The other pages in `docs/docs/api/` are generated from the docstrings of Agentic GraphRAG with `griffe2md`. Run `make docs-api` to regenerate them. Do not edit them by hand. `make docs-dev` and `make docs-build` regenerate them automatically.
 
 ```bash
@@ -99,11 +99,8 @@ Run `uv run pre-commit install` once to enable the commit hooks.
 
 ## Releasing
 
-To publish a release, push a tag:
-
-```bash
-git tag v0.1.0 && git push origin v0.1.0
-```
+1. In a pull request, raise `version` in `pyproject.toml` and run `make docs-version`. It freezes the docs as the new version of the docs site. Commit the new files in `docs/versioned_docs/`, `docs/versioned_sidebars/` and `docs/versions.json`. `make docs-build` fails if the version has no frozen docs.
+2. After the pull request is merged, create a GitHub release with a new tag such as `v0.1.0`. The tag starts the publish to PyPI.
 
 ## Reporting bugs and requesting features
 
