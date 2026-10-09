@@ -20,23 +20,30 @@ class Loader(ABC):
         mime_types: The MIME types this loader claims. Empty when the loader relies on
             the extension alone.
         family: The document family this loader produces.
-        extra: The optional package extra required to use this loader. ``None`` for core
-            loaders. The registry skips a loader whose extra is not installed.
+        extra: The package extra this loader needs. ``None`` for core loaders. The
+            registry raises MissingExtraError for a loader whose extra is not
+            installed.
+        extra_module: The importable module that proves the extra is installed.
+            ``None`` means the module has the same name as ``extra``.
     """
 
     extensions: ClassVar[frozenset[str]]
     mime_types: ClassVar[frozenset[str]] = frozenset()
     family: ClassVar[DocumentFamily]
     extra: ClassVar[str | None] = None
+    extra_module: ClassVar[str | None] = None
 
     def is_available(self) -> bool:
-        """Return whether this loader can run in this process.
+        """Return whether the package that the loader's extra installs is present.
 
-        A loader with no extra is always available. A loader with an extra is
-        available when its package can be found. The check does not import the
-        package, so an installed package that fails to import still counts.
+        A loader with no extra is always available. The check looks the module up
+        without importing it, so an installed package that fails to import still
+        counts.
         """
-        return self.extra is None or importlib.util.find_spec(self.extra) is not None
+        if self.extra is None:
+            return True
+        module = self.extra_module or self.extra
+        return importlib.util.find_spec(module) is not None
 
     @abstractmethod
     def load(

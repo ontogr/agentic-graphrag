@@ -18,12 +18,15 @@ across many sources.
 - [**mime_types**](#agrag-loaders-base-Loader-mime_types) (<code>frozenset\[str\]</code>) – The MIME types this loader claims. Empty when the loader relies on
   the extension alone.
 - [**family**](#agrag-loaders-base-Loader-family) (<code>[DocumentFamily](../../common/data_models/document/DocumentFamily.md)</code>) – The document family this loader produces.
-- [**extra**](#agrag-loaders-base-Loader-extra) (<code>str | None</code>) – The optional package extra required to use this loader. `None` for core
-  loaders. The registry skips a loader whose extra is not installed.
+- [**extra**](#agrag-loaders-base-Loader-extra) (<code>str | None</code>) – The package extra this loader needs. `None` for core loaders. The
+  registry raises MissingExtraError for a loader whose extra is not
+  installed.
+- [**extra_module**](#agrag-loaders-base-Loader-extra_module) (<code>str | None</code>) – The importable module that proves the extra is installed.
+  `None` means the module has the same name as `extra`.
 
 **Functions:**
 
-- [**is_available**](#agrag-loaders-base-Loader-is_available) – Return whether this loader can run in this process.
+- [**is_available**](#agrag-loaders-base-Loader-is_available) – Return whether the package that the loader's extra installs is present.
 - [**load**](#agrag-loaders-base-Loader-load) – Yield documents read from one source.
 
 ## `extensions` \{#agrag-loaders-base-Loader-extensions}
@@ -38,6 +41,12 @@ extensions: frozenset[str]
 extra: str | None = None
 ```
 
+## `extra_module` \{#agrag-loaders-base-Loader-extra_module}
+
+```python
+extra_module: str | None = None
+```
+
 ## `family` \{#agrag-loaders-base-Loader-family}
 
 ```python
@@ -50,11 +59,11 @@ family: DocumentFamily
 is_available() -> bool
 ```
 
-Return whether this loader can run in this process.
+Return whether the package that the loader's extra installs is present.
 
-A loader with no extra is always available. A loader with an extra is
-available when its package can be found. The check does not import the
-package, so an installed package that fails to import still counts.
+A loader with no extra is always available. The check looks the module up
+without importing it, so an installed package that fails to import still
+counts.
 
 ## `load` \{#agrag-loaders-base-Loader-load}
 

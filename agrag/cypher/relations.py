@@ -7,7 +7,15 @@ identifier-validation contract shared by every Cypher builder.
 from collections.abc import Sequence
 from typing import Any, Literal
 
-from agrag.common.data_models.structure import HAS_CHILD, HAS_DOCUMENT
+from agrag.common.data_models.structure import (
+    FIGURE_LABEL,
+    HAS_CHILD,
+    HAS_DOCUMENT,
+    PART_OF,
+    SECTION_LABEL,
+    SOURCE_LABEL,
+    TABLE_LABEL,
+)
 from agrag.cypher._pending_filter import (
     pending_filter_clause,
     pending_path_filter_clause,
@@ -18,11 +26,23 @@ from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
 TraversalDirection = Literal["outgoing", "incoming", "both"]
 
 
-_NON_ENTITY_RELATIONS = (
-    f"['MENTIONED_IN', 'MEMBER_OF', 'PART_OF', '{HAS_CHILD}', '{HAS_DOCUMENT}']"
+_STRUCTURE_RELATIONS = (PART_OF, HAS_CHILD, HAS_DOCUMENT)
+_STRUCTURE_LABELS = (SECTION_LABEL, TABLE_LABEL, FIGURE_LABEL, SOURCE_LABEL)
+
+
+def _cypher_string_list(values: Sequence[str]) -> str:
+    """Return a Cypher list literal of validated relationship types."""
+    return "[" + ", ".join(f"'{validate_identifier(v)}'" for v in values) + "]"
+
+
+_NON_ENTITY_RELATIONS = _cypher_string_list(
+    ("MENTIONED_IN", "MEMBER_OF", *_STRUCTURE_RELATIONS)
 )
 
-_DEFAULT_TRAVERSAL_EXCLUSIONS = f"['PART_OF', '{HAS_CHILD}', '{HAS_DOCUMENT}']"
+_DEFAULT_TRAVERSAL_EXCLUSIONS = _cypher_string_list(_STRUCTURE_RELATIONS)
+_STRUCTURE_LABEL_EXCLUSIONS = " AND ".join(
+    f"NOT neighbor:{validate_identifier(label)}" for label in _STRUCTURE_LABELS
+)
 
 _DIRECTION_ARROW: dict[TraversalDirection, tuple[str, str]] = {
     "outgoing": ("-", "->"),
@@ -141,8 +161,7 @@ def bfs_expand_query(
         path_guard += f" AND NOT type(r) IN {_DEFAULT_TRAVERSAL_EXCLUSIONS}"
     base_where = (
         "neighbor:_AgragNode AND NOT neighbor:Chunk AND NOT neighbor.id IN $seed_ids "
-        "AND NOT neighbor:Section AND NOT neighbor:Table AND NOT neighbor:Figure "
-        "AND NOT neighbor:Source "
+        f"AND {_STRUCTURE_LABEL_EXCLUSIONS} "
         f"AND {pending_filter_clause('neighbor', 'job_id')} "
         f"AND ALL(r IN relationships(path) WHERE {path_guard})"
     )

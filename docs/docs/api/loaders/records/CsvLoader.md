@@ -7,7 +7,10 @@ sidebar_label: CsvLoader
 
 Bases: <code>[RecordLoader](../base/RecordLoader.md)</code>
 
-Reads CSV and TSV files as one document per row.
+Reads CSV and TSV files as one record document per row.
+
+With `csv_mode=TABLE` the loader yields one prose Document for the whole
+source instead.
 
 **Attributes:**
 
@@ -15,8 +18,8 @@ Reads CSV and TSV files as one document per row.
 
 **Functions:**
 
-- [**is_available**](#agrag-loaders-records-CsvLoader-is_available) – Return whether this loader can run in this process.
-- [**load**](#agrag-loaders-records-CsvLoader-load) – Yield one record Document per row.
+- [**is_available**](#agrag-loaders-records-CsvLoader-is_available) – Return whether the package that the loader's extra installs is present.
+- [**load**](#agrag-loaders-records-CsvLoader-load) – Yield one record Document per row, or one prose Document for a table.
 
 ## `extensions` \{#agrag-loaders-records-CsvLoader-extensions}
 
@@ -28,6 +31,12 @@ extensions = frozenset({'.csv', '.tsv'})
 
 ```python
 extra: str | None = None
+```
+
+## `extra_module` \{#agrag-loaders-records-CsvLoader-extra_module}
+
+```python
+extra_module: str | None = None
 ```
 
 ## `family` \{#agrag-loaders-records-CsvLoader-family}
@@ -42,11 +51,11 @@ family = DocumentFamily.RECORD
 is_available() -> bool
 ```
 
-Return whether this loader can run in this process.
+Return whether the package that the loader's extra installs is present.
 
-A loader with no extra is always available. A loader with an extra is
-available when its package can be found. The check does not import the
-package, so an installed package that fails to import still counts.
+A loader with no extra is always available. The check looks the module up
+without importing it, so an installed package that fails to import still
+counts.
 
 ## `load` \{#agrag-loaders-records-CsvLoader-load}
 
@@ -54,18 +63,20 @@ package, so an installed package that fails to import still counts.
 load(source:SourceRef, stream:BinaryIO, opts:ReadOptions, *, start_at:int = 0) -> Iterator[Document]
 ```
 
-Yield one record Document per row.
+Yield one record Document per row, or one prose Document for a table.
 
 **Parameters:**
 
 - **source** (<code>[SourceRef](../types/SourceRef.md)</code>) – The source to read.
 - **stream** (<code>BinaryIO</code>) – The open binary stream for the source.
 - **opts** (<code>[ReadOptions](../types/ReadOptions.md)</code>) – The read options. `csv_delimiter` overrides the separator.
+  `csv_mode=TABLE` reads the whole source as one prose Document.
 - **start_at** (<code>int</code>) – The record index to resume from.
 
 **Yields:**
 
-- <code>[Document](../../common/data_models/document/Document-ref.md)</code> – One Document per row, in file order.
+- <code>[Document](../../common/data_models/document/Document-ref.md)</code> – One record Document per row in file order, or one prose Document in
+- <code>[Document](../../common/data_models/document/Document-ref.md)</code> – table mode.
 
 **Raises:**
 

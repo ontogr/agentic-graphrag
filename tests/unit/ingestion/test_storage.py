@@ -25,6 +25,11 @@ from agrag.common.data_models.graph_record import (
     UpsertResult,
 )
 from agrag.common.data_models.graph_schema import GENERIC
+from agrag.common.data_models.structure import (
+    FIGURE_LABEL,
+    SECTION_LABEL,
+    TABLE_LABEL,
+)
 from agrag.ingestion._ingest_pipeline import ingest_chunks
 from agrag.ingestion._storage import write_nodes, write_relations
 from agrag.ingestion._structure import StructureRecords
@@ -44,15 +49,15 @@ def _relation() -> RelationRecord:
     )
 
 
-def _store_failing_on(label: str) -> AsyncMock:
-    """Build a store whose node write for one label raises."""
+def _store_failing_on(*labels: str) -> AsyncMock:
+    """Build a store whose node writes for the given labels raise."""
     store = AsyncMock()
 
     async def _upsert_nodes(
         node_label: str, records: Sequence[Any], **kwargs: Any
     ) -> UpsertResult:
-        if node_label == label:
-            raise RuntimeError(f"{label} write failed")
+        if node_label in labels:
+            raise RuntimeError(f"{node_label} write failed")
         return UpsertResult(written=len(records))
 
     store.upsert_nodes.side_effect = _upsert_nodes
@@ -114,6 +119,53 @@ class TestWriteNodes:
         assert DOCUMENT_LABEL in labels
 
 
+class TestWriteStructureLabels:
+    """Each structure label reports its own failure under its own name."""
+
+    @staticmethod
+    async def _write_structure(store: AsyncMock, error_policy: ErrorPolicy) -> Any:
+        structure = StructureRecords(
+            sections=[_node(SECTION_LABEL)],
+            tables=[_node(TABLE_LABEL)],
+            figures=[_node(FIGURE_LABEL)],
+        )
+        return await write_nodes(
+            store,
+            chunk_records=[],
+            structure=structure,
+            document_records=[],
+            error_policy=error_policy,
+            pending_job_id=None,
+            tracer=get_tracer(None),
+        )
+
+    async def test_a_failed_label_is_named_by_its_label_and_others_still_count(
+        self,
+    ) -> None:
+        """Under SKIP the failed label is named, and the other labels' counts stay."""
+        store = _store_failing_on(TABLE_LABEL)
+
+        writes = await self._write_structure(store, ErrorPolicy.SKIP)
+
+        assert [failure.item_id for failure in writes.structure.failures] == [
+            TABLE_LABEL
+        ]
+        assert writes.structure.written == 2
+
+    async def test_raise_reraises_the_first_failed_label_after_all_writes(
+        self,
+    ) -> None:
+        """RAISE waits for every label, then re-raises the first failure in order."""
+        store = _store_failing_on(SECTION_LABEL, FIGURE_LABEL)
+
+        with pytest.raises(RuntimeError, match="Section write failed"):
+            await self._write_structure(store, ErrorPolicy.RAISE)
+
+        labels = [call.args[0] for call in store.upsert_nodes.await_args_list]
+        assert TABLE_LABEL in labels
+        assert FIGURE_LABEL in labels
+
+
 class TestWriteRelations:
     """A relation write reports one failure under the name it is given."""
 
@@ -171,7 +223,7 @@ class TestEmptyChunkWrites:
         )
 
     async def _ingest_empty(self, store: AsyncMock, error_policy: ErrorPolicy) -> Any:
-        return await ingest_chunks(
+        batch = await ingest_chunks(
             [],
             [self._document()],
             [],
@@ -186,6 +238,7 @@ class TestEmptyChunkWrites:
             ingestion=IngestStats(documents=1),
             placements={},
         )
+        return batch.add_result
 
     async def test_a_failed_document_write_is_recorded_under_skip(self) -> None:
         """Under SKIP the document failure becomes a storage failure."""

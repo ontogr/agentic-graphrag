@@ -9,4 +9,4 @@ The extension-to-loader registry.
 
 **Classes:**
 
-- [**LoaderRegistry**](LoaderRegistry.md) – Maps a source extension to the loader that reads it.
+- [**LoaderRegistry**](LoaderRegistry.md) – Maps each source extension to the one loader that reads it.

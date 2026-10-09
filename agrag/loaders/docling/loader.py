@@ -9,11 +9,10 @@ it when they convert.
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import io
 from collections.abc import Iterator
 from importlib.metadata import PackageNotFoundError, version
-from typing import TYPE_CHECKING, BinaryIO
+from typing import TYPE_CHECKING, Any, BinaryIO
 
 
 if TYPE_CHECKING:
@@ -28,6 +27,7 @@ from agrag.loaders.common import (
 )
 from agrag.loaders.docling._converters import ocr_choice, pdf_converter, slim_converter
 from agrag.loaders.docling._sections import (
+    DocumentBody,
     numbered_depths,
     read_body,
     sections_from_docling,
@@ -59,7 +59,6 @@ class DoclingLoader(ProseLoader):
         ".xlsx": SourceFormat.XLSX,
     }
     extensions = frozenset(_formats)
-    _is_pdf = False
 
     def load(
         self,
@@ -102,9 +101,6 @@ class DoclingLoader(ProseLoader):
         try:
             parsed = self._convert(source, raw)
             text = parsed.export_to_markdown()
-            body = read_body(parsed)
-            depths = numbered_depths(body) if self._is_pdf else {}
-            sections = sections_from_docling(body, depths)
         except Exception as exc:
             if isinstance(exc, ImportError):
                 if self.extra is None:
@@ -113,6 +109,8 @@ class DoclingLoader(ProseLoader):
             raise DocumentConversionError(
                 f"docling could not convert {source.uri}: {exc}"
             ) from exc
+        body = read_body(parsed)
+        sections = sections_from_docling(body, self._heading_depths(body))
         try:
             loader_version: str | None = version("docling")
         except PackageNotFoundError:
@@ -137,13 +135,16 @@ class DoclingLoader(ProseLoader):
     def _convert(self, source: SourceRef, raw: bytes) -> DoclingDocument:
         from docling.datamodel.base_models import DocumentStream  # noqa: PLC0415
 
-        if self._is_pdf:
-            ocr = ocr_choice(raw) if source.extension == ".pdf" else "full"
-            converter = pdf_converter(ocr)
-        else:
-            converter = slim_converter()
         stream = DocumentStream(name=source.uri, stream=io.BytesIO(raw))
-        return converter.convert(stream).document
+        return self._converter(source, raw).convert(stream).document
+
+    def _converter(self, source: SourceRef, raw: bytes) -> Any:
+        """Return the docling converter that reads this source."""
+        return slim_converter()
+
+    def _heading_depths(self, body: DocumentBody) -> dict[str, int]:
+        """Return the heading depths that the document structure does not give."""
+        return {}
 
 
 class DoclingPdfLoader(DoclingLoader):
@@ -158,6 +159,9 @@ class DoclingPdfLoader(DoclingLoader):
     Attributes:
         extensions: The PDF and image formats this loader reads.
         extra: The package extra that installs the models.
+        extra_module: The model package that only the extra installs. The core
+            docling package is present without the extra, so it cannot prove the
+            extra is installed.
     """
 
     _formats: dict[str, SourceFormat] = {
@@ -171,8 +175,13 @@ class DoclingPdfLoader(DoclingLoader):
     }
     extensions = frozenset(_formats)
     extra = "docling"
-    _is_pdf = True
+    extra_module = "docling_ibm_models"
 
-    def is_available(self) -> bool:
-        """Return whether the PDF models are installed."""
-        return importlib.util.find_spec("docling_ibm_models") is not None
+    def _converter(self, source: SourceRef, raw: bytes) -> Any:
+        """Return the PDF converter, with OCR chosen from the document's text layer."""
+        ocr = ocr_choice(raw) if source.extension == ".pdf" else "full"
+        return pdf_converter(ocr)
+
+    def _heading_depths(self, body: DocumentBody) -> dict[str, int]:
+        """Return heading depths read from the dotted numbers in heading text."""
+        return numbered_depths(body)

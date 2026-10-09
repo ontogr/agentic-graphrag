@@ -13,9 +13,11 @@ from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelati
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.ingestion import _merge_stage
 from agrag.ingestion._merge_stage import merge_stage
+from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion.resolve.resolution import BatchResolution
 from agrag.ingestion.resolve.resolver import ResolutionGroup
 from agrag.loaders.types import ErrorPolicy
+from agrag.observability import get_tracer
 
 
 def _mention(text: str, *, chunk_id: UUID | None = None) -> ExtractedEntity:
@@ -60,19 +62,22 @@ async def _merge(
     *,
     error_policy: ErrorPolicy = ErrorPolicy.SKIP,
 ) -> Any:
+    ctx = StageContext(
+        graph_store=store,
+        embedder=AsyncMock(),
+        vector_store=None,
+        error_policy=error_policy,
+        tracer=get_tracer(None),
+        job_id=None,
+    )
     return await merge_stage(
         entities,
         relations,
         batch,
-        graph_store=store,
-        embedder=AsyncMock(),
-        vector_store=None,
+        ctx,
         graph_schema=GENERIC,
         resolved_entity_collection="resolved_entities",
-        error_policy=error_policy,
-        job_id=None,
         rebuilt_components=None,
-        tracer=None,
     )
 
 

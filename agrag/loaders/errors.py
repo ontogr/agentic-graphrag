@@ -21,11 +21,9 @@ class UnsupportedFormatError(IngestionError):
 class MissingExtraError(UnsupportedFormatError):
     """A loader exists for this format, but its package extra is not installed.
 
-    This class extends ``UnsupportedFormatError`` on purpose. An error policy can then
-    treat
-    a missing extra the same way it treats an unsupported format, instead of always
-    stopping
-    the whole batch.
+    This class extends ``UnsupportedFormatError`` on purpose. An error policy can
+    then treat a missing extra the same way it treats an unsupported format,
+    instead of always stopping the whole batch.
 
     Attributes:
         extension: The file extension that needs the extra.

@@ -102,6 +102,21 @@ class TestConversionFailure:
             with pytest.raises(DocumentConversionError):
                 list(DoclingLoader().load(_source(), BytesIO(_RAW), ReadOptions()))
 
+    def test_a_section_building_bug_propagates_unwrapped(self) -> None:
+        """A failure after the export is not reported as a conversion failure."""
+        with (
+            patch("agrag.loaders.docling.loader.slim_converter"),
+            patch("agrag.loaders.docling.loader.read_body"),
+            patch(
+                "agrag.loaders.docling.loader.sections_from_docling",
+                side_effect=KeyError("section bug"),
+            ),
+            pytest.raises(KeyError, match="section bug") as raised,
+        ):
+            list(DoclingLoader().load(_source(), BytesIO(_RAW), ReadOptions()))
+
+        assert not isinstance(raised.value, DocumentConversionError)
+
     def test_a_missing_pdf_package_names_the_extra(self) -> None:
         """The PDF loader without its extra says which extra to install."""
         pdf = b"%PDF-1.4 fake"

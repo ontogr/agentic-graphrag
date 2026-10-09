@@ -2,9 +2,10 @@
 
 Docling reads every rich format and the core readers keep plain text, XML and the
 record formats. PDF and image files need the ``docling`` extra, and the registry
-says so when the models are missing.
+says so when that extra is missing.
 """
 
+import importlib.util
 from unittest.mock import patch
 
 import pytest
@@ -76,6 +77,26 @@ class TestMissingExtra:
 
         assert error.value.extra == "docling"
         assert "agentic-graphrag[docling]" in str(error.value)
+
+    def test_a_missing_model_package_fails_pdf_even_when_docling_is_installed(
+        self,
+    ) -> None:
+        """The core docling package does not satisfy the PDF extra."""
+        real_find_spec = importlib.util.find_spec
+
+        def _find_spec(name: str, *args: object, **kwargs: object) -> object:
+            if name == "docling_ibm_models":
+                return None
+            return real_find_spec(name, *args, **kwargs)
+
+        with (
+            patch("importlib.util.find_spec", side_effect=_find_spec),
+            pytest.raises(MissingExtraError) as error,
+        ):
+            _loader_for(".pdf")
+
+        assert error.value.extra == "docling"
+        assert type(_loader_for(".md")) is DoclingLoader
 
     def test_the_rich_formats_do_not_need_the_models(self) -> None:
         """A bare install still reads Markdown."""

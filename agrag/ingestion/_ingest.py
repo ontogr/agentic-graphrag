@@ -9,13 +9,13 @@ import asyncio
 import contextlib
 import hashlib
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
 
 from agrag.chunking import Chunker
-from agrag.chunking.chunker import ChunkPlacement
+from agrag.chunking.chunker import ChunkedDocument, ChunkPlacement
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import (
     Document,
@@ -30,7 +30,7 @@ from agrag.graphdb.base import GraphStore
 from agrag.ingestion._cutover import run_cutover_job
 from agrag.ingestion._document_lifecycle import find_document
 from agrag.ingestion._ingest_pipeline import extract_chunks, ingest_chunks
-from agrag.ingestion._structure import build_structure, placement_map
+from agrag.ingestion._structure import placement_map
 from agrag.ingestion._walk import SourcesType, chunk_documents, iter_document_batches
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.reports import AddResult, UpdateResult
@@ -65,6 +65,17 @@ def _vector_collections(retrieval_settings: RetrievalSettings) -> tuple[str, str
         retrieval_settings.chunk_collection,
         retrieval_settings.resolved_entity_collection,
     )
+
+
+def _placements_of(
+    chunked_documents: Iterable[ChunkedDocument],
+) -> dict[UUID, ChunkPlacement]:
+    """Return the placement of every chunk across the chunked documents."""
+    return {
+        chunk_id: placement
+        for chunked in chunked_documents
+        for chunk_id, placement in placement_map(chunked).items()
+    }
 
 
 async def _no_pending_write(job_id: UUID) -> None:
@@ -450,8 +461,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                 chunk_documents, batch, chunker=chunker, tracer=tracer
             )
             flat_batch = [chunk for cd in chunk_batch for chunk in cd.chunks]
-            for cd in chunk_batch:
-                placements_by_id.update(placement_map(cd))
+            placements_by_id.update(_placements_of(chunk_batch))
             chunks.extend(flat_batch)
             documents_seen.extend(batch)
             (
@@ -524,7 +534,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     slice_relations,
                     slice_failures,
                 ) = _slice
-                return await ingest_chunks(
+                batch = await ingest_chunks(
                     slice_chunks,
                     slice_documents,
                     slice_entities,
@@ -545,6 +555,7 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
                     embed_heading_path=embed_heading_path,
                     max_llm_pairs=max_llm_pairs,
                 )
+                return batch.add_result
 
             partial, cleanup_failures, _ = await run_cutover_job(
                 verb="add",
@@ -656,11 +667,7 @@ async def update_document(  # noqa: PLR0913
             chunk_documents, [document], chunker=chunker, tracer=tracer
         )
         chunks = [chunk for cd in chunked for chunk in cd.chunks]
-        placements = {
-            chunk_id: placement
-            for cd in chunked
-            for chunk_id, placement in placement_map(cd).items()
-        }
+        placements = _placements_of(chunked)
         entities, relations, extraction_failures = await extract_chunks(
             chunks,
             start_index=0,
@@ -671,10 +678,14 @@ async def update_document(  # noqa: PLR0913
         )
 
         components: list[MatchComponent] = []
-        structure = build_structure(document, chunks, placements)
+        # The pending write fills the structure ids, and run_cutover_job reads
+        # them only after that write, so the list is shared rather than copied.
+        keep_node_ids: list[UUID] = [
+            chunk.id for chunk in chunks if chunk.id is not None
+        ]
 
         async def _pending(job_id: UUID) -> AddResult:
-            return await ingest_chunks(
+            batch = await ingest_chunks(
                 chunks,
                 [document],
                 entities,
@@ -695,6 +706,8 @@ async def update_document(  # noqa: PLR0913
                 embed_heading_path=embed_heading_path,
                 max_llm_pairs=max_llm_pairs,
             )
+            keep_node_ids.extend(batch.structure_node_ids)
+            return batch.add_result
 
         add_result, cleanup_failures, chunks_closed = await run_cutover_job(
             verb="update",
@@ -710,10 +723,7 @@ async def update_document(  # noqa: PLR0913
             close_document_node_id=(
                 found.document_node_id if found is not None else None
             ),
-            keep_node_ids=[
-                *(chunk.id for chunk in chunks if chunk.id is not None),
-                *structure.structure_node_ids,
-            ],
+            keep_node_ids=keep_node_ids,
             tracer=tracer,
         )
         return UpdateResult(

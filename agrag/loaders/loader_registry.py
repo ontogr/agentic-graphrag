@@ -1,97 +1,60 @@
 """The extension-to-loader registry."""
 
-from dataclasses import dataclass
-
 from agrag.loaders.base import Loader
 from agrag.loaders.errors import MissingExtraError, UnsupportedFormatError
 from agrag.loaders.types import SourceRef
 
 
-@dataclass(slots=True)
-class _Entry:
-    """One registration of a loader for an extension."""
-
-    loader: Loader
-    prefer: bool
-
-
 class LoaderRegistry:
-    """Maps a source extension to the loader that reads it.
-
-    The registry picks a loader by file extension first. When more than one loader
-    claims the same extension, the loader registered with ``prefer=True`` wins. When
-    several loaders are preferred, the last preferred registration wins.
+    """Maps each source extension to the one loader that reads it.
 
     Attributes:
-        _by_extension: The registered loaders for each extension, in registration order.
+        _by_extension: The loader for each registered extension.
     """
 
     def __init__(self) -> None:
         """Create an empty registry."""
-        self._by_extension: dict[str, list[_Entry]] = {}
+        self._by_extension: dict[str, Loader] = {}
 
-    def register(
-        self,
-        loader: Loader,
-        *,
-        prefer: bool = False,
-        extensions: set[str] | frozenset[str] | None = None,
-    ) -> None:
-        """Add a loader to the registry.
+    def register(self, loader: Loader) -> None:
+        """Add a loader for each extension it claims.
 
-        Registering the same loader for the same extension more than once is a no-op,
-        so importing a package that registers loaders repeatedly stays safe.
+        Registering a loader of a type that already holds an extension is a no-op,
+        so calling ``register_default_loaders`` twice is safe.
 
         Args:
             loader: The loader to register.
-            prefer: Set this to True to make the loader the default for its extensions.
-                Leave it False to register the loader only as an explicit, named option.
-            extensions: Only register ``loader`` for these extensions. Defaults to
-                every extension the loader advertises. A caller that wants different
-                precedence per extension registers the same loader twice with
-                different ``extensions`` sets.
+
+        Raises:
+            ValueError: Another loader type already holds one of the extensions.
         """
-        entry = _Entry(loader=loader, prefer=prefer)
-        for ext in extensions if extensions is not None else loader.extensions:
-            existing = self._by_extension.setdefault(ext, [])
-            if entry not in existing:
-                existing.append(entry)
+        for extension in loader.extensions:
+            existing = self._by_extension.get(extension)
+            if existing is not None and type(existing) is not type(loader):
+                raise ValueError(
+                    f"extension {extension!r} is claimed by both "
+                    f"{type(existing).__name__} and {type(loader).__name__}"
+                )
+        for extension in loader.extensions:
+            self._by_extension.setdefault(extension, loader)
 
     def for_source(self, source: SourceRef) -> Loader:
-        """Return the default loader for a source.
-
-        When the top-precedence loader needs a package extra that is not installed,
-        the first non-preferred loader for the extension whose extra (if any) is
-        installed is used instead. An optional loader's absence therefore falls back
-        to the core reader rather than always failing the source.
+        """Return the loader for a source's extension.
 
         Args:
             source: The source to find a loader for.
 
         Returns:
-            The registered loader with the highest precedence for the source's
-            extension, or the fallback loader described above.
+            The loader registered for the source's extension.
 
         Raises:
             UnsupportedFormatError: No loader claims the source's extension.
-            MissingExtraError: A loader is mapped to the extension, but its package
-                extra failed to import, and no fallback loader is available either.
+            MissingExtraError: The loader needs a package extra that is not
+                installed.
         """
-        entries = self._by_extension.get(source.extension)
-        if not entries:
+        loader = self._by_extension.get(source.extension)
+        if loader is None:
             raise UnsupportedFormatError(source.extension)
-
-        preferred = [entry for entry in entries if entry.prefer]
-        chosen = preferred[-1].loader if preferred else entries[0].loader
-
-        extra = chosen.extra
-        if extra is None or chosen.is_available():
-            return chosen
-
-        for entry in entries:
-            if entry.prefer or entry.loader is chosen:
-                continue
-            if entry.loader.is_available():
-                return entry.loader
-
-        raise MissingExtraError(source.extension, extra)
+        if loader.extra is not None and not loader.is_available():
+            raise MissingExtraError(source.extension, loader.extra)
+        return loader

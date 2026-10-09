@@ -6,7 +6,7 @@ sidebar_label: compute_merge
 # `agrag.ingestion.merge.compute_merge` \{#agrag-ingestion-merge-compute_merge}
 
 ```python
-compute_merge(*, existing_entities:list[Entity], mentions:list[ExtractedEntity], schema:GraphSchema, rules:PropertyRules | None = None, description_settings:Any | None = None, description_client:Any | None = None, job_id:UUID | str | None = None, tracer:Tracer | None = None) -> tuple[MergePlan, list[Any]]
+compute_merge(*, existing_entities:list[Entity], mentions:list[ExtractedEntity], schema:GraphSchema, rules:PropertyRules | None = None, description_settings:Any | None = None, description_client:Any | None = None, job_id:UUID | str | None = None, tracer:Tracer | None = None) -> tuple[MergePlan, list[StageFailure]]
 ```
 
 Compute how existing_entities and mentions combine into one Entity.
@@ -35,7 +35,7 @@ property values and accepted merge-key aliases.
 
 **Returns:**
 
-- <code>tuple\[[MergePlan](MergePlan.md), list\[Any\]\]</code> – The computed MergePlan and any description-LLM failures.
+- <code>tuple\[[MergePlan](MergePlan.md), list\[[StageFailure](../../common/data_models/stage_failure/StageFailure.md)\]\]</code> – The computed MergePlan and any description-LLM failures.
 
 **Raises:**
 

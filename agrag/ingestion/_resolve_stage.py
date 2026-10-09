@@ -5,21 +5,15 @@ entities already in the graph. Its output feeds the merge stage.
 """
 
 from dataclasses import dataclass
-from uuid import UUID
-
-from opentelemetry.trace import Tracer
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.graph_schema import GraphSchema
-from agrag.embedding.base import Embedder
-from agrag.graphdb.base import GraphStore
+from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion.resolve import resolve_batch
 from agrag.ingestion.resolve.resolution import BatchResolution
 from agrag.ingestion.stats import ResolutionStats
-from agrag.loaders.types import ErrorPolicy
 from agrag.retrieval.settings import RetrievalSettings
-from agrag.vectordb.base import VectorStore
 
 
 @dataclass(frozen=True)
@@ -39,15 +33,10 @@ async def resolve_stage(
     entities: list[ExtractedEntity],
     relations: list[ExtractedRelation],
     chunks: list[Chunk],
+    ctx: StageContext,
     *,
-    graph_store: GraphStore,
-    embedder: Embedder,
-    vector_store: VectorStore | None,
     graph_schema: GraphSchema,
     retrieval_settings: RetrievalSettings,
-    error_policy: ErrorPolicy,
-    job_id: UUID | str | None,
-    tracer: Tracer | None,
     max_llm_pairs: int,
 ) -> ResolveStageResult:
     """Resolve the batch's mentions and count what the resolver decided.
@@ -56,14 +45,10 @@ async def resolve_stage(
         entities: The mentions extracted from this batch's chunks.
         relations: The relations extracted from this batch's chunks.
         chunks: The chunks of this batch, used as context for the resolver.
-        graph_store: Where persisted candidates are read.
-        embedder: Embeds mentions for vector candidate search.
-        vector_store: Optional vector index for candidate search.
+        ctx: The store that holds persisted candidates, the embedder, the
+            optional vector index, the error policy, the job and the tracer.
         graph_schema: The schema whose entity labels scope the resolver.
         retrieval_settings: Names the entity collection to search.
-        error_policy: How a failed candidate read is reported.
-        job_id: The in-flight cutover job, if any.
-        tracer: Opens the resolver's spans. None disables them.
         max_llm_pairs: The cap on LLM verifications for this batch.
 
     Returns:
@@ -74,15 +59,15 @@ async def resolve_stage(
         entities,
         relations,
         chunks_by_id,
-        graph_store=graph_store,
-        embedder=embedder,
-        vector_store=vector_store,
+        graph_store=ctx.graph_store,
+        embedder=ctx.embedder,
+        vector_store=ctx.vector_store,
         vector_collection=retrieval_settings.entity_collection,
         entity_labels=[entity.label for entity in graph_schema.entities],
-        tracer=tracer,
+        tracer=ctx.tracer,
         max_llm_pairs=max_llm_pairs,
-        error_policy=error_policy,
-        job_id=job_id,
+        error_policy=ctx.error_policy,
+        job_id=ctx.job_id,
     )
     # Groups over the combined list include synthetic singletons, so only groups
     # holding a real mention count.

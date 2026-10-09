@@ -18,7 +18,8 @@ Output of the four-step decode pipeline.
 - [**had_bom**](#agrag-loaders-types-DecodedText-had_bom) (<code>bool</code>) – Whether the source started with a byte-order mark.
 - [**content_hash**](#agrag-loaders-types-DecodedText-content_hash) (<code>str</code>) – The sha256 hash of the normalized text.
 - [**char_count**](#agrag-loaders-types-DecodedText-char_count) (<code>int</code>) – The number of characters in `text`.
-- [**line_count**](#agrag-loaders-types-DecodedText-line_count) (<code>int</code>) – The number of lines in `text`.
+- [**line_count**](#agrag-loaders-types-DecodedText-line_count) (<code>int</code>) – The number of lines in `text`, counted by line feeds. A lone
+  carriage return kept by the `keep` newline setting does not count.
 
 ## `char_count` \{#agrag-loaders-types-DecodedText-char_count}
 

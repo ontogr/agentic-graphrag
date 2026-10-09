@@ -9,20 +9,16 @@ sidebar_label: LoaderRegistry
 LoaderRegistry() -> None
 ```
 
-Maps a source extension to the loader that reads it.
-
-The registry picks a loader by file extension first. When more than one loader
-claims the same extension, the loader registered with `prefer=True` wins. When
-several loaders are preferred, the last preferred registration wins.
+Maps each source extension to the one loader that reads it.
 
 **Attributes:**
 
-- **\_by_extension** (<code>dict\[str, list\[\_Entry\]\]</code>) – The registered loaders for each extension, in registration order.
+- **\_by_extension** (<code>dict\[str, [Loader](../base/Loader.md)\]</code>) – The loader for each registered extension.
 
 **Functions:**
 
-- [**for_source**](#agrag-loaders-loader_registry-LoaderRegistry-for_source) – Return the default loader for a source.
-- [**register**](#agrag-loaders-loader_registry-LoaderRegistry-register) – Add a loader to the registry.
+- [**for_source**](#agrag-loaders-loader_registry-LoaderRegistry-for_source) – Return the loader for a source's extension.
+- [**register**](#agrag-loaders-loader_registry-LoaderRegistry-register) – Add a loader for each extension it claims.
 
 ## `for_source` \{#agrag-loaders-loader_registry-LoaderRegistry-for_source}
 
@@ -30,12 +26,7 @@ several loaders are preferred, the last preferred registration wins.
 for_source(source:SourceRef) -> Loader
 ```
 
-Return the default loader for a source.
-
-When the top-precedence loader needs a package extra that is not installed,
-the first non-preferred loader for the extension whose extra (if any) is
-installed is used instead. An optional loader's absence therefore falls back
-to the core reader rather than always failing the source.
+Return the loader for a source's extension.
 
 **Parameters:**
 
@@ -43,32 +34,29 @@ to the core reader rather than always failing the source.
 
 **Returns:**
 
-- <code>[Loader](../base/Loader.md)</code> – The registered loader with the highest precedence for the source's
-- <code>[Loader](../base/Loader.md)</code> – extension, or the fallback loader described above.
+- <code>[Loader](../base/Loader.md)</code> – The loader registered for the source's extension.
 
 **Raises:**
 
 - <code>[UnsupportedFormatError](../errors/UnsupportedFormatError.md)</code> – No loader claims the source's extension.
-- <code>[MissingExtraError](../errors/MissingExtraError.md)</code> – A loader is mapped to the extension, but its package
-  extra failed to import, and no fallback loader is available either.
+- <code>[MissingExtraError](../errors/MissingExtraError.md)</code> – The loader needs a package extra that is not
+  installed.
 
 ## `register` \{#agrag-loaders-loader_registry-LoaderRegistry-register}
 
 ```python
-register(loader:Loader, *, prefer:bool = False, extensions:set[str] | frozenset[str] | None = None) -> None
+register(loader:Loader) -> None
 ```
 
-Add a loader to the registry.
+Add a loader for each extension it claims.
 
-Registering the same loader for the same extension more than once is a no-op,
-so importing a package that registers loaders repeatedly stays safe.
+Registering a loader of a type that already holds an extension is a no-op,
+so calling `register_default_loaders` twice is safe.
 
 **Parameters:**
 
 - **loader** (<code>[Loader](../base/Loader.md)</code>) – The loader to register.
-- **prefer** (<code>bool</code>) – Set this to True to make the loader the default for its extensions.
-  Leave it False to register the loader only as an explicit, named option.
-- **extensions** (<code>set\[str\] | frozenset\[str\] | None</code>) – Only register `loader` for these extensions. Defaults to
-  every extension the loader advertises. A caller that wants different
-  precedence per extension registers the same loader twice with
-  different `extensions` sets.
+
+**Raises:**
+
+- <code>ValueError</code> – Another loader type already holds one of the extensions.

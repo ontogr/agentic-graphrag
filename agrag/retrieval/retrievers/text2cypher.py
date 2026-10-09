@@ -323,10 +323,6 @@ def _parse_relationship(value: object) -> Relation | None:
         return None
 
 
-def _parse_chunk_node(value: object) -> Chunk | None:
-    return parse_chunk_node(value)
-
-
 class Text2CypherRetriever(Retriever):
     """Let the agent ask structured questions via generated Cypher.
 
@@ -582,13 +578,13 @@ class Text2CypherRetriever(Retriever):
             val = row.get(key)
             if val is None:
                 continue
-            chunk = _parse_chunk_node(val)
+            chunk = parse_chunk_node(val)
             if chunk is not None:
                 return chunk
         for key, val in row.items():
             if key == "id":
                 continue
-            chunk = _parse_chunk_node(val)
+            chunk = parse_chunk_node(val)
             if chunk is not None:
                 return chunk
         return None

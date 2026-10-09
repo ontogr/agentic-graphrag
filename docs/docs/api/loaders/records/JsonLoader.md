@@ -15,7 +15,7 @@ Reads JSON files, disambiguating arrays from objects.
 
 **Functions:**
 
-- [**is_available**](#agrag-loaders-records-JsonLoader-is_available) – Return whether this loader can run in this process.
+- [**is_available**](#agrag-loaders-records-JsonLoader-is_available) – Return whether the package that the loader's extra installs is present.
 - [**load**](#agrag-loaders-records-JsonLoader-load) – Yield documents from a JSON source.
 
 ## `extensions` \{#agrag-loaders-records-JsonLoader-extensions}
@@ -30,6 +30,12 @@ extensions = frozenset({'.json'})
 extra: str | None = None
 ```
 
+## `extra_module` \{#agrag-loaders-records-JsonLoader-extra_module}
+
+```python
+extra_module: str | None = None
+```
+
 ## `family` \{#agrag-loaders-records-JsonLoader-family}
 
 ```python
@@ -42,11 +48,11 @@ family = DocumentFamily.RECORD
 is_available() -> bool
 ```
 
-Return whether this loader can run in this process.
+Return whether the package that the loader's extra installs is present.
 
-A loader with no extra is always available. A loader with an extra is
-available when its package can be found. The check does not import the
-package, so an installed package that fails to import still counts.
+A loader with no extra is always available. The check looks the module up
+without importing it, so an installed package that fails to import still
+counts.
 
 ## `load` \{#agrag-loaders-records-JsonLoader-load}
 

@@ -13,7 +13,6 @@ import asyncio
 import contextlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
 from uuid import UUID
 
 from opentelemetry.trace import Tracer
@@ -30,6 +29,7 @@ from agrag.common.data_models.extraction import (
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.data_models.vector_record import VectorRecord
+from agrag.common.graph_rows import node_properties, row_node
 from agrag.cypher.entities import (
     clear_chunk_embedding_query,
     clear_property_query,
@@ -39,20 +39,14 @@ from agrag.cypher.entities import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.ingestion._lexical_backbone import (
-    build_document_record,
-    distinct_documents,
-)
-from agrag.ingestion._merge_stage import merge_stage
+from agrag.ingestion._merge_stage import MergeStageResult, merge_stage
 from agrag.ingestion._resolve_stage import resolve_stage
+from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion._storage import (
     WriteOutcome,
-    write_nodes,
     write_nodes_stage,
-    write_relations,
     write_relations_stage,
 )
-from agrag.ingestion._structure import build_document_structure
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
@@ -170,19 +164,28 @@ class EmbedStageResult:
     failures: list[StageFailure]
 
 
+@dataclass(frozen=True)
+class BatchResult:
+    """The stats of one batch and the structure nodes its write touched.
+
+    Attributes:
+        add_result: The stats of every stage of the batch.
+        structure_node_ids: The Section, Table and Figure ids of the batch.
+            A document update keeps these nodes when it closes the old version.
+    """
+
+    add_result: AddResult
+    structure_node_ids: list[UUID]
+
+
 async def embed_chunks_stage(
     chunks: list[Chunk],
     chunk_ids: set[UUID],
     chunk_writes: WriteOutcome,
+    ctx: StageContext,
     *,
-    embedder: Embedder,
-    graph_store: GraphStore,
-    error_policy: ErrorPolicy,
-    vector_store: VectorStore | None,
     vector_collection: str,
-    job_id: UUID | str | None,
     embed_heading_path: bool,
-    tracer: Tracer,
 ) -> EmbedStageResult:
     """Embed the chunks of this batch that the graph holds, and write vectors.
 
@@ -195,91 +198,122 @@ async def embed_chunks_stage(
         chunks: The chunks of this batch.
         chunk_ids: The ids of the chunks this batch tried to write.
         chunk_writes: The outcome of the Chunk node write.
-        embedder: Produces one vector per chunk.
-        graph_store: Where the vectors are written and the landed chunks read.
-        error_policy: How a failed embed or vector write is reported.
-        vector_store: Optional second write target for the vectors.
+        ctx: The stores, embedder, error policy, job and tracer.
         vector_collection: The VectorStore collection to write into.
-        job_id: The in-flight cutover job, if any.
         embed_heading_path: Whether the embedder gets each heading path above
             the chunk text.
-        tracer: Opens the embedding span.
 
     Returns:
-        The failures of the embed and vector writes.
+        The failures of the lookup, embed and vector writes.
 
     Raises:
-        Exception: The embed or a write failed and ``error_policy`` is
+        Exception: The lookup, embed or a write failed and the error policy is
             ``RAISE``.
     """
     embeddable_ids = chunk_ids - chunk_writes.failed_ids
+    failures: list[StageFailure] = []
     if not chunk_writes.wrote_any:
-        embeddable_ids = await _persisted_chunk_ids(
-            graph_store, chunk_ids, job_id=job_id
-        )
+        embeddable_ids, lookup_failures = await _persisted_chunk_ids(ctx, chunk_ids)
+        failures.extend(lookup_failures)
     if not embeddable_ids:
-        return EmbedStageResult(failures=[])
-    with tracer.start_as_current_span(
+        return EmbedStageResult(failures=failures)
+    with ctx.tracer.start_as_current_span(
         "agrag.storage.embed_chunks",
         attributes={"agrag.embedding.heading_context": embed_heading_path},
     ):
-        failures = await _embed_and_upsert_chunks(
+        embed_failures = await _embed_and_upsert_chunks(
             [chunk for chunk in chunks if chunk.id in embeddable_ids],
-            embedder=embedder,
-            graph_store=graph_store,
-            error_policy=error_policy,
-            vector_store=vector_store,
+            embedder=ctx.embedder,
+            graph_store=ctx.graph_store,
+            error_policy=ctx.error_policy,
+            vector_store=ctx.vector_store,
             vector_collection=vector_collection,
-            pending_job_id=job_id,
+            pending_job_id=ctx.job_id,
             embed_heading_path=embed_heading_path,
         )
-    return EmbedStageResult(failures=failures)
+    return EmbedStageResult(failures=[*failures, *embed_failures])
 
 
 async def embed_survivors_stage(
     survivors: dict[UUID, Entity],
+    ctx: StageContext,
     *,
-    embedder: Embedder,
-    graph_store: GraphStore,
-    error_policy: ErrorPolicy,
-    vector_store: VectorStore | None,
     vector_collection: str,
-    job_id: UUID | str | None,
-    tracer: Tracer,
 ) -> EmbedStageResult:
     """Refresh the embedding of each survivor that this batch merged.
 
     Args:
         survivors: The merged entities written by this call, keyed by id.
-        embedder: Computes one vector per entity's embedding text.
-        graph_store: Where the vectors are written.
-        error_policy: How a failed embed or vector write is reported.
-        vector_store: Optional second write target for the vectors.
+        ctx: The stores, embedder, error policy, job and tracer. The tracer
+            opens its span only when there are survivors.
         vector_collection: The VectorStore collection to write into.
-        job_id: The in-flight cutover job, if any.
-        tracer: Opens the embedding span. No span opens without survivors.
 
     Returns:
         The failures of the embed and vector writes.
 
     Raises:
-        Exception: The embed or a write failed and ``error_policy`` is
+        Exception: The embed or a write failed and the error policy is
             ``RAISE``.
     """
     if not survivors:
         return EmbedStageResult(failures=[])
-    with tracer.start_as_current_span("agrag.storage.embed_survivors"):
+    with ctx.tracer.start_as_current_span("agrag.storage.embed_survivors"):
         failures = await _embed_and_upsert_survivors(
             survivors,
-            embedder=embedder,
-            graph_store=graph_store,
-            error_policy=error_policy,
-            vector_store=vector_store,
+            embedder=ctx.embedder,
+            graph_store=ctx.graph_store,
+            error_policy=ctx.error_policy,
+            vector_store=ctx.vector_store,
             vector_collection=vector_collection,
             labels_by_id={ent.id: ent.label for ent in survivors.values()},
-            pending_job_id=job_id,
+            pending_job_id=ctx.job_id,
         )
     return EmbedStageResult(failures=failures)
+
+
+async def _resolve_and_merge(
+    entities: list[ExtractedEntity],
+    relations: list[ExtractedRelation],
+    chunks: list[Chunk],
+    ctx: StageContext,
+    *,
+    graph_schema: GraphSchema,
+    retrieval_settings: RetrievalSettings,
+    rebuilt_components: list[MatchComponent] | None,
+    max_llm_pairs: int,
+) -> tuple[ResolutionStats, MergeStageResult]:
+    """Resolve and merge the mentions of a batch.
+
+    A batch with no chunks has no mentions, so the resolver and the merge are
+    skipped and their empty results are returned.
+    """
+    if not chunks:
+        return ResolutionStats(), MergeStageResult(
+            stats=MergeStats(),
+            survivors={},
+            resolved_vector_failures=[],
+            relation_records=[],
+            mentioned_in_records=[],
+        )
+    resolution = await resolve_stage(
+        entities,
+        relations,
+        chunks,
+        ctx,
+        graph_schema=graph_schema,
+        retrieval_settings=retrieval_settings,
+        max_llm_pairs=max_llm_pairs,
+    )
+    merge = await merge_stage(
+        entities,
+        relations,
+        resolution.batch,
+        ctx,
+        graph_schema=graph_schema,
+        resolved_entity_collection=retrieval_settings.resolved_entity_collection,
+        rebuilt_components=rebuilt_components,
+    )
+    return resolution.stats, merge
 
 
 async def ingest_chunks(
@@ -303,7 +337,7 @@ async def ingest_chunks(
     tracer: Tracer | None = None,
     embed_heading_path: bool = True,
     max_llm_pairs: int = MAX_LLM_PAIRS,
-) -> AddResult:
+) -> BatchResult:
     """Resolve, merge, write and embed one batch of extracted chunks.
 
     Args:
@@ -329,130 +363,51 @@ async def ingest_chunks(
         max_llm_pairs: The cap on LLM verifications for this batch.
 
     Returns:
-        The stats of every stage, and the chunks when ``return_chunks`` is set.
+        The stats of every stage, the chunks when ``return_chunks`` is set, and
+        the structure node ids the batch wrote.
 
     Raises:
         Exception: The first failure of any stage when ``error_policy`` is
             ``RAISE``.
     """
     job_uuid = UUID(str(job_id)) if job_id is not None else None
-    resolved_tracer = get_tracer(tracer)
-    with resolved_tracer.start_as_current_span("agrag.ingestion.ingest_chunks"):
-        # With no chunks, only the documents and their structure are written.
-        if not chunks:
-            distinct = distinct_documents(documents)
-            document_records = [build_document_record(doc) for doc in distinct]
-            structure = build_document_structure(distinct, [], {})
-            node_writes = await write_nodes(
-                graph_store,
-                chunk_records=[],
-                structure=structure,
-                document_records=document_records,
-                error_policy=error_policy,
-                pending_job_id=job_uuid,
-                tracer=resolved_tracer,
-            )
-            empty_storage_failures = list(node_writes.failures)
-            relation_outcome = await write_relations(
-                graph_store,
-                structure.relations,
-                item_id="relations",
-                span_name="agrag.storage.upsert_relations",
-                error_policy=error_policy,
-                pending_job_id=job_uuid,
-                tracer=resolved_tracer,
-            )
-            empty_storage_failures.extend(relation_outcome.failures)
-            empty_storage_capped = cap_failures(empty_storage_failures)
-            extraction_failures_capped = cap_failures(list(extraction_failures))
-            extraction = ExtractionStats(
-                chunks_processed=0,
-                entities_extracted=0,
-                relations_extracted=0,
-                failures=extraction_failures_capped.items,
-                failures_total=extraction_failures_capped.total,
-                failures_truncated=extraction_failures_capped.truncated,
-            )
-            return AddResult(
-                ingestion=ingestion,
-                extraction=extraction,
-                resolution=ResolutionStats(),
-                merge=MergeStats(),
-                storage=StorageStats(
-                    failures=empty_storage_capped.items,
-                    failures_total=empty_storage_capped.total,
-                    failures_truncated=empty_storage_capped.truncated,
-                ),
-                chunks=list(chunks) if return_chunks else [],
-            )
-
-        resolution = await resolve_stage(
+    ctx = StageContext(
+        graph_store=graph_store,
+        embedder=embedder,
+        vector_store=vector_store,
+        error_policy=error_policy,
+        tracer=get_tracer(tracer),
+        job_id=job_uuid,
+    )
+    with ctx.tracer.start_as_current_span("agrag.ingestion.ingest_chunks"):
+        resolution_stats, merge = await _resolve_and_merge(
             entities,
             relations,
             chunks,
-            graph_store=graph_store,
-            embedder=embedder,
-            vector_store=vector_store,
+            ctx,
             graph_schema=graph_schema,
             retrieval_settings=retrieval_settings,
-            error_policy=error_policy,
-            job_id=job_id,
-            tracer=tracer,
+            rebuilt_components=rebuilt_components,
             max_llm_pairs=max_llm_pairs,
         )
-        merge = await merge_stage(
-            entities,
-            relations,
-            resolution.batch,
-            graph_store=graph_store,
-            embedder=embedder,
-            vector_store=vector_store,
-            graph_schema=graph_schema,
-            resolved_entity_collection=retrieval_settings.resolved_entity_collection,
-            error_policy=error_policy,
-            job_id=job_id,
-            rebuilt_components=rebuilt_components,
-            tracer=tracer,
-        )
-        nodes = await write_nodes_stage(
-            chunks,
-            documents,
-            placements,
-            graph_store=graph_store,
-            error_policy=error_policy,
-            pending_job_id=job_uuid,
-            tracer=resolved_tracer,
-        )
+        nodes = await write_nodes_stage(chunks, documents, placements, ctx)
         chunk_embeds = await embed_chunks_stage(
             chunks,
             nodes.chunk_ids,
             nodes.chunk_writes,
-            embedder=embedder,
-            graph_store=graph_store,
-            error_policy=error_policy,
-            vector_store=vector_store,
+            ctx,
             vector_collection=retrieval_settings.chunk_collection,
-            job_id=job_id,
             embed_heading_path=embed_heading_path,
-            tracer=resolved_tracer,
         )
         relation_writes = await write_relations_stage(
             [*merge.relation_records, *nodes.structure_relation_records],
             merge.mentioned_in_records,
-            graph_store=graph_store,
-            error_policy=error_policy,
-            pending_job_id=job_uuid,
-            tracer=resolved_tracer,
+            ctx,
         )
         survivor_embeds = await embed_survivors_stage(
             merge.survivors,
-            embedder=embedder,
-            graph_store=graph_store,
-            error_policy=error_policy,
-            vector_store=vector_store,
+            ctx,
             vector_collection=retrieval_settings.entity_collection,
-            job_id=job_id,
-            tracer=resolved_tracer,
         )
         storage_capped = cap_failures(
             [
@@ -481,13 +436,17 @@ async def ingest_chunks(
         failures_total=extraction_failures_capped.total,
         failures_truncated=extraction_failures_capped.truncated,
     )
-    return AddResult(
+    add_result = AddResult(
         ingestion=ingestion,
         extraction=extraction,
-        resolution=resolution.stats,
+        resolution=resolution_stats,
         merge=merge.stats,
         storage=storage,
         chunks=list(chunks) if return_chunks else [],
+    )
+    return BatchResult(
+        add_result=add_result,
+        structure_node_ids=nodes.structure_node_ids,
     )
 
 
@@ -568,30 +527,9 @@ async def _delete_vectors(
     await vector_store.delete(collection, list(ids))
 
 
-def _node_properties(node: object) -> dict[str, Any]:
-    """Return a node's properties from a GraphStore read row.
-
-    The driver's ``Result.data()`` returns a node as a dict of its
-    properties, which is also the shape the unit-test fakes use. A mapping
-    that wraps them under ``properties`` is unwrapped.
-
-    Args:
-        node: The ``n`` value of a read row, or the row itself.
-
-    Returns:
-        The node's properties, or an empty mapping when none can be read.
-    """
-    if isinstance(node, dict):
-        properties = node.get("properties")
-        return dict(properties) if isinstance(properties, dict) else dict(node)
-    with contextlib.suppress(Exception):
-        return dict(node)  # ty: ignore[no-matching-overload]  # type: ignore[arg-type]
-    return {}
-
-
 async def _persisted_chunk_ids(
-    graph_store: GraphStore, chunk_ids: set[UUID], *, job_id: UUID | str | None = None
-) -> set[UUID]:
+    ctx: StageContext, chunk_ids: set[UUID]
+) -> tuple[set[UUID], list[StageFailure]]:
     """Return the subset of chunk_ids that exist as Chunk nodes.
 
     ``upsert_nodes`` writes its batches in sequence, so a failure partway
@@ -600,37 +538,49 @@ async def _persisted_chunk_ids(
     never landed out of the VectorStore.
 
     Args:
-        graph_store: Where the chunk nodes are read.
+        ctx: Where the chunk nodes are read. The job id counts chunks this same
+            job just wrote, which still carry its pending tag. With no job,
+            only committed chunks are read.
         chunk_ids: The ids this call tried to write.
-        job_id: The in-flight job's id, so chunks this same job just wrote
-            (still carrying its pending tag) count as landed. None reads
-            committed chunks only.
 
     Returns:
-        The ids found, or an empty set when the graph cannot be read. The
-        caller then skips the embedding stage, which is what it did for every
-        chunk before the partial write was accounted for.
+        The ids found, and one failure when the read fails under a policy
+        other than RAISE. The found ids are empty after such a failure, so the
+        caller skips the embedding stage.
+
+    Raises:
+        Exception: The read failed and the error policy is ``RAISE``.
     """
     if not chunk_ids:
-        return set()
+        return set(), []
     try:
-        rows = await graph_store.execute_read(
+        rows = await ctx.graph_store.execute_read(
             load_chunks_by_id_query(),
             {
                 "ids": [str(cid) for cid in chunk_ids],
-                "job_id": str(job_id) if job_id is not None else None,
+                "job_id": str(ctx.job_id) if ctx.job_id is not None else None,
             },
         )
-    except Exception:  # noqa: BLE001
-        return set()
+    except Exception as exc:
+        if ctx.error_policy is ErrorPolicy.RAISE:
+            raise
+        trace_id, span_id = record_stage_failure(exc)
+        return set(), [
+            StageFailure(
+                item_id="chunk_lookup",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                trace_id=trace_id,
+                span_id=span_id,
+            )
+        ]
     found: set[UUID] = set()
     for row in rows:
-        node = row.get("n", row) if isinstance(row, dict) else row
-        node_id = _node_properties(node).get("id")
+        node_id = node_properties(row_node(row)).get("id")
         if node_id is not None:
             with contextlib.suppress(ValueError):
                 found.add(UUID(str(node_id)))
-    return found
+    return found, []
 
 
 def _embedding_guard_fields(entity: Entity) -> dict[str, str]:
@@ -699,8 +649,6 @@ async def _embed_and_upsert_chunks(
         vector_store: Optional second write target; None does nothing.
         vector_collection: The VectorStore collection to write into.
             Ignored when vector_store is None.
-        error_policy: RAISE propagates the failure after clearing; any
-            other policy returns it instead.
         pending_job_id: The in-flight job's id, mirrored into vector
             payloads until that job commits. None writes untagged
             payloads, for callers outside a job.

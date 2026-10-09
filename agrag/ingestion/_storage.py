@@ -33,6 +33,7 @@ from agrag.ingestion._lexical_backbone import (
     build_next_chunk_records,
     distinct_documents,
 )
+from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion._structure import StructureRecords, build_document_structure
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure, stage_failure_context
@@ -133,7 +134,9 @@ async def write_nodes(
     """
     chunks, structure_outcome, documents = await asyncio.gather(
         _write_chunk_nodes(graph_store, chunk_records, pending_job_id, tracer),
-        _write_structure_nodes(graph_store, structure, pending_job_id, tracer),
+        _write_structure_nodes(
+            graph_store, structure, pending_job_id, error_policy, tracer
+        ),
         _write_document_nodes(graph_store, document_records, pending_job_id, tracer),
         return_exceptions=True,
     )
@@ -185,7 +188,7 @@ async def write_relations(
                 written=write_result.written,
                 failures=upsert_stage_failures(write_result),
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             if error_policy is ErrorPolicy.RAISE:
                 raise
             return WriteOutcome(failures=[_failure(item_id, exc)])
@@ -203,6 +206,7 @@ class NodeStageResult:
         node_failures: The failures of the Chunk, structure and Document writes.
         structure_relation_records: The PART_OF and NEXT_CHUNK edges of this
             batch. They are written with the domain relations.
+        structure_node_ids: The Section, Table and Figure ids of this batch.
     """
 
     chunk_ids: set[UUID]
@@ -211,44 +215,25 @@ class NodeStageResult:
     record_failures: list[StageFailure]
     node_failures: list[StageFailure]
     structure_relation_records: list[RelationRecord]
-
-
-@dataclass(frozen=True)
-class RelationStageResult:
-    """The relation writes of one batch.
-
-    Attributes:
-        written: The relations the store reports as written.
-        failures: The failures of the domain and MENTIONED_IN writes.
-    """
-
-    written: int
-    failures: list[StageFailure]
+    structure_node_ids: list[UUID]
 
 
 async def write_nodes_stage(
     chunks: list[Chunk],
     documents: list[Document],
     placements: Mapping[UUID, ChunkPlacement],
-    *,
-    graph_store: GraphStore,
-    error_policy: ErrorPolicy,
-    pending_job_id: UUID | None,
-    tracer: Tracer,
+    ctx: StageContext,
 ) -> NodeStageResult:
     """Build and write the Chunk, structure and Document nodes of one batch.
 
     A chunk whose node record cannot be built is left out of the write and
-    reported as a failure, unless ``error_policy`` is ``RAISE``.
+    reported as a failure, unless the error policy is ``RAISE``.
 
     Args:
         chunks: The chunks of this batch. Empty when the batch has none.
         documents: The documents the chunks belong to.
         placements: Where each chunk sits in its document's structure.
-        graph_store: The store to write to.
-        error_policy: How a failed record or write is reported.
-        pending_job_id: The cutover job the writes belong to, if any.
-        tracer: Opens one span for each write.
+        ctx: The store to write to, the error policy, the job and the tracer.
 
     Returns:
         The node writes, the records that could not be built, and the
@@ -266,8 +251,8 @@ async def write_nodes_stage(
             chunk_records.append(chunk.to_node_record())
             if chunk.id is not None:
                 chunk_ids.add(chunk.id)
-        except Exception as exc:  # noqa: BLE001
-            if error_policy is ErrorPolicy.RAISE:
+        except Exception as exc:
+            if ctx.error_policy is ErrorPolicy.RAISE:
                 raise
             record_failures.append(_failure(str(chunk.id), exc))
 
@@ -279,13 +264,13 @@ async def write_nodes_stage(
         *build_next_chunk_records(chunks),
     ]
     node_writes = await write_nodes(
-        graph_store,
+        ctx.graph_store,
         chunk_records=chunk_records,
         structure=structure,
         document_records=document_records,
-        error_policy=error_policy,
-        pending_job_id=pending_job_id,
-        tracer=tracer,
+        error_policy=ctx.error_policy,
+        pending_job_id=ctx.job_id,
+        tracer=ctx.tracer,
     )
     return NodeStageResult(
         chunk_ids=chunk_ids,
@@ -294,27 +279,21 @@ async def write_nodes_stage(
         record_failures=record_failures,
         node_failures=node_writes.failures,
         structure_relation_records=structure_relation_records,
+        structure_node_ids=structure.structure_node_ids,
     )
 
 
 async def write_relations_stage(
     domain_records: list[RelationRecord],
     mentioned_in_records: list[RelationRecord],
-    *,
-    graph_store: GraphStore,
-    error_policy: ErrorPolicy,
-    pending_job_id: UUID | None,
-    tracer: Tracer,
-) -> RelationStageResult:
+    ctx: StageContext,
+) -> WriteOutcome:
     """Write the domain relations, then the MENTIONED_IN edges, of one batch.
 
     Args:
         domain_records: The domain relations and structure edges.
         mentioned_in_records: The MENTIONED_IN edges.
-        graph_store: The store to write to.
-        error_policy: How a failed write is reported.
-        pending_job_id: The cutover job the writes belong to, if any.
-        tracer: Opens one span for each write.
+        ctx: The store to write to, the error policy, the job and the tracer.
 
     Returns:
         The number of relations written and the failures of both writes.
@@ -323,24 +302,24 @@ async def write_relations_stage(
         Exception: A write failed and ``error_policy`` is ``RAISE``.
     """
     domain_outcome = await write_relations(
-        graph_store,
+        ctx.graph_store,
         domain_records,
         item_id="relations",
         span_name="agrag.storage.upsert_relations",
-        error_policy=error_policy,
-        pending_job_id=pending_job_id,
-        tracer=tracer,
+        error_policy=ctx.error_policy,
+        pending_job_id=ctx.job_id,
+        tracer=ctx.tracer,
     )
     mentioned_outcome = await write_relations(
-        graph_store,
+        ctx.graph_store,
         mentioned_in_records,
         item_id="MENTIONED_IN",
         span_name="agrag.storage.upsert_mentioned_in",
-        error_policy=error_policy,
-        pending_job_id=pending_job_id,
-        tracer=tracer,
+        error_policy=ctx.error_policy,
+        pending_job_id=ctx.job_id,
+        tracer=ctx.tracer,
     )
-    return RelationStageResult(
+    return WriteOutcome(
         written=domain_outcome.written + mentioned_outcome.written,
         failures=[*domain_outcome.failures, *mentioned_outcome.failures],
     )
@@ -403,19 +382,23 @@ async def _write_structure_nodes(
     graph_store: GraphStore,
     structure: StructureRecords,
     pending_job_id: UUID | None,
+    error_policy: ErrorPolicy,
     tracer: Tracer,
 ) -> WriteOutcome:
     with tracer.start_as_current_span(
         "agrag.storage.upsert_structure",
         attributes={"agrag.record_count": structure.node_count},
     ) as span:
-        written = 0
-        failures: list[StageFailure] = []
-        for result in await _write_structure_labels(
-            graph_store, structure, pending_job_id
-        ):
-            written += result.written
-            failures.extend(upsert_stage_failures(result))
+        label_outcomes = [
+            _settle(label, outcome, error_policy)
+            for label, outcome in await _write_structure_labels(
+                graph_store, structure, pending_job_id
+            )
+        ]
+        written = sum(outcome.written for outcome in label_outcomes)
+        failures = [
+            failure for outcome in label_outcomes for failure in outcome.failures
+        ]
         span.set_attribute("agrag.nodes_written", written)
         return WriteOutcome(written=written, failures=failures)
 
@@ -445,9 +428,12 @@ async def _write_structure_labels(
     graph_store: GraphStore,
     structure: StructureRecords,
     pending_job_id: UUID | None,
-) -> list[UpsertResult]:
-    # Each label is its own write. gather waits for all of them before the first
-    # failure is raised, so no sibling write is cut off partway.
+) -> list[tuple[str, WriteOutcome | BaseException]]:
+    """Write the structure nodes of each label, one write per label.
+
+    Every write finishes before this returns. A label whose write raised
+    carries that exception, so the caller settles each label on its own.
+    """
     pending: list[tuple[str, list[NodeRecord]]] = [
         (label, records)
         for label, records in (
@@ -460,12 +446,23 @@ async def _write_structure_labels(
     ]
     outcomes = await asyncio.gather(
         *(
-            graph_store.upsert_nodes(label, records, pending_job_id=pending_job_id)
+            _write_label(graph_store, label, records, pending_job_id)
             for label, records in pending
         ),
         return_exceptions=True,
     )
-    for outcome in outcomes:
-        if isinstance(outcome, BaseException):
-            raise outcome
-    return [outcome for outcome in outcomes if not isinstance(outcome, BaseException)]
+    return [
+        (label, outcome) for (label, _), outcome in zip(pending, outcomes, strict=True)
+    ]
+
+
+async def _write_label(
+    graph_store: GraphStore,
+    label: str,
+    records: list[NodeRecord],
+    pending_job_id: UUID | None,
+) -> WriteOutcome:
+    result = await graph_store.upsert_nodes(
+        label, records, pending_job_id=pending_job_id
+    )
+    return WriteOutcome(written=result.written, failures=upsert_stage_failures(result))

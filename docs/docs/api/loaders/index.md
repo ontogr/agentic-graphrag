@@ -29,7 +29,7 @@ The docling loaders live in `agrag.loaders.docling`. PDF and image files need th
 **Classes:**
 
 - [**ChatLoader**](chat/ChatLoader.md) – Reads a file of chat messages as one document with a section for each message.
-- [**CsvLoader**](records/CsvLoader.md) – Reads CSV and TSV files as one document per row.
+- [**CsvLoader**](records/CsvLoader.md) – Reads CSV and TSV files as one record document per row.
 - [**DecodeError**](errors/DecodeError.md) – The source bytes do not decode to text.
 - [**DocumentConversionError**](errors/DocumentConversionError.md) – A loader could not parse or convert a source's content.
 - [**DocumentTooLargeError**](errors/DocumentTooLargeError.md) – A prose source is larger than the configured byte limit.
@@ -39,7 +39,7 @@ The docling loaders live in `agrag.loaders.docling`. PDF and image files need th
 - [**JsonLoader**](records/JsonLoader.md) – Reads JSON files, disambiguating arrays from objects.
 - [**JsonlLoader**](records/JsonlLoader.md) – Reads JSON Lines files as one document per line.
 - [**LoadStats**](types/LoadStats.md) – Running tally of a corpus walk.
-- [**LoaderRegistry**](loader_registry/LoaderRegistry.md) – Maps a source extension to the loader that reads it.
+- [**LoaderRegistry**](loader_registry/LoaderRegistry.md) – Maps each source extension to the one loader that reads it.
 - [**MalformedRecordError**](errors/MalformedRecordError.md) – One record in a record-family source does not parse.
 - [**MissingExtraError**](errors/MissingExtraError.md) – A loader exists for this format, but its package extra is not installed.
 - [**ReadOptions**](types/ReadOptions.md) – Per-source reader configuration.

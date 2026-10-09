@@ -181,7 +181,7 @@ async def resolve_description(
     settings: Any | None = None,
     client: Any | None = None,
     tracer: Tracer | None = None,
-) -> tuple[object, bool, Any | None]:
+) -> tuple[object, bool, StageFailure | None]:
     """Resolve a description field, trying LLM summarization.
 
     A single distinct candidate needs no LLM call. Multiple candidates try
@@ -265,7 +265,7 @@ async def merge_properties(
     description_settings: Any | None = None,
     description_client: Any | None = None,
     tracer: Tracer | None = None,
-) -> tuple[dict[str, object], list[ConflictRecord], list[Any]]:
+) -> tuple[dict[str, object], list[ConflictRecord], list[StageFailure]]:
     """Return field-resolved properties and records of every real conflict.
 
     Args:
@@ -281,7 +281,7 @@ async def merge_properties(
     fields = {key for source in property_sources for key in source}
     resolved: dict[str, object] = {}
     conflicts: list[ConflictRecord] = []
-    failures: list[Any] = []
+    failures: list[StageFailure] = []
     for field_name in fields:
         candidates = [
             source[field_name]
@@ -347,7 +347,7 @@ async def compute_merge(  # noqa: PLR0912
     description_client: Any | None = None,
     job_id: UUID | str | None = None,
     tracer: Tracer | None = None,
-) -> tuple[MergePlan, list[Any]]:
+) -> tuple[MergePlan, list[StageFailure]]:
     """Compute how existing_entities and mentions combine into one Entity.
 
     No storage is touched. Zero existing entities produces a brand-new Entity.

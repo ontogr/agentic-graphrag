@@ -19,7 +19,7 @@ because the parsed output can change between docling versions and runs.
 
 **Functions:**
 
-- [**is_available**](#agrag-loaders-docling-loader-DoclingLoader-is_available) – Return whether this loader can run in this process.
+- [**is_available**](#agrag-loaders-docling-loader-DoclingLoader-is_available) – Return whether the package that the loader's extra installs is present.
 - [**load**](#agrag-loaders-docling-loader-DoclingLoader-load) – Yield one prose Document parsed by docling.
 
 ## `extensions` \{#agrag-loaders-docling-loader-DoclingLoader-extensions}
@@ -34,6 +34,12 @@ extensions = frozenset(_formats)
 extra: str | None = None
 ```
 
+## `extra_module` \{#agrag-loaders-docling-loader-DoclingLoader-extra_module}
+
+```python
+extra_module: str | None = None
+```
+
 ## `family` \{#agrag-loaders-docling-loader-DoclingLoader-family}
 
 ```python
@@ -46,11 +52,11 @@ family = DocumentFamily.PROSE
 is_available() -> bool
 ```
 
-Return whether this loader can run in this process.
+Return whether the package that the loader's extra installs is present.
 
-A loader with no extra is always available. A loader with an extra is
-available when its package can be found. The check does not import the
-package, so an installed package that fails to import still counts.
+A loader with no extra is always available. The check looks the module up
+without importing it, so an installed package that fails to import still
+counts.
 
 ## `load` \{#agrag-loaders-docling-loader-DoclingLoader-load}
 
@@ -78,7 +84,16 @@ Yield one prose Document parsed by docling.
 
 - <code>[DocumentTooLargeError](../../errors/DocumentTooLargeError.md)</code> – The source is larger than the configured byte
   limit.
-- <code>[DocumentConversionError](../../errors/DocumentConversionError.md)</code> – Docling could not parse or convert the source.
+- <code>[MissingExtraError](../../errors/MissingExtraError.md)</code> – `DoclingPdfLoader` only. A package that docling
+  needs is not installed, and the error names the `docling` extra.
+  It is an `UnsupportedFormatError`, so SKIP and QUARANTINE treat
+  it like an unsupported format.
+- <code>ImportError</code> – `DoclingLoader` only. A package that docling needs is
+  not installed. This is an install problem, not a problem with the
+  source, so the walker policies do not catch it.
+- <code>[DocumentConversionError](../../errors/DocumentConversionError.md)</code> – Docling or its export failed on the source,
+  for any other reason. Walker policies such as SKIP and QUARANTINE
+  catch this error.
 - <code>ValueError</code> – `opts.max_document_bytes` is not a positive integer.
 
 ## `mime_types` \{#agrag-loaders-docling-loader-DoclingLoader-mime_types}

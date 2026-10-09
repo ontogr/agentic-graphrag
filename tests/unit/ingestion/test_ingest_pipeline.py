@@ -41,12 +41,13 @@ from agrag.ingestion._ingest_pipeline import (
     extract_chunks,
     ingest_chunks,
 )
+from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion._storage import WriteOutcome
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.resolve import ResolutionResult
 from agrag.ingestion.resolve.candidate_source import GraphCandidateSource
-from agrag.ingestion.stats import IngestStats
+from agrag.ingestion.stats import IngestStats, MergeStats
 from agrag.loaders.types import ErrorPolicy
 from agrag.observability import get_tracer
 from agrag.retrieval.settings import RetrievalSettings
@@ -171,7 +172,7 @@ async def _ingest(
         schema=GENERIC,
         error_policy=ErrorPolicy.RAISE,
     )
-    return await ingest_chunks(
+    batch = await ingest_chunks(
         chunks,
         documents,
         entities,
@@ -187,6 +188,7 @@ async def _ingest(
         ingestion=ingestion or IngestStats(documents=len(documents)),
         return_chunks=return_chunks,
     )
+    return batch.add_result
 
 
 class TestIngestChunks:
@@ -214,15 +216,16 @@ class TestIngestChunks:
         ]
         assert len(part_of) == 2
 
-    async def test_empty_chunks_returns_zero_stages(self) -> None:
-        """No chunks still writes the document node and reports zero stages."""
+    async def test_empty_chunks_writes_only_the_document_node(self) -> None:
+        """No chunks still writes the document node and counts no chunk work."""
         store, _ = _store()
         doc = _doc(key="a")
 
         result = await _ingest([doc], [], store)
 
         assert result.extraction.chunks_processed == 0
-        assert result.storage.nodes_written == 0
+        assert result.merge == MergeStats()
+        assert result.storage.nodes_written == 1
         assert result.chunks == []
 
     async def test_empty_chunks_reports_structure_write_failures(self) -> None:
@@ -401,7 +404,7 @@ class TestIngestChunks:
             "agrag.ingestion.resolve.resolution.Resolver",
             return_value=resolver_instance,
         ):
-            result = await ingest_chunks(
+            outcome = await ingest_chunks(
                 [chunk],
                 [doc],
                 [
@@ -425,7 +428,7 @@ class TestIngestChunks:
                 ingestion=IngestStats(documents=1),
                 return_chunks=False,
             )
-        assert result.merge.failures == []
+        assert outcome.add_result.merge.failures == []
         assert consulted == ["Ada Lovelace"]
         mentioned = [
             rec
@@ -464,7 +467,7 @@ class TestIngestChunks:
             )
             for text, start in (("Ada", 0), ("Grace", 8))
         ]
-        return await ingest_chunks(
+        outcome = await ingest_chunks(
             [chunk],
             [doc],
             mentions,
@@ -479,6 +482,7 @@ class TestIngestChunks:
             error_policy=error_policy,
             ingestion=IngestStats(documents=1),
         )
+        return outcome.add_result
 
     async def test_failed_candidate_read_is_recorded_and_mention_not_stored(
         self, monkeypatch: pytest.MonkeyPatch
@@ -917,14 +921,16 @@ class TestEmbedChunksStage:
             chunks,
             {chunk.id for chunk in chunks if chunk.id is not None},
             writes,
-            embedder=embedder,
-            graph_store=store,
-            error_policy=ErrorPolicy.SKIP,
-            vector_store=None,
+            StageContext(
+                graph_store=store,
+                embedder=embedder,
+                vector_store=None,
+                error_policy=ErrorPolicy.SKIP,
+                tracer=get_tracer(None),
+                job_id=None,
+            ),
             vector_collection="chunks",
-            job_id=None,
             embed_heading_path=False,
-            tracer=get_tracer(None),
         )
         return embedder.texts, result.failures
 
@@ -957,3 +963,48 @@ class TestEmbedChunksStage:
         )
 
         assert texts == ["landed"]
+
+    @staticmethod
+    def _context(store: AsyncMock, error_policy: ErrorPolicy) -> StageContext:
+        return StageContext(
+            graph_store=store,
+            embedder=_RecordingEmbedder(),
+            vector_store=None,
+            error_policy=error_policy,
+            tracer=get_tracer(None),
+            job_id=None,
+        )
+
+    async def test_failed_chunk_lookup_skips_embedding_under_skip(self) -> None:
+        """A failed read records a failure and embeds nothing under SKIP."""
+        chunk = _chunk(_doc(key="a"), text="unread")
+        store = AsyncMock()
+        store.execute_read.side_effect = RuntimeError("read unavailable")
+
+        result = await embed_chunks_stage(
+            [chunk],
+            {chunk.id},
+            WriteOutcome(wrote_any=False),
+            self._context(store, ErrorPolicy.SKIP),
+            vector_collection="chunks",
+            embed_heading_path=False,
+        )
+
+        assert [failure.item_id for failure in result.failures] == ["chunk_lookup"]
+        store.execute_write.assert_not_called()
+
+    async def test_failed_chunk_lookup_raises_under_raise(self) -> None:
+        """A failed read propagates under RAISE instead of skipping the embed."""
+        chunk = _chunk(_doc(key="a"), text="unread")
+        store = AsyncMock()
+        store.execute_read.side_effect = RuntimeError("read unavailable")
+
+        with pytest.raises(RuntimeError, match="read unavailable"):
+            await embed_chunks_stage(
+                [chunk],
+                {chunk.id},
+                WriteOutcome(wrote_any=False),
+                self._context(store, ErrorPolicy.RAISE),
+                vector_collection="chunks",
+                embed_heading_path=False,
+            )

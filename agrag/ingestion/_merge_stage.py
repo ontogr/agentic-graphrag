@@ -10,8 +10,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from opentelemetry.trace import Tracer
-
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import ExtractedEntity, ExtractedRelation
 from agrag.common.data_models.graph_record import RelationRecord
@@ -19,8 +17,8 @@ from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.cypher.entities import fetch_relations_between_query
-from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
+from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion.merge import (
     apply_merge,
     compute_merge,
@@ -36,8 +34,7 @@ from agrag.ingestion.resolved_entities import (
 )
 from agrag.ingestion.stats import MergeStats
 from agrag.loaders.types import ErrorPolicy
-from agrag.observability import get_tracer, record_stage_failure
-from agrag.vectordb.base import VectorStore
+from agrag.observability import record_stage_failure
 
 
 @dataclass(frozen=True)
@@ -65,16 +62,11 @@ async def merge_stage(
     entities: list[ExtractedEntity],
     relations: list[ExtractedRelation],
     batch: BatchResolution,
+    ctx: StageContext,
     *,
-    graph_store: GraphStore,
-    embedder: Embedder,
-    vector_store: VectorStore | None,
     graph_schema: GraphSchema,
     resolved_entity_collection: str,
-    error_policy: ErrorPolicy,
-    job_id: UUID | str | None,
     rebuilt_components: list[MatchComponent] | None,
-    tracer: Tracer | None,
 ) -> MergeStageResult:
     """Merge resolved mentions into survivors and map relations onto them.
 
@@ -86,16 +78,12 @@ async def merge_stage(
         entities: The mentions extracted from this batch's chunks.
         relations: The relations extracted from this batch's chunks.
         batch: The resolver output for the same mentions.
-        graph_store: Where merged entities and relations are written and read.
-        embedder: Embeds rebuilt resolved entities.
-        vector_store: Optional vector index for resolved-entity vectors.
+        ctx: The store the merged entities are written to, the embedder, the
+            optional vector index, the error policy, the job and the tracer.
         graph_schema: The schema the merge and rebuild work against.
         resolved_entity_collection: The collection for resolved-entity vectors.
-        error_policy: How a failed group or component is reported.
-        job_id: The in-flight cutover job, if any.
         rebuilt_components: When set, each rebuilt component is appended with
             its decisions and members.
-        tracer: Opens the resolver and merge spans. None disables them.
 
     Returns:
         The survivors, the relation records and the merge counts.
@@ -104,7 +92,7 @@ async def merge_stage(
         Exception: The first failed merge or rebuild, when ``error_policy`` is
             ``RAISE``.
     """
-    pending_job_id = str(job_id) if job_id is not None else None
+    pending_job_id = str(ctx.job_id) if ctx.job_id is not None else None
     merge_failures: list[StageFailure] = list(batch.failures)
     (
         survivors,
@@ -116,27 +104,19 @@ async def merge_stage(
         entities,
         batch,
         merge_failures,
-        graph_store=graph_store,
+        ctx,
         graph_schema=graph_schema,
-        error_policy=error_policy,
-        job_id=job_id,
-        tracer=tracer,
     )
     resolved_vector_failures = await _rebuild_components(
         batch,
         survivors,
         mention_to_entity,
         merge_failures,
-        graph_store=graph_store,
-        embedder=embedder,
-        vector_store=vector_store,
+        ctx,
         graph_schema=graph_schema,
         resolved_entity_collection=resolved_entity_collection,
-        error_policy=error_policy,
-        job_id=job_id,
         pending_job_id=pending_job_id,
         rebuilt_components=rebuilt_components,
-        tracer=tracer,
     )
     merge_failures_capped = cap_failures(merge_failures)
     stats = MergeStats(
@@ -150,11 +130,11 @@ async def merge_stage(
     relation_records = await _domain_relation_records(
         relations,
         mention_to_entity,
-        graph_store=graph_store,
+        graph_store=ctx.graph_store,
         pending_job_id=pending_job_id,
     )
     mentioned_in_records = await _mentioned_in_records(
-        entities, mention_to_entity, graph_store=graph_store
+        entities, mention_to_entity, graph_store=ctx.graph_store
     )
     return MergeStageResult(
         stats=stats,
@@ -169,12 +149,9 @@ async def _merge_mention_groups(
     entities: list[ExtractedEntity],
     batch: BatchResolution,
     merge_failures: list[StageFailure],
+    ctx: StageContext,
     *,
-    graph_store: GraphStore,
     graph_schema: GraphSchema,
-    error_policy: ErrorPolicy,
-    job_id: UUID | str | None,
-    tracer: Tracer | None,
 ) -> tuple[dict[UUID, Entity], dict[int, UUID], int, int, int]:
     """Merge each resolved group into a survivor and count the outcomes.
 
@@ -182,8 +159,8 @@ async def _merge_mention_groups(
     returned survivors. The returned counts are ``nodes_created``,
     ``nodes_updated`` and ``conflicts_resolved``.
     """
-    pending_job_id = str(job_id) if job_id is not None else None
-    resolved_tracer = get_tracer(tracer)
+    pending_job_id = str(ctx.job_id) if ctx.job_id is not None else None
+    resolved_tracer = ctx.tracer
     survivors: dict[UUID, Entity] = {}
     mention_to_entity: dict[int, UUID] = {}
     nodes_created = 0
@@ -215,11 +192,11 @@ async def _merge_mention_groups(
                     existing_entities=existing_for_group,
                     mentions=group_mentions,
                     schema=graph_schema,
-                    job_id=job_id,
-                    tracer=tracer,
+                    job_id=ctx.job_id,
+                    tracer=ctx.tracer,
                 )
             except Exception as exc:  # noqa: BLE001
-                if error_policy is ErrorPolicy.RAISE:
+                if ctx.error_policy is ErrorPolicy.RAISE:
                     raise
                 trace_id, span_id = record_stage_failure(exc)
                 merge_failures.append(
@@ -234,7 +211,7 @@ async def _merge_mention_groups(
                 continue
 
             if desc_failures:
-                merge_failures.extend(desc_failures)  # type: ignore[arg-type]
+                merge_failures.extend(desc_failures)
             conflicts_resolved += len(plan.conflicts)
             if not existing_for_group:
                 nodes_created += 1
@@ -244,12 +221,12 @@ async def _merge_mention_groups(
             try:
                 await apply_merge(
                     plan,
-                    graph_store=graph_store,
+                    graph_store=ctx.graph_store,
                     schema=graph_schema,
                     pending_job_id=pending_job_id,
                 )
             except Exception as exc:  # noqa: BLE001
-                if error_policy is ErrorPolicy.RAISE:
+                if ctx.error_policy is ErrorPolicy.RAISE:
                     raise
                 trace_id, span_id = record_stage_failure(exc)
                 merge_failures.append(
@@ -281,17 +258,12 @@ async def _rebuild_components(
     survivors: dict[UUID, Entity],
     mention_to_entity: dict[int, UUID],
     merge_failures: list[StageFailure],
+    ctx: StageContext,
     *,
-    graph_store: GraphStore,
-    embedder: Embedder,
-    vector_store: VectorStore | None,
     graph_schema: GraphSchema,
     resolved_entity_collection: str,
-    error_policy: ErrorPolicy,
-    job_id: UUID | str | None,
     pending_job_id: str | None,
     rebuilt_components: list[MatchComponent] | None,
-    tracer: Tracer | None,
 ) -> list[StageFailure]:
     """Rebuild each resolver component around its merged members.
 
@@ -300,7 +272,7 @@ async def _rebuild_components(
     """
     if batch.result is None:
         return []
-    resolved_tracer = get_tracer(tracer)
+    resolved_tracer = ctx.tracer
     resolved_vector_failures: list[StageFailure] = []
     mention_to_entity.update(batch.persisted_ids)
     for decisions in decisions_by_component(batch.result.matches, mention_to_entity):
@@ -318,14 +290,14 @@ async def _rebuild_components(
             try:
                 rebuild = await write_matches_and_rebuild(
                     decisions,
-                    graph_store=graph_store,
+                    graph_store=ctx.graph_store,
                     schema=graph_schema,
                     members=members,
                     pending_job_id=pending_job_id,
-                    tracer=tracer,
+                    tracer=ctx.tracer,
                 )
             except Exception as exc:  # noqa: BLE001
-                if error_policy is ErrorPolicy.RAISE:
+                if ctx.error_policy is ErrorPolicy.RAISE:
                     raise
                 trace_id, span_id = record_stage_failure(exc)
                 merge_failures.append(
@@ -347,12 +319,12 @@ async def _rebuild_components(
                 await _synchronize_resolved_entity_vectors(
                     [rebuild.resolved_entity],
                     rebuild.removed_entity_ids,
-                    embedder=embedder,
-                    graph_store=graph_store,
-                    vector_store=vector_store,
+                    embedder=ctx.embedder,
+                    graph_store=ctx.graph_store,
+                    vector_store=ctx.vector_store,
                     vector_collection=resolved_entity_collection,
-                    error_policy=error_policy,
-                    pending_job_id=job_id,
+                    error_policy=ctx.error_policy,
+                    pending_job_id=ctx.job_id,
                 )
             )
     return resolved_vector_failures
@@ -475,6 +447,10 @@ async def _global_relation_lookup(
 
     Returns:
         A map from triple to its existing relation's (id, source_chunk_ids).
+
+    Raises:
+        KeyError: A row lacks a field the lookup reads.
+        ValueError: A row holds a value that is not a UUID.
     """
     if not triples:
         return {}
@@ -485,7 +461,6 @@ async def _global_relation_lookup(
     result: dict[tuple[UUID, UUID, str], tuple[UUID, list[UUID]]] = {}
     for rel_type, pairs in by_type.items():
         unique_pairs = list(dict.fromkeys(pairs))
-        # Build params as list of {source_id, target_id}
         params = [{"source_id": str(s), "target_id": str(t)} for s, t in unique_pairs]
         query = fetch_relations_between_query(
             rel_type, job_id="job_id" if job_id is not None else None
@@ -495,15 +470,10 @@ async def _global_relation_lookup(
             read_params["job_id"] = str(job_id)
         rows = await graph_store.execute_read(query, read_params)
         for row in rows:
-            try:
-                src = UUID(str(row["source_id"]))
-                tgt = UUID(str(row["target_id"]))
-                rel_id = UUID(str(row["id"]))
-                raw_scids = row.get("source_chunk_ids") or []
-                scids = [UUID(str(x)) for x in raw_scids]
-                key = (src, tgt, rel_type)
-                # Also handle reverse? Not needed, query is directed.
-                result[key] = (rel_id, scids)
-            except Exception:
-                continue
+            src = UUID(str(row["source_id"]))
+            tgt = UUID(str(row["target_id"]))
+            rel_id = UUID(str(row["id"]))
+            raw_scids = row.get("source_chunk_ids") or []
+            scids = [UUID(str(x)) for x in raw_scids]
+            result[(src, tgt, rel_type)] = (rel_id, scids)
     return result

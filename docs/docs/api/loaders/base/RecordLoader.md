@@ -20,13 +20,14 @@ record is yielded.
 
 **Functions:**
 
-- [**is_available**](#agrag-loaders-base-RecordLoader-is_available) – Return whether this loader can run in this process.
+- [**is_available**](#agrag-loaders-base-RecordLoader-is_available) – Return whether the package that the loader's extra installs is present.
 - [**load**](#agrag-loaders-base-RecordLoader-load) – Yield documents read from one source.
 
 **Attributes:**
 
 - [**extensions**](#agrag-loaders-base-RecordLoader-extensions) (<code>frozenset\[str\]</code>) –
 - [**extra**](#agrag-loaders-base-RecordLoader-extra) (<code>str | None</code>) –
+- [**extra_module**](#agrag-loaders-base-RecordLoader-extra_module) (<code>str | None</code>) –
 - [**family**](#agrag-loaders-base-RecordLoader-family) –
 - [**mime_types**](#agrag-loaders-base-RecordLoader-mime_types) (<code>frozenset\[str\]</code>) –
 
@@ -42,6 +43,12 @@ extensions: frozenset[str]
 extra: str | None = None
 ```
 
+## `extra_module` \{#agrag-loaders-base-RecordLoader-extra_module}
+
+```python
+extra_module: str | None = None
+```
+
 ## `family` \{#agrag-loaders-base-RecordLoader-family}
 
 ```python
@@ -54,11 +61,11 @@ family = DocumentFamily.RECORD
 is_available() -> bool
 ```
 
-Return whether this loader can run in this process.
+Return whether the package that the loader's extra installs is present.
 
-A loader with no extra is always available. A loader with an extra is
-available when its package can be found. The check does not import the
-package, so an installed package that fails to import still counts.
+A loader with no extra is always available. The check looks the module up
+without importing it, so an installed package that fails to import still
+counts.
 
 ## `load` \{#agrag-loaders-base-RecordLoader-load}
 

@@ -9,9 +9,11 @@ from agrag.common.data_models.extraction import ExtractedEntity
 from agrag.common.data_models.graph_schema import GENERIC
 from agrag.ingestion import _resolve_stage
 from agrag.ingestion._resolve_stage import resolve_stage
+from agrag.ingestion._stage_context import StageContext
 from agrag.ingestion.resolve.resolution import BatchResolution
 from agrag.ingestion.resolve.resolver import ResolutionGroup, ResolutionResult
 from agrag.loaders.types import ErrorPolicy
+from agrag.observability import get_tracer
 from agrag.retrieval.settings import RetrievalSettings
 
 
@@ -47,18 +49,21 @@ class TestResolveStage:
         with mock.patch.object(
             _resolve_stage, "resolve_batch", AsyncMock(return_value=batch)
         ):
+            ctx = StageContext(
+                graph_store=AsyncMock(),
+                embedder=AsyncMock(),
+                vector_store=None,
+                error_policy=ErrorPolicy.RAISE,
+                tracer=get_tracer(None),
+                job_id=None,
+            )
             stage = await resolve_stage(
                 entities,
                 [],
                 [],
-                graph_store=AsyncMock(),
-                embedder=AsyncMock(),
-                vector_store=None,
+                ctx,
                 graph_schema=GENERIC,
                 retrieval_settings=RetrievalSettings(),
-                error_policy=ErrorPolicy.RAISE,
-                job_id=None,
-                tracer=None,
                 max_llm_pairs=10,
             )
 

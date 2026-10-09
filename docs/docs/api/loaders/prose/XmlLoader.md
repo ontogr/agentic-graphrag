@@ -9,8 +9,9 @@ Bases: <code>[ProseLoader](../base/ProseLoader.md)</code>
 
 Reads an XML file as the text of its elements.
 
-The loader drops the tags and keeps the text of each element on its own line.
-Text inside a CDATA section is not kept.
+The loader drops the tags and joins the text it finds with newlines. Text in
+an element with mixed content is split at its child elements. Text inside a
+CDATA section is not kept.
 
 **Attributes:**
 
@@ -18,7 +19,7 @@ Text inside a CDATA section is not kept.
 
 **Functions:**
 
-- [**is_available**](#agrag-loaders-prose-XmlLoader-is_available) – Return whether this loader can run in this process.
+- [**is_available**](#agrag-loaders-prose-XmlLoader-is_available) – Return whether the package that the loader's extra installs is present.
 - [**load**](#agrag-loaders-prose-XmlLoader-load) – Yield one prose Document from the text of the elements.
 
 ## `extensions` \{#agrag-loaders-prose-XmlLoader-extensions}
@@ -33,6 +34,12 @@ extensions = frozenset({'.xml'})
 extra: str | None = None
 ```
 
+## `extra_module` \{#agrag-loaders-prose-XmlLoader-extra_module}
+
+```python
+extra_module: str | None = None
+```
+
 ## `family` \{#agrag-loaders-prose-XmlLoader-family}
 
 ```python
@@ -45,11 +52,11 @@ family = DocumentFamily.PROSE
 is_available() -> bool
 ```
 
-Return whether this loader can run in this process.
+Return whether the package that the loader's extra installs is present.
 
-A loader with no extra is always available. A loader with an extra is
-available when its package can be found. The check does not import the
-package, so an installed package that fails to import still counts.
+A loader with no extra is always available. The check looks the module up
+without importing it, so an installed package that fails to import still
+counts.
 
 ## `load` \{#agrag-loaders-prose-XmlLoader-load}
 

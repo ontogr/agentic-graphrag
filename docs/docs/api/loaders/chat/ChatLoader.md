@@ -25,7 +25,7 @@ record loader. Pass `loader=ChatLoader()` with a single-file source.
 
 **Functions:**
 
-- [**is_available**](#agrag-loaders-chat-ChatLoader-is_available) – Return whether this loader can run in this process.
+- [**is_available**](#agrag-loaders-chat-ChatLoader-is_available) – Return whether the package that the loader's extra installs is present.
 - [**load**](#agrag-loaders-chat-ChatLoader-load) – Yield one prose Document that holds every message.
 
 ## `extensions` \{#agrag-loaders-chat-ChatLoader-extensions}
@@ -40,6 +40,12 @@ extensions = frozenset({'.jsonl', '.ndjson', '.json'})
 extra: str | None = None
 ```
 
+## `extra_module` \{#agrag-loaders-chat-ChatLoader-extra_module}
+
+```python
+extra_module: str | None = None
+```
+
 ## `family` \{#agrag-loaders-chat-ChatLoader-family}
 
 ```python
@@ -52,11 +58,11 @@ family = DocumentFamily.PROSE
 is_available() -> bool
 ```
 
-Return whether this loader can run in this process.
+Return whether the package that the loader's extra installs is present.
 
-A loader with no extra is always available. A loader with an extra is
-available when its package can be found. The check does not import the
-package, so an installed package that fails to import still counts.
+A loader with no extra is always available. The check looks the module up
+without importing it, so an installed package that fails to import still
+counts.
 
 ## `load` \{#agrag-loaders-chat-ChatLoader-load}
 
@@ -80,8 +86,8 @@ Yield one prose Document that holds every message.
 **Raises:**
 
 - <code>[MalformedRecordError](../errors/MalformedRecordError.md)</code> – A message is not a JSON object with a non-empty
-  string `role`, a string `content` and a unique `id`, or the
-  source is not valid JSON of the expected shape.
+  string `role` and a string `content`, an `id` repeats an
+  earlier one, or the source is not valid JSON of the expected shape.
 
 ## `mime_types` \{#agrag-loaders-chat-ChatLoader-mime_types}
 

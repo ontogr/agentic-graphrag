@@ -474,15 +474,15 @@ class TestGlobalRelationLookup:
         assert (s2, t2, "WORKS_AT") not in result
         assert len(store.execute_read_calls) == 2
 
-    async def test_skips_malformed_rows(self) -> None:
-        """Malformed rows are skipped."""
+    async def test_raises_on_malformed_row_instead_of_hiding_its_edge(self) -> None:
+        """A malformed row fails the lookup, so no duplicate edge is written."""
         store = MockStore()
         s, t = uuid4(), uuid4()
         store.execute_read_responses = [
             [{"source_id": "bad-uuid", "target_id": str(t), "id": str(uuid4())}]
         ]
-        result = await _global_relation_lookup([(s, t, "WORKS_AT")], graph_store=store)
-        assert result == {}
+        with pytest.raises(ValueError):
+            await _global_relation_lookup([(s, t, "WORKS_AT")], graph_store=store)
 
 
 class _GuardedNodeStore(MockStore):
@@ -1573,8 +1573,8 @@ class TestGraphAddPipeline:
         with pytest.raises(ValueError):
             await graph.add(text="hi", error_policy=ErrorPolicy.RAISE)
 
-    async def test_empty_chunks_early_return(self) -> None:
-        """No chunks yields early AddResult with no embeddings."""
+    async def test_empty_chunks_writes_only_document_and_source_nodes(self) -> None:
+        """No chunks writes the Document and Source nodes and no embeddings."""
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()
         graph = await Graph.open(
             schema=GENERIC, graph_store=store, embedder=embed, extractor=extractor
@@ -1582,7 +1582,7 @@ class TestGraphAddPipeline:
         with mock.patch("agrag.ingestion._ingest.chunk_documents", return_value=[]):
             result = await graph.add(text="hi", on_progress=lambda _: None)
             assert result.extraction.chunks_processed == 0
-            assert result.storage.nodes_written == 0
+            assert result.storage.nodes_written == 2
             assert result.chunks == []
 
     async def test_global_exact_match_integration(self) -> None:

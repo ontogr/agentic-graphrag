@@ -25,6 +25,7 @@ Stable keys, node ids, reading order and ancestry for the sections of a Document
 - [**FIGURE_LABEL**](FIGURE_LABEL.md) –
 - [**HAS_CHILD**](HAS_CHILD.md) –
 - [**HAS_DOCUMENT**](HAS_DOCUMENT.md) –
+- [**PART_OF**](PART_OF.md) –
 - [**SECTION_LABEL**](SECTION_LABEL.md) –
 - [**SOURCE_LABEL**](SOURCE_LABEL.md) –
 - [**TABLE_LABEL**](TABLE_LABEL.md) –
