@@ -44,11 +44,11 @@ from agrag.ingestion.stats import (
     ResolutionStats,
     StorageStats,
 )
-from agrag.loaders.corpus.base import Loader
-from agrag.loaders.corpus.readers.common import build_prose_document, text_sections
-from agrag.loaders.corpus.registry import LoaderRegistry
-from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions, SourceRef
-from agrag.loaders.corpus.walk import normalize_inline_text
+from agrag.loaders.base import Loader
+from agrag.loaders.common import build_prose_document, text_sections
+from agrag.loaders.loader_registry import LoaderRegistry
+from agrag.loaders.types import ErrorPolicy, LoadStats, ReadOptions, SourceRef
+from agrag.loaders.walk import normalize_inline_text
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 

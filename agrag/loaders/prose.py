@@ -6,16 +6,16 @@ from typing import BinaryIO
 from selectolax.parser import HTMLParser
 
 from agrag.common.data_models.document import Document, SourceFormat
-from agrag.loaders.corpus.base import ProseLoader
-from agrag.loaders.corpus.decode import decode_text
-from agrag.loaders.corpus.readers.common import (
+from agrag.loaders.base import ProseLoader
+from agrag.loaders.common import (
     EXTENSION_FORMAT,
     build_prose_document,
     read_within_limit,
     source_title,
     text_sections,
 )
-from agrag.loaders.corpus.types import ReadOptions, SourceRef
+from agrag.loaders.decode import decode_text
+from agrag.loaders.types import ReadOptions, SourceRef
 
 
 class TextLoader(ProseLoader):

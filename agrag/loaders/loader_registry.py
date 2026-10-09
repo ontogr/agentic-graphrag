@@ -2,9 +2,9 @@
 
 from dataclasses import dataclass
 
-from agrag.loaders.corpus.base import Loader
-from agrag.loaders.corpus.errors import MissingExtraError, UnsupportedFormatError
-from agrag.loaders.corpus.types import SourceRef
+from agrag.loaders.base import Loader
+from agrag.loaders.errors import MissingExtraError, UnsupportedFormatError
+from agrag.loaders.types import SourceRef
 
 
 @dataclass(slots=True)
@@ -99,3 +99,5 @@ class LoaderRegistry:
                 return entry.loader
 
         raise MissingExtraError(source.extension, extra)
+
+registry = LoaderRegistry()

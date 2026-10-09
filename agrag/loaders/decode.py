@@ -11,8 +11,8 @@ import unicodedata
 
 from charset_normalizer import from_bytes
 
-from agrag.loaders.corpus.errors import DecodeError
-from agrag.loaders.corpus.types import DecodedText, ReadOptions
+from agrag.loaders.errors import DecodeError
+from agrag.loaders.types import DecodedText, ReadOptions
 
 
 _UTF8_BOM = b"\xef\xbb\xbf"

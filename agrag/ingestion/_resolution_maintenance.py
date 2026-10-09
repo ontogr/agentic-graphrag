@@ -30,7 +30,7 @@ from agrag.ingestion.resolved_entities import (
     matches_id,
     write_matches_and_rebuild,
 )
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore

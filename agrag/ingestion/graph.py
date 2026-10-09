@@ -51,9 +51,9 @@ from agrag.ingestion.reports import (
 from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES
 from agrag.ingestion.resolve.zone_classifier import MAX_LLM_PAIRS
 from agrag.ingestion.settings import CutoverJobSettings
-from agrag.loaders.corpus import registry as _corpus_registry
-from agrag.loaders.corpus.base import Loader
-from agrag.loaders.corpus.types import ErrorPolicy, ReadOptions
+from agrag.loaders import registry as _corpus_registry
+from agrag.loaders.base import Loader
+from agrag.loaders.types import ErrorPolicy, ReadOptions
 from agrag.observability import get_tracer
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore

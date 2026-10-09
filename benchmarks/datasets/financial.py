@@ -14,8 +14,8 @@ from tempfile import TemporaryDirectory
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.graph_schema import GraphSchema
-from agrag.loaders.corpus.errors import MissingExtraError
-from agrag.loaders.corpus.types import ReadOptions, SourceRef
+from agrag.loaders.errors import MissingExtraError
+from agrag.loaders.types import ReadOptions, SourceRef
 from benchmarks.datasets.base import DatasetAdapter, Domain
 from benchmarks.datasets.fetch import CACHE_DIR, fetch_url
 from benchmarks.grading.financial import FinancialGrader

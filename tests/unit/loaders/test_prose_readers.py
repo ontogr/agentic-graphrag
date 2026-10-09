@@ -12,11 +12,11 @@ from io import BytesIO
 
 from agrag.common.data_models.document import DocumentFamily, SourceFormat
 from agrag.common.data_models.normalization import Normalization
-from agrag.loaders.corpus.errors import DocumentTooLargeError
-from agrag.loaders.corpus.readers.prose import (
+from agrag.loaders.errors import DocumentTooLargeError
+from agrag.loaders.prose import (
     TextLoader,
 )
-from agrag.loaders.corpus.types import ReadOptions, SourceRef
+from agrag.loaders.types import ReadOptions, SourceRef
 from agrag.loaders.docling.loader import DoclingLoader
 
 

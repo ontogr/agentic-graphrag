@@ -57,7 +57,7 @@ from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.reports import AddResult
 from agrag.ingestion.resolved_entities import RebuildResult
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
@@ -1296,7 +1296,7 @@ class TestGraphAddPipeline:
 
     async def test_loader_requires_single_file(self, tmp_path: Path) -> None:
         """Loader with directory/glob raises."""
-        from agrag.loaders.corpus.readers.prose import TextLoader  # noqa: PLC0415
+        from agrag.loaders.prose import TextLoader  # noqa: PLC0415
 
         (tmp_path / "a.txt").write_text("a")
         store, embed, extractor = MockStore(), MockEmbedder(), MockExtractor()

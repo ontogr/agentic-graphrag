@@ -15,9 +15,9 @@ source with an unknown byte size.
 from io import BytesIO
 
 from agrag.common.data_models.document import DocumentFamily, SourceFormat
-from agrag.loaders.corpus.errors import DocumentTooLargeError, MalformedRecordError
-from agrag.loaders.corpus.readers.records import CsvLoader, JsonlLoader, JsonLoader
-from agrag.loaders.corpus.types import CsvMode, JsonMode, ReadOptions, SourceRef
+from agrag.loaders.errors import DocumentTooLargeError, MalformedRecordError
+from agrag.loaders.records import CsvLoader, JsonlLoader, JsonLoader
+from agrag.loaders.types import CsvMode, JsonMode, ReadOptions, SourceRef
 
 
 _FIXTURES = __import__("pathlib").Path(__file__).parent / "fixtures"

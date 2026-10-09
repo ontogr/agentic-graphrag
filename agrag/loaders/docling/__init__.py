@@ -5,7 +5,7 @@ corpus registry. Docling reads every format it claims. The core loaders keep pla
 text, XML and the record formats.
 """
 
-from agrag.loaders.corpus import registry
+from agrag.loaders import registry
 from agrag.loaders.docling.loader import DoclingLoader, DoclingPdfLoader
 
 

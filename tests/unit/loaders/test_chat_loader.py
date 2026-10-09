@@ -1,4 +1,4 @@
-"""Tests for ChatLoader in agrag.loaders.corpus.readers.chat.
+"""Tests for ChatLoader in agrag.loaders.chat.
 
 The loader turns a JSON Lines or JSON file of chat messages into one prose document
 whose text holds one ``[role] content`` block per message, with a section for each
@@ -11,9 +11,9 @@ from io import BytesIO
 import pytest
 
 from agrag.common.data_models.document import DocumentFamily, SourceFormat
-from agrag.loaders.corpus.errors import MalformedRecordError
-from agrag.loaders.corpus.readers.chat import ChatLoader
-from agrag.loaders.corpus.types import ReadOptions, SourceRef
+from agrag.loaders.errors import MalformedRecordError
+from agrag.loaders.chat import ChatLoader
+from agrag.loaders.types import ReadOptions, SourceRef
 
 
 def _load(raw: str | bytes, extension: str = ".jsonl", opts: ReadOptions | None = None):

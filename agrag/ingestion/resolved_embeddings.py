@@ -16,7 +16,7 @@ from agrag.cypher.resolution_write import (
 )
 from agrag.embedding.base import Embedder
 from agrag.graphdb.base import GraphStore
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 from agrag.observability import record_stage_failure
 from agrag.vectordb.base import VectorStore
 

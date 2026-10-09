@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from typing import BinaryIO, ClassVar
 
 from agrag.common.data_models.document import Document, DocumentFamily
-from agrag.loaders.corpus.types import ReadOptions, SourceRef
+from agrag.loaders.types import ReadOptions, SourceRef
 
 
 class Loader(ABC):

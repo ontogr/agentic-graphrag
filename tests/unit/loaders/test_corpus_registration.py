@@ -10,11 +10,11 @@ from unittest.mock import patch
 import pytest
 
 import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
-from agrag.loaders.corpus import registry
-from agrag.loaders.corpus.errors import MissingExtraError
-from agrag.loaders.corpus.readers.prose import TextLoader, XmlLoader
-from agrag.loaders.corpus.readers.records import CsvLoader, JsonlLoader, JsonLoader
-from agrag.loaders.corpus.types import SourceRef
+from agrag.loaders import registry
+from agrag.loaders.errors import MissingExtraError
+from agrag.loaders.prose import TextLoader, XmlLoader
+from agrag.loaders.records import CsvLoader, JsonlLoader, JsonLoader
+from agrag.loaders.types import SourceRef
 from agrag.loaders.docling.loader import DoclingLoader, DoclingPdfLoader
 
 

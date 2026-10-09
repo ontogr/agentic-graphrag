@@ -11,10 +11,10 @@ from opentelemetry.trace import Tracer
 from agrag.chunking import Chunker
 from agrag.chunking.chunker import ChunkedDocument
 from agrag.common.data_models.document import Document
-from agrag.loaders.corpus.base import Loader
-from agrag.loaders.corpus.registry import LoaderRegistry
-from agrag.loaders.corpus.types import ErrorPolicy, LoadStats, ReadOptions
-from agrag.loaders.corpus.walk import _CorpusWalk, _InMemoryWalk
+from agrag.loaders.base import Loader
+from agrag.loaders.loader_registry import LoaderRegistry
+from agrag.loaders.types import ErrorPolicy, LoadStats, ReadOptions
+from agrag.loaders.walk import _CorpusWalk, _InMemoryWalk
 
 
 SourceType = Union[str, Path]

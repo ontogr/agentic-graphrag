@@ -42,7 +42,7 @@ from agrag.ingestion.resolve.resolver import (
     ResolutionResult,
     Resolver,
 )
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 from agrag.observability import get_tracer
 from agrag.vectordb.base import VectorStore
 

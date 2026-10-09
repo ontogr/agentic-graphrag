@@ -6,16 +6,16 @@ from collections.abc import Iterator
 from typing import Any, BinaryIO
 
 from agrag.common.data_models.document import Document, DocumentSection, SourceFormat
-from agrag.loaders.corpus.base import ProseLoader
-from agrag.loaders.corpus.decode import decode_text
-from agrag.loaders.corpus.errors import MalformedRecordError
-from agrag.loaders.corpus.readers.common import (
+from agrag.loaders.base import ProseLoader
+from agrag.loaders.common import (
     build_prose_document,
     paragraph_units,
     read_within_limit,
     source_title,
 )
-from agrag.loaders.corpus.types import ReadOptions, SourceRef
+from agrag.loaders.decode import decode_text
+from agrag.loaders.errors import MalformedRecordError
+from agrag.loaders.types import ReadOptions, SourceRef
 
 
 _TURN_SEPARATOR = "\n\n"

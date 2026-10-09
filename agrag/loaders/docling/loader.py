@@ -20,20 +20,20 @@ if TYPE_CHECKING:  # pragma: no cover
     from docling_core.types.doc import DoclingDocument
 
 from agrag.common.data_models.document import Document, SourceFormat
-from agrag.loaders.corpus.base import ProseLoader
-from agrag.loaders.corpus.errors import DocumentConversionError
-from agrag.loaders.corpus.readers.common import (
+from agrag.loaders.base import ProseLoader
+from agrag.loaders.common import (
     build_prose_document,
     read_within_limit,
     source_title,
 )
-from agrag.loaders.corpus.types import ReadOptions, SourceRef
 from agrag.loaders.docling._converters import ocr_choice, pdf_converter, slim_converter
 from agrag.loaders.docling._sections import (
     numbered_depths,
     read_body,
     sections_from_docling,
 )
+from agrag.loaders.errors import DocumentConversionError
+from agrag.loaders.types import ReadOptions, SourceRef
 
 
 class DoclingLoader(ProseLoader):

@@ -1,7 +1,7 @@
-"""Plumbing types for the corpus loaders.
+"""Plumbing types for the document loaders.
 
 These types support the loader, decode, and walk machinery. They are feature-local to
-``agrag.loaders.corpus`` and are not domain models.
+``agrag.loaders`` and are not domain models.
 """
 
 from dataclasses import dataclass, field

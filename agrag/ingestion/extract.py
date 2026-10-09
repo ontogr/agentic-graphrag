@@ -21,7 +21,7 @@ from agrag.common.data_models.extraction import (
 from agrag.common.data_models.graph_schema import EntityType, GraphSchema
 from agrag.llm.client_config import LLMClientConfig, RetryConfig
 from agrag.llm.retry import NO_RETRY, call_with_retry
-from agrag.loaders.corpus.errors import IngestionError
+from agrag.loaders.errors import IngestionError
 from agrag.observability import get_tracer
 
 

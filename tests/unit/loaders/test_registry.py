@@ -1,4 +1,4 @@
-"""Tests for LoaderRegistry in agrag.loaders.corpus.registry.
+"""Tests for LoaderRegistry in agrag.loaders.loader_registry.
 
 Uses a minimal _StubLoader to cover prefer=True precedence (including that
 the last preferred registration wins), idempotent re-registration, an
@@ -10,13 +10,13 @@ extensions.
 """
 
 from agrag.common.data_models.document import DocumentFamily
-from agrag.loaders.corpus.base import Loader
-from agrag.loaders.corpus.errors import (
+from agrag.loaders.base import Loader
+from agrag.loaders.errors import (
     MissingExtraError,
     UnsupportedFormatError,
 )
-from agrag.loaders.corpus.registry import LoaderRegistry
-from agrag.loaders.corpus.types import SourceRef
+from agrag.loaders.loader_registry import LoaderRegistry
+from agrag.loaders.types import SourceRef
 
 
 class _StubLoader(Loader):

@@ -78,7 +78,7 @@ from agrag.ingestion.stats import (
     ResolutionStats,
     StorageStats,
 )
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 from agrag.observability import (
     get_tracer,
     record_stage_failure,

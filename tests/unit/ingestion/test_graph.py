@@ -67,9 +67,9 @@ from agrag.ingestion._ingest_pipeline import (
 from agrag.ingestion._walk import chunk_documents
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.resolve import SYSTEM_RELATION_TYPES, ResolutionResult
-from agrag.loaders.corpus.errors import UnsupportedFormatError
-from agrag.loaders.corpus.readers.prose import TextLoader
-from agrag.loaders.corpus.types import ErrorPolicy, ReadOptions
+from agrag.loaders.errors import UnsupportedFormatError
+from agrag.loaders.prose import TextLoader
+from agrag.loaders.types import ErrorPolicy, ReadOptions
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 

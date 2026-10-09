@@ -1,4 +1,4 @@
-"""Tests for shared reader helpers in agrag.loaders.corpus.readers._common.
+"""Tests for shared reader helpers in agrag.loaders._common.
 
 Covers Document id derivation (content hash versus an explicit record id,
 and that identical text still gets distinct ids by row position or source
@@ -15,8 +15,8 @@ from io import BytesIO
 import pytest
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
-from agrag.loaders.corpus.errors import MalformedRecordError
-from agrag.loaders.corpus.readers.common import (
+from agrag.loaders.errors import MalformedRecordError
+from agrag.loaders.common import (
     build_prose_document,
     build_record_document,
     paragraph_units,
@@ -25,7 +25,7 @@ from agrag.loaders.corpus.readers.common import (
     resolve_text_column,
     source_title,
 )
-from agrag.loaders.corpus.types import DecodedText, ReadOptions, SourceRef
+from agrag.loaders.types import DecodedText, ReadOptions, SourceRef
 
 
 def _ref(extension: str) -> SourceRef:

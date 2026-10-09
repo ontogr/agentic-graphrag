@@ -7,17 +7,17 @@ from collections.abc import Iterator
 from typing import BinaryIO
 
 from agrag.common.data_models.document import Document, SourceFormat
-from agrag.loaders.corpus.base import RecordLoader
-from agrag.loaders.corpus.decode import decode_text
-from agrag.loaders.corpus.errors import MalformedRecordError
-from agrag.loaders.corpus.readers.common import (
+from agrag.loaders.base import RecordLoader
+from agrag.loaders.common import (
     build_prose_document,
     build_record_document,
     read_within_limit,
     record_source_hash,
     source_title,
 )
-from agrag.loaders.corpus.types import CsvMode, JsonMode, ReadOptions, SourceRef
+from agrag.loaders.decode import decode_text
+from agrag.loaders.errors import MalformedRecordError
+from agrag.loaders.types import CsvMode, JsonMode, ReadOptions, SourceRef
 
 
 class CsvLoader(RecordLoader):

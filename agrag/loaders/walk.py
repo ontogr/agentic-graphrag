@@ -17,11 +17,11 @@ from opentelemetry.trace import Tracer
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.normalization import Normalization
 from agrag.common.data_models.stage_failure import StageFailure
-from agrag.loaders.corpus.base import Loader
-from agrag.loaders.corpus.errors import IngestionError, UnsupportedFormatError
-from agrag.loaders.corpus.readers.common import build_prose_document, text_sections
-from agrag.loaders.corpus.registry import LoaderRegistry
-from agrag.loaders.corpus.types import (
+from agrag.loaders.base import Loader
+from agrag.loaders.common import build_prose_document, text_sections
+from agrag.loaders.errors import IngestionError, UnsupportedFormatError
+from agrag.loaders.loader_registry import LoaderRegistry, registry
+from agrag.loaders.types import (
     ErrorPolicy,
     LoaderCursor,
     LoadStats,

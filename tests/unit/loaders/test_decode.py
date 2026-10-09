@@ -1,9 +1,9 @@
-"""Tests for decode_text in agrag.loaders.corpus.decode.
+"""Tests for decode_text in agrag.loaders.decode.
 
 Covers BOM stripping and detection for UTF-8 and UTF-16, CRLF/CR
 normalization to LF, NFKC normalization, latin-1 fallback when charset
 detection returns no match, and a forced-encoding decode failure raising
-DecodeError. Two tests monkeypatch ``agrag.loaders.corpus.decode.from_bytes``
+DecodeError. Two tests monkeypatch ``agrag.loaders.decode.from_bytes``
 to control the charset-detection result without needing real ambiguous
 byte sequences, including a regression for reading a detected match's text
 via ``str(match)`` rather than re-decoding its UTF-8 ``output()``.
@@ -12,9 +12,9 @@ via ``str(match)`` rather than re-decoding its UTF-8 ``output()``.
 import pytest
 
 from agrag.common.data_models.normalization import Normalization
-from agrag.loaders.corpus.decode import _had_bom, decode_text
-from agrag.loaders.corpus.errors import DecodeError
-from agrag.loaders.corpus.types import ReadOptions
+from agrag.loaders.decode import _had_bom, decode_text
+from agrag.loaders.errors import DecodeError
+from agrag.loaders.types import ReadOptions
 
 
 class TestDecodeText:
@@ -65,7 +65,7 @@ class TestDecodeText:
                 return None
 
         monkeypatch.setattr(
-            "agrag.loaders.corpus.decode.from_bytes", lambda raw: _NoMatch()
+            "agrag.loaders.decode.from_bytes", lambda raw: _NoMatch()
         )
         decoded = decode_text(b"\x80\x81\x82", ReadOptions())
         assert isinstance(decoded.text, str)
@@ -114,7 +114,7 @@ class TestDecodeText:
                 return _MockMatch()
 
         monkeypatch.setattr(
-            "agrag.loaders.corpus.decode.from_bytes", lambda raw: _MockCharsetMatches()
+            "agrag.loaders.decode.from_bytes", lambda raw: _MockCharsetMatches()
         )
         decoded = decode_text(b"irrelevant", ReadOptions())
         assert decoded.text == "café"

@@ -6,10 +6,10 @@ import json
 import pytest
 
 from agrag.common.data_models.document import Document, UnitKind
-from agrag.loaders.corpus.base import ProseLoader
-from agrag.loaders.corpus.readers.chat import ChatLoader
-from agrag.loaders.corpus.readers.prose import TextLoader, XmlLoader
-from agrag.loaders.corpus.types import ReadOptions, SourceRef
+from agrag.loaders.base import ProseLoader
+from agrag.loaders.chat import ChatLoader
+from agrag.loaders.prose import TextLoader, XmlLoader
+from agrag.loaders.types import ReadOptions, SourceRef
 
 
 def _load(loader: ProseLoader, name: str, raw: bytes, **options: object) -> Document:

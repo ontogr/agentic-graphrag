@@ -4,17 +4,8 @@ The docling loaders live in ``agrag.loaders.docling``. PDF and image files need 
 ``docling`` extra.
 """
 
-import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
-from agrag.loaders.corpus import (
-    ChatLoader,
-    CsvLoader,
-    JsonlLoader,
-    JsonLoader,
-    TextLoader,
-    XmlLoader,
-    registry,
-)
-from agrag.loaders.corpus.errors import (
+from agrag.loaders.chat import ChatLoader
+from agrag.loaders.errors import (
     DecodeError,
     DocumentConversionError,
     DocumentTooLargeError,
@@ -23,8 +14,19 @@ from agrag.loaders.corpus.errors import (
     MissingExtraError,
     UnsupportedFormatError,
 )
-from agrag.loaders.corpus.registry import LoaderRegistry
-from agrag.loaders.corpus.types import ErrorPolicy, IngestResult, LoadStats, ReadOptions
+from agrag.loaders.prose import TextLoader, XmlLoader
+from agrag.loaders.records import CsvLoader, JsonlLoader, JsonLoader
+from agrag.loaders.loader_registry import LoaderRegistry
+from agrag.loaders.types import ErrorPolicy, IngestResult, LoadStats, ReadOptions
+from agrag.loaders.loader_registry import LoaderRegistry, registry
+
+registry.register(TextLoader())
+registry.register(XmlLoader())
+registry.register(CsvLoader())
+registry.register(JsonlLoader())
+registry.register(JsonLoader())
+
+import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
 
 
 __all__ = [

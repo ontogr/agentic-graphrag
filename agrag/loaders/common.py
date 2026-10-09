@@ -13,8 +13,8 @@ from agrag.common.data_models.document import (
     Unit,
     UnitKind,
 )
-from agrag.loaders.corpus.errors import DocumentTooLargeError, MalformedRecordError
-from agrag.loaders.corpus.types import DecodedText, ReadOptions, SourceRef
+from agrag.loaders.errors import DocumentTooLargeError, MalformedRecordError
+from agrag.loaders.types import DecodedText, ReadOptions, SourceRef
 
 
 EXTENSION_FORMAT: dict[str, SourceFormat] = {

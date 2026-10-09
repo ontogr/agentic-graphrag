@@ -35,7 +35,7 @@ from agrag.ingestion.graph import Graph
 from agrag.ingestion.resolve import ResolutionResult
 from agrag.ingestion.resolve.candidate_source import GraphCandidateSource
 from agrag.ingestion.stats import IngestStats
-from agrag.loaders.corpus.types import ErrorPolicy
+from agrag.loaders.types import ErrorPolicy
 from agrag.retrieval.settings import RetrievalSettings
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
