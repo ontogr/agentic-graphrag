@@ -63,7 +63,7 @@ rather than discarding the reports that did come back.
 - **max_relations_per_prompt** (<code>int</code>) – Attested-relation lines per community
   fed into the LLM prompt, most-attested first.
 - **max_concurrency** (<code>int</code>) – Max concurrent SummarizeCommunities calls.
-- **error_policy** (<code>[ErrorPolicy](../../loaders/corpus/types/ErrorPolicy.md)</code>) – RAISE propagates a batch call failure or a missing
+- **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a batch call failure or a missing
   `llm` extra; anything else records it or falls back and
   continues.
 - **tracer** (<code>Tracer | None</code>) – Opens one span per batch.

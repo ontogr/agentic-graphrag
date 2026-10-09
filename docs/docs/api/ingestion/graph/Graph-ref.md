@@ -78,16 +78,16 @@ Give exactly one of `source`, `text`, and `documents`.
 - **source** (<code>SourcesType | None</code>) – A file path, a directory, a glob, or a list of these.
 - **text** (<code>str | None</code>) – Raw text to add as one document.
 - **documents** (<code>Sequence\[[Document](../../common/data_models/document/Document-ref.md)\] | None</code>) – Already-built documents to add directly.
-- **loader** (<code>[Loader](../../loaders/corpus/base/Loader.md) | None</code>) – A loader to use instead of the registry default. It requires
+- **loader** (<code>[Loader](../../loaders/base/Loader.md) | None</code>) – A loader to use instead of the registry default. It requires
   a single-file `source`. A directory, glob, or list of sources
   raises an error.
-- **error_policy** (<code>[ErrorPolicy](../../loaders/corpus/types/ErrorPolicy.md)</code>) – The action to take on a per-source error.
+- **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – The action to take on a per-source error.
 - **on_progress** (<code>Callable\[\[[AddResult](../reports/add_result/AddResult.md)\], None\] | None</code>) – A callback the call runs after each batch and once more
   at the end with the fully-populated result.
 - **return_chunks** (<code>bool</code>) – Whether to include the produced chunks in the
   returned AddResult. False by default to avoid holding full text
   for a large corpus when not needed.
-- **read_options** (<code>[ReadOptions](../../loaders/corpus/types/ReadOptions.md) | None</code>) – How loaders read sources, including the normalization of
+- **read_options** (<code>[ReadOptions](../../loaders/types/ReadOptions.md) | None</code>) – How loaders read sources, including the normalization of
   decoded text. None uses `ReadOptions()` defaults.
 
 **Returns:**
@@ -356,10 +356,10 @@ must resolve to exactly one document.
 - **text** (<code>str | None</code>) – Replacement text, exactly one of `text`/`source`.
 - **source** (<code>SourcesType | None</code>) – A single-file source, glob, or path list resolving to
   exactly one document.
-- **loader** (<code>[Loader](../../loaders/corpus/base/Loader.md) | None</code>) – A loader override for a single-file `source`.
-- **error_policy** (<code>[ErrorPolicy](../../loaders/corpus/types/ErrorPolicy.md)</code>) – RAISE propagates a stage failure. Any other
+- **loader** (<code>[Loader](../../loaders/base/Loader.md) | None</code>) – A loader override for a single-file `source`.
+- **error_policy** (<code>[ErrorPolicy](../../loaders/types/ErrorPolicy.md)</code>) – RAISE propagates a stage failure. Any other
   policy records it and continues.
-- **read_options** (<code>[ReadOptions](../../loaders/corpus/types/ReadOptions.md) | None</code>) – How loaders read the replacement, including the
+- **read_options** (<code>[ReadOptions](../../loaders/types/ReadOptions.md) | None</code>) – How loaders read the replacement, including the
   normalization of its text. None uses `ReadOptions()` defaults.
 
 **Returns:**

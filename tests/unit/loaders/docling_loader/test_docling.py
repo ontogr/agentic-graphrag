@@ -74,28 +74,23 @@ class TestSourceLimits:
 
 
 class TestConversionFailure:
-    """A conversion or IO failure inside docling is an ingestion error."""
+    """Any failure while docling converts a source is an ingestion error."""
 
-    @pytest.mark.parametrize("error", ["conversion", "os"])
+    @pytest.mark.parametrize("error", ["conversion", "os", "other"])
     def test_a_failed_conversion_raises_document_conversion_error(
         self, error: str
     ) -> None:
         """Walker policies such as SKIP catch only the wrapped error."""
         from docling.exceptions import ConversionError  # noqa: PLC0415
 
-        failure = (
-            ConversionError("no model") if error == "conversion" else OSError("disk")
-        )
+        failure = {
+            "conversion": ConversionError("no model"),
+            "os": OSError("disk"),
+            "other": RuntimeError("model download failed"),
+        }[error]
         with patch("agrag.loaders.docling.loader.slim_converter") as converter:
             converter.return_value.convert.side_effect = failure
             with pytest.raises(DocumentConversionError):
-                list(DoclingLoader().load(_source(), BytesIO(_RAW), ReadOptions()))
-
-    def test_an_unexpected_error_is_not_wrapped(self) -> None:
-        """Only conversion and IO failures become ingestion errors."""
-        with patch("agrag.loaders.docling.loader.slim_converter") as converter:
-            converter.return_value.convert.side_effect = ValueError("bad")
-            with pytest.raises(ValueError, match="bad"):
                 list(DoclingLoader().load(_source(), BytesIO(_RAW), ReadOptions()))
 
     def test_a_pdf_failure_is_wrapped_too(self) -> None:

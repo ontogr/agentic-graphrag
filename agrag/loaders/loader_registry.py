@@ -100,4 +100,5 @@ class LoaderRegistry:
 
         raise MissingExtraError(source.extension, extra)
 
+
 registry = LoaderRegistry()

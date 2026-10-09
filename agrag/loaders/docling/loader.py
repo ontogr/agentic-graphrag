@@ -86,15 +86,15 @@ class DoclingLoader(ProseLoader):
         Raises:
             DocumentTooLargeError: The source is larger than the configured byte
                 limit.
-            DocumentConversionError: Docling could not parse or convert the source.
+            DocumentConversionError: Docling or the PDF text check failed on the
+                source, for any reason. Walker policies such as SKIP and QUARANTINE
+                catch this error.
             ValueError: ``opts.max_document_bytes`` is not a positive integer.
         """
-        from docling.exceptions import ConversionError  # noqa: PLC0415
-
         raw = read_within_limit(stream, source, opts)
         try:
             parsed = self._convert(source, raw)
-        except (ConversionError, OSError) as exc:
+        except Exception as exc:
             raise DocumentConversionError(
                 f"docling could not convert {source.uri}: {exc}"
             ) from exc

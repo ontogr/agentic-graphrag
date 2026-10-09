@@ -64,9 +64,7 @@ class TestDecodeText:
             def best(self):
                 return None
 
-        monkeypatch.setattr(
-            "agrag.loaders.decode.from_bytes", lambda raw: _NoMatch()
-        )
+        monkeypatch.setattr("agrag.loaders.decode.from_bytes", lambda raw: _NoMatch())
         decoded = decode_text(b"\x80\x81\x82", ReadOptions())
         assert isinstance(decoded.text, str)
         assert decoded.encoding == "latin-1"

@@ -1,0 +1,83 @@
+---
+title: agrag.loaders.base.Loader
+sidebar_label: Loader
+---
+
+# `agrag.loaders.base.Loader` \{#agrag-loaders-base-Loader}
+
+Bases: <code>ABC</code>
+
+Reads one source and yields Document objects.
+
+A Loader keeps no state between calls, so a worker process can reuse one instance
+across many sources.
+
+**Attributes:**
+
+- [**extensions**](#agrag-loaders-base-Loader-extensions) (<code>frozenset\[str\]</code>) – The file extensions this loader claims, each with a leading dot.
+- [**mime_types**](#agrag-loaders-base-Loader-mime_types) (<code>frozenset\[str\]</code>) – The MIME types this loader claims. Empty when the loader relies on
+  the extension alone.
+- [**family**](#agrag-loaders-base-Loader-family) (<code>[DocumentFamily](../../common/data_models/document/DocumentFamily.md)</code>) – The document family this loader produces.
+- [**extra**](#agrag-loaders-base-Loader-extra) (<code>str | None</code>) – The optional package extra required to use this loader. `None` for core
+  loaders. The registry skips a loader whose extra is not installed.
+
+**Functions:**
+
+- [**is_available**](#agrag-loaders-base-Loader-is_available) – Return whether this loader can run in this process.
+- [**load**](#agrag-loaders-base-Loader-load) – Yield documents read from one source.
+
+## `extensions` \{#agrag-loaders-base-Loader-extensions}
+
+```python
+extensions: frozenset[str]
+```
+
+## `extra` \{#agrag-loaders-base-Loader-extra}
+
+```python
+extra: str | None = None
+```
+
+## `family` \{#agrag-loaders-base-Loader-family}
+
+```python
+family: DocumentFamily
+```
+
+## `is_available` \{#agrag-loaders-base-Loader-is_available}
+
+```python
+is_available() -> bool
+```
+
+Return whether this loader can run in this process.
+
+A loader with no extra is always available. A loader with an extra is
+available when its package can be found. The check does not import the
+package, so an installed package that fails to import still counts.
+
+## `load` \{#agrag-loaders-base-Loader-load}
+
+```python
+load(source:SourceRef, stream:BinaryIO, opts:ReadOptions, *, start_at:int = 0) -> Iterator[Document]
+```
+
+Yield documents read from one source.
+
+**Parameters:**
+
+- **source** (<code>[SourceRef](../types/SourceRef.md)</code>) – The source to read.
+- **stream** (<code>BinaryIO</code>) – The open binary stream for the source, positioned at the start.
+- **opts** (<code>[ReadOptions](../types/ReadOptions.md)</code>) – The read options for this call.
+- **start_at** (<code>int</code>) – The record index to resume from. Prose loaders ignore this
+  argument.
+
+**Yields:**
+
+- <code>[Document](../../common/data_models/document/Document-ref.md)</code> – One Document per unit the source contains, in a fixed order.
+
+## `mime_types` \{#agrag-loaders-base-Loader-mime_types}
+
+```python
+mime_types: frozenset[str] = frozenset()
+```

@@ -61,9 +61,9 @@ Yield one prose Document parsed by docling.
 
 **Parameters:**
 
-- **source** (<code>[SourceRef](../../corpus/types/SourceRef.md)</code>) – The source to read.
+- **source** (<code>[SourceRef](../../types/SourceRef.md)</code>) – The source to read.
 - **stream** (<code>BinaryIO</code>) – The open binary stream for the source.
-- **opts** (<code>[ReadOptions](../../corpus/types/ReadOptions.md)</code>) – The read options.
+- **opts** (<code>[ReadOptions](../../types/ReadOptions.md)</code>) – The read options.
 - **start_at** (<code>int</code>) – Ignored by prose loaders.
 
 **Yields:**
@@ -75,9 +75,11 @@ Yield one prose Document parsed by docling.
 
 **Raises:**
 
-- <code>[DocumentTooLargeError](../../corpus/errors/DocumentTooLargeError.md)</code> – The source is larger than the configured byte
+- <code>[DocumentTooLargeError](../../errors/DocumentTooLargeError.md)</code> – The source is larger than the configured byte
   limit.
-- <code>[DocumentConversionError](../../corpus/errors/DocumentConversionError.md)</code> – Docling could not parse or convert the source.
+- <code>[DocumentConversionError](../../errors/DocumentConversionError.md)</code> – Docling or the PDF text check failed on the
+  source, for any reason. Walker policies such as SKIP and QUARANTINE
+  catch this error.
 - <code>ValueError</code> – `opts.max_document_bytes` is not a positive integer.
 
 ## `mime_types` \{#agrag-loaders-docling-loader-DoclingPdfLoader-mime_types}

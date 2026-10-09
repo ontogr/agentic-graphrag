@@ -15,6 +15,11 @@ from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
@@ -240,6 +245,75 @@ class TestIngestChunks:
 
         await asyncio.sleep(0.6)
         assert finished == []
+
+    async def test_a_failed_relation_remap_opens_its_own_span(self) -> None:
+        """Under a non-RAISE policy a bad relation is recorded, not raised."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        doc = _doc(key="a")
+        chunk = _chunk(doc)
+
+        class _BadRelation(Extractor):
+            async def extract(
+                self, chunk: Chunk, schema: GraphSchema
+            ) -> ExtractionResult:
+                entity = ExtractedEntity(
+                    chunk_id=chunk.id,
+                    label="Person",
+                    text="Ada",
+                    char_start=0,
+                    char_end=3,
+                )
+                loop = ExtractedRelation.model_construct(
+                    chunk_id=chunk.id, label="KNOWS", source_index=0, target_index=0
+                )
+                return ExtractionResult.model_construct(
+                    entities=[entity], relations=[loop], extractor_name="bad"
+                )
+
+        _, relations, failures = await extract_chunks(
+            [chunk],
+            start_index=0,
+            extractor=_BadRelation(),
+            schema=GENERIC,
+            error_policy=ErrorPolicy.SKIP,
+            tracer=provider.get_tracer("test"),
+        )
+
+        names = [span.name for span in exporter.get_finished_spans()]
+        assert relations == []
+        assert [f.item_id for f in failures] == [str(chunk.id)]
+        assert "agrag.extraction.remap_relations" in names
+
+    async def test_structure_nodes_are_written_under_their_own_span(self) -> None:
+        """Ingest writes the section tree under agrag.storage.upsert_structure."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        store, _ = _store()
+        doc = _doc(key="a")
+
+        await ingest_chunks(
+            [_chunk(doc)],
+            [doc],
+            [],
+            [],
+            [],
+            graph_store=store,
+            embedder=_ZeroEmbedder(),
+            vector_store=None,
+            graph_schema=GENERIC,
+            retrieval_settings=RetrievalSettings(),
+            error_policy=ErrorPolicy.RAISE,
+            ingestion=IngestStats(documents=1),
+            return_chunks=False,
+            tracer=provider.get_tracer("test"),
+        )
+
+        spans = {span.name: span for span in exporter.get_finished_spans()}
+        assert "agrag.storage.upsert_structure" in spans
+        assert spans["agrag.storage.upsert_structure"].attributes is not None
 
     async def test_rejects_a_non_positive_extraction_concurrency(self) -> None:
         """A zero limit would block every extraction forever."""

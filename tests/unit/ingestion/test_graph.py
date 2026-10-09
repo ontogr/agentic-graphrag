@@ -73,7 +73,7 @@ from agrag.loaders.types import ErrorPolicy, ReadOptions
 from tests.unit.ingestion._lease_fake import CutoverJobLeaseFake
 
 
-_FIXTURES = Path(__file__).parents[1] / "loaders" / "corpus" / "fixtures"
+_FIXTURES = Path(__file__).parents[1] / "loaders" / "fixtures"
 
 
 class _MockGraphStore(CutoverJobLeaseFake, GraphStore):
