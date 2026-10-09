@@ -6,5 +6,5 @@ sidebar_label: registry
 # `agrag.loaders.registry` \{#agrag-loaders-registry}
 
 ```python
-registry = LoaderRegistry()
+registry = default_registry()
 ```

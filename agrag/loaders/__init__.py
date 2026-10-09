@@ -5,7 +5,7 @@ The docling loaders live in ``agrag.loaders.docling``. PDF and image files need 
 """
 
 from agrag.loaders.chat import ChatLoader
-from agrag.loaders.defaults import register_default_loaders
+from agrag.loaders.defaults import default_registry, register_default_loaders
 from agrag.loaders.errors import (
     DecodeError,
     DocumentConversionError,
@@ -21,13 +21,7 @@ from agrag.loaders.records import CsvLoader, JsonlLoader, JsonLoader
 from agrag.loaders.types import ErrorPolicy, IngestResult, LoadStats, ReadOptions
 
 
-registry = LoaderRegistry()
-register_default_loaders(registry)
-"""The default registry, with every built-in loader registered.
-
-Import it with ``from agrag.loaders import registry``. A new ``LoaderRegistry()``
-starts empty and rejects every format until loaders are registered on it.
-"""
+registry = default_registry()
 
 
 __all__ = [

@@ -24,3 +24,14 @@ def register_default_loaders(target: LoaderRegistry) -> None:
     target.register(JsonLoader())
     target.register(DoclingLoader())
     target.register(DoclingPdfLoader())
+
+
+def default_registry() -> LoaderRegistry:
+    """Return a new registry with every default loader registered.
+
+    ``agrag.loaders.registry`` is the shared instance built by this function.
+    A bare ``LoaderRegistry()`` starts empty and rejects every format.
+    """
+    registry = LoaderRegistry()
+    register_default_loaders(registry)
+    return registry
