@@ -14,13 +14,13 @@ source's byte size is known upfront (`SourceRef.byte_size` is not `None`).
 
 **Functions:**
 
+- [**is_available**](#agrag-loaders-corpus-base-ProseLoader-is_available) – Return whether this loader can run in this process.
 - [**load**](#agrag-loaders-corpus-base-ProseLoader-load) – Yield documents read from one source.
 
 **Attributes:**
 
 - [**extensions**](#agrag-loaders-corpus-base-ProseLoader-extensions) (<code>frozenset\[str\]</code>) –
 - [**extra**](#agrag-loaders-corpus-base-ProseLoader-extra) (<code>str | None</code>) –
-- [**extra_module**](#agrag-loaders-corpus-base-ProseLoader-extra_module) (<code>str | None</code>) –
 - [**family**](#agrag-loaders-corpus-base-ProseLoader-family) –
 - [**mime_types**](#agrag-loaders-corpus-base-ProseLoader-mime_types) (<code>frozenset\[str\]</code>) –
 
@@ -36,17 +36,22 @@ extensions: frozenset[str]
 extra: str | None = None
 ```
 
-## `extra_module` \{#agrag-loaders-corpus-base-ProseLoader-extra_module}
-
-```python
-extra_module: str | None = None
-```
-
 ## `family` \{#agrag-loaders-corpus-base-ProseLoader-family}
 
 ```python
 family = DocumentFamily.PROSE
 ```
+
+## `is_available` \{#agrag-loaders-corpus-base-ProseLoader-is_available}
+
+```python
+is_available() -> bool
+```
+
+Return whether this loader can run in this process.
+
+A loader with no extra is always available. A loader with an extra is
+available when its package imports.
 
 ## `load` \{#agrag-loaders-corpus-base-ProseLoader-load}
 

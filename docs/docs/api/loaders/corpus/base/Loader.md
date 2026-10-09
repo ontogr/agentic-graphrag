@@ -19,14 +19,11 @@ across many sources.
   the extension alone.
 - [**family**](#agrag-loaders-corpus-base-Loader-family) (<code>[DocumentFamily](../../../common/data_models/document/DocumentFamily.md)</code>) – The document family this loader produces.
 - [**extra**](#agrag-loaders-corpus-base-Loader-extra) (<code>str | None</code>) – The optional package extra required to use this loader. `None` for core
-  loaders. The registry raises `MissingExtraError` when this extra is not
-  installed.
-- [**extra_module**](#agrag-loaders-corpus-base-Loader-extra_module) (<code>str | None</code>) – The module that only the extra installs. The registry looks for
-  it to tell whether the extra is installed. `None` means the module has
-  the same name as the extra.
+  loaders. The registry skips a loader whose extra is not installed.
 
 **Functions:**
 
+- [**is_available**](#agrag-loaders-corpus-base-Loader-is_available) – Return whether this loader can run in this process.
 - [**load**](#agrag-loaders-corpus-base-Loader-load) – Yield documents read from one source.
 
 ## `extensions` \{#agrag-loaders-corpus-base-Loader-extensions}
@@ -41,17 +38,22 @@ extensions: frozenset[str]
 extra: str | None = None
 ```
 
-## `extra_module` \{#agrag-loaders-corpus-base-Loader-extra_module}
-
-```python
-extra_module: str | None = None
-```
-
 ## `family` \{#agrag-loaders-corpus-base-Loader-family}
 
 ```python
 family: DocumentFamily
 ```
+
+## `is_available` \{#agrag-loaders-corpus-base-Loader-is_available}
+
+```python
+is_available() -> bool
+```
+
+Return whether this loader can run in this process.
+
+A loader with no extra is always available. A loader with an extra is
+available when its package imports.
 
 ## `load` \{#agrag-loaders-corpus-base-Loader-load}
 

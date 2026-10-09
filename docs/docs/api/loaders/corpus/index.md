@@ -17,3 +17,4 @@ singleton. The docling extra registers itself on top of this when installed.
 - [**errors**](errors/index.md) – Errors that the ingestion layer raises.
 - [**registry**](registry/index.md) – The extension-to-loader registry.
 - [**types**](types/index.md) – Plumbing types for the corpus loaders.
+- [**walk**](walk/index.md) – Corpus walk, batching, and resumable streaming.

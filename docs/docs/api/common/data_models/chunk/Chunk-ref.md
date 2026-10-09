@@ -30,12 +30,6 @@ One retrieval-sized piece of a Document.
   chunk. `None` for a chunk written before chunkers were recorded.
 - [**section_ids**](#agrag-common-data_models-chunk-Chunk-section_ids) (<code>list\[UUID\]</code>) – The node ids of the sections whose text the chunk holds, in
   reading order. Empty for a document with no sections.
-- [**parent_section_id**](#agrag-common-data_models-chunk-Chunk-parent_section_id) (<code>UUID | None</code>) – The node id of the lowest section that holds every
-  section in `section_ids`. `None` when only the document holds them.
-  The chunker sets it. The graph does not store it.
-- [**position**](#agrag-common-data_models-chunk-Chunk-position) (<code>int</code>) – The reading-order number of the first unit in the chunk. The
-  ingestion code uses it to order the children of a section. The graph
-  does not store it.
 
 **Functions:**
 
@@ -111,18 +105,6 @@ index: int = 0
 
 ```python
 metadata: dict[str, Any] = Field(default_factory=dict)
-```
-
-## `parent_section_id` \{#agrag-common-data_models-chunk-Chunk-parent_section_id}
-
-```python
-parent_section_id: UUID | None = Field(default=None, exclude=True)
-```
-
-## `position` \{#agrag-common-data_models-chunk-Chunk-position}
-
-```python
-position: int = Field(default=0, exclude=True)
 ```
 
 ## `provenance` \{#agrag-common-data_models-chunk-Chunk-provenance}

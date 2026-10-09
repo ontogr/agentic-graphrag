@@ -11,6 +11,8 @@ section_keys(document:Document) -> list[UUID]
 
 Return one stable key for each section.
 
+Thin wrapper over `section_keys_for`.
+
 A key stays the same across versions while the heading path of the section and
 its place among sections with the same path stay the same.
 

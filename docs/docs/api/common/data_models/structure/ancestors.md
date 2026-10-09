@@ -19,3 +19,8 @@ Return the index of a section and of each section above it.
 **Returns:**
 
 - <code>list\[int\]</code> – The indexes from the outermost ancestor down to the section itself.
+
+**Raises:**
+
+- <code>ValueError</code> – The index is outside `sections`, or the parent links
+  form a cycle or leave `sections`.

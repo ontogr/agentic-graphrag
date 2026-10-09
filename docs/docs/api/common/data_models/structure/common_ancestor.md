@@ -15,7 +15,12 @@ Return the lowest section that contains all the given sections.
 
 - **sections** (<code>list\[[DocumentSection](../document/DocumentSection.md)\]</code>) – The sections of a document.
 - **indexes** (<code>list\[int\]</code>) – The indexes of the sections to contain. A section contains itself.
+  Must not be empty.
 
 **Returns:**
 
 - <code>int | None</code> – The index of the section, or `None` when only the document contains them.
+
+**Raises:**
+
+- <code>ValueError</code> – `indexes` is empty, or an index is outside `sections`.

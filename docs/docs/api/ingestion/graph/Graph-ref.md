@@ -337,9 +337,9 @@ Replace one document version, closing its former PART_OF edges.
 
 Looks up the persisted `Document` node by `document_key`. An
 unchanged content hash is a no-op returning before any chunking,
-extraction, or writes, unless the chunker that this graph's rules pick
-for the document differs from the one that made its current chunks. A
-chunker with new settings re-chunks the document as a content change
+extraction, or writes, unless the graph's configured chunker settings
+changed since the document was chunked. A chunker with new settings
+re-chunks the document as a content change
 does. Chunks written before chunkers were recorded count as unchanged.
 Otherwise the fresh content ingests under a Cutover Job holding this
 document's lease, and the commit flips the job, closes the document's

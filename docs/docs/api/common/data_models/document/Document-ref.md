@@ -47,12 +47,12 @@ set. Pass `id` only when rebuilding a document from stored data.
   set this field.
 - [**record_id**](#agrag-common-data_models-document-Document-record_id) (<code>str | None</code>) – The value from the configured id column. Record-family documents
   set this field only when the caller configures an id column.
-- [**raw_record**](#agrag-common-data_models-document-Document-raw_record) (<code>dict\[str, Any\] | None</code>) – The original record data. A loader sets this field only when the
+- [**raw_record**](#agrag-common-data_models-document-Document-raw_record) (<code>dict\[str, JsonValue\] | None</code>) – The original record data. A loader sets this field only when the
   caller asks for it.
 - [**sections**](#agrag-common-data_models-document-Document-sections) (<code>list\[[DocumentSection](DocumentSection.md)\]</code>) – The headings of the document and the content under them, in reading
-  order. A document with no headings has one section with an empty heading.
-  A record row has none: its text is one unit of content. A document read
-  without its text (`store_text` off) has none either.
+  order. A non-blank document with no headings has one section with an
+  empty heading. A record row has none: its text is one unit of content.
+  A document read without its text (`store_text` off) has none either.
 - [**document_key**](#agrag-common-data_models-document-Document-document_key) (<code>str | None</code>) – The stable identifier for this document's persisted graph node.
   Independent of `id`, which changes with every content edit. Defaults to
   `uri` when not supplied.
@@ -191,7 +191,7 @@ normalization: Normalization | None = None
 ## `raw_record` \{#agrag-common-data_models-document-Document-raw_record}
 
 ```python
-raw_record: dict[str, Any] | None = None
+raw_record: dict[str, JsonValue] | None = None
 ```
 
 ## `record_id` \{#agrag-common-data_models-document-Document-record_id}

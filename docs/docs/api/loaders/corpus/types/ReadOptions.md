@@ -6,7 +6,7 @@ sidebar_label: ReadOptions
 # `agrag.loaders.corpus.types.ReadOptions` \{#agrag-loaders-corpus-types-ReadOptions}
 
 ```python
-ReadOptions(encoding:str | None = None, max_document_bytes:int = 32 * 1024 * 1024, store_text:bool = True, store_raw_record:bool = False, on_error:ErrorPolicy = ErrorPolicy.RAISE, text_column:str | None = None, id_column:str | None = None, title_column:str | None = None, json_mode:JsonMode = JsonMode.AUTO, csv_mode:CsvMode = CsvMode.ROWS, csv_delimiter:str | None = None, html_selector:str | None = None, normalization:Normalization = Normalization()) -> None
+ReadOptions(encoding:str | None = None, max_document_bytes:int = 32 * 1024 * 1024, store_text:bool = True, store_raw_record:bool = False, on_error:ErrorPolicy = ErrorPolicy.RAISE, text_column:str | None = None, id_column:str | None = None, title_column:str | None = None, json_mode:JsonMode = JsonMode.AUTO, csv_mode:CsvMode = CsvMode.ROWS, csv_delimiter:str | None = None, normalization:Normalization = Normalization()) -> None
 ```
 
 Per-source reader configuration.
@@ -26,7 +26,6 @@ Frozen so it is safe to share across worker processes.
 - [**json_mode**](#agrag-loaders-corpus-types-ReadOptions-json_mode) (<code>[JsonMode](JsonMode.md)</code>) – The JSON reading mode.
 - [**csv_mode**](#agrag-loaders-corpus-types-ReadOptions-csv_mode) (<code>[CsvMode](CsvMode.md)</code>) – The CSV reading mode.
 - [**csv_delimiter**](#agrag-loaders-corpus-types-ReadOptions-csv_delimiter) (<code>str | None</code>) – The column separator. `None` infers it from the extension.
-- [**html_selector**](#agrag-loaders-corpus-types-ReadOptions-html_selector) (<code>str | None</code>) – The CSS selector for the main content of an HTML source.
 - [**normalization**](#agrag-loaders-corpus-types-ReadOptions-normalization) (<code>[Normalization](../../../common/data_models/normalization/Normalization-ref.md)</code>) – How to normalize decoded text: byte-order mark, newline form
   and Unicode form. The default removes the mark, uses LF and applies NFKC.
   Chunk offsets index the normalized text.
@@ -47,12 +46,6 @@ csv_mode: CsvMode = CsvMode.ROWS
 
 ```python
 encoding: str | None = None
-```
-
-## `html_selector` \{#agrag-loaders-corpus-types-ReadOptions-html_selector}
-
-```python
-html_selector: str | None = None
 ```
 
 ## `id_column` \{#agrag-loaders-corpus-types-ReadOptions-id_column}

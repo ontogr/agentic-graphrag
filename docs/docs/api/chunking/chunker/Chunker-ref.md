@@ -5,7 +5,9 @@ sidebar_label: Chunker
 
 # `agrag.chunking.chunker.Chunker` \{#agrag-chunking-chunker-Chunker}
 
-Bases: <code>BaseModel</code>
+```python
+Chunker(size:int = DEFAULT_SIZE, min_size:int | None = None, tokenizer:str = DEFAULT_TOKENIZER) -> None
+```
 
 Packs the sections of a Document into chunks.
 
@@ -16,36 +18,32 @@ boundaries. When a section ends and the open chunk holds fewer than `min_size`
 tokens, the chunk goes on into the next section. A table never mixes with text:
 it becomes one chunk, or row groups that each repeat the header row.
 
-A chunk from a text source is an exact slice of `Document.text`. A chunk from a
-source with page layout joins the text of its units with a blank line. A document
-with no sections, such as one record row, is one unit of text.
-
-Size counts the text of the units. The blank lines that join units are not counted,
-so a chunk can pass `size` by a few tokens.
+A chunk joins the text of its pieces with a blank line. Size counts that joined
+text: every piece plus every blank line between pieces. A document whose units
+all carry text offsets gives text provenance over the span of its units. A
+document whose units carry no offsets gives page provenance.
 
 **Attributes:**
 
 - [**size**](#agrag-chunking-chunker-Chunker-size) (<code>int</code>) – The most tokens in a chunk.
-- [**min_size**](#agrag-chunking-chunker-Chunker-min_size) (<code>int</code>) – A chunk with fewer tokens than this goes on into the next section.
-  Zero, the default, means a quarter of `size`.
+- [**min_size**](#agrag-chunking-chunker-Chunker-min_size) (<code>int | None</code>) – A chunk with fewer tokens than this goes on into the next section.
+  `None`, the default, means a quarter of `size`.
 - [**tokenizer**](#agrag-chunking-chunker-Chunker-tokenizer) (<code>str</code>) – The tokenizer that counts tokens. A name that chonkie accepts.
 
 **Functions:**
 
-- [**chunk**](#agrag-chunking-chunker-Chunker-chunk) – Split a document into chunks.
+- [**chunk**](#agrag-chunking-chunker-Chunker-chunk) – Split a document into chunks with their placements.
 - [**count_tokens**](#agrag-chunking-chunker-Chunker-count_tokens) – Return the number of tokens in a text, counted with `tokenizer`.
-- [**fingerprint**](#agrag-chunking-chunker-Chunker-fingerprint) – Return the hash of the settings. Equal settings give equal hashes.
-- [**model_post_init**](#agrag-chunking-chunker-Chunker-model_post_init) – Check the settings and build the tokenizer and the splitter once.
 - [**settings**](#agrag-chunking-chunker-Chunker-settings) – Return the settings as plain data.
 - [**split**](#agrag-chunking-chunker-Chunker-split) – Split a text into pieces of at most `size` tokens.
 
 ## `chunk` \{#agrag-chunking-chunker-Chunker-chunk}
 
 ```python
-chunk(document:Document) -> list[Chunk]
+chunk(document:Document) -> ChunkedDocument
 ```
 
-Split a document into chunks.
+Split a document into chunks with their placements.
 
 **Parameters:**
 
@@ -53,11 +51,12 @@ Split a document into chunks.
 
 **Returns:**
 
-- <code>list\[[Chunk](../../common/data_models/chunk/Chunk-ref.md)\]</code> – The chunks in reading order. Their indexes run from 0 without gaps.
+- <code>[ChunkedDocument](ChunkedDocument.md)</code> – The chunks in reading order with one placement per chunk.
 
 **Raises:**
 
-- <code>[ChunkingError](ChunkingError.md)</code> – The splitter changed or dropped text.
+- <code>[ChunkingError](ChunkingError.md)</code> – The document mixes units that carry text offsets with
+  units that carry none, or the splitter changed or dropped text.
 
 ## `count_tokens` \{#agrag-chunking-chunker-Chunker-count_tokens}
 
@@ -67,10 +66,18 @@ count_tokens(text:str) -> int
 
 Return the number of tokens in a text, counted with `tokenizer`.
 
+## `effective_min_size` \{#agrag-chunking-chunker-Chunker-effective_min_size}
+
+```python
+effective_min_size: int
+```
+
+Return the merge threshold: `min_size`, or a quarter of `size`.
+
 ## `fingerprint` \{#agrag-chunking-chunker-Chunker-fingerprint}
 
 ```python
-fingerprint() -> str
+fingerprint: str
 ```
 
 Return the hash of the settings. Equal settings give equal hashes.
@@ -78,22 +85,8 @@ Return the hash of the settings. Equal settings give equal hashes.
 ## `min_size` \{#agrag-chunking-chunker-Chunker-min_size}
 
 ```python
-min_size: int = Field(default=0, ge=0)
+min_size: int | None = None
 ```
-
-## `model_config` \{#agrag-chunking-chunker-Chunker-model_config}
-
-```python
-model_config = ConfigDict(frozen=True, extra='forbid')
-```
-
-## `model_post_init` \{#agrag-chunking-chunker-Chunker-model_post_init}
-
-```python
-model_post_init(context:Any) -> None
-```
-
-Check the settings and build the tokenizer and the splitter once.
 
 ## `settings` \{#agrag-chunking-chunker-Chunker-settings}
 
@@ -106,7 +99,7 @@ Return the settings as plain data.
 ## `size` \{#agrag-chunking-chunker-Chunker-size}
 
 ```python
-size: int = Field(default=DEFAULT_SIZE, gt=0)
+size: int = DEFAULT_SIZE
 ```
 
 ## `split` \{#agrag-chunking-chunker-Chunker-split}
@@ -123,8 +116,7 @@ Split a text into pieces of at most `size` tokens.
 
 **Returns:**
 
-- <code>list\[[TextPiece](TextPiece.md)\]</code> – The pieces in order. `text` of each piece equals the slice of the text
-- <code>list\[[TextPiece](TextPiece.md)\]</code> – from its `start_index` to its `end_index`.
+- <code>list\[[TextPiece](TextPiece.md)\]</code> – The pieces in order. The text of each piece equals the slice of the
 
 **Raises:**
 

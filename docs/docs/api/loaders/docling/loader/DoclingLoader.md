@@ -19,12 +19,13 @@ because the parsed output can change between docling versions and runs.
 
 **Functions:**
 
+- [**is_available**](#agrag-loaders-docling-loader-DoclingLoader-is_available) – Return whether this loader can run in this process.
 - [**load**](#agrag-loaders-docling-loader-DoclingLoader-load) – Yield one prose Document parsed by docling.
 
 ## `extensions` \{#agrag-loaders-docling-loader-DoclingLoader-extensions}
 
 ```python
-extensions = frozenset(_SLIM_FORMATS)
+extensions = frozenset(_formats)
 ```
 
 ## `extra` \{#agrag-loaders-docling-loader-DoclingLoader-extra}
@@ -33,17 +34,22 @@ extensions = frozenset(_SLIM_FORMATS)
 extra: str | None = None
 ```
 
-## `extra_module` \{#agrag-loaders-docling-loader-DoclingLoader-extra_module}
-
-```python
-extra_module: str | None = None
-```
-
 ## `family` \{#agrag-loaders-docling-loader-DoclingLoader-family}
 
 ```python
 family = DocumentFamily.PROSE
 ```
+
+## `is_available` \{#agrag-loaders-docling-loader-DoclingLoader-is_available}
+
+```python
+is_available() -> bool
+```
+
+Return whether this loader can run in this process.
+
+A loader with no extra is always available. A loader with an extra is
+available when its package imports.
 
 ## `load` \{#agrag-loaders-docling-loader-DoclingLoader-load}
 
@@ -62,8 +68,9 @@ Yield one prose Document parsed by docling.
 
 **Yields:**
 
-- <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – One Document. Its text is the docling Markdown export, and its sections
-- <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – hold the content. Its title is the first heading, or the file name when
+- <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – One Document. When `opts.store_text` is on, its text is the docling
+- <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – Markdown export and its sections hold the content; with the flag off
+- <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – both are empty. Its title is the first heading, or the file name when
 - <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – the source has no heading.
 
 **Raises:**

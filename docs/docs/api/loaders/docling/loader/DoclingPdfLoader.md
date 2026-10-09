@@ -10,24 +10,25 @@ Bases: <code>[DoclingLoader](DoclingLoader.md)</code>
 Reads PDF and image files with docling.
 
 PDF needs the `docling` extra, which installs the layout and table models. The
-loader runs OCR on a PDF only where the PDF has no text layer. It reads heading
-depth from the bookmarks of the PDF. A PDF with no bookmarks whose headings carry
-dotted numbers gets its depth from the numbers.
+loader runs OCR on a PDF only where the PDF has no text layer, except for a PDF
+with at least 80% of pages lacking text, which gets full-page OCR. It reads
+heading depth from the bookmarks of the PDF. A PDF with no bookmarks whose
+headings carry dotted numbers gets its depth from the numbers.
 
 **Attributes:**
 
 - [**extensions**](#agrag-loaders-docling-loader-DoclingPdfLoader-extensions) – The PDF and image formats this loader reads.
 - [**extra**](#agrag-loaders-docling-loader-DoclingPdfLoader-extra) – The package extra that installs the models.
-- [**extra_module**](#agrag-loaders-docling-loader-DoclingPdfLoader-extra_module) – A module that only the extra installs.
 
 **Functions:**
 
+- [**is_available**](#agrag-loaders-docling-loader-DoclingPdfLoader-is_available) – Return whether the PDF models are installed.
 - [**load**](#agrag-loaders-docling-loader-DoclingPdfLoader-load) – Yield one prose Document parsed by docling.
 
 ## `extensions` \{#agrag-loaders-docling-loader-DoclingPdfLoader-extensions}
 
 ```python
-extensions = frozenset(_PDF_FORMATS)
+extensions = frozenset(_formats)
 ```
 
 ## `extra` \{#agrag-loaders-docling-loader-DoclingPdfLoader-extra}
@@ -36,17 +37,19 @@ extensions = frozenset(_PDF_FORMATS)
 extra = 'docling'
 ```
 
-## `extra_module` \{#agrag-loaders-docling-loader-DoclingPdfLoader-extra_module}
-
-```python
-extra_module = 'docling_ibm_models'
-```
-
 ## `family` \{#agrag-loaders-docling-loader-DoclingPdfLoader-family}
 
 ```python
 family = DocumentFamily.PROSE
 ```
+
+## `is_available` \{#agrag-loaders-docling-loader-DoclingPdfLoader-is_available}
+
+```python
+is_available() -> bool
+```
+
+Return whether the PDF models are installed.
 
 ## `load` \{#agrag-loaders-docling-loader-DoclingPdfLoader-load}
 
@@ -65,8 +68,9 @@ Yield one prose Document parsed by docling.
 
 **Yields:**
 
-- <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – One Document. Its text is the docling Markdown export, and its sections
-- <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – hold the content. Its title is the first heading, or the file name when
+- <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – One Document. When `opts.store_text` is on, its text is the docling
+- <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – Markdown export and its sections hold the content; with the flag off
+- <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – both are empty. Its title is the first heading, or the file name when
 - <code>[Document](../../../common/data_models/document/Document-ref.md)</code> – the source has no heading.
 
 **Raises:**

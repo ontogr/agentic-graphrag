@@ -53,10 +53,11 @@ header: list[str]
 
 Return the column names of a table, one for each column.
 
-The first `header_rows` rows make the header. When the source marks no
-header rows, the first row makes it. A spanned header cell repeats its text
-in every slot it covers, so each column keeps each text once. Empty when the
-table has no rows.
+The first `header_rows` rows make the header. Empty when the table
+has no rows or when the source marks no header rows. A spanned header
+cell repeats its text in every slot it covers, so each column keeps
+each text once. Table chunk rendering may still treat the first row
+as the header; see chunking table texts.
 
 ## `header_rows` \{#agrag-common-data_models-document-Unit-header_rows}
 

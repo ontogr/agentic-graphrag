@@ -19,8 +19,10 @@ a section with an empty heading.
   heading.
 - [**depth**](#agrag-common-data_models-document-DocumentSection-depth) (<code>int</code>) – The heading depth. A top-level heading has depth 1. A document title
   or a section made for content with no heading has depth 0.
-- [**parent**](#agrag-common-data_models-document-DocumentSection-parent) (<code>int | None</code>) – The index in `Document.sections` of the section that contains this
-  one. `None` for a section that sits directly under the document.
+- [**parent**](#agrag-common-data_models-document-DocumentSection-parent) (<code>int | None</code>) – The positional index in `Document.sections` of the section that
+  contains this one. `None` for a section that sits directly under
+  the document. The index must come before this section, and the
+  parent must be shallower. Always an int index, never a key or id.
 - [**source_id**](#agrag-common-data_models-document-DocumentSection-source_id) (<code>str | None</code>) – The id of the source record, such as a chat message id.
 - [**units**](#agrag-common-data_models-document-DocumentSection-units) (<code>list\[[Unit](Unit.md)\]</code>) – The content directly under the heading, in reading order.
 
