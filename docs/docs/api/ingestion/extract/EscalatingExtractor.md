@@ -39,6 +39,7 @@ fallback.
 **Attributes:**
 
 - [**escalate_to**](#agrag-ingestion-extract-EscalatingExtractor-escalate_to) –
+- [**max_concurrency**](#agrag-ingestion-extract-EscalatingExtractor-max_concurrency) (<code>int</code>) –
 - [**min_chunk_words**](#agrag-ingestion-extract-EscalatingExtractor-min_chunk_words) –
 - [**min_confidence**](#agrag-ingestion-extract-EscalatingExtractor-min_confidence) –
 - [**primary**](#agrag-ingestion-extract-EscalatingExtractor-primary) –
@@ -65,6 +66,12 @@ Extract with the primary extractor, escalating when it is weak.
 **Returns:**
 
 - <code>[ExtractionResult](../../common/data_models/extraction/ExtractionResult.md)</code> – The primary result, or the escalation result when escalation triggers.
+
+## `max_concurrency` \{#agrag-ingestion-extract-EscalatingExtractor-max_concurrency}
+
+```python
+max_concurrency: int = 8
+```
 
 ## `min_chunk_words` \{#agrag-ingestion-extract-EscalatingExtractor-min_chunk_words}
 

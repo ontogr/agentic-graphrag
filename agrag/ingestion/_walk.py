@@ -115,17 +115,6 @@ async def iter_document_batches(
 def chunk_documents(
     documents: list[Document], *, chunker: Chunker, tracer: Tracer
 ) -> list[ChunkedDocument]:
-    """Chunk a batch of documents.
-
-    Args:
-        documents: The documents to chunk.
-        chunker: The chunker to use for every document.
-        tracer: A tracer to record one span for each document.
-
-    Returns:
-        One chunked document per input document, in the same order, each with
-        its chunks and their placements.
-    """
     chunked: list[ChunkedDocument] = []
     for document in documents:
         with tracer.start_as_current_span(

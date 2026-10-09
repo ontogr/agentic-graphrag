@@ -22,11 +22,6 @@ from agrag.common.data_models.structure import (
 # it as an ordinary node property, so the two retrieval paths would disagree.
 _RESERVED_ENTITY_PROPERTY_NAMES = frozenset({"label", "text"})
 
-# Labels the graph writes for its own nodes. An entity type with one of these labels
-# would share nodes with the document structure or the system records.
-# ``_AgragNode`` marks every node the graph writes, and ``_AgragMergeAlias`` holds
-# the merge keys of the exact-match tier: an entity type with either label would
-# read or overwrite the graph's own bookkeeping nodes.
 RESERVED_ENTITY_LABELS = frozenset(
     {
         DOCUMENT_LABEL,
@@ -68,7 +63,6 @@ class EntityType(BaseModel):
 
     @model_validator(mode="after")
     def _reject_reserved_labels(self) -> "EntityType":
-        """Reject a label or subtype label that the graph uses for its own nodes."""
         reserved = sorted(RESERVED_ENTITY_LABELS & {self.label, *self.subtypes})
         if reserved:
             raise ValueError(

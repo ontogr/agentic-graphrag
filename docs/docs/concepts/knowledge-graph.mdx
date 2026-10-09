@@ -37,8 +37,8 @@ flowchart LR
 The graph has these kinds of node:
 
 1. Document: one node for each logical document. Its `document_key` stays the same when the content changes. It holds the source location, the title and the current content hash.
-2. Section: one heading of a document, or the unheaded content when the document has no headings yet. It holds the heading, its depth, and its page range or character range. It holds no text: the chunks under it hold the text. A section has a stable `section_key` that stays the same while the heading path and the place among sections with that path stay the same.
-3. Table and Figure: one node for each table or figure. A table holds its caption, its column names and its row count. A figure holds its caption and its page box, not the image.
+2. Section: one heading of a document, or the unheaded content when the document has no headings yet. It holds the heading, its depth, and its page range or character range. It holds no text. The chunks under it hold the text. A section has a stable `section_key` that stays the same while the heading path and the place among sections with that path stay the same.
+3. Table and Figure: one node for each table or figure. A table holds its caption, its column names and its row count. A figure holds its caption and its page box. It does not store the image.
 4. Source: one node for each record file, such as a CSV file. It joins each of its row documents with `HAS_DOCUMENT`.
 5. Chunk: one retrieval-sized piece of text. It holds the text, its location in the source, the headings above it, the sections it covers and the chunker that made it.
 6. Entity: one node for each name and type, such as the person "Ada Lovelace". Its label is the type from your schema. The same name with two types makes two entities. It records which chunks mention it.

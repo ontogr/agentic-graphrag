@@ -62,7 +62,7 @@ class TestMarkdown:
         assert document.loader_name == "docling"
 
     def test_the_markdown_suffix_is_read_as_markdown(self) -> None:
-        """Docling does not know .markdown, so the loader passes it as .md."""
+        """A .markdown source is parsed as Markdown, with its sections kept."""
         document = _load("structured.md", uri="notes.markdown")
 
         assert document.sections

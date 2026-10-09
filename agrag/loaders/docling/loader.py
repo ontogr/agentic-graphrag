@@ -16,7 +16,7 @@ from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING, BinaryIO
 
 
-if TYPE_CHECKING:  # pragma: no cover
+if TYPE_CHECKING:
     from docling_core.types.doc import DoclingDocument
 
 from agrag.common.data_models.document import Document, SourceFormat
@@ -135,20 +135,14 @@ class DoclingLoader(ProseLoader):
         )
 
     def _convert(self, source: SourceRef, raw: bytes) -> DoclingDocument:
-        """Convert the bytes and return the parsed document."""
         from docling.datamodel.base_models import DocumentStream  # noqa: PLC0415
 
-        # Docling picks the parser from the file name, and it does not know
-        # the .markdown suffix.
-        name = source.uri
-        if source.extension == ".markdown":
-            name = name[: -len(source.extension)] + ".md"
         if self._is_pdf:
             ocr = ocr_choice(raw) if source.extension == ".pdf" else "full"
             converter = pdf_converter(ocr)
         else:
             converter = slim_converter()
-        stream = DocumentStream(name=name, stream=io.BytesIO(raw))
+        stream = DocumentStream(name=source.uri, stream=io.BytesIO(raw))
         return converter.convert(stream).document
 
 

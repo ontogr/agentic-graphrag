@@ -14,7 +14,6 @@ from agrag.common.data_models.provenance import PageProvenance, TextProvenance
 
 # The fixed system label every Chunk node is written with.
 CHUNK_LABEL = "Chunk"
-""""""
 
 
 def _clean_heading(heading: str) -> str:
@@ -61,7 +60,6 @@ class Chunk(DataPoint):
 
     @model_validator(mode="after")
     def _check_section_refs(self) -> "Chunk":
-        """Require clean headings and distinct section ids."""
         for heading in self.heading_path:
             if not heading.strip():
                 raise ValueError("heading_path must not hold a blank heading")
@@ -71,29 +69,16 @@ class Chunk(DataPoint):
 
     @model_validator(mode="after")
     def _check_provenance(self) -> "Chunk":
-        """Require ordered offsets, pages, and boxes, with tables on pages."""
         if isinstance(self.provenance, TextProvenance):
             start, end = self.provenance.char_start, self.provenance.char_end
             if not 0 <= start <= end:
                 raise ValueError("text provenance needs 0 <= char_start <= char_end")
-        else:
-            spans = self.provenance.page_spans
-            page_nos = [span.page_no for span in spans]
-            for span in spans:
-                if span.page_no < 1:
-                    raise ValueError("page provenance needs page_no >= 1")
-                box = span.bbox
-                if not (box.x0 <= box.x1 and box.y0 <= box.y1):
-                    raise ValueError("page provenance needs x0 <= x1 and y0 <= y1")
-            if page_nos != sorted(page_nos):
-                raise ValueError("page provenance needs pages in order")
         if self.content_kind == "table" and isinstance(self.provenance, TextProvenance):
             raise ValueError("a table chunk must carry page provenance")
         return self
 
     @model_validator(mode="after")
     def _resolve_id(self) -> "Chunk":
-        """Require the id the chunker computed from the real document version."""
         if self.id is None:
             raise ValueError("Chunk.id must be set by the chunker.")
         return self

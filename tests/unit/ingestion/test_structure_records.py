@@ -108,7 +108,7 @@ class TestBuildStructure:
     def test_sections_hang_under_their_parent_or_the_document(self) -> None:
         """A top-level section sits under the document node."""
         document = _document()
-        records = build_structure(document, [])
+        records = build_structure(document, [], {})
         parents = _parents(records.relations)
         document_node = Document.node_id_for(document_key=document.document_key)
         ids = [s.id for s in records.sections]
@@ -163,7 +163,7 @@ class TestBuildStructure:
             [DocumentSection(heading="S", depth=1, units=[table])]
         )
 
-        records = build_structure(document, [])
+        records = build_structure(document, [], {})
 
         assert records.tables[0].properties["columns"] == ["Region", "Sales Q1", "Q2"]
 
@@ -210,9 +210,9 @@ class TestBuildStructure:
 
     def test_a_new_version_gives_new_node_ids_and_the_same_keys(self) -> None:
         """Node ids carry the version. The section key does not."""
-        first = build_structure(_document(), [])
+        first = build_structure(_document(), [], {})
         edited = _document().model_copy(update={"content_hash": "other"})
-        second = build_structure(edited, [])
+        second = build_structure(edited, [], {})
 
         assert [s.id for s in first.sections] != [s.id for s in second.sections]
         assert [s.properties["section_key"] for s in first.sections] == [
@@ -242,6 +242,14 @@ class TestBuildStructure:
         second = build_structure(document, chunks, placements)
 
         assert [r.id for r in first.relations] == [r.id for r in second.relations]
+
+    def test_a_chunk_with_no_placement_raises(self) -> None:
+        """A chunk missing from the placement map fails loudly."""
+        document = _document()
+        chunks, _ = _placed(document, size=50, min_size=2)
+
+        with pytest.raises(ValueError, match="has no placement"):
+            build_structure(document, chunks, {})
 
     def test_a_table_chunk_with_no_table_unit_raises(self) -> None:
         """A table chunk whose placement parent is no table unit fails loudly."""

@@ -6,7 +6,7 @@ provenance depends on which chunker made the chunk.
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class TextProvenance(BaseModel):
@@ -58,6 +58,27 @@ class PageSpan(BaseModel):
     bbox: BoundingBox
 
 
+def check_page_spans(page_spans: list[PageSpan]) -> None:
+    """Check that page spans number from 1, have ordered boxes, and are in order.
+
+    Args:
+        page_spans: The spans to check, in the order they were read.
+
+    Raises:
+        ValueError: A page number is below 1, a box has x0 > x1 or y0 > y1, or
+            the page numbers are out of order.
+    """
+    for span in page_spans:
+        if span.page_no < 1:
+            raise ValueError(f"page_no {span.page_no} must be >= 1")
+        box = span.bbox
+        if not (box.x0 <= box.x1 and box.y0 <= box.y1):
+            raise ValueError("a bbox needs x0 <= x1 and y0 <= y1")
+    page_nos = [span.page_no for span in page_spans]
+    if page_nos != sorted(page_nos):
+        raise ValueError("page spans are out of order")
+
+
 class PageProvenance(BaseModel):
     """The location of a chunk across one or more pages.
 
@@ -72,3 +93,8 @@ class PageProvenance(BaseModel):
 
     kind: Literal["page"] = "page"
     page_spans: list[PageSpan]
+
+    @model_validator(mode="after")
+    def _check_page_spans(self) -> "PageProvenance":
+        check_page_spans(self.page_spans)
+        return self

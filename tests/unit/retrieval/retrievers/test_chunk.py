@@ -161,65 +161,6 @@ class TestChunkRetriever:
 
         assert parse_chunk_node(node) is None
 
-    async def test_legacy_table_row_kind_loads_as_table(self) -> None:
-        """A stored table_row node loads as a table chunk, not skipped."""
-        ch_id, doc_id = uuid4(), uuid4()
-        gs = AsyncMock()
-        gs.execute_read.return_value = [
-            _node(
-                ch_id,
-                doc_id,
-                "h1 | h2\nv1 | v2",
-                content_kind="table_row",
-                provenance={
-                    "kind": "page",
-                    "page_spans": [
-                        {
-                            "page_no": 1,
-                            "bbox": {"x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0},
-                        }
-                    ],
-                },
-            )
-        ]
-
-        with patch(
-            "agrag.retrieval.retrievers.chunk.vector_search",
-            new_callable=AsyncMock,
-        ) as mock_vs:
-            mock_vs.return_value = [VectorHit(id=ch_id, score=0.5, payload={})]
-            results = await ChunkRetriever(
-                graph_store=gs, embedder=MockEmbedder()
-            ).retrieve("test")
-
-        assert len(results) == 1
-        chunk = results[0].item
-        assert isinstance(chunk, Chunk)
-        assert chunk.content_kind == "table"
-
-    @pytest.mark.parametrize("legacy_kind", ["code", "heading"])
-    async def test_legacy_text_kinds_load_as_text(self, legacy_kind: str) -> None:
-        """Stored code and heading nodes load as text, not skipped."""
-        ch_id, doc_id = uuid4(), uuid4()
-        gs = AsyncMock()
-        gs.execute_read.return_value = [
-            _node(ch_id, doc_id, "legacy", content_kind=legacy_kind)
-        ]
-
-        with patch(
-            "agrag.retrieval.retrievers.chunk.vector_search",
-            new_callable=AsyncMock,
-        ) as mock_vs:
-            mock_vs.return_value = [VectorHit(id=ch_id, score=0.5, payload={})]
-            results = await ChunkRetriever(
-                graph_store=gs, embedder=MockEmbedder()
-            ).retrieve("test")
-
-        assert len(results) == 1
-        chunk = results[0].item
-        assert isinstance(chunk, Chunk)
-        assert chunk.content_kind == "text"
-
     async def test_section_ids_survive_loading(self) -> None:
         """Section ids and chunker fields on the node reach the Chunk."""
         ch_id, doc_id = uuid4(), uuid4()

@@ -35,6 +35,7 @@ entities carry no property values. Needs the `extract` extra.
 
 **Attributes:**
 
+- [**max_concurrency**](#agrag-ingestion-extract-GlinerExtractor-max_concurrency) –
 - [**model_name**](#agrag-ingestion-extract-GlinerExtractor-model_name) –
 
 ## `extract` \{#agrag-ingestion-extract-GlinerExtractor-extract}
@@ -59,6 +60,12 @@ Extract with the local GLiNER2.5 model.
 - <code>[ExtractorMissingExtraError](ExtractorMissingExtraError.md)</code> – The `extract` package extra is not
   installed.
 - <code>ValueError</code> – `chunk.id` is `None`.
+
+## `max_concurrency` \{#agrag-ingestion-extract-GlinerExtractor-max_concurrency}
+
+```python
+max_concurrency = 1
+```
 
 ## `model_name` \{#agrag-ingestion-extract-GlinerExtractor-model_name}
 

@@ -15,13 +15,10 @@ Stable keys, node ids, reading order and ancestry for the sections of a Document
 - [**heading_paths**](heading_paths.md) – Return the non-empty headings from the top to each section.
 - [**node_id**](node_id.md) – Return the id of the node that holds `key` in one document version.
 - [**reading_positions**](reading_positions.md) – Number every heading and unit of a document in reading order.
-- [**reading_positions_for**](reading_positions_for.md) – Number every heading and unit of a section list in reading order.
 - [**section_keys**](section_keys.md) – Return one stable key for each section.
-- [**section_keys_for**](section_keys_for.md) – Return one stable key for each section.
 - [**source_node_id**](source_node_id.md) – Return the id of the Source node for a file.
 - [**unit_keys**](unit_keys.md) – Return a stable key for each table and figure.
 - [**version_id**](version_id.md) – Return the id of one version of a document, as `PART_OF` edges use it.
-- [**version_id_for_hash**](version_id_for_hash.md) – Return the id of one document version from its content hash.
 
 **Attributes:**
 

@@ -10,11 +10,8 @@ from agrag.common.data_models.structure import (
     heading_paths,
     node_id,
     reading_positions,
-    reading_positions_for,
     section_keys,
-    section_keys_for,
     version_id,
-    version_id_for_hash,
 )
 from tests.unit.chunking._section_support import page_unit, sectioned_document
 
@@ -183,30 +180,3 @@ class TestAncestorsGuards:
 
         with pytest.raises(ValueError, match="links back"):
             ancestors(sections, 0)
-
-
-class TestScalarHelpers:
-    """The scalar helpers match the Document wrappers."""
-
-    def test_version_id_matches_its_hash_helper(self) -> None:
-        """Version id equals the hash helper."""
-        document = sectioned_document(_tree(), content_hash="v1")
-
-        assert version_id(document) == version_id_for_hash(content_hash="v1")
-        assert version_id_for_hash(content_hash="a") != version_id_for_hash(
-            content_hash="b"
-        )
-
-    def test_section_keys_match_the_scalar_helper(self) -> None:
-        """Section keys equal the scalar helper."""
-        document = sectioned_document(_tree())
-
-        assert section_keys(document) == section_keys_for(
-            document.sections, document.resolved_document_key
-        )
-
-    def test_reading_positions_match_the_scalar_helper(self) -> None:
-        """Reading positions equal the scalar helper."""
-        document = sectioned_document(_tree())
-
-        assert reading_positions(document) == reading_positions_for(document.sections)

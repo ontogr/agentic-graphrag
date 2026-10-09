@@ -264,10 +264,17 @@ class Extractor(ABC):
         and ``EscalatingExtractor`` (a cheap extractor first, a stronger one
         when the result is weak).
 
-        ``Graph`` runs several ``extract`` calls at the same time. An extractor
-        that is not safe to call from several tasks at once must make its calls
-        take turns itself, for example with an ``asyncio.Lock``.
+        ``Graph`` runs up to ``max_concurrency`` ``extract`` calls at the same
+        time. An extractor that is not safe to call from several tasks at once
+        sets ``max_concurrency`` to 1 or makes its calls take turns itself, for
+        example with an ``asyncio.Lock``.
+
+    Attributes:
+        max_concurrency: The most ``extract`` calls that run at once for one
+            batch of chunks. Must be positive.
     """
+
+    max_concurrency: int = 8
 
     @abstractmethod
     async def extract(self, chunk: Chunk, schema: GraphSchema) -> ExtractionResult:
@@ -353,6 +360,9 @@ class GlinerExtractor(Extractor):
             ``agrag.extraction.model_load`` spans. ``None`` opens no recorded
             span.
     """
+
+    # Inference runs on one worker thread, so extra concurrent calls only queue.
+    max_concurrency = 1
 
     def __init__(
         self,

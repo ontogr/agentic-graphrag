@@ -7,10 +7,7 @@ sidebar_label: CsvLoader
 
 Bases: <code>[RecordLoader](../base/RecordLoader.md)</code>
 
-Reads CSV and TSV files as one record document per row.
-
-With `csv_mode=TABLE` the loader yields one prose Document for the whole
-source instead.
+Reads CSV and TSV files as one document per row.
 
 **Attributes:**
 
@@ -19,7 +16,7 @@ source instead.
 **Functions:**
 
 - [**is_available**](#agrag-loaders-records-CsvLoader-is_available) – Return whether this loader can run in this process.
-- [**load**](#agrag-loaders-records-CsvLoader-load) – Yield one record Document per row, or one prose Document for a table.
+- [**load**](#agrag-loaders-records-CsvLoader-load) – Yield one record Document per row.
 
 ## `extensions` \{#agrag-loaders-records-CsvLoader-extensions}
 
@@ -57,20 +54,18 @@ package, so an installed package that fails to import still counts.
 load(source:SourceRef, stream:BinaryIO, opts:ReadOptions, *, start_at:int = 0) -> Iterator[Document]
 ```
 
-Yield one record Document per row, or one prose Document for a table.
+Yield one record Document per row.
 
 **Parameters:**
 
 - **source** (<code>[SourceRef](../types/SourceRef.md)</code>) – The source to read.
 - **stream** (<code>BinaryIO</code>) – The open binary stream for the source.
 - **opts** (<code>[ReadOptions](../types/ReadOptions.md)</code>) – The read options. `csv_delimiter` overrides the separator.
-  `csv_mode=TABLE` reads the whole source as one prose Document.
 - **start_at** (<code>int</code>) – The record index to resume from.
 
 **Yields:**
 
-- <code>[Document](../../common/data_models/document/Document-ref.md)</code> – One record Document per row in file order, or one prose Document in
-- <code>[Document](../../common/data_models/document/Document-ref.md)</code> – table mode.
+- <code>[Document](../../common/data_models/document/Document-ref.md)</code> – One Document per row, in file order.
 
 **Raises:**
 

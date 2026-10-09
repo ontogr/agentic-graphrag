@@ -25,7 +25,7 @@ One piece of content in a section, such as a paragraph or a table.
 - [**rows**](#agrag-common-data_models-document-Unit-rows) (<code>list\[list\[str\]\]</code>) – The cell text of a table, row by row. A spanned cell repeats its text
   in every slot it covers. Empty for other kinds.
 - [**header_rows**](#agrag-common-data_models-document-Unit-header_rows) (<code>int</code>) – The number of leading rows of a table that are headers. Zero
-  when the source does not mark them.
+  when the source does not mark them; see `header_row_count`.
 
 ## `caption` \{#agrag-common-data_models-document-Unit-caption}
 
@@ -53,11 +53,20 @@ header: list[str]
 
 Return the column names of a table, one for each column.
 
-The first `header_rows` rows make the header. Empty when the table
-has no rows or when the source marks no header rows. A spanned header
-cell repeats its text in every slot it covers, so each column keeps
-each text once. Table chunk rendering may still treat the first row
-as the header; see chunking table texts.
+The first `header_row_count` rows make the header. Empty when the
+table has no rows. A spanned header cell repeats its text in every
+slot it covers, so each column keeps each text once.
+
+## `header_row_count` \{#agrag-common-data_models-document-Unit-header_row_count}
+
+```python
+header_row_count: int
+```
+
+Return how many leading rows of a table form its header.
+
+A Markdown table needs a header line, so the first row is the header
+when the source marks none.
 
 ## `header_rows` \{#agrag-common-data_models-document-Unit-header_rows}
 

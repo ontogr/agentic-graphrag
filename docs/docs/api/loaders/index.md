@@ -28,7 +28,7 @@ The docling loaders live in `agrag.loaders.docling`. PDF and image files need th
 **Classes:**
 
 - [**ChatLoader**](chat/ChatLoader.md) – Reads a file of chat messages as one document with a section for each message.
-- [**CsvLoader**](records/CsvLoader.md) – Reads CSV and TSV files as one record document per row.
+- [**CsvLoader**](records/CsvLoader.md) – Reads CSV and TSV files as one document per row.
 - [**DecodeError**](errors/DecodeError.md) – The source bytes do not decode to text.
 - [**DocumentConversionError**](errors/DocumentConversionError.md) – A loader could not parse or convert a source's content.
 - [**DocumentTooLargeError**](errors/DocumentTooLargeError.md) – A prose source is larger than the configured byte limit.

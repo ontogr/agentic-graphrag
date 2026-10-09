@@ -26,7 +26,7 @@ registry.register(CsvLoader())
 registry.register(JsonlLoader())
 registry.register(JsonLoader())
 
-import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
+import agrag.loaders.docling  # noqa: F401
 
 
 __all__ = [

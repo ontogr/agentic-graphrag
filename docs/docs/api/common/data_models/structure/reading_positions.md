@@ -11,8 +11,6 @@ reading_positions(document:Document) -> tuple[list[int], list[list[int]]]
 
 Number every heading and unit of a document in reading order.
 
-Thin wrapper over `reading_positions_for`.
-
 **Parameters:**
 
 - **document** (<code>[Document](../document/Document-ref.md)</code>) – The document.

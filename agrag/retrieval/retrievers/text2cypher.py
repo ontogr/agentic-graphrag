@@ -324,13 +324,6 @@ def _parse_relationship(value: object) -> Relation | None:
 
 
 def _parse_chunk_node(value: object) -> Chunk | None:
-    """Build a Chunk from a chunk-shaped row value, or None.
-
-    Delegates to the shared retrieval parser, so text2cypher rows
-    land in the same Chunk shape as chunk-retriever rows, including
-    section ids and chunker fields. A missing id, document id, or
-    malformed provenance yields None rather than a partial Chunk.
-    """
     return parse_chunk_node(value)
 
 
@@ -585,15 +578,6 @@ class Text2CypherRetriever(Retriever):
 
     @staticmethod
     def _extract_chunk(row: dict) -> Chunk | None:
-        """Build a Chunk from a row carrying a chunk node.
-
-        Accepts the aliases the generation prompt asks for, then falls back
-        to any other value shaped like a chunk: ``_parse_chunk_node``
-        requires a chunk's own ``id``, ``document_id``, and provenance, so
-        an entity or relationship value cannot parse as one. It shares the
-        retrieval parser with the chunk retriever, so a row from either
-        path lands in the same Chunk shape.
-        """
         for key in ("c", "chunk"):
             val = row.get(key)
             if val is None:

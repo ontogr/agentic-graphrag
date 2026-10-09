@@ -1,10 +1,3 @@
-"""Pure record construction for the Section tree of a document.
-
-This module is internal. ``Graph.add`` and ``Graph.update`` call these functions to
-turn a ``Document`` and its chunks into ``NodeRecord`` and ``RelationRecord`` writes.
-Nothing here touches ``GraphStore``.
-"""
-
 import json
 import logging
 from collections import defaultdict
@@ -45,20 +38,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class StructureRecords:
-    """The graph records for the sections, tables and figures of one document version.
-
-    Attributes:
-        sections: One node record for each section.
-        tables: One node record for each table.
-        figures: One node record for each figure.
-        sources: One node record for each record file.
-        relations: The ``HAS_CHILD``, ``PART_OF`` and ``HAS_DOCUMENT`` edges.
-        structure_node_ids: The id of every section, table and figure node.
-            Chunk ids are not included; callers union them in when they need
-            the full linked set, as ``build_document_structure`` does for its
-            ``PART_OF`` edges.
-    """
-
     sections: list[NodeRecord] = field(default_factory=list)
     tables: list[NodeRecord] = field(default_factory=list)
     figures: list[NodeRecord] = field(default_factory=list)
@@ -68,7 +47,6 @@ class StructureRecords:
 
     @property
     def node_count(self) -> int:
-        """Return the number of section, table, figure and source nodes."""
         return len(self.structure_node_ids) + len(self.sources)
 
 
@@ -86,17 +64,6 @@ def _char_range(units: list[Unit]) -> dict[str, int]:
 
 
 def _require_chunk_ids(chunks: list[Chunk]) -> list[UUID]:
-    """Return every chunk's id, failing fast when one is missing.
-
-    Args:
-        chunks: The chunks to link into the structure.
-
-    Returns:
-        Every chunk's id, in chunk order.
-
-    Raises:
-        ValueError: A chunk has no id yet.
-    """
     ids: list[UUID] = []
     for chunk in chunks:
         if chunk.id is None:
@@ -106,13 +73,6 @@ def _require_chunk_ids(chunks: list[Chunk]) -> list[UUID]:
 
 
 def _link(parent: UUID, child: UUID, order: int, *, version: str) -> RelationRecord:
-    """Return one versioned parent ``-[HAS_CHILD]->`` child edge.
-
-    The edge id folds in the document version, the same convergence rule
-    ``PART_OF`` edges use: an identical re-ingest rebuilds the same ids,
-    while a new version shares no edge with the subtree it supersedes, so
-    closing the old ``PART_OF`` edges detaches that subtree with no orphans.
-    """
     return RelationRecord(
         id=has_child_id(parent, child, version),
         type=HAS_CHILD,
@@ -131,7 +91,6 @@ def _section_records(
     version: str,
     heading_positions: list[int],
 ) -> tuple[list[NodeRecord], list[RelationRecord]]:
-    """Return one node and one parent edge for each section."""
     sections: list[NodeRecord] = []
     relations: list[RelationRecord] = []
     for i, section in enumerate(document.sections):
@@ -167,7 +126,6 @@ def _unit_records(
     version: str,
     unit_positions: list[list[int]],
 ) -> tuple[list[NodeRecord], list[NodeRecord], list[RelationRecord], dict[int, UUID]]:
-    """Return the table and figure nodes, their section edges, and the table lookup."""
     tables: list[NodeRecord] = []
     figures: list[NodeRecord] = []
     relations: list[RelationRecord] = []
@@ -205,14 +163,6 @@ def _unit_records(
 
 
 def placement_map(chunked: ChunkedDocument) -> dict[UUID, ChunkPlacement]:
-    """Return the placements of one chunked document, by chunk id.
-
-    Args:
-        chunked: The chunks of one document with their placements.
-
-    Returns:
-        Each placement by its chunk's id. Chunks with no id yet are left out.
-    """
     return {
         chunk.id: placement
         for chunk, placement in zip(chunked.chunks, chunked.placements, strict=True)
@@ -228,17 +178,6 @@ def _chunk_links(
     *,
     version: str,
 ) -> list[RelationRecord]:
-    """Return one parent edge for each chunk.
-
-    A chunk hangs under its placement's parent: the table it came from, the
-    lowest section that holds its text, or the document when no section does.
-    A chunk with no placement hangs under the document with its index as the
-    order, so hand-built chunks without a chunker still build.
-
-    Raises:
-        ValueError: A chunk has no id, or a table chunk's placement parent is
-            not a table node of the document.
-    """
     table_ids = set(table_by_position.values())
     links: list[RelationRecord] = []
     for chunk in chunks:
@@ -246,8 +185,7 @@ def _chunk_links(
             raise ValueError("Chunk.id must be set before building structure records.")
         placement = placements.get(chunk.id)
         if placement is None:
-            links.append(_link(document_id, chunk.id, chunk.index, version=version))
-            continue
+            raise ValueError(f"chunk {chunk.index} has no placement")
         if chunk.content_kind == "table" and placement.parent_node_id not in table_ids:
             raise ValueError(
                 f"table chunk {chunk.index} has no table unit in the document"
@@ -261,26 +199,8 @@ def _chunk_links(
 def build_structure(
     document: Document,
     chunks: list[Chunk],
-    placements: Mapping[UUID, ChunkPlacement] | None = None,
+    placements: Mapping[UUID, ChunkPlacement],
 ) -> StructureRecords:
-    """Build the structure records of one document version.
-
-    Every section hangs under its parent section, or under the document. A table or
-    figure hangs under its section. A chunk hangs under its placement's parent node.
-    Each edge carries an ``order``: the placement order, or the chunk index for a
-    chunk with no placement.
-
-    Args:
-        document: The document.
-        chunks: The chunks that the chunker made from the document.
-        placements: Each chunk's placement by chunk id, from
-            :func:`placement_map`. A chunk with no entry hangs under the
-            document.
-
-    Returns:
-        The node records and edges. A document with no sections gives only the edges
-        from the document to its chunks.
-    """
     version = version_id(document)
     keys = section_keys(document)
     section_ids = [node_id(key, version) for key in keys]
@@ -289,7 +209,6 @@ def build_structure(
     }
     heading_positions, unit_positions = reading_positions(document)
     document_id = Document.node_id_for(document_key=document.resolved_document_key)
-    _require_chunk_ids(chunks)
     section_nodes, section_links = _section_records(
         document,
         keys,
@@ -308,7 +227,7 @@ def build_structure(
         unit_positions=unit_positions,
     )
     chunk_links = _chunk_links(
-        document_id, chunks, placements or {}, table_by_position, version=version
+        document_id, chunks, placements, table_by_position, version=version
     )
     return StructureRecords(
         sections=section_nodes,
@@ -322,15 +241,6 @@ def build_structure(
 def build_source_records(
     documents: list[Document],
 ) -> tuple[list[NodeRecord], list[RelationRecord]]:
-    """Build a Source node for each record file and an edge to each of its rows.
-
-    Args:
-        documents: The documents of one ``add`` call. Only record documents count.
-
-    Returns:
-        The Source node records, one for each distinct file, and one
-        ``Source -[HAS_DOCUMENT]-> Document`` edge for each record document.
-    """
     nodes: dict[UUID, NodeRecord] = {}
     relations: list[RelationRecord] = []
     for document in documents:
@@ -364,28 +274,8 @@ def build_source_records(
 def build_document_structure(
     documents: list[Document],
     chunks: list[Chunk],
-    placements: Mapping[UUID, ChunkPlacement] | None = None,
+    placements: Mapping[UUID, ChunkPlacement],
 ) -> StructureRecords:
-    """Build the structure records for the documents of one ``add`` call.
-
-    Each document contributes its section, table and figure nodes, with the edges
-    from ``build_structure``. Each structure node also gets a ``PART_OF`` edge from
-    its document, and each record file gets a Source node. Chunks of documents that
-    are not in ``documents`` are ignored; the ignore is logged at debug level,
-    since the walk is expected to hand over exactly the chunks of ``documents``.
-
-    Args:
-        documents: The distinct documents of the call, as ``distinct_documents``
-            returns them.
-        chunks: The chunks that the chunker made from the documents.
-        placements: Each chunk's placement by chunk id, from
-            :func:`placement_map`. A chunk with no entry hangs under the
-            document.
-
-    Returns:
-        The structure records. ``relations`` holds the edges of every document in
-        document order, followed by the edges of the record sources.
-    """
     selected = {
         Document.node_id_for(document_key=document.resolved_document_key)
         for document in documents
@@ -405,9 +295,7 @@ def build_document_structure(
         document_node_id = Document.node_id_for(
             document_key=document.resolved_document_key
         )
-        # The version matches chunk versioning's own version_id, so an
-        # identical re-ingest rebuilds the same edge ids and converges.
-        version = str(Document.id_for(content_hash=document.content_hash))
+        version = version_id(document)
         document_chunks = chunks_by_document_id.get(document_node_id, [])
         chunk_ids = _require_chunk_ids(document_chunks)
         records = build_structure(document, document_chunks, placements)

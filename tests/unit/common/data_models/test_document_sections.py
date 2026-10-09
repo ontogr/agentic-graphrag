@@ -143,14 +143,21 @@ class TestUnitChecks:
 class TestUnitTableText:
     """A table or figure carries its caption as its text."""
 
-    def test_header_is_empty_when_no_header_rows_are_marked(self) -> None:
-        """No marked header rows give no header."""
+    def test_first_row_is_the_header_when_no_header_rows_are_marked(self) -> None:
+        """Without marked header rows the first row names the columns."""
         unit = Unit(
             kind=UnitKind.TABLE,
             text="",
             rows=[["h1", "h2"], ["x", "y"]],
             header_rows=0,
         )
+
+        assert unit.header_row_count == 1
+        assert unit.header == ["h1", "h2"]
+
+    def test_header_is_empty_for_a_table_with_no_rows(self) -> None:
+        """A table with no rows has no header."""
+        unit = Unit(kind=UnitKind.TABLE, text="", header_rows=0)
 
         assert unit.header == []
 

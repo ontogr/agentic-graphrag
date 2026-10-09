@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, JsonValue, model_validator
 from agrag.common.data_models.data_point import DataPoint
 from agrag.common.data_models.graph_record import NodeRecord
 from agrag.common.data_models.normalization import Normalization
-from agrag.common.data_models.provenance import PageSpan
+from agrag.common.data_models.provenance import PageSpan, check_page_spans
 
 
 DOCUMENT_LABEL = "Document"
@@ -92,7 +92,7 @@ class Unit(BaseModel):
         rows: The cell text of a table, row by row. A spanned cell repeats its text
             in every slot it covers. Empty for other kinds.
         header_rows: The number of leading rows of a table that are headers. Zero
-            when the source does not mark them.
+            when the source does not mark them; see ``header_row_count``.
     """
 
     kind: UnitKind
@@ -105,19 +105,26 @@ class Unit(BaseModel):
     header_rows: int = Field(default=0, ge=0)
 
     @property
+    def header_row_count(self) -> int:
+        """Return how many leading rows of a table form its header.
+
+        A Markdown table needs a header line, so the first row is the header
+        when the source marks none.
+        """
+        return max(self.header_rows, 1)
+
+    @property
     def header(self) -> list[str]:
         """Return the column names of a table, one for each column.
 
-        The first ``header_rows`` rows make the header. Empty when the table
-        has no rows or when the source marks no header rows. A spanned header
-        cell repeats its text in every slot it covers, so each column keeps
-        each text once. Table chunk rendering may still treat the first row
-        as the header; see chunking table texts.
+        The first ``header_row_count`` rows make the header. Empty when the
+        table has no rows. A spanned header cell repeats its text in every
+        slot it covers, so each column keeps each text once.
         """
-        if not self.rows or self.header_rows == 0:
+        if not self.rows:
             return []
         width = max(len(row) for row in self.rows)
-        head = self.rows[: self.header_rows]
+        head = self.rows[: self.header_row_count]
         names: list[str] = []
         for column in range(width):
             parts = [
@@ -128,7 +135,6 @@ class Unit(BaseModel):
 
     @model_validator(mode="after")
     def _check_span(self) -> "Unit":
-        """Require both offsets or neither, with the start not after the end."""
         start, end = self.char_start, self.char_end
         if (start is None) != (end is None):
             raise ValueError("char_start and char_end must be set together")
@@ -138,7 +144,6 @@ class Unit(BaseModel):
 
     @model_validator(mode="after")
     def _check_caption_text(self) -> "Unit":
-        """Require the text of a table or figure to equal its caption."""
         if self.kind in (
             UnitKind.TABLE,
             UnitKind.FIGURE,
@@ -175,26 +180,10 @@ class DocumentSection(BaseModel):
 
 
 def _check_unit_provenance(unit: Unit, index: int, unit_index: int) -> None:
-    """Require ordered pages and boxes when a unit carries them.
-
-    A unit from a pageless source, such as Markdown read with docling, carries
-    neither character offsets nor pages. Its location is the section path and
-    the chunk order, so the check only validates the spans a unit does carry.
-    """
-    page_nos = [span.page_no for span in unit.pages]
-    for span in unit.pages:
-        if span.page_no < 1:
-            raise ValueError(
-                f"section {index} unit {unit_index} "
-                f"has page_no {span.page_no}, want >= 1"
-            )
-        box = span.bbox
-        if not (box.x0 <= box.x1 and box.y0 <= box.y1):
-            raise ValueError(
-                f"section {index} unit {unit_index} has a bbox with x0 > x1 or y0 > y1"
-            )
-    if page_nos != sorted(page_nos):
-        raise ValueError(f"section {index} unit {unit_index} has pages out of order")
+    try:
+        check_page_spans(unit.pages)
+    except ValueError as error:
+        raise ValueError(f"section {index} unit {unit_index}: {error}") from error
 
 
 class Document(DataPoint):
@@ -276,7 +265,6 @@ class Document(DataPoint):
 
     @model_validator(mode="after")
     def _check_sections(self) -> "Document":
-        """Require a valid tree, provenanced units, and text that matches."""
         last_end = 0
         for index, section in enumerate(self.sections):
             if section.parent is not None:

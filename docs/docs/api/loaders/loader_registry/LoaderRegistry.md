@@ -12,10 +12,8 @@ LoaderRegistry() -> None
 Maps a source extension to the loader that reads it.
 
 The registry picks a loader by file extension first. When more than one loader
-claims
-the same extension, the loader registered with `prefer=True` wins; when several
-loaders
-are preferred, the last preferred registration wins.
+claims the same extension, the loader registered with `prefer=True` wins. When
+several loaders are preferred, the last preferred registration wins.
 
 **Attributes:**
 
@@ -34,6 +32,11 @@ for_source(source:SourceRef) -> Loader
 
 Return the default loader for a source.
 
+When the top-precedence loader needs a package extra that is not installed,
+the first non-preferred loader for the extension whose extra (if any) is
+installed is used instead. An optional loader's absence therefore falls back
+to the core reader rather than always failing the source.
+
 **Parameters:**
 
 - **source** (<code>[SourceRef](../types/SourceRef.md)</code>) – The source to find a loader for.
@@ -41,13 +44,7 @@ Return the default loader for a source.
 **Returns:**
 
 - <code>[Loader](../base/Loader.md)</code> – The registered loader with the highest precedence for the source's
-  extension.
-
-When the top-precedence loader needs a package extra that is not installed,
-the first non-preferred loader for the extension whose extra (if any) is
-installed is used instead, so an optional loader's absence falls back to the
-core reader rather than always failing the source. When no such fallback
-exists, the call raises `MissingExtraError`.
+- <code>[Loader](../base/Loader.md)</code> – extension, or the fallback loader described above.
 
 **Raises:**
 
@@ -63,16 +60,15 @@ register(loader:Loader, *, prefer:bool = False, extensions:set[str] | frozenset[
 
 Add a loader to the registry.
 
-Registering the same loader for the same extension more than once is a no-op, so
-importing a package that registers loaders repeatedly stays safe.
+Registering the same loader for the same extension more than once is a no-op,
+so importing a package that registers loaders repeatedly stays safe.
 
 **Parameters:**
 
 - **loader** (<code>[Loader](../base/Loader.md)</code>) – The loader to register.
 - **prefer** (<code>bool</code>) – Set this to True to make the loader the default for its extensions.
   Leave it False to register the loader only as an explicit, named option.
-- **extensions** (<code>set\[str\] | frozenset\[str\] | None</code>) – Only register `loader` for these extensions. Defaults to every
-  extension the loader advertises. A caller that wants different
-  precedence per
-  extension registers the same loader twice with different `extensions`
-  sets.
+- **extensions** (<code>set\[str\] | frozenset\[str\] | None</code>) – Only register `loader` for these extensions. Defaults to
+  every extension the loader advertises. A caller that wants different
+  precedence per extension registers the same loader twice with
+  different `extensions` sets.

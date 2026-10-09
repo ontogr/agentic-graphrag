@@ -25,6 +25,7 @@ from agrag.common.data_models.structure import (
 )
 from tests.unit.chunking._section_support import (
     page_unit,
+    paragraph,
     record_document,
     sectioned_document,
     text_document,
@@ -348,13 +349,21 @@ class TestPageSources:
         assert [c.text.partition("\n\n")[0] for c in chunks] == ["Alpha", "Beta"]
 
     def test_a_source_with_no_pages_gets_empty_page_provenance(self) -> None:
-        """A source with no pages gets empty page provenance."""
+        """A text chunk in a page-layout source has no page spans."""
+        section = DocumentSection(heading="H", depth=1, units=[paragraph("body")])
+
+        chunks = _chunker().chunk(sectioned_document([section])).chunks
+
+        assert chunks[0].text == "H\n\nbody"
+        assert chunks[0].provenance == PageProvenance(page_spans=[])
+
+    def test_a_heading_only_source_makes_no_chunk(self) -> None:
+        """A heading with no units is dropped in page-layout mode too."""
         section = DocumentSection(heading="H", depth=1)
 
         chunks = _chunker().chunk(sectioned_document([section])).chunks
 
-        assert chunks[0].text == "H"
-        assert chunks[0].provenance == PageProvenance(page_spans=[])
+        assert chunks == []
 
 
 class TestLayout:
@@ -422,10 +431,9 @@ class TestTables:
 
         key = unit_keys(document, section_keys(document))[(0, 0)]
         table_id = node_id(key, version_id(document))
-        assert [c.content_kind for c in result.chunks] == ["text", "table"]
-        assert result.chunks[0].text == "S"
-        assert result.placements[1].parent_node_id == table_id
-        assert result.placements[1].order == result.placements[1].chunk_index == 1
+        assert [c.content_kind for c in result.chunks] == ["table"]
+        assert result.placements[0].parent_node_id == table_id
+        assert result.placements[0].order == result.placements[0].chunk_index == 0
 
     def test_a_whole_table_keeps_its_pages(self) -> None:
         """A whole table keeps its pages."""

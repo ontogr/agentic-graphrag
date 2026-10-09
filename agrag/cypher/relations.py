@@ -18,15 +18,10 @@ from agrag.cypher.entities import NODE_IDENTITY_LABEL, validate_identifier
 TraversalDirection = Literal["outgoing", "incoming", "both"]
 
 
-# Relationship types that join entities to the document and community structure.
-# The entity graph that communities and neighbor search read leaves them out.
 _NON_ENTITY_RELATIONS = (
     f"['MENTIONED_IN', 'MEMBER_OF', 'PART_OF', '{HAS_CHILD}', '{HAS_DOCUMENT}']"
 )
 
-# Structure types a BFS traversal skips unless the caller opts in by naming
-# them in ``relation_types``. Document hubs fan out to every chunk and section
-# they own, so crossing these by default drowns entity neighbors in structure.
 _DEFAULT_TRAVERSAL_EXCLUSIONS = f"['PART_OF', '{HAS_CHILD}', '{HAS_DOCUMENT}']"
 
 _DIRECTION_ARROW: dict[TraversalDirection, tuple[str, str]] = {

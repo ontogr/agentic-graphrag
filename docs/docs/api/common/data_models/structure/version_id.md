@@ -11,8 +11,6 @@ version_id(document:Document) -> str
 
 Return the id of one version of a document, as `PART_OF` edges use it.
 
-Thin wrapper over `version_id_for_hash`.
-
 **Parameters:**
 
 - **document** (<code>[Document](../document/Document-ref.md)</code>) – The document.

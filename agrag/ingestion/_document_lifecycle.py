@@ -75,28 +75,6 @@ async def close_open_part_of_edges(
     job_id: UUID | None = None,
     keep_node_ids: Sequence[UUID] = (),
 ) -> int:
-    """Close every currently-open PART_OF edge for a Document node.
-
-    Only edges with ``invalid_at IS NULL`` are touched, so repeating the
-    call closes nothing further.
-
-    Args:
-        graph_store: Where the edges are closed. A ``GraphStoreTransaction``
-            handle runs the close inside that transaction, which is how the
-            Cutover Job runner makes closing the superseded version atomic
-            with its commit flip.
-        document_node_id: The persisted Document node's id.
-        job_id: The in-flight Cutover Job's id. The edges that job just
-            wrote stay open, so closing the superseded version does not
-            close the version replacing it. None closes every open edge
-            the committed graph holds.
-        keep_node_ids: Nodes whose edges stay open. A replacement version
-            can produce a chunk, section, table or figure with the id of one it
-            replaces, and closing that edge would hide the new node.
-
-    Returns:
-        The number of edges closed.
-    """
     rows = await graph_store.execute_write(
         close_part_of_query(),
         {

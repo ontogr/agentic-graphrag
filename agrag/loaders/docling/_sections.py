@@ -1,5 +1,3 @@
-"""Turn a parsed Docling document into sections and units."""
-
 from __future__ import annotations
 
 import re
@@ -8,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 
-if TYPE_CHECKING:  # pragma: no cover
+if TYPE_CHECKING:
     from docling_core.types.doc import (
         BoundingBox as DoclingBox,
     )
@@ -27,24 +25,12 @@ from agrag.common.data_models.provenance import BoundingBox, PageSpan
 
 
 _NUMBERED = re.compile(r"^\s*(\d+(?:\.\d+){0,5})[.)]?\s+\S")
-# Numbering is trusted only when most headings carry it.
 _MIN_NUMBERED_SHARE = 0.5
-# Too few headings to tell signal from coincidence.
 _MIN_HEADINGS = 3
 
 
 @dataclass(frozen=True, slots=True)
 class DocumentBody:
-    """The body items of a parsed document, read in one walk.
-
-    Attributes:
-        doc: The parsed document. Pages and caption references resolve through it.
-        items: The body items in reading order. Groups are left out.
-        captions: The references of the items that caption a table or picture.
-        floating_members: The references of the items that sit inside a table or
-            picture.
-    """
-
     doc: DoclingDocument
     items: list[NodeItem]
     captions: frozenset[str]
@@ -52,21 +38,11 @@ class DocumentBody:
 
 
 def read_body(doc: DoclingDocument) -> DocumentBody:
-    """Walk the body of a parsed document once.
-
-    Args:
-        doc: The parsed document.
-
-    Returns:
-        The body items, with the captions and the members of tables and pictures.
-    """
     from docling_core.types.doc import ContentLayer, FloatingItem  # noqa: PLC0415
 
     items: list[NodeItem] = []
     captions: set[str] = set()
     members: set[str] = set()
-    # The levels of the open tables and pictures. The walk is depth first, so every
-    # item at a deeper level than an open one sits inside it.
     open_floating: list[int] = []
     for item, level in doc.iterate_items(
         with_groups=False, included_content_layers={ContentLayer.BODY}
@@ -88,34 +64,11 @@ def read_body(doc: DoclingDocument) -> DocumentBody:
 
 
 def numbering_depth(heading: str) -> int | None:
-    """Return the number of dotted parts at the start of a heading.
-
-    Args:
-        heading: The heading text, such as ``"3.2.1 Results"``.
-
-    Returns:
-        The number of parts (``3`` for ``"3.2.1 Results"``), or ``None`` when the
-        heading does not start with a number.
-    """
     match = _NUMBERED.match(heading)
     return None if match is None else match.group(1).count(".") + 1
 
 
 def numbered_depths(body: DocumentBody) -> dict[str, int]:
-    """Return the depth of each numbered heading when numbering is the only signal.
-
-    Docling gives a PDF heading a level above 1 only when a bookmark matches it. A
-    document where every heading still has level 1 gets its depths from the numbers
-    in the headings, if at least half of them are numbered.
-
-    Args:
-        body: The body of the parsed document, from ``read_body``.
-
-    Returns:
-        The depth by item reference. Empty when some heading has a level above 1,
-        when the document has fewer than three headings, or when fewer than half of
-        the headings are numbered.
-    """
     from docling_core.types.doc import SectionHeaderItem  # noqa: PLC0415
 
     headings = [item for item in body.items if isinstance(item, SectionHeaderItem)]
@@ -183,15 +136,6 @@ def _open_section(
     heading: str,
     depth: int,
 ) -> None:
-    """Start a section under the nearest open heading that is shallower than it.
-
-    Args:
-        sections: The sections so far. The new section is appended here.
-        open_headings: The (depth, index) pairs of the headings that contain the
-            next item. Popped to the new section's parent, then pushed.
-        heading: The heading text.
-        depth: The depth of the heading.
-    """
     while open_headings and open_headings[-1][0] >= depth:
         open_headings.pop()
     parent = open_headings[-1][1] if open_headings else None
@@ -200,35 +144,19 @@ def _open_section(
 
 
 def _heading_depth(
-    item: TitleItem | SectionHeaderItem, depths: Mapping[str, int]
+    item: TitleItem | SectionHeaderItem, depths: Mapping[str, int] | None
 ) -> int:
     from docling_core.types.doc import TitleItem  # noqa: PLC0415
 
     if isinstance(item, TitleItem):
         return 0
-    return depths.get(item.self_ref, item.level)
+    return (depths or {}).get(item.self_ref, item.level)
 
 
 def sections_from_docling(
     body: DocumentBody,
-    depths: Mapping[str, int] = {},  # noqa: B006
+    depths: Mapping[str, int] | None = None,
 ) -> list[DocumentSection]:
-    """Return the sections of a parsed document, in reading order.
-
-    A title has depth 0 and a section header has the depth of its level. Content
-    before the first heading goes in a section with an empty heading. A list becomes
-    one unit. A table or picture caption goes with the table or picture. Page headers,
-    page footers and anything outside the document body are left out.
-
-    Args:
-        body: The body of the parsed document, from ``read_body``.
-        depths: The depth to use for a heading, by item reference, in place of the
-            level that Docling gave it.
-
-    Returns:
-        The sections. A section sits under the nearest earlier heading that is
-        shallower than it.
-    """
     from docling_core.types.doc import (  # noqa: PLC0415
         DocItemLabel,
         ListItem,
@@ -245,8 +173,6 @@ def sections_from_docling(
     list_pages: list[PageSpan] = []
 
     def _current() -> DocumentSection:
-        # No heading is open before the first one, so the root for content before
-        # it is always index 0.
         if open_headings:
             return sections[open_headings[-1][1]]
         if not sections:

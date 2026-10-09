@@ -24,6 +24,11 @@ take turns itself, for example with an `asyncio.Lock`.
 
 </details>
 
+**Attributes:**
+
+- [**max_concurrency**](#agrag-ingestion-extract-Extractor-max_concurrency) (<code>int</code>) – The most `extract` calls that run at once for one
+  batch of chunks. Must be positive.
+
 **Functions:**
 
 - [**extract**](#agrag-ingestion-extract-Extractor-extract) – Extract entities and relations from one chunk.
@@ -45,3 +50,9 @@ Extract entities and relations from one chunk.
 **Returns:**
 
 - <code>[ExtractionResult](../../common/data_models/extraction/ExtractionResult.md)</code> – The entities and relations this call found, in extraction order.
+
+## `max_concurrency` \{#agrag-ingestion-extract-Extractor-max_concurrency}
+
+```python
+max_concurrency: int = 8
+```

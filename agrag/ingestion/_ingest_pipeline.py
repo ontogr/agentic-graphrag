@@ -13,7 +13,6 @@ import asyncio
 import contextlib
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -22,7 +21,7 @@ from opentelemetry.trace import Tracer
 
 from agrag.chunking.chunker import ChunkPlacement
 from agrag.common.data_models.chunk import CHUNK_LABEL, Chunk
-from agrag.common.data_models.document import DOCUMENT_LABEL, Document
+from agrag.common.data_models.document import Document
 from agrag.common.data_models.entity import Entity
 from agrag.common.data_models.extraction import (
     ExtractedEntity,
@@ -31,13 +30,11 @@ from agrag.common.data_models.extraction import (
 )
 from agrag.common.data_models.graph_record import (
     RelationRecord,
-    UpsertResult,
 )
 from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.data_models.vector_record import VectorRecord
-from agrag.common.validation import require_positive_max_concurrency
 from agrag.cypher.entities import (
     clear_chunk_embedding_query,
     clear_property_query,
@@ -53,8 +50,8 @@ from agrag.ingestion._lexical_backbone import (
     build_next_chunk_records,
     distinct_documents,
 )
+from agrag.ingestion._storage import write_nodes, write_relations
 from agrag.ingestion._structure import build_document_structure
-from agrag.ingestion._structure_wiring import write_structure_node_labels
 from agrag.ingestion.extract import Extractor
 from agrag.ingestion.merge import (
     apply_merge,
@@ -82,7 +79,6 @@ from agrag.loaders.types import ErrorPolicy
 from agrag.observability import (
     get_tracer,
     record_stage_failure,
-    stage_failure_context,
 )
 from agrag.retrieval.settings import RetrievalSettings
 from agrag.vectordb.base import VectorStore
@@ -96,55 +92,21 @@ async def extract_chunks(
     schema: GraphSchema,
     error_policy: ErrorPolicy,
     tracer: Tracer | None = None,
-    max_concurrency: int = 8,
 ) -> tuple[list[ExtractedEntity], list[ExtractedRelation], list[StageFailure]]:
-    """Run the extractor over already-chunked input, remapping relation indices.
-
-    Relation indices an extractor reports are local to one chunk's own
-    result; they are shifted by the running entity count so they address
-    the combined entity list. ``start_index`` is the number of entities
-    already collected before ``chunks`` (for example by earlier walk
-    batches), so a per-batch call remaps exactly as one continuous call
-    would.
-
-    Extractions run concurrently, bounded by ``max_concurrency``. Offsets
-    still remap in chunk order over the gathered results, so the combined
-    output matches a sequential run exactly. An extractor that is not safe
-    for concurrent use gets the sequential fallback by passing
-    ``max_concurrency=1``.
-
-    Args:
-        chunks: The chunks to extract from, in order.
-        start_index: The running entity count before ``chunks``.
-        extractor: Runs against each chunk.
-        schema: The entity/relation types extraction is validated against.
-        error_policy: RAISE propagates an extraction failure; any other
-            policy records it and continues with the remaining chunks.
-        tracer: Opens one span per chunk.
-        max_concurrency: The most extractions in flight at once.
-
-    Returns:
-        The extracted entities and globally-remapped relations, plus one
-        StageFailure per chunk or relation that failed under a
-        non-RAISE policy.
-    """
-    require_positive_max_concurrency(max_concurrency)
     resolved_tracer = get_tracer(tracer)
-    semaphore = asyncio.Semaphore(max_concurrency)
+    semaphore = asyncio.Semaphore(extractor.max_concurrency)
 
     async def _extract_one(
         chunk: Chunk,
     ) -> ExtractionResult | StageFailure:
         async with semaphore:
-            # Each chunk keeps its own span, so a failure still marks this
-            # chunk's span under concurrency just as the sequential loop did.
             with resolved_tracer.start_as_current_span(
                 "agrag.extraction.extract_chunk",
                 attributes={"agrag.chunk_id": str(chunk.id)},
             ) as span:
                 try:
                     result = await extractor.extract(chunk, schema)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     if error_policy is ErrorPolicy.RAISE:
                         raise
                     trace_id, span_id = record_stage_failure(exc)
@@ -159,9 +121,6 @@ async def extract_chunks(
                 span.set_attribute("agrag.relations_extracted", len(result.relations))
                 return result
 
-    # gather preserves input order, so the remap loop below sees chunk
-    # results in chunk order. Under RAISE the first failure propagates and the
-    # extractions still in flight are cancelled, not left to run to the end.
     tasks = [asyncio.ensure_future(_extract_one(chunk)) for chunk in chunks]
     try:
         outcomes = await asyncio.gather(*tasks)
@@ -191,9 +150,6 @@ async def extract_chunks(
             except Exception as exc:  # noqa: BLE001
                 if error_policy is ErrorPolicy.RAISE:
                     raise
-                # The remap runs after the chunk's span closed, so a remap
-                # failure opens its own span: per-chunk failure granularity
-                # is preserved either way.
                 with resolved_tracer.start_as_current_span(
                     "agrag.extraction.remap_relations",
                     attributes={"agrag.chunk_id": str(chunk.id)},
@@ -227,101 +183,43 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     retrieval_settings: RetrievalSettings,
     error_policy: ErrorPolicy,
     ingestion: IngestStats,
+    placements: Mapping[UUID, ChunkPlacement],
     return_chunks: bool = False,
     job_id: UUID | str | None = None,
     rebuilt_components: list[MatchComponent] | None = None,
-    placements: Mapping[UUID, ChunkPlacement] | None = None,
     tracer: Tracer | None = None,
     embed_heading_path: bool = True,
     max_llm_pairs: int = MAX_LLM_PAIRS,
 ) -> AddResult:
-    """Run resolution, merge, and storage for already-chunked input.
-
-    Takes the chunks, their source documents, and the already-extracted
-    mentions (see ``extract_chunks``), then runs global exact-match
-    plus in-batch resolution, merge planning and application, and every
-    storage write chunks already use: chunk nodes, document nodes,
-    ``PART_OF``/``NEXT_CHUNK`` edges, domain relations, ``MENTIONED_IN``
-    edges, and embeddings.
-
-    Args:
-        chunks: The chunks to ingest, in document then chunk order.
-        documents: The documents the chunks came from, possibly repeating
-            the same document across batches. Document nodes are deduped
-            by stable key before writing.
-        entities: The extracted entity mentions, with globally-remapped
-            relation indices matching this list.
-        relations: The extracted relations addressing ``entities``.
-        extraction_failures: Failures extraction already recorded under a
-            non-RAISE policy, carried into the returned summary.
-        graph_store: Where nodes, relations, and embeddings are written.
-        embedder: Populates chunk and entity embeddings.
-        vector_store: Optional second write target for embeddings.
-        graph_schema: The entity/relation types merges are computed against.
-        retrieval_settings: Collection names for the VectorStore writes.
-        error_policy: RAISE propagates a stage failure, including a failed
-            read of a mention's persisted candidates; any other policy
-            records it and continues with the remaining items. A mention
-            whose candidate read failed is not resolved or stored in this
-            call, and its failure appears in ``merge.failures``.
-        ingestion: The ingestion-stage summary the caller already computed
-            from its own walk.
-        return_chunks: Whether to include the ingested chunks in the
-            returned result.
-        job_id: The in-flight Cutover Job's id. Every node, edge, and
-            vector this call writes is tagged with it until that job
-            commits; brand-new entities derive deterministic ids from it.
-            None writes untagged with random new-entity ids, for callers
-            outside a job.
-        rebuilt_components: Receives each component this call
-            rebuilt. A pending job never deletes the resolved entity
-            it supersedes, so the caller rebuilds these again after
-            the job commits to replace it.
-        placements: Each chunk's placement by chunk id, from
-            ``placement_map``. A chunk with no entry hangs under the
-            document.
-        tracer: Opens this call's span and every phase span below it.
-        embed_heading_path: Whether chunk embeddings include the chunk's heading
-            path. The stored chunk text and vector payload text stay raw.
-        max_llm_pairs: The most ambiguous entity pairs that resolution sends to
-            the LLM for each label.
-
-    Returns:
-        The per-stage summary for this ingestion.
-
-    Note:
-        Shared by ``Graph.add()`` and ``Graph.update()``: both callers
-        must observe side-effect-equivalent behavior for the same input,
-        since ``update()``'s fresh-content path is defined as this core
-        over newly chunked content.
-    """
     pending_job_id = str(job_id) if job_id is not None else None
     job_uuid = UUID(pending_job_id) if pending_job_id is not None else None
     resolved_tracer = get_tracer(tracer)
     with resolved_tracer.start_as_current_span("agrag.ingestion.ingest_chunks"):
-        # If no chunks/entities, we can early return with empty stages
+        # With no chunks, only the documents and their structure are written.
         if not chunks:
-            empty_storage_failures: list[StageFailure] = []
-            if documents:
-                distinct = distinct_documents(documents)
-                document_result = await graph_store.upsert_nodes(
-                    DOCUMENT_LABEL,
-                    [build_document_record(document) for document in distinct],
-                    pending_job_id=job_uuid,
-                )
-                empty_storage_failures.extend(_upsert_stage_failures(document_result))
-                structure = build_document_structure(distinct, [])
-                for label_result in await write_structure_node_labels(
-                    graph_store, structure, pending_job_id=job_uuid
-                ):
-                    empty_storage_failures.extend(_upsert_stage_failures(label_result))
-                if structure.relations:
-                    relation_result = await graph_store.upsert_relations(
-                        structure.relations, pending_job_id=job_uuid
-                    )
-                    empty_storage_failures.extend(
-                        _upsert_stage_failures(relation_result)
-                    )
+            distinct = distinct_documents(documents)
+            document_records = [build_document_record(doc) for doc in distinct]
+            structure = build_document_structure(distinct, [], {})
+            node_writes = await write_nodes(
+                graph_store,
+                chunk_records=[],
+                structure=structure,
+                document_records=document_records,
+                error_policy=error_policy,
+                pending_job_id=job_uuid,
+                tracer=resolved_tracer,
+            )
+            empty_storage_failures = list(node_writes.failures)
+            relation_outcome = await write_relations(
+                graph_store,
+                structure.relations,
+                item_id="relations",
+                span_name="agrag.storage.upsert_relations",
+                error_policy=error_policy,
+                pending_job_id=job_uuid,
+                tracer=resolved_tracer,
+            )
+            empty_storage_failures.extend(relation_outcome.failures)
             empty_storage_capped = cap_failures(empty_storage_failures)
             # Build final result with zero stages
             extraction_failures_capped = cap_failures(list(extraction_failures))
@@ -686,103 +584,23 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         relation_records.extend(structure.relations)
         relation_records.extend(build_next_chunk_records(chunks))
 
-        # The chunk, structure, and document node writes are independent of
-        # each other, so they run concurrently. Each outcome maps back to its
-        # write by position for failure attribution below.
-        async def _write_chunk_nodes() -> _NodeWriteOutcome:
-            with resolved_tracer.start_as_current_span(
-                "agrag.storage.upsert_chunks",
-                attributes={"agrag.record_count": len(chunk_records)},
-            ) as span:
-                if not chunk_records:
-                    return _NodeWriteOutcome()
-                write_result = await graph_store.upsert_nodes(
-                    CHUNK_LABEL, chunk_records, pending_job_id=job_uuid
-                )
-                failed_ids: set[UUID] = set()
-                for failure in write_result.failures:
-                    try:
-                        failed_ids.add(UUID(failure.id))
-                    except ValueError:
-                        continue
-                span.set_attribute("agrag.nodes_written", write_result.written)
-                return _NodeWriteOutcome(
-                    written=write_result.written,
-                    failures=_upsert_stage_failures(write_result),
-                    failed_ids=failed_ids,
-                    wrote_any=True,
-                )
-
-        async def _write_structure_nodes() -> _NodeWriteOutcome:
-            with resolved_tracer.start_as_current_span(
-                "agrag.storage.upsert_structure",
-                attributes={"agrag.record_count": structure.node_count},
-            ) as span:
-                written = 0
-                item_failures: list[StageFailure] = []
-                for result in await write_structure_node_labels(
-                    graph_store, structure, pending_job_id=job_uuid
-                ):
-                    written += result.written
-                    item_failures.extend(_upsert_stage_failures(result))
-                span.set_attribute("agrag.nodes_written", written)
-                return _NodeWriteOutcome(written=written, failures=item_failures)
-
-        async def _write_document_nodes() -> _NodeWriteOutcome:
-            with resolved_tracer.start_as_current_span(
-                "agrag.storage.upsert_documents",
-                attributes={"agrag.record_count": len(document_records)},
-            ) as span:
-                if not document_records:
-                    return _NodeWriteOutcome()
-                result = await graph_store.upsert_nodes(
-                    DOCUMENT_LABEL, document_records, pending_job_id=job_uuid
-                )
-                span.set_attribute("agrag.nodes_written", result.written)
-                return _NodeWriteOutcome(
-                    written=result.written, failures=_upsert_stage_failures(result)
-                )
-
-        node_outcomes = await asyncio.gather(
-            _write_chunk_nodes(),
-            _write_structure_nodes(),
-            _write_document_nodes(),
-            return_exceptions=True,
+        node_writes = await write_nodes(
+            graph_store,
+            chunk_records=chunk_records,
+            structure=structure,
+            document_records=document_records,
+            error_policy=error_policy,
+            pending_job_id=job_uuid,
+            tracer=resolved_tracer,
         )
         storage_failures: list[StageFailure] = [
             *relation_storage_failures,
             *resolved_vector_failures,
+            *node_writes.failures,
         ]
-        nodes_written = 0
-        relationships_written_count = 0
-        chunk_failure_ids: set[UUID] = set()
-        chunks_written = False
-        for outcome, item_id in zip(
-            node_outcomes,
-            ("chunks", "structure", "documents"),
-            strict=True,
-        ):
-            if isinstance(outcome, BaseException):
-                if error_policy is ErrorPolicy.RAISE or not isinstance(
-                    outcome, Exception
-                ):
-                    raise outcome
-                trace_id, span_id = record_stage_failure(outcome)
-                storage_failures.append(
-                    StageFailure(
-                        item_id=item_id,
-                        error_type=type(outcome).__name__,
-                        error_message=str(outcome),
-                        trace_id=trace_id,
-                        span_id=span_id,
-                    )
-                )
-                continue
-            nodes_written += outcome.written
-            storage_failures.extend(outcome.failures)
-            if item_id == "chunks":
-                chunk_failure_ids = outcome.failed_ids
-                chunks_written = outcome.wrote_any
+        nodes_written = node_writes.written
+        chunk_failure_ids = node_writes.chunks.failed_ids
+        chunks_written = node_writes.chunks.wrote_any
 
         # Chunk embedding stage: embed chunks and write vectors. When the node
         # write failed, upsert_nodes may still have committed its earlier
@@ -814,62 +632,27 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         # Survivors already written via apply_merge; count them.
         nodes_written += len(survivors)
 
-        # Write domain relations
-        with resolved_tracer.start_as_current_span(
-            "agrag.storage.upsert_relations",
-            attributes={"agrag.record_count": len(relation_records)},
-        ) as span:
-            try:
-                if relation_records:
-                    write_result = await graph_store.upsert_relations(
-                        relation_records, pending_job_id=job_uuid
-                    )
-                    relationships_written_count += write_result.written
-                    storage_failures.extend(_upsert_stage_failures(write_result))
-                    span.set_attribute(
-                        "agrag.relationships_written", write_result.written
-                    )
-            except Exception as exc:  # noqa: BLE001
-                if error_policy is ErrorPolicy.RAISE:
-                    raise
-                trace_id, span_id = record_stage_failure(exc)
-                storage_failures.append(
-                    StageFailure(
-                        item_id="relations",
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
-                        trace_id=trace_id,
-                        span_id=span_id,
-                    )
-                )
-
-        with resolved_tracer.start_as_current_span(
-            "agrag.storage.upsert_mentioned_in",
-            attributes={"agrag.record_count": len(mentioned_in_records)},
-        ) as span:
-            try:
-                if mentioned_in_records:
-                    write_result = await graph_store.upsert_relations(
-                        mentioned_in_records, pending_job_id=job_uuid
-                    )
-                    relationships_written_count += write_result.written
-                    storage_failures.extend(_upsert_stage_failures(write_result))
-                    span.set_attribute(
-                        "agrag.relationships_written", write_result.written
-                    )
-            except Exception as exc:  # noqa: BLE001
-                if error_policy is ErrorPolicy.RAISE:
-                    raise
-                trace_id, span_id = record_stage_failure(exc)
-                storage_failures.append(
-                    StageFailure(
-                        item_id="MENTIONED_IN",
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
-                        trace_id=trace_id,
-                        span_id=span_id,
-                    )
-                )
+        domain_outcome = await write_relations(
+            graph_store,
+            relation_records,
+            item_id="relations",
+            span_name="agrag.storage.upsert_relations",
+            error_policy=error_policy,
+            pending_job_id=job_uuid,
+            tracer=resolved_tracer,
+        )
+        mentioned_outcome = await write_relations(
+            graph_store,
+            mentioned_in_records,
+            item_id="MENTIONED_IN",
+            span_name="agrag.storage.upsert_mentioned_in",
+            error_policy=error_policy,
+            pending_job_id=job_uuid,
+            tracer=resolved_tracer,
+        )
+        relationships_written_count = domain_outcome.written + mentioned_outcome.written
+        storage_failures.extend(domain_outcome.failures)
+        storage_failures.extend(mentioned_outcome.failures)
 
         # Embedding stage: embed survivors and update them.
         if survivors:
@@ -914,31 +697,6 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
         storage=storage_stats,
         chunks=list(chunks) if return_chunks else [],
     )
-
-
-@dataclass
-class _NodeWriteOutcome:
-    """One node write's contribution to the storage summary."""
-
-    written: int = 0
-    failures: list[StageFailure] = field(default_factory=list)
-    failed_ids: set[UUID] = field(default_factory=set)
-    wrote_any: bool = False
-
-
-def _upsert_stage_failures(result: UpsertResult) -> list[StageFailure]:
-    """Convert isolated graph-store failures into ingestion stage failures."""
-    trace_id, span_id = stage_failure_context()
-    return [
-        StageFailure(
-            item_id=failure.id,
-            error_type=failure.error_type,
-            error_message=failure.error_message,
-            trace_id=trace_id,
-            span_id=span_id,
-        )
-        for failure in result.failures
-    ]
 
 
 def _vector_record(

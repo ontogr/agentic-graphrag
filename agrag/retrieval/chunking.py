@@ -14,15 +14,8 @@ from agrag.common.data_models.provenance import (
 
 logger = logging.getLogger(__name__)
 
-_LEGACY_CONTENT_KINDS = {
-    "table_row": "table",
-    "code": "text",
-    "heading": "text",
-}
-
 
 def _prop(node: object, name: str, default: object = None) -> object:
-    """Read a property from a node-like object, checking nested properties."""
     if isinstance(node, dict):
         if name in node:
             return node[name]
@@ -41,7 +34,6 @@ def _prop(node: object, name: str, default: object = None) -> object:
 
 
 def _node_id(node: object) -> object | None:
-    """Return the node id from the top level or nested properties."""
     if isinstance(node, dict):
         top = node.get("id")
         if top is not None:
@@ -60,7 +52,6 @@ def _node_id(node: object) -> object | None:
 
 
 def _provenance_data(raw: object) -> dict[str, Any] | None:
-    """Decode a provenance property to a dict, or None when absent or invalid."""
     if isinstance(raw, str):
         try:
             decoded = json.loads(raw)
@@ -73,15 +64,10 @@ def _provenance_data(raw: object) -> dict[str, Any] | None:
 
 
 def _content_kind(raw: object) -> Literal["text", "table"]:
-    """Map a stored content kind to the current pair, defaulting to text."""
-    if not isinstance(raw, str):
-        return "text"
-    normalized = _LEGACY_CONTENT_KINDS.get(raw, raw)
-    return "table" if normalized == "table" else "text"
+    return "table" if raw == "table" else "text"
 
 
 def _chunk_index(raw: object) -> int:
-    """Return the chunk index as an int, defaulting to zero."""
     if isinstance(raw, int):
         return raw
     if isinstance(raw, str):
@@ -93,14 +79,12 @@ def _chunk_index(raw: object) -> int:
 
 
 def _heading_list(raw: object) -> list[str]:
-    """Return the string headings, dropping non-string entries."""
     if not isinstance(raw, list):
         return []
     return [h for h in raw if isinstance(h, str)]
 
 
 def _section_ids(raw: object) -> list[UUID]:
-    """Return the parsable section ids, skipping bad entries."""
     if not isinstance(raw, list):
         return []
     ids: list[UUID] = []
@@ -113,7 +97,6 @@ def _section_ids(raw: object) -> list[UUID]:
 
 
 def _uuid_or_none(raw: object) -> UUID | None:
-    """Return raw as a UUID, or None when missing or malformed."""
     if raw is None:
         return None
     try:
@@ -126,9 +109,8 @@ def parse_chunk_node(value: object) -> Chunk | None:
     """Build a Chunk from a chunk-shaped row value, or None.
 
     Accepts a plain dict, a dict carrying ``properties``, or a neo4j
-    Node-like object. Legacy ``content_kind`` values map to the current
-    pair once here, and ``section_ids`` parses per item, so stored data
-    is kept whenever its id, document id, and provenance are valid.
+    Node-like object. ``section_ids`` parses per item, so stored data is kept
+    whenever its id, document id, and provenance are valid.
 
     Args:
         value: The chunk node value from a graph row.
@@ -142,8 +124,6 @@ def parse_chunk_node(value: object) -> Chunk | None:
         if chunk_id is None:
             return None
 
-        # Table and figure nodes carry provenance and a document id too, but
-        # only they carry a section key.
         prov_data = _provenance_data(_prop(value, "provenance"))
         if prov_data is None or _prop(value, "section_key") is not None:
             return None

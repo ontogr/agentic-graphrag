@@ -42,24 +42,6 @@ def build_document_record(document: Document) -> NodeRecord:
 def build_part_of_records(
     document_node_id: UUID, node_ids: list[UUID], *, version_id: str
 ) -> list[RelationRecord]:
-    """Return one open Document -[:PART_OF]-> node record for each structure node.
-
-    Edge identity is keyed on the document version: rebuilding the same
-    version returns the same records, so repeat ingestion converges
-    instead of writing parallel edges, while a new version gets new
-    edges and preserves the closed interval's history.
-
-    Args:
-        document_node_id: The id of the persisted Document node these nodes
-            belong to.
-        node_ids: The ids of the chunks, sections, tables and figures to link.
-        version_id: The identifier for this document version. Callers pass
-            the content-derived version so identical re-ingests converge.
-
-    Returns:
-        One RelationRecord per node, with ``valid_at`` set and ``invalid_at``
-        unset.
-    """
     now = datetime.now(UTC).isoformat()
     return [
         RelationRecord(
@@ -78,16 +60,6 @@ def build_part_of_records(
 
 
 def build_next_chunk_records(chunks: list[Chunk]) -> list[RelationRecord]:
-    """Return edges joining adjacent chunks within each document.
-
-    Grouping is by ``document_id`` only: every chunk of one document, text
-    and table alike and whatever section holds it, forms a single chain in
-    index order. Section membership never splits the chain, so a document
-    with several sections still yields one ``N-1`` edge sequence.
-
-    Records carry no temporal fields: sequencing is version-independent,
-    unlike ``PART_OF`` currency.
-    """
     by_document: dict[UUID, list[Chunk]] = {}
     for chunk in chunks:
         by_document.setdefault(chunk.document_id, []).append(chunk)

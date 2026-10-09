@@ -21,6 +21,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
+from agrag.chunking.chunker import ChunkPlacement
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
 from agrag.common.data_models.entity import Entity
@@ -68,6 +69,19 @@ def _chunk(document: Document, *, index: int = 0, text: str = "hello world") -> 
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),
     )
+
+
+def _placements(chunks: list[Chunk]) -> dict[UUID, ChunkPlacement]:
+    """Place each chunk directly under its document node, in index order."""
+    return {
+        chunk.id: ChunkPlacement(
+            chunk_index=chunk.index,
+            parent_node_id=chunk.document_id,
+            order=chunk.index,
+        )
+        for chunk in chunks
+        if chunk.id is not None
+    }
 
 
 class _ZeroEmbedder(Embedder):
@@ -156,6 +170,7 @@ async def _ingest(
         entities,
         relations,
         failures,
+        placements=_placements(chunks),
         graph_store=store,
         embedder=_ZeroEmbedder(),
         vector_store=None,
@@ -294,8 +309,9 @@ class TestIngestChunks:
         store, _ = _store()
         doc = _doc(key="a")
 
+        chunks = [_chunk(doc)]
         await ingest_chunks(
-            [_chunk(doc)],
+            chunks,
             [doc],
             [],
             [],
@@ -307,6 +323,7 @@ class TestIngestChunks:
             retrieval_settings=RetrievalSettings(),
             error_policy=ErrorPolicy.RAISE,
             ingestion=IngestStats(documents=1),
+            placements=_placements(chunks),
             return_chunks=False,
             tracer=provider.get_tracer("test"),
         )
@@ -315,17 +332,36 @@ class TestIngestChunks:
         assert "agrag.storage.upsert_structure" in spans
         assert spans["agrag.storage.upsert_structure"].attributes is not None
 
-    async def test_rejects_a_non_positive_extraction_concurrency(self) -> None:
-        """A zero limit would block every extraction forever."""
-        with pytest.raises(ValueError, match="max_concurrency"):
-            await extract_chunks(
-                [],
-                start_index=0,
-                extractor=_NoopExtractor(),
-                schema=GENERIC,
-                error_policy=ErrorPolicy.RAISE,
-                max_concurrency=0,
-            )
+    async def test_runs_at_most_the_extractor_max_concurrency_at_once(self) -> None:
+        """The extractor's limit caps how many chunks are in flight."""
+        in_flight = 0
+        peak = 0
+
+        class _Limited(Extractor):
+            max_concurrency = 2
+
+            async def extract(
+                self, chunk: Chunk, schema: GraphSchema
+            ) -> ExtractionResult:
+                nonlocal in_flight, peak
+                in_flight += 1
+                peak = max(peak, in_flight)
+                await asyncio.sleep(0.01)
+                in_flight -= 1
+                return ExtractionResult(entities=[], relations=[], extractor_name="x")
+
+        doc = _doc(key="limit")
+        chunks = [_chunk(doc, index=i) for i in range(6)]
+
+        await extract_chunks(
+            chunks,
+            start_index=0,
+            extractor=_Limited(),
+            schema=GENERIC,
+            error_policy=ErrorPolicy.RAISE,
+        )
+
+        assert peak == 2
 
     async def test_global_candidate_writes_no_mentioned_in(
         self, monkeypatch: pytest.MonkeyPatch
@@ -372,6 +408,7 @@ class TestIngestChunks:
                 ],
                 [],
                 [],
+                placements=_placements([chunk]),
                 graph_store=store,
                 embedder=_ZeroEmbedder(),
                 vector_store=None,
@@ -426,6 +463,7 @@ class TestIngestChunks:
             mentions,
             [],
             [],
+            placements=_placements([chunk]),
             graph_store=store,
             embedder=_ZeroEmbedder(),
             vector_store=None,
@@ -481,6 +519,7 @@ class TestIngestChunks:
                 [entity],
                 [],
                 [],
+                placements=_placements([chunk]),
                 graph_store=store,
                 embedder=_ZeroEmbedder(),
                 vector_store=None,
@@ -551,6 +590,7 @@ class TestHeadingContextEmbedding:
             [],
             [],
             [],
+            placements=_placements([chunk]),
             graph_store=store,
             embedder=_Recorder(),
             vector_store=None,
@@ -613,6 +653,7 @@ class TestHeadingContextEmbedding:
             [],
             [],
             [],
+            placements=_placements([chunk]),
             graph_store=store,
             embedder=_ZeroEmbedder(),
             vector_store=vector_store,

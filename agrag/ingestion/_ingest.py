@@ -113,32 +113,6 @@ def _group_by_document(
         list[StageFailure],
     ]
 ]:
-    """Split one call's pipeline inputs into per-document slices.
-
-    Each slice carries one document's chunks, mentions, relations, and
-    extraction failures, so it can ingest as its own Cutover Job. Order
-    follows the documents' first occurrence.
-
-    Invariants: every chunk, mention, and failure belongs to exactly one
-    slice. A chunk, mention, or failure that maps to no listed document
-    joins the first slice rather than being dropped, and each fallback is
-    logged at debug level. A relation whose endpoints fall in different
-    slices is dropped and logged, since one job cannot write an edge across
-    two documents' slices.
-
-    Args:
-        chunks: The call's chunks, in document then chunk order.
-        documents: The call's documents, possibly repeating.
-        entities: Mentions addressing chunks by id.
-        relations: Relations whose indices address ``entities``. Each slice
-            rebases them to its own entity list; a relation whose endpoints
-            fall in different slices is dropped.
-        extraction_failures: Failures keyed by chunk id.
-
-    Returns:
-        One (document_key, chunks, documents, entities, relations,
-        failures) tuple per document.
-    """
     ordered_keys: list[str] = []
     for document in documents:
         key = document.resolved_document_key
@@ -505,13 +479,6 @@ async def add_documents(  # noqa: PLR0912,PLR0915,PLR0913
         # commits only its own slice; a lease failure aborts the documents
         # still queued while documents that already committed stay
         # committed.
-        #
-        # Jobs run one at a time on purpose. Each job is lease-isolated, so
-        # parallel jobs would be correct, but serial keeps failure
-        # attribution simple (the first lease failure stops the queue at a
-        # known position) at the cost of one document's latency per job.
-        # ``_merge_add_results`` merges in job order, so a future bounded
-        # gather over these slices would slot in without changing the merge.
         ingestion = IngestStats(
             documents=final_stats.documents,
             sources=final_stats.sources,
@@ -704,9 +671,6 @@ async def update_document(  # noqa: PLR0913
         )
 
         components: list[MatchComponent] = []
-        # One build for both the pending write and the keep list below: the
-        # pipeline rebuilds the same records from the same inputs, so this
-        # is the single source of truth for the new subtree's node ids.
         structure = build_structure(document, chunks, placements)
 
         async def _pending(job_id: UUID) -> AddResult:

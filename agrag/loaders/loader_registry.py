@@ -19,10 +19,8 @@ class LoaderRegistry:
     """Maps a source extension to the loader that reads it.
 
     The registry picks a loader by file extension first. When more than one loader
-    claims
-    the same extension, the loader registered with ``prefer=True`` wins; when several
-    loaders
-    are preferred, the last preferred registration wins.
+    claims the same extension, the loader registered with ``prefer=True`` wins. When
+    several loaders are preferred, the last preferred registration wins.
 
     Attributes:
         _by_extension: The registered loaders for each extension, in registration order.
@@ -41,18 +39,17 @@ class LoaderRegistry:
     ) -> None:
         """Add a loader to the registry.
 
-        Registering the same loader for the same extension more than once is a no-op, so
-        importing a package that registers loaders repeatedly stays safe.
+        Registering the same loader for the same extension more than once is a no-op,
+        so importing a package that registers loaders repeatedly stays safe.
 
         Args:
             loader: The loader to register.
             prefer: Set this to True to make the loader the default for its extensions.
                 Leave it False to register the loader only as an explicit, named option.
-            extensions: Only register ``loader`` for these extensions. Defaults to every
-                extension the loader advertises. A caller that wants different
-                precedence per
-                extension registers the same loader twice with different ``extensions``
-                sets.
+            extensions: Only register ``loader`` for these extensions. Defaults to
+                every extension the loader advertises. A caller that wants different
+                precedence per extension registers the same loader twice with
+                different ``extensions`` sets.
         """
         entry = _Entry(loader=loader, prefer=prefer)
         for ext in extensions if extensions is not None else loader.extensions:
@@ -63,18 +60,17 @@ class LoaderRegistry:
     def for_source(self, source: SourceRef) -> Loader:
         """Return the default loader for a source.
 
+        When the top-precedence loader needs a package extra that is not installed,
+        the first non-preferred loader for the extension whose extra (if any) is
+        installed is used instead. An optional loader's absence therefore falls back
+        to the core reader rather than always failing the source.
+
         Args:
             source: The source to find a loader for.
 
         Returns:
             The registered loader with the highest precedence for the source's
-                extension.
-
-        When the top-precedence loader needs a package extra that is not installed,
-        the first non-preferred loader for the extension whose extra (if any) is
-        installed is used instead, so an optional loader's absence falls back to the
-        core reader rather than always failing the source. When no such fallback
-        exists, the call raises ``MissingExtraError``.
+            extension, or the fallback loader described above.
 
         Raises:
             UnsupportedFormatError: No loader claims the source's extension.
