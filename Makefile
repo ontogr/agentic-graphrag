@@ -272,7 +272,7 @@ docs-dev: docs-api
 
 # Absolute links like /guides/x always open the latest version. Relative file links stay in the version.
 docs-lint-links:
-	@! grep -rEn --include='*.md' --include='*.mdx' '\]\(/[a-z]' docs/docs --exclude-dir=api \
+	@! grep -rEn --include='*.md' --include='*.mdx' '(\]\(|href=")/[A-Za-z0-9]' docs/docs --exclude-dir=api \
 	  || { echo "Link to docs pages with relative file paths such as ../concepts/chunking.mdx."; exit 1; }
 
 docs-build: docs-api docs-lint-links
