@@ -93,6 +93,7 @@ class TestAgragSystem:
         cited = ledger.cite(
             SearchResult(
                 item=Chunk(
+                    id=uuid4(),
                     document_id=document_id,
                     text="hello",
                     provenance=TextProvenance(char_start=6, char_end=11),

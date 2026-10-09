@@ -73,7 +73,8 @@ class LoaderRegistry:
         When the top-precedence loader needs a package extra that is not installed,
         the first non-preferred loader for the extension whose extra (if any) is
         installed is used instead, so an optional loader's absence falls back to the
-        core reader rather than always failing the source.
+        core reader rather than always failing the source. When no such fallback
+        exists, the call raises ``MissingExtraError``.
 
         Raises:
             UnsupportedFormatError: No loader claims the source's extension.
@@ -97,4 +98,6 @@ class LoaderRegistry:
             if entry.loader.is_available():
                 return entry.loader
 
+        if extra is None:
+            raise UnsupportedFormatError(source.extension)
         raise MissingExtraError(source.extension, extra)

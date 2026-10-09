@@ -16,6 +16,7 @@ import pytest
 
 from agrag.common.data_models.chunk import Chunk
 from agrag.common.data_models.vector_record import VectorHit
+from agrag.retrieval.chunking import parse_chunk_node
 from agrag.retrieval.retrievers.chunk import ChunkRetriever
 
 
@@ -139,6 +140,26 @@ class TestChunkRetriever:
         assert isinstance(chunk, Chunk)
         assert chunk.chunker is None
         assert chunk.chunker_hash is None
+
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            {"section_key": str(uuid4())},
+            {"provenance": None},
+        ],
+        ids=["table-node", "no-provenance"],
+    )
+    def test_a_node_that_is_not_a_chunk_is_skipped(self, extra: dict) -> None:
+        """Table, figure and bare nodes never become empty chunks."""
+        node = {
+            "id": str(uuid4()),
+            "document_id": str(uuid4()),
+            "text": "x",
+            "provenance": json.dumps({"kind": "page", "page_spans": []}),
+            **extra,
+        }
+
+        assert parse_chunk_node(node) is None
 
     async def test_legacy_table_row_kind_loads_as_table(self) -> None:
         """A stored table_row node loads as a table chunk, not skipped."""

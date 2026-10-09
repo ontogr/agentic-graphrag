@@ -134,7 +134,7 @@ class TestDocuments:
         )
         (document,) = LegalAdapter().documents(corpus)
 
-        chunks = BENCH_CHUNKING.chunk(document)
+        chunks = BENCH_CHUNKING.chunk(document).chunks
 
         assert len(chunks) > 1
         for chunk in chunks:

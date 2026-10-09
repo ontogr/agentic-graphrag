@@ -161,6 +161,8 @@ class Chunker:
         """Check the settings and build the tokenizer and the splitter once."""
         if self.size <= 0:
             raise ValueError("size must be a positive integer")
+        if self.effective_min_size < 0:
+            raise ValueError("min_size must not be negative")
         if self.effective_min_size >= self.size:
             raise ValueError("min_size must be smaller than size")
         object.__setattr__(self, "_count", AutoTokenizer(self.tokenizer).count_tokens)
@@ -406,6 +408,11 @@ class _Run:
             starts = [piece.start for piece in pieces if piece.start is not None]
             ends = [piece.end for piece in pieces if piece.end is not None]
             if not starts or not ends:
+                if all(piece.is_heading for piece in pieces):
+                    # Headings carry no offsets, so a chunk of headings alone has
+                    # no text span. The section tree still records them.
+                    self._open, self._used = [], 0
+                    return
                 raise ChunkingError("a text chunk holds no text offsets")
             provenance = TextProvenance(char_start=min(starts), char_end=max(ends))
         else:

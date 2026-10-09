@@ -265,6 +265,7 @@ class TestRetrievalE2E:
         )
 
         chunk = Chunk(
+            id=uuid4(),
             document_id=uuid4(),
             index=0,
             text="Aspirin is effective for treating headaches.",

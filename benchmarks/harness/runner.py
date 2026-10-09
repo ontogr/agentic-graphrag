@@ -341,7 +341,7 @@ async def _execute(
             schema_sha256=info.sha256,
             extractor_model=env.models["extractor"]["model_id"],
             embedder_model=env.embedder_model,
-            chunking_fingerprint=env.chunking.fingerprint(),
+            chunking_fingerprint=env.chunking.fingerprint,
             agrag_tree=env.code.agrag_tree,
             benchmarks_code_sha256=env.code.benchmarks_code_sha256,
             uv_lock_sha256=env.code.uv_lock_sha256,
@@ -576,8 +576,8 @@ async def run(
         ),
         schemas=schemas,
         chunking=ChunkingInfo(
-            fingerprint=env.chunking.fingerprint(),
-            settings=env.chunking.model_dump(mode="json"),
+            fingerprint=env.chunking.fingerprint,
+            settings=env.chunking.settings(),
         ),
         models=env.models,
         config=RunConfig(

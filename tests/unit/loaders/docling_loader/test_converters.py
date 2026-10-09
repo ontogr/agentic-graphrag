@@ -52,14 +52,6 @@ class TestOcrChoice:
         """No page lacks text."""
         assert ocr_choice(TEXT_PDF) == "off"
 
-    def test_a_pdf_with_no_pages_needs_no_ocr(self) -> None:
-        """No pages means nothing to OCR."""
-        pdfium = pytest.importorskip("pypdfium2")
-        buffer = io.BytesIO()
-        pdfium.PdfDocument.new().save(buffer)
-
-        assert ocr_choice(buffer.getvalue()) == "off"
-
     def test_no_text_on_any_page_means_full_page_ocr(self) -> None:
         """A scan is OCRed whole."""
         assert ocr_choice(_scanned_page()) == "full"

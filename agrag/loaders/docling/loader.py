@@ -78,7 +78,10 @@ class DoclingLoader(ProseLoader):
             start_at: Ignored by prose loaders.
 
         Yields:
-            One Document. When ``opts.store_text`` is on, its text is the docling Markdown export and its sections hold the content; with the flag off both are empty. Its title is the first heading, or the file name when the source has no heading.
+            One Document. When ``opts.store_text`` is on, its text is the docling
+            Markdown export and its sections hold the content; with the flag off
+            both are empty. Its title is the first heading, or the file name when
+            the source has no heading.
 
         Raises:
             DocumentTooLargeError: The source is larger than the configured byte

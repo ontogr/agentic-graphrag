@@ -32,6 +32,7 @@ _DOC_ID = uuid4()
 def _chunk(text: str = _PARAGRAPH) -> Chunk:
     """Build a minimal Chunk for extraction tests."""
     return Chunk(
+        id=uuid4(),
         document_id=_DOC_ID,
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),

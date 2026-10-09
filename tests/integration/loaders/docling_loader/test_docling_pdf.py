@@ -31,7 +31,7 @@ class TestChunksFromAPdf:
 
     def test_every_chunk_has_a_page_span(self) -> None:
         """A PDF chunk can be shown on its page."""
-        chunks = Chunker().chunk(_load(BOOKMARKED))
+        chunks = Chunker().chunk(_load(BOOKMARKED)).chunks
 
         assert chunks
         assert all(chunk.provenance.page_spans for chunk in chunks)

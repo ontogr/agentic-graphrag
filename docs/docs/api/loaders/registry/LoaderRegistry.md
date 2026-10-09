@@ -46,7 +46,8 @@ Return the default loader for a source.
 When the top-precedence loader needs a package extra that is not installed,
 the first non-preferred loader for the extension whose extra (if any) is
 installed is used instead, so an optional loader's absence falls back to the
-core reader rather than always failing the source.
+core reader rather than always failing the source. When no such fallback
+exists, the call raises `MissingExtraError`.
 
 **Raises:**
 

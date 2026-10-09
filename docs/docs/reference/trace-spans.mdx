@@ -107,7 +107,7 @@ agrag.ingestion.add
   agrag.extraction.extract_chunk          one per chunk
     agrag.extraction.gliner               or agrag.extraction.baml, agrag.extraction.escalating
       agrag.extraction.model_load         first call only
-    agrag.extraction.remap_relations      only when a relation remap fails
+  agrag.extraction.remap_relations        only when a relation remap fails and the error policy is not RAISE
   agrag.ingestion.cutover_job
     agrag.ingestion.ingest_chunks
       agrag.resolution.global_exact_match

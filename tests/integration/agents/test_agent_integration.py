@@ -282,6 +282,7 @@ class TestToolsIntegration:
     async def _seed_document_chunk(self, document_id: str, text: str) -> None:
         """Write one chunk belonging to a named document partition."""
         chunk = Chunk(
+            id=uuid4(),
             document_id=UUID(document_id),
             index=0,
             text=text,
@@ -595,6 +596,7 @@ class TestAgentBuildIntegration:
     async def _seed_chunk(self, text: str) -> None:
         """Write one chunk in this test's document partition."""
         chunk = Chunk(
+            id=uuid4(),
             document_id=uuid4(),
             index=0,
             text=text,

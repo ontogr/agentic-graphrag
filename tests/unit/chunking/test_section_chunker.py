@@ -61,6 +61,11 @@ class TestSettings:
         assert Chunker(size=100).effective_min_size == 25
         assert Chunker(size=100).settings()["min_size"] == 25
 
+    def test_rejects_a_negative_min_size(self) -> None:
+        """A negative min size would flush at every section."""
+        with pytest.raises(ValueError, match="must not be negative"):
+            Chunker(size=100, min_size=-1)
+
     def test_an_explicit_zero_min_size_is_kept(self) -> None:
         """An explicit zero min size is kept."""
         assert Chunker(size=100, min_size=0).effective_min_size == 0
@@ -368,6 +373,15 @@ class TestLayout:
 
 class TestTables:
     """A table is never mixed with text."""
+
+    def test_a_trailing_heading_with_no_text_makes_no_chunk(self) -> None:
+        """A heading after the last text has no offsets and adds no chunk."""
+        document = text_document([_words(20)])
+        document.sections.append(DocumentSection(heading="End", depth=1, units=[]))
+
+        chunks = _chunker().chunk(document).chunks
+
+        assert [c.text for c in chunks] == [_words(20)]
 
     def test_a_table_is_its_own_chunk_and_flushes_the_text_before_it(self) -> None:
         """A table is its own chunk and flushes the text before it."""

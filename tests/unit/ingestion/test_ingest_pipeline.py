@@ -23,7 +23,7 @@ from agrag.common.data_models.extraction import (
     ExtractedRelation,
     ExtractionResult,
 )
-from agrag.common.data_models.graph_record import UpsertResult
+from agrag.common.data_models.graph_record import UpsertFailure, UpsertResult
 from agrag.common.data_models.graph_schema import GENERIC, GraphSchema
 from agrag.common.data_models.provenance import TextProvenance
 from agrag.common.data_models.vector_record import VectorHit
@@ -196,6 +196,32 @@ class TestIngestChunks:
         assert result.extraction.chunks_processed == 0
         assert result.storage.nodes_written == 0
         assert result.chunks == []
+
+    async def test_empty_chunks_reports_structure_write_failures(self) -> None:
+        """A failed document write shows in storage failures, not silently."""
+        store, _ = _store()
+        store.upsert_nodes.side_effect = None
+        store.upsert_nodes.return_value = UpsertResult(
+            failures=[
+                UpsertFailure(id="d", error_type="WriteError", error_message="boom")
+            ]
+        )
+
+        result = await _ingest([_doc(key="a")], [], store)
+
+        assert [f.item_id for f in result.storage.failures] == ["d"]
+
+    async def test_rejects_a_non_positive_extraction_concurrency(self) -> None:
+        """A zero limit would block every extraction forever."""
+        with pytest.raises(ValueError, match="max_concurrency"):
+            await extract_chunks(
+                [],
+                start_index=0,
+                extractor=_NoopExtractor(),
+                schema=GENERIC,
+                error_policy=ErrorPolicy.RAISE,
+                max_concurrency=0,
+            )
 
     async def test_global_candidate_writes_no_mentioned_in(
         self, monkeypatch: pytest.MonkeyPatch

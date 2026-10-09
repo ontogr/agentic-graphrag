@@ -37,7 +37,7 @@ class DryRun:
 
 def count_chunks(documents: Sequence[Document], chunking: Chunker) -> int:
     """Count the chunks ingest would make, without a model."""
-    return sum(len(chunking.chunk(doc)) for doc in documents)
+    return sum(len(chunking.chunk(doc).chunks) for doc in documents)
 
 
 def dry_run(

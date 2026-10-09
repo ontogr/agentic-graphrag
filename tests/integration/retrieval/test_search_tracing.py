@@ -188,6 +188,7 @@ class TestSearchTracingEndToEnd:
         chunks: list[Chunk] = []
         for text in texts:
             chunk = Chunk(
+                id=uuid4(),
                 document_id=self.document_id,
                 index=0,
                 text=text,

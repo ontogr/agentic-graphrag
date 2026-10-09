@@ -160,7 +160,12 @@ class TestBuildNextChunkRecords:
     def test_sections_and_table_chunks_share_one_document_chain(self) -> None:
         """document_id alone decides the chain, not section or content kind."""
         document_id = uuid4()
-        chunks = [_chunk(document_id, f"c{i}", index=i) for i in range(4)]
+        chunks = [
+            _chunk(document_id, f"c{i}", index=i).model_copy(
+                update={"section_ids": [uuid4()]}
+            )
+            for i in range(4)
+        ]
         chunks[2] = chunks[2].model_copy(update={"content_kind": "table"})
 
         records = build_next_chunk_records([chunks[3], chunks[0], chunks[2], chunks[1]])

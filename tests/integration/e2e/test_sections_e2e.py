@@ -37,7 +37,7 @@ from agrag.ingestion.extract import Extractor
 from agrag.ingestion.graph import Graph
 from agrag.ingestion.reports import AddResult
 from tests.integration._schema_cleanup import drop_schema_for
-from tests.integration.e2e._artifact import artifact_dir, write_artifact
+from tests.integration.e2e._artifact import write_artifact
 
 
 _MARKDOWN = (
@@ -259,13 +259,12 @@ async def test_edit_versions_sections(env: _Env) -> None:
     )
     assert closed[0]["closed"] == 3
 
-    write_artifact(
-        "sections",
-        {
-            "guide_outline": guide,
-            "guide_outline_after_edit": edited,
-            "closed_sections_after_edit": closed[0]["closed"],
-            "document_label": DOCUMENT_LABEL,
-        },
-    )
-    assert (artifact_dir() / "sections.json").exists()
+    payload = {
+        "guide_outline": guide,
+        "guide_outline_after_edit": edited,
+        "closed_sections_after_edit": closed[0]["closed"],
+        "document_label": DOCUMENT_LABEL,
+    }
+    written = write_artifact("sections", payload)
+    assert written["closed_sections_after_edit"] == 3
+    assert written["guide_outline_after_edit"] == edited

@@ -159,11 +159,11 @@ class TestUnitTableText:
         unit = Unit(
             kind=UnitKind.TABLE,
             text="",
-            rows=[["Total", "Total"], ["a", "b"]],
-            header_rows=1,
+            rows=[["Total", "Revenue"], ["2024", "Q1"], ["a", "b"]],
+            header_rows=2,
         )
 
-        assert unit.header == ["Total", "Total"]
+        assert unit.header == ["Total 2024", "Revenue Q1"]
 
     @pytest.mark.parametrize("kind", [UnitKind.TABLE, UnitKind.FIGURE])
     def test_rejects_text_that_differs_from_the_caption(self, kind: UnitKind) -> None:

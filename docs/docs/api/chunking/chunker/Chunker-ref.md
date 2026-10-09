@@ -116,7 +116,7 @@ Split a text into pieces of at most `size` tokens.
 
 **Returns:**
 
-- <code>list\[[TextPiece](TextPiece.md)\]</code> – The pieces in order. The text of each piece equals the slice of the
+- <code>list\[[TextPiece](TextPiece.md)\]</code> – The pieces in order. Each piece's text is a slice of the input text.
 
 **Raises:**
 

@@ -57,7 +57,7 @@ def _node_id(node: object) -> object | None:
 
 
 def _provenance_data(raw: object) -> dict[str, Any] | None:
-    """Decode a provenance property to a dict, defaulting when absent."""
+    """Decode a provenance property to a dict, or None when absent or invalid."""
     if isinstance(raw, str):
         try:
             decoded = json.loads(raw)
@@ -66,7 +66,7 @@ def _provenance_data(raw: object) -> dict[str, Any] | None:
         return decoded if isinstance(decoded, dict) else None
     if isinstance(raw, dict):
         return raw
-    return {"kind": "text", "char_start": 0, "char_end": 0}
+    return None
 
 
 def _content_kind(raw: object) -> Literal["text", "table"]:
@@ -131,16 +131,18 @@ def parse_chunk_node(value: object) -> Chunk | None:
         value: The chunk node value from a graph row.
 
     Returns:
-        The parsed Chunk, or None when the value lacks an id,
-            document id, or valid provenance.
+        The parsed Chunk, or None when the value lacks an id, a document id,
+            or valid provenance, or is a table or figure node.
     """
     try:
         chunk_id = _uuid_or_none(_node_id(value))
         if chunk_id is None:
             return None
 
+        # Table and figure nodes carry provenance and a document id too, but
+        # only they carry a section key.
         prov_data = _provenance_data(_prop(value, "provenance"))
-        if prov_data is None:
+        if prov_data is None or _prop(value, "section_key") is not None:
             return None
         try:
             provenance = (

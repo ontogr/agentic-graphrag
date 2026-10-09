@@ -71,6 +71,7 @@ def capture() -> tuple[Any, InMemorySpanExporter]:
 def _chunk(text: str) -> Chunk:
     """Build a minimal Chunk."""
     return Chunk(
+        id=uuid4(),
         document_id=_DOC_ID,
         text=text,
         provenance=TextProvenance(char_start=0, char_end=len(text)),

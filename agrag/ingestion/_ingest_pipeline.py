@@ -37,6 +37,7 @@ from agrag.common.data_models.graph_schema import GraphSchema
 from agrag.common.data_models.relation import Relation
 from agrag.common.data_models.stage_failure import StageFailure, cap_failures
 from agrag.common.data_models.vector_record import VectorRecord
+from agrag.common.validation import require_positive_max_concurrency
 from agrag.cypher.entities import (
     clear_chunk_embedding_query,
     clear_property_query,
@@ -127,6 +128,7 @@ async def extract_chunks(
         StageFailure per chunk or relation that failed under a
         non-RAISE policy.
     """
+    require_positive_max_concurrency(max_concurrency)
     resolved_tracer = get_tracer(tracer)
     semaphore = asyncio.Semaphore(max_concurrency)
 
@@ -296,21 +298,28 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
     with resolved_tracer.start_as_current_span("agrag.ingestion.ingest_chunks"):
         # If no chunks/entities, we can early return with empty stages
         if not chunks:
+            empty_storage_failures: list[StageFailure] = []
             if documents:
                 distinct = distinct_documents(documents)
-                await graph_store.upsert_nodes(
+                document_result = await graph_store.upsert_nodes(
                     DOCUMENT_LABEL,
                     [build_document_record(document) for document in distinct],
                     pending_job_id=job_uuid,
                 )
+                empty_storage_failures.extend(_upsert_stage_failures(document_result))
                 structure = build_document_structure(distinct, [])
-                await write_structure_node_labels(
+                for label_result in await write_structure_node_labels(
                     graph_store, structure, pending_job_id=job_uuid
-                )
+                ):
+                    empty_storage_failures.extend(_upsert_stage_failures(label_result))
                 if structure.relations:
-                    await graph_store.upsert_relations(
+                    relation_result = await graph_store.upsert_relations(
                         structure.relations, pending_job_id=job_uuid
                     )
+                    empty_storage_failures.extend(
+                        _upsert_stage_failures(relation_result)
+                    )
+            empty_storage_capped = cap_failures(empty_storage_failures)
             # Build final result with zero stages
             extraction_failures_capped = cap_failures(list(extraction_failures))
             extraction = ExtractionStats(
@@ -326,7 +335,11 @@ async def ingest_chunks(  # noqa: PLR0912,PLR0915
                 extraction=extraction,
                 resolution=ResolutionStats(),
                 merge=MergeStats(),
-                storage=StorageStats(),
+                storage=StorageStats(
+                    failures=empty_storage_capped.items,
+                    failures_total=empty_storage_capped.total,
+                    failures_truncated=empty_storage_capped.truncated,
+                ),
                 chunks=list(chunks) if return_chunks else [],
             )
 

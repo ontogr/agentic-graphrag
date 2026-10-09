@@ -74,7 +74,7 @@ class TestSourceLimits:
 
 
 class TestConversionFailure:
-    """Any failure inside docling is an ingestion error."""
+    """A conversion or IO failure inside docling is an ingestion error."""
 
     @pytest.mark.parametrize("error", ["conversion", "os"])
     def test_a_failed_conversion_raises_document_conversion_error(

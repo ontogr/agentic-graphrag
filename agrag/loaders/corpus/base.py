@@ -33,7 +33,8 @@ class Loader(ABC):
         """Return whether this loader can run in this process.
 
         A loader with no extra is always available. A loader with an extra is
-        available when its package imports.
+        available when its package can be found. The check does not import the
+        package, so an installed package that fails to import still counts.
         """
         return self.extra is None or importlib.util.find_spec(self.extra) is not None
 

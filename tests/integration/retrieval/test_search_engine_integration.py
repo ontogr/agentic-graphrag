@@ -191,6 +191,7 @@ class TestSearchEngineIntegration:
         chunks: list[Chunk] = []
         for text in texts:
             ch = Chunk(
+                id=uuid4(),
                 document_id=uuid4(),
                 index=0,
                 text=text,
