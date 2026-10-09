@@ -71,6 +71,12 @@ const config = {
           routeBasePath: '/',
           sidebarPath: './sidebars.js',
           remarkPlugins: [remarkChangelog],
+          // The site root follows main. Each release is a frozen copy of the docs at
+          // /X.Y.Z/, added by .github/workflows/docs-version.yml.
+          lastVersion: 'current',
+          versions: {
+            current: {label: 'main', banner: 'none'},
+          },
         },
         blog: false,
         theme: {
@@ -105,6 +111,7 @@ const config = {
         ignoreFiles: ['api/**'],
         // The page menu copies a page as Markdown, so every page needs its own .md file.
         generateMarkdownFiles: true,
+        versions: 'auto',
       },
     ],
   ],
@@ -126,6 +133,7 @@ const config = {
           {type: 'docSidebar', sidebarId: 'docsSidebar', position: 'left', label: 'Documentation', 'data-text': 'Documentation'},
           {type: 'docSidebar', sidebarId: 'referenceSidebar', position: 'left', label: 'API reference', 'data-text': 'API reference'},
           {type: 'doc', docId: 'changelog', position: 'left', label: 'Changelog', 'data-text': 'Changelog'},
+          {type: 'docsVersionDropdown', position: 'right'},
           {type: 'search', position: 'right'},
           {
             href: 'https://github.com/ontogr/agentic-graphrag',

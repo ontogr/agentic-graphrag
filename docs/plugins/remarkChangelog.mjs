@@ -79,7 +79,7 @@ function releaseBlock(heading, body) {
 
 export default function remarkChangelog() {
   return (tree, file) => {
-    if (!file.path?.endsWith('docs/changelog.md')) {
+    if (!file.path?.endsWith('/changelog.md')) {
       return;
     }
     const out = [];
