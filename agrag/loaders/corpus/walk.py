@@ -1,7 +1,8 @@
 """Corpus walk, batching, and resumable streaming.
 
 This module is internal. ``Graph.add`` uses it to turn a set of sources into batches of
-Documents. It never exports a public concept.
+Documents. Only ``normalize_inline_text`` is for use outside the loaders package, by
+``Graph.add``. Nothing else here is a supported interface.
 """
 
 import hashlib

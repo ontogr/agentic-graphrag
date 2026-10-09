@@ -267,4 +267,4 @@ async def test_edit_versions_sections(env: _Env) -> None:
     }
     written = write_artifact("sections", payload)
     assert written["closed_sections_after_edit"] == 3
-    assert written["guide_outline_after_edit"] == edited
+    assert written["guide_outline_after_edit"] == [list(row) for row in edited]
