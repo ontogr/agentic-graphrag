@@ -799,7 +799,7 @@ class TestGlinerCancellation:
 
         extractor = GlinerExtractor(model=BlockingModel())
         first = asyncio.ensure_future(extractor.extract(_chunk(), GENERIC))
-        await asyncio.to_thread(running.wait, 5)
+        assert await asyncio.to_thread(running.wait, 5)
         first.cancel()
         second = asyncio.ensure_future(extractor.extract(_chunk(), GENERIC))
         await asyncio.sleep(0.1)
