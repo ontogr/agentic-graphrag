@@ -1,4 +1,4 @@
-"""Tests for _CorpusWalk and _InMemoryWalk in agrag.loaders._walk.
+"""Tests for _CorpusWalk and _InMemoryWalk in agrag.loaders.walk.
 
 Covers ordered batching over fixture files, resume via LoaderCursor
 (mid-source and past a record index), and that batching splits a single
