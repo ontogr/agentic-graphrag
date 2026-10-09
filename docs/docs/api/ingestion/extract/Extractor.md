@@ -18,6 +18,10 @@ Subclass this class to provide custom extraction. `Graph` awaits
 and `EscalatingExtractor` (a cheap extractor first, a stronger one
 when the result is weak).
 
+`Graph` runs several `extract` calls at the same time. An extractor
+that is not safe to call from several tasks at once must make its calls
+take turns itself, for example with an `asyncio.Lock`.
+
 </details>
 
 **Functions:**
