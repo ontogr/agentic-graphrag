@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from agrag.common.data_models.document import Document, UnitKind
-from agrag.loaders.types import ReadOptions, SourceRef
 from agrag.loaders.docling.loader import DoclingLoader
+from agrag.loaders.types import ReadOptions, SourceRef
 
 
 pytest.importorskip("docling")

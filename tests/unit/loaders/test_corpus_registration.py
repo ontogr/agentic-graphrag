@@ -11,11 +11,11 @@ import pytest
 
 import agrag.loaders.docling  # noqa: F401  (registers the docling loaders)
 from agrag.loaders import registry
+from agrag.loaders.docling.loader import DoclingLoader, DoclingPdfLoader
 from agrag.loaders.errors import MissingExtraError
 from agrag.loaders.prose import TextLoader, XmlLoader
 from agrag.loaders.records import CsvLoader, JsonlLoader, JsonLoader
 from agrag.loaders.types import SourceRef
-from agrag.loaders.docling.loader import DoclingLoader, DoclingPdfLoader
 
 
 def _loader_for(extension: str) -> object:

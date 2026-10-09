@@ -20,7 +20,7 @@ from agrag.common.data_models.stage_failure import StageFailure
 from agrag.loaders.base import Loader
 from agrag.loaders.common import build_prose_document, text_sections
 from agrag.loaders.errors import IngestionError, UnsupportedFormatError
-from agrag.loaders.loader_registry import LoaderRegistry, registry
+from agrag.loaders.loader_registry import LoaderRegistry
 from agrag.loaders.types import (
     ErrorPolicy,
     LoaderCursor,

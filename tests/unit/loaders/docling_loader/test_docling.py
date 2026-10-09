@@ -22,16 +22,16 @@ from docling_core.types.doc import (  # noqa: E402
     Size,
 )
 
-from agrag.loaders.errors import (  # noqa: E402
-    DocumentConversionError,
-    DocumentTooLargeError,
-)
-from agrag.loaders.types import ReadOptions, SourceRef  # noqa: E402
 from agrag.loaders.docling._sections import (  # noqa: E402
     read_body,
     sections_from_docling,
 )
 from agrag.loaders.docling.loader import DoclingLoader, DoclingPdfLoader  # noqa: E402
+from agrag.loaders.errors import (  # noqa: E402
+    DocumentConversionError,
+    DocumentTooLargeError,
+)
+from agrag.loaders.types import ReadOptions, SourceRef  # noqa: E402
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")

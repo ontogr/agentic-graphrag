@@ -12,12 +12,12 @@ from io import BytesIO
 
 from agrag.common.data_models.document import DocumentFamily, SourceFormat
 from agrag.common.data_models.normalization import Normalization
+from agrag.loaders.docling.loader import DoclingLoader
 from agrag.loaders.errors import DocumentTooLargeError
 from agrag.loaders.prose import (
     TextLoader,
 )
 from agrag.loaders.types import ReadOptions, SourceRef
-from agrag.loaders.docling.loader import DoclingLoader
 
 
 _FIXTURES = __import__("pathlib").Path(__file__).parent / "fixtures"

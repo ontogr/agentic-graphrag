@@ -15,7 +15,6 @@ from io import BytesIO
 import pytest
 
 from agrag.common.data_models.document import Document, DocumentFamily, SourceFormat
-from agrag.loaders.errors import MalformedRecordError
 from agrag.loaders.common import (
     build_prose_document,
     build_record_document,
@@ -25,6 +24,7 @@ from agrag.loaders.common import (
     resolve_text_column,
     source_title,
 )
+from agrag.loaders.errors import MalformedRecordError
 from agrag.loaders.types import DecodedText, ReadOptions, SourceRef
 
 

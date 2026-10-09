@@ -11,8 +11,8 @@ import pytest
 
 from agrag.chunking import Chunker
 from agrag.common.data_models.document import Document, UnitKind
-from agrag.loaders.types import ReadOptions, SourceRef
 from agrag.loaders.docling.loader import DoclingPdfLoader
+from agrag.loaders.types import ReadOptions, SourceRef
 
 
 pytest.importorskip("docling_ibm_models")

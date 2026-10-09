@@ -11,8 +11,8 @@ from io import BytesIO
 import pytest
 
 from agrag.common.data_models.document import DocumentFamily, SourceFormat
-from agrag.loaders.errors import MalformedRecordError
 from agrag.loaders.chat import ChatLoader
+from agrag.loaders.errors import MalformedRecordError
 from agrag.loaders.types import ReadOptions, SourceRef
 
 

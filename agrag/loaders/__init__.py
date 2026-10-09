@@ -14,11 +14,11 @@ from agrag.loaders.errors import (
     MissingExtraError,
     UnsupportedFormatError,
 )
+from agrag.loaders.loader_registry import LoaderRegistry, registry
 from agrag.loaders.prose import TextLoader, XmlLoader
 from agrag.loaders.records import CsvLoader, JsonlLoader, JsonLoader
-from agrag.loaders.loader_registry import LoaderRegistry
 from agrag.loaders.types import ErrorPolicy, IngestResult, LoadStats, ReadOptions
-from agrag.loaders.loader_registry import LoaderRegistry, registry
+
 
 registry.register(TextLoader())
 registry.register(XmlLoader())
