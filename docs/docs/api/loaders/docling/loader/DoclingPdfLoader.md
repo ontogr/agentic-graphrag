@@ -15,9 +15,6 @@ with at least 80% of pages lacking text, which gets full-page OCR. It reads
 heading depth from the bookmarks of the PDF. A PDF with no bookmarks whose
 headings carry dotted numbers gets its depth from the numbers.
 
-`load` raises `MissingExtraError` when an import fails because the
-`docling` extra is not installed.
-
 **Attributes:**
 
 - [**extensions**](#agrag-loaders-docling-loader-DoclingPdfLoader-extensions) – The PDF and image formats this loader reads.
@@ -80,9 +77,13 @@ Yield one prose Document parsed by docling.
 
 - <code>[DocumentTooLargeError](../../errors/DocumentTooLargeError.md)</code> – The source is larger than the configured byte
   limit.
-- <code>ImportError</code> – A package that docling needs is not installed. This is an
-  install problem, not a problem with the source, so the walker
-  policies do not catch it.
+- <code>[MissingExtraError](../../errors/MissingExtraError.md)</code> – `DoclingPdfLoader` only. A package that docling
+  needs is not installed, and the error names the `docling` extra.
+  It is an `UnsupportedFormatError`, so SKIP and QUARANTINE treat
+  it like an unsupported format.
+- <code>ImportError</code> – `DoclingLoader` only. A package that docling needs is
+  not installed. This is an install problem, not a problem with the
+  source, so the walker policies do not catch it.
 - <code>[DocumentConversionError](../../errors/DocumentConversionError.md)</code> – Docling or its export failed on the source,
   for any other reason. Walker policies such as SKIP and QUARANTINE
   catch this error.
