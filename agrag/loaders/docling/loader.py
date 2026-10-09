@@ -86,8 +86,6 @@ class DoclingLoader(ProseLoader):
         Raises:
             DocumentTooLargeError: The source is larger than the configured byte
                 limit.
-            MissingExtraError: A loader that needs the ``docling`` extra runs
-                without it.
             DocumentConversionError: Docling or its export failed on the source,
                 for any reason. Walker policies such as SKIP and QUARANTINE catch
                 this error.
@@ -153,6 +151,9 @@ class DoclingPdfLoader(DoclingLoader):
     with at least 80% of pages lacking text, which gets full-page OCR. It reads
     heading depth from the bookmarks of the PDF. A PDF with no bookmarks whose
     headings carry dotted numbers gets its depth from the numbers.
+
+    ``load`` raises ``MissingExtraError`` when an import fails because the
+    ``docling`` extra is not installed.
 
     Attributes:
         extensions: The PDF and image formats this loader reads.

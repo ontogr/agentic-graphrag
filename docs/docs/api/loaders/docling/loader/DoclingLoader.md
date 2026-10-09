@@ -78,8 +78,6 @@ Yield one prose Document parsed by docling.
 
 - <code>[DocumentTooLargeError](../../errors/DocumentTooLargeError.md)</code> – The source is larger than the configured byte
   limit.
-- <code>[MissingExtraError](../../errors/MissingExtraError.md)</code> – A loader that needs the `docling` extra runs
-  without it.
 - <code>[DocumentConversionError](../../errors/DocumentConversionError.md)</code> – Docling or its export failed on the source,
   for any reason. Walker policies such as SKIP and QUARANTINE catch
   this error.

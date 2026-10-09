@@ -15,6 +15,9 @@ with at least 80% of pages lacking text, which gets full-page OCR. It reads
 heading depth from the bookmarks of the PDF. A PDF with no bookmarks whose
 headings carry dotted numbers gets its depth from the numbers.
 
+`load` raises `MissingExtraError` when an import fails because the
+`docling` extra is not installed.
+
 **Attributes:**
 
 - [**extensions**](#agrag-loaders-docling-loader-DoclingPdfLoader-extensions) – The PDF and image formats this loader reads.
@@ -77,8 +80,6 @@ Yield one prose Document parsed by docling.
 
 - <code>[DocumentTooLargeError](../../errors/DocumentTooLargeError.md)</code> – The source is larger than the configured byte
   limit.
-- <code>[MissingExtraError](../../errors/MissingExtraError.md)</code> – A loader that needs the `docling` extra runs
-  without it.
 - <code>[DocumentConversionError](../../errors/DocumentConversionError.md)</code> – Docling or its export failed on the source,
   for any reason. Walker policies such as SKIP and QUARANTINE catch
   this error.
