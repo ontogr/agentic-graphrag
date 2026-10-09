@@ -206,7 +206,8 @@ class Document(DataPoint):
             caller asks for it.
         sections: The headings of the document and the content under them, in reading
             order. A document with no headings has one section with an empty heading.
-            A record row has none: its text is one unit of content.
+            A record row has none: its text is one unit of content. A document read
+            without its text (``store_text`` off) has none either.
         document_key: The stable identifier for this document's persisted graph node.
             Independent of ``id``, which changes with every content edit. Defaults to
             ``uri`` when not supplied.

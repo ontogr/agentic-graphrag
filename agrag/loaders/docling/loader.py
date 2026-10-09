@@ -123,7 +123,7 @@ class DoclingLoader(ProseLoader):
             loader_version=loader_version,
             char_count=len(text),
             line_count=text.count("\n") + 1,
-            sections=sections,
+            sections=sections if opts.store_text else [],
         )
 
     def _convert(self, source: SourceRef, raw: bytes) -> DoclingDocument:

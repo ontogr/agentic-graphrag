@@ -91,8 +91,8 @@ class TestOtherFormats:
         assert not any(u.pages for s in words.sections for u in s.units)
 
     def test_text_is_not_stored_when_the_option_is_off(self) -> None:
-        """The sections stay, because the chunks come from them."""
+        """The sections go with the text, as for every other loader."""
         document = _load("structured.md", store_text=False)
 
         assert document.text == ""
-        assert document.sections
+        assert document.sections == []
