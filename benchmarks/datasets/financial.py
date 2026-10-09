@@ -58,12 +58,12 @@ def convert_pdf(path: Path, uri: str) -> str:
     Raises:
         DocumentConversionError: Docling could not convert the PDF.
     """
-    from agrag.loaders.docling.loader import DoclingLoader  # noqa: PLC0415
+    from agrag.loaders.docling.loader import DoclingPdfLoader  # noqa: PLC0415
 
     options = ReadOptions(max_document_bytes=path.stat().st_size + 1)
     source = SourceRef(uri=uri, extension=".pdf", byte_size=path.stat().st_size)
     with path.open("rb") as stream:
-        (document,) = DoclingLoader().load(source, stream, options)
+        (document,) = DoclingPdfLoader().load(source, stream, options)
     return document.text
 
 
