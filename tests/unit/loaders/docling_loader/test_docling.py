@@ -30,6 +30,7 @@ from agrag.loaders.docling.loader import DoclingLoader, DoclingPdfLoader  # noqa
 from agrag.loaders.errors import (  # noqa: E402
     DocumentConversionError,
     DocumentTooLargeError,
+    MissingExtraError,
 )
 from agrag.loaders.types import ReadOptions, SourceRef  # noqa: E402
 
@@ -100,6 +101,34 @@ class TestConversionFailure:
             document.export_to_markdown.side_effect = RuntimeError("export failed")
             with pytest.raises(DocumentConversionError):
                 list(DoclingLoader().load(_source(), BytesIO(_RAW), ReadOptions()))
+
+    def test_a_missing_pdf_package_names_the_extra(self) -> None:
+        """The PDF loader without its extra says which extra to install."""
+        pdf = b"%PDF-1.4 fake"
+        with (
+            patch("agrag.loaders.docling.loader.ocr_choice", return_value="off"),
+            patch(
+                "agrag.loaders.docling.loader.pdf_converter",
+                side_effect=ImportError("No module named docling_ibm_models"),
+            ),
+            pytest.raises(MissingExtraError, match="docling"),
+        ):
+            list(
+                DoclingPdfLoader().load(
+                    _source("doc.pdf", len(pdf)), BytesIO(pdf), ReadOptions()
+                )
+            )
+
+    def test_a_broken_core_install_is_a_conversion_error(self) -> None:
+        """The core loader has no extra to suggest, so the failure is wrapped."""
+        with (
+            patch(
+                "agrag.loaders.docling.loader.slim_converter",
+                side_effect=ImportError("broken"),
+            ),
+            pytest.raises(DocumentConversionError),
+        ):
+            list(DoclingLoader().load(_source(), BytesIO(_RAW), ReadOptions()))
 
     def test_a_pdf_failure_is_wrapped_too(self) -> None:
         """The PDF loader wraps the same way."""

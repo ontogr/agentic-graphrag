@@ -32,7 +32,7 @@ from agrag.loaders.docling._sections import (
     read_body,
     sections_from_docling,
 )
-from agrag.loaders.errors import DocumentConversionError
+from agrag.loaders.errors import DocumentConversionError, MissingExtraError
 from agrag.loaders.types import ReadOptions, SourceRef
 
 
@@ -86,6 +86,8 @@ class DoclingLoader(ProseLoader):
         Raises:
             DocumentTooLargeError: The source is larger than the configured byte
                 limit.
+            MissingExtraError: A loader that needs the ``docling`` extra runs
+                without it.
             DocumentConversionError: Docling or its export failed on the source,
                 for any reason. Walker policies such as SKIP and QUARANTINE catch
                 this error.
@@ -99,6 +101,8 @@ class DoclingLoader(ProseLoader):
             depths = numbered_depths(body) if self._is_pdf else {}
             sections = sections_from_docling(body, depths)
         except Exception as exc:
+            if isinstance(exc, ImportError) and self.extra is not None:
+                raise MissingExtraError(source.extension, self.extra) from exc
             raise DocumentConversionError(
                 f"docling could not convert {source.uri}: {exc}"
             ) from exc
