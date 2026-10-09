@@ -119,16 +119,18 @@ class TestConversionFailure:
                 )
             )
 
-    def test_a_broken_core_install_is_a_conversion_error(self) -> None:
-        """The core loader has no extra to suggest, so the failure is wrapped."""
+    def test_a_broken_core_install_is_not_hidden_as_a_conversion_error(self) -> None:
+        """A missing package is an install problem that SKIP must not swallow."""
         with (
             patch(
                 "agrag.loaders.docling.loader.slim_converter",
                 side_effect=ImportError("broken"),
             ),
-            pytest.raises(DocumentConversionError),
+            pytest.raises(ImportError, match="broken") as raised,
         ):
             list(DoclingLoader().load(_source(), BytesIO(_RAW), ReadOptions()))
+
+        assert not isinstance(raised.value, DocumentConversionError)
 
     def test_a_pdf_failure_is_wrapped_too(self) -> None:
         """The PDF loader wraps the same way."""

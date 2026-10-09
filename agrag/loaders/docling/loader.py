@@ -86,9 +86,12 @@ class DoclingLoader(ProseLoader):
         Raises:
             DocumentTooLargeError: The source is larger than the configured byte
                 limit.
+            ImportError: A package that docling needs is not installed. This is an
+                install problem, not a problem with the source, so the walker
+                policies do not catch it.
             DocumentConversionError: Docling or its export failed on the source,
-                for any reason. Walker policies such as SKIP and QUARANTINE catch
-                this error.
+                for any other reason. Walker policies such as SKIP and QUARANTINE
+                catch this error.
             ValueError: ``opts.max_document_bytes`` is not a positive integer.
         """
         raw = read_within_limit(stream, source, opts)
@@ -99,7 +102,9 @@ class DoclingLoader(ProseLoader):
             depths = numbered_depths(body) if self._is_pdf else {}
             sections = sections_from_docling(body, depths)
         except Exception as exc:
-            if isinstance(exc, ImportError) and self.extra is not None:
+            if isinstance(exc, ImportError):
+                if self.extra is None:
+                    raise
                 raise MissingExtraError(source.extension, self.extra) from exc
             raise DocumentConversionError(
                 f"docling could not convert {source.uri}: {exc}"

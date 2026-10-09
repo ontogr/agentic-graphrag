@@ -80,9 +80,12 @@ Yield one prose Document parsed by docling.
 
 - <code>[DocumentTooLargeError](../../errors/DocumentTooLargeError.md)</code> – The source is larger than the configured byte
   limit.
+- <code>ImportError</code> – A package that docling needs is not installed. This is an
+  install problem, not a problem with the source, so the walker
+  policies do not catch it.
 - <code>[DocumentConversionError](../../errors/DocumentConversionError.md)</code> – Docling or its export failed on the source,
-  for any reason. Walker policies such as SKIP and QUARANTINE catch
-  this error.
+  for any other reason. Walker policies such as SKIP and QUARANTINE
+  catch this error.
 - <code>ValueError</code> – `opts.max_document_bytes` is not a positive integer.
 
 ## `mime_types` \{#agrag-loaders-docling-loader-DoclingPdfLoader-mime_types}
