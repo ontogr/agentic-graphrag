@@ -331,9 +331,9 @@ class TestSearchTracingEndToEnd:
         assert isinstance(result_texts, Sequence)
         assert list(result_texts) == [
             str(
-                result.item.embedding_text
-                if isinstance(result.item, Entity)
-                else result.item.text
+                result.item.text
+                if isinstance(result.item, Chunk)
+                else result.item.embedding_text
             )
             for result in results
         ]
